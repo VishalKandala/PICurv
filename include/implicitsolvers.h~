@@ -1,0 +1,33 @@
+#ifndef IMPLICITSOLVERS_H
+#define IMPLICITSOLVERS_H
+
+#include "variables.h" // Provides definitions for UserCtx, SimCtx, IBMNodes, etc.
+
+
+/*================================================================================*
+ *                        MOMENTUM EQUATION SOLVERS                               *
+ *================================================================================*/
+
+/**
+ * @brief Advances the momentum equations using an explicit 4th-order Runge-Kutta scheme.
+ * @param user Array of UserCtx structs for all blocks.
+ * @param ibm  (Optional) Pointer to IBM data. Pass NULL if disabled.
+ * @param fsi  (Optional) Pointer to FSI data. Pass NULL if disabled.
+ * @return PetscErrorCode 0 on success.
+ */
+extern PetscErrorCode RungeKutta(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
+
+/**
+ * @brief Advances the momentum equations using an implicit scheme.
+ * @param user Array of UserCtx structs for all blocks.
+ * @param ibm  (Optional) Pointer to IBM data. Pass NULL if disabled.
+ * @param fsi  (Optional) Pointer to FSI data. Pass NULL if disabled.
+ * @return PetscErrorCode 0 on success.
+ */
+extern PetscErrorCode ImplicitMomentumSolver(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
+
+// Add other implicit solver prototypes if you plan to use them.
+// extern PetscErrorCode ImplicitMomentumSolver1(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
+// extern PetscErrorCode Implicit_SNES(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
+
+#endif // IMPLICITSOLVERS_H

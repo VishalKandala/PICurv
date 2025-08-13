@@ -1,0 +1,40 @@
+# ===================================================================
+# Boundary Conditions Configuration File
+# Format: <Face> <General_Type> <Specific_Handler> [param1=value1] [param2=value2] ...
+# ===================================================================
+
+# A stationary, no-slip wall requires no extra parameters.
+#-Xi     WALL        noslip
+
+# An outlet that enforces global mass conservation.
+#+Xi     OUTLET      conservation
+
+# An inlet with a prescribed, constant velocity.
+# The parameters `vx`, `vy`, `vz` are specific to the `constant_velocity` handler.
+#-Eta    INLET       constant_velocity   vx=0.0 vy=10.0 vz=0.0
+
+# A time-dependent inlet that reads its data from a file.
+# The `file` parameter is specific to the `pulsatile_flux` handler.
+#+Eta    INLET       pulsatile_flux      file=inlet_profile.dat
+
+# A moving wall.
+# The `vx`, `vy`, `vz` parameters are specific to the `moving` handler.
+#-Zeta   WALL        moving              vx=0.0 vy=0.0 vz=1.0
+
+# A pressure outlet.
+# The `pressure` parameter is specific to the `pressure` handler.
+#+Zeta   OUTLET      pressure            pressure=0.0
+
+-Zeta INLET constant_velocity vx=0.0 vy=0.0 vz=1.0
+#-Zeta INLET  parabolic  vmax=1.0    # vx=0.0 vy=0.0 vz=1.0
++Zeta OUTLET conservation
+-Eta  WALL noslip
++Eta  WALL noslip
+-Xi  WALL noslip
++Xi  WALL noslip
+
+#+Zeta NOGRAD allcopy  
+#-Eta  NOGRAD allcopy
+#+Eta  NOGRAD allcopy
+#+Xi   NOGRAD allcopy
+#-Xi   NOGRAD allcopy

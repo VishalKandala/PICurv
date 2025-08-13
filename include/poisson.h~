@@ -1,0 +1,11 @@
+// Prototypes for legacy helpers if they are not in a header
+extern PetscErrorCode MyNvertRestriction(UserCtx *user_f, UserCtx *user_c);
+extern PetscErrorCode FullyBlocked(UserCtx *user);
+extern PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Area, PetscInt flg);
+extern PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Area, PetscInt flg);
+extern PetscErrorCode PoissonRHS(UserCtx *user, Vec B);
+extern PetscErrorCode PoissonLHSNew(UserCtx *user);
+extern PetscErrorCode MyRestriction(Mat R, Vec x, Vec y);
+extern PetscErrorCode MyInterpolation(Mat P, Vec x, Vec y);
+extern PetscErrorCode mymatmultadd(Mat R, Vec x, Vec y, Vec z);
+extern PetscErrorCode PoissonNullSpaceFunction(MatNullSpace sp, Vec x, void *ctx);

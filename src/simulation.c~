@@ -1,0 +1,403 @@
+/**
+ * @file simulation.c  // code for simulation loop 
+ * @brief Test program for DMSwarm interpolation using the fdf-curvIB method.
+ * Provides the setup to start any simulation with DMSwarm and DMDAs.
+ **/
+
+#include "simulation.h"
+
+/**
+ * @brief Copies the current time step's solution fields into history vectors
+ *        (e.g., U(t_n) -> U_o, U_o -> U_rm1) for the next time step's calculations.
+ *
+ * This function is critical for multi-step time integration schemes (like BDF2)
+ * used by the legacy solver. It must be called at the end of every time step,
+ * after the new solution has been fully computed.
+ *
+ * The order of operations is important to avoid overwriting data prematurely.
+ *
+ * @param user The UserCtx for a single block. The function modifies the history
+ *             vectors (Ucont_o, Ucont_rm1, etc.) within this context.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    SimCtx         *simCtx = user->simCtx; // Access global settings if needed
+
+    PetscFunctionBeginUser;
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Updating solver history vectors.\n",
+              simCtx->rank, user->_this);
+
+    // --- Primary Contravariant Velocity History ---
+    // The order is critical here.
+    // 1. First, move the n-1 state (Ucont_o) to the n-2 slot (Ucont_rm1).
+    ierr = VecCopy(user->Ucont_o, user->Ucont_rm1); CHKERRQ(ierr);
+    // 2. Then, move the new n state (Ucont) to the n-1 slot (Ucont_o).
+    ierr = VecCopy(user->Ucont, user->Ucont_o); CHKERRQ(ierr);
+
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Rank %d, Block %d, Ucont history updated.\n",simCtx->rank,user->_this); 
+    
+    // --- Update History for Other Fields ---
+    // These are typically only needed at the n-1 state.
+    ierr = VecCopy(user->Ucat, user->Ucat_o); CHKERRQ(ierr);
+    ierr = VecCopy(user->P, user->P_o); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Rank %d, Block %d, Ucat & P  history updated.\n",simCtx->rank,user->_this); 
+    
+    if (simCtx->immersed) {
+        ierr = VecCopy(user->Nvert, user->Nvert_o); CHKERRQ(ierr);
+    }
+
+    // --- Update History for Turbulence Models (if active) ---
+    if (simCtx->rans) {
+       ierr = VecCopy(user->K_Omega, user->K_Omega_o); CHKERRQ(ierr);
+    }
+    
+    // --- Synchronize Local Ghost Regions for the new history vectors ---
+    // This is essential so that stencils in the next time step's calculations
+    // have correct values from neighboring processes.
+    ierr = DMGlobalToLocalBegin(user->fda, user->Ucont_o, INSERT_VALUES, user->lUcont_o); CHKERRQ(ierr);
+    ierr = DMGlobalToLocalEnd(user->fda, user->Ucont_o, INSERT_VALUES, user->lUcont_o); CHKERRQ(ierr);
+
+    ierr = DMGlobalToLocalBegin(user->fda, user->Ucont_rm1, INSERT_VALUES, user->lUcont_rm1); CHKERRQ(ierr);
+    ierr = DMGlobalToLocalEnd(user->fda, user->Ucont_rm1, INSERT_VALUES, user->lUcont_rm1); CHKERRQ(ierr);
+    
+    if (simCtx->immersed) {
+        ierr = DMGlobalToLocalBegin(user->da, user->Nvert_o, INSERT_VALUES, user->lNvert_o); CHKERRQ(ierr);
+        ierr = DMGlobalToLocalEnd(user->da, user->Nvert_o, INSERT_VALUES, user->lNvert_o); CHKERRQ(ierr);
+    }
+    
+    if (simCtx->rans) {
+       ierr = DMGlobalToLocalBegin(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o); CHKERRQ(ierr);
+       ierr = DMGlobalToLocalEnd(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o); CHKERRQ(ierr);
+    }
+    
+    PetscFunctionReturn(0);
+}
+
+
+/**
+ * @brief Initializes or updates the complete, consistent state of all Eulerian fields for a given timestep.
+ *
+ * This function is a high-level wrapper that orchestrates the entire process of preparing
+ * the fluid fields for a single time step. It follows the standard procedure for a
+ * curvilinear solver: first resolving contravariant velocities (`Ucont`) and then
+ * converting them to Cartesian (`Ucat`).
+ *
+ * Its sequential operations are:
+ * 1.  Update the INTERIOR of the domain:
+ *     - For the initial step, it calls `SetInitialInteriorField` to generate values.
+ *     - For subsequent steps, it calls the main fluid solver.
+ *     - If restarting from a file, it reads the data, overwriting the whole field.
+ *
+ * 2.  Apply Boundary Conditions:
+ *     - It then calls the modular `BoundarySystem_ExecuteStep` to enforce all configured
+ *       boundary conditions on the domain edges.
+ *
+ * 3.  Convert to Cartesian and Finalize:
+ *     - It calls `Contra2Cart` to compute `Ucat` from `Ucont`.
+ *     - It calls `UpdateLocalGhosts` to ensure all parallel data is synchronized.
+ *
+ * @param user        Pointer to the UserCtx structure, containing all simulation data.
+ * @param step        The current timestep number being processed.
+ * @param StartStep   The initial timestep number of the simulation.
+ * @param time        The current simulation time.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode SetEulerianFields(UserCtx *user)
+{
+  
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    SimCtx *simCtx = user->simCtx;
+    PetscInt step = simCtx->step;
+    PetscInt StartStep = simCtx->StartStep;
+    PetscReal time = simCtx->ti;
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Preparing complete Eulerian state.\n", time, step);
+
+    PetscReal unorm=0.0;
+    // PetscReal ucont_max=0.0;
+    //   PetscReal umin=0.0;
+
+    // ==============================================================================
+    // --- STEP 1: Update the INTERIOR of the domain based on the simulation phase ---
+    // ==============================================================================
+
+    if (step == StartStep && StartStep > 0) {
+        // --- PATH 1: RESTART from file ---
+        // This is the first time this function is called in a restarted run.
+        LOG_ALLOW(GLOBAL, LOG_INFO, "RESTART condition: Reading all grid fields from file for step %d.\n", step);
+        ierr = ReadSimulationFields(user, step); CHKERRQ(ierr); // Assumes this function reads Ucat, Ucont, etc.
+
+        // After loading, we MUST update local ghosts to ensure consistency for any subsequent calculations.
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Updating local ghost regions for all fields after reading.\n", time, step);
+        ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+
+    } else {
+        // --- PATH 2 & 3: FRESH START or TIME ADVANCEMENT ---
+        // This block handles both generating initial fields and advancing the solver in time.
+
+        if (step == 0) { // Condition is now simply step == 0 for a fresh start
+            // --- PATH 2: Initial Field Setup (t=0) ---
+            LOG_ALLOW(GLOBAL, LOG_INFO, "FRESH START: Generating INTERIOR fields for initial step 0.\n");
+            ierr = SetInitialInteriorField(user, "Ucont"); CHKERRQ(ierr);
+        } else {
+            // --- PATH 3: Advancing the simulation (step > 0) ---
+            LOG_ALLOW(GLOBAL, LOG_DEBUG, "TIME ADVANCE: Updating INTERIOR fields for step %d.\n", step);
+            // This is the hook for the actual fluid dynamics solver.
+            // ierr = YourNavierStokesSolver(user, user->dt); CHKERRQ(ierr);
+	    // ierr = SetInitialInteriorField(user, "Ucont"); CHKERRQ(ierr);
+        }
+
+        // The following logic is common to both fresh starts and time advancement,
+        // but not to a file-based restart (which loads the final Ucat directly).
+
+        // STEP 2: APPLY BOUNDARY CONDITIONS
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Executing LEGACY boundary condition system.\n", time, step);
+        ierr = BoundarySystem_ExecuteStep_Legacy(user); CHKERRQ(ierr);
+
+        // STEP 3: SYNCHRONIZE Ucont BEFORE CONVERSION
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Updating local ghost regions for Ucont.\n", time, step);
+        ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
+
+        // STEP 4: CONVERT CONTRAVARIANT TO CARTESIAN
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Converting Ucont to Ucat.\n", time, step);
+        ierr = Contra2Cart(user); CHKERRQ(ierr);
+
+        // STEP 5: Re-apply BCs and SYNCHRONIZE Ucat
+        // It's often necessary to apply BCs again to ensure Ucat is correct at boundaries.
+	//   ierr = BoundarySystem_ExecuteStep(user); CHKERRQ(ierr);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Updating local ghost regions for Ucat.\n", time, step);
+        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+    }
+
+    ierr = VecNorm(user->Ucat,NORM_INFINITY,&unorm);
+    //unorm = unorm/(3*(user->IM*user->JM*user->KM));
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Complete Eulerian state is now finalized and consistent. Max Ucat = %.6f \n", time, step,unorm);
+    
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Performs the complete initial setup for the particle simulation at time t=0. [TEST VERSION]
+ *
+ * This version uses the new, integrated `LocateAllParticlesInGrid_TEST` orchestrator,
+ * which handles both location and migration in a single, robust, iterative process.
+ *
+ * Its sequential operations are:
+ * 1. A single, comprehensive call to `LocateAllParticlesInGrid_TEST` to sort all particles
+ *    to their correct owner ranks and find their initial host cells.
+ * 2. If `user->ParticleInitialization == 0` (Surface Init), it re-initializes particles on the
+ *    designated inlet surface, now that they are on the correct MPI ranks.
+ * 3. A second call to `LocateAllParticlesInGrid_TEST` is needed after re-initialization to
+ *    find the new, correct host cells for the surface-placed particles.
+ * 4. Interpolates initial Eulerian fields to the settled particles.
+ * 5. Scatters particle data to Eulerian fields (if applicable).
+ * 6. Outputs initial data if requested.
+ *
+ * @param user Pointer to the UserCtx structure.
+ * @return PetscErrorCode 0 on success, non-zero on failure.
+ */
+PetscErrorCode PerformInitialSetup(UserCtx *user, BoundingBox *bboxlist)
+{
+    PetscErrorCode ierr;
+    PetscReal currentTime;
+    PetscInt step;
+    PetscInt OutputFreq;
+    PetscInt StepsToRun;
+    PetscInt StartStep;
+    
+    PetscFunctionBeginUser;
+
+    SimCtx *simCtx = user->simCtx;
+
+    currentTime = simCtx->ti;
+    step = simCtx->step;
+    OutputFreq = simCtx->OutputFreq;
+    StepsToRun = simCtx->StepsToRun;
+    StartStep = simCtx->StartStep;
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Performing initial particle setup procedures [TEST].\n", currentTime, step);
+
+    // --- 1. Initial Particle Settlement (Location and Migration) ---
+    // This single call replaces the old sequence of Locate -> Migrate. The new
+    // orchestrator handles the iterative process internally until all particles are settled.
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Initial Settlement: Locating and migrating all particles to their correct ranks and cells.\n", currentTime, step);
+    ierr = LocateAllParticlesInGrid_TEST(user,bboxlist); CHKERRQ(ierr);
+
+    // --- 2. Re-initialize Particles on Inlet Surface (if applicable) ---
+    if (simCtx->ParticleInitialization == 0 && user->inletFaceDefined) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Re-initializing particles on inlet surface now that they are on correct ranks.\n", currentTime, step);
+        ierr = ReinitializeParticlesOnInletSurface(user, currentTime, step); CHKERRQ(ierr);
+
+	LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Resetting statuses for post-reinitialization settlement.\n", currentTime, step);
+        ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
+	
+        // --- CRITICAL: After re-placing particles, we MUST locate them again. ---
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Post-Reinitialization Settlement: Finding host cells for newly placed inlet particles.\n", currentTime, step);
+        ierr = LocateAllParticlesInGrid_TEST(user,bboxlist); CHKERRQ(ierr);
+    }
+    
+    // --- 3. Finalize State for t=0 ---
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", currentTime, step);
+    ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
+    ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+
+    // --- 4. Initial Output ---
+    if (OutputFreq > 0 || (StepsToRun == 0 && StartStep == 0)) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initial simulation data.\n", currentTime, step);
+        ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
+        ierr = WriteSwarmField(user, "position", step, "dat"); CHKERRQ(ierr);
+        ierr = WriteSwarmField(user, "velocity", step, "dat"); CHKERRQ(ierr);
+	//  if (!readFields) {
+        ierr = WriteSimulationFields(user); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+
+/**
+ * @brief Executes the main time-marching loop for the particle simulation. [TEST VERSION]
+ *
+ * This version uses the new, integrated `LocateAllParticlesInGrid_TEST` orchestrator
+ * and the `ResetAllParticleStatuses` helper for a clean, robust, and understandable workflow.
+ *
+ * For each timestep, it performs:
+ *  1. Sets the background fluid velocity field (Ucat) for the current step.
+ *  2. Updates particle positions using velocity from the *previous* step's interpolation.
+ *  3. Removes any particles that have left the global domain.
+ *  4. A single call to `LocateAllParticlesInGrid_TEST`, which handles all
+ *     particle location and migration until the swarm is fully settled.
+ *  5. Interpolates the current fluid velocity to the newly settled particle locations.
+ *  6. Scatters particle data back to Eulerian fields.
+ *  7. Outputs data at specified intervals.
+ *
+ * @param user       Pointer to the UserCtx structure..
+ * @return PetscErrorCode 0 on success, non-zero on failure.
+ */
+PetscErrorCode AdvanceSimulation(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscInt  StartStep;
+    PetscReal StartTime;
+    PetscInt  StepsToRun;
+    PetscInt  OutputFreq;
+    BoundingBox *bboxlist;
+
+    SimCtx *simCtx = user->simCtx;
+
+    StartStep = simCtx->StartStep;
+    StartTime = simCtx->StartTime;
+    StepsToRun = simCtx->StepsToRun;
+    OutputFreq = simCtx->OutputFreq;
+    bboxlist   = simCtx->bboxlist;
+    
+    const PetscReal dt = simCtx->dt;
+    PetscReal       currentTime = StartTime;
+    PetscInt        removed_local_ob, removed_global_ob;
+    PetscInt        removed_local_lost, removed_global_lost;
+    PetscInt        removed_local,removed_global;
+    PetscInt        output_step;
+
+    PetscFunctionBeginUser;
+    LOG_ALLOW(GLOBAL, LOG_INFO,
+              "Starting simulation run [PRODUCTION]: %d steps from step %d (t=%.4f), dt=%.4f\n",
+              StepsToRun, StartStep, StartTime, dt);
+
+    // --- Handle Initial Setup (t = StartTime, step = StartStep) ---
+    if (StartStep == 0) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Preparing state at t=%.4f (Step 0) ---\n", currentTime);
+        simCtx->step = 0;
+        ierr = SetEulerianFields(user); CHKERRQ(ierr);
+        ierr = PerformInitialSetup(user, bboxlist);
+        CHKERRQ(ierr);
+
+        if (StepsToRun == 0) {
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Initial setup completed. No steps to run. Exiting.\n");
+            PetscFunctionReturn(0);
+        }
+        // NOTE: do not advance currentTime here
+        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initial setup complete. Beginning time marching. ---\n\n");
+    }
+
+    // --- Time Marching Loop ---
+    for (PetscInt step = StartStep; step < StartStep + StepsToRun; ++step) {
+        output_step = step + 1;
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "--- Advancing from Step %d (t=%.4f) to Step %d (t=%.4f) ---\n",
+                  step, currentTime, output_step, currentTime + dt);
+
+        // 1) Reset statuses
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Resetting particle statuses for next timestep.\n");
+        ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
+
+        // 2) Update Eulerian fields for time t
+        ierr = SetEulerianFields(user); CHKERRQ(ierr);
+
+        // 3) Advect particles P(t→t+dt)
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f] Updating particle positions to T=%.4f.\n",
+                  currentTime, currentTime + dt);
+        ierr = UpdateAllParticlePositions(user); CHKERRQ(ierr);
+
+	// 4) Settle particles (location + migration)
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f] Settling all particles.\n", currentTime + dt);
+        ierr = LocateAllParticlesInGrid_TEST(user, bboxlist); CHKERRQ(ierr);
+	
+        // 5a) Remove Lost Particles
+	ierr = CheckAndRemoveLostParticles(user,&removed_local_lost,&removed_global_lost);CHKERRQ(ierr);
+	// 5b) Remove Out-of-Bounds Particles
+	ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, bboxlist);
+	// 5c) Accumulate all removed particles
+	
+	removed_local = removed_local_lost + removed_local_ob;
+	removed_global = removed_global_lost + removed_global_ob; 
+        CHKERRQ(ierr);
+        if (removed_global > 0) {
+            LOG_ALLOW(GLOBAL, LOG_INFO,
+                      "[T=%.4f] Removed %d out-of-bounds particles globally.\n",
+                      currentTime + dt, removed_global);
+        }
+
+
+       // ============================================ ============================
+        // After particles migrate, the new host rank may need ghost data from its
+        // neighbor to interpolate to its new particles. We must refresh the ghost
+        // regions of the field we are about to interpolate FROM.
+	//  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Refreshing ghost regions post-migration.\n");
+	// ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+	//ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
+        // If you were interpolating other fields, you would refresh them here too.
+        // ierr = UpdateLocalGhosts(user, "Tcat"); CHKERRQ(ierr); 
+        // =========================================================================
+	
+        // 6) Interpolate & scatter
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f] Interpolating to settled particles.\n", currentTime + dt);
+        ierr = InterpolateAllFieldsToSwarm(user);            CHKERRQ(ierr);
+        ierr = ScatterAllParticleFieldsToEulerFields(user);  CHKERRQ(ierr);
+
+        // 7) Advance time and step count
+        currentTime += dt;
+        simCtx->step = output_step;
+	simCtx->ti = currentTime;
+	
+        // 8) Output if requested
+        if (OutputFreq > 0 && (simCtx->step % OutputFreq) == 0) {
+            LOG_ALLOW(GLOBAL, LOG_INFO,
+                      "[T=%.4f] Writing output at Step %d.\n",
+                      currentTime, simCtx->step);
+            ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
+            ierr = WriteSwarmField(user, "position", simCtx->step, "dat");          CHKERRQ(ierr);
+            ierr = WriteSwarmField(user, "velocity", simCtx->step, "dat");          CHKERRQ(ierr);
+            ierr = WriteSimulationFields(user);                                   CHKERRQ(ierr);
+        }
+
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "--- Completed Step %d at t=%.4f ---\n\n", step, currentTime);
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", currentTime);
+    PetscFunctionReturn(0);
+}
