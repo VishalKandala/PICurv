@@ -516,14 +516,18 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
     PetscInt mz = info.mz;
 
     // --- 2. Calculate Aj for INTERIOR Stencils ---
-    // Start loops from 1 if at global boundary 0 because stencil accesses i_node-1 etc.
+    
     PetscInt k_start_node = (zs == 0) ? zs + 1 : zs;
     PetscInt j_start_node = (ys == 0) ? ys + 1 : ys;
     PetscInt i_start_node = (xs == 0) ? xs + 1 : xs;
 
-    for (PetscInt k_node = k_start_node; k_node < ze; ++k_node) {
-        for (PetscInt j_node = j_start_node; j_node < ye; ++j_node) {
-            for (PetscInt i_node = i_start_node; i_node < xe; ++i_node) {
+    PetscInt k_end_node = (ze == mz) ? ze - 1 : ze;
+    PetscInt j_end_node = (ye == my) ? ye - 1 : ye;
+    PetscInt i_end_node = (xe == mx) ? xe - 1 : xe;
+
+    for (PetscInt k_node = k_start_node; k_node < k_end_node; ++k_node) {
+        for (PetscInt j_node = j_start_node; j_node < j_end_node; ++j_node) {
+            for (PetscInt i_node = i_start_node; i_node < i_end_node; ++i_node) {
 	      
                 PetscReal dx_dxi = 0.25 * ( (nodal_coords_arr[k_node][j_node][i_node].x + nodal_coords_arr[k_node][j_node-1][i_node].x + nodal_coords_arr[k_node-1][j_node][i_node].x + nodal_coords_arr[k_node-1][j_node-1][i_node].x) - (nodal_coords_arr[k_node][j_node][i_node-1].x + nodal_coords_arr[k_node][j_node-1][i_node-1].x + nodal_coords_arr[k_node-1][j_node][i_node-1].x + nodal_coords_arr[k_node-1][j_node-1][i_node-1].x) );
 
@@ -544,7 +548,7 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
 		PetscReal dz_dzeta = 0.25 * ( (nodal_coords_arr[k_node][j_node][i_node].z + nodal_coords_arr[k_node][j_node-1][i_node].z + nodal_coords_arr[k_node][j_node][i_node-1].z + nodal_coords_arr[k_node][j_node-1][i_node-1].z) - (nodal_coords_arr[k_node-1][j_node][i_node].z + nodal_coords_arr[k_node-1][j_node-1][i_node].z + nodal_coords_arr[k_node-1][j_node][i_node-1].z + nodal_coords_arr[k_node-1][j_node-1][i_node-1].z) );
 
 		PetscReal jacobian_det = dx_dxi * (dy_deta * dz_dzeta - dz_deta * dy_dzeta) - dy_dxi * (dx_deta * dz_dzeta - dz_deta * dx_dzeta) + dz_dxi * (dx_deta * dy_dzeta - dy_deta * dx_dzeta);
-                if (PetscAbsReal(jacobian_det) < 1.0e-12) { SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FLOP_COUNT, "Jacobian is near zero..."); }
+                if (PetscAbsReal(jacobian_det) < 1.0e-18) { SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FLOP_COUNT, "Jacobian is near zero..."); }
                 aj_arr[k_node][j_node][i_node] = 1.0 / jacobian_det;
             }
         }
@@ -1380,6 +1384,241 @@ PetscErrorCode MetricsDivergence(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
+static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
+
+{
+  PetscInt nidx;
+  DMDALocalInfo	info = user->info;
+
+  PetscInt	mx = info.mx, my = info.my;
+  
+  AO ao;
+  DMDAGetAO(user->da, &ao);
+  nidx=i+j*mx+k*mx*my;
+  
+  AOApplicationToPetsc(ao,1,&nidx);
+  
+  return (nidx);
+}
+
+/**
+ * @brief Computes the divergence of the grid metrics and identifies the maximum value.
+ *
+ * This function serves as a diagnostic tool to assess the quality of the grid
+ * metrics. It calculates the divergence of the face metrics (Csi, Eta, Zet)
+ * and scales it by the inverse of the cell Jacobian. The maximum divergence
+ * value is then located, and its grid coordinates are printed to the console,
+ * helping to pinpoint areas of potential grid quality issues.
+ *
+ * @param user The UserCtx, containing all necessary grid data.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
+{
+  DM            da = user->da, fda = user->fda;
+  DMDALocalInfo info = user->info;
+  PetscInt      xs = info.xs, xe = info.xs + info.xm;
+  PetscInt      ys = info.ys, ye = info.ys + info.ym;
+  PetscInt      zs = info.zs, ze = info.zs + info.zm;
+  PetscInt      mx = info.mx, my = info.my, mz = info.mz;
+  PetscInt      lxs, lys, lzs, lxe, lye, lze;
+  PetscInt      i, j, k;
+  Vec           Div;
+  PetscReal     ***div, ***aj;
+  Cmpnts        ***csi, ***eta, ***zet;
+  PetscReal     maxdiv;
+
+  PetscFunctionBeginUser;
+
+  lxs = xs; lxe = xe;
+  lys = ys; lye = ye;
+  lzs = zs; lze = ze;
+
+  if (xs == 0) lxs = xs + 1;
+  if (ys == 0) lys = ys + 1;
+  if (zs == 0) lzs = zs + 1;
+
+  if (xe == mx) lxe = xe - 1;
+  if (ye == my) lye = ye - 1;
+  if (ze == mz) lze = ze - 1;
+
+  DMDAVecGetArray(fda, user->lCsi, &csi);
+  DMDAVecGetArray(fda, user->lEta, &eta);
+  DMDAVecGetArray(fda, user->lZet, &zet);
+  DMDAVecGetArray(da, user->lAj, &aj);
+
+  VecDuplicate(user->P, &Div);
+  VecSet(Div, 0.);
+  DMDAVecGetArray(da, Div, &div);
+
+  for (k = lzs; k < lze; k++) {
+    for (j = lys; j < lye; j++) {
+      for (i = lxs; i < lxe; i++) {
+        PetscReal divergence = (csi[k][j][i].x - csi[k][j][i-1].x +
+                                eta[k][j][i].x - eta[k][j-1][i].x +
+                                zet[k][j][i].x - zet[k-1][j][i].x +
+                                csi[k][j][i].y - csi[k][j][i-1].y +
+                                eta[k][j][i].y - eta[k][j-1][i].y +
+                                zet[k][j][i].y - zet[k-1][j][i].y +
+                                csi[k][j][i].z - csi[k][j][i-1].z +
+                                eta[k][j][i].z - eta[k][j-1][i].z +
+                                zet[k][j][i].z - zet[k-1][j][i].z) * aj[k][j][i];
+        div[k][j][i] = fabs(divergence);
+      }
+    }
+  }
+
+  DMDAVecRestoreArray(da, Div, &div);
+
+  PetscReal MaxFlatIndex;
+  VecMax(Div, &MaxFlatIndex, &maxdiv);
+  LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence is %e at flat index %d.\n",maxdiv,MaxFlatIndex);
+
+  for (k=zs; k<ze; k++) {
+    for (j=ys; j<ye; j++) {
+      for (i=xs; i<xe; i++) {
+	if (Gidx(i,j,k,user) == MaxFlatIndex) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence(%e) is at location [%d][%d][%d]. \n", maxdiv,k,j,i);
+	}
+      }
+    }
+  }
+ 
+  
+  DMDAVecRestoreArray(fda, user->lCsi, &csi);
+  DMDAVecRestoreArray(fda, user->lEta, &eta);
+  DMDAVecRestoreArray(fda, user->lZet, &zet);
+  DMDAVecRestoreArray(da, user->lAj, &aj);
+  VecDestroy(&Div);
+
+  PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Computes the max-min values of the grid metrics.
+ *
+ * This function serves as a diagnostic tool to assess the quality of the grid
+ * metrics. It calculates the bounds of the face metrics (Csi, Eta, Zet).
+ *
+ * @param user The UserCtx, containing all necessary grid data.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ComputeMetricNorms(UserCtx *user)
+{
+  
+  DMDALocalInfo info = user->info;
+  PetscInt      xs = info.xs, xe = info.xs + info.xm;
+  PetscInt      ys = info.ys, ye = info.ys + info.ym;
+  PetscInt      zs = info.zs, ze = info.zs + info.zm;
+  PetscInt      i, j, k;
+  
+  PetscFunctionBeginUser;
+
+  PetscReal CsiMax, EtaMax, ZetMax;
+  PetscReal ICsiMax, IEtaMax, IZetMax;
+  PetscReal JCsiMax, JEtaMax, JZetMax;
+  PetscReal KCsiMax, KEtaMax, KZetMax;
+  PetscReal AjMax, IAjMax, JAjMax, KAjMax;
+
+  PetscInt CsiMaxArg, EtaMaxArg, ZetMaxArg;
+  PetscInt ICsiMaxArg, IEtaMaxArg, IZetMaxArg;
+  PetscInt JCsiMaxArg, JEtaMaxArg, JZetMaxArg;
+  PetscInt KCsiMaxArg, KEtaMaxArg, KZetMaxArg;
+  PetscInt AjMaxArg, IAjMaxArg, JAjMaxArg, KAjMaxArg;  
+
+  // Max Values
+  VecMax(user->lCsi,&CsiMaxArg,&CsiMax);
+  VecMax(user->lEta,&EtaMaxArg,&EtaMax);
+  VecMax(user->lZet,&ZetMaxArg,&ZetMax);
+
+  VecMax(user->lICsi,&ICsiMaxArg,&ICsiMax);
+  VecMax(user->lIEta,&IEtaMaxArg,&IEtaMax);
+  VecMax(user->lIZet,&IZetMaxArg,&IZetMax);
+
+  VecMax(user->lJCsi,&JCsiMaxArg,&JCsiMax);
+  VecMax(user->lJEta,&JEtaMaxArg,&JEtaMax);
+  VecMax(user->lJZet,&JZetMaxArg,&JZetMax);
+
+  VecMax(user->lKCsi,&KCsiMaxArg,&KCsiMax);
+  VecMax(user->lKEta,&KEtaMaxArg,&KEtaMax);
+  VecMax(user->lKZet,&KZetMaxArg,&KZetMax);
+
+  VecMax(user->lAj,&AjMaxArg,&AjMax);
+  VecMax(user->lIAj,&IAjMaxArg,&IAjMax);
+  VecMax(user->lJAj,&JAjMaxArg,&JAjMax);
+  VecMax(user->lKAj,&KAjMaxArg,&KAjMax);
+
+  VecMax(user->lAj,&AjMaxArg,&AjMax);
+  VecMax(user->lIAj,&IAjMaxArg,&IAjMax);
+  VecMax(user->lJAj,&JAjMaxArg,&JAjMax);
+  VecMax(user->lKAj,&KAjMaxArg,&KAjMax);
+
+  LOG_ALLOW(GLOBAL,LOG_INFO," Metric Norms for MG level %d .\n",user->thislevel);
+  
+  LOG_ALLOW(GLOBAL,LOG_INFO,"The Max Metric Values are: CsiMax = %le, EtaMax = %le, ZetMax = %le.\n",CsiMax,EtaMax,ZetMax);
+  LOG_ALLOW(GLOBAL,LOG_INFO,"The Max Metric Values are: ICsiMax = %le, IEtaMax = %le, IZetMax = %le.\n",ICsiMax,IEtaMax,IZetMax);
+  LOG_ALLOW(GLOBAL,LOG_INFO,"The Max Metric Values are: JCsiMax = %le, JEtaMax = %le, JZetMax = %le.\n",JCsiMax,JEtaMax,JZetMax);
+  LOG_ALLOW(GLOBAL,LOG_INFO,"The Max Metric Values are: KCsiMax = %le, KEtaMax = %le, KZetMax = %le.\n",KCsiMax,KEtaMax,KZetMax);
+  LOG_ALLOW(GLOBAL,LOG_INFO,"The Max Volumes(Inverse) are: Aj = %le, IAj = %le, JAj = %le, KAj = %le.\n",AjMax,IAjMax,JAjMax,KAjMax);
+
+  for (k=zs; k<ze; k++) {
+    for (j=ys; j<ye; j++) {
+      for (i=xs; i<xe; i++) {
+	if (Gidx(i,j,k,user) == CsiMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Csi = %le is at [%d][%d][%d] \n", CsiMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == EtaMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Eta = %le is at [%d][%d][%d] \n", EtaMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == ZetMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Zet = %le is at [%d][%d][%d] \n", ZetMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == ICsiMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max ICsi = %le is at [%d][%d][%d] \n", ICsiMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == IEtaMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IEta = %le is at [%d][%d][%d] \n", IEtaMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == IZetMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IZet = %le is at [%d][%d][%d] \n", IZetMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == JCsiMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JCsi = %le is at [%d][%d][%d] \n", JCsiMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == JEtaMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JEta = %le is at [%d][%d][%d] \n", JEtaMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == JZetMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JZet = %le is at [%d][%d][%d] \n", JZetMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == KCsiMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KCsi = %le is at [%d][%d][%d] \n", KCsiMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == KEtaMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KEta = %le is at [%d][%d][%d] \n", KEtaMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == KZetMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KZet = %le is at [%d][%d][%d] \n", KZetMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == AjMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Aj = %le is at [%d][%d][%d] \n", AjMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == IAjMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IAj = %le is at [%d][%d][%d] \n", IAjMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == JAjMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JAj = %le is at [%d][%d][%d] \n", JAjMax,k,j,i);
+	}
+	if (Gidx(i,j,k,user) == KAjMaxArg) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KAj = %le is at [%d][%d][%d] \n", KAjMax,k,j,i);
+	}
+      }
+    }
+  }
+ 
+  PetscFunctionReturn(0);
+}
+
 /**
  * @brief Orchestrates the calculation of all grid metrics.
  *
@@ -1402,7 +1641,7 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Calculating grid metrics for all levels and blocks...\n");
 
     // Loop through all levels and all blocks
-    for (PetscInt level = 0; level < usermg->mglevels; level++) {
+    for (PetscInt level = usermg->mglevels -1 ; level >=0; level--) {
         for (PetscInt bi = 0; bi < nblk; bi++) {
             UserCtx *user = &mgctx[level].user[bi];
             LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Calculating metrics for level %d, block %d\n", simCtx->rank, level, bi);
@@ -1411,16 +1650,16 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
             // These functions are self-contained and operate on the data within the provided context.
             ierr = ComputeFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeCellCenteredJacobianInverse(user); CHKERRQ(ierr);
-            ierr = CheckAndFixGridOrientation(user); CHKERRQ(ierr);
+	    ierr = CheckAndFixGridOrientation(user); CHKERRQ(ierr);
 	    ierr = ComputeCellCentersAndSpacing(user); CHKERRQ(ierr);
             ierr = ComputeIFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeJFaceMetrics(user); CHKERRQ(ierr);
-            ierr = ComputeKFaceMetrics(user); CHKERRQ(ierr);
+            ierr = ComputeKFaceMetrics(user); CHKERRQ(ierr); 
 
-            // The legacy code also had a final divergence check for the finest level.
-            // We can add this back as a final validation step.
+            // Diagnostics
+	    ierr = ComputeMetricNorms(user);
             if (level == usermg->mglevels - 1) {
-                // ierr = MetricsDivergence(user); CHKERRQ(ierr);
+                ierr = ComputeMetricsDivergence(user); CHKERRQ(ierr);
             }
         }
     }
@@ -1430,3 +1669,4 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
 }
 /* ------------------------------------------------------------------------- */
 /* End of Metric.c */
+

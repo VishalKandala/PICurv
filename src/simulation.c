@@ -508,8 +508,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
             
             // e. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
-            // ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
-            // ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+            ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
+            ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
         }
 
         // =================================================================

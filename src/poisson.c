@@ -1975,6 +1975,81 @@ PetscErrorCode MyInterpolation(Mat A, Vec X, Vec F)
  
 }
 
+static PetscErrorCode RestrictResidual_SolidAware(Mat A, Vec X, Vec F)
+{
+  UserCtx *user;
+  MatShellGetContext(A, (void**)&user);
+  
+  DM	da = user->da;
+  DM	da_f = *user->da_f;
+
+  DMDALocalInfo	info;
+  DMDAGetLocalInfo(da, &info);
+  PetscInt	xs = info.xs, xe = info.xs + info.xm;
+  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
+  PetscInt	zs = info.zs, ze = info.zs + info.zm;
+  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
+  
+  PetscReal ***f, ***x, ***nvert;
+  PetscInt i, j, k, ih, jh, kh, ia, ja, ka;
+
+  DMDAVecGetArray(da,   F, &f);
+
+  Vec lX;
+  DMCreateLocalVector(da_f, &lX);
+  DMGlobalToLocalBegin(da_f, X, INSERT_VALUES, lX);
+  DMGlobalToLocalEnd(da_f, X, INSERT_VALUES, lX);  
+  DMDAVecGetArray(da_f, lX, &x);
+
+  DMDAVecGetArray(da, user->lNvert, &nvert);
+
+  PetscReal ***nvert_f;
+  DMDAVecGetArray(da_f, user->user_f->lNvert, &nvert_f);
+
+  if ((user->isc)) ia = 0;
+  else ia = 1;
+
+  if ((user->jsc)) ja = 0;
+  else ja = 1;
+
+  if ((user->ksc)) ka = 0;
+  else ka = 1;
+
+  for (k=zs; k<ze; k++) {
+    for (j=ys; j<ye; j++) {
+      for (i=xs; i<xe; i++) {
+        // --- CORRECTED LOGIC ---
+        // First, check if the current point is a boundary point.
+        // If it is, it does not contribute to the coarse grid residual.
+        if (i==0 || i==mx-1 || j==0 || j==my-1 || k==0 || k==mz-1 || nvert[k][j][i] > 0.1) {
+            f[k][j][i] = 0.0;
+        } 
+        // Only if it's a true interior fluid point, perform the restriction.
+        else {
+            GridRestriction(i, j, k, &ih, &jh, &kh, user);
+            f[k][j][i] = 0.125 *
+              (x[kh   ][jh   ][ih   ] * PetscMax(0., 1 - nvert_f[kh   ][jh   ][ih   ]) +
+               x[kh   ][jh   ][ih-ia] * PetscMax(0., 1 - nvert_f[kh   ][jh   ][ih-ia]) +
+               x[kh   ][jh-ja][ih   ] * PetscMax(0., 1 - nvert_f[kh   ][jh-ja][ih   ]) +
+               x[kh-ka][jh   ][ih   ] * PetscMax(0., 1 - nvert_f[kh-ka][jh   ][ih   ]) +
+               x[kh   ][jh-ja][ih-ia] * PetscMax(0., 1 - nvert_f[kh   ][jh-ja][ih-ia]) +
+               x[kh-ka][jh-ja][ih   ] * PetscMax(0., 1 - nvert_f[kh-ka][jh-ja][ih   ]) +
+               x[kh-ka][jh   ][ih-ia] * PetscMax(0., 1 - nvert_f[kh-ka][jh   ][ih-ia]) +
+               x[kh-ka][jh-ja][ih-ia] * PetscMax(0., 1 - nvert_f[kh-ka][jh-ja][ih-ia]));
+        }
+      }
+    }
+  }
+
+  DMDAVecRestoreArray(da_f, user->user_f->lNvert, &nvert_f);
+  DMDAVecRestoreArray(da_f, lX, &x);
+  VecDestroy(&lX);
+  DMDAVecRestoreArray(da,   F,  &f);
+  DMDAVecRestoreArray(da, user->lNvert, &nvert);
+
+  return 0;
+}
+
 PetscErrorCode MyRestriction(Mat A, Vec X, Vec F)
 {
   UserCtx *user;
@@ -2122,11 +2197,12 @@ PetscErrorCode PoissonLHSNew(UserCtx *user)
 {
   PetscFunctionBeginUser;
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering PoissonLHSNew to assemble Laplacian matrix.\n");
-
+  PetscErrorCode ierr;
   //================================================================================
   // Section 1: Initialization and Data Acquisition
   //================================================================================
 
+  
   // --- Get simulation and grid context ---
   SimCtx *simCtx = user->simCtx;
   DM da = user->da, fda = user->fda;
@@ -2684,6 +2760,16 @@ PetscErrorCode PoissonLHSNew(UserCtx *user)
   MatAssemblyBegin(user->A, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(user->A, MAT_FINAL_ASSEMBLY);
 
+  PetscReal max_A;
+
+  ierr = MatNorm(user->A,NORM_INFINITY,&max_A);CHKERRQ(ierr);
+
+  LOG_ALLOW(GLOBAL,LOG_DEBUG," Max value in A matrix for level %d =  %le.\n",user->thislevel,max_A);
+
+  // if (get_log_level() >= LOG_DEBUG) {
+  //  ierr = MatView(user->A,PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
+  // }
+  
   // --- Restore access to all PETSc vectors and destroy temporary ones ---
   DMDAVecRestoreArray(da, G11, &g11); DMDAVecRestoreArray(da, G12, &g12); DMDAVecRestoreArray(da, G13, &g13);
   DMDAVecRestoreArray(da, G21, &g21); DMDAVecRestoreArray(da, G22, &g22); DMDAVecRestoreArray(da, G23, &g23);
@@ -3872,7 +3958,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting Multigrid Poisson Solve...\n");
 
     for (bi = 0; bi < block_number; bi++) {
-        /*
+        
         // ====================================================================
         //   SECTION: Immersed Boundary Specific Setup (Conditional)
         // ====================================================================
@@ -3888,7 +3974,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             ierr = PetscMalloc1(user[bi].info.mx * user[bi].info.my * 2, &user[bi].KSKE); CHKERRQ(ierr);
             FullyBlocked(&user[bi]);
         }
-        */
+        
 
         l = usermg->mglevels - 1;
         user = mgctx[l].user;
@@ -3913,6 +3999,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
         LOG_ALLOW(LOCAL, LOG_DEBUG, "Block %d: Assembling Poisson LHS on all levels...\n", bi);
         for (l = usermg->mglevels - 1; l >= 0; l--) {
             user = mgctx[l].user;
+	    LOG_ALLOW(GLOBAL,LOG_DEBUG," Calculating LHS for Level %d.\n",l);
             PoissonLHSNew(&user[bi]);
         }
 
@@ -3932,6 +4019,15 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 
         // --- 4. Define Restriction and Interpolation Operators for MG ---
         for (l = usermg->mglevels - 1; l > 0; l--) {
+
+	  /*
+	    // Coarse grid context needs pointer to fine grid context/DM.
+            mgctx[l-1].user[bi].da_f = &mgctx[l].user[bi].da;
+            mgctx[l-1].user[bi].user_f = &mgctx[l].user[bi];
+            // Fine grid context needs pointer to coarse grid context/DM.
+            mgctx[l].user[bi].da_c = &mgctx[l-1].user[bi].da;
+            mgctx[l].user[bi].user_c = &mgctx[l-1].user[bi];
+	  
             user = mgctx[l].user;
             PetscInt m_c = (usermg->mgctx[l-1].user[bi].info.xm * usermg->mgctx[l-1].user[bi].info.ym * usermg->mgctx[l-1].user[bi].info.zm);
             PetscInt m_f = (usermg->mgctx[l].user[bi].info.xm * usermg->mgctx[l].user[bi].info.ym * usermg->mgctx[l].user[bi].info.zm);
@@ -3941,11 +4037,49 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             ierr = MatCreateShell(PETSC_COMM_WORLD, m_c, m_f, M_c, M_f, (void*)&mgctx[l-1].user[bi], &user[bi].MR); CHKERRQ(ierr);
             ierr = MatCreateShell(PETSC_COMM_WORLD, m_f, m_c, M_f, M_c, (void*)&user[bi], &user[bi].MP); CHKERRQ(ierr);
             
-            ierr = MatShellSetOperation(user[bi].MR, MATOP_MULT, (void(*)(void))MyRestriction); CHKERRQ(ierr);
+            ierr = MatShellSetOperation(user[bi].MR, MATOP_MULT, (void(*)(void))RestrictResidual_SolidAware); CHKERRQ(ierr);
             ierr = MatShellSetOperation(user[bi].MP, MATOP_MULT, (void(*)(void))MyInterpolation); CHKERRQ(ierr);
             
             ierr = PCMGSetRestriction(mgpc, l, user[bi].MR); CHKERRQ(ierr);
             ierr = PCMGSetInterpolation(mgpc, l, user[bi].MP); CHKERRQ(ierr);
+	  */
+ // Get stable pointers directly from the main mgctx array.
+    // These pointers point to memory that will persist.
+	  UserCtx *fine_user_ctx   = &mgctx[l].user[bi];
+	  UserCtx *coarse_user_ctx = &mgctx[l-1].user[bi];
+
+	  // --- Configure the context pointers ---
+	  // The coarse UserCtx needs to know about the fine grid for restriction.
+	  coarse_user_ctx->da_f     = &(fine_user_ctx->da);
+	  coarse_user_ctx->user_f   = fine_user_ctx;
+
+	  // The fine UserCtx needs to know about the coarse grid for interpolation.
+	  fine_user_ctx->da_c       = &(coarse_user_ctx->da);
+	  fine_user_ctx->user_c     = coarse_user_ctx;
+	  fine_user_ctx->lNvert_c   = &(coarse_user_ctx->lNvert);
+
+	  // --- Get matrix dimensions ---
+	  PetscInt m_c = (coarse_user_ctx->info.xm * coarse_user_ctx->info.ym * coarse_user_ctx->info.zm);
+	  PetscInt m_f = (fine_user_ctx->info.xm * fine_user_ctx->info.ym * fine_user_ctx->info.zm);
+	  PetscInt M_c = (coarse_user_ctx->info.mx * coarse_user_ctx->info.my * coarse_user_ctx->info.mz);
+	  PetscInt M_f = (fine_user_ctx->info.mx * fine_user_ctx->info.my * fine_user_ctx->info.mz);
+
+	  LOG_ALLOW(GLOBAL,LOG_DEBUG,"level = %d; m_c = %d; m_f = %d; M_c = %d; M_f = %d.\n",l,m_c,m_f,M_c,M_f);
+	  // --- Create the MatShell objects ---
+	  // Pass the STABLE pointer coarse_user_ctx as the context for restriction.
+	  ierr = MatCreateShell(PETSC_COMM_WORLD, m_c, m_f, M_c, M_f, (void*)coarse_user_ctx, &fine_user_ctx->MR); CHKERRQ(ierr);
+    
+	  // Pass the STABLE pointer fine_user_ctx as the context for interpolation.
+	  ierr = MatCreateShell(PETSC_COMM_WORLD, m_f, m_c, M_f, M_c, (void*)fine_user_ctx, &fine_user_ctx->MP); CHKERRQ(ierr);
+    
+	  // --- Set the operations for the MatShells ---
+	  ierr = MatShellSetOperation(fine_user_ctx->MR, MATOP_MULT, (void(*)(void))RestrictResidual_SolidAware); CHKERRQ(ierr);
+	  ierr = MatShellSetOperation(fine_user_ctx->MP, MATOP_MULT, (void(*)(void))MyInterpolation); CHKERRQ(ierr);
+    
+	  // --- Register the operators with PCMG ---
+	  ierr = PCMGSetRestriction(mgpc, l, fine_user_ctx->MR); CHKERRQ(ierr);
+	  ierr = PCMGSetInterpolation(mgpc, l, fine_user_ctx->MP); CHKERRQ(ierr);
+	  
         }
         
         // --- 5. Configure Solvers on Each MG Level ---
@@ -3959,8 +4093,9 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             } 
             
             ierr = KSPSetOperators(subksp, user[bi].A, user[bi].A); CHKERRQ(ierr);
+	    ierr = KSPSetFromOptions(subksp); CHKERRQ(ierr); 
             ierr = KSPGetPC(subksp, &subpc); CHKERRQ(ierr);
-            ierr = PCSetType(subpc, PCBJACOBI); CHKERRQ(ierr);
+	    ierr = PCSetType(subpc, PCBJACOBI); CHKERRQ(ierr);
 	    
 	    KSP *subsubksp;
 	    PC subsubpc;

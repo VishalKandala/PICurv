@@ -182,7 +182,7 @@ for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         
         // --- Perform Divergence Check ---
         // This is a diagnostic to verify the quality of the velocity correction.
-	//  ierr = Divergence(&user[bi]); CHKERRQ(ierr);
+	ierr = Divergence(&user[bi]); CHKERRQ(ierr);
         
         /*
         // --- Immersed Boundary Interpolation (Post-Correction) ---

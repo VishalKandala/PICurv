@@ -452,8 +452,8 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
  **/
 static inline PetscReal ComputeStretchedCoord(PetscInt i, PetscInt N, PetscReal L, PetscReal r)
 {
-    if (N == 0) return 0.0;
-    PetscReal fraction = (PetscReal)i / (PetscReal)N;
+    if (N <=1) return 0.0;
+    PetscReal fraction = (PetscReal)i / ((PetscReal)N - 1.0);
     if (PetscAbsReal(r - 1.0) < 1.0e-9) { // Use a tolerance for float comparison
         return L * fraction;
     } else {
@@ -485,6 +485,7 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
     ierr = DMGetCoordinatesLocal(user->da, &lCoor); CHKERRQ(ierr);
+    ierr = VecSet(lCoor, 0.0); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
     
     PetscReal Lx = user->Max_X - user->Min_X;
@@ -495,10 +496,12 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
         for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
             for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
+	      if(k<user->KM && j<user->JM && i < user->IM){
                 coor[k][j][i].x = user->Min_X + ComputeStretchedCoord(i, user->IM, Lx, user->rx);
                 coor[k][j][i].y = user->Min_Y + ComputeStretchedCoord(j, user->JM, Ly, user->ry);
                 coor[k][j][i].z = user->Min_Z + ComputeStretchedCoord(k, user->KM, Lz, user->rz);
-            }
+	      }
+	    }  
         }
     }
 
@@ -546,7 +549,8 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
               simCtx->rank, block_index);
 
     // 1. Allocate the buffer on ALL ranks to receive the broadcast data.
-    PetscInt n_nodes = (IM + 1) * (JM + 1) * (KM + 1);
+    // PetscInt n_nodes = (IM + 1) * (JM + 1) * (KM + 1);
+    PetscInt n_nodes = (IM) * (JM) * (KM);
     ierr = PetscMalloc1(3 * n_nodes, &gc); CHKERRQ(ierr);
 
     // 2. Only Rank 0 opens the file and reads the data.
@@ -554,10 +558,10 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
         if (!fd) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Recieved a NULL file handle.\n");
                 
         // Read the coordinate data for the CURRENT block.
-        for (PetscInt k = 0; k <= KM; k++) {
-            for (PetscInt j = 0; j <= JM; j++) {
-                for (PetscInt i = 0; i <= IM; i++) {
-                    PetscInt base_index = 3 * ((k * (JM + 1) + j) * (IM + 1) + i);
+        for (PetscInt k = 0; k < KM; k++) {
+            for (PetscInt j = 0; j < JM; j++) {
+                for (PetscInt i = 0; i < IM; i++) {
+                    PetscInt base_index = 3 * ((k * (JM) + j) * (IM) + i);
                     if (fscanf(fd, "%le %le %le\n", &gc[base_index], &gc[base_index + 1], &gc[base_index + 2]) != 3) {
                         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Error reading coordinates for node (i,j,k)=(%d,%d,%d) in block %d", i, j, k, block_index);
                     }
@@ -578,11 +582,14 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
     for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
         for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
             for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
-                PetscInt base_idx = 3 * ((k * (JM + 1) + j) * (IM + 1) + i);
-                coor[k][j][i].x = gc[base_idx];
+	      if(k< KM && j < JM && i < IM){
+                //PetscInt base_idx = 3 * ((k * (JM + 1) + j) * (IM + 1) + i);
+		PetscInt base_idx = 3 * ((k * (JM) + j) * (IM) + i);
+		coor[k][j][i].x = gc[base_idx];
                 coor[k][j][i].y = gc[base_idx + 1];
                 coor[k][j][i].z = gc[base_idx + 2];
-            }
+	      }
+	    }
         }
     }
     

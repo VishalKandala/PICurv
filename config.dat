@@ -11,8 +11,8 @@ CreateSimulationContext
 # We can also add functions we plan to implement later. The logger will
 # be ready for them when they are created.
 AdvanceSimulation
-#SetupGridAndSolvers
-#AllocateContextHierarchy
+SetupGridAndSolvers
+AllocateContextHierarchy
 #DefineAllDimensions
 #ParseAndSetGridInputs
 #ReadGridGenerationInputs
@@ -33,6 +33,8 @@ ComputeCellCentersAndSpacing
 ComputeIFaceMetrics
 ComputeJFaceMetrics
 ComputeKFaceMetrics
+ComputeMetricsDivergence
+ComputeMetricNorms
 #UpdateLocalGhosts
 SetupBoundaryConditions
 ParseAllBoundaryConditions
@@ -74,12 +76,15 @@ ImpRK
 Convection
 Viscous
 PoissonSolver_MG
+MyRestriction
 VolumeFlux
 PoissonRHS
 PoissonLHSNew
 UpdatePressure
 Projection
+Divergence
 UpdateAllParticlePositions
 LocateParticlesInGrid_TEST
+InterpolateAllFieldsToSwarm
 WriteSimulationFields
 WriteFieldData

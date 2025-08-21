@@ -68,7 +68,7 @@ int main(int argc, char **argv)
     // === IV. EXECUTE =========================================================
     // Display a summary banner and run the main time-stepping loop.
 
-    // ierr = DisplayBanner(simCtx); CHKERRQ(ierr);
+    ierr = DisplayBanner(simCtx); CHKERRQ(ierr);
 
     if (!simCtx->OnlySetup) {
         // This function will contain the main time loop, orchestrating

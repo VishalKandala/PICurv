@@ -353,7 +353,7 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
  *
  * @return PetscErrorCode  Returns `0` on success.
  */
-PetscErrorCode DisplayBanner(UserCtx *user,BoundingBox *bboxlist_on_rank0);
+PetscErrorCode DisplayBanner(SimCtx *simCtx);
 
 
 // --- Conversion and Validation Utilities ---

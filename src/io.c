@@ -2499,7 +2499,7 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
  *
  * @return PetscErrorCode  Returns `0` on success.
  */
-PetscErrorCode DisplayBanner(UserCtx *user,BoundingBox *bboxlist_on_rank0) // bboxlist is only valid on rank 0
+PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank;
@@ -2508,13 +2508,14 @@ PetscErrorCode DisplayBanner(UserCtx *user,BoundingBox *bboxlist_on_rank0) // bb
     PetscInt       StartStep,StepsToRun,total_num_particles;
     PetscMPIInt    num_mpi_procs;
 
-    SimCtx *simCtx = user->simCtx;
-
+    // SimCtx *simCtx = user->simCtx;
+    UserCtx *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
     num_mpi_procs = simCtx->size;
     StartTime = simCtx->StartTime;
     StartStep = simCtx->StartStep;
     StepsToRun = simCtx->StepsToRun;
     total_num_particles = simCtx->np;
+    BoundingBox *bboxlist_on_rank0 = simCtx->bboxlist;
     
 
     PetscFunctionBeginUser;
@@ -2573,6 +2574,10 @@ PetscErrorCode DisplayBanner(UserCtx *user,BoundingBox *bboxlist_on_rank0) // bb
         ierr = PetscPrintf(PETSC_COMM_SELF, " Total Steps to Run          : %d\n", StepsToRun); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Number of MPI Processes     : %d\n", num_mpi_procs); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %d\n", total_num_particles); CHKERRQ(ierr);
+	ierr = PetscPrintf(PETSC_COMM_WORLD," Reynolds Number             : %le\n", simCtx->ren); CHKERRQ(ierr);
+	ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
+	ierr = PetscPrintf(PETSC_COMM_WORLD," CFL Number                  : %le\n", simCtx->cfl); CHKERRQ(ierr);
+	ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %d\n", simCtx->ParticleInitialization); CHKERRQ(ierr);
         if (simCtx->ParticleInitialization == 0) {
             if (user->inletFaceDefined) {
@@ -2585,6 +2590,7 @@ PetscErrorCode DisplayBanner(UserCtx *user,BoundingBox *bboxlist_on_rank0) // bb
         if (simCtx->FieldInitialization == 1) {
 	  ierr = PetscPrintf(PETSC_COMM_SELF, " Constant Velocity           : x - %.4f, y - %.4f, z - %.4f \n", (double)simCtx->InitialConstantContra.x,(double)simCtx->InitialConstantContra.y,(double)simCtx->InitialConstantContra.z ); CHKERRQ(ierr);
         }
+	
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);
     }

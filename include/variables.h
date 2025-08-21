@@ -205,8 +205,16 @@ typedef enum {
 
 /** @brief Defines the general mathematical/physical category of a boundary. */
 typedef enum {
-    UNDEFINED = 0, NOGRAD, WALL, SYMMETRY, INLET,
-    OUTLET, FARFIELD, PERIODIC, INTERFACE
+    WALLFUNCTION = -1,
+    INTERFACE = 0,
+    WALL = 1 , MOVING_WALL = 2,SYMMETRY = 3,
+    INLET = 4,
+    OUTLET , FARFIELD, PERIODIC, CHARACTERISTIC_BC,
+    ANALYTICAL_VORTEX,JUNCTION,
+    ANNULUS,
+    OGRID,
+    RHEOLOGY,
+    NOGRAD
 } BCType;
 
 /** @brief Defines the specific computational "strategy" for a boundary handler. */

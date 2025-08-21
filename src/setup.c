@@ -510,6 +510,27 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
+static PetscErrorCode SetupSolverParameters(SimCtx *simCtx){
+  
+  PetscFunctionBeginUser;
+
+  LOG_ALLOW(GLOBAL,LOG_INFO, " -- Setting up solver parameters -- .\n");
+
+  UserMG         *usermg = &simCtx->usermg;
+  MGCtx          *mgctx = usermg->mgctx;
+  PetscInt       nblk = simCtx->block_number;
+
+  for (PetscInt level  = usermg->mglevels-1; level >=0; level--) {
+    for (PetscInt bi = 0; bi < nblk; bi++) {
+      UserCtx *user = &mgctx[level].user[bi];
+      LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Setting up parameters for level %d, block %d\n", simCtx->rank, level, bi);
+
+      user->assignedA = PETSC_FALSE;
+      user->multinullspace = PETSC_FALSE;
+    }
+  }
+  PetscFunctionReturn(0);
+}
 /**
  * @brief The main orchestrator for setting up all grid-related components.
  * (Implementation of the orchestrator function itself)
@@ -529,6 +550,7 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
     ierr = InitializeAllGridDMs(simCtx); CHKERRQ(ierr);
     ierr = AssignAllGridCoordinates(simCtx);
     ierr = CreateAndInitializeAllVectors(simCtx); CHKERRQ(ierr);
+    ierr = SetupSolverParameters(simCtx); CHKERRQ(ierr);
     ierr = CalculateAllGridMetrics(simCtx); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Grid and Solvers Setup Complete ---\n");
@@ -556,7 +578,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
     PetscFunctionBeginUser;
     LOG_ALLOW(GLOBAL, LOG_INFO, "Creating and initializing all simulation vectors...\n");
 
-    for (PetscInt level = 0; level < usermg->mglevels; level++) {
+    for (PetscInt level  = usermg->mglevels-1; level >=0; level--) {
         for (PetscInt bi = 0; bi < nblk; bi++) {
             UserCtx *user = &mgctx[level].user[bi];
             LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Creating vectors for level %d, block %d\n", simCtx->rank, level, bi);
@@ -644,7 +666,13 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             if ((simCtx->les || simCtx->rans) && level == usermg->mglevels - 1) {
                 ierr = DMCreateGlobalVector(user->da, &user->Nu_t); CHKERRQ(ierr); ierr = VecSet(user->Nu_t, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lNu_t); CHKERRQ(ierr); ierr = VecSet(user->lNu_t, 0.0); CHKERRQ(ierr);
-                // Add K_Omega, CS, etc. here as needed
+
+
+	    // --- Group G: Particle Methods 	
+		if(simCtx->np>0){
+		  ierr = DMCreateGlobalVector(user->da,&user->ParticleCount); CHKERRQ(ierr); ierr = VecSet(user->ParticleCount,0.0); CHKERRQ(ierr);
+		}
+	    // Add K_Omega, CS, etc. here as needed
 
             // Note: Add any other vectors from the legacy MG_Initial here as needed.
             // For example: Rhs, Forcing, turbulence Vecs (K_Omega, Nu_t)...
@@ -1956,3 +1984,165 @@ PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 
     PetscFunctionReturn(0);
 }
 
+static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
+
+{
+  PetscInt nidx;
+  DMDALocalInfo	info = user->info;
+
+  PetscInt	mx = info.mx, my = info.my;
+  
+  AO ao;
+  DMDAGetAO(user->da, &ao);
+  nidx=i+j*mx+k*mx*my;
+  
+  AOApplicationToPetsc(ao,1,&nidx);
+  
+  return (nidx);
+}
+
+PetscErrorCode Divergence(UserCtx *user )
+{
+  DM		da = user->da, fda = user->fda;
+  DMDALocalInfo	info = user->info;
+
+  PetscInt ti = user->simCtx->step;
+  
+  PetscInt	xs = info.xs, xe = info.xs + info.xm;
+  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
+  PetscInt	zs = info.zs, ze = info.zs + info.zm;
+  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
+
+  PetscInt	lxs, lys, lzs, lxe, lye, lze;
+  PetscInt	i, j, k;
+
+  Vec		Div;
+  PetscReal	***div, ***aj, ***nvert,***p;
+  Cmpnts	***ucont;
+  PetscReal	maxdiv;
+
+  lxs = xs; lxe = xe;
+  lys = ys; lye = ye;
+  lzs = zs; lze = ze;
+
+  if (xs==0) lxs = xs+1;
+  if (ys==0) lys = ys+1;
+  if (zs==0) lzs = zs+1;
+
+  if (xe==mx) lxe = xe-1;
+  if (ye==my) lye = ye-1;
+  if (ze==mz) lze = ze-1;
+
+  DMDAVecGetArray(fda,user->lUcont, &ucont);
+  DMDAVecGetArray(da, user->lAj, &aj);
+  VecDuplicate(user->P, &Div);
+  DMDAVecGetArray(da, Div, &div);
+  DMDAVecGetArray(da, user->lNvert, &nvert);
+   DMDAVecGetArray(da, user->P, &p);
+  for (k=lzs; k<lze; k++) {
+         for (j=lys; j<lye; j++){
+	  for (i=lxs; i<lxe; i++) {
+	    if (k==10 && j==10 && i==1){
+	      LOG_ALLOW(LOCAL,LOG_INFO,"Pressure[10][10][1] =  %f | Pressure[10][10][0] =  %f  \n ",p[k][j][i],p[k][j][i-1]);
+              }
+
+	    if (k==10 && j==10 && i==mx-3)
+     	      LOG_ALLOW(LOCAL,LOG_INFO,"Pressure[10][10][%d] =  %f | Pressure[10][10][%d] =  %f  \n ",mx-2,p[k][j][mx-2],mx-3,p[k][j][mx-1]);
+   		}
+	}
+    }
+   DMDAVecRestoreArray(da, user->P, &p);
+ 
+
+  for (k=lzs; k<lze; k++) {
+    for (j=lys; j<lye; j++) {
+      for (i=lxs; i<lxe; i++) {
+	maxdiv = fabs((ucont[k][j][i].x - ucont[k][j][i-1].x +
+		       ucont[k][j][i].y - ucont[k][j-1][i].y +
+		       ucont[k][j][i].z - ucont[k-1][j][i].z)*aj[k][j][i]);
+	if (nvert[k][j][i] + nvert[k+1][j][i] + nvert[k-1][j][i] +
+	    nvert[k][j+1][i] + nvert[k][j-1][i] +
+	    nvert[k][j][i+1] + nvert[k][j][i-1] > 0.1) maxdiv = 0.;
+	div[k][j][i] = maxdiv;
+
+      }
+    }
+  }
+
+  if (zs==0) {
+    k=0;
+    for (j=ys; j<ye; j++) {
+      for (i=xs; i<xe; i++) {
+	div[k][j][i] = 0.;
+      }
+    }
+  }
+
+  if (ze == mz) {
+    k=mz-1;
+    for (j=ys; j<ye; j++) {
+      for (i=xs; i<xe; i++) {
+	div[k][j][i] = 0.;
+      }
+    }
+  }
+
+  if (xs==0) {
+    i=0;
+    for (k=zs; k<ze; k++) {
+      for (j=ys; j<ye; j++) {
+	div[k][j][i] = 0.;
+      }
+    }
+  }
+
+  if (xe==mx) {
+    i=mx-1;
+    for (k=zs; k<ze; k++) {
+      for (j=ys; j<ye; j++) {
+	div[k][j][i] = 0;
+      }
+    }
+  }
+
+  if (ys==0) {
+    j=0;
+    for (k=zs; k<ze; k++) {
+      for (i=xs; i<xe; i++) {
+	div[k][j][i] = 0.;
+      }
+    }
+  }
+
+  if (ye==my) {
+    j=my-1;
+    for (k=zs; k<ze; k++) {
+      for (i=xs; i<xe; i++) {
+	div[k][j][i] = 0.;
+      }
+    }
+  }
+  DMDAVecRestoreArray(da, Div, &div);
+  PetscInt MaxFlatIndex;
+  
+  VecMax(Div, &MaxFlatIndex, &maxdiv);
+
+  LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %d]] The Maximum Divergence is %e at flat index %d.\n",ti,maxdiv,MaxFlatIndex); 
+  
+  for (k=zs; k<ze; k++) {
+    for (j=ys; j<ye; j++) {
+      for (i=xs; i<xe; i++) {
+	if (Gidx(i,j,k,user) == MaxFlatIndex) {
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %d] The Maximum Divergence(%e) is at location [%d][%d][%d]. \n", ti, maxdiv,k,j,i);
+	}
+      }
+    }
+  }
+ 
+
+ DMDAVecRestoreArray(da, user->lNvert, &nvert);
+  DMDAVecRestoreArray(fda, user->lUcont, &ucont);
+  DMDAVecRestoreArray(da, user->lAj, &aj);
+  VecDestroy(&Div);
+  return(0);
+}

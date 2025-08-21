@@ -182,7 +182,18 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user);
  * @param user The UserCtx for a specific grid level (typically the finest).
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
  */
-PetscErrorCode MetricsDivergence(UserCtx *user);
+PetscErrorCode ComputeMetricsDivergence(UserCtx *user);
+
+/**
+ * @brief Computes the max-min values of the grid metrics.
+ *
+ * This function serves as a diagnostic tool to assess the quality of the grid
+ * metrics. It calculates the bounds of the face metrics (Csi, Eta, Zet).
+ *
+ * @param user The UserCtx, containing all necessary grid data.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ComputeMetricNorms(UserCtx *user);
 
 /**
  * @brief Orchestrates the calculation of all grid metrics.

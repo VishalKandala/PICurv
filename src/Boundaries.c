@@ -397,20 +397,23 @@ PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user)
         BCType modern_type = user->boundary_faces[i].mathematical_type;
         int legacy_code;
 
+	/*
         // This switch maps the modern, descriptive enum to the legacy "magic number".
         // The numbers are taken from the comment block in the old FormBCS.
         switch(modern_type) {
             case WALL:          legacy_code = 1;  break; // solid wall (not moving)
+	    case MOVING_WALL:       legacy_code = 2;  break;
             case SYMMETRY:      legacy_code = 3;  break; // slip wall/symmetry
             case INLET:         legacy_code = 5;  break;
             case OUTLET:        legacy_code = 4;  break;
             case FARFIELD:      legacy_code = 6;  break;
             case PERIODIC:      legacy_code = 7;  break;
             case INTERFACE:     legacy_code = 0;  break; // interpolation/interface
-            // Add case for moving wall (2), etc. as needed.
-            default:            legacy_code = 0;  break;
+            // Add other cases as needed.
+            default:            legacy_code = 1;  break;
         }
-        user->bctype[i] = legacy_code;
+	*/
+        user->bctype[i] = (int)modern_type; //legacy_code;
 	BCFace current_face = (BCFace)i;
 	const char* face_str  = BCFaceToString(current_face);
 	const char* bc_type_str = BCTypeToString(modern_type);
@@ -870,6 +873,21 @@ PetscErrorCode InflowFlux(UserCtx *user)
   lAreaIn = 0.0;
   uin = 0.0;
 
+
+  // ====================== DEBUGGING BLOCK ======================
+  if (rank == 0) {
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "--- InflowFlux Boundary Condition Setup ---\n");
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 0 (-X): %d\n", user->bctype[0]);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 1 (+X): %d\n", user->bctype[1]);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 2 (-Y): %d\n", user->bctype[2]);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 3 (+Y): %d\n", user->bctype[3]);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 4 (-Z): %d\n", user->bctype[4]);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 5 (+Z): %d\n", user->bctype[5]);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "(Note: INLET=%d, OUTLET=%d, WALL=%d, etc.)\n", INLET, OUTLET, WALL);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "-------------------------------------------\n");
+  }
+  PetscBarrier(NULL);
+  
   // --- Pre-calculation Step ---
   // Some profiles require a single velocity value based on total area (pulsatile)
   // or a pre-calculated radius field (parabolic).
@@ -918,7 +936,7 @@ PetscErrorCode InflowFlux(UserCtx *user)
   lAreaIn = 0.0; // Reset for final summation
   for (fn=0; fn<6; fn++) {
    if (user->bctype[fn] == INLET) {
-    // LOG_ALLOW(GLOBAL,LOG_DEBUG,"Inlet detected at face: %d \n", fn);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Inlet detected at face: %d \n", fn);
     switch(fn){
     case 0: // -X face
        if (xs==0) {
@@ -1075,6 +1093,8 @@ PetscErrorCode InflowFlux(UserCtx *user)
 	  }
 	}
       }
+
+      LOG_LOOP_ALLOW_EXACT(LOCAL,LOG_DEBUG,i+j,10,"\n",FluxIn);
       break;
     case 5: // +Z face
       if (ze==mz) {	
@@ -1098,14 +1118,16 @@ PetscErrorCode InflowFlux(UserCtx *user)
 	  }
 	}
       }
+
+       LOG_LOOP_ALLOW_EXACT(LOCAL,LOG_DEBUG,i+j,10,"\n",FluxIn);
       break;
     }//end switch
    }// end inlet check
    else if(user->bctype[fn]==WALL) {
-     // LOG_ALLOW(GLOBAL,LOG_DEBUG,"Solid Wall detected at face: %d \n",fn);
+     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Solid Wall detected at face: %d \n",fn);
    }
    else if(user->bctype[fn]==SYMMETRY) {
-     // LOG_ALLOW(GLOBAL,LOG_DEBUG,"Symmetry detected at face: %d \n",fn);
+     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Symmetry detected at face: %d \n",fn);
    }
    else if(user->bctype[fn]==OUTLET){
      LOG_ALLOW(GLOBAL,LOG_DEBUG,"Outlet detected at face: %d \n",fn);
@@ -1119,7 +1141,7 @@ PetscErrorCode InflowFlux(UserCtx *user)
   }
   PetscBarrier(NULL);
   
-  // LOG_ALLOW(GLOBAL,LOG_DEBUG,"Inflow Flux - Area:  %le - %le \n", simCtx->FluxInSum, AreaSumIn);    
+  LOG_ALLOW(GLOBAL,LOG_DEBUG,"Inflow Flux - Area:  %le - %le \n", simCtx->FluxInSum, AreaSumIn);    
   
   DMDAVecRestoreArray(fda, Coor, &coor);
   DMDAVecRestoreArray(fda, user->Ucont, &ucont);
@@ -1233,7 +1255,7 @@ PetscErrorCode OutflowFlux(UserCtx *user) {
    12:  Ogrid
    13:  Rheology
    14:  Outlet with Interface
-  
+   15:  No Gradient (Similar to Farfield)  
 */
 
 PetscErrorCode FormBCS(UserCtx *user)
@@ -1290,7 +1312,7 @@ PetscErrorCode FormBCS(UserCtx *user)
   DMDAVecGetArray(fda, user->lZet,  &zet);
 
   PetscInt ttemp;
-  for (ttemp=0; ttemp<1; ttemp++) {
+  for (ttemp=0; ttemp<3; ttemp++) {
     DMDAVecGetArray(da, user->Nvert, &nvert); 
     DMDAVecGetArray(fda, user->lUcat,  &ucat);
     DMDAVecGetArray(fda, user->Ucont, &ucont);
@@ -1568,7 +1590,80 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  {
     }
  }
 
+/* ==================================================================================             */
+/*   SOLID WALL BC (NO-SLIP / NO-PENETRATION) */
+/* ==================================================================================             */
 
+// NOTE: This block is added to explicitly handle bctype=1 (solid wall) for all faces.
+// It ensures both no-slip (ubcs=0) and no-penetration (ucont_normal=0).
+// ubcs is handled by the implicit-zero assumption, but ucont must be set explicitly.
+
+// -X Face (i=0)
+if (user->bctype[0]==1 || user->bctype[0]==-1)  {
+    if (xs==0) {
+      i= xs;
+      for (k=lzs; k<lze; k++) {
+        for (j=lys; j<lye; j++) {
+          ubcs[k][j][i].x = 0.0;
+          ubcs[k][j][i].y = 0.0;
+          ubcs[k][j][i].z = 0.0;
+          ucont[k][j][i].x = 0.0; // Enforce no-penetration
+        }
+      }
+    }
+}
+
+// +X Face (i=mx-1)
+if (user->bctype[1]==1 || user->bctype[1]==-1)  {
+    if (xe==mx) {
+      i= xe-1;
+      for (k=lzs; k<lze; k++) {
+        for (j=lys; j<lye; j++) {
+          ubcs[k][j][i].x = 0.0;
+          ubcs[k][j][i].y = 0.0;
+          ubcs[k][j][i].z = 0.0;
+          // The relevant ucont is at the face, index i-1
+          ucont[k][j][i-1].x = 0.0; // Enforce no-penetration
+        }
+      }
+    }
+}
+
+// -Y Face (j=0)
+if (user->bctype[2]==1 || user->bctype[2]==-1)  {
+    if (ys==0) {
+      j= ys;
+      for (k=lzs; k<lze; k++) {
+        for (i=lxs; i<lxe; i++) {
+          ubcs[k][j][i].x = 0.0;
+          ubcs[k][j][i].y = 0.0;
+          ubcs[k][j][i].z = 0.0;
+          ucont[k][j][i].y = 0.0; // Enforce no-penetration
+        }
+      }
+    }
+}
+
+// +Y Face (j=my-1)
+if (user->bctype[3]==1 || user->bctype[3]==-1)  {
+    if (ye==my) {
+      j= ye-1;
+      for (k=lzs; k<lze; k++) {
+        for (i=lxs; i<lxe; i++) {
+          ubcs[k][j][i].x = 0.0;
+          ubcs[k][j][i].y = 0.0;
+          ubcs[k][j][i].z = 0.0;
+          // The relevant ucont is at the face, index j-1
+          ucont[k][j-1][i].y = 0.0; // Enforce no-penetration
+        }
+      }
+    }
+}
+
+/* Original "Amir wall Ogrid" block can now be removed or commented out
+   as its functionality is included above.
+if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
+*/
  
 /* ==================================================================================             */
 /*   SYMMETRY BC */
@@ -1764,7 +1859,7 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  {
 /* ==================================================================================             */
 
   
-  if (user->bctype[5]==4 || user->bctype[5]==14 || user->bctype[5]==20) {
+  if (user->bctype[5]==OUTLET || user->bctype[5]==14 || user->bctype[5]==20) {
     lArea=0.;
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"+Zeta Outlet \n");
      LOG_ALLOW(GLOBAL,LOG_DEBUG,"FluxOutSum before FormBCS applied = %.6f \n",simCtx->FluxOutSum);
@@ -1866,7 +1961,7 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  {
   
 
   /*   OUTLET at k==0 */
-  if (user->bctype[4]==4) {
+  if (user->bctype[4]==OUTLET) {
     lArea=0.;
     if (zs == 0) {
       k = zs;

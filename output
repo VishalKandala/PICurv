@@ -1,0 +1,3809 @@
+[CreateSimulationContext] Context created. Initializing on rank 0 of 4.
+Current log level: DEBUG (4) | rank: 0
+[CreateSimulationContext] Parsing command-line options...
+[CreateSimulationContext] Parsing Group 2: Simulation Control,Time and I/O.
+[CreateSimulationContext] Parsing Group 3: High-Level Physics & Model Selection Flags
+[CreateSimulationContext] Parsing Group 4: Specific Simulation Case Flags 
+[CreateSimulationContext] Parsing Group 5: Solver & Numerics Parameters 
+[CreateSimulationContext] Parsing Group 6: Physical & Geometric Parameters 
+[CreateSimulationContext] Parsing Group 7: Grid, Domain, and Boundary Condition Settings 
+[CreateSimulationContext] Found -bcs_files option, overriding default.
+[CreateSimulationContext] Parsing Group 8: Turbulence Modeling (LES/RANS) 
+[CreateSimulationContext] Parsing Group 9:  Particle / DMSwarm Data & Settings 
+[CreateSimulationContext] Parsing Group 10: Immersed Boundary & FSI Data Object Pointers 
+[CreateSimulationContext] Parsing Group 11: Top-Level Managers & Custom Configuration 
+[CreateSimulationContext] -- Console Output Functions [Total : 65] : --
+[CreateSimulationContext]    [ 0] «main»
+[CreateSimulationContext]    [ 1] «CreateSimulationContext»
+[CreateSimulationContext]    [ 2] «AdvanceSimulation»
+[CreateSimulationContext]    [ 3] «InitializeAllGridDMs»
+[CreateSimulationContext]    [ 4] «InitializeSingleGridDM»
+[CreateSimulationContext]    [ 5] «AssignAllCoordinates»
+[CreateSimulationContext]    [ 6] «SetFinestLevelCoordinates»
+[CreateSimulationContext]    [ 7] «GenerateAndSetCoordinates»
+[CreateSimulationContext]    [ 8] «ReadAndSetCoordinates»
+[CreateSimulationContext]    [ 9] «RestrictCoordinates»
+[CreateSimulationContext]    [10] «CreateAndInitializeAllVectors»
+[CreateSimulationContext]    [11] «CalculateAllGridMetrics»
+[CreateSimulationContext]    [12] «ComputeFaceMetrics»
+[CreateSimulationContext]    [13] «ComputeCellCenteredJacobianInverse»
+[CreateSimulationContext]    [14] «CheckAndFixGridOrientation»
+[CreateSimulationContext]    [15] «ComputeCellCentersAndSpacing»
+[CreateSimulationContext]    [16] «ComputeIFaceMetrics»
+[CreateSimulationContext]    [17] «ComputeJFaceMetrics»
+[CreateSimulationContext]    [18] «ComputeKFaceMetrics»
+[CreateSimulationContext]    [19] «SetupBoundaryConditions»
+[CreateSimulationContext]    [20] «ParseAllBoundaryConditions»
+[CreateSimulationContext]    [21] «TranslateModernBCsToLegacy»
+[CreateSimulationContext]    [22] «SetupDomainRankInfo»
+[CreateSimulationContext]    [23] «ComputeAndStoreNeighborRanks»
+[CreateSimulationContext]    [24] «ComputeLocalBoundingBox»
+[CreateSimulationContext]    [25] «GatherAllBoundingBoxes»
+[CreateSimulationContext]    [26] «BroadcastAllBoundingBoxes»
+[CreateSimulationContext]    [27] «SetupDomainCellDecompositionMap»
+[CreateSimulationContext]    [28] «InitializeParticleSwarm»
+[CreateSimulationContext]    [29] «InitializeRandomGenerators»
+[CreateSimulationContext]    [30] «InitializeLogicalSpaceRNGs»
+[CreateSimulationContext]    [31] «CreateParticleSwarm»
+[CreateSimulationContext]    [32] «DistributeParticles»
+[CreateSimulationContext]    [33] «InitializeSwarm»
+[CreateSimulationContext]    [34] «RegisterParticleFields»
+[CreateSimulationContext]    [35] «AssignInitialPropertiesToSwarm»
+[CreateSimulationContext]    [36] «InitializeParticleBasicProperties»
+[CreateSimulationContext]    [37] «AssignInitialFieldToSwarm»
+[CreateSimulationContext]    [38] «UpdateSwarmFieldValue»
+[CreateSimulationContext]    [39] «CanRankServiceInletFace»
+[CreateSimulationContext]    [40] «GetRandomCellAndLogicOnInletFace»
+[CreateSimulationContext]    [41] «InitializeEulerianState»
+[CreateSimulationContext]    [42] «SetInitialFluidState_FreshStart»
+[CreateSimulationContext]    [43] «UpdateSolverHistoryVectors»
+[CreateSimulationContext]    [44] «BoundarySystem_ExecuteStep_Legacy»
+[CreateSimulationContext]    [45] «InflowFlux»
+[CreateSimulationContext]    [46] «OutflowFlux»
+[CreateSimulationContext]    [47] «FormBCS»
+[CreateSimulationContext]    [48] «AdvanceSimulation»
+[CreateSimulationContext]    [49] «Flow_Solver»
+[CreateSimulationContext]    [50] «RungeKutta»
+[CreateSimulationContext]    [51] «ImpRK»
+[CreateSimulationContext]    [52] «Convection»
+[CreateSimulationContext]    [53] «Viscous»
+[CreateSimulationContext]    [54] «PoissonSolver_MG»
+[CreateSimulationContext]    [55] «VolumeFlux»
+[CreateSimulationContext]    [56] «PoissonRHS»
+[CreateSimulationContext]    [57] «PoissonLHSNew»
+[CreateSimulationContext]    [58] «UpdatePressure»
+[CreateSimulationContext]    [59] «Projection»
+[CreateSimulationContext]    [60] «Divergence»
+[CreateSi[CreateSimulationContext] Context created. Initializing on rank 1 of 4.
+Current log level: DEBUG (4) | rank: 1
+[CreateSimulationContext] Context created. Initializing on rank 2 of 4.
+Current log level: DEBUG (4) | rank: 2
+[CreateSimulationContext] Context created. Initializing on rank 3 of 4.
+Current log level: DEBUG (4) | rank: 3
+mulationContext]    [61] «UpdateAllParticlePositions»
+[CreateSimulationContext]    [62] «LocateParticlesInGrid_TEST»
+[CreateSimulationContext]    [63] «WriteSimulationFields»
+[CreateSimulationContext]    [64] «WriteFieldData»
+[CreateSimulationContext] Configuration complete. Key parameters:
+[CreateSimulationContext]   - Run mode: Full Simulation
+[CreateSimulationContext]   - Time steps: 1 (from 0 to 1)
+[CreateSimulationContext]   - Time step size (dt): 0.1
+[CreateSimulationContext]   - Immersed Boundary: DISABLED
+[CreateSimulationContext]   - Particles: 0
+[CreateSimulationContext] Finished CreateSimulationContext successfully on rank 0.
+[InitializeAllGridDMs] Creating DMDA objects for all levels and blocks...
+[InitializeAllGridDMs] Calculating and validating coarse grid dimensions...
+[InitializeAllGridDMs] --- Creating DMs for Block 0 ---
+[InitializeAllGridDMs] --- Creating DMs for Block 0 ---
+[InitializeSingleGridDM] Rank 1: Creating coarsest DM for block 0 level 0 (size 121x121x121)
+[InitializeAllGridDMs] --- Creating DMs for Block 0 ---
+[InitializeSingleGridDM] Rank 2: Creating coarsest DM for block 0 level 0 (size 121x121x121)
+[InitializeSingleGridDM] Rank 1:   Calling DMDACreate3d...
+[InitializeSingleGridDM] Rank 3: Creating coarsest DM for block 0 level 0 (size 121x121x121)
+[InitializeAllGridDMs] --- Creating DMs for Block 0 ---
+[InitializeSingleGridDM] Rank 0: Creating coarsest DM for block 0 level 0 (size 121x121x121)
+[InitializeSingleGridDM] Rank 2:   Calling DMDACreate3d...
+[InitializeSingleGridDM] Rank 0:   Calling DMDACreate3d...
+[InitializeSingleGridDM] Rank 3:   Calling DMDACreate3d...
+[InitializeSingleGridDM] Rank 1:   DM creation for block 0 level 0 complete.
+[InitializeSingleGridDM] Rank 2:   DM creation for block 0 level 0 complete.
+[InitializeSingleGridDM] Rank 0:   DM creation for block 0 level 0 complete.
+[InitializeAllGridDMs] --- Viewing Finest DMDA (Level 0, Block 0) ---
+[InitializeAllGridDMs] --- Viewing Finest DMDA (Level 0, Block 0) ---
+[InitializeAllGridDMs] --- Viewing Finest DMDA (Level 0, Block 0) ---
+[InitializeAllGridDMs] --- Viewing Finest DMDA (Level 0, Block 0) ---
+[InitializeSingleGridDM] Rank 3:   DM creation for block 0 level 0 complete.
+DM Object: 4 MPI processes
+  type: da
+Processor [0] M 122 N 122 P 122 m 1 n 2 p 2 w 1 s 2
+X range of indices: 0 122, Y range of indices: 0 61, Z range of indices: 0 61
+Lower left corner 0. 0. 0. : Upper right 1. 0.495868 0.495868
+Processor [1] M 122 N 122 P 122 m 1 n 2 p 2 w 1 s 2
+X range of indices: 0 122, Y range of indices: 61 122, Z range of indices: 0 61
+Lower left corner 0. 0.504132 0. : Upper right 1. 1. 0.495868
+[SetFinestLevelCoordinates] Rank 1: Setting finest level coordinates for block 0...
+[GenerateAndSetCoordinates] Rank 1:   Generating coordinates for block 0...
+Processor [2] M 122 N 122 P 122 m 1 n 2 p 2 w 1 s 2
+X range of indices: 0 122, Y range of indices: 0 61, Z range of indices: 61 122
+Lower left corner 0. 0. 0.504132 : Upper right 1. 0.495868 1.
+[SetFinestLevelCoordinates] Rank 2: Setting finest level coordinates for block 0...
+[GenerateAndSetCoordinates] Rank 2:   Generating coordinates for block 0...
+Processor [3] M 122 N 122 P 122 m 1 n 2 p 2 w 1 s 2
+X range of indices: 0 122, Y range of indices: 61 122, Z range of indices: 61 122
+Lower left corner 0. 0.504132 0.504132 : Upper right 1. 1. 1.
+[InitializeAllGridDMs] DMDA object creation complete.
+[SetFinestLevelCoordinates] Rank 0: Setting finest level coordinates for block 0...
+[GenerateAndSetCoordinates] Rank 0:   Generating coordinates for block 0...
+[SetFinestLevelCoordinates] Rank 3: Setting finest level coordinates for block 0...
+[GenerateAndSetCoordinates] Rank 3:   Generating coordinates for block 0...
+[SetFinestLevelCoordinates] Rank 0:   Scattering coordinates to update ghost nodes for block 0...
+[SetFinestLevelCoordinates] Rank 1:   Scattering coordinates to update ghost nodes for block 0...
+[SetFinestLevelCoordinates] Rank 2:   Scattering coordinates to update ghost nodes for block 0...
+[SetFinestLevelCoordinates] Rank 3:   Scattering coordinates to update ghost nodes for block 0...
+[CreateAndInitializeAllVectors] Rank 1: Creating vectors for level 0, block 0
+[CreateAndInitializeAllVectors] Rank 3: Creating vectors for level 0, block 0
+[CreateAndInitializeAllVectors] Creating and initializing all simulation vectors...
+[CreateAndInitializeAllVectors] Rank 0: Creating vectors for level 0, block 0
+[CreateAndInitializeAllVectors] Rank 2: Creating vectors for level 0, block 0
+[CreateAndInitializeAllVectors] All simulation vectors created and initialized.
+[CalculateAllGridMetrics] Calculating grid metrics for all levels and blocks...
+[CalculateAllGridMetrics] Rank 0: Calculating metrics for level 0, block 0
+[ComputeFaceMetrics] Starting calculation and update for Csi, Eta, Zet.
+[CalculateAllGridMetrics] Rank 3: Calculating metrics for level 0, block 0
+[CalculateAllGridMetrics] Rank 1: Calculating metrics for level 0, block 0
+[CalculateAllGridMetrics] Rank 2: Calculating metrics for level 0, block 0
+[ComputeFaceMetrics] Extrapolating boundary values for Csi, Eta, Zet.
+[ComputeFaceMetrics] Zet(k=0)·ez = 0.000   (should be >0 for right-handed grid)
+[ComputeFaceMetrics] Assembling global Csi, Eta, Zet.
+[ComputeFaceMetrics] Updating local lCsi, lEta, lZet.
+[ComputeFaceMetrics] Completed calculation, extrapolation, and update for Csi, Eta, Zet.
+[ComputeCellCenteredJacobianInverse] Starting calculation, extrapolation, and update for Aj.
+[ComputeCellCenteredJacobianInverse] Extrapolating boundary values for Aj. 
+[ComputeCellCenteredJacobianInverse] Assembling global Aj.
+[ComputeCellCenteredJacobianInverse] Updating local lAj.
+[ComputeCellCenteredJacobianInverse] Completed calculation, extrapolation, and update for Aj.
+[ComputeCellCentersAndSpacing] Rank 1: Computing cell centers and spacing for level 0 block 0...
+[ComputeCellCentersAndSpacing] Rank 2: Computing cell centers and spacing for level 0 block 0...
+[ComputeCellCentersAndSpacing] Rank 3: Computing cell centers and spacing for level 0 block 0...
+[CheckAndFixGridOrientation] [orientation] Global Aj range: [1.772e+06 , 1.772e+06]
+[CheckAndFixGridOrientation] [orientation] Grid confirmed right-handed after flip (orientation=+1)
+[ComputeCellCentersAndSpacing] Rank 0: Computing cell centers and spacing for level 0 block 0...
+[ComputeIFaceMetrics] Rank 1: Computing i-face metrics for level 0 block 0...
+[ComputeIFaceMetrics] Rank 0: Computing i-face metrics for level 0 block 0...
+[ComputeIFaceMetrics] Rank 3: Computing i-face metrics for level 0 block 0...
+[ComputeIFaceMetrics] Rank 2: Computing i-face metrics for level 0 block 0...
+[ComputeIFaceMetrics] Rank 1:   i-face centers (Centx) calculated and ghosts updated.
+[ComputeIFaceMetrics] Rank 3:   i-face centers (Centx) calculated and ghosts updated.
+[ComputeIFaceMetrics] Rank 0:   i-face centers (Centx) calculated and ghosts updated.
+[ComputeIFaceMetrics] Rank 2:   i-face centers (Centx) calculated and ghosts updated.
+[ComputeJFaceMetrics] Rank 3: Computing j-face metrics for level 0 block 0...
+[ComputeJFaceMetrics] Rank 0: Computing j-face metrics for level 0 block 0...
+[ComputeJFaceMetrics] Rank 1: Computing j-face metrics for level 0 block 0...
+[ComputeJFaceMetrics] Rank 2: Computing j-face metrics for level 0 block 0...
+[ComputeJFaceMetrics] Rank 1:   j-face centers (Centx) calculated and ghosts updated.
+[ComputeJFaceMetrics] Rank 3:   j-face centers (Centx) calculated and ghosts updated.
+[ComputeJFaceMetrics] Rank 0:   j-face centers (Centx) calculated and ghosts updated.
+[ComputeJFaceMetrics] Rank 2:   j-face centers (Centx) calculated and ghosts updated.
+[ComputeKFaceMetrics] Rank 0: Computing k-face metrics for level 0 block 0...
+[ComputeKFaceMetrics] Rank 1: Computing k-face metrics for level 0 block 0...
+[ComputeKFaceMetrics] Rank 3: Computing k-face metrics for level 0 block 0...
+[ComputeKFaceMetrics] Rank 2: Computing k-face metrics for level 0 block 0...
+[ComputeKFaceMetrics] Rank 2:   k-face centers (Centx) calculated and ghosts updated.
+[ComputeKFaceMetrics] Rank 3:   k-face centers (Centx) calculated and ghosts updated.
+[ComputeKFaceMetrics] Rank 0:   k-face centers (Centx) calculated and ghosts updated.
+[ComputeKFaceMetrics] Rank 1:   k-face centers (Centx) calculated and ghosts updated.
+[CalculateAllGridMetrics] Grid metrics calculation complete.
+[SetupBoundaryConditions] --- Setting up Boundary Conditions ---
+[SetupBoundaryConditions] Parsing bcs.dat and adapting to legacy system for finest grid.
+[SetupBoundaryConditions]   -> Processing Block 0:
+[SetupBoundaryConditions]   -> Processing Block 0 using config file 'bcs.dat'
+[ParseAllBoundaryConditions] Parsing BC configuration from 'bcs.dat' on rank 0... 
+[ParseAllBoundaryConditions] Rank 1 broadcasting/receiving BC configuration.
+[ParseAllBoundaryConditions] Rank 2 broadcasting/receiving BC configuration.
+[ParseAllBoundaryConditions] Rank 3 broadcasting/receiving BC configuration.
+[ParseAllBoundaryConditions]   Parsed Face '-Zeta': Type=INLET, Handler=constant_velocity 
+[ParseAllBoundaryConditions]     - Found param: [vx] = [0.0] 
+[ParseAllBoundaryConditions]     - Found param: [vy] = [0.0] 
+[ParseAllBoundaryConditions]     - Found param: [vz] = [1.0] 
+[ParseAllBoundaryConditions]   Parsed Face '+Zeta': Type=OUTLET, Handler=conservation 
+[ParseAllBoundaryConditions]   Parsed Face '-Eta': Type=WALL, Handler=noslip 
+[ParseAllBoundaryConditions]   Parsed Face '+Eta': Type=WALL, Handler=noslip 
+[ParseAllBoundaryConditions]   Parsed Face '-Xi': Type=WALL, Handler=noslip 
+[ParseAllBoundaryConditions]   Parsed Face '+Xi': Type=WALL, Handler=noslip 
+[ParseAllBoundaryConditions] Rank 0 broadcasting/receiving BC configuration.
+[ParseAllBoundaryConditions] Inlet face for particle initialization identified as Face 4.
+[TranslateModernBCsToLegacy]  Translating modern BC config to legacy integer codes...
+[TranslateModernBCsToLegacy]  for face -Xi (I-Min)(0), legacy type = 1 & modern type = WALL .
+[TranslateModernBCsToLegacy]  for face +Xi (I-Max)(1), legacy type = 1 & modern type = WALL .
+[TranslateModernBCsToLegacy]  for face -Eta (J-Min)(2), legacy type = 1 & modern type = WALL .
+[TranslateModernBCsToLegacy]  for face +Eta (J-Max)(3), legacy type = 1 & modern type = WALL .
+[TranslateModernBCsToLegacy]  for face -Zeta (K-Min)(4), legacy type = 4 & modern type = INLET .
+[TranslateModernBCsToLegacy]  for face +Zeta (K-Max)(5), legacy type = 5 & modern type = OUTLET .
+[TranslateModernBCsToLegacy]     -> Translation complete.
+[SetupBoundaryConditions] --- Boundary Conditions setup complete ---
+[SetupDomainRankInfo] Starting full rank communication setup for 1 block(s).
+[ComputeAndStoreNeighborRanks] Rank 0: Computing DMDA neighbor ranks.
+[ComputeAndStoreNeighborRanks] [Rank 0]Raw DMDAGetNeighbors: xm_raw=-2, xp_raw=-2, ym_raw=-2, yp_raw=1, zm_raw=-2, zp_raw=2. MPI_PROC_NULL is -2.
+[ComputeAndStoreNeighborRanks] [Rank 1]Raw DMDAGetNeighbors: xm_raw=-2, xp_raw=-2, ym_raw=0, yp_raw=-2, zm_raw=-2, zp_raw=3. MPI_PROC_NULL is -2.
+[ComputeAndStoreNeighborRanks] [Rank 2]Raw DMDAGetNeighbors: xm_raw=-2, xp_raw=-2, ym_raw=-2, yp_raw=3, zm_raw=0, zp_raw=-2. MPI_PROC_NULL is -2.
+[ComputeAndStoreNeighborRanks] [Rank 3]Raw DMDAGetNeighbors: xm_raw=-2, xp_raw=-2, ym_raw=2, yp_raw=-2, zm_raw=1, zp_raw=-2. MPI_PROC_NULL is -2.
+[ComputeAndStoreNeighborRanks] [Rank 0] Correcting invalid xm neighbor -2 to MPI_PROC_NULL (-2).
+[ComputeAndStoreNeighborRanks] [Rank 0] Correcting invalid xp neighbor -2 to MPI_PROC_NULL (-2).
+[ComputeAndStoreNeighborRanks] [Rank 0] Correcting invalid ym neighbor -2 to MPI_PROC_NULL (-2).
+[ComputeAndStoreNeighborRanks] [Rank 0] Correcting invalid zm neighbor -2 to MPI_PROC_NULL (-2).
+[ComputeAndStoreNeighborRanks] [Rank 0] Stored user->neighbors: xm=-2, xp=-2, ym=-2, yp=1, zm=-2, zp=2
+[ComputeAndStoreNeighborRanks] [Rank 1] Stored user->neighbors: xm=-2, xp=-2, ym=0, yp=-2, zm=-2, zp=3
+[ComputeAndStoreNeighborRanks] [Rank 2] Stored user->neighbors: xm=-2, xp=-2, ym=-2, yp=3, zm=0, zp=-2
+[ComputeAndStoreNeighborRanks] [Rank 3] Stored user->neighbors: xm=-2, xp=-2, ym=2, yp=-2, zm=1, zp=-2
+[SetupDomainRankInfo] Neighbor ranks computed and stored for all blocks.
+[SetupDomainRankInfo] Processing bounding boxes for block 0...
+[ComputeLocalBoundingBox] Entering the function.
+[ComputeLocalBoundingBox] [Rank 1] Grid indices (Including Ghosts): xs=0, xe=122, ys=59, ye=122, zs=0, ze=63.
+[ComputeLocalBoundingBox] [Rank 2] Grid indices (Including Ghosts): xs=0, xe=122, ys=0, ye=63, zs=59, ze=122.
+[ComputeLocalBoundingBox] [Rank 3] Grid indices (Including Ghosts): xs=0, xe=122, ys=59, ye=122, zs=59, ze=122.
+[ComputeLocalBoundingBox] [Rank 0] Grid indices (Including Ghosts): xs=0, xe=122, ys=0, ye=63, zs=0, ze=63.
+[ComputeLocalBoundingBox]  Tolerance added to the limits: 1.00000000e-06 .
+[ComputeLocalBoundingBox] [Rank 2]minCoords=(-0.000001, -0.000001, 0.487602), maxCoords=(1.000001, 0.512398, 1.000001).
+[ComputeLocalBoundingBox]  Tolerance added to the limits: 1.00000000e-06 .
+[ComputeLocalBoundingBox] [Rank 0]minCoords=(-0.000001, -0.000001, -0.000001), maxCoords=(1.000001, 0.512398, 0.512398).
+[ComputeLocalBoundingBox] Exiting the function successfully.
+[GatherAllBoundingBoxes] Rank 0: about to MPI_Gather(localBBox)
+[GatherAllBoundingBoxes] Rank 1: about to MPI_Gather(localBBox)
+[ComputeLocalBoundingBox]  Tolerance added to the limits: 1.00000000e-06 .
+[ComputeLocalBoundingBox] [Rank 3]minCoords=(-0.000001, 0.487602, 0.487602), maxCoords=(1.000001, 1.000001, 1.000001).
+[ComputeLocalBoundingBox]  Tolerance added to the limits: 1.00000000e-06 .
+[ComputeLocalBoundingBox] [Rank 1]minCoords=(-0.000001, 0.487602, -0.000001), maxCoords=(1.000001, 1.000001, 0.512398).
+[GatherAllBoundingBoxes] Rank 2: about to MPI_Gather(localBBox)
+[GatherAllBoundingBoxes] Rank 3: about to MPI_Gather(localBBox)
+[GatherAllBoundingBoxes] Rank 0: completed MPI_Gather(localBBox)
+[GatherAllBoundingBoxes] Rank 1: completed MPI_Gather(localBBox)
+[GatherAllBoundingBoxes] Rank 2: completed MPI_Gather(localBBox)
+[GatherAllBoundingBoxes] Rank 3: completed MPI_Gather(localBBox)
+[SetupDomainRankInfo]   -> Gather complete for block 0.[BroadcastAllBoundingBoxes] Rank 0: about to MPI_Bcast(4 boxes)
+[BroadcastAllBoundingBoxes] Rank 1: about to MPI_Bcast(4 boxes)
+[BroadcastAllBoundingBoxes] Rank 2: about to MPI_Bcast(4 boxes)
+[BroadcastAllBoundingBoxes] Rank 3: about to MPI_Bcast(4 boxes)
+[BroadcastAllBoundingBoxes] Rank 0: completed MPI_Bcast(4 boxes)
+[BroadcastAllBoundingBoxes] Rank 1: completed MPI_Bcast(4 boxes)
+[BroadcastAllBoundingBoxes] Rank 2: completed MPI_Bcast(4 boxes)
+[SetupDomainCellDecompositionMap] [Rank 1] Owns cells: i[0, 121), j[61, 121), k[0, 61)
+[SetupDomainCellDecompositionMap] [Rank 2] Owns cells: i[0, 121), j[0, 61), k[61, 121)
+[BroadcastAllBoundingBoxes] Rank 3: completed MPI_Bcast(4 boxes)
+[SetupDomainRankInfo]   -> Broadcast complete for block 0.
+[SetupDomainRankInfo]   -> Assembly into final list complete for block 0.
+[SetupDomainCellDecompositionMap] [Rank 3] Owns cells: i[0, 121), j[61, 121), k[61, 121)
+[SetupDomainRankInfo] Final unified bboxlist created on all ranks and stored in SimCtx.
+[SetupDomainCellDecompositionMap] Setting up domain cell decomposition map for 4 ranks.
+[SetupDomainCellDecompositionMap] [Rank 0] Owns cells: i[0, 121), j[0, 61), k[0, 61)
+[SetupDomainCellDecompositionMap] Domain cell decomposition map created and distributed successfully.
+[SetupDomainRankInfo] Domain Cell Composition set and broadcasted.
+[SetupDomainRankInfo] SetupDomainRankInfo: Completed successfully.
+[InitializeEulerianState] --- Initializing Eulerian State ---
+[InitializeEulerianState] Performing a FRESH START (t=0, step=0).
+[SetInitialFluidState_FreshStart] Rank 0, Block 0: Setting t=0 state.
+[SetInitialFluidState_FreshStart]  Initializing Interior Ucont field.
+[SetInitialFluidState_FreshStart] Rank 2, Block 0: Setting t=0 state.
+[SetInitialFluidState_FreshStart] Rank 3, Block 0: Setting t=0 state.
+[SetInitialFluidState_FreshStart] Rank 1, Block 0: Setting t=0 state.
+[SetInitialFluidState_FreshStart]  Interior Ucont field initialized.
+[SetInitialFluidState_FreshStart]  Boundary condition Preparation steps initiated.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[SetInitialFluidState_FreshStart]  Boundary condition Preparation steps completed.
+[SetInitialFluidState_FreshStart]  Boundary condition application and state finalization initiated.
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.000000 
+[FormBCS] Ratio for momentum correction = 1.000000 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[UpdateSolverHistoryVectors] Rank 1, Block 0: Updating solver history vectors.
+[UpdateSolverHistoryVectors] Rank 3, Block 0: Updating solver history vectors.
+[SetInitialFluidState_FreshStart]  Boundary condition application and state finalization complete.
+[UpdateSolverHistoryVectors] Rank 0, Block 0: Updating solver history vectors.
+[UpdateSolverHistoryVectors] Rank 2, Block 0: Updating solver history vectors.
+[UpdateSolverHistoryVectors] Rank 3, Block 0, Ucont history updated.
+[UpdateSolverHistoryVectors] Rank 1, Block 0, Ucont history updated.
+[UpdateSolverHistoryVectors] Rank 0, Block 0, Ucont history updated.
+[UpdateSolverHistoryVectors] Rank 2, Block 0, Ucont history updated.
+[UpdateSolverHistoryVectors] Rank 3, Block 0, Ucat & P  history updated.
+[UpdateSolverHistoryVectors] Rank 1, Block 0, Ucat & P  history updated.
+[UpdateSolverHistoryVectors] Rank 0, Block 0, Ucat & P  history updated.
+[UpdateSolverHistoryVectors] Rank 2, Block 0, Ucat & P  history updated.
+[InitializeEulerianState] --- Eulerian State Initialized and History Vectors Populated ---
+[AdvanceSimulation] Starting main time-marching loop: 1 steps from step 0 (t=0.0000), dt=0.1000
+[AdvanceSimulation] --- Advancing Step 0 (t=0.0000) ---
+[Flow_Solver] [Step 0] Entering Flow_Solver orchestrator...
+[Flow_Solver] Beginning momentum solve (Implicit Flag = 1)...
+[Flow_Solver] Executing implicit momentum solver...
+[ImpRK] Executing implicit-like RK solver (ImpRK) for 1 block(s).
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.983539 
+[FormBCS] Ratio for momentum correction = 0.000000 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  BCs and workspace vectors prepared for Initial RHS calculation.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  Initial RHS calculated for convergence check .
+[ImpRK]  Time derivative part added to RHS.
+[ImpRK]  Block 0 | Max RHS = 0.004000 | CFL = 0.1000 .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :1 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.983539 
+[FormBCS] Ratio for momentum correction = 0.000000 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :1 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.982339 
+[FormBCS] Ratio for momentum correction = 0.001220 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :1 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.981674 
+[FormBCS] Ratio for momentum correction = 0.001897 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :1 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.980810 
+[FormBCS] Ratio for momentum correction = 0.002775 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  3.105573e-05 | |U| = 2.721249e-03.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 1.000000e+00. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.000000e+00. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 1 | |dU|  3.105573e-05 |  |dU|/|dU_0| 1.000000e+00 | |U| = 2.721249e-03 
+[ImpRK]   Iter(Pseudo-Timestep) 1: |dU|=3.105573e-05, |dU|/|dU_0|=1.000000e+00, |U|=1.000000e+00, CPU=2.39s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :2 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.977915 
+[FormBCS] Ratio for momentum correction = 0.005719 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :2 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.976403 
+[FormBCS] Ratio for momentum correction = 0.007256 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :2 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.975969 
+[FormBCS] Ratio for momentum correction = 0.007697 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :2 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.975005 
+[FormBCS] Ratio for momentum correction = 0.008677 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  2.116356e-05 | |U| = 1.055178e-03.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 6.814704e-01. 
+[ImpRK]  Block 0 | |R|/|R_0| = 3.877549e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 2 | |dU|  2.116356e-05 |  |dU|/|dU_0| 6.814704e-01 | |U| = 1.055178e-03 
+[ImpRK]   Iter(Pseudo-Timestep) 2: |dU|=2.116356e-05, |dU|/|dU_0|=6.814704e-01, |U|=3.877549e-01, CPU=4.27s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :3 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.972098 
+[FormBCS] Ratio for momentum correction = 0.011633 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :3 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.970852 
+[FormBCS] Ratio for momentum correction = 0.012900 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :3 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.970616 
+[FormBCS] Ratio for momentum correction = 0.013140 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :3 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.969867 
+[FormBCS] Ratio for momentum correction = 0.013902 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  8.389282e-06 | |U| = 6.221457e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 2.701364e-01. 
+[ImpRK]  Block 0 | |R|/|R_0| = 2.286251e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 3 | |dU|  8.389282e-06 |  |dU|/|dU_0| 2.701364e-01 | |U| = 6.221457e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 3: |dU|=8.389282e-06, |dU|/|dU_0|=2.701364e-01, |U|=2.286251e-01, CPU=6.15s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :4 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.967719 
+[FormBCS] Ratio for momentum correction = 0.016086 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :4 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.966845 
+[FormBCS] Ratio for momentum correction = 0.016974 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :4 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.966679 
+[FormBCS] Ratio for momentum correction = 0.017143 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :4 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.966105 
+[FormBCS] Ratio for momentum correction = 0.017726 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  4.909862e-06 | |U| = 4.987261e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 1.580984e-01. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.832711e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 4 | |dU|  4.909862e-06 |  |dU|/|dU_0| 1.580984e-01 | |U| = 4.987261e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 4: |dU|=4.909862e-06, |dU|/|dU_0|=1.580984e-01, |U|=1.832711e-01, CPU=8.03s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :5 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.964550 
+[FormBCS] Ratio for momentum correction = 0.019307 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :5 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.963895 
+[FormBCS] Ratio for momentum correction = 0.019973 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :5 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.963741 
+[FormBCS] Ratio for momentum correction = 0.020130 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :5 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.963294 
+[FormBCS] Ratio for momentum correction = 0.020584 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  3.527510e-06 | |U| = 4.024782e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 1.135865e-01. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.479020e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 5 | |dU|  3.527510e-06 |  |dU|/|dU_0| 1.135865e-01 | |U| = 4.024782e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 5: |dU|=3.527510e-06, |dU|/|dU_0|=1.135865e-01, |U|=1.479020e-01, CPU=9.91s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :6 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.962079 
+[FormBCS] Ratio for momentum correction = 0.021819 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :6 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.961545 
+[FormBCS] Ratio for momentum correction = 0.022362 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :6 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.961413 
+[FormBCS] Ratio for momentum correction = 0.022497 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :6 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.961059 
+[FormBCS] Ratio for momentum correction = 0.022857 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  2.757741e-06 | |U| = 3.384028e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 8.879976e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.243557e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 6 | |dU|  2.757741e-06 |  |dU|/|dU_0| 8.879976e-02 | |U| = 3.384028e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 6: |dU|=2.757741e-06, |dU|/|dU_0|=8.879976e-02, |U|=1.243557e-01, CPU=11.79s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :7 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.960071 
+[FormBCS] Ratio for momentum correction = 0.023861 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :7 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.959634 
+[FormBCS] Ratio for momentum correction = 0.024306 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :7 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.959529 
+[FormBCS] Ratio for momentum correction = 0.024413 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :7 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.959245 
+[FormBCS] Ratio for momentum correction = 0.024701 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  2.167245e-06 | |U| = 3.091001e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 6.978567e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.135876e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 7 | |dU|  2.167245e-06 |  |dU|/|dU_0| 6.978567e-02 | |U| = 3.091001e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 7: |dU|=2.167245e-06, |dU|/|dU_0|=6.978567e-02, |U|=1.135876e-01, CPU=13.67s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :8 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.958441 
+[FormBCS] Ratio for momentum correction = 0.025519 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :8 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.958085 
+[FormBCS] Ratio for momentum correction = 0.025880 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :8 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.957999 
+[FormBCS] Ratio for momentum correction = 0.025968 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :8 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.957766 
+[FormBCS] Ratio for momentum correction = 0.026205 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  1.676426e-06 | |U| = 3.123488e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 5.398122e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.147814e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 8 | |dU|  1.676426e-06 |  |dU|/|dU_0| 5.398122e-02 | |U| = 3.123488e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 8: |dU|=1.676426e-06, |dU|/|dU_0|=5.398122e-02, |U|=1.147814e-01, CPU=15.55s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :9 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.957106 
+[FormBCS] Ratio for momentum correction = 0.026875 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :9 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.956812 
+[FormBCS] Ratio for momentum correction = 0.027175 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :9 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.956737 
+[FormBCS] Ratio for momentum correction = 0.027251 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :9 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.956543 
+[FormBCS] Ratio for momentum correction = 0.027448 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  1.315160e-06 | |U| = 3.189210e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 4.234839e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.171966e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 9 | |dU|  1.315160e-06 |  |dU|/|dU_0| 4.234839e-02 | |U| = 3.189210e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 9: |dU|=1.315160e-06, |dU|/|dU_0|=4.234839e-02, |U|=1.171966e-01, CPU=17.43s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :10 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.955991 
+[FormBCS] Ratio for momentum correction = 0.028010 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :10 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.955741 
+[FormBCS] Ratio for momentum correction = 0.028264 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :10 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.955677 
+[FormBCS] Ratio for momentum correction = 0.028329 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :10 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.955514 
+[FormBCS] Ratio for momentum correction = 0.028495 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  1.048944e-06 | |U| = 3.222361e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 3.377618e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.184148e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 10 | |dU|  1.048944e-06 |  |dU|/|dU_0| 3.377618e-02 | |U| = 3.222361e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 10: |dU|=1.048944e-06, |dU|/|dU_0|=3.377618e-02, |U|=1.184148e-01, CPU=19.30s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :11 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.955045 
+[FormBCS] Ratio for momentum correction = 0.028971 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :11 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.954833 
+[FormBCS] Ratio for momentum correction = 0.029187 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :11 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.954778 
+[FormBCS] Ratio for momentum correction = 0.029243 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :11 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.954640 
+[FormBCS] Ratio for momentum correction = 0.029383 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  8.608060e-07 | |U| = 3.231953e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 2.771811e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.187673e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 11 | |dU|  8.608060e-07 |  |dU|/|dU_0| 2.771811e-02 | |U| = 3.231953e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 11: |dU|=8.608060e-07, |dU|/|dU_0|=2.771811e-02, |U|=1.187673e-01, CPU=21.18s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :12 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.954241 
+[FormBCS] Ratio for momentum correction = 0.029789 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :12 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.954059 
+[FormBCS] Ratio for momentum correction = 0.029973 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :12 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.954013 
+[FormBCS] Ratio for momentum correction = 0.030021 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :12 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.953895 
+[FormBCS] Ratio for momentum correction = 0.030141 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  7.292623e-07 | |U| = 3.225635e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 2.348238e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.185351e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 12 | |dU|  7.292623e-07 |  |dU|/|dU_0| 2.348238e-02 | |U| = 3.225635e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 12: |dU|=7.292623e-07, |dU|/|dU_0|=2.348238e-02, |U|=1.185351e-01, CPU=23.06s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :13 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.953553 
+[FormBCS] Ratio for momentum correction = 0.030488 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :13 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.953397 
+[FormBCS] Ratio for momentum correction = 0.030647 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :13 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.953357 
+[FormBCS] Ratio for momentum correction = 0.030688 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :13 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.953255 
+[FormBCS] Ratio for momentum correction = 0.030791 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  6.220110e-07 | |U| = 3.209405e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 2.002886e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.179387e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 13 | |dU|  6.220110e-07 |  |dU|/|dU_0| 2.002886e-02 | |U| = 3.209405e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 13: |dU|=6.220110e-07, |dU|/|dU_0|=2.002886e-02, |U|=1.179387e-01, CPU=24.93s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :14 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.952961 
+[FormBCS] Ratio for momentum correction = 0.031090 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :14 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.952826 
+[FormBCS] Ratio for momentum correction = 0.031227 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :14 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.952791 
+[FormBCS] Ratio for momentum correction = 0.031263 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :14 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.952703 
+[FormBCS] Ratio for momentum correction = 0.031352 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  5.314741e-07 | |U| = 3.187481e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 1.711356e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.171330e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 14 | |dU|  5.314741e-07 |  |dU|/|dU_0| 1.711356e-02 | |U| = 3.187481e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 14: |dU|=5.314741e-07, |dU|/|dU_0|=1.711356e-02, |U|=1.171330e-01, CPU=26.81s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :15 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.952449 
+[FormBCS] Ratio for momentum correction = 0.031611 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :15 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.952331 
+[FormBCS] Ratio for momentum correction = 0.031730 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :15 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.952300 
+[FormBCS] Ratio for momentum correction = 0.031762 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :15 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.952225 
+[FormBCS] Ratio for momentum correction = 0.031839 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  4.515672e-07 | |U| = 3.162754e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 1.454054e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.162244e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 15 | |dU|  4.515672e-07 |  |dU|/|dU_0| 1.454054e-02 | |U| = 3.162754e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 15: |dU|=4.515672e-07, |dU|/|dU_0|=1.454054e-02, |U|=1.162244e-01, CPU=28.70s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :16 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.952004 
+[FormBCS] Ratio for momentum correction = 0.032063 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :16 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951901 
+[FormBCS] Ratio for momentum correction = 0.032168 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :16 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951874 
+[FormBCS] Ratio for momentum correction = 0.032195 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :16 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951809 
+[FormBCS] Ratio for momentum correction = 0.032262 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  3.848731e-07 | |U| = 3.170355e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 1.239298e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.165037e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 16 | |dU|  3.848731e-07 |  |dU|/|dU_0| 1.239298e-02 | |U| = 3.170355e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 16: |dU|=3.848731e-07, |dU|/|dU_0|=1.239298e-02, |U|=1.165037e-01, CPU=30.57s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :17 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951616 
+[FormBCS] Ratio for momentum correction = 0.032458 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :17 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951527 
+[FormBCS] Ratio for momentum correction = 0.032548 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :17 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951503 
+[FormBCS] Ratio for momentum correction = 0.032572 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :17 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951446 
+[FormBCS] Ratio for momentum correction = 0.032631 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  3.270363e-07 | |U| = 3.196458e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 1.053063e-02. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.174629e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 17 | |dU|  3.270363e-07 |  |dU|/|dU_0| 1.053063e-02 | |U| = 3.196458e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 17: |dU|=3.270363e-07, |dU|/|dU_0|=1.053063e-02, |U|=1.174629e-01, CPU=32.45s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :18 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951278 
+[FormBCS] Ratio for momentum correction = 0.032802 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :18 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951199 
+[FormBCS] Ratio for momentum correction = 0.032881 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :18 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951179 
+[FormBCS] Ratio for momentum correction = 0.032902 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :18 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.951129 
+[FormBCS] Ratio for momentum correction = 0.032953 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  2.787001e-07 | |U| = 3.217507e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 8.974194e-03. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.182364e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 18 | |dU|  2.787001e-07 |  |dU|/|dU_0| 8.974194e-03 | |U| = 3.217507e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 18: |dU|=2.787001e-07, |dU|/|dU_0|=8.974194e-03, |U|=1.182364e-01, CPU=34.33s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :19 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950981 
+[FormBCS] Ratio for momentum correction = 0.033103 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :19 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950913 
+[FormBCS] Ratio for momentum correction = 0.033173 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :19 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950894 
+[FormBCS] Ratio for momentum correction = 0.033191 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :19 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950851 
+[FormBCS] Ratio for momentum correction = 0.033236 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  2.385080e-07 | |U| = 3.234358e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 7.680001e-03. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.188557e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 19 | |dU|  2.385080e-07 |  |dU|/|dU_0| 7.680001e-03 | |U| = 3.234358e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 19: |dU|=2.385080e-07, |dU|/|dU_0|=7.680001e-03, |U|=1.188557e-01, CPU=36.20s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :20 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950722 
+[FormBCS] Ratio for momentum correction = 0.033367 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :20 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950661 
+[FormBCS] Ratio for momentum correction = 0.033429 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :20 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950645 
+[FormBCS] Ratio for momentum correction = 0.033445 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :20 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950607 
+[FormBCS] Ratio for momentum correction = 0.033484 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  2.068610e-07 | |U| = 3.247749e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 6.660960e-03. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.193477e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 20 | |dU|  2.068610e-07 |  |dU|/|dU_0| 6.660960e-03 | |U| = 3.247749e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 20: |dU|=2.068610e-07, |dU|/|dU_0|=6.660960e-03, |U|=1.193477e-01, CPU=38.09s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :21 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950493 
+[FormBCS] Ratio for momentum correction = 0.033599 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :21 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950440 
+[FormBCS] Ratio for momentum correction = 0.033653 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :21 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950426 
+[FormBCS] Ratio for momentum correction = 0.033668 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :21 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950392 
+[FormBCS] Ratio for momentum correction = 0.033702 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  1.800542e-07 | |U| = 3.258307e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 5.797776e-03. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.197358e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 21 | |dU|  1.800542e-07 |  |dU|/|dU_0| 5.797776e-03 | |U| = 3.258307e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 21: |dU|=1.800542e-07, |dU|/|dU_0|=5.797776e-03, |U|=1.197358e-01, CPU=39.95s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :22 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950292 
+[FormBCS] Ratio for momentum correction = 0.033804 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :22 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950245 
+[FormBCS] Ratio for momentum correction = 0.033851 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :22 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950233 
+[FormBCS] Ratio for momentum correction = 0.033864 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :22 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950203 
+[FormBCS] Ratio for momentum correction = 0.033894 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  1.581224e-07 | |U| = 3.266561e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 5.091569e-03. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.200391e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 22 | |dU|  1.581224e-07 |  |dU|/|dU_0| 5.091569e-03 | |U| = 3.266561e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 22: |dU|=1.581224e-07, |dU|/|dU_0|=5.091569e-03, |U|=1.200391e-01, CPU=41.84s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :23 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950115 
+[FormBCS] Ratio for momentum correction = 0.033984 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :23 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950074 
+[FormBCS] Ratio for momentum correction = 0.034026 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :23 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950063 
+[FormBCS] Ratio for momentum correction = 0.034037 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :23 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.950037 
+[FormBCS] Ratio for momentum correction = 0.034063 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  1.390566e-07 | |U| = 3.272951e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 4.477649e-03. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.202739e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 23 | |dU|  1.390566e-07 |  |dU|/|dU_0| 4.477649e-03 | |U| = 3.272951e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 23: |dU|=1.390566e-07, |dU|/|dU_0|=4.477649e-03, |U|=1.202739e-01, CPU=43.72s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :24 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949959 
+[FormBCS] Ratio for momentum correction = 0.034142 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :24 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949922 
+[FormBCS] Ratio for momentum correction = 0.034180 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :24 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949913 
+[FormBCS] Ratio for momentum correction = 0.034190 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :24 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949890 
+[FormBCS] Ratio for momentum correction = 0.034213 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  1.218536e-07 | |U| = 3.277840e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 3.923708e-03. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.204535e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 24 | |dU|  1.218536e-07 |  |dU|/|dU_0| 3.923708e-03 | |U| = 3.277840e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 24: |dU|=1.218536e-07, |dU|/|dU_0|=3.923708e-03, |U|=1.204535e-01, CPU=45.59s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :25 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949821 
+[FormBCS] Ratio for momentum correction = 0.034283 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :25 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949788 
+[FormBCS] Ratio for momentum correction = 0.034316 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :25 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949780 
+[FormBCS] Ratio for momentum correction = 0.034325 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :25 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949760 
+[FormBCS] Ratio for momentum correction = 0.034345 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  1.070925e-07 | |U| = 3.281530e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 3.448396e-03. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.205891e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 25 | |dU|  1.070925e-07 |  |dU|/|dU_0| 3.448396e-03 | |U| = 3.281530e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 25: |dU|=1.070925e-07, |dU|/|dU_0|=3.448396e-03, |U|=1.205891e-01, CPU=47.47s
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 0 | Pseudo-Timestep :26 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.2500)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949699 
+[FormBCS] Ratio for momentum correction = 0.034407 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 1 | Pseudo-Timestep :26 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.3333)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949670 
+[FormBCS] Ratio for momentum correction = 0.034436 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 2 | Pseudo-Timestep :26 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(0.5000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949662 
+[FormBCS] Ratio for momentum correction = 0.034444 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  Time derivative part updated for next RK stage .
+[ImpRK]  Pseudo-Timestep Solver | RK-Stage : 3 | Pseudo-Timestep :26 .
+[ImpRK]  Ucont updated as Ucont = [lambda(0.1000)]x[alfa(1.0000)]x[dt(0.1000)]x[st(1.0000)]xRhs + pUcont.
+--- InflowFlux Boundary Condition Setup ---
+Face 0 (-X): 1
+Face 1 (+X): 1
+Face 2 (-Y): 1
+Face 3 (+Y): 1
+Face 4 (-Z): 4
+Face 5 (+Z): 5
+(Note: INLET=4, OUTLET=5, WALL=1, etc.)
+-------------------------------------------
+[InflowFlux] Solid Wall detected at face: 0 
+[InflowFlux] Solid Wall detected at face: 1 
+[InflowFlux] Solid Wall detected at face: 2 
+[InflowFlux] Solid Wall detected at face: 3 
+[InflowFlux] Inlet detected at face: 4 
+[InflowFlux] Outlet detected at face: 5 
+[InflowFlux] Inflow Flux - Area:  9.835394e-01 - 9.835394e-01 
+[OutflowFlux] Block 0 calculating Outflow Flux .
+[OutflowFlux]  Block 0 FluxOutSum = 0.983539 .
+[FormBCS] +Zeta Outlet 
+[FormBCS] FluxOutSum before FormBCS applied = 0.983539 
+[FormBCS] AreaOutSum = 0.983539 | FluxOutSum = 0.949644 
+[FormBCS] Ratio for momentum correction = 0.034462 
+[FormBCS] Timestep = 0 | FluxInSum = 0.983539 | FlucOutSum = 0.983539 | FluxIntfcSum = 0.000000 | FluxIntpSum = 0.000000 
+[ImpRK]  Ghosts synced and BCs reapplied.
+[Convection] Convective term calculated .
+[Viscous] Viscous terms calculated .
+[ImpRK]  RHS calculated for the next RK stage.
+[ImpRK]  All RK stages complete.
+[ImpRK]  Block 0 | dU calculated .
+[ImpRK]  Block 0 | |dU|  =  9.372929e-08 | |U| = 3.284270e-04.
+[ImpRK]  Block 0 | |dU|/|dU_0| = 3.018100e-03. 
+[ImpRK]  Block 0 | |R|/|R_0| = 1.206898e-01. 
+[ImpRK]  Block 0 | Step: 0 | Pseudo-Timestep 26 | |dU|  9.372929e-08 |  |dU|/|dU_0| 3.018100e-03 | |U| = 3.284270e-04 
+[ImpRK]   Iter(Pseudo-Timestep) 26: |dU|=9.372929e-08, |dU|/|dU_0|=3.018100e-03, |U|=1.206898e-01, CPU=49.35s
+[ImpRK] ImpRK solve completed after 26 iterations.
+[Flow_Solver] Momentum solve completed in 49.3539 seconds.
+[Flow_Solver] [DIAGNOSTIC] After ImpRK (Block 0): Global Ucont Norm = 8.784898e-02, Local lUcont Norm = 4.568628e-02
+[Flow_Solver] SYNC: Forcing update of local Ucont from global Ucont before Poisson solve.
+[PoissonSolver_MG] Block 0: Computing Poisson RHS...
+[PoissonSolver_MG] Block 0: Computing Poisson RHS...
+[PoissonSolver_MG] Block 0: Computing Poisson RHS...
+[Flow_Solver] [DIAGNOSTIC] After Sync (Block 0): Global Ucont Norm = 8.784898e-02, Local lUcont Norm = 4.568628e-02
+[Flow_Solver] Beginning pressure-Poisson solve (Poisson Flag = 0)...
+[PoissonSolver_MG] Starting Multigrid Poisson Solve...
+[PoissonSolver_MG] Block 0: Computing Poisson RHS...
+[VolumeFlux] Entering VolumeFlux to enforce no-penetration condition.
+[VolumeFlux] Pass 1: Measuring uncorrected flux and area.
+[VolumeFlux] IBM Uncorrected Flux: 0., Area: 0., Correction: 0.
+[VolumeFlux] Pass 2: Applying velocity corrections at the boundary.
+[VolumeFlux] Pass 3: Verifying corrected flux.
+[VolumeFlux] IBM Corrected (Verified) Flux: 0., Area: 0.
+[VolumeFlux] Exiting VolumeFlux.
+[PoissonRHS] Entering PoissonRHS to compute pressure equation RHS.
+[PoissonRHS] Computing RHS values for each cell.
+[PoissonRHS] Verifying solvability condition (sum of RHS terms).
+[PoissonSolver_MG] Block 0: Assembling Poisson LHS on all levels...
+[PoissonRHS] Global Sum of RHS (Divergence Check): -8.791099e-04
+[PoissonSolver_MG] Block 0: Assembling Poisson LHS on all levels...
+[PoissonLHSNew] Entering PoissonLHSNew to assemble Laplacian matrix.
+[PoissonLHSNew] First call: Creating LHS matrix 'A' with 19-point stencil preallocation.
+[PoissonSolver_MG] Block 0: Assembling Poisson LHS on all levels...
+[PoissonSolver_MG] Block 0: Assembling Poisson LHS on all levels...
+[PoissonLHSNew] Pre-computing metric tensor components (g_ij).
+[PoissonLHSNew] Assembling the LHS matrix A using a 19-point stencil.
+[PoissonLHSNew] Finalizing matrix assembly.
+[PoissonSolver_MG] Block 0: Configuring KSP and PCMG...
+[PoissonSolver_MG] Block 0: Configuring KSP and PCMG...
+[PoissonSolver_MG] Block 0: Configuring KSP and PCMG...
+[PoissonLHSNew] Exiting PoissonLHSNew.
+[PoissonSolver_MG] Block 0: Configuring KSP and PCMG...
+[PoissonSolver_MG] Block 0: Setting KSP operators and solving...
+[PoissonSolver_MG] Block 0: Setting KSP operators and solving...
+[PoissonSolver_MG] Block 0: Setting KSP operators and solving...
+[PoissonSolver_MG] Block 0: Setting KSP operators and solving...
+  Residual norms for ps_ solve.
+  0 KSP unpreconditioned resid norm 3.839434654284e+04 true resid norm 3.839434654284e+04 ||r(i)||/||b|| 1.000000000000e+00
+  1 KSP unpreconditioned resid norm 2.060699671831e+03 true resid norm 2.060699671831e+03 ||r(i)||/||b|| 5.367195583161e-02
+  2 KSP unpreconditioned resid norm 1.432401817456e+03 true resid norm 1.432401817456e+03 ||r(i)||/||b|| 3.730762329442e-02
+  3 KSP unpreconditioned resid norm 8.927297071405e+02 true resid norm 8.927297071405e+02 ||r(i)||/||b|| 2.325159268290e-02
+  4 KSP unpreconditioned resid norm 3.801532378260e+02 true resid norm 3.801532378260e+02 ||r(i)||/||b|| 9.901281622330e-03
+  5 KSP unpreconditioned resid norm 1.088222668571e+02 true resid norm 1.088222668571e+02 ||r(i)||/||b|| 2.834330484975e-03
+  6 KSP unpreconditioned resid norm 3.497506601620e+01 true resid norm 3.497506601620e+01 ||r(i)||/||b|| 9.109431248471e-04
+  7 KSP unpreconditioned resid norm 2.062441657648e+01 true resid norm 2.062441657648e+01 ||r(i)||/||b|| 5.371732672534e-04
+  8 KSP unpreconditioned resid norm 1.852135495369e+01 true resid norm 1.852135495369e+01 ||r(i)||/||b|| 4.823979731761e-04
+  9 KSP unpreconditioned resid norm 1.843962505460e+01 true resid norm 1.843962505460e+01 ||r(i)||/||b|| 4.802692769891e-04
+ 10 KSP unpreconditioned resid norm 1.843741083800e+01 true resid norm 1.843741083800e+01 ||r(i)||/||b|| 4.802116066079e-04
+ 11 KSP unpreconditioned resid norm 1.843505261456e+01 true resid norm 1.843505261457e+01 ||r(i)||/||b|| 4.801501854967e-04
+ 12 KSP unpreconditioned resid norm 1.843448955226e+01 true resid norm 1.843448955227e+01 ||r(i)||/||b|| 4.801355202568e-04
+ 13 KSP unpreconditioned resid norm 1.843312650814e+01 true resid norm 1.843312650814e+01 ||r(i)||/||b|| 4.801000190894e-04
+ 14 KSP unpreconditioned resid norm 1.843040787126e+01 true resid norm 1.843040787129e+01 ||r(i)||/||b|| 4.800292108298e-04
+ 15 KSP unpreconditioned resid norm 1.843020393728e+01 true resid norm 1.843020393729e+01 ||r(i)||/||b|| 4.800238992666e-04
+ 16 KSP unpreconditioned resid norm 1.843013456749e+01 true resid norm 1.843013456749e+01 ||r(i)||/||b|| 4.800220924954e-04
+ 17 KSP unpreconditioned resid norm 1.842999510988e+01 true resid norm 1.842999510991e+01 ||r(i)||/||b|| 4.800184602529e-04
+ 18 KSP unpreconditioned resid norm 1.842998387470e+01 true resid norm 1.842998387476e+01 ||r(i)||/||b|| 4.800181676278e-04
+ 19 KSP unpreconditioned resid norm 1.842998213394e+01 true resid norm 1.842998213395e+01 ||r(i)||/||b|| 4.800181222876e-04
+ 20 KSP unpreconditioned resid norm 1.842976966469e+01 true resid norm 1.842976966469e+01 ||r(i)||/||b|| 4.800125884190e-04
+ 21 KSP unpreconditioned resid norm 1.842976447537e+01 true resid norm 1.842976447537e+01 ||r(i)||/||b|| 4.800124532607e-04
+ 22 KSP unpreconditioned resid norm 1.842974173911e+01 true resid norm 1.842974173911e+01 ||r(i)||/||b|| 4.800118610833e-04
+ 23 KSP unpreconditioned resid norm 1.842974019969e+01 true resid norm 1.842974019969e+01 ||r(i)||/||b|| 4.800118209883e-04
+ 24 KSP unpreconditioned resid norm 1.842972711859e+01 true resid norm 1.842972711859e+01 ||r(i)||/||b|| 4.800114802845e-04
+ 25 KSP unpreconditioned resid norm 1.842971404184e+01 true resid norm 1.842971404184e+01 ||r(i)||/||b|| 4.800111396941e-04
+ 26 KSP unpreconditioned resid norm 1.842971194440e+01 true resid norm 1.842971194440e+01 ||r(i)||/||b|| 4.800110850652e-04
+ 27 KSP unpreconditioned resid norm 1.842965061030e+01 true resid norm 1.842965061030e+01 ||r(i)||/||b|| 4.800094875877e-04
+ 28 KSP unpreconditioned resid norm 1.842945244651e+01 true resid norm 1.842945244651e+01 ||r(i)||/||b|| 4.800043263126e-04
+ 29 KSP unpreconditioned resid norm 1.842925531094e+01 true resid norm 1.842925531093e+01 ||r(i)||/||b|| 4.799991918177e-04
+ 30 KSP unpreconditioned resid norm 1.842826560087e+01 true resid norm 1.842826560087e+01 ||r(i)||/||b|| 4.799734143231e-04
+ 31 KSP unpreconditioned resid norm 1.842802362993e+01 true resid norm 1.842802362993e+01 ||r(i)||/||b|| 4.799671120686e-04
+ 32 KSP unpreconditioned resid norm 1.842802226689e+01 true resid norm 1.842802226689e+01 ||r(i)||/||b|| 4.799670765674e-04
+ 33 KSP unpreconditioned resid norm 1.842802225392e+01 true resid norm 1.842802225392e+01 ||r(i)||/||b|| 4.799670762296e-04
+ 34 KSP unpreconditioned resid norm 1.842754822945e+01 true resid norm 1.842754822944e+01 ||r(i)||/||b|| 4.799547300247e-04
+ 35 KSP unpreconditioned resid norm 1.842604946660e+01 true resid norm 1.842604946660e+01 ||r(i)||/||b|| 4.799156939952e-04
+ 36 KSP unpreconditioned resid norm 1.842385177639e+01 true resid norm 1.842385177636e+01 ||r(i)||/||b|| 4.798584540513e-04
+ 37 KSP unpreconditioned resid norm 1.842260518534e+01 true resid norm 1.842260518538e+01 ||r(i)||/||b|| 4.798259859644e-04
+ 38 KSP unpreconditioned resid norm 1.842234011578e+01 true resid norm 1.842234011577e+01 ||r(i)||/||b|| 4.798190820936e-04
+ 39 KSP unpreconditioned resid norm 1.842223297987e+01 true resid norm 1.842223297978e+01 ||r(i)||/||b|| 4.798162916830e-04
+ 40 KSP unpreconditioned resid norm 1.842219702697e+01 true resid norm 1.842219702697e+01 ||r(i)||/||b|| 4.798153552741e-04
+ 41 KSP unpreconditioned resid norm 1.842219701340e+01 true resid norm 1.842219701340e+01 ||r(i)||/||b|| 4.798153549206e-04
+ 42 KSP unpreconditioned resid norm 1.842219701197e+01 true resid norm 1.842219701197e+01 ||r(i)||/||b|| 4.798153548833e-04
+ 43 KSP unpreconditioned resid norm 1.842219451511e+01 true resid norm 1.842219451511e+01 ||r(i)||/||b|| 4.798152898514e-04
+ 44 KSP unpreconditioned resid norm 1.842219043007e+01 true resid norm 1.842219043007e+01 ||r(i)||/||b|| 4.798151834545e-04
+ 45 KSP unpreconditioned resid norm 1.842214065433e+01 true resid norm 1.842214065433e+01 ||r(i)||/||b|| 4.798138870205e-04
+ 46 KSP unpreconditioned resid norm 1.842209369157e+01 true resid norm 1.842209369157e+01 ||r(i)||/||b|| 4.798126638517e-04
+ 47 KSP unpreconditioned resid norm 1.842209056524e+01 true resid norm 1.842209056524e+01 ||r(i)||/||b|| 4.798125824250e-04
+ 48 KSP unpreconditioned resid norm 1.842202699223e+01 true resid norm 1.842202699222e+01 ||r(i)||/||b|| 4.798109266339e-04
+ 49 KSP unpreconditioned resid norm 1.842141132546e+01 true resid norm 1.842141132546e+01 ||r(i)||/||b|| 4.797948912845e-04
+ 50 KSP unpreconditioned resid norm 1.842062240995e+01 true resid norm 1.842062240996e+01 ||r(i)||/||b|| 4.797743435847e-04
+ 51 KSP unpreconditioned resid norm 1.842061853844e+01 true resid norm 1.842061853844e+01 ||r(i)||/||b|| 4.797742427492e-04
+ 52 KSP unpreconditioned resid norm 1.842061324090e+01 true resid norm 1.842061324090e+01 ||r(i)||/||b|| 4.797741047720e-04
+ 53 KSP unpreconditioned resid norm 1.842061173895e+01 true resid norm 1.842061173895e+01 ||r(i)||/||b|| 4.797740656530e-04
+ 54 KSP unpreconditioned resid norm 1.842054788626e+01 true resid norm 1.842054788622e+01 ||r(i)||/||b|| 4.797724025766e-04
+ 55 KSP unpreconditioned resid norm 1.842044178690e+01 true resid norm 1.842044178691e+01 ||r(i)||/||b|| 4.797696391669e-04
+ 56 KSP unpreconditioned resid norm 1.842038333821e+01 true resid norm 1.842038333815e+01 ||r(i)||/||b|| 4.797681168397e-04
+ 57 KSP unpreconditioned resid norm 1.841991406220e+01 true resid norm 1.841991406264e+01 ||r(i)||/||b|| 4.797558943239e-04
+ 58 KSP unpreconditioned resid norm 1.841989862009e+01 true resid norm 1.841989862032e+01 ||r(i)||/||b|| 4.797554921208e-04
+ 59 KSP unpreconditioned resid norm 1.841947830009e+01 true resid norm 1.841947829592e+01 ||r(i)||/||b|| 4.797445445612e-04
+ 60 KSP unpreconditioned resid norm 1.841822114016e+01 true resid norm 1.841822114016e+01 ||r(i)||/||b|| 4.797118013094e-04
+ 61 KSP unpreconditioned resid norm 1.841821945508e+01 true resid norm 1.841821945508e+01 ||r(i)||/||b|| 4.797117574206e-04
+ 62 KSP unpreconditioned resid norm 1.841821443057e+01 true resid norm 1.841821443057e+01 ||r(i)||/||b|| 4.797116265546e-04
+ 63 KSP unpreconditioned resid norm 1.841819823080e+01 true resid norm 1.841819823080e+01 ||r(i)||/||b|| 4.797112046235e-04
+ 64 KSP unpreconditioned resid norm 1.841816475225e+01 true resid norm 1.841816475225e+01 ||r(i)||/||b|| 4.797103326579e-04
+ 65 KSP unpreconditioned resid norm 1.841769434989e+01 true resid norm 1.841769434989e+01 ||r(i)||/||b|| 4.796980807926e-04
+ 66 KSP unpreconditioned resid norm 1.841738146574e+01 true resid norm 1.841738146574e+01 ||r(i)||/||b|| 4.796899315681e-04
+ 67 KSP unpreconditioned resid norm 1.841714336992e+01 true resid norm 1.841714336992e+01 ||r(i)||/||b|| 4.796837302432e-04
+ 68 KSP unpreconditioned resid norm 1.841675175937e+01 true resid norm 1.841675175937e+01 ||r(i)||/||b|| 4.796735305501e-04
+ 69 KSP unpreconditioned resid norm 1.841664059910e+01 true resid norm 1.841664059910e+01 ||r(i)||/||b|| 4.796706353251e-04
+ 70 KSP unpreconditioned resid norm 1.841612938705e+01 true resid norm 1.841612938705e+01 ||r(i)||/||b|| 4.796573205510e-04
+[PoissonSolver_MG] Multigrid Poisson Solve complete.
+[Flow_Solver] Pressure-Poisson solve completed in 100.4749 seconds.
+[Flow_Solver] Applying velocity correction/projection step...
+[UpdatePressure] Entering UpdatePressure.
+[UpdatePressure] Performing core pressure update (P_new = P_old + Phi).
+[UpdatePressure] Exiting UpdatePressure.
+[Projection] Entering Projection step to correct velocity field.
+[Projection] Calculating pressure gradients and correcting velocity components.
+[Projection] Updating ghost cells for corrected velocity.
+[Projection] Converting velocity to Cartesian and finalizing ghost nodes.
+[Projection] Exiting Projection step.
+[Flow_Solver] Finalizing state for block 0...
+[Flow_Solver] Velocity correction completed in 0.1338 seconds.
+[Flow_Solver] Finalizing state for block 0...
+[Flow_Solver] Finalizing state for block 0...
+[Flow_Solver] Finalizing state for block 0...
+[Divergence] Pressure[10][10][1] =  0.331381 | Pressure[10][10][0] =  0.000000  
+ [Divergence] Pressure[10][10][120] =  0.322920 | Pressure[10][10][119] =  0.000000  
+ [Divergence] [Step 0]] The Maximum Divergence is 2.751390e+01 .
+[UpdateSolverHistoryVectors] Rank 1, Block 0: Updating solver history vectors.
+[UpdateSolverHistoryVectors] Rank 2, Block 0: Updating solver history vectors.
+[UpdateSolverHistoryVectors] Rank 3, Block 0: Updating solver history vectors.
+[PROFILE] TIMING [Step 0]: Momentum=49.3539s, Poisson=100.4749s, Projection=0.1338s, TOTAL=149.9627s
+[Flow_Solver] Flow_Solver orchestrator finished for step 0.
+[UpdateSolverHistoryVectors] Rank 0, Block 0: Updating solver history vectors.
+[UpdateSolverHistoryVectors] Rank 3, Block 0, Ucont history updated.
+[UpdateSolverHistoryVectors] Rank 1, Block 0, Ucont history updated.
+[UpdateSolverHistoryVectors] Rank 2, Block 0, Ucont history updated.
+[UpdateSolverHistoryVectors] Rank 0, Block 0, Ucont history updated.
+[UpdateSolverHistoryVectors] Rank 1, Block 0, Ucat & P  history updated.
+[UpdateSolverHistoryVectors] Rank 2, Block 0, Ucat & P  history updated.
+[UpdateSolverHistoryVectors] Rank 3, Block 0, Ucat & P  history updated.
+[UpdateSolverHistoryVectors] Rank 0, Block 0, Ucat & P  history updated.
+[AdvanceSimulation] Writing output for step 1.
+[WriteSimulationFields] WriteSimulationFields - Starting to write simulation fields.
+[WriteFieldData] WriteFieldData - Preparing to write <results/vfield00000_0.dat> on rank 0/4
+[WriteFieldData] WriteFieldData - <vfield> range = [-9.2980e-07 … 7.0752e-05]
+[WriteFieldData] WriteFieldData - Wrote <results/vfield00000_0.dat> (parallel path)
+[WriteFieldData] WriteFieldData - Preparing to write <results/ufield00000_0.dat> on rank 0/4
+[WriteFieldData] WriteFieldData - <ufield> range = [-9.4518e-01 … 1.1146e+00]
+[WriteFieldData] WriteFieldData - Wrote <results/ufield00000_0.dat> (parallel path)
+[WriteFieldData] WriteFieldData - Preparing to write <results/pfield00000_0.dat> on rank 0/4
+[WriteFieldData] WriteFieldData - <pfield> range = [-2.6863e-01 … 4.6440e-01]
+[WriteFieldData] WriteFieldData - Wrote <results/pfield00000_0.dat> (parallel path)
+[WriteFieldData] WriteFieldData - Preparing to write <results/nvfield00000_0.dat> on rank 0/4
+[WriteFieldData] WriteFieldData - <nvfield> range = [0.0000e+00 … 0.0000e+00]
+[WriteFieldData] WriteFieldData - Wrote <results/nvfield00000_0.dat> (parallel path)
+[WriteSimulationFields] WriteSimulationFields - Finished writing simulation fields.
+[AdvanceSimulation] Time marching completed. Final time t=0.1000.
+WARNING! There are options you set that were not used!
+WARNING! could be spelling mistake, etc!
+There are 6 unused database options. They are:
+Option left: name:-mg_semi_i value: 0 source: file
+Option left: name:-mg_semi_j value: 0 source: file
+Option left: name:-mg_semi_k value: 0 source: file
+Option left: name:-ps_mg_levels_1_ksp_type value: richardson source: file
+Option left: name:-ps_mg_levels_2_ksp_type value: richardson source: file
+Option left: name:-ps_mg_levels_3_ksp_type value: fgmres source: file
