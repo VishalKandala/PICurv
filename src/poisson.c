@@ -4059,7 +4059,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 	monctx->block_id = bi;
         
         // 2. Create the file viewer and write the header.
-        sprintf(filen, "results/Poisson_Solver_Convergence_History_Block_%d.log", bi);
+        sprintf(filen, "logs/Poisson_Solver_Convergence_History_Block_%d.log", bi);
         ierr = PetscViewerASCIIOpen(PETSC_COMM_WORLD, filen, &monctx->viewer); CHKERRQ(ierr);
         ierr = PetscViewerFileSetMode(monctx->viewer, FILE_MODE_APPEND); CHKERRQ(ierr);
         if (!simCtx->rank) {

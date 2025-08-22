@@ -53,6 +53,7 @@ int main(int argc, char **argv)
       ierr = InitializeParticleSwarm(simCtx); CHKERRQ(ierr);
      }
 
+    LOG_ALLOW(GLOBAL,LOG_INFO," Setup Completed.\n");
     
     
     /*

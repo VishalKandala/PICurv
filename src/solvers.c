@@ -102,7 +102,7 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
     }
     
     ierr = PetscTime(&tm_e); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Momentum solve completed in %.4f seconds.\n", tm_e - tm_s);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Momentum solve completed in %.4f seconds.\n", tm_e - tm_s);
 
     // ========================================================================
     //   !!! DIAGNOSTIC CHECKPOINT 1: BEFORE CORRECTION !!!
@@ -112,21 +112,14 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
       VecNorm(user[bi].Ucont, NORM_2, &unorm);
       VecNorm(user[bi].P, NORM_2, &pnorm);
       VecNorm(user[bi].Phi,NORM_2,&phinorm);
-      LOG_ALLOW(GLOBAL, LOG_INFO, "Before Correction (Block %d): Ucont Norm = %e, P  Norm = %e Phi Norm = %e \n", bi, unorm, pnorm, phinorm);
+      LOG_ALLOW(GLOBAL, LOG_DEBUG, "Before Correction (Block %d): Ucont Norm = %e, P  Norm = %e Phi Norm = %e \n", bi, unorm, pnorm, phinorm);
+      UpdateLocalGhosts(&user[bi],"Ucont");
+      UpdateLocalGhosts(&user[bi],"P");
     }
+    
     unorm = 0.0;
     pnorm = 0.0;
     phinorm = 0.0;
-    // ========================================================================
-
-// ========================================================================
-//   !!! Update Local Ghosts !!!
-// ========================================================================
-LOG_ALLOW(GLOBAL, LOG_INFO, "SYNC: Forcing update of local Ucont from global Ucont before Poisson solve.\n");
-for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-  UpdateLocalGhosts(&user[bi],"Ucont");
-  UpdateLocalGhosts(&user[bi],"P");
-}
     
 // ========================================================================
 //   SECTION: Pressure-Poisson Solver
@@ -155,14 +148,18 @@ for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
     LOG_ALLOW(GLOBAL, LOG_INFO, "Applying velocity correction/projection step...\n");
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         ierr = UpdatePressure(&user[bi]); CHKERRQ(ierr);
+	LOG_ALLOW(GLOBAL,LOG_INFO," Pressure Updated for Block %d.\n",bi);
+	
         ierr = Projection(&user[bi]); CHKERRQ(ierr);
-        
-        // Ensure local ghost cells for the final pressure field are correct
+	
+        LOG_ALLOW(GLOBAL,LOG_INFO," Velocity corrected for Block %d.\n",bi);
+
+	// Ensure local ghost cells for the final pressure field are correct
 	ierr = UpdateLocalGhosts(&user[bi],"P");
     }
     
     ierr = PetscTime(&tpr_e); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Velocity correction completed in %.4f seconds.\n", tpr_e - tp_e);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Velocity correction completed in %.4f seconds.\n", tpr_e - tp_e);
 
 
     // ========================================================================
@@ -172,7 +169,7 @@ for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
       VecNorm(user[bi].Ucont, NORM_2, &unorm);
       VecNorm(user[bi].P, NORM_2, &pnorm);
       VecNorm(user[bi].Phi,NORM_2,&phinorm);
-      LOG_ALLOW(GLOBAL, LOG_INFO, "After Correction (Block %d): Ucont Norm = %e, P  Norm = %e, Phi Norm = %e\n", bi, unorm, pnorm,phinorm);
+      LOG_ALLOW(GLOBAL, LOG_DEBUG, "After Correction (Block %d): Ucont Norm = %e, P  Norm = %e, Phi Norm = %e\n", bi, unorm, pnorm,phinorm);
     }
     // ========================================================================
     
@@ -181,7 +178,7 @@ for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
     // ========================================================================
     
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        LOG_ALLOW(LOCAL, LOG_INFO, "Finalizing state for block %d...\n", bi);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Finalizing state & Diagnostics for block %d...\n", bi);
         
         // --- Perform Divergence Check ---
         // This is a diagnostic to verify the quality of the velocity correction.
@@ -208,17 +205,12 @@ for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         }
         */
 
-        // --- Per-Step I/O ---
-        // The I/O is now handled in the main AdvanceSimulation loop to give
-        // the user more control. The legacy call is commented out here.
-        // if (simCtx->step % simCtx->tiout == 0) {
-        //     Ucont_P_Binary_Output(&user[bi]);
         // }
     }
     
     // --- Profiling Output ---
     // (This can be kept as is, but it's good practice to wrap it in a LOG_PROFILE check)
-    LOG_PROFILE_MSG(GLOBAL, "TIMING [Step %d]: Momentum=%.4fs, Poisson=%.4fs, Projection=%.4fs, TOTAL=%.4fs\n",
+    LOG_PROFILE_MSG(GLOBAL, "[Step %d]: Momentum=%.4fs, Poisson=%.4fs, Projection=%.4fs, TOTAL=%.4fs\n",
                     simCtx->step, tm_e - tm_s, tp_e - tm_e, tpr_e - tp_e, tpr_e - tm_s);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Flow_Solver orchestrator finished for step %d.\n", simCtx->step);

@@ -819,7 +819,7 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
     if (!rank) {
         FILE *f;
         char filen[128];
-        sprintf(filen, "results/Continuity_Metrics.log");
+        sprintf(filen, "logs/Continuity_Metrics.log");
 
         // Open the log file in append mode.
         f = fopen(filen, "a");

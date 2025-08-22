@@ -259,151 +259,6 @@ PetscErrorCode PerformInitialSetup(UserCtx *user, BoundingBox *bboxlist)
 }
 
 
-/**
- * @brief Executes the main time-marching loop for the particle simulation. [TEST VERSION]
- *
- * This version uses the new, integrated `LocateAllParticlesInGrid_TEST` orchestrator
- * and the `ResetAllParticleStatuses` helper for a clean, robust, and understandable workflow.
- *
- * For each timestep, it performs:
- *  1. Sets the background fluid velocity field (Ucat) for the current step.
- *  2. Updates particle positions using velocity from the *previous* step's interpolation.
- *  3. Removes any particles that have left the global domain.
- *  4. A single call to `LocateAllParticlesInGrid_TEST`, which handles all
- *     particle location and migration until the swarm is fully settled.
- *  5. Interpolates the current fluid velocity to the newly settled particle locations.
- *  6. Scatters particle data back to Eulerian fields.
- *  7. Outputs data at specified intervals.
- *
- * @param user       Pointer to the UserCtx structure..
- * @return PetscErrorCode 0 on success, non-zero on failure.
- */
-/*
-PetscErrorCode AdvanceSimulation(UserCtx *user)
-{
-    PetscErrorCode ierr;
-    PetscInt  StartStep;
-    PetscReal StartTime;
-    PetscInt  StepsToRun;
-    PetscInt  OutputFreq;
-    BoundingBox *bboxlist;
-
-    SimCtx *simCtx = user->simCtx;
-
-    StartStep = simCtx->StartStep;
-    StartTime = simCtx->StartTime;
-    StepsToRun = simCtx->StepsToRun;
-    OutputFreq = simCtx->OutputFreq;
-    bboxlist   = simCtx->bboxlist;
-    
-    const PetscReal dt = simCtx->dt;
-    PetscReal       currentTime = StartTime;
-    PetscInt        removed_local_ob, removed_global_ob;
-    PetscInt        removed_local_lost, removed_global_lost;
-    PetscInt        removed_local,removed_global;
-    PetscInt        output_step;
-
-    PetscFunctionBeginUser;
-    LOG_ALLOW(GLOBAL, LOG_INFO,
-              "Starting simulation run [PRODUCTION]: %d steps from step %d (t=%.4f), dt=%.4f\n",
-              StepsToRun, StartStep, StartTime, dt);
-
-    // --- Handle Initial Setup (t = StartTime, step = StartStep) ---
-    if (StartStep == 0) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Preparing state at t=%.4f (Step 0) ---\n", currentTime);
-        simCtx->step = 0;
-        ierr = SetEulerianFields(user); CHKERRQ(ierr);
-        ierr = PerformInitialSetup(user, bboxlist);
-        CHKERRQ(ierr);
-
-        if (StepsToRun == 0) {
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Initial setup completed. No steps to run. Exiting.\n");
-            PetscFunctionReturn(0);
-        }
-        // NOTE: do not advance currentTime here
-        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initial setup complete. Beginning time marching. ---\n\n");
-    }
-
-    // --- Time Marching Loop ---
-    for (PetscInt step = StartStep; step < StartStep + StepsToRun; ++step) {
-        output_step = step + 1;
-        LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "--- Advancing from Step %d (t=%.4f) to Step %d (t=%.4f) ---\n",
-                  step, currentTime, output_step, currentTime + dt);
-
-        // 1) Reset statuses
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Resetting particle statuses for next timestep.\n");
-        ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
-
-        // 2) Update Eulerian fields for time t
-        ierr = SetEulerianFields(user); CHKERRQ(ierr);
-
-        // 3) Advect particles P(t→t+dt)
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f] Updating particle positions to T=%.4f.\n",
-                  currentTime, currentTime + dt);
-        ierr = UpdateAllParticlePositions(user); CHKERRQ(ierr);
-
-	// 4) Settle particles (location + migration)
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f] Settling all particles.\n", currentTime + dt);
-        ierr = LocateAllParticlesInGrid_TEST(user, bboxlist); CHKERRQ(ierr);
-	
-        // 5a) Remove Lost Particles
-	ierr = CheckAndRemoveLostParticles(user,&removed_local_lost,&removed_global_lost);CHKERRQ(ierr);
-	// 5b) Remove Out-of-Bounds Particles
-	ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, bboxlist);
-	// 5c) Accumulate all removed particles
-	
-	removed_local = removed_local_lost + removed_local_ob;
-	removed_global = removed_global_lost + removed_global_ob; 
-        CHKERRQ(ierr);
-        if (removed_global > 0) {
-            LOG_ALLOW(GLOBAL, LOG_INFO,
-                      "[T=%.4f] Removed %d out-of-bounds particles globally.\n",
-                      currentTime + dt, removed_global);
-        }
-
-
-       // ============================================ ============================
-        // After particles migrate, the new host rank may need ghost data from its
-        // neighbor to interpolate to its new particles. We must refresh the ghost
-        // regions of the field we are about to interpolate FROM.
-	//  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Refreshing ghost regions post-migration.\n");
-	// ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-	//ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
-        // If you were interpolating other fields, you would refresh them here too.
-        // ierr = UpdateLocalGhosts(user, "Tcat"); CHKERRQ(ierr); 
-        // =========================================================================
-	
-        // 6) Interpolate & scatter
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f] Interpolating to settled particles.\n", currentTime + dt);
-        ierr = InterpolateAllFieldsToSwarm(user);            CHKERRQ(ierr);
-        ierr = ScatterAllParticleFieldsToEulerFields(user);  CHKERRQ(ierr);
-
-        // 7) Advance time and step count
-        currentTime += dt;
-        simCtx->step = output_step;
-	simCtx->ti = currentTime;
-	
-        // 8) Output if requested
-        if (OutputFreq > 0 && (simCtx->step % OutputFreq) == 0) {
-            LOG_ALLOW(GLOBAL, LOG_INFO,
-                      "[T=%.4f] Writing output at Step %d.\n",
-                      currentTime, simCtx->step);
-            ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
-            ierr = WriteSwarmField(user, "position", simCtx->step, "dat");          CHKERRQ(ierr);
-            ierr = WriteSwarmField(user, "velocity", simCtx->step, "dat");          CHKERRQ(ierr);
-            ierr = WriteSimulationFields(user);                                   CHKERRQ(ierr);
-        }
-
-        LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "--- Completed Step %d at t=%.4f ---\n\n", step, currentTime);
-    }
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", currentTime);
-    PetscFunctionReturn(0);
-}
-*/
-
 #undef __FUNCT__
 #define __FUNCT__ "AdvanceSimulation"
 /**
@@ -480,8 +335,11 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         
         // Call the refactored, high-level legacy solver. This single function
         // advances the entire multi-block fluid field from t_n to t_{n+1}.
-        ierr = Flow_Solver(simCtx); CHKERRQ(ierr);
+	LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
+	
+	ierr = Flow_Solver(simCtx); CHKERRQ(ierr);
 
+	LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field solved ...\n");
         // =================================================================
         //     3. LAGRANGIAN PARTICLE STEP
         // =================================================================
