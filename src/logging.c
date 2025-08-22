@@ -728,8 +728,14 @@ PetscErrorCode DualMonitorDestroy(void **ctx)
 {
     DualMonitorCtx *monctx = (DualMonitorCtx*)*ctx;
     PetscErrorCode ierr;
+    PetscMPIInt    rank;
+    
     PetscFunctionBeginUser;
-    ierr = PetscViewerDestroy(&monctx->viewer); CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
+    if(!rank && monctx->file_handle){
+      fclose(monctx->file_handle);
+    }
+    
     ierr = PetscFree(monctx); CHKERRQ(ierr);
     *ctx = NULL;
     PetscFunctionReturn(0);
@@ -757,8 +763,10 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
     PetscReal      trnorm, relnorm;
     Vec            r;
     char           norm_buf[256];
+    PetscMPIInt    rank;
 
     PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
 
     // 1. Calculate the true residual norm.
     ierr = KSPBuildResidual(ksp, NULL, NULL, &r); CHKERRQ(ierr);
@@ -771,21 +779,25 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
         ierr = VecNorm(b, NORM_2, &monctx->bnorm); CHKERRQ(ierr);
     }
 
+    if(!rank){
     // 3. Compute the relative norm and format the output string.
     if (monctx->bnorm > 1.e-15) {
-        relnorm = trnorm / monctx->bnorm;
-        sprintf(norm_buf, "ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e | Rel Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm, (double)relnorm);
+      relnorm = trnorm / monctx->bnorm;
+      sprintf(norm_buf, "ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e | Rel Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm, (double)relnorm);
     } else {
-        sprintf(norm_buf,"ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm);
+      sprintf(norm_buf,"ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm);
     }
 
     // 4. Log to the file viewer (unconditionally).
-    ierr = PetscViewerASCIIPrintf(monctx->viewer, "%s\n", norm_buf); CHKERRQ(ierr);
-
+    if(monctx->file_handle){
+      ierr = PetscFPrintf(PETSC_COMM_SELF,monctx->file_handle,"%s\n", norm_buf); CHKERRQ(ierr);
+    }
     // 5. Log to the console (conditionally).
     if (monctx->log_to_console) {
-        ierr = PetscViewerASCIIPrintf(PETSC_VIEWER_STDOUT_WORLD, "%s\n", norm_buf); CHKERRQ(ierr);
+      PetscFPrintf(PETSC_COMM_SELF,stdout, "%s\n", norm_buf); CHKERRQ(ierr);
     }
+
+    } //rank
 
     PetscFunctionReturn(0);
 }

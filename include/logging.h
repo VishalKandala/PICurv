@@ -61,7 +61,7 @@ extern PetscLogEvent EVENT_IndividualLocation;
  * flag to enable/disable optional logging to the console.
  */
 typedef struct {
-    PetscViewer viewer;           // Viewer for the log file.
+    FILE        *file_handle;        // C file handling for logging.
     PetscBool   log_to_console;   // Flag to enable console output.
     PetscReal   bnorm;            // Stores the norm of the initial RHS vector.
     PetscInt    step;             // Timestep

@@ -3983,6 +3983,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
     const PetscInt immersed = simCtx->immersed;
     const PetscInt MHV = simCtx->MHV;
     const PetscInt LV = simCtx->LV;
+    PetscMPIInt rank = simCtx->rank;
     // --- END CONTEXT ACQUISITION BLOCK ---
 
     PetscErrorCode ierr;
@@ -4057,21 +4058,28 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 
 	monctx->step = simCtx->step;
 	monctx->block_id = bi;
-        
-        // 2. Create the file viewer and write the header.
-        sprintf(filen, "logs/Poisson_Solver_Convergence_History_Block_%d.log", bi);
-        ierr = PetscViewerASCIIOpen(PETSC_COMM_WORLD, filen, &monctx->viewer); CHKERRQ(ierr);
-        ierr = PetscViewerFileSetMode(monctx->viewer, FILE_MODE_APPEND); CHKERRQ(ierr);
-        if (!simCtx->rank) {
-	  ierr = PetscViewerASCIIPrintf(monctx->viewer, "--- Convergence for Timestep %d, Block %d ---\n", (int)simCtx->step, (int)bi); CHKERRQ(ierr);
+	monctx->file_handle = NULL;
+
+	// Only rank 0 handles the file.
+        if (!rank) {
+	  sprintf(filen, "logs/Poisson_Solver_Convergence_History_Block_%d.log", bi);
+	  // On the very first step of the entire simulation, TRUNCATE the file.
+	  if (simCtx->step == simCtx->StartStep) {
+	    monctx->file_handle = fopen(filen, "w");
+	  } else { // For all subsequent steps, APPEND to the file.
+	    monctx->file_handle = fopen(filen, "a");
+	  }
+ 
+            if (monctx->file_handle) {
+                PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle, "--- Convergence for Timestep %d, Block %d ---\n", (int)simCtx->step, bi);
+            } else {
+                SETERRQ1(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not open KSP monitor log file: %s", filen);
+            }
         }
 
-        // 3. Check if the user passed the console monitor option.
-        //    We check the fully-prefixed option name.
-        ierr = PetscOptionsHasName(NULL,NULL, "-ps_ksp_pic_monitor_true_residual", &has_monitor_option); CHKERRQ(ierr);
+        ierr = PetscOptionsHasName(NULL, NULL, "-ps_ksp_pic_monitor_true_residual", &has_monitor_option); CHKERRQ(ierr);
         monctx->log_to_console = has_monitor_option;
 
-        // 4. Set our custom dual monitor.
         ierr = KSPMonitorSet(mgksp, DualKSPMonitor, monctx, DualMonitorDestroy); CHKERRQ(ierr);
         // =======================================================================
 	
