@@ -1,0 +1,143 @@
+# ==========================================================================
+#
+#                    PIC-Solver Logging Whitelist
+#
+# --------------------------------------------------------------------------
+#
+#   Description:
+#   This file specifies which functions are allowed to produce output
+#   via the LOG_ALLOW macro system. Functions are grouped by category
+#   for clarity.
+#
+#   - One function name per line.
+#   - Lines starting with '#' are disabled but kept for context.
+#
+# ==========================================================================
+
+
+# ==========================================================================
+# 1. Main Execution & Simulation Flow
+# --------------------------------------------------------------------------
+# High-level functions that control the overall simulation lifecycle.
+# ==========================================================================
+
+main
+CreateSimulationContext
+AdvanceSimulation
+Flow_Solver
+RungeKutta
+ImpRK
+#FinalizeBlockState
+
+
+# ==========================================================================
+# 2. Grid & Domain Setup
+# --------------------------------------------------------------------------
+# Functions related to grid generation, decomposition, and metric
+# calculations.
+# ==========================================================================
+
+SetupGridAndSolvers
+AllocateContextHierarchy
+#DefineAllDimensions
+#ParseAndSetGridInputs
+#ReadGridGenerationInputs
+#ReadGridFile
+InitializeAllGridDMs
+InitializeSingleGridDM
+AssignAllCoordinates
+SetFinestLevelCoordinates
+GenerateAndSetCoordinates
+ReadAndSetCoordinates
+RestrictCoordinates
+CreateAndInitializeAllVectors
+CalculateAllGridMetrics
+ComputeFaceMetrics
+ComputeCellCenteredJacobianInverse
+CheckAndFixGridOrientation
+ComputeCellCentersAndSpacing
+ComputeIFaceMetrics
+ComputeJFaceMetrics
+ComputeKFaceMetrics
+ComputeMetricsDivergence
+ComputeMetricNorms
+#Contra2Cart
+#UpdateLocalGhosts
+SetupDomainRankInfo
+ComputeAndStoreNeighborRanks
+ComputeLocalBoundingBox
+GatherAllBoundingBoxes
+BroadcastAllBoundingBoxes
+SetupDomainCellDecompositionMap
+
+
+# ==========================================================================
+# 3. Boundary Conditions
+# --------------------------------------------------------------------------
+# Functions responsible for parsing and applying boundary conditions.
+# ==========================================================================
+
+SetupBoundaryConditions
+ParseAllBoundaryConditions
+TranslateModernBCsToLegacy
+BoundarySystem_ExecuteStep_Legacy
+InflowFlux
+OutflowFlux
+FormBCS
+
+
+# ==========================================================================
+# 4. Particle Management
+# --------------------------------------------------------------------------
+# Functions for initializing, distributing, and updating particles.
+# ==========================================================================
+
+InitializeParticleSwarm
+InitializeRandomGenerators
+InitializeLogicalSpaceRNGs
+CreateParticleSwarm
+DistributeParticles
+InitializeSwarm
+RegisterParticleFields
+AssignInitialPropertiesToSwarm
+InitializeParticleBasicProperties
+AssignInitialFieldToSwarm
+UpdateSwarmFieldValue
+CanRankServiceInletFace
+GetRandomCellAndLogicOnInletFace
+UpdateAllParticlePositions
+LocateParticlesInGrid_TEST
+InterpolateAllFieldsToSwarm
+
+
+# ==========================================================================
+# 5. Physics & Numerical Solvers
+# --------------------------------------------------------------------------
+# Core solver routines for fluid dynamics, Poisson equations, etc.
+# ==========================================================================
+
+InitializeEulerianState
+SetInitialFluidState_FreshStart
+#SetInitialInteriorField
+UpdateSolverHistoryVectors
+#FormFunction1
+Convection
+Viscous
+PoissonSolver_MG
+MyRestriction
+VolumeFlux
+PoissonRHS
+PoissonLHSNew
+UpdatePressure
+#Projection
+Divergence
+
+
+# ==========================================================================
+# 6. I/O & Post-Processing
+# --------------------------------------------------------------------------
+# Functions related to writing simulation data to files.
+# ==========================================================================
+
+WriteSimulationFields
+WriteFieldData

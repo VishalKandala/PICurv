@@ -1,0 +1,74 @@
+# ==========================================================================
+#
+#               Boundary Conditions Configuration File
+#
+# --------------------------------------------------------------------------
+#
+#   Description:
+#   This file specifies the boundary conditions for each face of the
+#   computational domain.
+#
+#   Format:
+#   <Face> <General_Type> <Specific_Handler> [param1=value1] ...
+#
+#   - Face:           Identifies the boundary face
+#                     (-Xi, +Xi, -Eta, +Eta, -Zeta, +Zeta)
+#   - General_Type:   Primary classification (e.g., INLET, OUTLET, WALL)
+#   - Specific_Handler: The specific algorithm to apply (e.g., noslip)
+#   - Parameters:     Optional key-value pairs for the handler
+#
+# ==========================================================================
+
+
+# ==========================================================================
+# 1. Inlet / Outlet Conditions
+# --------------------------------------------------------------------------
+# Defines the flow conditions at the domain's entrances and exits.
+# ==========================================================================
+
+# An inlet on the -Zeta face with a constant velocity profile.
+-Zeta   INLET    constant_velocity   vx=0.0 vy=0.0 vz=1.0
+
+# An outlet on the +Zeta face that enforces global mass conservation.
++Zeta   OUTLET   conservation
+
+
+# ==========================================================================
+# 2. Wall Conditions
+# --------------------------------------------------------------------------
+# Defines the behavior of the solid boundaries.
+# ==========================================================================
+
+# Stationary, no-slip walls on the +/- Eta and +/- Xi faces.
+-Eta    WALL     noslip
++Eta    WALL     noslip
+-Xi     WALL     noslip
++Xi     WALL     noslip
+
+
+# ==========================================================================
+# 3. Disabled & Example Configurations
+# --------------------------------------------------------------------------
+# This section contains commented-out examples and previously used
+# settings for reference. These lines are currently inactive.
+# ==========================================================================
+
+# --- Example Inlet Conditions ---
+#-Eta    INLET       constant_velocity   vx=0.0 vy=10.0 vz=0.0
+#-Zeta   INLET       parabolic           vmax=1.0
+#+Eta    INLET       pulsatile_flux      file=inlet_profile.dat
+
+# --- Example Outlet Conditions ---
+#+Xi     OUTLET      conservation
+#+Zeta   OUTLET      pressure            pressure=0.0
+
+# --- Example Wall Conditions ---
+#-Xi     WALL        noslip
+#-Zeta   WALL        moving              vx=0.0 vy=0.0 vz=1.0
+
+# --- Example Gradient-Free Conditions ---
+#+Zeta   NOGRAD      allcopy
+#-Eta    NOGRAD      allcopy
+#+Eta    NOGRAD      allcopy
+#+Xi     NOGRAD      allcopy
+#-Xi     NOGRAD      allcopy
