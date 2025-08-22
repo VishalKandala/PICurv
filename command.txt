@@ -1,1 +1,0 @@
-mpirun   -mca pml ucx   -mca btl '^uct,ofi'   -mca mtl '^ofi'   -np 1 ./testt

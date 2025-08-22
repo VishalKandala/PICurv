@@ -2552,7 +2552,8 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "                          CASE SUMMARY                       \n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_SELF, " Grid Dimensions (Cells)     : %d X %d X %d\n", user->IM, user->JM, user->KM); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Grid Points     : %d X %d X %d\n", user->IM, user->JM, user->KM); CHKERRQ(ierr);
+	ierr = PetscPrintf(PETSC_COMM_SELF, " Cells           : %d X %d X %d\n", user->IM - 1, user->JM - 1, user->KM - 1); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (X)    : %.6f to %.6f\n", (double)global_min_coords.x, (double)global_max_coords.x); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (Y)    : %.6f to %.6f\n", (double)global_min_coords.y, (double)global_max_coords.y); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (Z)    : %.6f to %.6f\n", (double)global_min_coords.z, (double)global_max_coords.z); CHKERRQ(ierr);

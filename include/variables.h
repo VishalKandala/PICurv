@@ -584,7 +584,7 @@ typedef struct UserCtx {
     DM da, fda, fda2;
     DMDALocalInfo info;
     AO ao;
-    PetscInt IM, JM, KM;
+    PetscInt IM, JM, KM; // No.of grid points.
     PetscReal Max_X, Max_Y, Max_Z, Min_X, Min_Y, Min_Z;
     BoundingBox bbox;
     RankNeighbors neighbors;

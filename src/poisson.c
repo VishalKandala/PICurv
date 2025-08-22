@@ -921,13 +921,18 @@ static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
   return 0;
 }
 
-#define CP  0
+
+//Cell Center
+#define CP  0 
+// Face Centers
 #define EP  1
 #define WP  2
 #define NP  3
 #define SP  4
 #define TP  5
 #define BP  6
+
+// Edge Centers
 #define NE  7
 #define SE  8
 #define NW  9
@@ -940,8 +945,6 @@ static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
 #define BE  16
 #define TW  17
 #define BW  18
-
-#include "logging.h" // Include the provided logging header
 
 /**
  * @brief Performs the projection step to enforce an incompressible velocity field.
@@ -1018,11 +1021,14 @@ PetscErrorCode Projection(UserCtx *user)
   DMDAVecGetArray(da, user->lIAj, &iaj); DMDAVecGetArray(da, user->lJAj, &jaj); DMDAVecGetArray(da, user->lKAj, &kaj);
   DMDAVecGetArray(da, user->lNvert, &nvert);
   DMDAVecGetArray(da, user->lPhi, &p); // Note: using lPhi, which is the pressure correction
+  //DMDAVecGetArray(da,user->lP,&p);
   DMDAVecGetArray(fda, user->Ucont, &ucont);
 
   // --- Constants for clarity ---
   const PetscReal IBM_FLUID_THRESHOLD = 0.1;
   const PetscReal scale = simCtx->dt * simCtx->st / COEF_TIME_ACCURACY;
+
+  LOG_ALLOW(GLOBAL,LOG_DEBUG," Starting velocity correction: Scale = %le .\n",scale);
 
   //================================================================================
   // Section 2: Correct Velocity Components
@@ -1046,7 +1052,10 @@ PetscErrorCode Projection(UserCtx *user)
 
             // Boundary-aware stencil for dp/d_eta
 	      if ((j==my-2 && user->bctype[2]!=7)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->bctype[2]==7))) { dpde = (p[k][j][i] + p[k][j][i+1] - p[k][j-1][i] - p[k][j-1][i+1]) * 0.5; }
+		if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->bctype[2]==7))) {
+		  dpde = (p[k][j][i] + p[k][j][i+1] -
+			  p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
+		}
 	      }
 
 	      else if ((j==my-2 || j==1) && user->bctype[2]==7 && nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
@@ -1083,6 +1092,8 @@ PetscErrorCode Projection(UserCtx *user)
 	      else { dpdz = (p[k+1][j][i] + p[k+1][j][i+1] - p[k-1][j][i] - p[k-1][j][i+1]) * 0.25; }
 
             // Apply the correction: U_new = U_old - dt * (g11*dpdc + g12*dpde + g13*dpdz)
+
+            
 	      
             PetscReal grad_p_x = (dpdc * (icsi[k][j][i].x * icsi[k][j][i].x + icsi[k][j][i].y * icsi[k][j][i].y
 					  + icsi[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i] +
@@ -1091,7 +1102,10 @@ PetscErrorCode Projection(UserCtx *user)
                                 dpdz * (izet[k][j][i].x * icsi[k][j][i].x + izet[k][j][i].y * icsi[k][j][i].y
 					+ izet[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i]);
 
-	    ucont[k][j][i].x -= grad_p_x * scale;
+	    PetscReal correction = grad_p_x*scale;
+	    //LOG_LOOP_ALLOW_EXACT(GLOBAL,LOG_DEBUG,k,5," Flux correction in Csi Direction: %le.\n",correction);
+	    ucont[k][j][i].x -= correction;
+
           }
         }
 
@@ -1127,7 +1141,10 @@ PetscErrorCode Projection(UserCtx *user)
             PetscReal grad_p_y = (dpdc * (jcsi[k][j][i].x * jeta[k][j][i].x + jcsi[k][j][i].y * jeta[k][j][i].y + jcsi[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i] +
                                 dpde * (jeta[k][j][i].x * jeta[k][j][i].x + jeta[k][j][i].y * jeta[k][j][i].y + jeta[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i] +
                                 dpdz * (jzet[k][j][i].x * jeta[k][j][i].x + jzet[k][j][i].y * jeta[k][j][i].y + jzet[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i]);
-            ucont[k][j][i].y -= grad_p_y * scale;
+
+	    PetscReal correction = grad_p_y*scale;
+	    //LOG_LOOP_ALLOW_EXACT(GLOBAL,LOG_DEBUG,k,5," Flux correction in Eta Direction: %le.\n",correction);
+            ucont[k][j][i].y -= correction;
           }
         }
         
@@ -1163,7 +1180,23 @@ PetscErrorCode Projection(UserCtx *user)
             PetscReal grad_p_z = (dpdc * (kcsi[k][j][i].x * kzet[k][j][i].x + kcsi[k][j][i].y * kzet[k][j][i].y + kcsi[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i] +
                                 dpde * (keta[k][j][i].x * kzet[k][j][i].x + keta[k][j][i].y * kzet[k][j][i].y + keta[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i] +
                                 dpdz * (kzet[k][j][i].x * kzet[k][j][i].x + kzet[k][j][i].y * kzet[k][j][i].y + kzet[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i]);
-            ucont[k][j][i].z -= grad_p_z * scale;
+
+	    // ========================= DEBUG PRINT  =========================
+	    LOG_LOOP_ALLOW_EXACT(GLOBAL, LOG_DEBUG, k, 5,
+				 "[k=%d, j=%d, i=%d] ---- Neighbor Pressures ----\n"
+				 "  Central Z-Neighbors: p[k+1][j][i] = %g | p[k][j][i] = %g\n"
+				 "  Eta-Stencil (Y-dir): p[k][j-1][i] = %g, p[k+1][j-1][i] = %g | p[k][j+1][i] = %g, p[k+1][j+1][i] = %g\n"
+				 "  Csi-Stencil (X-dir): p[k][j][i-1] = %g, p[k+1][j][i-1] = %g | p[k][j][i+1] = %g, p[k+1][j][i+1] = %g\n",
+				 k, j, i,
+				 p[k + 1][j][i], p[k][j][i],
+				 p[k][j - 1][i], p[k + 1][j - 1][i], p[k][j + 1][i], p[k + 1][j + 1][i],
+				 p[k][j][i - 1], p[k + 1][j][i - 1], p[k][j][i + 1], p[k + 1][j][i + 1]);
+	    // ======================= END DEBUG PRINT =======================
+
+	    LOG_LOOP_ALLOW_EXACT(GLOBAL,LOG_DEBUG,k,5," dpdc: %le | dpde: %le | dpdz: %le.\n",dpdc,dpde,dpdz);	    
+	    PetscReal correction = grad_p_z*scale;
+	    //LOG_LOOP_ALLOW_EXACT(GLOBAL,LOG_DEBUG,k,5," Flux correction in Zet Direction: %le.\n",correction);
+            ucont[k][j][i].z -= correction;
           }
         }
       }
@@ -1456,7 +1489,7 @@ PetscErrorCode Projection(UserCtx *user)
   DMDAVecRestoreArray(fda, user->lJCsi, &jcsi); DMDAVecRestoreArray(fda, user->lJEta, &jeta); DMDAVecRestoreArray(fda, user->lJZet, &jzet);
   DMDAVecRestoreArray(fda, user->lKCsi, &kcsi); DMDAVecRestoreArray(fda, user->lKEta, &keta); DMDAVecRestoreArray(fda, user->lKZet, &kzet);
   DMDAVecRestoreArray(da, user->lIAj, &iaj); DMDAVecRestoreArray(da, user->lJAj, &jaj); DMDAVecRestoreArray(da, user->lKAj, &kaj);
-  DMDAVecRestoreArray(da, user->lPhi, &p);
+  DMDAVecRestoreArray(da, user->lP, &p);
   DMDAVecRestoreArray(da, user->lNvert, &nvert);
  
   // --- Update ghost cells for the newly corrected velocity field ---
@@ -1541,7 +1574,7 @@ PetscErrorCode UpdatePressure(UserCtx *user)
   DMDAVecRestoreArray(da, user->Phi, &phi);
   DMDAVecRestoreArray(da, user->P, &p);
 
-
+  
   //================================================================================
   // Section 3: Handle Periodic Boundary Condition Synchronization
   //================================================================================
@@ -1655,10 +1688,13 @@ PetscErrorCode UpdatePressure(UserCtx *user)
     DMGlobalToLocalBegin(da, user->Phi, INSERT_VALUES, user->lPhi);
     DMGlobalToLocalEnd(da, user->Phi, INSERT_VALUES, user->lPhi);
   }
-
+  
   //================================================================================
   // Section 4: Final Cleanup (pointers already restored)
   //================================================================================
+
+  UpdateLocalGhosts(user,"P");
+  UpdateLocalGhosts(user,"Phi");
   
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting UpdatePressure.\n");
   PetscFunctionReturn(0);

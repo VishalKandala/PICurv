@@ -105,35 +105,28 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Momentum solve completed in %.4f seconds.\n", tm_e - tm_s);
 
     // ========================================================================
-    //   !!! DIAGNOSTIC CHECKPOINT 1: AFTER ImpRK !!!
+    //   !!! DIAGNOSTIC CHECKPOINT 1: BEFORE CORRECTION !!!
     // ========================================================================
-    PetscReal norm_global, norm_local;
+    PetscReal unorm, pnorm, phinorm;
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-      VecNorm(user[bi].Ucont, NORM_2, &norm_global);
-      VecNorm(user[bi].lUcont, NORM_2, &norm_local);
-      LOG_ALLOW(GLOBAL, LOG_INFO, "[DIAGNOSTIC] After ImpRK (Block %d): Global Ucont Norm = %e, Local lUcont Norm = %e\n", bi, norm_global, norm_local);
+      VecNorm(user[bi].Ucont, NORM_2, &unorm);
+      VecNorm(user[bi].P, NORM_2, &pnorm);
+      VecNorm(user[bi].Phi,NORM_2,&phinorm);
+      LOG_ALLOW(GLOBAL, LOG_INFO, "Before Correction (Block %d): Ucont Norm = %e, P  Norm = %e Phi Norm = %e \n", bi, unorm, pnorm, phinorm);
     }
+    unorm = 0.0;
+    pnorm = 0.0;
+    phinorm = 0.0;
     // ========================================================================
 
-    // ========================================================================
-//   !!! THE FIX: EXPLICIT SYNCHRONIZATION !!!
+// ========================================================================
+//   !!! Update Local Ghosts !!!
 // ========================================================================
 LOG_ALLOW(GLOBAL, LOG_INFO, "SYNC: Forcing update of local Ucont from global Ucont before Poisson solve.\n");
 for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-    ierr = DMGlobalToLocalBegin(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
-    ierr = DMGlobalToLocalEnd(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
+  UpdateLocalGhosts(&user[bi],"Ucont");
+  UpdateLocalGhosts(&user[bi],"P");
 }
-// ========================================================================
-
-// ========================================================================
-//   !!! DIAGNOSTIC CHECKPOINT 2: AFTER SYNC !!!
-// ========================================================================
-for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-    VecNorm(user[bi].Ucont, NORM_2, &norm_global);
-    VecNorm(user[bi].lUcont, NORM_2, &norm_local);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "[DIAGNOSTIC] After Sync (Block %d): Global Ucont Norm = %e, Local lUcont Norm = %e\n", bi, norm_global, norm_local);
-}
-// ========================================================================
     
 // ========================================================================
 //   SECTION: Pressure-Poisson Solver
@@ -165,14 +158,24 @@ for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         ierr = Projection(&user[bi]); CHKERRQ(ierr);
         
         // Ensure local ghost cells for the final pressure field are correct
-        ierr = DMGlobalToLocalBegin(user[bi].da, user[bi].P, INSERT_VALUES, user[bi].lP); CHKERRQ(ierr);
-        ierr = DMGlobalToLocalEnd(user[bi].da, user[bi].P, INSERT_VALUES, user[bi].lP); CHKERRQ(ierr);
+	ierr = UpdateLocalGhosts(&user[bi],"P");
     }
     
     ierr = PetscTime(&tpr_e); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Velocity correction completed in %.4f seconds.\n", tpr_e - tp_e);
 
 
+    // ========================================================================
+    //   !!! DIAGNOSTIC CHECKPOINT 2: AFTER CORRECTION !!!
+    // ========================================================================
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+      VecNorm(user[bi].Ucont, NORM_2, &unorm);
+      VecNorm(user[bi].P, NORM_2, &pnorm);
+      VecNorm(user[bi].Phi,NORM_2,&phinorm);
+      LOG_ALLOW(GLOBAL, LOG_INFO, "After Correction (Block %d): Ucont Norm = %e, P  Norm = %e, Phi Norm = %e\n", bi, unorm, pnorm,phinorm);
+    }
+    // ========================================================================
+    
     // ========================================================================
     //   SECTION: Final Diagnostics and I/O
     // ========================================================================

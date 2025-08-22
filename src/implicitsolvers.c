@@ -319,9 +319,9 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
             if (!rank) {
                 FILE *f;
                 char filen[80];
-                sprintf(filen, "Converge_dU%1d", bi);
+                sprintf(filen, "results/Momentum_Solver_Convergence_History_Block_%1d.log", bi);
                 f = fopen(filen, "a");
-                PetscFPrintf(PETSC_COMM_WORLD, f, "Step: %d | Pseudo-Timestep %d | |dU|  %le |  |dU|/|dU_0| %le | |U| = %le \n",(int)ti, (int)pseudot, normdU_bk[bi], reldU_bk[bi], normF_bk[bi]);
+                PetscFPrintf(PETSC_COMM_WORLD, f, "Block %d | Step: %d | Pseudo-Timestep %d | |dU|  %le |  |dU|/|dU_0| %le | |U| = %le \n",bi,(int)ti, (int)pseudot, normdU_bk[bi], reldU_bk[bi], normF_bk[bi]);
                 fclose(f);
             }
 

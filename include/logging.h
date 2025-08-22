@@ -336,7 +336,7 @@ do {                                                                            
  * @param val     The value that triggers the log (e.g., 6). The log prints if var == val.
  * @param ...     A printf-style format string and its corresponding arguments.
  */
-#define LOG_LOOP_ALLOW_EXACT(scope, level, var, val, ...)                         \
+#define LOG_LOOP_ALLOW_EXACT(scope, level, var, val, fmt, ...)                  \
     do {                                                                       \
         /* First, perform the cheap, standard gatekeeper checks. */            \
         if (is_function_allowed(__func__) && (int)(level) <= (int)get_log_level()) { \
@@ -344,41 +344,12 @@ do {                                                                            
             if ((var) == (val)) {                                              \
                 MPI_Comm comm = ((scope) == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
                 /* Print the standard prefix, then the user's custom message. */ \
-                PetscPrintf(comm, "[%s] ", __func__);                           \
-                PetscPrintf(comm, __VA_ARGS__);                                \
+                PetscPrintf(comm, "[%s] [%s=%d] " fmt,                          \
+                    __func__, #var, (var), ##__VA_ARGS__);                      \
             }                                                                  \
         }                                                                      \
     } while (0)
 
-/*
-#define LOG_LOOP_ALLOW(scope,level, iterVar, interval, fmt, ...)              \
-    do {                                                                       \
-        PetscInt __current_level_val = get_log_level(); \
-        PetscBool __allowed_func_val = is_function_allowed(__func__); \
-        // Print BEFORE the check  \
-        if (strcmp(__func__, "LocateAllParticlesInGrid") == 0) { \
-             printf("[DEBUG LOG_LOOP_ALLOW in %s] Iter=%d: Checking: level=%d, get_log_level() returned %d, func_allowed=%d\n", \
-                    __func__, (int)(iterVar), (int)level, (int)__current_level_val, (int)__allowed_func_val); \
-        } \
-        if (__allowed_func_val && (int)(level) <= (int)__current_level_val) { \
-	  // Print AFTER passing the check 				\
-             if (strcmp(__func__, "LocateAllParticlesInGrid") == 0) { \
-                 printf("[DEBUG LOG_LOOP_ALLOW in %s] Iter=%d: Level/Func check PASSED.\n", __func__, (int)(iterVar)); \
-             } \
-             if ((iterVar) % (interval) == 0) {                                 \
-                 // Print before interval check  \
-                 if (strcmp(__func__, "LocateAllParticlesInGrid") == 0) { \
-                      printf("[DEBUG LOG_LOOP_ALLOW in %s] Iter=%d: Interval check PASSED. Printing log.\n", __func__, (int)(iterVar)); \
-                 } \
-                 MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
-                 PetscPrintf(comm, "[%s] [Iter=%d] " fmt,                       \
-                             __func__, (iterVar), ##__VA_ARGS__);               \
-             }                                                                  \
-        }                                                                      \
-    } while (0)
-*/
-
-      
 /**
  * @brief Logs a single element of an array, given an index.
  *

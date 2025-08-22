@@ -1615,7 +1615,13 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user)
       }
     }
   }
- 
+
+  /*
+  VecView(user->lCsi,PETSC_VIEWER_STDOUT_WORLD);
+  VecView(user->lEta,PETSC_VIEWER_STDOUT_WORLD);
+  VecView(user->lZet,PETSC_VIEWER_STDOUT_WORLD);
+  */
+  
   PetscFunctionReturn(0);
 }
 

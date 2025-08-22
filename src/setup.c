@@ -108,7 +108,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->Croty = 0.0; simCtx->Crotz = 0.0;
     simCtx->num_bcs_files = 1;
     ierr = PetscMalloc1(1, &simCtx->bcs_files); CHKERRQ(ierr);
-    ierr = PetscStrallocpy("bcs.dat", &simCtx->bcs_files[0]); CHKERRQ(ierr);
+    ierr = PetscStrallocpy("params/bcs.dat", &simCtx->bcs_files[0]); CHKERRQ(ierr);
     simCtx->FluxInSum = 0.0; simCtx->FluxOutSum = 0.0; simCtx->Fluxsum = 0.0;
     simCtx->AreaOutSum = 0.0;
     simCtx->U_bc = 0.0; simCtx->ccc = 0;
@@ -814,6 +814,10 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
     }else if (strcmp(fieldName,"KAj") == 0){
       globalVec = user->KAj;
       localVec  = user->lKAj;
+      dm        = user->da;
+    }else if (strcmp(fieldName,"Phi") == 0){
+      globalVec = user->Phi;
+      localVec  = user->lPhi;
       dm        = user->da;
     }else {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Field '%s' not recognized for ghost update.", fieldName);
@@ -2047,7 +2051,7 @@ PetscErrorCode Divergence(UserCtx *user )
               }
 
 	    if (k==10 && j==10 && i==mx-3)
-     	      LOG_ALLOW(LOCAL,LOG_INFO,"Pressure[10][10][%d] =  %f | Pressure[10][10][%d] =  %f  \n ",mx-2,p[k][j][mx-2],mx-3,p[k][j][mx-1]);
+     	      LOG_ALLOW(LOCAL,LOG_INFO,"Pressure[10][10][%d] =  %f | Pressure[10][10][%d] =  %f  \n ",mx-2,p[k][j][mx-2],mx-1,p[k][j][mx-1]);
    		}
 	}
     }
