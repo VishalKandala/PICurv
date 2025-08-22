@@ -556,13 +556,17 @@ typedef struct SimCtx {
     PetscBool rstart_fsi;
     PetscInt  duplicate;
 
-    //================ Group 11: Top-Level Managers & Custom Configuration ================
+    //================ Group 11: Top-Level Managers, Custom Configuration,Logging/Monitoring ====
     UserMG    usermg;
     char      allowedFile[PETSC_MAX_PATH_LEN];
     PetscBool useCfg;
     char      **allowedFuncs;
     PetscInt  nAllowed;
     PetscInt  LoggingFrequency;
+    PetscReal summationRHS;
+    PetscReal MaxDiv;
+    PetscInt  MaxDivFlatArg, MaxDivx,MaxDivy,MaxDivz;
+    
 
    //=============== Group 12: Miscellaneous =============================================
    PetscReal	r[101], tin[101], uinr[101][1001];

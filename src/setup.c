@@ -137,6 +137,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->allowedFuncs = NULL;
     simCtx->nAllowed = 0;
     simCtx->LoggingFrequency = 10;
+    simCtx->summationRHS = 0.0;
+    simCtx->MaxDiv = 0.0;
+    simCtx->MaxDivFlatArg = 0; simCtx->MaxDivx = 0; simCtx->MaxDivy = 0; simCtx->MaxDivz = 0;
 
     // === 2. Get MPI Info and Handle Config File =============================
     // -- Group 1:  Parallelism & MPI Information
@@ -2132,17 +2135,24 @@ PetscErrorCode Divergence(UserCtx *user )
   VecMax(Div, &MaxFlatIndex, &maxdiv);
 
   LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %d]] The Maximum Divergence is %e at flat index %d.\n",ti,maxdiv,MaxFlatIndex); 
+
+  user->simCtx->MaxDivFlatArg = MaxFlatIndex;
+  user->simCtx->MaxDiv = maxdiv;
   
   for (k=zs; k<ze; k++) {
     for (j=ys; j<ye; j++) {
       for (i=xs; i<xe; i++) {
 	if (Gidx(i,j,k,user) == MaxFlatIndex) {
 	  LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %d] The Maximum Divergence(%e) is at location [%d][%d][%d]. \n", ti, maxdiv,k,j,i);
+	  user->simCtx->MaxDivz = k;
+	  user->simCtx->MaxDivy = j;
+	  user->simCtx->MaxDivx = i;
 	}
       }
     }
   }
- 
+
+  
 
  DMDAVecRestoreArray(da, user->lNvert, &nvert);
   DMDAVecRestoreArray(fda, user->lUcont, &ucont);

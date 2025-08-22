@@ -2892,6 +2892,8 @@ PetscErrorCode PoissonRHS(UserCtx *user, Vec B)
   MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
 
   LOG_ALLOW(GLOBAL, LOG_INFO, "Global Sum of RHS (Divergence Check): %le\n", sum);
+
+  user->simCtx->summationRHS = sum;
 	
   DMDAVecRestoreArray(user->fda, user->lUcont, &ucont);
   DMDAVecRestoreArray(user->da, user->lNvert, &nvert);

@@ -789,3 +789,70 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
 
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Logs continuity metrics for a single block to a file.
+ *
+ * This function should be called for each block, once per timestep. It opens a
+ * central log file in append mode. To ensure the header is written only once,
+ * it checks if it is processing block 0 on the simulation's start step.
+ *
+ * @param user A pointer to the UserCtx for the specific block whose metrics
+ *             are to be logged. The function accesses both global (SimCtx)
+ *             and local (user->...) data.
+ * @return     PetscErrorCode 0 on success.
+ */
+#undef __FUNCT__
+#define __FUNCT__ "LOG_CONTINUITY_METRICS"
+PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank;
+    SimCtx         *simCtx = user->simCtx;      // Get the shared SimCtx
+    const PetscInt bi = user->_this;          // Get this block's specific ID
+    const PetscInt ti = simCtx->step;         // Get the current timestep
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    // Only rank 0 performs file I/O.
+    if (!rank) {
+        FILE *f;
+        char filen[128];
+        sprintf(filen, "results/Continuity_Metrics.log");
+
+        // Open the log file in append mode.
+        f = fopen(filen, "a");
+        if (!f) {
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open log file: %s", filen);
+        }
+
+        // Write a header only for the very first block (bi=0) on the very
+        // first timestep (ti=StartStep). This ensures it's written only once.
+        if (ti == simCtx->StartStep && bi == 0) {
+            PetscFPrintf(PETSC_COMM_SELF, f, "%-10s | %-6s | %-18s | %-30s | %-18s | %-18s | %-18s | %-18s\n",
+                         "Timestep", "Block", "Max Divergence", "Max Divergence Location ([k][j][i]=idx)", "Sum(RHS)","Total Flux In", "Total Flux Out", "Net Flux");
+            PetscFPrintf(PETSC_COMM_SELF, f, "------------------------------------------------------------------------------------------------------------------------------------------\n");
+        }
+
+        // Prepare the data strings and values for the current block.
+        PetscReal net_flux = simCtx->FluxInSum - simCtx->FluxOutSum;
+        char location_str[64];
+        sprintf(location_str, "([%d][%d][%d] = %d)", (int)simCtx->MaxDivz, (int)simCtx->MaxDivy, (int)simCtx->MaxDivx, (int)simCtx->MaxDivFlatArg);
+
+        // Write the formatted line for the current block.
+        PetscFPrintf(PETSC_COMM_SELF, f, "%-10d | %-6d | %-18.10e | %-39s | %-18.10e | %-18.10e | %-18.10e | %-18.10e\n",
+                     (int)ti,
+                     (int)bi,
+                     (double)simCtx->MaxDiv,
+                     location_str,
+                     (double)simCtx->summationRHS,
+		     (double)simCtx->FluxInSum,
+                     (double)simCtx->FluxOutSum,
+                     (double)net_flux);
+
+        fclose(f);
+    }
+
+    PetscFunctionReturn(0);
+}

@@ -677,4 +677,18 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx);
  */
 PetscErrorCode DualMonitorDestroy(void **ctx);
 
+/**
+ * @brief Logs continuity metrics for a single block to a file.
+ *
+ * This function should be called for each block, once per timestep. It opens a
+ * central log file in append mode. To ensure the header is written only once,
+ * it checks if it is processing block 0 on the simulation's start step.
+ *
+ * @param user A pointer to the UserCtx for the specific block whose metrics
+ *             are to be logged. The function accesses both global (SimCtx)
+ *             and local (user->...) data.
+ * @return     PetscErrorCode 0 on success.
+ */
+PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user);
+
 #endif // LOGGING_H
