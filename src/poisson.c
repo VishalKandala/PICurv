@@ -4045,6 +4045,33 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 	ierr = KSPCreate(PETSC_COMM_WORLD, &mgksp); CHKERRQ(ierr);
         ierr = KSPAppendOptionsPrefix(mgksp, "ps_"); CHKERRQ(ierr);
 
+	// =======================================================================
+        DualMonitorCtx *monctx;
+        char           filen[128];
+        PetscBool      has_monitor_option;
+
+        // 1. Allocate the context and set it up.
+        ierr = PetscNew(&monctx); CHKERRQ(ierr);
+
+	monctx->step = simCtx->step;
+	monctx->block_id = bi;
+        
+        // 2. Create the file viewer and write the header.
+        sprintf(filen, "results/Poisson_Solver_Convergence_History_Block_%d.log", bi);
+        ierr = PetscViewerASCIIOpen(PETSC_COMM_WORLD, filen, &monctx->viewer); CHKERRQ(ierr);
+        ierr = PetscViewerFileSetMode(monctx->viewer, FILE_MODE_APPEND); CHKERRQ(ierr);
+        if (!simCtx->rank) {
+	  ierr = PetscViewerASCIIPrintf(monctx->viewer, "--- Convergence for Timestep %d, Block %d ---\n", (int)simCtx->step, (int)bi); CHKERRQ(ierr);
+        }
+
+        // 3. Check if the user passed the console monitor option.
+        //    We check the fully-prefixed option name.
+        ierr = PetscOptionsHasName(NULL,NULL, "-ps_ksp_pic_monitor_true_residual", &has_monitor_option); CHKERRQ(ierr);
+        monctx->log_to_console = has_monitor_option;
+
+        // 4. Set our custom dual monitor.
+        ierr = KSPMonitorSet(mgksp, DualKSPMonitor, monctx, DualMonitorDestroy); CHKERRQ(ierr);
+        // =======================================================================
 	
         ierr = KSPGetPC(mgksp, &mgpc); CHKERRQ(ierr);
         ierr = PCSetType(mgpc, PCMG); CHKERRQ(ierr);
@@ -4056,31 +4083,8 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
         // --- 4. Define Restriction and Interpolation Operators for MG ---
         for (l = usermg->mglevels - 1; l > 0; l--) {
 
-	  /*
-	    // Coarse grid context needs pointer to fine grid context/DM.
-            mgctx[l-1].user[bi].da_f = &mgctx[l].user[bi].da;
-            mgctx[l-1].user[bi].user_f = &mgctx[l].user[bi];
-            // Fine grid context needs pointer to coarse grid context/DM.
-            mgctx[l].user[bi].da_c = &mgctx[l-1].user[bi].da;
-            mgctx[l].user[bi].user_c = &mgctx[l-1].user[bi];
-	  
-            user = mgctx[l].user;
-            PetscInt m_c = (usermg->mgctx[l-1].user[bi].info.xm * usermg->mgctx[l-1].user[bi].info.ym * usermg->mgctx[l-1].user[bi].info.zm);
-            PetscInt m_f = (usermg->mgctx[l].user[bi].info.xm * usermg->mgctx[l].user[bi].info.ym * usermg->mgctx[l].user[bi].info.zm);
-            PetscInt M_c = (usermg->mgctx[l-1].user[bi].info.mx * usermg->mgctx[l-1].user[bi].info.my * usermg->mgctx[l-1].user[bi].info.mz);
-            PetscInt M_f = (usermg->mgctx[l].user[bi].info.mx * usermg->mgctx[l].user[bi].info.my * usermg->mgctx[l].user[bi].info.mz);
-
-            ierr = MatCreateShell(PETSC_COMM_WORLD, m_c, m_f, M_c, M_f, (void*)&mgctx[l-1].user[bi], &user[bi].MR); CHKERRQ(ierr);
-            ierr = MatCreateShell(PETSC_COMM_WORLD, m_f, m_c, M_f, M_c, (void*)&user[bi], &user[bi].MP); CHKERRQ(ierr);
-            
-            ierr = MatShellSetOperation(user[bi].MR, MATOP_MULT, (void(*)(void))RestrictResidual_SolidAware); CHKERRQ(ierr);
-            ierr = MatShellSetOperation(user[bi].MP, MATOP_MULT, (void(*)(void))MyInterpolation); CHKERRQ(ierr);
-            
-            ierr = PCMGSetRestriction(mgpc, l, user[bi].MR); CHKERRQ(ierr);
-            ierr = PCMGSetInterpolation(mgpc, l, user[bi].MP); CHKERRQ(ierr);
-	  */
- // Get stable pointers directly from the main mgctx array.
-    // These pointers point to memory that will persist.
+         // Get stable pointers directly from the main mgctx array.
+         // These pointers point to memory that will persist.
 	  UserCtx *fine_user_ctx   = &mgctx[l].user[bi];
 	  UserCtx *coarse_user_ctx = &mgctx[l-1].user[bi];
 

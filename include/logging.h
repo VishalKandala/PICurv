@@ -52,6 +52,22 @@ extern PetscLogEvent EVENT_walkingsearch;
 extern PetscLogEvent EVENT_GlobalParticleLocation;
 extern PetscLogEvent EVENT_IndividualLocation;
 
+//----------------------- Custom KSP Monitor Struct ------------
+
+/**
+ * @brief Context for a dual-purpose KSP monitor.
+ *
+ * This struct holds a file viewer for unconditional logging and a boolean
+ * flag to enable/disable optional logging to the console.
+ */
+typedef struct {
+    PetscViewer viewer;           // Viewer for the log file.
+    PetscBool   log_to_console;   // Flag to enable console output.
+    PetscReal   bnorm;            // Stores the norm of the initial RHS vector.
+    PetscInt    step;             // Timestep
+    PetscInt    block_id;         // the ID of the block this monitor is for.   
+} DualMonitorCtx;
+
 // --------------------- Logging Macros ---------------------
 
 /**
@@ -635,5 +651,30 @@ const char* BCTypeToString(BCType type);
  *         "UNKNOWN_HANDLER" if the enum value is not recognized.
  */
 const char* BCHandlerTypeToString(BCHandlerType handler_type);
+
+/**
+ * @brief A custom KSP monitor that logs to a file and optionally to the console.
+ *
+ * This function unconditionally calls the standard true residual monitor to log to a
+ * file viewer provided in the context. It also checks a flag in the context
+* and, if true, calls the monitor again to log to standard output.
+ *
+ * @param ksp   The Krylov subspace context.
+ * @param it    The current iteration number.
+ * @param rnorm The preconditioned residual norm.
+ * @param ctx   A pointer to the DualMonitorCtx structure.
+ * @return      PetscErrorCode 0 on success.
+ */
+PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx);
+
+/**
+ * @brief Destroys the DualMonitorCtx.
+ *
+ * This function is passed to KSPMonitorSet to ensure the viewer is
+ * properly destroyed and the context memory is freed when the KSP is destroyed.
+ * @param Ctx a pointer to the context pointer to be destroyed
+ * @return PetscErrorCode
+ */
+PetscErrorCode DualMonitorDestroy(void **ctx);
 
 #endif // LOGGING_H

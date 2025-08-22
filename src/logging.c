@@ -715,3 +715,77 @@ const char* BCHandlerTypeToString(BCHandlerType handler_type) {
         default:                                 return "UNKNOWN_HANDLER";
     }
 }
+
+/**
+ * @brief Destroys the DualMonitorCtx.
+ *
+ * This function is passed to KSPMonitorSet to ensure the viewer is
+ * properly destroyed and the context memory is freed when the KSP is destroyed.
+ * @param Ctx a pointer to the context pointer to be destroyed
+ * @return PetscErrorCode
+ */
+PetscErrorCode DualMonitorDestroy(void **ctx)
+{
+    DualMonitorCtx *monctx = (DualMonitorCtx*)*ctx;
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    ierr = PetscViewerDestroy(&monctx->viewer); CHKERRQ(ierr);
+    ierr = PetscFree(monctx); CHKERRQ(ierr);
+    *ctx = NULL;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief A custom KSP monitor that logs the true residual to a file and optionally to the console.
+ *
+ * This function replicates the behavior of KSPMonitorTrueResidualNorm by calculating
+ * the true residual norm ||b - Ax|| itself. It unconditionally logs to a file
+ * viewer and conditionally logs to the console based on a flag in the context.
+ *
+ * @param ksp   The Krylov subspace context.
+ * @param it    The current iteration number.
+ * @param rnorm The preconditioned residual norm (ignored, we compute our own).
+ * @param ctx   A pointer to the DualMonitorCtx structure.
+ * @return      PetscErrorCode 0 on success.
+ */
+#undef __FUNCT__
+#define __FUNCT__ "DualKSPMonitor"
+PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
+{
+    DualMonitorCtx *monctx = (DualMonitorCtx*)ctx;
+    PetscErrorCode ierr;
+    PetscReal      trnorm, relnorm;
+    Vec            r;
+    char           norm_buf[256];
+
+    PetscFunctionBeginUser;
+
+    // 1. Calculate the true residual norm.
+    ierr = KSPBuildResidual(ksp, NULL, NULL, &r); CHKERRQ(ierr);
+    ierr = VecNorm(r, NORM_2, &trnorm); CHKERRQ(ierr);
+
+    // 2. On the first iteration, compute and store the norm of the RHS vector `b`.
+    if (it == 0) {
+        Vec b;
+        ierr = KSPGetRhs(ksp, &b); CHKERRQ(ierr);
+        ierr = VecNorm(b, NORM_2, &monctx->bnorm); CHKERRQ(ierr);
+    }
+
+    // 3. Compute the relative norm and format the output string.
+    if (monctx->bnorm > 1.e-15) {
+        relnorm = trnorm / monctx->bnorm;
+        sprintf(norm_buf, "ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e | Rel Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm, (double)relnorm);
+    } else {
+        sprintf(norm_buf,"ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm);
+    }
+
+    // 4. Log to the file viewer (unconditionally).
+    ierr = PetscViewerASCIIPrintf(monctx->viewer, "%s\n", norm_buf); CHKERRQ(ierr);
+
+    // 5. Log to the console (conditionally).
+    if (monctx->log_to_console) {
+        ierr = PetscViewerASCIIPrintf(PETSC_VIEWER_STDOUT_WORLD, "%s\n", norm_buf); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}

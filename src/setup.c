@@ -99,7 +99,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->grid1d = 0; simCtx->Ogrid = 0; simCtx->channelz = 0;
     simCtx->i_periodic = 0; simCtx->j_periodic = 0; simCtx->k_periodic = 0;
     simCtx->blkpbc = 10; simCtx->pseudo_periodic = 0;
-    strcpy(simCtx->grid_file, "grid.dat");
+    strcpy(simCtx->grid_file, "config/grid.dat");
     simCtx->generate_grid = PETSC_FALSE;
     simCtx->da_procs_x = PETSC_DECIDE;
     simCtx->da_procs_y = PETSC_DECIDE;
@@ -108,7 +108,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->Croty = 0.0; simCtx->Crotz = 0.0;
     simCtx->num_bcs_files = 1;
     ierr = PetscMalloc1(1, &simCtx->bcs_files); CHKERRQ(ierr);
-    ierr = PetscStrallocpy("params/bcs.dat", &simCtx->bcs_files[0]); CHKERRQ(ierr);
+    ierr = PetscStrallocpy("config/bcs.dat", &simCtx->bcs_files[0]); CHKERRQ(ierr);
     simCtx->FluxInSum = 0.0; simCtx->FluxOutSum = 0.0; simCtx->Fluxsum = 0.0;
     simCtx->AreaOutSum = 0.0;
     simCtx->U_bc = 0.0; simCtx->ccc = 0;
@@ -132,7 +132,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->rstart_fsi = PETSC_FALSE; simCtx->duplicate = 0;
 
     // --- Group 11: Logging and Custom Configuration ---
-    strcpy(simCtx->allowedFile, "config.dat");
+    strcpy(simCtx->allowedFile, "config/whitelist.dat");
     simCtx->useCfg = PETSC_FALSE;
     simCtx->allowedFuncs = NULL;
     simCtx->nAllowed = 0;
@@ -143,7 +143,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &simCtx->rank); CHKERRQ(ierr);
     ierr = MPI_Comm_size(PETSC_COMM_WORLD, &simCtx->size); CHKERRQ(ierr);
 
-    ierr = PetscOptionsInsertFile(PETSC_COMM_WORLD, NULL, "control.dat", PETSC_FALSE);
+    ierr = PetscOptionsInsertFile(PETSC_COMM_WORLD, NULL, "config/control.dat", PETSC_FALSE);
     if (ierr == PETSC_ERR_FILE_OPEN) {
         if (simCtx->rank == 0) {
             PetscPrintf(PETSC_COMM_SELF, "INFO: Could not open optional 'control.dat' file. Proceeding with defaults and command-line options.\n");
@@ -977,7 +977,7 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Setting up Boundary Conditions ---\n");
     
     // --- Parse and Adapt for each block on the finest level ---
-    LOG_ALLOW(GLOBAL,LOG_INFO,"Parsing bcs.dat and adapting to legacy system for finest grid.\n");
+    LOG_ALLOW(GLOBAL,LOG_INFO,"Parsing BC configuration file and adapting to legacy system for finest grid.\n");
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         LOG_ALLOW(GLOBAL,LOG_DEBUG, "  -> Processing Block %d:\n", bi);
