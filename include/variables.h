@@ -647,7 +647,7 @@ typedef struct UserCtx {
     DM swarm;
     RankCellInfo *RankCellInfoMap;
     Vec ParticleCount;
-    
+    Vec Psi; //scalar dummy to demonstrate scatter. 
 } UserCtx;
 
 #ifdef __cplusplus

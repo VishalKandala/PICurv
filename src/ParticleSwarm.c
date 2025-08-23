@@ -79,8 +79,9 @@ PetscErrorCode RegisterParticleFields(DM swarm)
     ierr = RegisterSwarmField(swarm, "weight", 3,PETSC_REAL); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'weight'.\n");
 
-    ierr = RegisterSwarmField(swarm,"P", 1,PETSC_REAL); CHKERRQ(ierr);
+    ierr = RegisterSwarmField(swarm,"Psi", 1,PETSC_REAL); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'P' - Pressure.\n");
+
 
     ierr = RegisterSwarmField(swarm,"pos_phy", 3,PETSC_REAL); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'pos_phy' - Physical Position.\n");
@@ -513,10 +514,10 @@ static PetscErrorCode UpdateSwarmFieldValue(const char *fieldName, PetscInt p, P
     for (PetscInt d = 0; d < fieldDim; d++) {
       fieldData[fieldDim * p + d] = 300.0;
     }
-  } else if (strcmp(fieldName, "P") == 0) {
+  } else if (strcmp(fieldName, "Psi") == 0) {
     // For pressure, initialize to a default value (e.g., 101325.0)
     for (PetscInt d = 0; d < fieldDim; d++) {
-      fieldData[fieldDim * p + d] = 101325.0;
+      fieldData[fieldDim * p + d] = 0.0;
     }
   } else {
     // Default: initialize all components to zero
@@ -588,7 +589,7 @@ static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, const char *field
  * `InitializeParticleBasicProperties` for position setting if all initialization paths
  * use logical-to-physical mapping.
  * Finally, it calls helper functions to initialize other registered swarm fields
- * like "velocity", "weight", and "P" (pressure) to default values.
+ * like "velocity", "weight", and "Psi" (scalar) to default values.
  *
  * @param[in,out] user               Pointer to the `UserCtx` structure.
  * @param[in]     particlesPerProcess Number of particles assigned to this MPI process.
@@ -663,7 +664,7 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
     LOG_ALLOW(LOCAL, LOG_INFO, "AssignInitialPropertiesToSwarm - 'weight' field initialization complete.\n");
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "AssignInitialPropertiesToSwarm - Initializing 'P' (Pressure) field.\n");
-    ierr = AssignInitialFieldToSwarm(user, "P", 1); CHKERRQ(ierr);
+    ierr = AssignInitialFieldToSwarm(user, "Psi", 1); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL, LOG_INFO, "AssignInitialPropertiesToSwarm - 'P' field initialization complete.\n");
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "AssignInitialPropertiesToSwarm - Successfully completed all swarm property initialization.\n");
@@ -772,8 +773,8 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     }
 
     // Insert PETSc options from "control.dat" into the PETSc options database
-    ierr = PetscOptionsInsertFile(PETSC_COMM_WORLD, NULL, "control.dat", PETSC_TRUE); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"CreateParticleSwarm - Inserted options from control.dat\n");
+    //  ierr = PetscOptionsInsertFile(PETSC_COMM_WORLD, NULL, "control.dat", PETSC_TRUE); CHKERRQ(ierr);
+    // LOG_ALLOW(LOCAL,LOG_DEBUG,"CreateParticleSwarm - Inserted options from control.dat\n");
     
     LOG_ALLOW_SYNC(GLOBAL,LOG_DEBUG, "CreateParticleSwarm - Domain dimensions: Min_X=%.2f, Max_X=%.2f,Min_Y=%.2f, Max_Y=%.2f,Min_Z=%.2f, Max_Z=%.2f \n", 
 		   user->Min_X,user->Max_X,user->Min_Y,user->Max_Y, user->Min_Z,user->Max_Z);

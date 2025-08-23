@@ -665,23 +665,27 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             ierr = VecDuplicate(user->lCent, &user->Centy); CHKERRQ(ierr); ierr = VecSet(user->Centy, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->lCent, &user->Centz); CHKERRQ(ierr); ierr = VecSet(user->Centz, 0.0); CHKERRQ(ierr);
 
+	    if(level == usermg->mglevels -1){
 	    // --- Group F: Turbulence Models (Finest Level Only) ---
-            if ((simCtx->les || simCtx->rans) && level == usermg->mglevels - 1) {
+            if (simCtx->les || simCtx->rans) {
                 ierr = DMCreateGlobalVector(user->da, &user->Nu_t); CHKERRQ(ierr); ierr = VecSet(user->Nu_t, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lNu_t); CHKERRQ(ierr); ierr = VecSet(user->lNu_t, 0.0); CHKERRQ(ierr);
-
-
-	    // --- Group G: Particle Methods 	
-		if(simCtx->np>0){
-		  ierr = DMCreateGlobalVector(user->da,&user->ParticleCount); CHKERRQ(ierr); ierr = VecSet(user->ParticleCount,0.0); CHKERRQ(ierr);
-		}
+		
 	    // Add K_Omega, CS, etc. here as needed
 
             // Note: Add any other vectors from the legacy MG_Initial here as needed.
             // For example: Rhs, Forcing, turbulence Vecs (K_Omega, Nu_t)...
 		
+	        }
+	    // --- Group H: Particle Methods 	
+	    if(simCtx->np>0){
+	      ierr = DMCreateGlobalVector(user->da,&user->ParticleCount); CHKERRQ(ierr); ierr = VecSet(user->ParticleCount,0.0); CHKERRQ(ierr);
+
+	       ierr = DMCreateGlobalVector(user->da,&user->Psi); CHKERRQ(ierr); ierr = VecSet(user->Psi,0.0); CHKERRQ(ierr);
+
+	      LOG_ALLOW(GLOBAL,LOG_DEBUG,"ParticleCount & Scalar(Psi) created for %d particles.\n",simCtx->np);
+	      }
 	    }
-	    
 	    // --- Group G: Boundary Condition vectors needed by the legacy FormBCS ---
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Ubcs); CHKERRQ(ierr);
 	    ierr = VecSet(user->Bcs.Ubcs, 0.0); CHKERRQ(ierr);

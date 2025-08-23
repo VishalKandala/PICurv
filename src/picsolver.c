@@ -74,11 +74,24 @@ int main(int argc, char **argv)
     if (!simCtx->OnlySetup) {
         // This function will contain the main time loop, orchestrating
         // the flow solve and particle advection steps.
-         ierr = AdvanceSimulation(simCtx); CHKERRQ(ierr);
-    }// else {
-      //   PetscPrintf(simCtx->rank == 0 ? PETSC_COMM_SELF : PETSC_COMM_NULL,
-      //              "INFO: SETUP ONLY MODE enabled. Skipping time loop.\n");
-// }
+
+      if(simCtx->StartStep == 0){
+	ierr = PerformInitialSetup(simCtx); CHKERRQ(ierr);
+      }else{
+	
+	// Restart logic
+        LOG_ALLOW(GLOBAL,LOG_INFO," Restart from Time step %d.\n",simCtx->StartStep);
+      }
+
+      if(simCtx->StepsToRun > 0){
+	 ierr = AdvanceSimulation(simCtx); CHKERRQ(ierr);
+      }else{
+	LOG_ALLOW(GLOBAL,LOG_INFO,"Initial setup complete.No steps to run.Exiting!.\n");
+      }
+
+    }else{
+      LOG_ALLOW(GLOBAL,LOG_INFO,"SETUP ONLY MODE enabled. Skipping time loop.\n");
+    }
 
     // === V. FINALIZE =========================================================
     // Cleanly destroy all objects and free all memory.

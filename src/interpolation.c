@@ -1724,8 +1724,8 @@ PetscErrorCode InterpolateAllFieldsToSwarm(UserCtx *user)
  * - Handles both scalar (DOF=1) and vector (DOF=3) particle fields.
  * - Uses a pre-calculated particle count vector (`ParticleCount`) for normalization.
  * - Implicitly determines the target Eulerian DM (typically `user->da` for scalars,
- *   `user->fda` for vectors) based on standard field names ("P", "Nvert", "Ucat", "Ucont").
- * - Modifies existing Eulerian field vectors (e.g., `user->P`, `user->Ucat`) in place.
+ *   `user->fda` for vectors) based on standard field names ("P", "Nvert", "Ucat", "Ucont","Psi").
+ * - Modifies existing Eulerian field vectors (e.g., `user->P`, `user->Ucat`,user->Psi`) in place.
  * - Provides a high-level wrapper function (`ScatterAllParticleFieldsToEulerFields`)
  *   to easily scatter a standard set of fields.
  * - Uses only the base `SETERRQ` macro for error reporting to maximize compiler compatibility.
@@ -1787,7 +1787,7 @@ PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName
 
     // --- Determine Target DM and DOF based on Field Name ---
     // Compare the input field name with known scalar fields targeting 'da'
-    if (strcmp(particleFieldName, "P") == 0 || strcmp(particleFieldName, "Nvert") == 0) {
+    if (strcmp(particleFieldName, "Psi") == 0 || strcmp(particleFieldName, "Nvert") == 0) {
         *expected_dof = 1;      // Scalar fields have DOF 1
         *targetDM = user->da;   // Target the primary scalar DMDA
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "GetScatterTargetInfo: Field '%s' targets DM 'da' (DOF=1).\n", particleFieldName);
@@ -1889,7 +1889,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
              // Calculate the flat 1D index for this cell within the linear ghosted array
              // Uses PETSc's standard C-style row-major ordering (k-slowest, j-middle, i-fastest)
              // Corrected: k (slowest), j, i (fastest)
-             PetscInt cell_flat_idx = (pidz * gym + pidy) * gxm + pidx;
+              PetscInt cell_flat_idx = (pidz * gym + pidy) * gxm + pidx;
 
              // Calculate the base index for this particle's data in particle_arr
              PetscInt particle_base_idx = p * dof;
@@ -2127,7 +2127,7 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
  * the `eulerFieldAverageVec`.
  *
  * @param[in] user                 Pointer to UserCtx containing `da`, `fda`, `swarm`, `ParticleCount`.
- * @param[in] particleFieldName    Name of the field in the DMSwarm (e.g., "P", "Ucat").
+ * @param[in] particleFieldName    Name of the field in the DMSwarm (e.g., "Psi", "Ucat").
  * @param[in,out] eulerFieldAverageVec Pre-created Vec associated with the correct target DM
  *                                 (implicitly `da` or `fda`). Result stored here.
  *                                 This vector should be zeroed by the caller if desired
@@ -2205,8 +2205,8 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
  * @ingroup scatter_module
  *
  * This convenience function calls the unified `ScatterParticleFieldToEulerField`
- * for a standard set of fields (currently just "P", others commented out). It assumes
- * the target Eulerian Vec objects (e.g., `user->P`, `user->Ucat`) exist in the
+ * for a standard set of fields (currently just "Psi", others commented out). It assumes
+ * the target Eulerian Vec objects (e.g., `user->Psi`, `user->Ucat`) exist in the
  * UserCtx structure and are correctly associated with their respective DMs (`user->da`
  * or `user->fda`).
  *
@@ -2232,38 +2232,38 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "UserCtx->ParticleCount is NULL. Compute counts before calling ScatterAllParticleFieldsToEulerFields.");
     }
 
-    // --- Scatter Particle Field "P" -> Eulerian Field user->P (on da) ---
+    // --- Scatter Particle Field "Psi" -> Eulerian Field user->P (on da) ---
     // Check if the target Eulerian vector 'user->P' exists.
-    if (user->P) {
+    if (user->Psi) {
         
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering particle field 'P' to user->P.\n");
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering particle field 'Psi' to user->Psi.\n");
         // Zero the target vector before accumulating the new average for this step/call.
 
 	// Debug Verification ------------------------------------------------
-	Vec swarm_P;
-	PetscReal Avg_P,Avg_swarm_P;
+	Vec swarm_Psi;
+	PetscReal Avg_Psi,Avg_swarm_Psi;
 	     
-	ierr = VecMean(user->P,&Avg_P);
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Pressure before scatter: %.4f.\n",Avg_P);
+	ierr = VecMean(user->P,&Avg_Psi);
+	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) before scatter: %.4f.\n",Avg_Psi);
 	     
-	ierr = DMSwarmCreateGlobalVectorFromField(user->swarm,"P",&swarm_P);
-	ierr = VecMean(swarm_P,&Avg_swarm_P);
+	ierr = DMSwarmCreateGlobalVectorFromField(user->swarm,"Psi",&swarm_Psi);
+	ierr = VecMean(swarm_Psi,&Avg_swarm_Psi);
 
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Particle Pressure: %.4f.\n",Avg_swarm_P);
+	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Particle Scalar(Psi): %.4f.\n",Avg_swarm_Psi);
 
-	ierr = DMSwarmDestroyGlobalVectorFromField(user->swarm,"P",&swarm_P);
+	ierr = DMSwarmDestroyGlobalVectorFromField(user->swarm,"Psi",&swarm_Psi);
 	// Debug----------------------------------------------------------------
 	  
 	//ierr = VecSet(user->P, 0.0); CHKERRQ(ierr);
         // Call the unified scatter function. It will handle DM determination and validation.
-        // It will also error out if the *particle* field "P" doesn't exist in the swarm.
-        ierr = ScatterParticleFieldToEulerField(user, "P", user->P); CHKERRQ(ierr);
-	ierr = VecMean(user->P,&Avg_P);
+        // It will also error out if the *particle* field "Psi" doesn't exist in the swarm.
+        ierr = ScatterParticleFieldToEulerField(user, "Psi", user->Psi); CHKERRQ(ierr);
+	ierr = VecMean(user->Psi,&Avg_Psi);
 	
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Pressure after  scatter: %.4f.\n",Avg_P);
+	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) after  scatter: %.4f.\n",Avg_Psi);
     } else {
         // Only log a warning if the target Eulerian field is missing in the context.
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "Skipping scatter for 'P': UserCtx->P is NULL.\n");
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "Skipping scatter for 'Psi': UserCtx->Psi is NULL.\n");
     }
 
     // --- (Commented Out) Scatter Other Fields ---

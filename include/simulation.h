@@ -43,33 +43,6 @@
 PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user);
 
 /**
- * @brief Initializes or updates the complete, consistent state of all Eulerian fields for a given timestep.
- *
- * This function is a high-level wrapper that orchestrates the entire process of preparing
- * the fluid fields for a single time step. It follows the standard procedure for a
- * curvilinear solver: first resolving contravariant velocities (`Ucont`) and then
- * converting them to Cartesian (`Ucat`).
- *
- * Its sequential operations are:
- * 1.  Update the INTERIOR of the domain:
- *     - For the initial step, it calls `SetInitialInteriorField` to generate values.
- *     - For subsequent steps, it calls the main fluid solver.
- *     - If restarting from a file, it reads the data, overwriting the whole field.
- *
- * 2.  Apply Boundary Conditions:
- *     - It then calls the modular `BoundarySystem_ExecuteStep` to enforce all configured
- *       boundary conditions on the domain edges.
- *
- * 3.  Convert to Cartesian and Finalize:
- *     - It calls `Contra2Cart` to compute `Ucat` from `Ucont`.
- *     - It calls `UpdateLocalGhosts` to ensure all parallel data is synchronized.
- *
- * @param user        Pointer to the UserCtx structure, containing all simulation data.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode SetEulerianFields(UserCtx *user);
-
-/**
  * @brief Executes the main time-marching loop for the particle simulation. [TEST VERSION]
  *
  * This version uses the new, integrated `LocateAllParticlesInGrid_TEST` orchestrator
@@ -91,25 +64,20 @@ PetscErrorCode SetEulerianFields(UserCtx *user);
 PetscErrorCode AdvanceSimulation(SimCtx *simCtx);
 
 /**
- * @brief Performs the complete initial setup for the particle simulation at time t=0. [TEST VERSION]
+ * @brief Finalizes the simulation setup at t=0, ensuring a consistent state before time marching.
  *
- * This version uses the new, integrated `LocateAllParticlesInGrid_TEST` orchestrator,
- * which handles both location and migration in a single, robust, iterative process.
+ * This function is called from main() after the initial Eulerian and Lagrangian states have been
+ * created but before the main time loop begins. Its responsibilities are:
  *
- * Its sequential operations are:
- * 1. A single, comprehensive call to `LocateAllParticlesInGrid_TEST` to sort all particles
- *    to their correct owner ranks and find their initial host cells.
- * 2. If `user->ParticleInitialization == 0` (Surface Init), it re-initializes particles on the
- *    designated inlet surface, now that they are on the correct MPI ranks.
- * 3. A second call to `LocateAllParticlesInGrid_TEST` is needed after re-initialization to
- *    find the new, correct host cells for the surface-placed particles.
- * 4. Interpolates initial Eulerian fields to the settled particles.
- * 5. Scatters particle data to Eulerian fields (if applicable).
- * 6. Outputs initial data if requested.
+ * 1.  Settling the particle swarm: Migrates particles to their correct owner ranks and finds their
+ *     initial host cells. This includes handling special surface initializations.
+ * 2.  Coupling the fields: Interpolates the initial Eulerian fields to the settled particle locations.
+ * 3.  Preparing for the first step: Scatters particle data back to the grid.
+ * 4.  Writing the initial output for step 0.
  *
- * @param user Pointer to the UserCtx structure.
+ * @param simCtx Pointer to the main simulation context structure.
  * @return PetscErrorCode 0 on success, non-zero on failure.
  */
-PetscErrorCode PerformInitialSetup(UserCtx *user, BoundingBox *bboxlist);
+PetscErrorCode PerformInitialSetup(SimCtx *simCtx);
 
 #endif  // SIMULATION_H
