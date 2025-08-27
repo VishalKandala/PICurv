@@ -21,17 +21,38 @@ Modular architecture with plug-and-play routines for scalar transport, stochasti
 To build the solver and postprocessor:
 
 ```bash
-make inttest       # Builds main solver executable `inttest`
-make postprocess   # Builds postprocessor executable `postprocess`
+cd   $pic          # change to the pic directory.
+make clean_all     # clean all object and executable files.
+make picsolver       # Builds main solver executable `picsolver`
+make postprocessor   # Builds postprocessor executable `postprocessor`
 ```
 
 Ensure PETSc paths are configured correctly in your Makefile or environment.
 
-@section layout Repository Layout
-- `include/` — Public headers (documented API)
-- `src/` — Implementations
-- `stubs/` — Placeholder or WIP sources
-- `test/` — Test configs & fixtures
+@section directorystructure Directory Structure
+```text
+.
+├── src/           # Source files (*.c)
+├── include/       # Header files (*.h)
+├── scripts/       # Python utilities
+├── obj/           # Object files (*.o)
+├── bin/           # Executables
+├── docs/          # Docs files
+├── test/          # Config directories for different test cases.
+```
 
-See @ref architecture "Architecture" and @ref devguide "Developer Guide".
+@section running ▶️ Running The Code
+
+1.  **Create a new `run/` directory and `logs/`,`results/` sub-directories.**.
+2.  **Place the `test/config` directory in `run/`
+3.  **Create symbolic links** to the built executables:
+    ```bash
+    ln -s $pic/bin/picsolver 
+    ln -s $pic/bin/postprocessor 
+    ```
+4.  Run the solver:
+    ```bash
+    mpirun -np 4 ./picsolver
+    ```
+
 */
