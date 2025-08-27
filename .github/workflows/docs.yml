@@ -45,3 +45,41 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+  mirror-to-website:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout website repo
+        uses: actions/checkout@v4
+        with:
+          repository: VishalKandala/VishalKandala.github.io
+          # Personal Access Token with repo:contents write permission
+          token: ${{ secrets.WEBSITE_PUSH_TOKEN }}
+          path: site
+
+      - name: Download built docs artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          # actions/upload-pages-artifact names it "github-pages" by default
+          name: github-pages
+          path: built-docs
+
+      - name: Sync docs into website repo
+        run: |
+          rm -rf site/docs/pic_dev
+          mkdir -p site/docs/pic_dev
+          cp -R built-docs/* site/docs/pic_dev/
+          # Optional: index shim if needed
+          if [ ! -f site/docs/pic_dev/index.html ]; then
+            echo "<meta http-equiv='refresh' content='0; url=./index.html'>" > site/docs/pic_dev/index.html
+          fi
+
+      - name: Commit & push
+        working-directory: site
+        run: |
+          git config user.name  "gh-actions"
+          git config user.email "actions@github.com"
+          git add docs/pic_dev
+          git commit -m "Update PIC Dev Doxygen docs"
+          # Adjust branch name if your website repo uses 'master' instead of 'main'
+          git push origin HEAD:master || git push origin HEAD:main
