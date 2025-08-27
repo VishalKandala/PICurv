@@ -9,7 +9,7 @@ OPTIMIZE_OUTPUT_FOR_C  = YES
 OPTIMIZE_OUTPUT_FOR_CPLUS_PLUS = NO
 
 #------------------------- Input ---------------------------
-INPUT                  = ../include ../src ./mainpage.md ./architecture.md ./developer_guide.md
+INPUT                  = ../include ../src ./mainpage.md ./pages
 FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md
 RECURSIVE              = YES
 EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/*
@@ -18,6 +18,7 @@ EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = NO
 EXTRACT_STATIC         = YES
 EXTRACT_LOCAL_CLASSES  = YES
+SORT_MEMBER_DOCS       = NO
 HIDE_UNDOC_MEMBERS     = NO
 HIDE_UNDOC_CLASSES     = NO
 INLINE_SIMPLE_STRUCTS  = YES
