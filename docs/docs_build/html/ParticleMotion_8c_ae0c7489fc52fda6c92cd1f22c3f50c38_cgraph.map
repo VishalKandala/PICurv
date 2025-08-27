@@ -1,0 +1,4 @@
+<map id="PreCheckAndResizeSwarm" name="PreCheckAndResizeSwarm">
+<area shape="rect" id="node1" title="Checks particle count from a saved file and resizes the swarm globally." alt="" coords="5,5,201,32"/>
+<area shape="rect" id="node2" href="$ParticleMotion_8c.html#a38b5e7348bc556d505e2c4b31c29b086" title=" " alt="" coords="249,5,413,32"/>
+</map>

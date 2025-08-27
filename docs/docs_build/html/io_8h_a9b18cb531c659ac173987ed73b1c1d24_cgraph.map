@@ -1,0 +1,5 @@
+<map id="ReadFieldDataToRank0" name="ReadFieldDataToRank0">
+<area shape="rect" id="node1" title="Reads a named field from file into a PETSc Vec, then gathers it to rank 0." alt="" coords="5,31,176,57"/>
+<area shape="rect" id="node2" href="$io_8c.html#a570806d7e0694b5d996e0c6018b48908" title="Reads data for a specific field from a file into the provided vector." alt="" coords="243,5,359,32"/>
+<area shape="rect" id="node3" href="$io_8c.html#aa3512c89570bb1d27f4765819fad4985" title="Gathers a PETSc vector onto rank 0 as a contiguous array of doubles." alt="" coords="224,56,379,83"/>
+</map>

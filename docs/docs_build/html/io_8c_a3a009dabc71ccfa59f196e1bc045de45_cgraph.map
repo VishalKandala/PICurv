@@ -1,0 +1,7 @@
+<map id="ReadSimulationFields" name="ReadSimulationFields">
+<area shape="rect" id="node1" title="Reads simulation fields from files into their respective PETSc vectors." alt="" coords="5,54,168,80"/>
+<area shape="rect" id="node2" href="$io_8c.html#a570806d7e0694b5d996e0c6018b48908" title="Reads data for a specific field from a file into the provided vector." alt="" coords="421,54,537,80"/>
+<area shape="rect" id="node3" href="$io_8c.html#a45ad89f26c78131d2990f09126abba4b" title="Reads LES&#45;related fields." alt="" coords="237,28,352,55"/>
+<area shape="rect" id="node4" href="$io_8c.html#a19e2e0b57afae458bae068610141c031" title="Reads RANS&#45;related fields." alt="" coords="231,79,359,106"/>
+<area shape="rect" id="node5" href="$io_8c.html#a03f5b76975eea55434d764a23fd42623" title="Reads statistical fields for averaging purposes." alt="" coords="216,130,373,156"/>
+</map>

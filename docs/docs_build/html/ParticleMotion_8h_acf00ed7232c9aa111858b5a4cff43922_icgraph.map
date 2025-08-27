@@ -1,0 +1,4 @@
+<map id="IdentifyMigratingParticles" name="IdentifyMigratingParticles">
+<area shape="rect" id="node1" title="Identifies particles leaving the local bounding box and finds their target neighbor rank." alt="" coords="279,13,469,39"/>
+<area shape="rect" id="node2" href="$ParticleMotion_8c.html#ab2eeab12258446f697695ebdaef3f011" title="Performs one full cycle of particle migration: identify, set ranks, and migrate." alt="" coords="5,5,231,47"/>
+</map>

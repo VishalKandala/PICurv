@@ -1,0 +1,5 @@
+<map id="VecToArrayOnRank0" name="VecToArrayOnRank0">
+<area shape="rect" id="node1" title="Gathers the contents of a distributed PETSc Vec into a single array on rank 0." alt="" coords="224,31,379,57"/>
+<area shape="rect" id="node2" href="$io_8c.html#a9b18cb531c659ac173987ed73b1c1d24" title="Reads a named field from file into a PETSc Vec, then gathers it to rank 0." alt="" coords="5,5,176,32"/>
+<area shape="rect" id="node3" href="$io_8c.html#abbdec83c0db92b3f9a78ccaf8ec06d60" title="Reads coordinate data (for particles) from file into a PETSc Vec, then gathers it to rank 0." alt="" coords="6,56,175,83"/>
+</map>

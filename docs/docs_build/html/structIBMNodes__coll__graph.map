@@ -1,0 +1,4 @@
+<map id="IBMNodes" name="IBMNodes">
+<area shape="rect" id="node1" title="Represents a collection of nodes forming a surface for the IBM." alt="" coords="5,139,93,165"/>
+<area shape="rect" id="node2" href="$variables__old_8h.html#structCmpnts" title="A 3D point or vector with PetscScalar components." alt="" coords="13,5,85,32"/>
+</map>

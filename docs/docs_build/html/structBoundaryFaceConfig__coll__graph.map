@@ -1,0 +1,5 @@
+<map id="BoundaryFaceConfig" name="BoundaryFaceConfig">
+<area shape="rect" id="node1" title="Holds the complete configuration for one of the six boundary faces." alt="" coords="81,95,237,121"/>
+<area shape="rect" id="node2" href="$variables__old_8h.html#structBC__Param__s" title="A node in a linked list for storing key&#45;value parameters from the bcs.dat file." alt="" coords="5,5,108,32"/>
+<area shape="rect" id="node3" href="$structBoundaryCondition.html" title="The &quot;virtual table&quot; struct for a boundary condition handler object." alt="" coords="190,5,337,32"/>
+</map>

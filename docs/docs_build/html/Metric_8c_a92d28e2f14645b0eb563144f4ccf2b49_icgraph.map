@@ -1,0 +1,6 @@
+<map id="ComputeCellCenteredJacobianInverse" name="ComputeCellCenteredJacobianInverse">
+<area shape="rect" id="node1" title="Calculates the cell&#45;centered inverse Jacobian determinant (1/J), including boundary extrapolation,..." alt="" coords="537,5,757,47"/>
+<area shape="rect" id="node2" href="$Metric_8c.html#a063043da47b68702c78c7e0769325b36" title="Orchestrates the calculation of all grid metrics." alt="" coords="315,13,489,39"/>
+<area shape="rect" id="node3" href="$setup_8c.html#a2be2815aeb79afe9b95caf39c7b3312c" title="The main orchestrator for setting up all grid&#45;related components." alt="" coords="108,13,267,39"/>
+<area shape="rect" id="node4" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,13,60,39"/>
+</map>

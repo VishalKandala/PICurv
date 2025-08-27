@@ -1,0 +1,5 @@
+<map id="IdentifyMigratingParticles" name="IdentifyMigratingParticles">
+<area shape="rect" id="node1" title="Identifies particles that have left the local MPI rank&#39;s domain and determines their target rank." alt="" coords="5,31,196,57"/>
+<area shape="rect" id="node2" href="$ParticleMotion_8c.html#a43df9caf0f5cbb317050f6258ac46fff" title="Safely adds a new migration task to a dynamically sized list." alt="" coords="244,5,391,32"/>
+<area shape="rect" id="node3" href="$ParticleMotion_8c.html#ad2b9ac6b5e4d13799fa82dcd34432da4" title="Checks if a particle position is within the bounds of a given bounding box." alt="" coords="258,56,377,83"/>
+</map>

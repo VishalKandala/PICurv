@@ -1,0 +1,11 @@
+<map id="PerformSingleParticleMigrationCycle" name="PerformSingleParticleMigrationCycle">
+<area shape="rect" id="node1" title="Performs one full cycle of particle migration: identify, set ranks, and migrate." alt="" coords="5,99,231,141"/>
+<area shape="rect" id="node2" href="$ParticleMotion_8c.html#ad247152a0dd47d07243fad4c2fd89c0a" title="Identifies newly arrived particles after migration and flags them for a location search." alt="" coords="279,5,481,32"/>
+<area shape="rect" id="node4" href="$ParticleMotion_8c.html#a5d388b62daa726aa7ea467a71313a328" title="Creates a sorted snapshot of all Particle IDs (PIDs) from a raw data array." alt="" coords="299,56,461,83"/>
+<area shape="rect" id="node5" href="$ParticleMotion_8c.html#acf00ed7232c9aa111858b5a4cff43922" title="Identifies particles that have left the local MPI rank&#39;s domain and determines their target rank." alt="" coords="285,107,475,133"/>
+<area shape="rect" id="node8" href="$ParticleMotion_8c.html#af68865be3bc987bdf1be2c5c7a1903fa" title="Performs particle migration based on the pre&#45;populated DMSwarmPICField_rank field." alt="" coords="312,157,448,184"/>
+<area shape="rect" id="node9" href="$ParticleMotion_8c.html#a461def358c0f7c5337c283ba06dd65a0" title="Sets the target rank field (DMSwarmPICField_rank) for particles scheduled for migration." alt="" coords="307,208,453,235"/>
+<area shape="rect" id="node3" href="$setup_8h.html#acd8d87dc85f19ba3e32811a623bf5b36" title="Performs a binary search for a key in a sorted array of PetscInt64." alt="" coords="532,5,673,32"/>
+<area shape="rect" id="node6" href="$ParticleMotion_8c.html#a43df9caf0f5cbb317050f6258ac46fff" title="Safely adds a new migration task to a dynamically sized list." alt="" coords="529,81,676,108"/>
+<area shape="rect" id="node7" href="$ParticleMotion_8c.html#ad2b9ac6b5e4d13799fa82dcd34432da4" title="Checks if a particle position is within the bounds of a given bounding box." alt="" coords="543,132,662,159"/>
+</map>

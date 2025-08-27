@@ -1,0 +1,5 @@
+<map id="CheckAndRemoveOutOfBoundsParticles" name="CheckAndRemoveOutOfBoundsParticles">
+<area shape="rect" id="node1" title="Checks for particles outside the global physical domain and removes them." alt="" coords="304,5,531,47"/>
+<area shape="rect" id="node2" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="108,13,256,39"/>
+<area shape="rect" id="node3" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,13,60,39"/>
+</map>

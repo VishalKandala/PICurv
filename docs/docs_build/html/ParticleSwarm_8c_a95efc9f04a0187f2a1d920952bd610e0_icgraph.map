@@ -1,0 +1,6 @@
+<map id="InitializeParticleBasicProperties" name="InitializeParticleBasicProperties">
+<area shape="rect" id="node1" title="Initializes basic properties for particles on the local process." alt="" coords="559,13,787,39"/>
+<area shape="rect" id="node2" href="$ParticleSwarm_8c.html#af2b3080ee0e5c8e0175ac594a2c497b5" title="Initializes all particle properties in the swarm." alt="" coords="328,5,511,47"/>
+<area shape="rect" id="node3" href="$ParticleSwarm_8c.html#ada215a5db25227a8fd2cd2596e7d3e57" title="Perform particle swarm initialization, particle&#45;grid interaction, and related operations." alt="" coords="108,13,280,39"/>
+<area shape="rect" id="node4" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,13,60,39"/>
+</map>

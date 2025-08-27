@@ -1,0 +1,7 @@
+<map id="initialcondition.h" name="initialcondition.h">
+<area shape="rect" id="node1" title=" " alt="" coords="46,5,177,32"/>
+<area shape="rect" id="node2" href="$simulation_8h.html" title=" " alt="" coords="60,80,163,107"/>
+<area shape="rect" id="node5" href="$initialcondition_8c.html" title="Test program for DMSwarm interpolation using the fdf&#45;curvIB method." alt="" coords="187,80,318,107"/>
+<area shape="rect" id="node3" href="$picsolver_8c.html" title=" " alt="" coords="5,155,97,181"/>
+<area shape="rect" id="node4" href="$simulation_8c.html" title="Test program for DMSwarm interpolation using the fdf&#45;curvIB method. Provides the setup to start any s..." alt="" coords="121,155,224,181"/>
+</map>

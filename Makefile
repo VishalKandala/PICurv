@@ -9,6 +9,7 @@ INCDIR    = include
 OBJDIR    = obj
 BINDIR    = bin
 SCRIPTDIR = scripts
+DOCSDIR    = docs
 
 # -----------------------------------------------------
 # Compiler and Flags
@@ -247,5 +248,53 @@ cleanobj:
 clean_all: cleanobj
 	rm -f $(BINDIR)/* TAGS
 
+# -------------------------------
+# Documentation (Doxygen) targets
+# -------------------------------
+DOXYGEN   ?= doxygen
+DOCS_OUT  := $(DOCSDIR)/docs_build/html
+
+.PHONY: docs open-docs clean-docs
+
+# Ensure docs dir exists (in case it's missing)
+$(DOCSDIR):
+	@mkdir -p $(DOCSDIR)
+
+docs: | $(DOCSDIR)
+	@$(DOXYGEN) -v >/dev/null 2>&1 || { \
+	  echo "Error: doxygen not found. Install it (and graphviz) then retry."; \
+	  echo "  macOS:   brew install doxygen graphviz"; \
+	  echo "  Ubuntu:  sudo apt-get install -y doxygen graphviz"; \
+	  exit 1; }
+	@echo "==> Generating Doxygen docs"
+	@cd $(DOCSDIR) && $(DOXYGEN) Doxyfile
+	@echo "HTML: $(DOCS_OUT)/index.html"
+
+open-docs: docs
+ifeq ($(shell uname),Darwin)
+	@open $(DOCS_OUT)/index.html
+else
+	@xdg-open $(DOCS_OUT)/index.html || true
+endif
+
+clean-docs:
+	@rm -rf $(DOCSDIR)/docs_build $(DOCSDIR)/doxygen.warnings
+	@echo "Docs build artifacts removed."
+
+# -------------------------------
+# PETSc test rules (guarded)
+# -------------------------------
+# Include PETSc test rules only if PETSC_DIR is set and the file exists.
+ifneq ($(strip $(PETSC_DIR)),)
+  ifneq ("$(wildcard $(PETSC_DIR)/lib/petsc/conf/test)","")
+    include $(PETSC_DIR)/lib/petsc/conf/test
+  else
+    $(warning PETSc test include not found at $(PETSC_DIR)/lib/petsc/conf/test; skipping)
+  endif
+else
+  $(warning PETSC_DIR is not set; skipping PETSc test includes)
+endif
+
+
 # Include PETSc test rules
-include ${PETSC_DIR}/lib/petsc/conf/test
+#include ${PETSC_DIR}/lib/petsc/conf/test

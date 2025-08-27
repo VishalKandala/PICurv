@@ -1,0 +1,20 @@
+<map id="UpdateLocalGhosts" name="UpdateLocalGhosts">
+<area shape="rect" id="node1" title="Updates the local vector (including ghost points) from its corresponding global vector." alt="" coords="824,288,972,315"/>
+<area shape="rect" id="node2" href="$Metric_8c.html#a436bb94905ee06971f632571f5bc8cbb" title="Ensure a right&#45;handed metric basis (Csi, Eta, Zet) and a positive Jacobian (Aj) over the whole domain..." alt="" coords="557,259,763,285"/>
+<area shape="rect" id="node6" href="$Metric_8c.html#a92d28e2f14645b0eb563144f4ccf2b49" title="Calculates the cell&#45;centered inverse Jacobian determinant (1/J), including boundary extrapolation,..." alt="" coords="550,310,770,351"/>
+<area shape="rect" id="node7" href="$Metric_8c.html#a46e70c0ae8f36f97321c5c892fc56be5" title="Computes the physical location of cell centers and the spacing between them." alt="" coords="544,5,776,32"/>
+<area shape="rect" id="node8" href="$Metric_8c.html#a6f0dfb324211e230a387501f93cfd316" title="Computes the primary face metric components (Csi, Eta, Zet), including boundary extrapolation,..." alt="" coords="581,56,739,83"/>
+<area shape="rect" id="node9" href="$Metric_8c.html#af935307ea3e9727a63b6ef9a3932caa8" title="Computes metrics centered on constant&#45;i faces (i&#45;faces)." alt="" coords="579,107,741,133"/>
+<area shape="rect" id="node10" href="$Metric_8c.html#a4ecbe44ffb23d82193f9278ab61c1b47" title="Computes metrics centered on constant&#45;j faces (j&#45;faces)." alt="" coords="579,157,741,184"/>
+<area shape="rect" id="node11" href="$Metric_8c.html#a95e22e5238b2cd02b992366766730687" title="Computes metrics centered on constant&#45;k faces (k&#45;faces)." alt="" coords="576,208,744,235"/>
+<area shape="rect" id="node12" href="$initialcondition_8c.html#af6a26611066aa455efddcca2fd80fe35" title="(HELPER) Finalizes a block&#39;s state by applying BCs, converting to Cartesian, and synchronizing ghost ..." alt="" coords="589,579,731,605"/>
+<area shape="rect" id="node13" href="$initialcondition_8c.html#a51d0251f84a962a611ff0c0a8797a3e4" title="(HELPER) Sets the t=0 fluid state for all blocks." alt="" coords="335,529,482,570"/>
+<area shape="rect" id="node15" href="$solvers_8c.html#a2ed4825273a593f371a3d48071708255" title="Orchestrates a single time step of the Eulerian fluid solver." alt="" coords="358,391,459,417"/>
+<area shape="rect" id="node17" href="$initialcondition_8c.html#aff0951526ed36a87e2745da0154a68e5" title="(HELPER) Reads fluid state for all blocks from restart files." alt="" coords="335,463,482,505"/>
+<area shape="rect" id="node18" href="$poisson_8c.html#a7cf2cfc0383ba0076f827f7d3856f2ed" title="Updates the pressure field and handles periodic boundary conditions." alt="" coords="597,427,723,453"/>
+<area shape="rect" id="node3" href="$Metric_8c.html#a063043da47b68702c78c7e0769325b36" title="Orchestrates the calculation of all grid metrics." alt="" coords="321,183,496,209"/>
+<area shape="rect" id="node4" href="$setup_8c.html#a2be2815aeb79afe9b95caf39c7b3312c" title="The main orchestrator for setting up all grid&#45;related components." alt="" coords="111,271,270,297"/>
+<area shape="rect" id="node5" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,391,60,417"/>
+<area shape="rect" id="node14" href="$initialcondition_8c.html#ad0dd7d3f2528b6a7802fcd551e88ea99" title="High&#45;level orchestrator to set the complete initial state of the Eulerian solver." alt="" coords="108,471,273,497"/>
+<area shape="rect" id="node16" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="117,391,265,417"/>
+</map>

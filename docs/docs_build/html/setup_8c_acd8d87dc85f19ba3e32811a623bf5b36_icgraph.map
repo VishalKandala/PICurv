@@ -1,0 +1,9 @@
+<map id="BinarySearchInt64" name="BinarySearchInt64">
+<area shape="rect" id="node1" title="Performs a binary search for a key in a sorted array of PetscInt64." alt="" coords="828,60,969,87"/>
+<area shape="rect" id="node2" href="$ParticleMotion_8c.html#ad247152a0dd47d07243fad4c2fd89c0a" title="Identifies newly arrived particles after migration and flags them for a location search." alt="" coords="577,60,780,87"/>
+<area shape="rect" id="node3" href="$ParticleMotion_8c.html#a727054a4a467fd8504a19caed5a5916b" title="Orchestrates the complete particle location and migration process for one timestep." alt="" coords="309,31,525,57"/>
+<area shape="rect" id="node7" href="$ParticleMotion_8c.html#ab2eeab12258446f697695ebdaef3f011" title="Performs one full cycle of particle migration: identify, set ranks, and migrate." alt="" coords="304,82,529,123"/>
+<area shape="rect" id="node4" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="108,5,256,32"/>
+<area shape="rect" id="node6" href="$simulation_8c.html#a4e2cad25ac1fbdc6745d6fd8fcc1bbc1" title="Finalizes the simulation setup at t=0, ensuring a consistent state before time marching." alt="" coords="108,56,256,83"/>
+<area shape="rect" id="node5" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,31,60,57"/>
+</map>

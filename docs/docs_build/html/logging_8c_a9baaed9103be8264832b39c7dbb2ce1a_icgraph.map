@@ -1,0 +1,10 @@
+<map id="LOG_FACE_DISTANCES" name="LOG_FACE_DISTANCES">
+<area shape="rect" id="node1" title="Prints the signed distances to each face of the cell." alt="" coords="1080,35,1249,61"/>
+<area shape="rect" id="node2" href="$walkingsearch_8c.html#a556871801ba0b3214285a2ca1fe622ac" title="Determines the spatial relationship of a particle relative to a cubic cell." alt="" coords="843,5,1023,32"/>
+<area shape="rect" id="node8" href="$walkingsearch_8c.html#ae8ed9e0a01de5ee0f332170562b1f9ea" title="Updates the cell indices based on the signed distances to each face." alt="" coords="833,57,1032,98"/>
+<area shape="rect" id="node3" href="$walkingsearch_8c.html#a0b63dfe82e0fdee5c2c3bdd477f9901f" title="Locates a particle&#39;s host cell or identifies its migration target using a robust walk search." alt="" coords="568,27,785,69"/>
+<area shape="rect" id="node4" href="$ParticleMotion_8c.html#a727054a4a467fd8504a19caed5a5916b" title="Orchestrates the complete particle location and migration process for one timestep." alt="" coords="304,35,520,61"/>
+<area shape="rect" id="node5" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="108,9,256,36"/>
+<area shape="rect" id="node7" href="$simulation_8c.html#a4e2cad25ac1fbdc6745d6fd8fcc1bbc1" title="Finalizes the simulation setup at t=0, ensuring a consistent state before time marching." alt="" coords="108,60,256,87"/>
+<area shape="rect" id="node6" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,35,60,61"/>
+</map>

@@ -1,0 +1,8 @@
+<map id="AssignAllGridCoordinates" name="AssignAllGridCoordinates">
+<area shape="rect" id="node1" title="Orchestrates the assignment of physical coordinates to all DMDA objects." alt="" coords="5,31,192,57"/>
+<area shape="rect" id="node2" href="$grid_8c.html#a5b5fe86ae6791885769361fca4ad6b2f" title="Populates coarse grid coordinates by restricting from a fine grid." alt="" coords="262,5,413,32"/>
+<area shape="rect" id="node3" href="$grid_8c.html#acb950cd51656702b75ea84d6477d0d97" title="A router that populates the coordinates for a single finest&#45;level DMDA." alt="" coords="240,56,435,83"/>
+<area shape="rect" id="node4" href="$grid_8c.html#ac44553fe1434663c5211cc6ac32ef004" title="Programmatically generates and sets grid coordinates based on user parameters." alt="" coords="483,31,689,57"/>
+<area shape="rect" id="node6" href="$grid_8c.html#ac693c757c4fd3cb75e6e06e05e25d775" title="Reads physical coordinates from a file and populates the DMDA for a specific block." alt="" coords="497,81,675,108"/>
+<area shape="rect" id="node5" href="$grid_8c.html#a54a2529affe522c9e29161aef1ca3847" title="Computes a stretched coordinate along one dimension." alt="" coords="737,31,919,57"/>
+</map>

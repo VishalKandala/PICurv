@@ -1,0 +1,13 @@
+<map id="SetupBoundaryConditions" name="SetupBoundaryConditions">
+<area shape="rect" id="node1" title="(Orchestrator) Sets up all boundary conditions for the simulation." alt="" coords="5,233,196,260"/>
+<area shape="rect" id="node2" href="$io_8h.html#a5cc5e40cd538efc87ebd94ebdbb2a8e8" title="Parses the boundary conditions file to configure the type, handler, and any associated parameters for..." alt="" coords="249,157,455,184"/>
+<area shape="rect" id="node9" href="$Boundaries_8h.html#ae7f472e68b4ebad054e1391e5de8c9a0" title=" " alt="" coords="244,309,460,336"/>
+<area shape="rect" id="node3" href="$logging_8h.html#ab17ab5ac0ff52ba6a344790a496f6111" title="Converts a BCHandlerType enum to its string representation." alt="" coords="528,5,701,32"/>
+<area shape="rect" id="node4" href="$io_8c.html#acee53553fb7d51eb948f1d4030518860" title="Frees the memory allocated for a linked list of BC_Param structs." alt="" coords="545,56,685,83"/>
+<area shape="rect" id="node5" href="$io_8c.html#ab6896c293521673fcbff33001706d3ec" title="Converts a string representation of a face to a BCFace enum." alt="" coords="553,107,676,133"/>
+<area shape="rect" id="node6" href="$io_8c.html#a15bdb2122be30f52df280e1d7204f578" title="Converts a string representation of a handler to a BCHandlerType enum." alt="" coords="528,157,701,184"/>
+<area shape="rect" id="node7" href="$io_8c.html#ad5fc2fe7ae3aa77361c5ab62343358a7" title="Converts a string representation of a BC type to a BCType enum." alt="" coords="553,208,676,235"/>
+<area shape="rect" id="node8" href="$io_8c.html#a5fe767286174b757deb2d404f2b4843f" title="Validates that a specific handler is compatible with a general BC type." alt="" coords="508,259,721,285"/>
+<area shape="rect" id="node10" href="$logging_8h.html#a9b417fe56a110c0f6a3e64860e3e5cdb" title="Helper function to convert BCFace enum to a string representation." alt="" coords="553,309,676,336"/>
+<area shape="rect" id="node11" href="$logging_8h.html#a804d193057ea6054b3911ae508808821" title="Helper function to convert BCType enum to a string representation." alt="" coords="553,360,676,387"/>
+</map>

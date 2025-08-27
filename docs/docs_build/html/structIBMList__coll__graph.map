@@ -1,0 +1,6 @@
+<map id="IBMList" name="IBMList">
+<area shape="rect" id="node1" title="Head of a linked list for IBM data." alt="" coords="22,273,93,300"/>
+<area shape="rect" id="node2" href="$variables__old_8h.html#structIBMListNode" title="A linked list node containing IBM interpolation info." alt="" coords="5,184,109,211"/>
+<area shape="rect" id="node3" href="$variables__old_8h.html#structIBMInfo" title="Holds interpolation and distance information for a single IBM point." alt="" coords="21,95,93,121"/>
+<area shape="rect" id="node4" href="$variables__old_8h.html#structCmpnts" title="A 3D point or vector with PetscScalar components." alt="" coords="21,5,93,32"/>
+</map>

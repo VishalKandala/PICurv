@@ -1,0 +1,14 @@
+<map id="u_hydset_roughness" name="u_hydset_roughness">
+<area shape="rect" id="node1" title=" " alt="" coords="1121,97,1276,123"/>
+<area shape="rect" id="node2" href="$wallfunction_8c.html#aae67d9282b09691fffdea6f1012e6df7" title=" " alt="" coords="915,97,1073,123"/>
+<area shape="rect" id="node3" href="$Boundaries_8c.html#adcd96cff4b9e15e03cdff9f5ea695dec" title=" " alt="" coords="785,97,867,123"/>
+<area shape="rect" id="node4" href="$Boundaries_8c.html#a47c050460ff0da893f9510ee9a459bfa" title="Acts as a temporary bridge to the legacy boundary condition implementation." alt="" coords="516,5,737,47"/>
+<area shape="rect" id="node5" href="$initialcondition_8c.html#af6a26611066aa455efddcca2fd80fe35" title="(HELPER) Finalizes a block&#39;s state by applying BCs, converting to Cartesian, and synchronizing ghost ..." alt="" coords="556,71,697,98"/>
+<area shape="rect" id="node9" href="$implicitsolvers_8c.html#a148a238901a4674420c87137c087e3ac" title="Advances the momentum equations using an iterative explicit Runge&#45;Kutta scheme." alt="" coords="594,122,659,149"/>
+<area shape="rect" id="node12" href="$implicitsolvers_8c.html#a89ae58d48076ba82dc70438b5e389bf5" title="Advances the momentum equations for ALL blocks by one time step using an explicit 4&#45;stage,..." alt="" coords="578,173,675,199"/>
+<area shape="rect" id="node6" href="$initialcondition_8c.html#a51d0251f84a962a611ff0c0a8797a3e4" title="(HELPER) Sets the t=0 fluid state for all blocks." alt="" coords="321,64,468,105"/>
+<area shape="rect" id="node7" href="$initialcondition_8c.html#ad0dd7d3f2528b6a7802fcd551e88ea99" title="High&#45;level orchestrator to set the complete initial state of the Eulerian solver." alt="" coords="108,74,273,101"/>
+<area shape="rect" id="node8" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,101,60,127"/>
+<area shape="rect" id="node10" href="$solvers_8c.html#a2ed4825273a593f371a3d48071708255" title="Orchestrates a single time step of the Eulerian fluid solver." alt="" coords="344,130,445,157"/>
+<area shape="rect" id="node11" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="117,126,265,153"/>
+</map>

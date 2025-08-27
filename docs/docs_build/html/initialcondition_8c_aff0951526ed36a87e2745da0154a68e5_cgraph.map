@@ -1,0 +1,11 @@
+<map id="SetInitialFluidState_Restart" name="SetInitialFluidState_Restart">
+<area shape="rect" id="node1" title="(HELPER) Reads fluid state for all blocks from restart files." alt="" coords="5,124,152,166"/>
+<area shape="rect" id="node2" href="$io_8h.html#a3a009dabc71ccfa59f196e1bc045de45" title="Reads binary field data for velocity, pressure, and other required vectors." alt="" coords="200,81,363,108"/>
+<area shape="rect" id="node7" href="$setup_8h.html#ad5f82951adcce74b3d37cb5880acf43a" title="Updates the local vector (including ghost points) from its corresponding global vector." alt="" coords="207,182,355,209"/>
+<area shape="rect" id="node3" href="$io_8c.html#a570806d7e0694b5d996e0c6018b48908" title="Reads data for a specific field from a file into the provided vector." alt="" coords="616,56,732,82"/>
+<area shape="rect" id="node4" href="$io_8c.html#a45ad89f26c78131d2990f09126abba4b" title="Reads LES&#45;related fields." alt="" coords="432,30,547,57"/>
+<area shape="rect" id="node5" href="$io_8c.html#a19e2e0b57afae458bae068610141c031" title="Reads RANS&#45;related fields." alt="" coords="425,81,553,108"/>
+<area shape="rect" id="node6" href="$io_8c.html#a03f5b76975eea55434d764a23fd42623" title="Reads statistical fields for averaging purposes." alt="" coords="411,132,568,158"/>
+<area shape="rect" id="node8" href="$logging_8h.html#a9585f583c260f40a73f2490914edc689" title="Retrieves the current logging level from the environment variable LOG_LEVEL." alt="" coords="435,182,544,209"/>
+<area shape="rect" id="node9" href="$logging_8h.html#a2358badbcda33fc9d80ebd6a59d2a2cd" title="Checks if a given function is in the allow&#45;list." alt="" coords="414,233,565,260"/>
+</map>
