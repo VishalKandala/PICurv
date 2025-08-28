@@ -12,7 +12,7 @@ Before you begin, ensure you have the following software installed on your syste
 - **Make:** The standard build automation tool.
 - **PETSc (version 3.20.3 or newer):** This is the core dependency. PICurv relies on PETSc for its parallel data structures (DMDA, DMSwarm), linear and nonlinear solvers, and I/O.
 
-@section install_sec 2. Installation and Verification
+@section install_sec 2. Installation and Verification of Prerequisites
 
 This section describes how to install the required dependencies.
 
@@ -52,6 +52,7 @@ Installing PETSc correctly is the most critical step. We recommend building it f
     The PICurv solver specifically requires `DMSwarm`. We recommend a configuration like the one below. Run this from the `petsc` directory.
 
     *For a debugging build (recommended for development):*
+
     ```bash
     ./configure --with-cc=mpicc --with-cxx=mpicxx --with-fc=mpif90 \
                 --download-fblaslapack --download-metis --download-parmetis \
@@ -60,6 +61,7 @@ Installing PETSc correctly is the most critical step. We recommend building it f
     ```
 
     *For an optimized build (recommended for production runs):*
+
     ```bash
     ./configure --with-cc=mpicc --with-cxx=mpicxx --with-fc=mpif90 \
                 --download-fblaslapack --download-metis --download-parmetis \
@@ -67,11 +69,13 @@ Installing PETSc correctly is the most critical step. We recommend building it f
                 --with-debugging=0 --COPTFLAGS='-O3 -march=native' --CXXOPTFLAGS='-O3 -march=native' --FOPTFLAGS='-O3 -march=native'
     ```
 
-3.  **Build and Test PETSc:**
+4.  **Build and Test PETSc:**
     After configuration is complete, follow the instructions printed to the screen.
+    
     ```bash
     make all
     make check
+
     ```
 
 @subsection verify_petsc_sec 2.3. Verifying the PETSc Installation
@@ -79,13 +83,17 @@ Installing PETSc correctly is the most critical step. We recommend building it f
 Once PETSc is built, you must set two environment variables so that other applications (like PICurv) can find it.
 
 1.  **Set Environment Variables:**
-    Add the following lines to your shell startup file (e.g., `~/.bashrc`, `~/.zshrc`). **Replace `/path/to/your/petsc` with the actual path.**
+    Add the following lines to your shell startup file (e.g., `~/.bashrc`, `~/.zshrc`).
     ```bash
     export PETSC_DIR=/path/to/your/petsc
     export PETSC_ARCH=arch-linux-c-debug  # Or whatever arch was created during configure
     export PATH="${PETSC_DIR}/${PETSC_ARCH}/bin:${PATH}"
     ```
+
+    **Replace `/path/to/your/petsc` with the actual path.**
+
     Now, source your startup file or open a new terminal:
+
     ```bash
     source ~/.bashrc
     ```
@@ -98,30 +106,33 @@ Once PETSc is built, you must set two environment variables so that other applic
 With all prerequisites in place, you can now clone the PICurv repository.
 
 ```bash
-git clone https://github.com/your-username/picurv.git
-cd picurv
+git clone https://github.com/VishalKandala/PICurv.git
+cd PICurv
 ```
-*(Note: Replace the URL with your actual repository URL.)*
+
 
 @section build_sec 4. Compiling PICurv
 
 The provided `Makefile` is designed to automatically find your PETSc installation using the environment variables you set.
 
 1.  **Navigate to the Root Directory:**
-    Ensure you are in the top-level `picurv/` directory.
+    Ensure you are in the top-level `PICurv/` directory.
 
 2.  **Clean Previous Builds (Optional but Recommended):**
     It's good practice to start with a clean slate.
+
     ```bash
     make clean_all
     ```
 
-3.  **Build the Solver and Postprocessor:**
+4.  **Build the Solver and Postprocessor:**
     The `Makefile` has targets for the main executables.
+
     ```bash
     make picsolver       # Builds the main CFD/particle solver
     make postprocessor   # Builds the data postprocessor utility
     ```
+
     If the compilation is successful, you will find the executables `picsolver` and `postprocessor` in the `bin/` directory.
 
 @section next_steps_sec Next Steps
