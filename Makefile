@@ -295,7 +295,7 @@ clean-docs:
 # Include PETSc test rules only if PETSC_DIR is set and the file exists.
 ifneq ($(strip $(PETSC_DIR)),)
   ifneq ("$(wildcard $(PETSC_DIR)/lib/petsc/conf/test)","")
-    include $(PETSC_DIR)/lib/petsc/conf/test
+    #include $(PETSC_DIR)/lib/petsc/conf/test
   else
     $(warning PETSc test include not found at $(PETSC_DIR)/lib/petsc/conf/test; skipping)
   endif

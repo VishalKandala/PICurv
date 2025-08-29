@@ -1,6 +1,6 @@
 /**
  * @file variables.h
- * @author Seokkoo Kang (original author) and contributors
+ * @author Vishal Kandala
  * @brief Main header file for a complex fluid dynamics solver.
  *
  * This file defines the core data structures, global variables, and function
@@ -439,7 +439,7 @@ typedef struct UserMG {
  * @brief Holds all configuration parameters for a post-processing run.
  *        This is an enhanced version combining command-line and file-based settings.
  */
-typedef struct {
+typedef struct PostProcessParams {
     // --- Time Controls (can be set by command line or file) ---
     PetscInt startTime;
     PetscInt endTime;
