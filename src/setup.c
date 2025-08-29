@@ -142,7 +142,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->MaxDivFlatArg = 0; simCtx->MaxDivx = 0; simCtx->MaxDivy = 0; simCtx->MaxDivz = 0;
     
     // --- Group 11: Post-Processing Information ---
-    strcpy(simCtx->PostProcessingConfigFile, "config/postprocess.cfg");
+    strcpy(simCtx->PostProcessingControlFile, "config/postprocess.cfg");
     simCtx->pps = NULL;
 
     // === 2. Get MPI Info and Handle Config File =============================
@@ -386,7 +386,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // --- Group 12
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 12: Post-Processing Information.");
     // This logic determines the Post Processing configuration and STORES it in simCtx for later reference and cleanup.
-    ierr = PetscOptionsGetString(NULL,NULL,"-postprocessing_config_file",simCtx->PostProcessingConfigFile,PETSC_MAX_PATH_LEN,NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-postprocessing_config_file",simCtx->PostProcessingControlFile,PETSC_MAX_PATH_LEN,NULL); CHKERRQ(ierr);
     ierr = ParsePostProcessingSettings(simCtx);
 
     // === 5. Log Summary and Finalize Setup ==================================

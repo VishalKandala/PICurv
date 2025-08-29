@@ -14,8 +14,6 @@ int main(int argc, char **argv)
 {
     PetscErrorCode    ierr;
     SimCtx            *simCtx = NULL;
-    PostProcessConfig config;
-    char              ppConfigFile[PETSC_MAX_PATH_LEN] = "postprocess.cfg";
 
     // === I. INITIALIZE PETSC & MPI ===========================================
     ierr = PetscInitialize(&argc, &argv, (char *)0, "Unified Post-Processing Tool"); CHKERRQ(ierr);
@@ -25,9 +23,6 @@ int main(int argc, char **argv)
 
     // Get the post-processing config file path from command line, default to "postprocess.cfg"
     ierr = PetscOptionsGetString(NULL, NULL, "-pp_config", ppConfigFile, sizeof(ppConfigFile), NULL); CHKERRQ(ierr);
-    
-    // Parse the dedicated post-processing configuration
-    ierr = ParsePostProcessConfig(ppConfigFile, &config); CHKERRQ(ierr);
 
     // === III. SETUP GRID & DATA STRUCTURES ===================================
     ierr = SetupGridAndSolvers(simCtx); CHKERRQ(ierr);
