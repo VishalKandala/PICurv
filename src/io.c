@@ -2597,3 +2597,95 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
     }
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Helper function to trim leading/trailing whitespace from a string.
+ * @param str The string to trim in-place.
+ */
+static void TrimWhitespace(char *str) {
+    char *end;
+    // Trim leading space
+    while(isspace((unsigned char)*str)) str++;
+    if(*str == 0) return; // All spaces?
+
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+    end[1] = '\0';
+}
+
+/**
+ * @brief Initializes post-processing settings from a config file and command-line overrides.
+ *
+ * This function establishes the configuration for a post-processing run by:
+ * 1. Setting hardcoded default values in the PostProcessParams struct.
+ * 2. Reading a configuration file to override the defaults.
+ * 3. Parsing command-line options (-startTime, -endTime, etc.) which can override
+ *    both the defaults and the file settings.
+ *
+ * @param configFile The path to the configuration file to parse.
+ * @param pps Pointer to the PostProcessParams struct to be populated.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
+{
+    FILE *file;
+    char line[1024];
+    PetscBool startTimeSet, endTimeSet, timeStepSet;
+
+    PetscFunctionBeginUser;
+
+    char *configFile = simCtx->PostProcessingConfigFile;
+    PostProcessConfig *pps = simCtx->pps;
+
+    // --- 1. Set Sane Defaults First ---
+    pps->startTime = 0;
+    pps->endTime = 0;
+    pps->timeStep = 1;
+    strcpy(pps->process_pipeline, "");
+    strcpy(pps->output_fields_instantaneous, "Ucat,P");
+    strcpy(pps->output_fields_averaged, "");
+    strcpy(pps->output_prefix, "results/viz");
+    pps->outputParticles = PETSC_FALSE;
+
+    // --- 2. Parse the Configuration File (overrides defaults) ---
+    file = fopen(configFile, "r");
+    if (file) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Parsing post-processing config file: %s\n", configFile);
+        while (fgets(line, sizeof(line), file)) {
+            char *key, *value, *comment;
+            comment = strchr(line, '#'); if (comment) *comment = '\0';
+            TrimWhitespace(line); if (strlen(line) == 0) continue;
+            key = strtok(line, "="); value = strtok(NULL, "=");
+            if (key && value) {
+                TrimWhitespace(key); TrimWhitespace(value);
+                if (strcmp(key, "startTime") == 0) pps->startTime = atoi(value);
+                else if (strcmp(key, "endTime") == 0) pps->endTime = atoi(value);
+                else if (strcmp(key, "timeStep") == 0) pps->timeStep = atoi(value);
+                else if (strcmp(key, "output_particles") == 0) {
+                    if (strcasecmp(value, "true") == 0) pps->outputParticles = PETSC_TRUE;
+                }
+                // Add parsing for pipeline, fields, etc. in later phases
+            }
+        }
+        fclose(file);
+    } else {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "Could not open post-processing config file '%s'. Using defaults and command-line overrides.\n", configFile);
+    }
+
+    // --- 3. Parse Command-Line Options (overrides file settings and defaults) ---
+    PetscOptionsGetInt(NULL, NULL, "-startTime", &pps->startTime, &startTimeSet);
+    PetscOptionsGetInt(NULL, NULL, "-endTime", &pps->endTime, &endTimeSet);
+    PetscOptionsGetInt(NULL, NULL, "-timeStep", &pps->timeStep, &timeStepSet);
+    PetscOptionsGetBool(NULL, NULL, "-output_particles", &pps->outputParticles, NULL);
+
+    // If only startTime is given on command line, run for a single step
+    if (startTimeSet && !endTimeSet) {
+        pps->endTime = pps->startTime;
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Post-processing configured to run from t=%d to t=%d with step %d. Particle output: %s.\n",
+              pps->startTime, pps->endTime, pps->timeStep, pps->outputParticles ? "TRUE" : "FALSE");
+
+    PetscFunctionReturn(0);
+}

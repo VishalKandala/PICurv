@@ -140,6 +140,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->summationRHS = 0.0;
     simCtx->MaxDiv = 0.0;
     simCtx->MaxDivFlatArg = 0; simCtx->MaxDivx = 0; simCtx->MaxDivy = 0; simCtx->MaxDivz = 0;
+    
+    // --- Group 11: Post-Processing Information ---
+    strcpy(simCtx->PostProcessingConfigFile, "config/postprocess.cfg");
+    simCtx->pps = NULL;
 
     // === 2. Get MPI Info and Handle Config File =============================
     // -- Group 1:  Parallelism & MPI Information
@@ -379,6 +383,12 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
       SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP, "Number of BC files (%d) does not match number of blocks (%d). Use -bcs_files \"file1.dat,file2.dat,...\".", simCtx->num_bcs_files, simCtx->block_number);
     }
     
+    // --- Group 12
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 12: Post-Processing Information.");
+    // This logic determines the Post Processing configuration and STORES it in simCtx for later reference and cleanup.
+    ierr = PetscOptionsGetString(NULL,NULL,"-postprocessing_config_file",simCtx->PostProcessingConfigFile,PETSC_MAX_PATH_LEN,NULL); CHKERRQ(ierr);
+    ierr = ParsePostProcessingSettings(simCtx);
+
     // === 5. Log Summary and Finalize Setup ==================================
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "-- Console Output Functions [Total : %d] : --\n", simCtx->nAllowed);
     for (PetscInt i = 0; i < simCtx->nAllowed; ++i) {

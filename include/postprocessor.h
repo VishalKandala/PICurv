@@ -1,5 +1,5 @@
-#ifndef POSTPROCESS_H
-#define POSTPROCESS_H
+#ifndef POSTPROCESSOR_H
+#define POSTPROCESSOR_H
 
 #include "io.h"
 #include "variables.h"
@@ -79,5 +79,17 @@ PetscErrorCode WriteEulerianVTK(UserCtx *user, PetscInt timeIndex, const char *o
  */
 PetscErrorCode WriteParticleVTK(UserCtx *user, PetscInt timeIndex, const char *outExt,const char *prefix);
 
-#endif /* POSTPROCESS_H */
+/**
+ * @brief Parses a post-processing configuration file.
+ *
+ * Reads a simple key-value configuration file (e.g., "key = value") and populates
+ * the PostProcessConfig struct.
+ *
+ * @param filename The path to the configuration file.
+ * @param config Pointer to the PostProcessConfig struct to populate.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ParsePostProcessConfig(const char* filename, PostProcessConfig* config);
+
+#endif /* POSTPROCESSOR_H */
 
