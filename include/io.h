@@ -390,5 +390,19 @@ void FreeBC_ParamList(BC_Param *head);
 PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_filename);
 
 
+/**
+ * @brief Initializes post-processing settings from a config file and command-line overrides.
+ *
+ * This function establishes the configuration for a post-processing run by:
+ * 1. Setting hardcoded default values in the PostProcessParams struct.
+ * 2. Reading a configuration file to override the defaults.
+ * 3. Parsing command-line options (-startTime, -endTime, etc.) which can override
+ *    both the defaults and the file settings.
+ *
+ * @param simCtx The pointer to the simulation context that contains the postprocessing file and struct.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx);
+
 
 #endif // IO_H

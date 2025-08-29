@@ -431,12 +431,31 @@ typedef struct UserMG {
   SNES      snespacker;
 } UserMG;
 
-/** @brief Parameters controlling post-processing output actions. */
-typedef struct PostProcessParams {
-    PetscInt  startTime, endTime, timeStep;
-    char      eulerianExt[8], particleExt[8];
-    char      eulerianPrefix[20], particlePrefix[20];
+#define MAX_PIPELINE_LENGTH 1024
+#define MAX_FIELD_LIST_LENGTH 1024
+#define MAX_FILENAME_LENGTH 256
+
+/**
+ * @brief Holds all configuration parameters for a post-processing run.
+ *        This is an enhanced version combining command-line and file-based settings.
+ */
+typedef struct {
+    // --- Time Controls (can be set by command line or file) ---
+    PetscInt startTime;
+    PetscInt endTime;
+    PetscInt timeStep;
     PetscBool outputParticles;
+
+    // --- Configuration primarily from the .cfg file ---
+    char process_pipeline[MAX_PIPELINE_LENGTH];
+    char output_fields_instantaneous[MAX_FIELD_LIST_LENGTH];
+    char output_fields_averaged[MAX_FIELD_LIST_LENGTH];
+    char output_prefix[MAX_FILENAME_LENGTH];
+
+    // --- Legacy settings ---
+    char eulerianExt[8]; // from original PostProcessParams
+    char particleExt[8]; // from original PostProcessParams
+    
 } PostProcessParams;
 
 /** @brief Enumerates the type of VTK file to be written. */
@@ -566,9 +585,12 @@ typedef struct SimCtx {
     PetscReal summationRHS;
     PetscReal MaxDiv;
     PetscInt  MaxDivFlatArg, MaxDivx,MaxDivy,MaxDivz;
-    
 
-   //=============== Group 12: Miscellaneous =============================================
+    //================ Group 12: Post-Processing =================================================
+    char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];
+    PostProcessParams pps;
+
+   //=============== Group 13: Miscellaneous =============================================
    PetscReal	r[101], tin[101], uinr[101][1001];
 
 } SimCtx;
