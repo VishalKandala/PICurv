@@ -81,7 +81,17 @@ PICSOLVER_OBJS = $(OBJDIR)/picsolver.o \
                  $(OBJDIR)/initialcondition.o $(OBJDIR)/rhs.o \
                  $(OBJDIR)/solvers.o  $(OBJDIR)/implicitsolvers.o \
                  $(OBJDIR)/poisson.o
-# -----------------------------------------------------
+# -----------------------------------------------------------
+# Specific object files for the 'postprocessor' executable
+# -----------------------------------------------------------
+POSTPROCESSOR_OBJS = $(OBJDIR)/picsolver.o \
+                     $(OBJDIR)/setup.o \
+                     $(OBJDIR)/logging.o \
+		             $(OBJDIR)/grid.o \
+		             $(OBJDIR)/io.o \
+		             $(OBJDIR)/Metric.o \
+		             $(OBJDIR)/Boundaries.o \
+		             $(OBJDIR)/wallfunction.o 
 # Executable Names
 # -----------------------------------------------------
 TESTT_EXE         = $(BINDIR)/testt
@@ -95,7 +105,7 @@ SWARM_TEST_EXE    = $(BINDIR)/swarm_test
 PICSOLVER_EXE     = $(BINDIR)/picsolver
 
 # New Executable
-POSTPROCESS_EXE   = $(BINDIR)/postprocess
+POSTPROCESSOR_EXE   = $(BINDIR)/postprocessor
 
 # -----------------------------------------------------
 # Phony Targets
@@ -103,14 +113,14 @@ POSTPROCESS_EXE   = $(BINDIR)/postprocess
 .PHONY: all cleanobj clean_all tags \
         testt data inttest \
         itfcsearch data_vtk datalis datafile swarm_test \
-        postprocess picsolver
+        postprocessor picsolver
 
 # -----------------------------------------------------
 # Default Target
 # -----------------------------------------------------
 all: testt data inttest \
      itfcsearch data_vtk datalis datafile swarm_test \
-     postprocess picsolver
+     postprocessor picsolver
 
 # -----------------------------------------------------
 # Create Necessary Directories
@@ -213,21 +223,19 @@ $(SWARM_TEST_EXE): $(OBJDIR)/swarm_test.o $(OBJDIR)/logging.o \
 # -----------------------------------------------------
 # NEW: 9. postprocess executable
 # -----------------------------------------------------
-postprocess: dirs $(POSTPROCESS_EXE)
+postprocessor: dirs $(POSTPROCESSOR_EXE)
 
-$(POSTPROCESS_EXE): $(OBJDIR)/postprocess.o $(OBJDIR)/interpolation.o \
-			$(OBJDIR)/walkingsearch.o $(OBJDIR)/grid.o $(OBJDIR)/ParticleSwarm.o \
-			$(OBJDIR)/logging.o $(OBJDIR)/io.o $(OBJDIR)/setup.o $(OBJDIR)/Metric.o \
-                        $(OBJDIR)/AnalyticalSolution.o $(OBJDIR)/ParticleMotion.o $(OBJDIR)/Boundaries.o $(OBJDIR)/BC_Handlers.o
+$(POSTPROCESSOR_EXE): $(POSTPROCESSOR_OBJS)
+    @echo "--- Builing Executable: $(@) ---"
 	$(CLINKER) $(CFLAGS) -o $@ $^ $(PETSC_LIB) $(LDFLAGS) $(LIBS)
-
+    @echo "--- Build Complete: $(@) ---"
 # -----------------------------------------------------
 # NEW: picsolver executable
 # -----------------------------------------------------
 picsolver: dirs $(PICSOLVER_EXE)
 
 $(PICSOLVER_EXE): $(PICSOLVER_OBJS)
-	@echo "--- Building Executable: $(@) ---"
+    @echo "--- Building Executable: $(@) ---"
 	$(CLINKER) $(CFLAGS) -o $@ $^ $(PETSC_LIB) $(LDFLAGS) $(LIBS)
 	@echo "--- Build Complete: $(@) ---"
 
