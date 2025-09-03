@@ -1,5 +1,0 @@
-var searchData=
-[
-  ['coef_5ftime_5faccuracy_2745',['COEF_TIME_ACCURACY',['../variables_8h.html#af0af02fbd08daea87f3523a3754981f0',1,'COEF_TIME_ACCURACY():&#160;variables.h'],['../variables__old_8h.html#af0af02fbd08daea87f3523a3754981f0',1,'COEF_TIME_ACCURACY():&#160;variables_old.h']]],
-  ['cp_2746',['CP',['../poisson_8c.html#a6594e57d1fff186da0a254a3742dcff7',1,'poisson.c']]]
-];

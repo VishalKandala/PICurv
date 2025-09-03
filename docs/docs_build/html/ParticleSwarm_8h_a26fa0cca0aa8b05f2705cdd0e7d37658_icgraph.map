@@ -1,5 +1,0 @@
-<map id="InitializeRandomGenerators" name="InitializeRandomGenerators">
-<area shape="rect" id="node1" title="Initializes random number generators for assigning particle properties." alt="" coords="328,5,532,32"/>
-<area shape="rect" id="node2" href="$ParticleSwarm_8c.html#ada215a5db25227a8fd2cd2596e7d3e57" title="Perform particle swarm initialization, particle&#45;grid interaction, and related operations." alt="" coords="108,5,280,32"/>
-<area shape="rect" id="node3" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,5,60,32"/>
-</map>

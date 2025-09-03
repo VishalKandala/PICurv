@@ -1,6 +1,0 @@
-<map id="ReadAllSwarmFields" name="ReadAllSwarmFields">
-<area shape="rect" id="node1" title="Reads multiple fields (positions, velocity, CellID, and weight) into a DMSwarm." alt="" coords="5,31,160,57"/>
-<area shape="rect" id="node2" href="$io_8c.html#ab7d7097c8ad047feb1d460e4694b8b4f" title="Checks for a data file&#39;s existence in a parallel&#45;safe manner." alt="" coords="216,5,331,32"/>
-<area shape="rect" id="node3" href="$io_8c.html#a84fff45b8cbd148ed2429ba8fe12428f" title="Reads data from a file into a specified field of a PETSc DMSwarm." alt="" coords="208,56,339,83"/>
-<area shape="rect" id="node4" href="$io_8c.html#a570806d7e0694b5d996e0c6018b48908" title="Reads data for a specific field from a file into the provided vector." alt="" coords="387,56,503,83"/>
-</map>

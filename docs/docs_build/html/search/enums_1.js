@@ -1,4 +1,0 @@
-var searchData=
-[
-  ['face_2677',['Face',['../variables_8h.html#ad3fc1d97a3c41ea9d58d0ab14f75294f',1,'Face():&#160;variables.h'],['../variables__old_8h.html#ad3fc1d97a3c41ea9d58d0ab14f75294f',1,'Face():&#160;variables_old.h']]]
-];

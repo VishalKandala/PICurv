@@ -477,7 +477,15 @@ typedef struct VTKMetaData {
     PetscInt     *connectivity, *offsets;
 } VTKMetaData;
 
-
+/**
+ * @brief Defines the execution mode of the application.
+ */
+typedef enum {
+    EXEC_MODE_SOLVER,          // The application is running as the main fluid solver.
+    EXEC_MODE_POSTPROCESSOR,   // The application is running as the post-processor.
+    EXEC_MODE_UNKNOWN          // Default/error state.
+} ExecutionMode;
+//-------------------------------------------------------------------------------
 /*================================================================================*
  *                        MAIN APPLICATION CONTEXT                                *
  *================================================================================*/
@@ -509,12 +517,12 @@ typedef struct SimCtx {
     PetscBool OnlySetup;
     PetscViewer logviewer;
     PetscInt    OutputFreq;
+    ExecutionMode exec_mode;
 
     //================ Group 3: High-Level Physics & Model Selection Flags ================
     PetscInt  immersed, movefsi, rotatefsi, sediment, rheology;
     PetscInt  invicid, TwoD, thin, moveframe, rotateframe, blank;
     PetscInt  dgf_x, dgf_y, dgf_z, dgf_ax, dgf_ay, dgf_az;
-
   
     //================ Group 4: Specific Simulation Case Flags ================
     PetscInt  cop, fish, fish_c, fishcyl, eel, pizza, turbine, Pipe, wing, hydro, MHV, LV;
@@ -588,7 +596,8 @@ typedef struct SimCtx {
 
     //================ Group 12: Post-Processing =================================================
     char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];
-    PostProcessParams pps;
+    PostProcessParams *pps;
+    
 
    //=============== Group 13: Miscellaneous =============================================
    PetscReal	r[101], tin[101], uinr[101][1001];
@@ -650,26 +659,32 @@ typedef struct UserCtx {
   Vec 	JCsi, JEta, JZet, JAj, lJCsi, lJEta, lJZet, lJAj;
   Vec 	KCsi, KEta, KZet, KAj, lKCsi, lKEta, lKZet, lKAj;
 
-    // --- Turbulence Modeling (LES/RANS) ---
-    Vec Nu_t, lNu_t, CS, lCs, K_Omega, lK_Omega, K_Omega_o, lK_Omega_o, Distance;
+  // --- Turbulence Modeling (LES/RANS) ---
+  Vec Nu_t, lNu_t, CS, lCs, K_Omega, lK_Omega, K_Omega_o, lK_Omega_o, Distance;
 
-    // --- Statistical Averaging ---
-    Vec Ucat_sum, Ucat_cross_sum, Ucat_square_sum, P_sum;
+  // --- Statistical Averaging ---
+  Vec Ucat_sum, Ucat_cross_sum, Ucat_square_sum, P_sum;
 
-    // --- Immersed Boundary Method (IBM) ---
-    IBMNodes *ibm; IBMList *ibmlist;
+  // --- Immersed Boundary Method (IBM) ---
+  IBMNodes *ibm; IBMList *ibmlist;
 
-    // --- Multigrid Hierarchy ---
-    PetscInt thislevel, mglevels;
-    UserCtx *user_f, *user_c;
-    DM *da_f, *da_c;
+  // --- Multigrid Hierarchy ---
+  PetscInt thislevel, mglevels;
+  UserCtx *user_f, *user_c;
+  DM *da_f, *da_c;
   Vec *lNvert_c;
 
-    // --- Particle System ---
-    DM swarm;
-    RankCellInfo *RankCellInfoMap;
-    Vec ParticleCount;
-    Vec Psi; //scalar dummy to demonstrate scatter. 
+  // --- Particle System ---
+  DM swarm;
+  RankCellInfo *RankCellInfoMap;
+  Vec ParticleCount;
+  Vec Psi; //scalar dummy to demonstrate scatter.
+  
+  // --- Post-Processing ---
+  Vec P_nodal;
+  Vec Ucat_nodal;
+  Vec Qcrit;
+  
 } UserCtx;
 
 #ifdef __cplusplus

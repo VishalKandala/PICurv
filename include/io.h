@@ -389,6 +389,11 @@ void FreeBC_ParamList(BC_Param *head);
  */
 PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_filename);
 
+/**
+ * @brief Helper function to trim leading/trailing whitespace from a string.
+ * @param str The string to trim in-place.
+ */
+void TrimWhitespace(char *str);
 
 /**
  * @brief Initializes post-processing settings from a config file and command-line overrides.

@@ -1,7 +1,0 @@
-<map id="ScatterParticleFieldToEulerField" name="ScatterParticleFieldToEulerField">
-<area shape="rect" id="node1" title="Scatters a particle field (scalar or vector) to the corresponding Eulerian field average." alt="" coords="523,23,717,65"/>
-<area shape="rect" id="node2" href="$group__scatter__module.html#ga84b852e1186804ff34e9228fab1764c6" title="Scatters a predefined set of particle fields to their corresponding Eulerian fields." alt="" coords="304,23,475,65"/>
-<area shape="rect" id="node3" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="108,5,256,32"/>
-<area shape="rect" id="node5" href="$simulation_8c.html#a4e2cad25ac1fbdc6745d6fd8fcc1bbc1" title="Finalizes the simulation setup at t=0, ensuring a consistent state before time marching." alt="" coords="108,56,256,83"/>
-<area shape="rect" id="node4" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,31,60,57"/>
-</map>

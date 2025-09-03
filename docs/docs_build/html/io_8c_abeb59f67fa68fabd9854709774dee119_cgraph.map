@@ -1,5 +1,0 @@
-<map id="WriteVTKFileHeader" name="WriteVTKFileHeader">
-<area shape="rect" id="node1" title="Writes the initial XML header for a VTK file based on the provided metadata." alt="" coords="5,31,157,57"/>
-<area shape="rect" id="node2" href="$io_8c.html#adc8540405ef08976e1bae9cbb5700545" title="Writes the XML header portion of a .vtp file for a point&#45;cloud representation." alt="" coords="205,5,363,32"/>
-<area shape="rect" id="node3" href="$io_8c.html#a8d20a414e822ac30150e6be7b6d780b2" title="Writes the XML header portion of a .vts file, defining the structured grid extents and data arrays." alt="" coords="205,56,363,83"/>
-</map>

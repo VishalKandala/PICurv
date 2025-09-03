@@ -1,9 +1,0 @@
-<map id="CreateParticleSwarm" name="CreateParticleSwarm">
-<area shape="rect" id="node1" title="Creates and initializes a Particle Swarm." alt="" coords="5,107,164,133"/>
-<area shape="rect" id="node2" href="$ParticleSwarm_8c.html#a1cc0975a3eec2e2f817d0e3a09040620" title="Distributes particles evenly across MPI processes, handling any remainders." alt="" coords="222,5,365,32"/>
-<area shape="rect" id="node3" href="$logging_8h.html#a9585f583c260f40a73f2490914edc689" title="Retrieves the current logging level from the environment variable LOG_LEVEL." alt="" coords="239,56,348,83"/>
-<area shape="rect" id="node4" href="$ParticleSwarm_8c.html#ac3566e0b51587686bc6c1366a67c44af" title="Initializes the DMSwarm object within the UserCtx structure." alt="" coords="232,107,355,133"/>
-<area shape="rect" id="node5" href="$logging_8h.html#a2358badbcda33fc9d80ebd6a59d2a2cd" title="Checks if a given function is in the allow&#45;list." alt="" coords="218,157,369,184"/>
-<area shape="rect" id="node6" href="$ParticleSwarm_8c.html#aeae3fd559e91d7379302acb6ccd13011" title="Registers necessary particle fields within the DMSwarm." alt="" coords="212,208,375,235"/>
-<area shape="rect" id="node7" href="$ParticleSwarm_8c.html#a1b5741b17ffa7a57d8c1f6636e956d08" title="Registers a swarm field without finalizing registration." alt="" coords="423,208,573,235"/>
-</map>

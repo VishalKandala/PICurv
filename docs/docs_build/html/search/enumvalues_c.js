@@ -1,4 +1,0 @@
-var searchData=
-[
-  ['symmetry_2729',['SYMMETRY',['../variables_8h.html#a0a00003814ee8095a2c39d1d5cba08faaa18d562b4107edccb2e10090864d1c5e',1,'SYMMETRY():&#160;variables.h'],['../variables__old_8h.html#a0a00003814ee8095a2c39d1d5cba08faaa18d562b4107edccb2e10090864d1c5e',1,'SYMMETRY():&#160;variables_old.h']]]
-];

@@ -57,7 +57,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->tiout = 10; simCtx->StartTime = 0.0; simCtx->dt = 0.001;
     simCtx->rstart_flg = PETSC_FALSE; simCtx->OnlySetup = PETSC_FALSE;
     simCtx->logviewer = NULL; simCtx->OutputFreq = simCtx->tiout;
-
     // --- Group 3: High-Level Physics & Model Selection Flags ---
     simCtx->immersed = 0; simCtx->movefsi = 0; simCtx->rotatefsi = 0;
     simCtx->sediment = 0; simCtx->rheology = 0; simCtx->invicid = 0;
@@ -142,8 +141,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->MaxDivFlatArg = 0; simCtx->MaxDivx = 0; simCtx->MaxDivy = 0; simCtx->MaxDivz = 0;
     
     // --- Group 11: Post-Processing Information ---
-    strcpy(simCtx->PostProcessingControlFile, "config/postprocess.cfg");
-    simCtx->pps = NULL;
+    strcpy(simCtx->PostprocessingControlFile, "config/postprocess.cfg");
+    ierr = PetscNew(&simCtx->pps); CHKERRQ(ierr);
 
     // === 2. Get MPI Info and Handle Config File =============================
     // -- Group 1:  Parallelism & MPI Information
@@ -386,7 +385,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // --- Group 12
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 12: Post-Processing Information.");
     // This logic determines the Post Processing configuration and STORES it in simCtx for later reference and cleanup.
-    ierr = PetscOptionsGetString(NULL,NULL,"-postprocessing_config_file",simCtx->PostProcessingControlFile,PETSC_MAX_PATH_LEN,NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-postprocessing_config_file",simCtx->PostprocessingControlFile,PETSC_MAX_PATH_LEN,NULL); CHKERRQ(ierr);
+    ierr = PetscNew(&simCtx->pps); CHKERRQ(ierr);
     ierr = ParsePostProcessingSettings(simCtx);
 
     // === 5. Log Summary and Finalize Setup ==================================
@@ -589,11 +589,17 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
     PetscInt       nblk = simCtx->block_number;
 
     PetscFunctionBeginUser;
+    
     LOG_ALLOW(GLOBAL, LOG_INFO, "Creating and initializing all simulation vectors...\n");
-
+        
     for (PetscInt level  = usermg->mglevels-1; level >=0; level--) {
         for (PetscInt bi = 0; bi < nblk; bi++) {
             UserCtx *user = &mgctx[level].user[bi];
+
+            if(!user->da || !user->fda) {
+              SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "DMs not properly initialized in UserCtx before vector creation.");
+            }
+
             LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Creating vectors for level %d, block %d\n", simCtx->rank, level, bi);
 
 	    // --- Group A: Primary Flow Fields (Global and Local) ---
@@ -614,10 +620,10 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 ierr = VecDuplicate(user->Ucont, &user->Ucont_rm1); CHKERRQ(ierr); ierr = VecSet(user->Ucont_rm1, 0.0); CHKERRQ(ierr);
                 ierr = VecDuplicate(user->Ucat,  &user->Ucat_o);    CHKERRQ(ierr); ierr = VecSet(user->Ucat_o, 0.0); CHKERRQ(ierr);
                 ierr = VecDuplicate(user->P,     &user->P_o);       CHKERRQ(ierr); ierr = VecSet(user->P_o, 0.0); CHKERRQ(ierr);
-	        ierr = VecDuplicate(user->lUcont, &user->lUcont_o);   CHKERRQ(ierr); ierr = VecSet(user->Ucont_o, 0.0); CHKERRQ(ierr);
-                ierr = VecDuplicate(user->lUcont, &user->lUcont_rm1); CHKERRQ(ierr); ierr = VecSet(user->Ucont_rm1, 0.0); CHKERRQ(ierr);
+	              ierr = VecDuplicate(user->lUcont, &user->lUcont_o);   CHKERRQ(ierr); ierr = VecSet(user->lUcont_o, 0.0); CHKERRQ(ierr);
+                ierr = VecDuplicate(user->lUcont, &user->lUcont_rm1); CHKERRQ(ierr); ierr = VecSet(user->lUcont_rm1, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lNvert_o); CHKERRQ(ierr); ierr = VecSet(user->lNvert_o, 0.0); CHKERRQ(ierr);
-		
+		            ierr = VecDuplicate(user->Nvert, &user->Nvert_o); CHKERRQ(ierr); ierr = VecSet(user->Nvert_o, 0.0); CHKERRQ(ierr);
 		
             }
 
@@ -626,7 +632,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             ierr = VecDuplicate(user->Csi, &user->Eta);         CHKERRQ(ierr); ierr = VecSet(user->Eta, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->Csi, &user->Zet);         CHKERRQ(ierr); ierr = VecSet(user->Zet, 0.0); CHKERRQ(ierr);
             ierr = DMCreateGlobalVector(user->da,  &user->Aj);  CHKERRQ(ierr); ierr = VecSet(user->Aj, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->Aj, &user->Phi);       CHKERRQ(ierr); ierr = VecSet(user->Phi, 0.0); CHKERRQ(ierr);
+	          ierr = VecDuplicate(user->Aj, &user->Phi);       CHKERRQ(ierr); ierr = VecSet(user->Phi, 0.0); CHKERRQ(ierr);
 
             ierr = DMCreateLocalVector(user->fda, &user->lCsi); CHKERRQ(ierr); ierr = VecSet(user->lCsi, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->lCsi, &user->lEta);       CHKERRQ(ierr); ierr = VecSet(user->lEta, 0.0); CHKERRQ(ierr);
@@ -649,19 +655,19 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             ierr = VecDuplicate(user->Aj, &user->JAj); CHKERRQ(ierr); ierr = VecSet(user->JAj, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->Aj, &user->KAj); CHKERRQ(ierr); ierr = VecSet(user->KAj, 0.0); CHKERRQ(ierr);
 
-	    ierr = VecDuplicate(user->lCsi, &user->lICsi); CHKERRQ(ierr); ierr = VecSet(user->lICsi, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lCsi, &user->lIEta); CHKERRQ(ierr); ierr = VecSet(user->lIEta, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lCsi, &user->lIZet); CHKERRQ(ierr); ierr = VecSet(user->lIZet, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lCsi, &user->lJCsi); CHKERRQ(ierr); ierr = VecSet(user->lJCsi, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lCsi, &user->lJEta); CHKERRQ(ierr); ierr = VecSet(user->lJEta, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lCsi, &user->lJZet); CHKERRQ(ierr); ierr = VecSet(user->lJZet, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lCsi, &user->lKCsi); CHKERRQ(ierr); ierr = VecSet(user->lKCsi, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lCsi, &user->lKEta); CHKERRQ(ierr); ierr = VecSet(user->lKEta, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lCsi, &user->lKZet); CHKERRQ(ierr); ierr = VecSet(user->lKZet, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCsi, &user->lICsi); CHKERRQ(ierr); ierr = VecSet(user->lICsi, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCsi, &user->lIEta); CHKERRQ(ierr); ierr = VecSet(user->lIEta, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCsi, &user->lIZet); CHKERRQ(ierr); ierr = VecSet(user->lIZet, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCsi, &user->lJCsi); CHKERRQ(ierr); ierr = VecSet(user->lJCsi, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCsi, &user->lJEta); CHKERRQ(ierr); ierr = VecSet(user->lJEta, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCsi, &user->lJZet); CHKERRQ(ierr); ierr = VecSet(user->lJZet, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCsi, &user->lKCsi); CHKERRQ(ierr); ierr = VecSet(user->lKCsi, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCsi, &user->lKEta); CHKERRQ(ierr); ierr = VecSet(user->lKEta, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCsi, &user->lKZet); CHKERRQ(ierr); ierr = VecSet(user->lKZet, 0.0); CHKERRQ(ierr);
 
-	    ierr = VecDuplicate(user->lAj, &user->lIAj); CHKERRQ(ierr); ierr = VecSet(user->lIAj, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lAj, &user->lJAj); CHKERRQ(ierr); ierr = VecSet(user->lJAj, 0.0); CHKERRQ(ierr);
-	    ierr = VecDuplicate(user->lAj, &user->lKAj); CHKERRQ(ierr); ierr = VecSet(user->lKAj, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lAj, &user->lIAj); CHKERRQ(ierr); ierr = VecSet(user->lIAj, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lAj, &user->lJAj); CHKERRQ(ierr); ierr = VecSet(user->lJAj, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lAj, &user->lKAj); CHKERRQ(ierr); ierr = VecSet(user->lKAj, 0.0); CHKERRQ(ierr);
 	    
 	    // --- Group E: Cell/Face Center Coordinates and Grid Spacing ---
             ierr = DMCreateGlobalVector(user->fda, &user->Cent); CHKERRQ(ierr); ierr = VecSet(user->Cent, 0.0); CHKERRQ(ierr);
@@ -671,9 +677,9 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             ierr = VecDuplicate(user->lCent, &user->lGridSpace); CHKERRQ(ierr); ierr = VecSet(user->lGridSpace, 0.0); CHKERRQ(ierr);
 
             // Face-center coordinate vectors are GLOBAL to hold calculated values before scattering
-            ierr = VecDuplicate(user->lCent, &user->Centx); CHKERRQ(ierr); ierr = VecSet(user->Centx, 0.0); CHKERRQ(ierr);
-            ierr = VecDuplicate(user->lCent, &user->Centy); CHKERRQ(ierr); ierr = VecSet(user->Centy, 0.0); CHKERRQ(ierr);
-            ierr = VecDuplicate(user->lCent, &user->Centz); CHKERRQ(ierr); ierr = VecSet(user->Centz, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->Cent, &user->Centx); CHKERRQ(ierr); ierr = VecSet(user->Centx, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->Cent, &user->Centy); CHKERRQ(ierr); ierr = VecSet(user->Centy, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->Cent, &user->Centz); CHKERRQ(ierr); ierr = VecSet(user->Centz, 0.0); CHKERRQ(ierr);
 
 	    if(level == usermg->mglevels -1){
 	    // --- Group F: Turbulence Models (Finest Level Only) ---
@@ -687,7 +693,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             // For example: Rhs, Forcing, turbulence Vecs (K_Omega, Nu_t)...
 		
 	        }
-	    // --- Group H: Particle Methods 	
+	    // --- Group G: Particle Methods 	
 	    if(simCtx->np>0){
 	      ierr = DMCreateGlobalVector(user->da,&user->ParticleCount); CHKERRQ(ierr); ierr = VecSet(user->ParticleCount,0.0); CHKERRQ(ierr);
 
@@ -696,19 +702,33 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	      LOG_ALLOW(GLOBAL,LOG_DEBUG,"ParticleCount & Scalar(Psi) created for %d particles.\n",simCtx->np);
 	      }
 	    }
-	    // --- Group G: Boundary Condition vectors needed by the legacy FormBCS ---
+	    // --- Group H: Boundary Condition vectors needed by the legacy FormBCS ---
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Ubcs); CHKERRQ(ierr);
 	    ierr = VecSet(user->Bcs.Ubcs, 0.0); CHKERRQ(ierr);
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Uch); CHKERRQ(ierr);
 	    ierr = VecSet(user->Bcs.Uch, 0.0); CHKERRQ(ierr);
-
-	    // lUstar is a local vector for the wall function
-	    ierr = DMCreateLocalVector(user->da, &user->lUstar); CHKERRQ(ierr);
-	    ierr = VecSet(user->lUstar, 0.0); CHKERRQ(ierr);
 	    
-	}
+      if(level == usermg->mglevels -1){
+        if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "Post-processor mode detected. Allocating derived field vectors.\n");
+
+                ierr = VecDuplicate(user->P, &user->P_nodal); CHKERRQ(ierr);
+                ierr = VecSet(user->P_nodal, 0.0); CHKERRQ(ierr);
+
+                ierr = VecDuplicate(user->Ucat, &user->Ucat_nodal); CHKERRQ(ierr);
+                ierr = VecSet(user->Ucat_nodal, 0.0); CHKERRQ(ierr);
+                
+                ierr = VecDuplicate(user->P, &user->Qcrit); CHKERRQ(ierr);
+                ierr = VecSet(user->Qcrit, 0.0); CHKERRQ(ierr);          
+        }else{
+                user->P_nodal = NULL;
+                user->Ucat_nodal = NULL;
+                user->Qcrit = NULL;
+        }
+	  }
 	
-    }
+  }
+}
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "All simulation vectors created and initialized.\n");
     PetscFunctionReturn(0);

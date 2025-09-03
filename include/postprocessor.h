@@ -9,6 +9,7 @@
 #include "grid.h"
 #include "setup.h"
 #include "Metric.h"
+#include "postprocessing_kernels.h"
 /* --------------------------------------------------------------------
    postprocess.h
 

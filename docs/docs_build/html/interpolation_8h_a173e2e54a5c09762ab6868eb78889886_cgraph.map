@@ -1,4 +1,0 @@
-<map id="InterpolateCornerToFaceCenter_Vector" name="InterpolateCornerToFaceCenter_Vector">
-<area shape="rect" id="node1" title="Interpolates a vector field from corner nodes to all face centers." alt="" coords="5,5,228,47"/>
-<area shape="rect" id="node2" href="$setup_8h.html#a9b17552f79ebe16d0363986217a01ff3" title="Determines the global starting index and number of CELLS owned by the current processor in a specifie..." alt="" coords="276,13,432,39"/>
-</map>
