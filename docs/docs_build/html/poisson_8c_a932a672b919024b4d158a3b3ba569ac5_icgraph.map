@@ -1,9 +1,0 @@
-<map id="Calculate_Covariant_metrics" name="Calculate_Covariant_metrics">
-<area shape="rect" id="node1" title=" " alt="" coords="967,5,1120,47"/>
-<area shape="rect" id="node2" href="$poisson_8c.html#aa52d855d542bca0968fd51febf43adc0" title=" " alt="" coords="783,13,919,39"/>
-<area shape="rect" id="node3" href="$poisson_8c.html#a6046e36e2334fa29a86d652a0b8f0593" title=" " alt="" coords="588,13,735,39"/>
-<area shape="rect" id="node4" href="$poisson_8c.html#a34a113dcc9ca606d914c3d021a4d85fc" title="Performs the projection step to enforce an incompressible velocity field." alt="" coords="453,13,540,39"/>
-<area shape="rect" id="node5" href="$solvers_8c.html#a2ed4825273a593f371a3d48071708255" title="Orchestrates a single time step of the Eulerian fluid solver." alt="" coords="304,13,405,39"/>
-<area shape="rect" id="node6" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="108,13,256,39"/>
-<area shape="rect" id="node7" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,13,60,39"/>
-</map>

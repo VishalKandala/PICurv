@@ -1,0 +1,91 @@
+#################################################################################
+# -----------------------------------------------------
+# Legacy targets (commented out)
+# -----------------------------------------------------
+# PHONY:       testt data inttest \
+#        	itfcsearch data_vtk datalis datafile swarm_test \
+#-- -----------------------------------------------------
+# Include PETSc test rules
+#include ${PETSC_DIR}/lib/petsc/conf/test
+# -----------------------------------------------------TESTT_EXE         = $(BINDIR)/testt
+# Executable Names
+# -----------------------------------------------------
+#DATA_EXE          = $(BINDIR)/data
+#INTTEST_EXE       = $(BINDIR)/inttest
+#ITFCSEARCH_EXE    = $(BINDIR)/itfcsearch
+#DATA_VTK_EXE      = $(BINDIR)/data_vtk
+#DATALIS_EXE       = $(BINDIR)/datalis
+#DATAFILE_EXE      = $(BINDIR)/datafile
+#SWARM_TEST_EXE    = $(BINDIR)/swarm_test
+# -----------------------------------------------------
+#------------------------------------------------------
+# Specific object files for the 'testt' executable
+#------------------------------------------------------
+#TESTT_OBJS = $(OBJDIR)/bcs.o $(OBJDIR)/bmv.o $(OBJDIR)/compgeom.o \
+             $(OBJDIR)/ibm.o $(OBJDIR)/ibm_io.o $(OBJDIR)/init.o \
+             $(OBJDIR)/main.o $(OBJDIR)/metrics.o $(OBJDIR)/poisson.o \
+             $(OBJDIR)/rhs.o $(OBJDIR)/rheology.o $(OBJDIR)/variables.o \
+             $(OBJDIR)/fsi.o $(OBJDIR)/implicitsolver.o $(OBJDIR)/fsi_move.o \
+             $(OBJDIR)/solvers.o $(OBJDIR)/copepod.o $(OBJDIR)/fish.o \
+             $(OBJDIR)/cstart.o $(OBJDIR)/spline.o $(OBJDIR)/les.o \
+             $(OBJDIR)/k-omega.o $(OBJDIR)/wallfunction.o $(OBJDIR)/rhs2.o
+#------------------------------------------------------
+# -----------------------------------------------------
+# data executable
+# -----------------------------------------------------
+#data: dirs $(DATA_EXE)
+
+#$(DATA_EXE): $(OBJDIR)/variables.o $(OBJDIR)/compgeom.o $(OBJDIR)/data_ibm.o \
+             $(OBJDIR)/ibm_io.o $(OBJDIR)/fsi.o $(OBJDIR)/fsi_move.o \
+             $(OBJDIR)/fish.o $(OBJDIR)/data.o
+#	$(CLINKER) $(CFLAGS) -o $@ $^ $(PETSC_LIB) $(PETSC_SNES_LIB) $(PETSC_TS_LIB) $(LDFLAGS) $(LIBS)
+
+# -----------------------------------------------------
+# itfcsearch
+# -----------------------------------------------------
+#itfcsearch: dirs $(ITFCSEARCH_EXE)
+
+#$(ITFCSEARCH_EXE): $(OBJDIR)/itfcsearch.o \
+                   $(OBJDIR)/walkingsearch.o $(OBJDIR)/logging.o \
+                   $(OBJDIR)/grid.o $(OBJDIR)/io.o
+#	$(CLINKER) $(CFLAGS) -o $@ $^ $(PETSC_LIB) $(LDFLAGS) $(LIBS)
+
+# -----------------------------------------------------
+# data_vtk
+# -----------------------------------------------------
+#data_vtk: dirs $(DATA_VTK_EXE)
+
+#$(DATA_VTK_EXE): $(OBJDIR)/data_vtk.o $(OBJDIR)/logging.o \
+                 $(OBJDIR)/io.o $(OBJDIR)/grid.o
+#	$(CLINKER) $(CFLAGS) -o $@ $^ $(PETSC_LIB) $(LDFLAGS) $(LIBS)
+
+# -----------------------------------------------------
+# datalis
+# -----------------------------------------------------
+#datalis: dirs $(DATALIS_EXE)
+
+#$(DATALIS_EXE): $(OBJDIR)/datalis.o $(OBJDIR)/logging.o $(OBJDIR)/io.o
+#	$(CLINKER) $(CFLAGS) -o $@ $^ $(PETSC_LIB) $(LDFLAGS) $(LIBS)
+
+# -----------------------------------------------------
+# datafile
+# -----------------------------------------------------
+#datafile: dirs $(DATAFILE_EXE)
+
+#$(DATAFILE_EXE): $(OBJDIR)/datafile.o $(OBJDIR)/logging.o $(OBJDIR)/io.o
+#	$(CLINKER) $(CFLAGS) -o $@ $^ $(PETSC_LIB) $(LDFLAGS) $(LIBS)
+
+# -----------------------------------------------------
+# -------------------------------
+# PETSc test rules (guarded)
+# -------------------------------
+# Include PETSc test rules only if PETSC_DIR is set and the file exists.
+ifneq ($(strip $(PETSC_DIR)),)
+  ifneq ("$(wildcard $(PETSC_DIR)/lib/petsc/conf/test)","")
+    #include $(PETSC_DIR)/lib/petsc/conf/test
+  else
+    $(warning PETSc test include not found at $(PETSC_DIR)/lib/petsc/conf/test; skipping)
+  endif
+else
+  $(warning PETSC_DIR is not set; skipping PETSc test includes)
+endif

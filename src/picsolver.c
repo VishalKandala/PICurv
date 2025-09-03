@@ -32,7 +32,9 @@ int main(int argc, char **argv)
     // === II. CONFIGURE =======================================================
     // Create and populate the entire simulation configuration from command line.
     ierr = CreateSimulationContext(argc, argv, &simCtx); CHKERRQ(ierr);
-
+    // == IIB. SET EXECUTION MODE (SOLVER vs POST-PROCESSOR) =====
+    simCtx->exec_mode = EXEC_MODE_SOLVER;
+    
     // === III. SETUP ==========================================================
     // Build the simulation environment step-by-step.
 
@@ -76,7 +78,9 @@ int main(int argc, char **argv)
         // the flow solve and particle advection steps.
 
       if(simCtx->StartStep == 0){
+         if(simCtx->np>0){
 	ierr = PerformInitialSetup(simCtx); CHKERRQ(ierr);
+        }
       }else{
 	
 	// Restart logic

@@ -1,4 +1,0 @@
-<map id="WriteStatisticalFields" name="WriteStatisticalFields">
-<area shape="rect" id="node1" title="Writes statistical fields for averaging purposes." alt="" coords="5,5,164,32"/>
-<area shape="rect" id="node2" href="$io_8c.html#a3f37cf6ed1f13d0656740b8cff2b4ed8" title="Writes data from a specific PETSc vector to a file." alt="" coords="212,5,331,32"/>
-</map>

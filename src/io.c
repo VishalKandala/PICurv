@@ -166,10 +166,10 @@ PetscErrorCode ReadGridFile(UserCtx *user)
             if (fscanf(fd, "%31s", firstTok) != 1)
                 SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Empty grid file: %s", simCtx->grid_file);
 
-            if (strcmp(firstTok, "FDFGRID") == 0) {
+            if (strcmp(firstTok, "PICGRID") == 0) {
                 // Header is present – read nblk from the next line
                 if (fscanf(fd, "%d", &g_nblk_from_file) != 1)
-                    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Expected number of blocks after \"FDFGRID\" in %s", simCtx->grid_file);
+                    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Expected number of blocks after \"PICGRID\" in %s", simCtx->grid_file);
             } else {
                 // No header – the token we just read is actually nblk
                 g_nblk_from_file = (PetscInt)strtol(firstTok, NULL, 10);
@@ -783,11 +783,18 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     ierr = ReadFieldData(user, "pfield", user->P, ti, "dat"); CHKERRQ(ierr);
 
     // Read node state field (nvert)
-    ierr = ReadFieldData(user, "nvfield", user->Nvert_o, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadFieldData(user, "nvfield", user->Nvert, ti, "dat"); CHKERRQ(ierr);
 
+    if(simCtx->np>0){    
     // Read Particle Count field
+    if(!user->ParticleCount){
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ParticleCount Vec is NULL but np>0");
+    }
     ierr = ReadFieldData(user, "ParticleCount", user->ParticleCount, ti, "dat"); CHKERRQ(ierr);
-
+    }
+    else{
+        LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, skipping ParticleCount field read.\n");
+    }
     // Process LES fields if enabled
     if (simCtx->les) {
       ierr = ReadLESFields(user,ti); CHKERRQ(ierr);
@@ -2602,7 +2609,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
  * @brief Helper function to trim leading/trailing whitespace from a string.
  * @param str The string to trim in-place.
  */
-static void TrimWhitespace(char *str) {
+void TrimWhitespace(char *str) {
     char *end;
     // Trim leading space
     while(isspace((unsigned char)*str)) str++;
@@ -2635,8 +2642,13 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
 
     PetscFunctionBeginUser;
 
-    char *configFile = simCtx->PostProcessingConfigFile;
-    PostProcessConfig *pps = simCtx->pps;
+    if (!simCtx || !simCtx->pps) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "SimCtx or its pps member is NULL in ParsePostProcessingSettings.");
+    }
+
+    char *configFile = simCtx->PostprocessingControlFile;
+    PostProcessParams *pps = simCtx->pps;
+
 
     // --- 1. Set Sane Defaults First ---
     pps->startTime = 0;
@@ -2665,6 +2677,16 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
                 else if (strcmp(key, "output_particles") == 0) {
                     if (strcasecmp(value, "true") == 0) pps->outputParticles = PETSC_TRUE;
                 }
+                else if (strcasecmp(key, "process_pipeline") == 0) {
+                    strncpy(pps->process_pipeline, value, MAX_PIPELINE_LENGTH - 1);
+                    pps->process_pipeline[MAX_PIPELINE_LENGTH - 1] = '\0'; // Ensure null-termination
+                } else if (strcasecmp(key, "output_fields_instantaneous") == 0) {
+                    strncpy(pps->output_fields_instantaneous, value, MAX_FIELD_LIST_LENGTH - 1);
+                    pps->output_fields_instantaneous[MAX_FIELD_LIST_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "output_prefix") == 0) {
+                    strncpy(pps->output_prefix, value, MAX_FILENAME_LENGTH - 1);
+                    pps->output_prefix[MAX_FILENAME_LENGTH - 1] = '\0';
+                } 
                 // Add parsing for pipeline, fields, etc. in later phases
             }
         }
@@ -2687,5 +2709,8 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Post-processing configured to run from t=%d to t=%d with step %d. Particle output: %s.\n",
               pps->startTime, pps->endTime, pps->timeStep, pps->outputParticles ? "TRUE" : "FALSE");
 
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Process Pipeline: %s\n", pps->process_pipeline);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Instantaneous Output Fields: %s\n", pps->output_fields_instantaneous);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Output Prefix: %s\n", pps->output_prefix);
     PetscFunctionReturn(0);
 }

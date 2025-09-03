@@ -1,9 +1,0 @@
-<map id="GetGhostedCellRange" name="GetGhostedCellRange">
-<area shape="rect" id="node1" title="Gets the global cell range for a rank, including boundary cells." alt="" coords="828,42,993,69"/>
-<area shape="rect" id="node2" href="$initialcondition_8c.html#a62dfa993750dc34d1729c575bb1dde66" title="Sets the initial values for the INTERIOR of a specified Eulerian field." alt="" coords="571,15,728,42"/>
-<area shape="rect" id="node6" href="$setup_8c.html#aeb77337317f41972d1c75c8d80527892" title="Creates and distributes a map of the domain&#39;s cell decomposition to all ranks." alt="" coords="519,67,780,94"/>
-<area shape="rect" id="node3" href="$initialcondition_8c.html#a51d0251f84a962a611ff0c0a8797a3e4" title="(HELPER) Sets the t=0 fluid state for all blocks." alt="" coords="324,5,471,47"/>
-<area shape="rect" id="node4" href="$initialcondition_8c.html#ad0dd7d3f2528b6a7802fcd551e88ea99" title="High&#45;level orchestrator to set the complete initial state of the Eulerian solver." alt="" coords="109,15,275,42"/>
-<area shape="rect" id="node5" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,42,60,69"/>
-<area shape="rect" id="node7" href="$setup_8c.html#a1c08bf327e1aee897c56610a89f75814" title="Sets up the full rank communication infrastructure for all blocks." alt="" coords="108,67,276,94"/>
-</map>

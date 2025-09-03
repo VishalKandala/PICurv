@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "variables.h": "c",
+        "postprocessing_kernels.h": "c"
+    }
+}

@@ -1,6 +1,0 @@
-<map id="DefineAllGridDimensions" name="DefineAllGridDimensions">
-<area shape="rect" id="node1" title="Orchestrates the parsing and setting of grid dimensions for all blocks." alt="" coords="5,31,192,57"/>
-<area shape="rect" id="node2" href="$grid_8c.html#a526448d3a1e34b608f7167a59f1d7e04" title="Determines the grid source and calls the appropriate parsing routine." alt="" coords="240,31,411,57"/>
-<area shape="rect" id="node3" href="$io_8h.html#a1454fbb30915c3284cbf5ecb100351d1" title="Sets grid dimensions from a file for a SINGLE block using a one&#45;time read cache." alt="" coords="504,5,608,32"/>
-<area shape="rect" id="node4" href="$io_8h.html#a7dd125436244f23eba5c6b06fdd35031" title="Parses command&#45;line options for a programmatically generated grid for a SINGLE block." alt="" coords="459,56,653,83"/>
-</map>

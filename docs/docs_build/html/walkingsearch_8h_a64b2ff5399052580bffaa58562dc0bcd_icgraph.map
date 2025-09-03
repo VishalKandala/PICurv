@@ -1,8 +1,0 @@
-<map id="ReportSearchOutcome" name="ReportSearchOutcome">
-<area shape="rect" id="node1" title="Logs the final outcome of the particle location search." alt="" coords="833,31,1001,57"/>
-<area shape="rect" id="node2" href="$walkingsearch_8c.html#a0b63dfe82e0fdee5c2c3bdd477f9901f" title="Locates a particle&#39;s host cell or identifies its migration target using a robust walk search." alt="" coords="568,23,785,65"/>
-<area shape="rect" id="node3" href="$ParticleMotion_8c.html#a727054a4a467fd8504a19caed5a5916b" title="Orchestrates the complete particle location and migration process for one timestep." alt="" coords="304,31,520,57"/>
-<area shape="rect" id="node4" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="108,5,256,32"/>
-<area shape="rect" id="node6" href="$simulation_8c.html#a4e2cad25ac1fbdc6745d6fd8fcc1bbc1" title="Finalizes the simulation setup at t=0, ensuring a consistent state before time marching." alt="" coords="108,56,256,83"/>
-<area shape="rect" id="node5" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,31,60,57"/>
-</map>

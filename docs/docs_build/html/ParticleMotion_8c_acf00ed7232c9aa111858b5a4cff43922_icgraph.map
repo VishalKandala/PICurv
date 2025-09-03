@@ -1,4 +1,0 @@
-<map id="IdentifyMigratingParticles" name="IdentifyMigratingParticles">
-<area shape="rect" id="node1" title="Identifies particles that have left the local MPI rank&#39;s domain and determines their target rank." alt="" coords="279,13,469,39"/>
-<area shape="rect" id="node2" href="$ParticleMotion_8c.html#ab2eeab12258446f697695ebdaef3f011" title="Performs one full cycle of particle migration: identify, set ranks, and migrate." alt="" coords="5,5,231,47"/>
-</map>

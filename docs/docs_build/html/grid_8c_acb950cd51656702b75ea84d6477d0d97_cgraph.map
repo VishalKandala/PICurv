@@ -1,6 +1,0 @@
-<map id="SetFinestLevelCoordinates" name="SetFinestLevelCoordinates">
-<area shape="rect" id="node1" title="A router that populates the coordinates for a single finest&#45;level DMDA." alt="" coords="5,31,200,57"/>
-<area shape="rect" id="node2" href="$grid_8c.html#ac44553fe1434663c5211cc6ac32ef004" title="Programmatically generates and sets grid coordinates based on user parameters." alt="" coords="248,5,455,32"/>
-<area shape="rect" id="node4" href="$grid_8c.html#ac693c757c4fd3cb75e6e06e05e25d775" title="Reads physical coordinates from a file and populates the DMDA for a specific block." alt="" coords="262,56,441,83"/>
-<area shape="rect" id="node3" href="$grid_8c.html#a54a2529affe522c9e29161aef1ca3847" title="Computes a stretched coordinate along one dimension." alt="" coords="503,5,684,32"/>
-</map>
