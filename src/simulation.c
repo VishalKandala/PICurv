@@ -284,7 +284,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             if (simCtx->np > 0) {
                 ierr = WriteSwarmField(user, "position", step, "dat"); CHKERRQ(ierr);
                 ierr = WriteSwarmField(user, "velocity", step, "dat"); CHKERRQ(ierr);
-		if(get_log_level() == LOG_INFO){
+		if(get_log_level() >= LOG_INFO){
 		  LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency);
 		}
             }

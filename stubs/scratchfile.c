@@ -2886,3 +2886,112 @@ PetscErrorCode PerformInitialSetup(UserCtx *user, BoundingBox *bboxlist)
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode SetEulerianFields(UserCtx *user);
+
+
+/////////////////////////////////////
+
+/**
+ * @brief Gathers a PETSc vector onto rank 0 as a contiguous array of doubles.
+ *
+ * This function retrieves the local portions of the input vector \p inVec from
+ * all MPI ranks via \c MPI_Gatherv and assembles them into a single array on rank 0.
+ * The global size of the vector is stored in \p N, and a pointer to the newly
+ * allocated array is returned in \p arrayOut (valid only on rank 0).
+ *
+ * @param[in]  inVec      The PETSc vector to gather.
+ * @param[out] N          The global size of the vector (output).
+ * @param[out] arrayOut   On rank 0, points to the newly allocated array of size \p N.
+ *                        On other ranks, it is set to NULL.
+ *
+ * @return PetscErrorCode  Returns 0 on success, or a non-zero PETSc error code.
+ */
+PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
+{
+    PetscErrorCode    ierr;
+    MPI_Comm          comm;
+    PetscMPIInt       rank, size;
+    PetscInt          globalSize, localSize;
+    const PetscScalar *localArr = NULL;
+
+    PetscFunctionBeginUser;
+    
+    // Log entry into the function
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "VecToArrayOnRank0 - Start gathering vector onto rank 0.\n");
+
+    /* Get MPI comm, rank, size */
+    ierr = PetscObjectGetComm((PetscObject)inVec, &comm);CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(comm, &rank);CHKERRQ(ierr);
+    ierr = MPI_Comm_size(comm, &size);CHKERRQ(ierr);
+
+    /* Get global size (for the entire Vec) */
+    ierr = VecGetSize(inVec, &globalSize);CHKERRQ(ierr);
+    *N = globalSize;
+
+    /* Get local size (portion on this rank) */
+    ierr = VecGetLocalSize(inVec, &localSize);CHKERRQ(ierr);
+
+    // Log vector sizes and process info
+    LOG_ALLOW(GLOBAL, LOG_DEBUG,
+              "VecToArrayOnRank0 - rank=%d of %d, globalSize=%d, localSize=%d.\n",
+              rank, size, globalSize, localSize);
+
+    /* Access the local array data */
+    ierr = VecGetArrayRead(inVec, &localArr);CHKERRQ(ierr);
+
+    /*
+       We'll gather the local chunks via MPI_Gatherv:
+       - First, gather all local sizes into recvcounts[] on rank 0.
+       - Then set up a displacement array (displs[]) to place each chunk in the correct spot.
+       - Finally, gather the actual data.
+    */
+    PetscMPIInt *recvcounts = NULL;
+    PetscMPIInt *displs     = NULL;
+
+    if (!rank) {
+        ierr = PetscMalloc2(size, &recvcounts, size, &displs);CHKERRQ(ierr);
+    }
+
+    /* Convert localSize (PetscInt) to PetscMPIInt for MPI calls */
+    PetscMPIInt localSizeMPI = (PetscMPIInt)localSize;
+
+    /* Gather local sizes to rank 0 */
+    ierr = MPI_Gather(&localSizeMPI, 1, MPI_INT,
+                      recvcounts,      1, MPI_INT,
+                      0, comm);CHKERRQ(ierr);
+
+    /* On rank 0, build displacements and allocate the big array */
+    if (!rank) {
+        displs[0] = 0;
+        for (PetscMPIInt i = 1; i < size; i++) {
+            displs[i] = displs[i - 1] + recvcounts[i - 1];
+        }
+
+        /* Allocate a buffer for the entire (global) array */
+        ierr = PetscMalloc1(globalSize, arrayOut);CHKERRQ(ierr);
+        if (!(*arrayOut)) SETERRQ(comm, PETSC_ERR_MEM, "Failed to allocate array on rank 0.");
+    } else {
+        /* On other ranks, we do not allocate anything */
+        *arrayOut = NULL;
+    }
+
+    /* Gather the actual data (assuming real scalars => MPI_DOUBLE) */
+    ierr = MPI_Gatherv((void *) localArr,         /* sendbuf on this rank */
+                       localSizeMPI, MPI_DOUBLE,  /* how many, and type */
+                       (rank == 0 ? *arrayOut : NULL),  /* recvbuf on rank 0 */
+                       (rank == 0 ? recvcounts : NULL),
+                       (rank == 0 ? displs    : NULL),
+                       MPI_DOUBLE, 0, comm);CHKERRQ(ierr);
+
+    /* Restore local array (cleanup) */
+    ierr = VecRestoreArrayRead(inVec, &localArr);CHKERRQ(ierr);
+
+    if (!rank) {
+        ierr = PetscFree(recvcounts);
+        ierr = PetscFree(displs);
+    }
+
+    // Log successful completion
+    LOG_ALLOW(GLOBAL, LOG_INFO, "VecToArrayOnRank0 - Successfully gathered data on rank 0.\n");
+
+    PetscFunctionReturn(0);
+}
