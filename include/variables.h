@@ -55,8 +55,6 @@ extern "C" {
 
 /// Coefficient controlling the temporal accuracy scheme (e.g., 1.5 for BDF2).
 #define COEF_TIME_ACCURACY 1.5
-/// Defines the maximum number of data fields for VTK point data.
-#define MAX_POINT_DATA_FIELDS 10
 
 /* --- NOTE: All legacy global 'extern' variables have been removed. --- */
 /* They are now members of the SimulationContext struct. */
@@ -90,6 +88,7 @@ typedef struct MigrationInfo MigrationInfo;
 typedef struct Cstart Cstart;
 typedef struct MGCtx MGCtx;
 typedef struct PostProcessParams PostProcessParams;
+typedef struct VTKFieldInfo VTKFieldInfo;
 typedef struct VTKMetaData VTKMetaData;
 typedef struct IBMInfo IBMInfo;
 typedef struct SurfElmtInfo SurfElmtInfo;
@@ -434,7 +433,9 @@ typedef struct UserMG {
 #define MAX_PIPELINE_LENGTH 1024
 #define MAX_FIELD_LIST_LENGTH 1024
 #define MAX_FILENAME_LENGTH 256
-
+/// Defines the maximum number of data fields for VTK point data.
+#define MAX_POINT_DATA_FIELDS 20 
+#define MAX_VTK_FIELD_NAME_LENGTH 64 ///< Maximum length for VTK field names.
 /**
  * @brief Holds all configuration parameters for a post-processing run.
  *        This is an enhanced version combining command-line and file-based settings.
@@ -458,23 +459,30 @@ typedef struct PostProcessParams {
     
 } PostProcessParams;
 
+/**
+ * @brief Stores all necessary information for a single data array in a VTK file.
+ */
+typedef struct VTKFieldInfo {
+    char        name[MAX_VTK_FIELD_NAME_LENGTH]; // Name of the data field
+    PetscInt    num_components; // 1 for scalar, 3 for vector
+    PetscScalar* data;          // Pointer to the raw data array (must be freed by caller)
+} VTKFieldInfo;
+
 /** @brief Enumerates the type of VTK file to be written. */
 typedef enum {
     VTK_STRUCTURED,
     VTK_POLYDATA
 } VTKFileType;
 
-/** @brief Metadata structure for VTK output (.vts or .vtp files). */
 typedef struct VTKMetaData {
-    VTKFileType  fileType;
-    PetscInt     mx, my, mz, nnodes, npoints;
-    PetscScalar  *coords, *scalarField;
-    const char   *scalarFieldName;
-    PetscInt     numScalarFields;
-    PetscScalar  *vectorField;
-    const char   *vectorFieldName;
-    PetscInt     numVectorFields;
-    PetscInt     *connectivity, *offsets;
+    VTKFileType     fileType;
+    PetscInt        mx, my, mz;
+    PetscInt        npoints;
+    PetscScalar*    coords;
+    VTKFieldInfo    point_data_fields[MAX_POINT_DATA_FIELDS];
+    PetscInt        num_point_data_fields;
+    PetscInt*       connectivity;
+    PetscInt*       offsets;
 } VTKMetaData;
 
 /**

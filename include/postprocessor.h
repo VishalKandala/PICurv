@@ -10,8 +10,9 @@
 #include "setup.h"
 #include "Metric.h"
 #include "postprocessing_kernels.h"
+#include "vtk_io.h"
 /* --------------------------------------------------------------------
-   postprocess.h
+   postprocessor.h
 
    This header declares the interface for the post-processing executable
    or library. Typically, you'd have a function that runs your main 
@@ -23,62 +24,31 @@
 
 */
 
+/**
+ * @brief Orchestrates the writing of a combined, multi-field VTK file for a single time step.
+ *
+ * This function is the primary driver for generating output. It performs these steps:
+ * 1. Prepares the subsampled coordinate array required for the legacy grid format.
+ * 2. Parses the user-requested list of fields from the configuration.
+ * 3. For each field, prepares a corresponding subsampled data array.
+ * 4. Assembles all prepared arrays into a single VTKMetaData struct.
+ * 5. Calls the low-level VTK writer to generate the final .vts file.
+ * 6. Frees all temporary memory allocated during the preparation phase.
+ *
+ * @param user The UserCtx for the finest grid level.
+ * @param pps  The post-processing configuration struct.
+ * @param ti   The current time step index.
+ * @return PetscErrorCode
+ */
+PetscErrorCode WriteCombinedVTKFile(UserCtx* user, PostProcessParams* pps, PetscInt ti);
 
 /**
- * @brief Gathers a PETSc vector or a DMSwarm field, prepares VTKMetaData, and writes to a VTK file.
- *
- * This function dynamically handles **both Eulerian (.vts) and Lagrangian (.vtp) data**:
- *  - **If the field exists in `DMSwarm`**, it **extracts it into a PETSc Vec**.
- *  - **If already a Vec**, it directly processes it.
- *  - **For `.vtp` files, it also gathers particle positions** (`DMSwarmPICField_coor`).
- *  - **For `.vts`, only the field is gathered** (structured grid).
- *
- * @param[in]  user       Pointer to user context (contains swarm and Eulerian fields).
- * @param[in]  fieldName  Name of the field (e.g., "Ucat" for vts, "Velocity" for vtp).
- * @param[in]  coorfieldName  Name of the coordinate field used (e.g., "positions" or "pos_phy".
- * @param[in]  timeIndex  Timestep index for filename (e.g., "Ucat_00010.vts").
- * @param[in]  outExt     File extension ("vts" for structured, "vtp" for particles).
- * @param[in]  prefix     File prefix(directory to store file in).
- * @param[in]  comm       MPI communicator (usually PETSC_COMM_WORLD).
- *
- * @return PetscErrorCode  0 on success, or an error code on failure.
+ * @brief Parses the processing pipeline string and executes the requested kernels.
+ * @param user The UserCtx containing the data to be transformed.
+ * @param config The PostProcessConfig containing the pipeline string.
+ * @return PetscErrorCode
  */
-PetscErrorCode GatherAndWriteField(UserCtx *user,
-                                   const char *fieldName,
-				   const char *coorfieldName,
-                                   PetscInt timeIndex,
-                                   const char *outExt,
-				   const char *prefix,
-                                   MPI_Comm comm);
-
-/**
- * @brief Writes up to four Eulerian fields (Ucat, P, Ucont, Nvert) using the
- *        GatherAndWriteField() wrapper. Each field becomes a separate file.
- *
- * @param[in]  user       Pointer to the UserCtx holding PETSc vectors.
- * @param[in]  timeIndex  Timestep index for filenames.
- * @param[in]  outExt     File extension (e.g., "vts" or "vtp").
- * @param[in]  prefix     File prefix(directory to store file in).
- *
- * @return PetscErrorCode  Returns 0 on success, error code on failure.
- */
-PetscErrorCode WriteEulerianVTK(UserCtx *user, PetscInt timeIndex, const char *outExt,const char *prefix);
-
-
-/**
- * @brief Writes particle (Lagrangian) data fields to separate .vtp files.
- *
- * This function loops over key DMSwarm fields (positions, velocity, etc.) and writes 
- * each as a separate .vtp file, ensuring modularity and flexibility.
- *
- * @param[in] user       Pointer to the user context (contains the particle swarm).
- * @param[in] timeIndex  Current timestep index (used in filenames).
- * @param[in] outExt     File extension ("vtp" for particles).
- * @param[in]  prefix     File prefix(directory to store file in).
- *
- * @return PetscErrorCode  0 on success, nonzero on failure.
- */
-PetscErrorCode WriteParticleVTK(UserCtx *user, PetscInt timeIndex, const char *outExt,const char *prefix);
+PetscErrorCode RunProcessingPipeline(UserCtx* user, PostProcessParams* pps);
 
 #endif /* POSTPROCESSOR_H */
 

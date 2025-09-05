@@ -1,11 +1,13 @@
 #include "postprocessing_kernels.h"
 
 /**
- * @brief Computes node-centered data by averaging 8 surrounding cell-centered values.
+ * @brief Computes node-centered data by averaging 8 surrounding cell-centered values,
+ *        exactly replicating the legacy code's indexing and boundary handling.
  *
- * This kernel is a stateless transformation. It first ensures its input data has
- * up-to-date ghost values by calling UpdateLocalGhosts, then performs the averaging
- * stencil, writing the result to a global output vector.
+ * This kernel uses a stencil that averages the 8 cells from the corner (i,j,k) to
+ * (i+1, j+1, k+1) and stores the result at the output node (i,j,k). This matches
+ * the legacy code's behavior. It operates on the full range of output nodes necessary
+ * for the subsampled grid, preventing zero-padding at the boundaries.
  *
  * @param user The UserCtx, providing access to DMs and Vecs.
  * @param in_field_name The string name of the source Vec (e.g., "P", "Ucat").
@@ -15,21 +17,22 @@
 PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, const char* out_field_name)
 {
     PetscErrorCode ierr;
-    Vec            in_vec_global = NULL, in_vec_local = NULL, out_vec_global = NULL;
-    DM             dm = NULL; // The DM associated with the data layout
+    Vec            in_vec_local = NULL, out_vec_global = NULL;
+    DM             dm_in = NULL, dm_out = NULL;
     PetscInt       dof = 0;
 
     PetscFunctionBeginUser;
     LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running ComputeNodalAverage on '%s' -> '%s'.\n", in_field_name, out_field_name);
 
     // --- 1. Map string names to PETSc objects ---
-    if (strcmp(in_field_name, "P") == 0)             { in_vec_global = user->P;         in_vec_local = user->lP;         dm = user->da;   dof = 1; }
-    else if (strcmp(in_field_name, "Ucat") == 0)    { in_vec_global = user->Ucat;      in_vec_local = user->lUcat;      dm = user->fda;  dof = 3; }
-    else if (strcmp(in_field_name, "Qcrit") == 0) { in_vec_global = user->Qcrit;     in_vec_local = user->lP; /* Re-use lP for scalar data */ dm = user->da; dof = 1; }
+    if (strcasecmp(in_field_name, "P") == 0)             { in_vec_local = user->lP;         dm_in = user->da;   dof = 1; }
+    else if (strcasecmp(in_field_name, "Ucat") == 0)    { in_vec_local = user->lUcat;      dm_in = user->fda;  dof = 3; }
+    // ... (add other fields as needed) ...
     else SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Unknown input field name for nodal averaging: %s", in_field_name);
 
-    if (strcmp(out_field_name, "P_nodal") == 0)      { out_vec_global = user->P_nodal; }
-    else if (strcmp(out_field_name, "Ucat_nodal") == 0) { out_vec_global = user->Ucat_nodal; }
+    if (strcasecmp(out_field_name, "P_nodal") == 0)      { out_vec_global = user->P_nodal;    dm_out = user->da; }
+    else if (strcasecmp(out_field_name, "Ucat_nodal") == 0) { out_vec_global = user->Ucat_nodal; dm_out = user->fda; }
+    // ... (add other fields as needed) ...
     else SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Unknown output field name for nodal averaging: %s", out_field_name);
 
     // --- 2. Ensure Input Data Ghosts are Up-to-Date ---
@@ -37,61 +40,57 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
 
     // --- 3. Get DMDA info and array pointers ---
     DMDALocalInfo info;
-    ierr = DMDAGetLocalInfo(dm, &info); CHKERRQ(ierr);
+    ierr = DMDAGetLocalInfo(dm_out, &info); CHKERRQ(ierr);
 
     if (dof == 1) { // --- Scalar Field Averaging ---
         const PetscReal ***l_in_arr;
         PetscReal       ***g_out_arr;
-        ierr = DMDAVecGetArrayRead(dm,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(dm,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(dm_in,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(dm_out,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
 
-        for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
-            if (k == 0 || k == info.mz - 1) continue;
-            for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
-                if (j == 0 || j == info.my - 1) continue;
-                for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
-                    if (i == 0 || i == info.mx - 1) continue;
-                    
-                    g_out_arr[k][j][i] = 0.125 * (l_in_arr[k-1][j-1][i-1] + l_in_arr[k-1][j-1][i] +
-                                                  l_in_arr[k-1][j][i-1]   + l_in_arr[k-1][j][i]   +
-                                                  l_in_arr[k][j-1][i-1]   + l_in_arr[k][j-1][i]   +
-                                                  l_in_arr[k][j][i-1]     + l_in_arr[k][j][i]);
+        // Loop over the output NODE locations. The loop bounds match the required
+        // size of the final subsampled grid.
+        for (PetscInt k = info.zs; k < info.zs + info.zm - 1; k++) {
+            for (PetscInt j = info.ys; j < info.ys + info.ym - 1; j++) {
+                for (PetscInt i = info.xs; i < info.xs + info.xm - 1; i++) {
+                    g_out_arr[k][j][i] = 0.125 * (l_in_arr[k][j][i]     + l_in_arr[k][j][i+1] +
+                                                  l_in_arr[k][j+1][i]   + l_in_arr[k][j+1][i+1] +
+                                                  l_in_arr[k+1][j][i]   + l_in_arr[k+1][j][i+1] +
+                                                  l_in_arr[k+1][j+1][i] + l_in_arr[k+1][j+1][i+1]);
                 }
             }
         }
-        ierr = DMDAVecRestoreArrayRead(dm,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(dm,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(dm_in,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(dm_out,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
 
     } else if (dof == 3) { // --- Vector Field Averaging ---
         const Cmpnts ***l_in_arr;
         Cmpnts       ***g_out_arr;
-        ierr = DMDAVecGetArrayRead(dm,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(dm,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(dm_in,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(dm_out,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
 
-        for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
-            if (k == 0 || k == info.mz - 1) continue;
-            for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
-                if (j == 0 || j == info.my - 1) continue;
-                for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
-                    if (i == 0 || i == info.mx - 1) continue;
+        for (PetscInt k = info.zs; k < info.zs + info.zm - 1; k++) {
+            for (PetscInt j = info.ys; j < info.ys + info.ym - 1; j++) {
+                for (PetscInt i = info.xs; i < info.xs + info.xm - 1; i++) {
+                    g_out_arr[k][j][i].x = 0.125 * (l_in_arr[k][j][i].x + l_in_arr[k][j][i+1].x +
+                                                    l_in_arr[k][j+1][i].x + l_in_arr[k][j+1][i+1].x +
+                                                    l_in_arr[k+1][j][i].x + l_in_arr[k+1][j][i+1].x +
+                                                    l_in_arr[k+1][j+1][i].x + l_in_arr[k+1][j+1][i+1].x);
 
-                    g_out_arr[k][j][i].x = 0.125 * (l_in_arr[k-1][j-1][i-1].x + l_in_arr[k-1][j-1][i].x +
-                                                    l_in_arr[k-1][j][i-1].x   + l_in_arr[k-1][j][i].x   +
-                                                    l_in_arr[k][j-1][i-1].x   + l_in_arr[k][j-1][i].x   +
-                                                    l_in_arr[k][j][i-1].x     + l_in_arr[k][j][i].x);
-                    g_out_arr[k][j][i].y = 0.125 * (l_in_arr[k-1][j-1][i-1].y + l_in_arr[k-1][j-1][i].y +
-                                                    l_in_arr[k-1][j][i-1].y   + l_in_arr[k-1][j][i].y   +
-                                                    l_in_arr[k][j-1][i-1].y   + l_in_arr[k][j-1][i].y   +
-                                                    l_in_arr[k][j][i-1].y     + l_in_arr[k][j][i].y);
-                    g_out_arr[k][j][i].z = 0.125 * (l_in_arr[k-1][j-1][i-1].z + l_in_arr[k-1][j-1][i].z +
-                                                    l_in_arr[k-1][j][i-1].z   + l_in_arr[k-1][j][i].z   +
-                                                    l_in_arr[k][j-1][i-1].z   + l_in_arr[k][j-1][i].z   +
-                                                    l_in_arr[k][j][i-1].z     + l_in_arr[k][j][i].z);
+                    g_out_arr[k][j][i].y = 0.125 * (l_in_arr[k][j][i].y + l_in_arr[k][j][i+1].y +
+                                                    l_in_arr[k][j+1][i].y + l_in_arr[k][j+1][i+1].y +
+                                                    l_in_arr[k+1][j][i].y + l_in_arr[k+1][j][i+1].y +
+                                                    l_in_arr[k+1][j+1][i].y + l_in_arr[k+1][j+1][i+1].y);
+
+                    g_out_arr[k][j][i].z = 0.125 * (l_in_arr[k][j][i].z + l_in_arr[k][j][i+1].z +
+                                                    l_in_arr[k][j+1][i].z + l_in_arr[k][j+1][i+1].z +
+                                                    l_in_arr[k+1][j][i].z + l_in_arr[k+1][j][i+1].z +
+                                                    l_in_arr[k+1][j+1][i].z + l_in_arr[k+1][j+1][i+1].z);
                 }
             }
         }
-        ierr = DMDAVecRestoreArrayRead(dm,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(dm,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(dm_in,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(dm_out,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
     }
     PetscFunctionReturn(0);
 }
@@ -222,6 +221,89 @@ PetscErrorCode ComputeQCriterion(UserCtx* user)
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,    (void*)&laj);     CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lNvert, (void*)&lnvert);  CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->da,  user->Qcrit, (void*)&gq);       CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Normalizes a relative field by subtracting a reference value.
+ *
+ * This kernel finds the relative field at a specific grid point (i,j,k) and subtracts
+ * this value from the entire field. The reference point is configurable via
+ * command-line options (-ip, -jp, -kp). The operation is performed in-place
+ * on the provided relative field vector.
+ *
+ * @param user The UserCtx, providing access to DMs and Vecs.
+ * @param relative_field_name The string name of the relative field Vec to normalize (e.g., "P").
+ * @return PetscErrorCode
+ */
+PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_name)
+{
+    PetscErrorCode ierr;
+    Vec            P_vec = NULL;
+    PetscMPIInt    rank;
+    PetscInt       ip=1, jp=1, kp=1; // Default reference point
+    PetscReal      p_ref = 0.0;
+    PetscInt       ref_point_global_idx[1];
+    PetscScalar    ref_value_local[1];
+    IS             is_from, is_to;
+    VecScatter     scatter_ctx;
+    Vec            ref_vec_seq;
+
+    PetscFunctionBeginUser;
+    LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running NormalizeRelativeField on '%s'.\n", relative_field_name);
+
+    // --- 1. Map string argument to the PETSc Vec ---
+    if (strcasecmp(relative_field_name, "P") == 0) {
+        P_vec = user->P;
+    } else {
+        SETERRQ(PETSC_COMM_SELF, 1, "NormalizeRelativeField only supports the primary 'P' field , not '%s' currently.", relative_field_name);
+    }
+
+    // --- 2. Get reference point from options and calculate its global DA index ---
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-ip", &ip, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-jp", &jp, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-kp", &kp, NULL); CHKERRQ(ierr);
+
+    // Convert the (i,j,k) logical grid coordinates to the global 1D index used by the DMDA vector
+    ref_point_global_idx[0] = kp * (user->IM * user->JM) + jp * user->IM + ip;
+
+    // --- 3. Robustly Scatter the single reference value to rank 0 ---
+    // Create an Index Set (IS) for the source point (from the global vector)
+    ierr = ISCreateGeneral(PETSC_COMM_WORLD, 1, ref_point_global_idx, PETSC_COPY_VALUES, &is_from); CHKERRQ(ierr);
+
+    // Create a sequential vector on rank 0 to hold the result
+    ierr = VecCreateSeq(PETSC_COMM_SELF, 1, &ref_vec_seq); CHKERRQ(ierr);
+    
+    // Create an Index Set for the destination point (index 0 of the new sequential vector)
+    PetscInt dest_idx[1] = {0};
+    ierr = ISCreateGeneral(PETSC_COMM_SELF, 1, dest_idx, PETSC_COPY_VALUES, &is_to); CHKERRQ(ierr);
+
+    // Create the scatter context and perform the scatter
+    ierr = VecScatterCreate(P_vec, is_from, ref_vec_seq, is_to, &scatter_ctx); CHKERRQ(ierr);
+    ierr = VecScatterBegin(scatter_ctx, P_vec, ref_vec_seq, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
+    ierr = VecScatterEnd(scatter_ctx, P_vec, ref_vec_seq, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
+
+    // On rank 0, get the value. On other ranks, this will do nothing.
+    if (rank == 0) {
+        ierr = VecGetValues(ref_vec_seq, 1, dest_idx, ref_value_local); CHKERRQ(ierr);
+        p_ref = ref_value_local[0];
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "%s reference point (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") has value %g.\n", relative_field_name, jp, kp, p_ref);
+    }
+    
+    // --- 4. Broadcast the reference value from rank 0 to all other processes ---
+    ierr = MPI_Bcast(&p_ref, 1, MPIU_REAL, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    // --- 5. Perform the normalization (in-place shift) on the full distributed vector ---
+    ierr = VecShift(P_vec, -p_ref); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "%s field normalized by subtracting %g.\n", relative_field_name, p_ref);
+    
+    // --- 6. Cleanup ---
+    ierr = ISDestroy(&is_from); CHKERRQ(ierr);
+    ierr = ISDestroy(&is_to); CHKERRQ(ierr);
+    ierr = VecScatterDestroy(&scatter_ctx); CHKERRQ(ierr);
+    ierr = VecDestroy(&ref_vec_seq); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
