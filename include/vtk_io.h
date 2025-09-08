@@ -50,6 +50,6 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
  * @param[out] out_data       On rank 0, a pointer to the newly allocated C array for the field data. NULL on other ranks.
  * @return PetscErrorCode
  */
-PetscErrorCode PrepareOutputFieldData(UserCtx* user, Vec field_vec, PetscInt num_components, PetscScalar** out_data);
+PetscErrorCode PrepareOutputEulerianFieldData(UserCtx* user, Vec field_vec, PetscInt num_components, PetscScalar** out_data);
 #endif // VTK_IO_H
 

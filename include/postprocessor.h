@@ -40,7 +40,7 @@
  * @param ti   The current time step index.
  * @return PetscErrorCode
  */
-PetscErrorCode WriteCombinedVTKFile(UserCtx* user, PostProcessParams* pps, PetscInt ti);
+PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt ti);
 
 /**
  * @brief Parses the processing pipeline string and executes the requested kernels.

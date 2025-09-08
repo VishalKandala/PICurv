@@ -92,7 +92,7 @@ PetscErrorCode RunProcessingPipeline(UserCtx* user, PostProcessParams* pps)
     PetscFunctionReturn(0);
 }
 
-PetscErrorCode WriteCombinedVTKFile(UserCtx* user, PostProcessParams* pps, PetscInt ti)
+PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt ti)
 {
     PetscErrorCode ierr;
     VTKMetaData    meta;
@@ -156,7 +156,7 @@ PetscErrorCode WriteCombinedVTKFile(UserCtx* user, PostProcessParams* pps, Petsc
             current_field->num_components = num_components;
 
             /* Build interior AoS from NATURAL gathered Vec */
-            ierr = PrepareOutputFieldData(user, field_vec, num_components, &current_field->data); CHKERRQ(ierr);
+            ierr = PrepareOutputEulerianFieldData(user, field_vec, num_components, &current_field->data); CHKERRQ(ierr);
             
             /*
             // *** DEBUG: Dump Ucat_nodal details and add scalar companions Ux, Uy, Uz for easier visualization ***
@@ -411,11 +411,11 @@ int main(int argc, char **argv)
         ierr = RunProcessingPipeline(user, pps); CHKERRQ(ierr);
 
         // 3. Write Output
-        ierr = WriteCombinedVTKFile(user, pps, ti); CHKERRQ(ierr);
+        ierr = WriteEulerianFile(user, pps, ti); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "=============================================================\n");
-    LOG_ALLOW(GLOBAL, LOG_INFO, "PHASE 4 COMPLETE: Post-processing finished successfully.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Post-processing finished successfully.\n");
     
 
 

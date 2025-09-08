@@ -1950,16 +1950,21 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
     pps->startTime = 0;
     pps->endTime = 0;
     pps->timeStep = 1;
+    pps->outputParticles = PETSC_FALSE;
+    pps->particle_output_freq = simCtx->LoggingFrequency; // Default to logging frequency;
     strcpy(pps->process_pipeline, "");
     strcpy(pps->output_fields_instantaneous, "Ucat,P");
     strcpy(pps->output_fields_averaged, "");
     strcpy(pps->output_prefix, "results/viz");
-    pps->outputParticles = PETSC_FALSE;
+    strcpy(pps->particle_output_prefix,"results/viz");
+    strcpy(pps->particle_fields,"position,velocity,CellID,weight");
+    strcpy(pps->particle_pipeline,"");
+
 
     // --- 2. Parse the Configuration File (overrides defaults) ---
     file = fopen(configFile, "r");
     if (file) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Parsing post-processing config file: %s\n", configFile);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Pa rsing post-processing config file: %s\n", configFile);
         while (fgets(line, sizeof(line), file)) {
             char *key, *value, *comment;
             comment = strchr(line, '#'); if (comment) *comment = '\0';
