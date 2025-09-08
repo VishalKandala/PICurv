@@ -284,7 +284,7 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
 //               PUBLIC FIELD PREPARATION FUNCTION
 //================================================================================
 
-PetscErrorCode PrepareOutputFieldData(UserCtx *user, Vec field_vec, PetscInt num_components, PetscScalar** out_data)
+PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, PetscInt num_components, PetscScalar** out_data)
 {
     PetscErrorCode ierr;
     PetscInt       IM, JM, KM, nx, ny, nz, npoints;

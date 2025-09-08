@@ -452,6 +452,10 @@ typedef struct PostProcessParams {
     char output_fields_instantaneous[MAX_FIELD_LIST_LENGTH];
     char output_fields_averaged[MAX_FIELD_LIST_LENGTH];
     char output_prefix[MAX_FILENAME_LENGTH];
+    char particle_pipeline[MAX_PIPELINE_LENGTH];
+    char particle_fields[MAX_FIELD_LIST_LENGTH];
+    char particle_output_prefix[MAX_FILENAME_LENGTH];
+    PetscInt particle_output_freq;
 
     // --- Legacy settings ---
     char eulerianExt[8]; // from original PostProcessParams
