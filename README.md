@@ -2,6 +2,8 @@
 
 A parallel, high-performance Particle-In-Cell (PIC) solver with curvilinear coordinate support.
 
+PICurv enables efficient simulation of particle-laden flows in complex geometries by combining state-of-the-art numerical methods with high-performance parallel computing. Perfect for multiphase flow simulations, plasma physics, and particle transport phenomena in curved geometries.
+
 ## Overview
 
 PICurv is a scientific computing application that combines Eulerian grid-based fluid dynamics with Lagrangian particle tracking using the PIC (Particle-In-Cell) method. It features:
