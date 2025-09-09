@@ -388,3 +388,160 @@ PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, Pets
 
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Gathers, merges, subsamples, and prepares particle data for VTK output.
+ *
+ * This function orchestrates the preparation of particle data for writing. It is a
+ * COLLECTIVE operation that all MPI ranks must enter, though the primary work of
+ * data aggregation and preparation is performed on rank 0.
+ *
+ * The function follows a "merge-and-prepare" strategy:
+ * 1.  It treats `user->swarm` as the read-only source of primary data (e.g., positions, velocity)
+ *     that was loaded from disk.
+ * 2.  It treats `user->pp_swarm` as the source of derived data (e.g., specific_ke) that
+ *     was computed by the post-processing pipeline.
+ * 3.  **On Rank 0 only**:
+ *     a. It gathers the full particle coordinates from the source swarm. This determines
+ *        the total number of particles before any subsampling.
+ *     b. It parses the `pps->particle_fields` list. For each requested field, it
+ *        determines whether to source it from `user->swarm` or `user->pp_swarm`.
+ *     c. It gathers the full data for each requested field from its appropriate source.
+ *     d. It performs strided subsampling on the coordinates and all gathered fields based on
+ *        `pps->particle_output_freq`.
+ *     e. It populates the VTKMetaData struct with the final, smaller, subsampled data arrays,
+ *        making it ready for the file writer.
+ *
+ * @param[in]  user      The UserCtx, containing both user->swarm and user->pp_swarm.
+ * @param[in]  pps       The PostProcessParams struct for configuration (field list, frequency).
+ * @param[out] meta      A pointer to the VTKMetaData struct to be populated (on rank 0).
+ * @param[out] p_n_total A pointer to store the total number of particles before subsampling (on rank 0).
+ * @return PetscErrorCode
+ */
+PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, VTKMetaData* meta, PetscInt* p_n_total)
+{
+    PetscErrorCode ierr;
+    PetscInt n_total_particles, n_components;
+
+    PetscFunctionBeginUser;
+
+    // Initialize output parameters on all ranks
+    *p_n_total = 0;
+    ierr = PetscMemzero(meta, sizeof(VTKMetaData)); CHKERRQ(ierr);
+
+    // --- The entire preparation process is a series of collective gathers followed by rank-0 processing ---
+    
+    // --- Step 1: Gather Full Coordinates from SOURCE Swarm (Collective) ---
+    // This establishes the ground truth for particle positions and total count.
+    PetscScalar *full_coords_arr = NULL;
+    ierr = SwarmFieldToArrayOnRank0(user->swarm, "position", &n_total_particles, &n_components, &full_coords_arr); CHKERRQ(ierr);
+    
+    // --- Step 2: Prepare and Subsample Data (Rank 0 Only) ---
+    if (user->simCtx->rank == 0) {
+        *p_n_total = n_total_particles; // Report original count back to the caller.
+
+        if (n_total_particles == 0) {
+            ierr = PetscFree(full_coords_arr); CHKERRQ(ierr); // Cleanup the gathered coords array
+            PetscFunctionReturn(0); // Nothing to prepare.
+        }
+        if (n_components != 3) {
+            SETERRQ(PETSC_COMM_SELF, 1, "Coordinate field position must have 3 components, but has %" PetscInt_FMT, n_components);
+        }
+
+        // --- Subsampling Calculation ---
+        PetscInt stride = pps->particle_output_freq > 0 ? pps->particle_output_freq : 1;
+        meta->npoints = (n_total_particles > 0) ? (n_total_particles - 1) / stride + 1 : 0;
+        
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "Subsampling %" PetscInt_FMT " total particles with stride %" PetscInt_FMT " -> %" PetscInt_FMT " output particles.\n",
+                  n_total_particles, stride, meta->npoints);
+
+        // --- Prepare Final Coordinates Array ---
+        ierr = PetscMalloc1(3 * meta->npoints, &meta->coords); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < meta->npoints; i++) {
+            PetscInt source_idx = i * stride;
+            for (int d = 0; d < 3; d++) meta->coords[3 * i + d] = full_coords_arr[3 * source_idx + d];
+        }
+        ierr = PetscFree(full_coords_arr); // Free the temporary full array immediately after use.
+
+
+        // --- Prepare Final Field Arrays (Gather -> Subsample -> Store) ---
+        char *fields_copy, *field_name;
+        ierr = PetscStrallocpy(pps->particle_fields, &fields_copy); CHKERRQ(ierr);
+        field_name = strtok(fields_copy, ",");
+        while (field_name && meta->num_point_data_fields < MAX_POINT_DATA_FIELDS) {
+            TrimWhitespace(field_name);
+            if (!*field_name || strcasecmp(field_name, "position") == 0) {
+                field_name = strtok(NULL, ","); continue;
+            }
+
+            // A. Determine which swarm is the source for this field.
+            DM swarm_to_use = user->swarm; // Default to the main solver swarm.
+            const char* internal_name = field_name; // Default internal name to user-facing name.
+
+            // Use the "try-get" pattern to see if the field exists on the post_swarm.
+            PetscErrorCode check_ierr;
+            ierr = PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL); CHKERRQ(ierr);
+            check_ierr = DMSwarmGetField(user->post_swarm, field_name, NULL, NULL, NULL);
+            ierr = PetscPopErrorHandler(); CHKERRQ(ierr);
+            if (!check_ierr) { // Success! The field exists on post_swarm.
+                swarm_to_use = user->post_swarm;
+                ierr = DMSwarmRestoreField(user->post_swarm, field_name, NULL, NULL, NULL); CHKERRQ(ierr);
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "Field '%s' will be sourced from the post-processing swarm.\n", field_name);
+            } else {
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "Field '%s' will be sourced from the main solver swarm.\n", field_name);
+                // Map friendly names to internal names for standard solver fields
+                if (strcasecmp(field_name, "pid") == 0) internal_name = "DMSwarm_pid";
+                else if (strcasecmp(field_name, "CellID") == 0) internal_name = "DMSwarm_CellID";
+                else if (strcasecmp(field_name, "Migration Status") == 0) internal_name = "DMSwarm_location_status";
+                // Add other mappings if necessary...
+            }
+            
+            // B. Gather the full data for this field from its determined source.
+            PetscScalar *full_field_arr = NULL;
+            PetscInt field_total_particles, field_num_components;
+            ierr = SwarmFieldToArrayOnRank0(swarm_to_use, internal_name, &field_total_particles, &field_num_components, &full_field_arr); CHKERRQ(ierr);
+
+            if (field_total_particles != n_total_particles) {
+                LOG_ALLOW(LOCAL, LOG_WARNING, "Field '%s' has %" PetscInt_FMT " particles, but expected %" PetscInt_FMT ". Skipping.\n", field_name, field_total_particles, n_total_particles);
+                ierr = PetscFree(full_field_arr); CHKERRQ(ierr);
+                field_name = strtok(NULL, ","); continue;
+            }
+            
+            // C. Allocate final array and copy subsampled data into the meta struct.
+            VTKFieldInfo* current_field = &meta->point_data_fields[meta->num_point_data_fields];
+            strncpy(current_field->name, field_name, MAX_VTK_FIELD_NAME_LENGTH - 1);
+            current_field->name[MAX_VTK_FIELD_NAME_LENGTH - 1] = '\0';
+            current_field->num_components = field_num_components;
+            ierr = PetscMalloc1(current_field->num_components * meta->npoints, &current_field->data); CHKERRQ(ierr);
+
+            for (PetscInt i = 0; i < meta->npoints; i++) {
+                PetscInt source_idx = i * stride;
+                for (PetscInt c = 0; c < current_field->num_components; c++) {
+                    current_field->data[current_field->num_components * i + c] = full_field_arr[current_field->num_components * source_idx + c];
+                }
+            }
+            ierr = PetscFree(full_field_arr); // Free the temporary full array.
+            
+            meta->num_point_data_fields++;
+            field_name = strtok(NULL, ",");
+        }
+        ierr = PetscFree(fields_copy); CHKERRQ(ierr);
+
+        // --- Finalize VTK MetaData for PolyData ---
+        if (meta->npoints > 0) {
+            meta->fileType = VTK_POLYDATA;
+            ierr = PetscMalloc1(meta->npoints, &meta->connectivity); CHKERRQ(ierr);
+            ierr = PetscMalloc1(meta->npoints, &meta->offsets); CHKERRQ(ierr);
+            for (PetscInt i = 0; i < meta->npoints; i++) {
+                meta->connectivity[i] = i;
+                meta->offsets[i] = i + 1;
+            }
+        }
+    } // End of rank 0 block
+
+    // A barrier is a good practice to ensure rank 0 finishes preparing before other ranks
+    // potentially proceed to the next timestep where new collective calls might occur.
+    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}

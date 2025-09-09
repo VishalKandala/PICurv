@@ -200,6 +200,42 @@ PetscErrorCode WriteRANSFields(UserCtx *user);
  */
 PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext);
 
+/**
+ * @brief Writes integer data from a specific PETSc Swarm field to a file.
+ *
+ * This function is designed for swarm fields that store integer data (e.g.,
+ * DMSwarm_CellID), which cannot be converted to a standard PETSc Vec of
+ * PetscScalars. It accesses the raw data pointer for the field on each rank
+ * using DMSwarmGetField(), writes the local data to a rank-specific binary file,
+ * and then restores the field access.
+ *
+ * @param[in] user       Pointer to the UserCtx structure containing the PetscSwarm.
+ * @param[in] field_name Name of the integer Swarm field to be written.
+ * @param[in] ti         Time index used to construct the output file name.
+ * @param[in] ext        File extension (e.g., "dat", "bin").
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext);
+
+/**
+ * @brief Writes a predefined set of PETSc Swarm fields to files.
+ *
+ * This function iterates through a hardcoded list of common swarm fields 
+ * (position, velocity, etc.) and calls the WriteSwarmField() helper function 
+ * for each one. This provides a straightforward way to output essential particle 
+ * data at a given simulation step.
+ *
+ * This function will only execute if particles are enabled in the simulation
+ * (i.e., `user->simCtx->np > 0` and `user->swarm` is not NULL).
+ *
+ * @param[in] user Pointer to the UserCtx structure containing the simulation context
+ *                 and the PetscSwarm.
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode WriteAllSwarmFields(UserCtx *user);
+
 /* --------------------------------------------------------------------
    ReadDataFileToArray
 
@@ -269,6 +305,23 @@ PetscInt CreateVTKFileFromMetadata(const char       *filename,
 PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut);
 
 /**
+ * @brief Gathers a distributed DMSwarm field into a single C array on rank 0.
+ *
+ * This is a high-performance helper specifically for post-processing I/O. It
+ * directly accesses local swarm data and uses MPI_Gatherv to collect it on rank 0,
+ * avoiding the overhead of creating an intermediate PETSc Vec object.
+ *
+ * @param[in]  swarm             The DMSwarm object.
+ * @param[in]  field_name        The name of the field to gather (e.g., "velocity").
+ * @param[out] out_n_global      On rank 0, contains the total number of particles. 0 on other ranks.
+ * @param[out] out_n_components  On rank 0, contains the number of components for the field. 0 on other ranks.
+ * @param[out] out_data_rank0    On rank 0, a pointer to a newly allocated array with the gathered data.
+ *                               The caller is responsible for freeing this memory.
+ * @return PetscErrorCode
+ */
+PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char* field_name, PetscInt *out_n_global, PetscInt *out_n_components, PetscScalar **out_data_rank0);
+
+/**
  * @brief Reads data from a file into a specified field of a PETSc DMSwarm.
  *
  * This function is the counterpart to WriteSwarmField(). It creates a global PETSc vector 
@@ -286,6 +339,26 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut);
  */
 PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext);
 
+/**
+ * @brief Reads integer swarm data by using ReadFieldData and casting the result.
+ *
+ * This function is the counterpart to WriteSwarmIntField. It reads a file
+ * containing floating-point data (that was originally integer) into a temporary
+ * Vec and then casts it back to the integer swarm field. It works by:
+ * 1. Creating a temporary parallel Vec.
+ * 2. Calling the standard ReadFieldData() to populate this Vec.
+ * 3. Accessing the local data of both the Vec and the swarm field.
+ * 4. Populating the swarm's integer field by casting each PetscScalar back to a PetscInt.
+ * 5. Destroying the temporary Vec.
+ *
+ * @param[in] user       Pointer to the UserCtx structure.
+ * @param[in] field_name Name of the integer Swarm field to be read.
+ * @param[in] ti         Time index for the input file.
+ * @param[in] ext        File extension.
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext);
 
 /**
  * @brief Reads multiple fields (positions, velocity, CellID, and weight) into a DMSwarm.

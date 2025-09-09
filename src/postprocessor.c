@@ -9,6 +9,84 @@
 #include "postprocessor.h" // Use our new header
 
 /**
+ * @brief Creates a new, dedicated DMSwarm for post-processing tasks.
+ *
+ * This function is called once at startup. It creates an empty DMSwarm and
+ * associates it with the same grid DM as the primary swarm and registers all the required fields.
+ * @param user The UserCtx where user->post_swarm will be created.
+ * @param pps The PostProcessParams containing the particle_pipeline string for field registration.
+ * @return PetscErrorCode
+ */
+PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    char *pipeline_copy, *step_token, *step_saveptr;
+    PetscBool finalize_needed = PETSC_FALSE;
+
+    ierr = DMCreate(PETSC_COMM_WORLD, &user->post_swarm); CHKERRQ(ierr);
+    ierr = DMSetType(user->post_swarm, DMSWARM); CHKERRQ(ierr);
+    ierr = DMSetDimension(user->post_swarm, 3); CHKERRQ(ierr);
+    ierr = DMSwarmSetType(user->post_swarm, DMSWARM_BASIC); CHKERRQ(ierr);
+    // Associate it with the same grid as the solver's swarm
+     if (user->da) {
+      ierr = DMSwarmSetCellDM(user->post_swarm, user->da); CHKERRQ(ierr);
+      LOG_ALLOW(LOCAL,LOG_INFO,"Associated DMSwarm with Cell DM (user->da).\n");
+    } else {
+      // If user->da is essential for your simulation logic with particles, this should be a fatal error.
+      LOG_ALLOW(GLOBAL, LOG_WARNING, "user->da (Cell DM for Swarm) is NULL. Cell-based swarm operations might fail.\n");
+      // SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "CreateParticleSwarm - user->da (Cell DM) is NULL but required.");
+    }
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Created dedicated DMSwarm for post-processing.\n");
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, " --- Setting up Post-Processing Pipeline fields-- \n");
+
+    ierr = PetscStrallocpy(pps->particle_pipeline, &pipeline_copy); CHKERRQ(ierr);
+    step_token = strtok_r(pipeline_copy, ";", &step_saveptr);
+    while (step_token) {
+        TrimWhitespace(step_token);
+        if (strlen(step_token) == 0) { step_token = strtok_r(NULL, ";", &step_saveptr); continue; }
+
+        char *keyword = strtok(step_token, ":");
+        char *args_str = strtok(NULL, "");
+        TrimWhitespace(keyword);
+        PetscInt output_field_dimensions = 1; // Default to scalar output fields
+
+        if (strcasecmp(keyword, "ComputeSpecificKE") == 0) {
+            if (!args_str) SETERRQ(PETSC_COMM_SELF, 1, "Error (ComputeSpecificKE): Missing arguments.");
+            char *inputs_str = strtok(args_str, ">");
+            char *output_field = strtok(NULL, ">");
+            output_field_dimensions = 1;  // SKE is scalar
+            if (!output_field) SETERRQ(PETSC_COMM_SELF, 1, "Error (ComputeSpecificKE): Missing output field in 'in>out' syntax.");
+            TrimWhitespace(output_field);
+            // Register the output field
+            ierr = RegisterSwarmField(user->post_swarm, output_field, output_field_dimensions,PETSC_REAL); CHKERRQ(ierr);
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Registered particle field '%s' (ComputeSpecificKE).\n", output_field);
+            finalize_needed = PETSC_TRUE;
+        } else {
+            LOG_ALLOW(GLOBAL, LOG_WARNING, "Warning: Unknown particle transformation keyword '%s'. Skipping.\n", keyword);
+        }
+        
+        // Add other 'else if' blocks here for other kernels that create output fields
+
+        step_token = strtok_r(NULL, ";", &step_saveptr);
+    } // while step_token
+    
+    ierr = PetscFree(pipeline_copy); CHKERRQ(ierr);
+
+    // --- FINALIZE STEP ---
+    if (finalize_needed) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Finalizing new field registrations for particle pipeline.\n");
+        ierr = DMSwarmFinalizeFieldRegister(user->post_swarm); CHKERRQ(ierr);
+    }
+        
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Post-Processing DMSwarm setup complete.\n");
+
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Parses the processing pipeline string from the config and executes the requested kernels in sequence.
  *
  * This function uses a general-purpose parser to handle a syntax of the form:
@@ -21,7 +99,7 @@
  * @param pps  The PostProcessParams struct containing the pipeline string.
  * @return PetscErrorCode
  */
-PetscErrorCode RunProcessingPipeline(UserCtx* user, PostProcessParams* pps)
+PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* pps)
 {
     PetscErrorCode ierr;
     char *pipeline_copy, *step_token, *step_saveptr;
@@ -364,15 +442,133 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
     snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti);
     ierr = CreateVTKFileFromMetadata(filename, &meta, PETSC_COMM_WORLD); CHKERRQ(ierr);
 
-    /* 5) Cleanup (rank 0) */
-    if (user->simCtx->rank == 0) {
-        ierr = PetscFree(meta.coords); CHKERRQ(ierr);
-        for (PetscInt i = 0; i < meta.num_point_data_fields; i++) {
-            ierr = PetscFree(meta.point_data_fields[i].data); CHKERRQ(ierr);
-        }
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Eulerian File Writing for ti = %" PetscInt_FMT " Complete ---\n", ti);
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Parses and executes the particle pipeline using a robust two-pass approach.
+ *
+ * This function ensures correctness and efficiency by separating field registration
+ * from kernel execution.
+ *
+ * PASS 1 (Registration): The pipeline string is parsed to identify all new fields
+ * that will be created. These fields are registered with the DMSwarm.
+ *
+ * Finalize: After Pass 1, DMSwarmFinalizeFieldRegister is called exactly once if
+ * any new fields were added, preparing the swarm's memory layout.
+ *
+ * PASS 2 (Execution): The pipeline string is parsed again, and this time the
+ * actual compute kernels are executed, filling the now-valid fields.
+ *
+ * @param user The UserCtx containing the DMSwarm.
+ * @param pps  The PostProcessParams struct containing the particle_pipeline string.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* pps)
+{
+    PetscErrorCode ierr;
+    char *pipeline_copy, *step_token, *step_saveptr;
+
+    PetscFunctionBeginUser;
+
+    // --- Timestep Setup: Synchronize post_swarm size ---
+    PetscInt n_global_source;
+    ierr = DMSwarmGetSize(user->swarm, &n_global_source); CHKERRQ(ierr);
+
+    // Resize post_swarm to match source swarm
+    ierr = ResizeSwarmGlobally(user->post_swarm, n_global_source); CHKERRQ(ierr);
+
+    if (pps->particle_pipeline[0] == '\0') {
+        PetscFunctionReturn(0);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "--- VTK File Writing for ti = %" PetscInt_FMT " Complete ---\n", ti);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Particle Data Transformation Pipeline ---\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Particle Pipeline string: [%s]\n", pps->particle_pipeline);
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Executing compute kernels...\n");
+    ierr = PetscStrallocpy(pps->particle_pipeline, &pipeline_copy); CHKERRQ(ierr);
+    step_token = strtok_r(pipeline_copy, ";", &step_saveptr);
+    while (step_token) {
+        TrimWhitespace(step_token);
+        if (strlen(step_token) == 0) { step_token = strtok_r(NULL, ";", &step_saveptr); continue; }
+
+        char *keyword = strtok(step_token, ":");
+        char *args_str = strtok(NULL, "");
+        TrimWhitespace(keyword);
+        if (args_str) TrimWhitespace(args_str);
+        
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Executing Particle Transformation: '%s' on args: '%s'\n", keyword, args_str ? args_str : "None");
+        
+        if (strcasecmp(keyword, "ComputeSpecificKE") == 0) {
+            char *velocity_field = strtok(args_str, ">");
+            char *ske_field = strtok(NULL, ">");
+            TrimWhitespace(velocity_field); TrimWhitespace(ske_field);
+            
+            ierr = ComputeSpecificKE(user, velocity_field, ske_field); CHKERRQ(ierr);
+        }
+        else {
+             LOG_ALLOW(GLOBAL, LOG_WARNING, "Unknown particle transformation keyword '%s'. Skipping.\n", keyword);
+        }
+
+        step_token = strtok_r(NULL, ";", &step_saveptr);
+    }
+    ierr = PetscFree(pipeline_copy); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Particle Data Transformation Pipeline Complete ---\n");
+    PetscFunctionReturn(0);
+}
+
+
+/** 
+ * @brief Writes particle data to a VTP file using the Prepare-Write-Cleanup pattern.
+ */
+PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt ti)
+{
+    PetscErrorCode ierr;
+    VTKMetaData    part_meta;
+    char           filename[MAX_FILENAME_LENGTH];
+    PetscInt       n_total_particles_before_subsample;
+
+    PetscFunctionBeginUser;
+
+    // These checks can be done on all ranks
+    if (!pps->outputParticles || pps->particle_fields[0] == '\0') {
+        PetscFunctionReturn(0);
+    }
+    PetscInt n_global;
+    ierr = DMSwarmGetSize(user->swarm, &n_global); CHKERRQ(ierr);
+    if (n_global == 0) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Swarm is empty for ti=%" PetscInt_FMT ". Skipping particle file write.\n", ti);
+        PetscFunctionReturn(0);
+    }
+
+    // --- 1. PREPARE (Collective Call) ---
+    ierr = PrepareOutputParticleData(user, pps, &part_meta, &n_total_particles_before_subsample); CHKERRQ(ierr);
+
+    // --- 2. WRITE and CLEANUP (Rank 0 only) ---
+    if (user->simCtx->rank == 0) {
+        if (part_meta.npoints > 0) {
+            LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting VTP Particle File Writing for ti = %" PetscInt_FMT " (writing %" PetscInt_FMT " of %" PetscInt_FMT " particles) ---\n",
+                      ti, part_meta.npoints, n_total_particles_before_subsample);
+
+            /* Field summary */
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Data fields to write: %d\n", (int)part_meta.num_point_data_fields);
+            for (PetscInt ii=0; ii<part_meta.num_point_data_fields; ++ii) {
+                LOG_ALLOW(GLOBAL, LOG_INFO, "  # %2" PetscInt_FMT "  Field Name = %s  Components = %d\n",
+                          ii, part_meta.point_data_fields[ii].name, (int)part_meta.point_data_fields[ii].num_components);
+            }
+
+            snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti);
+            ierr = CreateVTKFileFromMetadata(filename, &part_meta, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+        } else {
+            LOG_ALLOW(GLOBAL, LOG_DEBUG, "No particles to write at ti=%" PetscInt_FMT " after subsampling. Skipping.\n", ti);
+        }
+
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Particle File Writing for ti = %" PetscInt_FMT " Complete ---\n", ti);
     PetscFunctionReturn(0);
 }
 
@@ -392,15 +588,30 @@ int main(int argc, char **argv)
     simCtx->exec_mode = EXEC_MODE_POSTPROCESSOR;
     // === III. SETUP GRID & DATA STRUCTURES ===================================
     ierr = SetupGridAndSolvers(simCtx); CHKERRQ(ierr);
-    
+    // === IV. SETUP DOMAIN DECOMPOSITION INFORMATION =========================
+    ierr = SetupDomainRankInfo(simCtx); CHKERRQ(ierr);
+    // === V. SETUP BOUNDARY CONDITIONS ====================================
+    ierr = SetupBoundaryConditions(simCtx); CHKERRQ(ierr);
+    // === VI. SETUP USER CONTEXT & DATA STRUCTURES ============================
     // Get the finest-level user context, as this is where we'll load data
     UserCtx *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
     PostProcessParams *pps = simCtx->pps;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "=============================================================\n");
-    LOG_ALLOW(GLOBAL, LOG_INFO, "PHASE 4: Starting full processing and writing loop...\n");
+    // === VI. PARTICLE INITIALIZATION (if needed) ============================
+    if(pps->outputParticles) {
+        if(simCtx->np > 0){
+            ierr = InitializeParticleSwarm(simCtx); CHKERRQ(ierr);
+            // Create a post-processing specific DMSwarm
+            ierr = SetupPostProcessSwarm(user,pps); CHKERRQ(ierr);
+        }else{
+            SETERRQ(PETSC_COMM_SELF,1,"Particle output requested but np=0. Please set np>0 to enable particle output.");
+        }
+    }
 
-    // --- FINAL MAIN LOOP ---
+    LOG_ALLOW(GLOBAL, LOG_INFO, "=============================================================\n");
+
+
+    // === VII. MAIN POST-PROCESSING LOOP ======================================
     for (PetscInt ti = pps->startTime; ti <= pps->endTime; ti += pps->timeStep) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "--- Processing Time Step %" PetscInt_FMT " ---\n", ti);
 
@@ -408,19 +619,31 @@ int main(int argc, char **argv)
         ierr = ReadSimulationFields(user, ti); CHKERRQ(ierr);
         
         // 2. Transform Data
-        ierr = RunProcessingPipeline(user, pps); CHKERRQ(ierr);
+        ierr = EulerianDataProcessingPipeline(user, pps); CHKERRQ(ierr);
 
         // 3. Write Output
         ierr = WriteEulerianFile(user, pps, ti); CHKERRQ(ierr);
+
+        if(pps->outputParticles) {
+            // 1. Resize swarm based on particle count in this timestep's file
+            ierr = PreCheckAndResizeSwarm(user, ti, pps->particleExt); CHKERRQ(ierr);
+            
+            // 2. Load particle data into the correctly sized swarm
+            ierr = ReadAllSwarmFields(user, ti); CHKERRQ(ierr);
+
+            // 3. Transform particle data
+            ierr = ParticleDataProcessingPipeline(user, pps); CHKERRQ(ierr);
+            
+            // 4. Write particle output
+           ierr = WriteParticleFile(user, pps, ti); CHKERRQ(ierr);            
+        }
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "=============================================================\n");
     LOG_ALLOW(GLOBAL, LOG_INFO, "Post-processing finished successfully.\n");
     
 
-
-
-    // === V. FINALIZE =========================================================
+    // === VIII. FINALIZE =========================================================
    // ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
     ierr = PetscFinalize();
     return ierr;

@@ -2995,3 +2995,327 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
 
     PetscFunctionReturn(0);
 }
+
+////////////////////////////////////////
+
+
+/**
+ * @brief Gathers local bounding boxes from all MPI processes to rank 0.
+ *
+ * This function first computes the local bounding box on each process by calling
+ * `ComputeLocalBoundingBox`. It then uses an MPI gather operation to collect all
+ * local bounding boxes on the root process (rank 0). On rank 0, it allocates an array
+ * of `BoundingBox` structures to hold the gathered data and returns it via the
+ * `allBBoxes` Pointer. On other ranks, `allBBoxes` is set to `NULL`.
+ *
+ * @param[in]  user       Pointer to the user-defined context containing grid information.
+ *                        This context must be properly initialized before calling this function.
+ * @param[out] allBBoxes  Pointer to a Pointer where the array of gathered bounding boxes will be stored on rank 0.
+ *                        On rank 0, this will point to the allocated array; on other ranks, it will be `NULL`.
+ *
+ * @return PetscErrorCode Returns `0` on success, non-zero on failure.
+ */
+/*
+PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt rank, size;
+    BoundingBox *bboxArray = NULL;
+    BoundingBox localBBox;
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Entering the function. \n");
+
+    // Validate input Pointers
+    if (!user) {
+        LOG_ALLOW(LOCAL, LOG_ERROR, "Input 'user' Pointer is NULL.\n");
+        return PETSC_ERR_ARG_NULL;
+    }
+    if (!allBBoxes) {
+        LOG_ALLOW(LOCAL, LOG_ERROR, "Output 'allBBoxes' Pointer is NULL.\n");
+        return PETSC_ERR_ARG_NULL;
+    }
+
+    // Get the rank and size of the MPI communicator
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+    if (ierr != MPI_SUCCESS) {
+        LOG_ALLOW(LOCAL, LOG_ERROR, "Error getting MPI rank.\n");
+        return ierr;
+    }
+    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size);
+    if (ierr != MPI_SUCCESS) {
+        LOG_ALLOW(LOCAL, LOG_ERROR, "Error getting MPI size.\n");
+        return ierr;
+    }
+
+    LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "MPI rank=%d, size=%d.\n", rank, size);
+
+    // Compute the local bounding box on each process
+    ierr = ComputeLocalBoundingBox(user, &localBBox);
+    if (ierr) {
+        LOG_ALLOW(LOCAL, LOG_ERROR, "Error computing local bounding box.\n");
+        return ierr;
+    }
+    
+    PetscBarrier(PETSC_NULLPTR);
+
+    // On rank 0, allocate memory for the array of bounding boxes
+    if (rank == 0) {
+        bboxArray = (BoundingBox *)malloc(size * sizeof(BoundingBox));
+        if (!bboxArray) {
+            LOG_ALLOW(LOCAL, LOG_ERROR, "GatherAllBoundingBoxes: Memory allocation failed for bounding box array.\n");
+            return PETSC_ERR_MEM;
+        }
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "GatherAllBoundingBoxes: Allocated memory for bounding box array on rank 0.\n");
+    }
+
+    // Perform MPI_Gather to collect all local bounding boxes on rank 0
+    // Corrected MPI_Gather call
+ierr = MPI_Gather(&localBBox, sizeof(BoundingBox), MPI_BYTE,
+                  (rank == 0) ? bboxArray : NULL,  // Explicitly NULL on non-roots
+                  sizeof(BoundingBox), MPI_BYTE,   // Recv count is ignored on non-roots
+                  0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+ 
+//   ierr = MPI_Gather(&localBBox, sizeof(BoundingBox), MPI_BYTE,
+// bboxArray, sizeof(BoundingBox), MPI_BYTE,
+//                      0, PETSC_COMM_WORLD);
+    if (ierr != MPI_SUCCESS) {
+        LOG_ALLOW(LOCAL, LOG_ERROR, "GatherAllBoundingBoxes: Error during MPI_Gather operation.\n");
+        if (rank == 0 && bboxArray) free(bboxArray); // Clean up if allocation was done
+        return ierr;
+    }
+
+    LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Successfully gathered bounding boxes on rank 0.\n",rank);    
+    
+    // On rank 0, assign the gathered bounding boxes to the output Pointer
+    if (rank == 0) {
+        *allBBoxes = bboxArray;
+    } else {
+        *allBBoxes = NULL;
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Exiting the function successfully.\n");
+    return 0;
+}
+*/
+/**
+ * @brief Broadcasts the bounding box information collected on rank 0 to all other ranks.
+ *
+ * This function assumes that `GatherAllBoundingBoxes()` was previously called, so `bboxlist`
+ * is allocated and populated on rank 0. All other ranks will allocate memory for `bboxlist`,
+ * and this function will use MPI_Bcast to distribute the bounding box data to them.
+ *
+ * @param[in]     user      Pointer to the UserCtx structure. (Currently unused in this function, but kept for consistency.)
+ * @param[in,out] bboxlist  Pointer to the array of BoundingBoxes. On rank 0, this should point to
+ *                          a valid array of size 'size' (where size is the number of MPI ranks).
+ *                          On non-root ranks, this function will allocate memory for `bboxlist`.
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on MPI or PETSc-related errors.
+ */
+/*
+PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist) {
+    PetscErrorCode ierr;
+    PetscMPIInt rank, size;
+
+    // Get MPI rank and size
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+
+    // On non-root ranks, allocate memory for bboxlist before receiving the broadcast
+    if (rank != 0) {
+        *bboxlist = (BoundingBox *)malloc(size * sizeof(BoundingBox));
+        if (!*bboxlist) SETERRABORT(PETSC_COMM_WORLD, PETSC_ERR_MEM, "Failed to allocate memory for bboxlist on non-root ranks.");
+    }
+
+    LOG_ALLOW(LOCAL, LOG_INFO, "Broadcasting bounding box information from rank 0.\n");
+
+    // Broadcast bboxlist from rank 0 to all other ranks
+    ierr = MPI_Bcast(*bboxlist, (PetscInt)(size * sizeof(BoundingBox)), MPI_BYTE, 0, PETSC_COMM_WORLD);
+    if (ierr != MPI_SUCCESS) {
+        SETERRABORT(PETSC_COMM_WORLD, PETSC_ERR_LIB, "MPI_Bcast failed for bboxlist.");
+    }
+
+    LOG_ALLOW(LOCAL, LOG_INFO, "Broadcasted bounding box information from rank 0.\n");    
+
+    return 0;
+}
+*/
+
+///////////////////////////
+
+
+/**
+ * @brief Writes data from a specific PETSc vector to a file.
+ *
+ * This function uses the field name to construct the file path and writes the data
+ * from the provided PETSc vector to the corresponding file.
+ *
+ * @param[in] user       Pointer to the UserCtx structure containing simulation context.
+ * @param[in] field_name Name of the field (e.g., "ufield", "vfield", "pfield").
+ * @param[in] field_vec  PETSc vector containing the field data to write.
+ * @param[in] ti         Time index for constructing the file name.
+ * @param[in] ext        File extension (e.g., "dat").
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+/*
+PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_vec, PetscInt ti, const char *ext)
+{
+    PetscErrorCode ierr;
+    PetscViewer viewer;
+    char filen[128];
+
+    // Construct the file name
+    snprintf(filen, sizeof(filen), "results/%s%05d_%d.%s", field_name, ti, user->_this, ext);
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "WriteFieldData - Attempting to write file: %s\n", filen);
+
+    // Open the file for writing
+    ierr = PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
+
+    PetscReal vmin, vmax;
+    ierr = VecMin(field_vec, NULL, &vmin); CHKERRQ(ierr);
+    ierr = VecMax(field_vec, NULL, &vmax); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG,"%s step %d  min=%.6e  max=%.6e\n",field_name, ti, (double)vmin, (double)vmax);
+
+    
+    // Write data from the vector
+    ierr = VecView(field_vec, viewer); CHKERRQ(ierr);
+
+    // Close the file viewer
+    ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteFieldData - Successfully wrote data for field: %s\n", field_name);
+
+    return 0;
+}
+*/
+
+/*
+PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_vec, PetscInt ti, const char *ext)
+{
+    PetscErrorCode ierr;
+    char           filename[PETSC_MAX_PATH_LEN];
+    PetscMPIInt    rank, size;
+    MPI_Comm       comm;
+    PetscInt       placeholder_int = 0;
+
+    PetscFunctionBeginUser;
+    ierr = PetscObjectGetComm((PetscObject)field_vec, &comm); CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
+    ierr = MPI_Comm_size(comm, &size); CHKERRQ(ierr);
+
+    // Construct a filename that does NOT depend on the rank number.
+    // This ensures a single, predictable output file.
+    ierr = PetscSNPrintf(filename, sizeof(filename), "results/%s%05"PetscInt_FMT"_%d.%s", field_name, ti, placeholder_int, ext);
+
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "WriteFieldData - Preparing to write file: %s\n", filename);
+
+    // Optional: Log min/max values. This is a collective operation.
+    PetscReal vmin, vmax;
+    ierr = VecMin(field_vec, NULL, &vmin); CHKERRQ(ierr);
+    ierr = VecMax(field_vec, NULL, &vmax); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG,"%s step %d  min=%.6e  max=%.6e\n", field_name, ti, (double)vmin, (double)vmax);
+
+    if (size == 1) {
+        // --- SERIAL CASE: Simple and direct write ---
+        PetscViewer viewer;
+        ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
+        ierr = VecView(field_vec, viewer); CHKERRQ(ierr);
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+    } else {
+        // --- PARALLEL CASE: Gather on Rank 0 and write sequentially ---
+        Vec         seq_vec = NULL; // A sequential vector on Rank 0
+        VecScatter  scatter_ctx;
+
+        // Create a scatter context to gather data from the parallel vector
+        // onto a new sequential vector that will exist only on Rank 0.
+        ierr = VecScatterCreateToZero(field_vec, &scatter_ctx, &seq_vec); CHKERRQ(ierr);
+
+        // Perform the scatter (gather) operation.
+        ierr = VecScatterBegin(scatter_ctx, field_vec, seq_vec, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
+        ierr = VecScatterEnd(scatter_ctx, field_vec, seq_vec, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
+        ierr = VecScatterDestroy(&scatter_ctx); CHKERRQ(ierr);
+
+        // Now, only Rank 0 has the populated sequential vector and can write it.
+        if (rank == 0) {
+            PetscViewer viewer;
+            ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
+            ierr = VecView(seq_vec, viewer); CHKERRQ(ierr);
+            ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+        }
+
+        // All ranks must destroy the sequential vector, though it only "exists" on Rank 0.
+        ierr = VecDestroy(&seq_vec); CHKERRQ(ierr);
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteFieldData - Successfully wrote data for field: %s\n", field_name);
+    PetscFunctionReturn(0);
+}
+*/
+/*
+PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_vec, PetscInt ti, const char *ext)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank, size;
+    MPI_Comm       comm;
+
+    PetscFunctionBeginUser;
+    ierr = PetscObjectGetComm((PetscObject)field_vec, &comm); CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
+    ierr = MPI_Comm_size(comm, &size); CHKERRQ(ierr);
+
+    if (size == 1) {
+        // SERIAL CASE: This is simple and correct.
+        PetscViewer viewer;
+        char filename[PETSC_MAX_PATH_LEN];
+        ierr = PetscSNPrintf(filename, sizeof(filename), "output/%s_step%d.%s", field_name, ti, ext); CHKERRQ(ierr);
+        ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
+        ierr = VecView(field_vec, viewer); CHKERRQ(ierr);
+        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+    } else {
+        // PARALLEL CASE: The robust "Gather on 0 and Write" pattern.
+        Vec         seq_vec = NULL;
+        VecScatter  scatter_ctx;
+        IS          is_from, is_to;
+        PetscInt    global_size;
+
+        ierr = VecGetSize(field_vec, &global_size); CHKERRQ(ierr);
+        ierr = ISCreateStride(comm, global_size, 0, 1, &is_from); CHKERRQ(ierr);
+        ierr = ISCreateStride(PETSC_COMM_SELF, global_size, 0, 1, &is_to); CHKERRQ(ierr);
+
+        // Rank 0 creates the destination sequential vector.
+        if (rank == 0) {
+            ierr = VecCreate(PETSC_COMM_SELF, &seq_vec); CHKERRQ(ierr);
+            ierr = VecSetSizes(seq_vec, global_size, global_size); CHKERRQ(ierr);
+            ierr = VecSetFromOptions(seq_vec); CHKERRQ(ierr);
+        }
+
+        // Create the general scatter context.
+        ierr = VecScatterCreate(field_vec, is_from, seq_vec, is_to, &scatter_ctx); CHKERRQ(ierr);
+        ierr = VecScatterBegin(scatter_ctx, field_vec, seq_vec, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
+        ierr = VecScatterEnd(scatter_ctx, field_vec, seq_vec, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
+
+        // Only Rank 0 writes the populated sequential vector.
+        if (rank == 0) {
+            PetscViewer viewer;
+            char filename[PETSC_MAX_PATH_LEN];
+            ierr = PetscSNPrintf(filename, sizeof(filename), "output/%s_step%d.%s", field_name, ti, ext); CHKERRQ(ierr);
+            ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
+            ierr = VecView(seq_vec, viewer); CHKERRQ(ierr);
+            ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+        }
+
+        // Clean up.
+        ierr = ISDestroy(&is_from); CHKERRQ(ierr);
+        ierr = ISDestroy(&is_to); CHKERRQ(ierr);
+        ierr = VecScatterDestroy(&scatter_ctx); CHKERRQ(ierr);
+        if (rank == 0) {
+            ierr = VecDestroy(&seq_vec); CHKERRQ(ierr);
+        }
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteFieldData - Successfully wrote data for field: %s\n", field_name);
+    PetscFunctionReturn(0);
+}
+*/

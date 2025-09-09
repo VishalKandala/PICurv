@@ -140,8 +140,7 @@ PetscErrorCode PerformInitialSetup(SimCtx *simCtx)
         
         // --- Particle Output (assumes functions operate on the master user context) ---
         ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
-        ierr = WriteSwarmField(user, "position", simCtx->step, "dat"); CHKERRQ(ierr);
-        ierr = WriteSwarmField(user, "velocity", simCtx->step, "dat"); CHKERRQ(ierr);
+        ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
         
         // --- Eulerian Field Output (MUST loop over all blocks) --- // <<< CHANGED/FIXED
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
@@ -282,8 +281,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
                 ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
             }
             if (simCtx->np > 0) {
-                ierr = WriteSwarmField(user, "position", step, "dat"); CHKERRQ(ierr);
-                ierr = WriteSwarmField(user, "velocity", step, "dat"); CHKERRQ(ierr);
+                ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
 		if(get_log_level() >= LOG_INFO){
 		  LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency);
 		}

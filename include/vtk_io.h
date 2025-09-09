@@ -51,5 +51,24 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
  * @return PetscErrorCode
  */
 PetscErrorCode PrepareOutputEulerianFieldData(UserCtx* user, Vec field_vec, PetscInt num_components, PetscScalar** out_data);
+
+/**
+ * @brief Gathers, subsamples, and prepares all particle data for VTK output.
+ *
+ * This function is a COLLECTIVE operation. All ranks must enter it.
+ * The heavy lifting (memory allocation, subsampling) is performed only on rank 0.
+ *
+ * 1. Gathers the full coordinate and field data from the distributed DMSwarm to rank 0.
+ * 2. On rank 0, subsamples the data based on pps->particle_output_freq.
+ * 3. On rank 0, populates the VTKMetaData struct with the new, smaller, subsampled data arrays.
+ *
+ * @param[in]  user      The UserCtx containing the DMSwarm.
+ * @param[in]  pps       The PostProcessParams struct for configuration.
+ * @param[out] meta      A pointer to the VTKMetaData struct to be populated (on rank 0).
+ * @param[out] p_n_total On rank 0, the total number of particles before subsampling.
+ * @return PetscErrorCode
+ */
+PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, VTKMetaData* meta, PetscInt* p_n_total);
+
 #endif // VTK_IO_H
 

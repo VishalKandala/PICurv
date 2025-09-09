@@ -38,7 +38,7 @@ PetscErrorCode InitializeSwarm(UserCtx* user) {
  * @param dtype      [in]  The datatype of the swarm field being registered.
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-static PetscErrorCode RegisterSwarmField(DM swarm, const char *fieldName, PetscInt fieldDim, PetscDataType dtype)
+PetscErrorCode RegisterSwarmField(DM swarm, const char *fieldName, PetscInt fieldDim, PetscDataType dtype)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
@@ -80,7 +80,7 @@ PetscErrorCode RegisterParticleFields(DM swarm)
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'weight'.\n");
 
     ierr = RegisterSwarmField(swarm,"Psi", 1,PETSC_REAL); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'P' - Pressure.\n");
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'Psi' - Scalar.\n");
 
 
     ierr = RegisterSwarmField(swarm,"pos_phy", 3,PETSC_REAL); CHKERRQ(ierr);
@@ -1178,7 +1178,7 @@ PetscErrorCode PrepareLoadedSwarmForRelocation(UserCtx *user)
     PetscInt particlesPerProcess = 0;         // Number of particles assigned to the local MPI process.
     PetscRandom randx,randy,randz;     // Random number generators[x,y,z]. (used if ParticleInitialization==1).
     PetscRandom rand_logic_i, rand_logic_j,rand_logic_k; // RNGs for Logical space.
-    PetscInt    start_step = 0;
+    PetscInt    start_step = simCtx->StartStep;
     PetscInt    np = simCtx->np;
     BoundingBox    *bboxlist = simCtx->bboxlist;
     UserCtx *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;

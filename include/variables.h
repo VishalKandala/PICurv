@@ -458,7 +458,7 @@ typedef struct PostProcessParams {
     PetscInt particle_output_freq;
 
     // --- Legacy settings ---
-    char eulerianExt[8]; // from original PostProcessParams
+    char eulerianExt[8]; // from original PostProcessParams (repurposed for PreCheckAndResize() as the input file extension.)
     char particleExt[8]; // from original PostProcessParams
     
 } PostProcessParams;
@@ -693,6 +693,7 @@ typedef struct UserCtx {
   Vec Psi; //scalar dummy to demonstrate scatter.
   
   // --- Post-Processing ---
+  DM  post_swarm;
   Vec P_nodal;
   Vec Ucat_nodal;
   Vec Qcrit;
