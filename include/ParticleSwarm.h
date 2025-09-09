@@ -59,6 +59,21 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
 PetscErrorCode InitializeSwarm(UserCtx* user);
 
 /**
+ * @brief Registers a swarm field without finalizing registration.
+ *
+ * This function calls DMSwarmRegisterPetscDatatypeField for the given field,
+ * but does not finalize the registration. The finalization is deferred until
+ * all fields have been registered.
+ *
+ * @param swarm      [in]  The DMSwarm object.
+ * @param fieldName  [in]  Name of the field to register.
+ * @param fieldDim   [in]  Dimension of the field (1 for scalar, 3 for vector, etc.).
+ * @param dtype      [in]  The datatype of the swarm field being registered.
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode RegisterSwarmField(DM swarm, const char *fieldName, PetscInt fieldDim, PetscDataType dtype);
+
+/**
  * @brief Registers necessary particle fields within the DMSwarm.
  *
  * This function registers fields such as position, velocity, CellID, and weight for each particle.

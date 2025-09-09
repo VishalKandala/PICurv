@@ -289,7 +289,7 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
     if (rank == 0) {
         ierr = VecGetValues(ref_vec_seq, 1, dest_idx, ref_value_local); CHKERRQ(ierr);
         p_ref = ref_value_local[0];
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "%s reference point (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") has value %g.\n", relative_field_name, jp, kp, p_ref);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "%s reference point (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") has value %g.\n", relative_field_name, jp, kp, ip, p_ref);
     }
     
     // --- 4. Broadcast the reference value from rank 0 to all other processes ---
@@ -304,6 +304,56 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
     ierr = ISDestroy(&is_to); CHKERRQ(ierr);
     ierr = VecScatterDestroy(&scatter_ctx); CHKERRQ(ierr);
     ierr = VecDestroy(&ref_vec_seq); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+// ===========================================================================
+// Particle Post-Processing Kernels
+// ===========================================================================
+
+/**
+ * @brief Computes the specific kinetic energy (KE per unit mass) for each particle.
+ *
+ * This kernel calculates SKE = 0.5 * |velocity|^2. It requires that the
+ * velocity field exists and will populate the specific kinetic energy field.
+ * The output field must be registered before this kernel is called.
+ *
+ * @param user           The UserCtx containing the DMSwarm.
+ * @param velocity_field The name of the input vector field for particle velocity.
+ * @param ske_field      The name of the output scalar field to store specific KE.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, const char* ske_field)
+{
+    PetscErrorCode ierr;
+    PetscInt n_local;
+    const PetscScalar (*vel_arr)[3]; // Access velocity as array of 3-component vectors
+    PetscScalar *ske_arr;
+
+    PetscFunctionBeginUser;
+    LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running ComputeSpecificKE ('%s' -> '%s').\n", velocity_field, ske_field);
+
+    // Get local data arrays from the DMSwarm
+    ierr = DMSwarmGetLocalSize(user->swarm, &n_local); CHKERRQ(ierr);
+    if (n_local == 0) PetscFunctionReturn(0);
+
+    // Get read-only access to velocity and write access to the output field
+    ierr = DMSwarmGetField(user->swarm, velocity_field, NULL, NULL, (const void**)&vel_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->post_swarm, ske_field, NULL, NULL, (void**)&ske_arr); CHKERRQ(ierr);
+
+    // Main computation loop
+    for (PetscInt p = 0; p < n_local; p++) {
+        const PetscScalar u = vel_arr[p][0];
+        const PetscScalar v = vel_arr[p][1];
+        const PetscScalar w = vel_arr[p][2];
+        const PetscScalar vel_sq = u*u + v*v + w*w;
+        ske_arr[p] = 0.5 * vel_sq;
+    }
+
+    // Restore arrays
+    ierr = DMSwarmRestoreField(user->swarm, velocity_field, NULL, NULL, (const void**)&vel_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->post_swarm, ske_field, NULL, NULL, (void**)&ske_arr); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }

@@ -505,7 +505,6 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
     PetscFunctionReturn(0);
 }
 
-
 /**
  * @brief Checks for a data file's existence in a parallel-safe manner.
  *
@@ -547,6 +546,61 @@ static PetscErrorCode CheckDataFile(PetscInt ti, const char *fieldName, const ch
     *fileExists = (PetscBool)fileExists_int;
 
     PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Checks for and reads an optional DMSwarm field from a file.
+ *
+ * This helper function first checks if the corresponding data file exists.
+ * - If the file does not exist, it logs a warning and returns success (0),
+ *   gracefully skipping the field.
+ * - If the file exists, it calls ReadSwarmField() to read the data. Any
+ *   error during this read operation is considered fatal (e.g., file is
+ *   corrupt, permissions issue, or size mismatch), as the presence of the
+ *   file implies an intent to load it.
+ *
+ * @param[in] user        Pointer to the UserCtx structure.
+ * @param[in] field_name  Internal name of the DMSwarm field (e.g., "DMSwarm_CellID").
+ * @param[in] field_label A user-friendly name for logging (e.g., "Cell ID").
+ * @param[in] ti          Time index for the file name.
+ * @param[in] ext         File extension.
+ *
+ * @return PetscErrorCode Returns 0 on success or if the optional file was not found.
+ *         Returns a non-zero error code on a fatal read error.
+ */
+static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_name, const char *field_label, PetscInt ti, const char *ext)
+{
+  PetscErrorCode ierr;
+  PetscBool      fileExists;
+
+  PetscFunctionBeginUser;
+
+  /* Check if the data file for this optional field exists. */
+  ierr = CheckDataFile(ti, field_name, ext, &fileExists); CHKERRQ(ierr);
+
+  if (fileExists) {
+    /* File exists, so we MUST be able to read it. */
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "File for %s found, attempting to read...\n", field_label);
+    if(strcasecmp(field_name,"DMSwarm_CellID") == 0 || strcasecmp(field_name,"DMSwarm_pid")== 0 || strcasecmp(field_name,"DMSwarm_location_status")== 0 ) {
+        ierr = ReadSwarmIntField(user,field_name,ti,ext);
+    }
+    else{
+    ierr = ReadSwarmField(user, field_name, ti, ext);
+    } 
+
+    if (ierr) {
+      /* Any error here is fatal. A PETSC_ERR_FILE_OPEN would mean a race condition or
+         permissions issue. Other errors could be size mismatch or corruption. */
+      SETERRQ(PETSC_COMM_WORLD, ierr, "Failed to read data for %s from existing file for step %d. The file may be corrupt or have an incorrect size.", field_label, ti);
+    } else {
+      LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully read %s field for step %d.\n", field_label, ti);
+    }
+  } else {
+    /* File does not exist, which is acceptable for an optional field. */
+    LOG_ALLOW(GLOBAL, LOG_WARNING, "Optional %s file for step %d not found. Skipping.\n", field_label, ti);
+  }
+
+  PetscFunctionReturn(0);
 }
 
 /************************************************************************************************
@@ -607,7 +661,7 @@ PetscErrorCode ReadFieldData(UserCtx *user,
                         field_name,ti,ext);CHKERRQ(ierr);
 
    LOG_ALLOW(GLOBAL,LOG_DEBUG,
-             "ReadFieldData - Attempting to read <%s> on rank %d/%d\n",
+             "Attempting to read <%s> on rank %d/%d\n",
              filename,(int)rank,(int)size);
 
    /* ======================================================================
@@ -661,7 +715,7 @@ PetscErrorCode ReadFieldData(UserCtx *user,
       ierr = PetscViewerDestroy(&viewer);CHKERRQ(ierr);
       */
       LOG_ALLOW(GLOBAL,LOG_INFO,
-                "ReadFieldData - Loaded <%s> (serial path)\n",filename);
+                "Loaded <%s> (serial path)\n",filename);
       PetscFunctionReturn(0);
    }
 
@@ -771,7 +825,7 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 
     SimCtx *simCtx = user->simCtx;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "ReadSimulationFields - Starting to read simulation fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read simulation fields.\n");
 
     // Read Cartesian velocity field
     ierr = ReadFieldData(user, "ufield", user->Ucat, ti, "dat"); CHKERRQ(ierr);
@@ -810,7 +864,7 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
       ierr = ReadStatisticalFields(user,ti); CHKERRQ(ierr);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "ReadSimulationFields - Finished reading simulation fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading simulation fields.\n");
 
     return 0;
 }
@@ -830,14 +884,14 @@ PetscErrorCode ReadStatisticalFields(UserCtx *user,PetscInt ti)
 {
     PetscErrorCode ierr;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "ReadStatisticalFields - Starting to read statistical fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read statistical fields.\n");
 
     ierr = ReadFieldData(user, "su0", user->Ucat_sum, ti, "dat"); CHKERRQ(ierr);
     ierr = ReadFieldData(user, "su1", user->Ucat_cross_sum, ti, "dat"); CHKERRQ(ierr);
     ierr = ReadFieldData(user, "su2", user->Ucat_square_sum, ti, "dat"); CHKERRQ(ierr);
     ierr = ReadFieldData(user, "sp", user->P_sum, ti, "dat"); CHKERRQ(ierr);
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "ReadStatisticalFields - Finished reading statistical fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading statistical fields.\n");
 
     return 0;
 }
@@ -858,7 +912,7 @@ PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
     PetscErrorCode ierr;
     Vec Cs;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "ReadLESFields - Starting to read LES fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read LES fields.\n");
 
     VecDuplicate(user->P, &Cs);
     ierr = ReadFieldData(user, "cs", Cs, ti, "dat"); CHKERRQ(ierr);
@@ -866,7 +920,7 @@ PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
     DMGlobalToLocalEnd(user->da, Cs, INSERT_VALUES, user->lCs);
     VecDestroy(&Cs);
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "ReadLESFields - Finished reading LES fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading LES fields.\n");
 
     return 0;
 }
@@ -886,7 +940,7 @@ PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
 {
     PetscErrorCode ierr;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "ReadRANSFields - Starting to read RANS fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read RANS fields.\n");
 
     ierr = ReadFieldData(user, "kfield", user->K_Omega, ti, "dat"); CHKERRQ(ierr);
     VecCopy(user->K_Omega, user->K_Omega_o);
@@ -897,57 +951,169 @@ PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
     DMGlobalToLocalBegin(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o);
     DMGlobalToLocalEnd(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o);
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "ReadRANSFields - Finished reading RANS fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading RANS fields.\n");
 
     return 0;
+}
+
+
+/**
+ * @brief Reads data from a file into a specified field of a PETSc DMSwarm.
+ *
+ * This function is the counterpart to WriteSwarmField(). It creates a global PETSc vector 
+ * that references the specified DMSwarm field, uses ReadFieldData() to read the data from 
+ * a file, and then destroys the global vector reference.
+ *
+ * @param[in]  user       Pointer to the UserCtx structure (containing `user->swarm`).
+ * @param[in]  field_name Name of the DMSwarm field to read into (must be previously declared/allocated).
+ * @param[in]  ti         Time index used to construct the input file name.
+ * @param[in]  ext        File extension (e.g., "dat" or "bin").
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ *
+ * @note Compatible with PETSc 3.14.x.
+ */
+PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
+{
+  PetscErrorCode ierr;
+  DM             swarm;
+  Vec            fieldVec;
+
+  PetscFunctionBegin;
+
+  swarm = user->swarm;
+
+  LOG_ALLOW(GLOBAL,LOG_DEBUG," ReadSwarmField Begins \n");
+ 
+  /* 2) Create a global vector that references the specified Swarm field. */
+  ierr = DMSwarmCreateGlobalVectorFromField(swarm, field_name, &fieldVec);CHKERRQ(ierr);
+
+  LOG_ALLOW(GLOBAL,LOG_DEBUG," Vector created from Field \n");
+
+  /* 3) Use the ReadFieldData() function to read data into fieldVec. */
+  ierr = ReadFieldData(user, field_name, fieldVec, ti, ext);CHKERRQ(ierr);
+
+  /* 4) Destroy the global vector reference. */
+  ierr = DMSwarmDestroyGlobalVectorFromField(swarm, field_name, &fieldVec);CHKERRQ(ierr);
+
+  PetscFunctionReturn(0);
 }
 
 /**
- * @brief Writes data from a specific PETSc vector to a file.
+ * @brief Reads integer swarm data by using ReadFieldData and casting the result.
  *
- * This function uses the field name to construct the file path and writes the data
- * from the provided PETSc vector to the corresponding file.
+ * This function is the counterpart to WriteSwarmIntField. It reads a file
+ * containing floating-point data (that was originally integer) into a temporary
+ * Vec and then casts it back to the integer swarm field. It works by:
+ * 1. Creating a temporary parallel Vec.
+ * 2. Calling the standard ReadFieldData() to populate this Vec.
+ * 3. Accessing the local data of both the Vec and the swarm field.
+ * 4. Populating the swarm's integer field by casting each PetscScalar back to a PetscInt.
+ * 5. Destroying the temporary Vec.
  *
- * @param[in] user       Pointer to the UserCtx structure containing simulation context.
- * @param[in] field_name Name of the field (e.g., "ufield", "vfield", "pfield").
- * @param[in] field_vec  PETSc vector containing the field data to write.
- * @param[in] ti         Time index for constructing the file name.
- * @param[in] ext        File extension (e.g., "dat").
+ * @param[in] user       Pointer to the UserCtx structure.
+ * @param[in] field_name Name of the integer Swarm field to be read.
+ * @param[in] ti         Time index for the input file.
+ * @param[in] ext        File extension.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-/*
-PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_vec, PetscInt ti, const char *ext)
+PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
 {
     PetscErrorCode ierr;
-    PetscViewer viewer;
-    char filen[128];
+    DM             swarm = user->swarm;
+    Vec            temp_vec;
+    PetscInt       nlocal, i;
+    const PetscScalar *scalar_array; // Read-only pointer from the temp Vec
+    PetscInt          *int_array;    // Writable pointer to the swarm field
 
-    // Construct the file name
-    snprintf(filen, sizeof(filen), "results/%s%05d_%d.%s", field_name, ti, user->_this, ext);
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "WriteFieldData - Attempting to write file: %s\n", filen);
-
-    // Open the file for writing
-    ierr = PetscViewerBinaryOpen(PETSC_COMM_WORLD, filen, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
-
-    PetscReal vmin, vmax;
-    ierr = VecMin(field_vec, NULL, &vmin); CHKERRQ(ierr);
-    ierr = VecMax(field_vec, NULL, &vmax); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"%s step %d  min=%.6e  max=%.6e\n",field_name, ti, (double)vmin, (double)vmax);
-
+    PetscFunctionBeginUser;
     
-    // Write data from the vector
-    ierr = VecView(field_vec, viewer); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadSwarmIntField - Reading '%s' via temporary Vec.\n", field_name);
 
-    // Close the file viewer
-    ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+    // 1. Create a temporary Vec to hold the floating-point data (based on mandatory field 'position')
+    DMSwarmVectorDefineField(swarm,"position");
+    
+    ierr = DMCreateGlobalVector(swarm, &temp_vec); CHKERRQ(ierr);
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteFieldData - Successfully wrote data for field: %s\n", field_name);
+    // 2. Call your existing reader to populate the temporary Vec
+    ierr = ReadFieldData(user, field_name, temp_vec, ti, ext); CHKERRQ(ierr);
 
-    return 0;
+    // 3. Get local pointers
+    ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
+    ierr = VecGetArrayRead(temp_vec, &scalar_array); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, NULL, NULL, (void **)&int_array); CHKERRQ(ierr);
+    
+    // 4. Perform the cast back from PetscScalar to PetscInt
+    for (i = 0; i < nlocal; i++) {
+        // Note: This is a truncating cast, which is correct for this case.
+        int_array[i] = (PetscInt)scalar_array[i];
+    }
+
+    // 5. Restore access
+    ierr = DMSwarmRestoreField(swarm, field_name, NULL, NULL, (void **)&int_array); CHKERRQ(ierr);
+    ierr = VecRestoreArrayRead(temp_vec, &scalar_array); CHKERRQ(ierr);
+
+    // 6. Clean up
+    ierr = VecDestroy(&temp_vec); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
 }
-*/
+
+/**
+ * @brief Reads multiple fields into a DMSwarm, gracefully handling missing optional files.
+ *
+ * This function reads all necessary and optional fields for a DMSwarm for a given
+ * timestep. It assumes the swarm has already been resized to match the particle
+ * count in the input files.
+ *
+ * The 'position' field is considered MANDATORY. If its file is missing or corrupt,
+ * the function will return a fatal error.
+ *
+ * All other fields (velocity, CellID, weight, etc.) are OPTIONAL. If their
+ * corresponding files are not found, a warning is logged, and the function
+ * continues without error. If an optional file IS found but is corrupt or has a
+ * size mismatch, it is treated as a fatal error.
+ *
+ * @param[in,out] user Pointer to the UserCtx structure containing the DMSwarm (user->swarm).
+ * @param[in]     ti   Time index for constructing the file names.
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
+{
+  PetscErrorCode ierr;
+  PetscInt nGlobal;
+
+  PetscFunctionBeginUser;
+  ierr = DMSwarmGetSize(user->swarm, &nGlobal); CHKERRQ(ierr);
+  LOG_ALLOW(GLOBAL, LOG_INFO, "Reading DMSwarm fields for timestep %d (swarm size is %d).\n", ti, nGlobal);
+
+  if (nGlobal == 0) {
+      LOG_ALLOW(GLOBAL, LOG_INFO, "Swarm is empty for timestep %d. Nothing to read.\n", ti);
+      PetscFunctionReturn(0);
+  }
+
+  /* 1) Read positions (REQUIRED) */
+  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading mandatory position field...\n");
+  ierr = ReadSwarmField(user, "position", ti, "dat");
+  if (ierr) {
+      SETERRQ(PETSC_COMM_WORLD, ierr, "Failed to read MANDATORY 'position' field for step %d. Cannot continue.", ti);
+  }
+  LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully read mandatory position field for step %d.\n", ti);
+
+  /* 2) Read all OPTIONAL fields using the helper function. */
+  /* The helper will print a warning and continue if a file is not found. */
+  ierr = ReadOptionalSwarmField(user, "velocity",                "Velocity",                   ti, "dat"); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "DMSwarm_pid",             "Particle ID",                ti, "dat"); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "DMSwarm_CellID",          "Cell ID",                    ti, "dat"); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "weight",                  "Particle Weight",            ti, "dat"); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "Psi",                     "Scalar Psi",                 ti, "dat"); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "DMSwarm_location_status", "Particle Location Status",   ti, "dat"); CHKERRQ(ierr);
+
+  LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading DMSwarm fields for timestep %d.\n", ti);
+  PetscFunctionReturn(0);
+}
 
  /**
  * @brief Writes data from a specific PETSc vector to a single, sequential file.
@@ -1082,136 +1248,6 @@ PetscErrorCode WriteFieldData(UserCtx *user,
 
     PetscFunctionReturn(0);
 }
-
-/*
-PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_vec, PetscInt ti, const char *ext)
-{
-    PetscErrorCode ierr;
-    char           filename[PETSC_MAX_PATH_LEN];
-    PetscMPIInt    rank, size;
-    MPI_Comm       comm;
-    PetscInt       placeholder_int = 0;
-
-    PetscFunctionBeginUser;
-    ierr = PetscObjectGetComm((PetscObject)field_vec, &comm); CHKERRQ(ierr);
-    ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(comm, &size); CHKERRQ(ierr);
-
-    // Construct a filename that does NOT depend on the rank number.
-    // This ensures a single, predictable output file.
-    ierr = PetscSNPrintf(filename, sizeof(filename), "results/%s%05"PetscInt_FMT"_%d.%s", field_name, ti, placeholder_int, ext);
-
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "WriteFieldData - Preparing to write file: %s\n", filename);
-
-    // Optional: Log min/max values. This is a collective operation.
-    PetscReal vmin, vmax;
-    ierr = VecMin(field_vec, NULL, &vmin); CHKERRQ(ierr);
-    ierr = VecMax(field_vec, NULL, &vmax); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"%s step %d  min=%.6e  max=%.6e\n", field_name, ti, (double)vmin, (double)vmax);
-
-    if (size == 1) {
-        // --- SERIAL CASE: Simple and direct write ---
-        PetscViewer viewer;
-        ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
-        ierr = VecView(field_vec, viewer); CHKERRQ(ierr);
-        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
-    } else {
-        // --- PARALLEL CASE: Gather on Rank 0 and write sequentially ---
-        Vec         seq_vec = NULL; // A sequential vector on Rank 0
-        VecScatter  scatter_ctx;
-
-        // Create a scatter context to gather data from the parallel vector
-        // onto a new sequential vector that will exist only on Rank 0.
-        ierr = VecScatterCreateToZero(field_vec, &scatter_ctx, &seq_vec); CHKERRQ(ierr);
-
-        // Perform the scatter (gather) operation.
-        ierr = VecScatterBegin(scatter_ctx, field_vec, seq_vec, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-        ierr = VecScatterEnd(scatter_ctx, field_vec, seq_vec, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-        ierr = VecScatterDestroy(&scatter_ctx); CHKERRQ(ierr);
-
-        // Now, only Rank 0 has the populated sequential vector and can write it.
-        if (rank == 0) {
-            PetscViewer viewer;
-            ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
-            ierr = VecView(seq_vec, viewer); CHKERRQ(ierr);
-            ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
-        }
-
-        // All ranks must destroy the sequential vector, though it only "exists" on Rank 0.
-        ierr = VecDestroy(&seq_vec); CHKERRQ(ierr);
-    }
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteFieldData - Successfully wrote data for field: %s\n", field_name);
-    PetscFunctionReturn(0);
-}
-*/
-/*
-PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_vec, PetscInt ti, const char *ext)
-{
-    PetscErrorCode ierr;
-    PetscMPIInt    rank, size;
-    MPI_Comm       comm;
-
-    PetscFunctionBeginUser;
-    ierr = PetscObjectGetComm((PetscObject)field_vec, &comm); CHKERRQ(ierr);
-    ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(comm, &size); CHKERRQ(ierr);
-
-    if (size == 1) {
-        // SERIAL CASE: This is simple and correct.
-        PetscViewer viewer;
-        char filename[PETSC_MAX_PATH_LEN];
-        ierr = PetscSNPrintf(filename, sizeof(filename), "output/%s_step%d.%s", field_name, ti, ext); CHKERRQ(ierr);
-        ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
-        ierr = VecView(field_vec, viewer); CHKERRQ(ierr);
-        ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
-    } else {
-        // PARALLEL CASE: The robust "Gather on 0 and Write" pattern.
-        Vec         seq_vec = NULL;
-        VecScatter  scatter_ctx;
-        IS          is_from, is_to;
-        PetscInt    global_size;
-
-        ierr = VecGetSize(field_vec, &global_size); CHKERRQ(ierr);
-        ierr = ISCreateStride(comm, global_size, 0, 1, &is_from); CHKERRQ(ierr);
-        ierr = ISCreateStride(PETSC_COMM_SELF, global_size, 0, 1, &is_to); CHKERRQ(ierr);
-
-        // Rank 0 creates the destination sequential vector.
-        if (rank == 0) {
-            ierr = VecCreate(PETSC_COMM_SELF, &seq_vec); CHKERRQ(ierr);
-            ierr = VecSetSizes(seq_vec, global_size, global_size); CHKERRQ(ierr);
-            ierr = VecSetFromOptions(seq_vec); CHKERRQ(ierr);
-        }
-
-        // Create the general scatter context.
-        ierr = VecScatterCreate(field_vec, is_from, seq_vec, is_to, &scatter_ctx); CHKERRQ(ierr);
-        ierr = VecScatterBegin(scatter_ctx, field_vec, seq_vec, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-        ierr = VecScatterEnd(scatter_ctx, field_vec, seq_vec, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-
-        // Only Rank 0 writes the populated sequential vector.
-        if (rank == 0) {
-            PetscViewer viewer;
-            char filename[PETSC_MAX_PATH_LEN];
-            ierr = PetscSNPrintf(filename, sizeof(filename), "output/%s_step%d.%s", field_name, ti, ext); CHKERRQ(ierr);
-            ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
-            ierr = VecView(seq_vec, viewer); CHKERRQ(ierr);
-            ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
-        }
-
-        // Clean up.
-        ierr = ISDestroy(&is_from); CHKERRQ(ierr);
-        ierr = ISDestroy(&is_to); CHKERRQ(ierr);
-        ierr = VecScatterDestroy(&scatter_ctx); CHKERRQ(ierr);
-        if (rank == 0) {
-            ierr = VecDestroy(&seq_vec); CHKERRQ(ierr);
-        }
-    }
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteFieldData - Successfully wrote data for field: %s\n", field_name);
-    PetscFunctionReturn(0);
-}
-*/
 
 /**
  * @brief Writes simulation fields to files.
@@ -1422,276 +1458,118 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt t
   PetscFunctionReturn(0); /* PETSc macro indicating end of function */
 }
 
-//=====================================================================
-//   1) ReadDataFileToArray
-
-//   See the function-level comments in io.h for a summary.
-//   This reads one value per line from an ASCII file. Rank 0 does I/O,
-//   broadcasts the data to all ranks.
-//===================================================================== */
-PetscInt ReadDataFileToArray(const char   *filename,
-                        double      **data_out,
-                        PetscInt          *Nout,
-                        MPI_Comm      comm)
+/**
+ * @brief Writes integer swarm data by casting it to a temporary Vec and using WriteFieldData.
+ *
+ * This function provides a bridge to write integer-based swarm fields (like DMSwarm_CellID)
+ * using the existing Vec-based I/O routine (WriteFieldData). It works by:
+ * 1. Creating a temporary parallel Vec with the same layout as other swarm fields.
+ * 2. Accessing the local integer data from the swarm field.
+ * 3. Populating the temporary Vec by casting each integer to a PetscScalar.
+ * 4. Calling the standard WriteFieldData() function with the temporary Vec.
+ * 5. Destroying the temporary Vec.
+ *
+ * @param[in] user       Pointer to the UserCtx structure.
+ * @param[in] field_name Name of the integer Swarm field to be written.
+ * @param[in] ti         Time index for the output file.
+ * @param[in] ext        File extension.
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
 {
-    /* STEP 0: Prepare local variables & log function entry */
-    PetscMPIInt    rank, size;
     PetscErrorCode ierr;
-    FILE  *fp = NULL;
-    PetscInt    N   = 0;            /* number of lines/values read on rank 0 */
-    double *array = NULL;      /* pointer to local array on each rank */
-    PetscInt    fileExistsFlag = 0; /* 0 = doesn't exist, 1 = does exist */
+    DM             swarm = user->swarm;
+    Vec            temp_vec;       // Temporary Vec to hold casted data
+    PetscInt       nlocal, i;
+    PetscInt       *int_array;     // Pointer to the swarm's integer data
+    PetscScalar    *scalar_array;  // Pointer to the temporary Vec's scalar data
 
-    LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "ReadDataFileToArray - Start reading from file: %s\n",
-              filename);
+    PetscFunctionBeginUser;
 
-    /* Basic error checking: data_out, Nout must be non-null. */
-    if (!filename || !data_out || !Nout) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING,
-                  "ReadDataFileToArray - Null pointer argument provided.\n");
-        return 1;
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Casting '%s' to Vec for writing.\n", field_name);
+
+    // Defining Vector field to mandatory field 'position'
+    ierr = DMSwarmVectorDefineField(swarm,"position");
+    // 1. Create a temporary parallel Vec with a layout compatible with the swarm
+    ierr = DMCreateGlobalVector(swarm, &temp_vec); CHKERRQ(ierr);
+
+    // 2. Get local pointers to the source (int) and destination (scalar) arrays
+    ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, NULL, NULL, (void **)&int_array); CHKERRQ(ierr);
+    ierr = VecGetArray(temp_vec, &scalar_array); CHKERRQ(ierr);
+
+    // 3. Perform the cast from PetscInt to PetscScalar
+    for (i = 0; i < nlocal; i++) {
+        scalar_array[i] = (PetscScalar)int_array[i];
     }
 
-    /* Determine rank/size for coordinating I/O. */
-    MPI_Comm_rank(comm, &rank);
-    MPI_Comm_size(comm, &size);
+    // 4. Restore access to both arrays
+    ierr = VecRestoreArray(temp_vec, &scalar_array); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, field_name, NULL, NULL, (void **)&int_array); CHKERRQ(ierr);
 
-    /* STEP 1: On rank 0, check if file can be opened. */
-    if (!rank) {
-        fp = fopen(filename, "r");
-        if (fp) {
-            fileExistsFlag = 1;
-            fclose(fp);
-        }
-    }
+    // 5. Call your existing writer with the temporary, populated Vec
+    ierr = WriteFieldData(user, field_name, temp_vec, ti, ext); CHKERRQ(ierr);
 
-    /* STEP 2: Broadcast file existence to all ranks. */
-    // In ReadDataFileToArray:
-    ierr = MPI_Bcast(&fileExistsFlag, 1, MPI_INT, 0, comm); CHKERRQ(ierr);
+    // 6. Clean up
+    ierr = VecDestroy(&temp_vec); CHKERRQ(ierr);
 
-    if (!fileExistsFlag) {
-        /* If file does not exist, log & return. */
-        if (!rank) {
-            LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "ReadDataFileToArray - File '%s' not found.\n",
-                      filename);
-        }
-        return 2;
-    }
-
-    /* STEP 3: Rank 0 re-opens and reads the file, counting lines, etc. */
-    if (!rank) {
-        fp = fopen(filename, "r");
-        if (!fp) {
-            LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "ReadDataFileToArray - File '%s' could not be opened for reading.\n",
-                      filename);
-            return 3;
-        }
-
-        /* (3a) Count lines first. */
-        {
-            char line[256];
-            while (fgets(line, sizeof(line), fp)) {
-                N++;
-            }
-        }
-
-        LOG_ALLOW(GLOBAL, LOG_DEBUG,
-                  "ReadDataFileToArray - File '%s' has %d lines.\n",
-                  filename, N);
-
-        /* (3b) Allocate array on rank 0. */
-        array = (double*)malloc(N * sizeof(double));
-        if (!array) {
-            fclose(fp);
-            LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "ReadDataFileToArray - malloc failed for array.\n");
-            return 4;
-        }
-
-        /* (3c) Rewind & read values into array. */
-        rewind(fp);
-        {
-            PetscInt i = 0;
-            char line[256];
-            while (fgets(line, sizeof(line), fp)) {
-                double val;
-                if (sscanf(line, "%lf", &val) == 1) {
-                    array[i++] = val;
-                }
-            }
-        }
-        fclose(fp);
-
-        LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "ReadDataFileToArray - Successfully read %d values from '%s'.\n",
-                  N, filename);
-    }
-
-    /* STEP 4: Broadcast the integer N to all ranks. */
-    ierr = MPI_Bcast(&N, 1, MPI_INT, 0, comm); CHKERRQ(ierr);
-
-    /* STEP 5: Each rank allocates an array to receive the broadcast if rank>0. */
-    if (rank) {
-        array = (double*)malloc(N * sizeof(double));
-        if (!array) {
-            LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "ReadDataFileToArray - malloc failed on rank %d.\n",
-                      rank);
-            return 5;
-        }
-    }
-
-    /* STEP 6: Broadcast the actual data from rank 0 to all. */
-    ierr = MPI_Bcast(array, N, MPI_DOUBLE, 0, comm); CHKERRQ(ierr);
-
-    /* STEP 7: Assign outputs on all ranks. */
-    *data_out = array;
-    *Nout     = N;
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "ReadDataFileToArray - Done. Provided array of length=%d to all ranks.\n",
-              N);
-    return 0; /* success */
-}
-
-
-/**
- * @brief Reads data from a file into a specified field of a PETSc DMSwarm.
- *
- * This function is the counterpart to WriteSwarmField(). It creates a global PETSc vector 
- * that references the specified DMSwarm field, uses ReadFieldData() to read the data from 
- * a file, and then destroys the global vector reference.
- *
- * @param[in]  user       Pointer to the UserCtx structure (containing `user->swarm`).
- * @param[in]  field_name Name of the DMSwarm field to read into (must be previously declared/allocated).
- * @param[in]  ti         Time index used to construct the input file name.
- * @param[in]  ext        File extension (e.g., "dat" or "bin").
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- *
- * @note Compatible with PETSc 3.14.x.
- */
-PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
-{
-  PetscErrorCode ierr;
-  DM             swarm;
-  Vec            fieldVec;
-
-  PetscFunctionBegin;
-
-  swarm = user->swarm;
-
-  LOG_ALLOW(GLOBAL,LOG_DEBUG," ReadSwarmField Begins \n");
- 
-  /* 2) Create a global vector that references the specified Swarm field. */
-  ierr = DMSwarmCreateGlobalVectorFromField(swarm, field_name, &fieldVec);CHKERRQ(ierr);
-
-  LOG_ALLOW(GLOBAL,LOG_DEBUG," Vector created from Field \n");
-
-  /* 3) Use the ReadFieldData() function to read data into fieldVec. */
-  ierr = ReadFieldData(user, field_name, fieldVec, ti, ext);CHKERRQ(ierr);
-
-  /* 4) Destroy the global vector reference. */
-  ierr = DMSwarmDestroyGlobalVectorFromField(swarm, field_name, &fieldVec);CHKERRQ(ierr);
-
-  PetscFunctionReturn(0);
+    PetscFunctionReturn(0);
 }
 
 /**
- * @brief Reads multiple fields (positions, velocity, CellID, and weight) into a DMSwarm.
+ * @brief Writes a predefined set of PETSc Swarm fields to files.
  *
- * This function is analogous to ReadSimulationFields() but targets a DMSwarm. 
- * Each Swarm field is read from a separate file using ReadSwarmField().
- * 
- * @param[in,out] user Pointer to the UserCtx structure containing the DMSwarm (user->swarm).
- * @param[in]     ti   Time index for constructing the file name.
+ * This function iterates through a hardcoded list of common swarm fields 
+ * (position, velocity, etc.) and calls the WriteSwarmField() helper function 
+ * for each one. This provides a straightforward way to output essential particle 
+ * data at a given simulation step.
+ *
+ * This function will only execute if particles are enabled in the simulation
+ * (i.e., `user->simCtx->np > 0` and `user->swarm` is not NULL).
+ *
+ * @param[in] user Pointer to the UserCtx structure containing the simulation context
+ *                 and the PetscSwarm.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-/**
- * @brief Reads multiple fields (positions, velocity, etc.) into a DMSwarm.
- *
- * ASSUMES the swarm has already been resized (if necessary) by a function
- * like PreCheckAndResizeSwarm to match the particle count in the input files
- * for the current timestep.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing the DMSwarm (user->swarm).
- * @param[in]     ti   Time index for constructing the file name.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure. Handles
- *         missing optional files as warnings.
- */
-PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
+PetscErrorCode WriteAllSwarmFields(UserCtx *user)
 {
-  PetscErrorCode ierr;
-  PetscInt nGlobal;
-  PetscBool fileExists;
+    PetscErrorCode ierr;
+    SimCtx         *simCtx = user->simCtx;
+    
+    PetscFunctionBeginUser;
 
-  PetscFunctionBeginUser;
-  ierr = DMSwarmGetSize(user->swarm, &nGlobal); CHKERRQ(ierr); // Get final size
-  LOG_ALLOW(GLOBAL, LOG_INFO, "ReadAllSwarmFields - Reading DMSwarm fields for timestep %d (expected size %d).\n", ti, nGlobal);
+    // If no swarm is configured or there are no particles, do nothing and return.
+    if (!user->swarm || simCtx->np <= 0) {
+        PetscFunctionReturn(0);
+    }
 
-  // If the swarm is empty after potential resize, we might still technically proceed
-  // but ReadSwarmField might do nothing or error depending on implementation.
-  // It's safer to just return if empty.
-  if (nGlobal == 0) {
-      LOG_ALLOW(GLOBAL, LOG_INFO, "ReadAllSwarmFields - Swarm is empty for timestep %d. Nothing to read.\n", ti);
-      PetscFunctionReturn(0);
-  }
+    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteAllSwarmFields - Starting to write swarm fields.\n");
 
-  // 1) Read positions (required, should succeed now)
-  ierr = ReadSwarmField(user, "position", ti, "dat");
-  if (ierr == PETSC_ERR_FILE_OPEN) {
-      // This shouldn't happen if PreCheckAndResizeSwarm ran successfully, but handle defensively.
-      LOG_ALLOW(GLOBAL, LOG_ERROR, "ReadAllSwarmFields - Position file missing for step %d, but PreCheck succeeded? Inconsistent state.\n", ti);
-      PetscFunctionReturn(PETSC_ERR_PLIB);
-  } else if (ierr) {
-      LOG_ALLOW(GLOBAL, LOG_ERROR, "ReadAllSwarmFields - Failed to read position field for step %d (Error %d), even though size should match.\n", ti, ierr);
-      CHKERRQ(ierr); // Treat other errors as fatal
-  } else {
-       LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadAllSwarmFields - Successfully read position field for step %d.\n", ti);
-  }
+    // Write particle position field
+    ierr = WriteSwarmField(user, "position", simCtx->step, "dat"); CHKERRQ(ierr);
 
-  // 2) Read velocity
-  ierr = CheckDataFile(ti, "velocity", "dat", &fileExists);
-  if(fileExists) ierr = ReadSwarmField(user, "velocity", ti, "dat");
-   if (ierr == PETSC_ERR_FILE_OPEN) { // Handle potentially missing file as warning
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "ReadAllSwarmFields - Velocity file for step %d not found. Velocity data may be invalid/uninitialized.\n", ti);
-   } else if (ierr) {
-       LOG_ALLOW(GLOBAL, LOG_ERROR, "ReadAllSwarmFields - Failed to read velocity field for step %d (Error %d). File might be corrupt or size incorrect despite pre-check.\n", ti, ierr);
-       CHKERRQ(ierr); // Treat other errors as fatal
-   } else {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadAllSwarmFields - Successfully read velocity field for step %d.\n", ti);
-   }
+    // Write particle velocity field
+    ierr = WriteSwarmField(user, "velocity", simCtx->step, "dat"); CHKERRQ(ierr);
 
-  // 3) Read pos_phy
-  ierr = CheckDataFile(ti, "pos_phy", "dat", &fileExists); 
-  if(fileExists) ierr = ReadSwarmField(user, "pos_phy", ti, "dat");
-   if (ierr == PETSC_ERR_FILE_OPEN) { // Handle potentially missing file as warning
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "ReadAllSwarmFields - Physical position file for step %d not found. physical position data may be invalid/uninitialized.\n", ti);
-   } else if (ierr) {
-       LOG_ALLOW(GLOBAL, LOG_ERROR, "ReadAllSwarmFields - Failed to read physical position field for step %d (Error %d). File might be corrupt or size incorrect despite pre-check.\n", ti, ierr);
-       CHKERRQ(ierr); // Treat other errors as fatal
-   } else {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadAllSwarmFields - Successfully read physical position field for step %d.\n", ti);
-   }
-   
-  // 3) Read CellID (Optional)
-  // ierr = CheckDataFile(ti, "velocity", ext, &fileExists); 
-  // if(fileExists)ierr = ReadSwarmField(user, "DMSwarm_CellID", ti, "dat");
-  // if (ierr == PETSC_ERR_FILE_OPEN) { LOG_ALLOW(GLOBAL, LOG_WARNING, "ReadAllSwarmFields - CellID file for step %d not found.\n", ti); }
-  // else CHKERRQ(ierr); // Treat other errors as fatal unless CellID read can also fail gracefully
+    // Write particle weight field
+    ierr = WriteSwarmField(user, "weight", simCtx->step, "dat"); CHKERRQ(ierr);
+    
+    // Write custom particle field "Psi"
+    ierr = WriteSwarmField(user, "Psi", simCtx->step, "dat"); CHKERRQ(ierr);
+    
+    // Integer fields require special handling
 
-  // 4) Read weight (Optional)
-  // ierr = ReadSwarmField(user, "weight", ti, "dat");
-  // if (ierr == PETSC_ERR_FILE_OPEN) { LOG_ALLOW(GLOBAL, LOG_WARNING, "ReadAllSwarmFields - Weight file for step %d not found.\n", ti); }
-  // else CHKERRQ(ierr);
+    // Write the background mesh cell ID for each particle
+    ierr = WriteSwarmIntField(user, "DMSwarm_CellID", simCtx->step, "dat"); CHKERRQ(ierr);
 
-  LOG_ALLOW(GLOBAL, LOG_INFO, "ReadAllSwarmFields - Finished reading DMSwarm fields for timestep %d.\n", ti);
-  PetscFunctionReturn(0);
+    // Write the particle location status (e.g., inside or outside the domain)
+    ierr = WriteSwarmIntField(user, "DMSwarm_location_status", simCtx->step, "dat"); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteAllSwarmFields - Finished writing swarm fields.\n");
+
+    PetscFunctionReturn(0);
 }
 
 /**
@@ -1781,6 +1659,70 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
         ierr = VecDestroy(&seq);        CHKERRQ(ierr);
     }
 
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Gathers a distributed DMSwarm field into a single C array on rank 0.
+ *
+ * This is a high-performance helper specifically for post-processing I/O. It
+ * directly accesses local swarm data and uses MPI_Gatherv to collect it on rank 0,
+ * avoiding the overhead of creating an intermediate PETSc Vec object.
+ *
+ * @param[in]  swarm             The DMSwarm object.
+ * @param[in]  field_name        The name of the field to gather (e.g., "velocity").
+ * @param[out] out_n_global      On rank 0, contains the total number of particles. 0 on other ranks.
+ * @param[out] out_n_components  On rank 0, contains the number of components for the field. 0 on other ranks.
+ * @param[out] out_data_rank0    On rank 0, a pointer to a newly allocated array with the gathered data.
+ *                               The caller is responsible for freeing this memory.
+ * @return PetscErrorCode
+ */
+PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char* field_name, PetscInt *out_n_global, PetscInt *out_n_components, PetscScalar **out_data_rank0)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank, size;
+    PetscInt       n_local, n_global, n_comp;
+    PetscScalar    *local_data;
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+
+    // Access the raw local data pointer and field info
+    ierr = DMSwarmGetLocalSize(swarm, &n_local); CHKERRQ(ierr);
+    ierr = DMSwarmGetSize(swarm, &n_global); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, &n_comp, NULL, (void**)&local_data); CHKERRQ(ierr);
+
+    // --- MPI_Gatherv Implementation ---
+    PetscInt *recvcounts = NULL, *displs = NULL;
+    if (rank == 0) {
+        ierr = PetscMalloc1(size, &recvcounts); CHKERRQ(ierr);
+        ierr = PetscMalloc1(size, &displs); CHKERRQ(ierr);
+        ierr = PetscMalloc1(n_global * n_comp, out_data_rank0); CHKERRQ(ierr);
+    }
+    PetscInt sendcount = n_local * n_comp;
+    ierr = MPI_Gather(&sendcount, 1, MPIU_INT, recvcounts, 1, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    if (rank == 0) {
+        displs[0] = 0;
+        for (int i = 1; i < size; i++) {
+            displs[i] = displs[i - 1] + recvcounts[i - 1];
+        }
+    }
+    ierr = MPI_Gatherv(local_data, sendcount, MPIU_SCALAR,
+                       (rank == 0) ? *out_data_rank0 : NULL, recvcounts, displs, MPIU_SCALAR,
+                       0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    // --- End MPI_Gatherv ---
+
+    ierr = DMSwarmRestoreField(swarm, field_name, &n_comp, NULL, (void**)&local_data); CHKERRQ(ierr);
+    
+    if (rank == 0) {
+        *out_n_global = n_global;
+        *out_n_components = n_comp;
+        ierr = PetscFree(recvcounts); CHKERRQ(ierr);
+        ierr = PetscFree(displs); CHKERRQ(ierr);
+    } else {
+        *out_n_global = 0; *out_n_components = 0; *out_data_rank0 = NULL;
+    }
     PetscFunctionReturn(0);
 }
 
@@ -1957,14 +1899,15 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
     strcpy(pps->output_fields_averaged, "");
     strcpy(pps->output_prefix, "results/viz");
     strcpy(pps->particle_output_prefix,"results/viz");
-    strcpy(pps->particle_fields,"position,velocity,CellID,weight");
+    strcpy(pps->particle_fields,"velocity,CellID,weight,pid");
     strcpy(pps->particle_pipeline,"");
-
+    strcpy(pps->particleExt,"dat"); // The input file format for particles.
+    strcpy(pps->eulerianExt,"dat"); // The input file format for Eulerian fields.
 
     // --- 2. Parse the Configuration File (overrides defaults) ---
     file = fopen(configFile, "r");
     if (file) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Pa rsing post-processing config file: %s\n", configFile);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Parsing post-processing config file: %s\n", configFile);
         while (fgets(line, sizeof(line), file)) {
             char *key, *value, *comment;
             comment = strchr(line, '#'); if (comment) *comment = '\0';
@@ -1987,7 +1930,20 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
                 } else if (strcasecmp(key, "output_prefix") == 0) {
                     strncpy(pps->output_prefix, value, MAX_FILENAME_LENGTH - 1);
                     pps->output_prefix[MAX_FILENAME_LENGTH - 1] = '\0';
-                } 
+                } else if (strcasecmp(key, "particle_output_prefix") == 0) {
+                    strncpy(pps->particle_output_prefix, value, MAX_FILENAME_LENGTH - 1);
+                    pps->particle_output_prefix[MAX_FILENAME_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "particle_fields_instantaneous") == 0) {
+                    strncpy(pps->particle_fields, value, MAX_FIELD_LIST_LENGTH - 1);
+                    pps->particle_fields[MAX_FIELD_LIST_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "particle_pipeline") == 0) {
+                    strncpy(pps->particle_pipeline, value, MAX_PIPELINE_LENGTH - 1);
+                    pps->particle_pipeline[MAX_PIPELINE_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "particle_output_freq") == 0) {
+                    pps->particle_output_freq = atoi(value);
+                } else {
+                    LOG_ALLOW(GLOBAL, LOG_WARNING, "Unknown key '%s' in post-processing config file. Ignoring.\n", key);
+                }
                 // Add parsing for pipeline, fields, etc. in later phases
             }
         }
@@ -2013,12 +1969,152 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Process Pipeline: %s\n", pps->process_pipeline);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Instantaneous Output Fields: %s\n", pps->output_fields_instantaneous);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Output Prefix: %s\n", pps->output_prefix);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Prefix: %s\n", pps->particle_output_prefix);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Fields: %s\n", pps->particle_fields);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Pipeline: %s\n", pps->particle_pipeline);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Frequency: %d\n", pps->particle_output_freq);
     PetscFunctionReturn(0);
 }
 
 //  ---------------------------------------------------------------------
 //  UTILITY FUNCTIONS NOT USED IN THE MAIN CODE BUT MAY BE USEFUL
 //  ---------------------------------------------------------------------
+
+//=====================================================================
+//   1) ReadDataFileToArray
+
+//   See the function-level comments in io.h for a summary.
+//   This reads one value per line from an ASCII file. Rank 0 does I/O,
+//   broadcasts the data to all ranks.
+//===================================================================== */
+PetscInt ReadDataFileToArray(const char   *filename,
+                        double      **data_out,
+                        PetscInt          *Nout,
+                        MPI_Comm      comm)
+{
+    /* STEP 0: Prepare local variables & log function entry */
+    PetscMPIInt    rank, size;
+    PetscErrorCode ierr;
+    FILE  *fp = NULL;
+    PetscInt    N   = 0;            /* number of lines/values read on rank 0 */
+    double *array = NULL;      /* pointer to local array on each rank */
+    PetscInt    fileExistsFlag = 0; /* 0 = doesn't exist, 1 = does exist */
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG,
+              "ReadDataFileToArray - Start reading from file: %s\n",
+              filename);
+
+    /* Basic error checking: data_out, Nout must be non-null. */
+    if (!filename || !data_out || !Nout) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "ReadDataFileToArray - Null pointer argument provided.\n");
+        return 1;
+    }
+
+    /* Determine rank/size for coordinating I/O. */
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    /* STEP 1: On rank 0, check if file can be opened. */
+    if (!rank) {
+        fp = fopen(filename, "r");
+        if (fp) {
+            fileExistsFlag = 1;
+            fclose(fp);
+        }
+    }
+
+    /* STEP 2: Broadcast file existence to all ranks. */
+    // In ReadDataFileToArray:
+    ierr = MPI_Bcast(&fileExistsFlag, 1, MPI_INT, 0, comm); CHKERRQ(ierr);
+
+    if (!fileExistsFlag) {
+        /* If file does not exist, log & return. */
+        if (!rank) {
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "ReadDataFileToArray - File '%s' not found.\n",
+                      filename);
+        }
+        return 2;
+    }
+
+    /* STEP 3: Rank 0 re-opens and reads the file, counting lines, etc. */
+    if (!rank) {
+        fp = fopen(filename, "r");
+        if (!fp) {
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "ReadDataFileToArray - File '%s' could not be opened for reading.\n",
+                      filename);
+            return 3;
+        }
+
+        /* (3a) Count lines first. */
+        {
+            char line[256];
+            while (fgets(line, sizeof(line), fp)) {
+                N++;
+            }
+        }
+
+        LOG_ALLOW(GLOBAL, LOG_DEBUG,
+                  "ReadDataFileToArray - File '%s' has %d lines.\n",
+                  filename, N);
+
+        /* (3b) Allocate array on rank 0. */
+        array = (double*)malloc(N * sizeof(double));
+        if (!array) {
+            fclose(fp);
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "ReadDataFileToArray - malloc failed for array.\n");
+            return 4;
+        }
+
+        /* (3c) Rewind & read values into array. */
+        rewind(fp);
+        {
+            PetscInt i = 0;
+            char line[256];
+            while (fgets(line, sizeof(line), fp)) {
+                double val;
+                if (sscanf(line, "%lf", &val) == 1) {
+                    array[i++] = val;
+                }
+            }
+        }
+        fclose(fp);
+
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "ReadDataFileToArray - Successfully read %d values from '%s'.\n",
+                  N, filename);
+    }
+
+    /* STEP 4: Broadcast the integer N to all ranks. */
+    ierr = MPI_Bcast(&N, 1, MPI_INT, 0, comm); CHKERRQ(ierr);
+
+    /* STEP 5: Each rank allocates an array to receive the broadcast if rank>0. */
+    if (rank) {
+        array = (double*)malloc(N * sizeof(double));
+        if (!array) {
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "ReadDataFileToArray - malloc failed on rank %d.\n",
+                      rank);
+            return 5;
+        }
+    }
+
+    /* STEP 6: Broadcast the actual data from rank 0 to all. */
+    ierr = MPI_Bcast(array, N, MPI_DOUBLE, 0, comm); CHKERRQ(ierr);
+
+    /* STEP 7: Assign outputs on all ranks. */
+    *data_out = array;
+    *Nout     = N;
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG,
+              "ReadDataFileToArray - Done. Provided array of length=%d to all ranks.\n",
+              N);
+    return 0; /* success */
+}
+
 /**
  * @brief Reads coordinate data (for particles)  from file into a PETSc Vec, then gathers it to rank 0.
  *
