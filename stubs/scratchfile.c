@@ -3319,3 +3319,68 @@ PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_v
     PetscFunctionReturn(0);
 }
 */
+/////////////////
+
+/**
+ * @brief Gathers a distributed DMSwarm field into a single C array on rank 0.
+ *
+ * This is a high-performance helper specifically for post-processing I/O. It
+ * directly accesses local swarm data and uses MPI_Gatherv to collect it on rank 0,
+ * avoiding the overhead of creating an intermediate PETSc Vec object.
+ *
+ * @param[in]  swarm             The DMSwarm object.
+ * @param[in]  field_name        The name of the field to gather (e.g., "velocity").
+ * @param[out] out_n_global      On rank 0, contains the total number of particles. 0 on other ranks.
+ * @param[out] out_n_components  On rank 0, contains the number of components for the field. 0 on other ranks.
+ * @param[out] out_data_rank0    On rank 0, a pointer to a newly allocated array with the gathered data.
+ *                               The caller is responsible for freeing this memory.
+ * @return PetscErrorCode
+ */
+PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char* field_name, PetscInt *out_n_global, PetscInt *out_n_components, PetscScalar **out_data_rank0)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank, size;
+    PetscInt       n_local, n_global, n_comp;
+    PetscScalar    *local_data;
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+
+    // Access the raw local data pointer and field info
+    ierr = DMSwarmGetLocalSize(swarm, &n_local); CHKERRQ(ierr);
+    ierr = DMSwarmGetSize(swarm, &n_global); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, &n_comp, NULL, (void**)&local_data); CHKERRQ(ierr);
+
+    // --- MPI_Gatherv Implementation ---
+    PetscInt *recvcounts = NULL, *displs = NULL;
+    if (rank == 0) {
+        ierr = PetscMalloc1(size, &recvcounts); CHKERRQ(ierr);
+        ierr = PetscMalloc1(size, &displs); CHKERRQ(ierr);
+        ierr = PetscMalloc1(n_global * n_comp, out_data_rank0); CHKERRQ(ierr);
+    }
+    PetscInt sendcount = n_local * n_comp;
+    ierr = MPI_Gather(&sendcount, 1, MPIU_INT, recvcounts, 1, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    if (rank == 0) {
+        displs[0] = 0;
+        for (int i = 1; i < size; i++) {
+            displs[i] = displs[i - 1] + recvcounts[i - 1];
+        }
+    }
+    ierr = MPI_Gatherv(local_data, sendcount, MPIU_SCALAR,
+                       (rank == 0) ? *out_data_rank0 : NULL, recvcounts, displs, MPIU_SCALAR,
+                       0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    // --- End MPI_Gatherv ---
+
+    ierr = DMSwarmRestoreField(swarm, field_name, &n_comp, NULL, (void**)&local_data); CHKERRQ(ierr);
+    
+    if (rank == 0) {
+        *out_n_global = n_global;
+        *out_n_components = n_comp;
+        ierr = PetscFree(recvcounts); CHKERRQ(ierr);
+        ierr = PetscFree(displs); CHKERRQ(ierr);
+    } else {
+        *out_n_global = 0; *out_n_components = 0; *out_data_rank0 = NULL;
+    }
+    PetscFunctionReturn(0);
+}

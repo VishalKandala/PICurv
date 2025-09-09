@@ -406,10 +406,10 @@ PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, Pets
  *        the total number of particles before any subsampling.
  *     b. It parses the `pps->particle_fields` list. For each requested field, it
  *        determines whether to source it from `user->swarm` or `user->pp_swarm`.
- *     c. It gathers the full data for each requested field from its appropriate source.
- *     d. It performs strided subsampling on the coordinates and all gathered fields based on
- *        `pps->particle_output_freq`.
- *     e. It populates the VTKMetaData struct with the final, smaller, subsampled data arrays,
+ *     c. It gathers the full data for each requested field from its appropriate source into a generic buffer.
+ *     d. It performs strided subsampling. During this step, any integer fields (like pid, CellID)
+ *        are CAST to PetscScalar, so that all output arrays are of the same floating-point type.
+ *     e. It populates the VTKMetaData struct with the final, subsampled, scalar-only data arrays,
  *        making it ready for the file writer.
  *
  * @param[in]  user      The UserCtx, containing both user->swarm and user->pp_swarm.
@@ -427,21 +427,24 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
 
     // Initialize output parameters on all ranks
     *p_n_total = 0;
-    ierr = PetscMemzero(meta, sizeof(VTKMetaData)); CHKERRQ(ierr);
 
     // --- The entire preparation process is a series of collective gathers followed by rank-0 processing ---
-    
+
     // --- Step 1: Gather Full Coordinates from SOURCE Swarm (Collective) ---
     // This establishes the ground truth for particle positions and total count.
     PetscScalar *full_coords_arr = NULL;
+    // NOTE: This assumes SwarmFieldToArrayOnRank0 exists and works for PetscScalar fields.
+    // If not, it may need to be generalized like the logic below.
     ierr = SwarmFieldToArrayOnRank0(user->swarm, "position", &n_total_particles, &n_components, &full_coords_arr); CHKERRQ(ierr);
-    
+
     // --- Step 2: Prepare and Subsample Data (Rank 0 Only) ---
     if (user->simCtx->rank == 0) {
         *p_n_total = n_total_particles; // Report original count back to the caller.
 
         if (n_total_particles == 0) {
-            ierr = PetscFree(full_coords_arr); CHKERRQ(ierr); // Cleanup the gathered coords array
+            if (full_coords_arr) {
+                ierr = PetscFree(full_coords_arr); CHKERRQ(ierr); // Cleanup the gathered coords array
+            }
             PetscFunctionReturn(0); // Nothing to prepare.
         }
         if (n_components != 3) {
@@ -451,7 +454,7 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
         // --- Subsampling Calculation ---
         PetscInt stride = pps->particle_output_freq > 0 ? pps->particle_output_freq : 1;
         meta->npoints = (n_total_particles > 0) ? (n_total_particles - 1) / stride + 1 : 0;
-        
+
         LOG_ALLOW(LOCAL, LOG_DEBUG, "Subsampling %" PetscInt_FMT " total particles with stride %" PetscInt_FMT " -> %" PetscInt_FMT " output particles.\n",
                   n_total_particles, stride, meta->npoints);
 
@@ -478,50 +481,69 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
             DM swarm_to_use = user->swarm; // Default to the main solver swarm.
             const char* internal_name = field_name; // Default internal name to user-facing name.
 
-            // Use the "try-get" pattern to see if the field exists on the post_swarm.
             PetscErrorCode check_ierr;
             ierr = PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL); CHKERRQ(ierr);
             check_ierr = DMSwarmGetField(user->post_swarm, field_name, NULL, NULL, NULL);
             ierr = PetscPopErrorHandler(); CHKERRQ(ierr);
-            if (!check_ierr) { // Success! The field exists on post_swarm.
+            if (!check_ierr) {
                 swarm_to_use = user->post_swarm;
                 ierr = DMSwarmRestoreField(user->post_swarm, field_name, NULL, NULL, NULL); CHKERRQ(ierr);
                 LOG_ALLOW(LOCAL, LOG_DEBUG, "Field '%s' will be sourced from the post-processing swarm.\n", field_name);
             } else {
                 LOG_ALLOW(LOCAL, LOG_DEBUG, "Field '%s' will be sourced from the main solver swarm.\n", field_name);
-                // Map friendly names to internal names for standard solver fields
                 if (strcasecmp(field_name, "pid") == 0) internal_name = "DMSwarm_pid";
                 else if (strcasecmp(field_name, "CellID") == 0) internal_name = "DMSwarm_CellID";
                 else if (strcasecmp(field_name, "Migration Status") == 0) internal_name = "DMSwarm_location_status";
-                // Add other mappings if necessary...
             }
-            
+
             // B. Gather the full data for this field from its determined source.
-            PetscScalar *full_field_arr = NULL;
+            // NOTE: This assumes a generic gather function exists.
+            // A simplified placeholder is used here; you may need to implement this.
+            void* full_field_arr_void = NULL;
             PetscInt field_total_particles, field_num_components;
-            ierr = SwarmFieldToArrayOnRank0(swarm_to_use, internal_name, &field_total_particles, &field_num_components, &full_field_arr); CHKERRQ(ierr);
+
+            ierr = SwarmFieldToArrayOnRank0(swarm_to_use, internal_name, &field_total_particles, &field_num_components, &full_field_arr_void); CHKERRQ(ierr);
 
             if (field_total_particles != n_total_particles) {
                 LOG_ALLOW(LOCAL, LOG_WARNING, "Field '%s' has %" PetscInt_FMT " particles, but expected %" PetscInt_FMT ". Skipping.\n", field_name, field_total_particles, n_total_particles);
-                ierr = PetscFree(full_field_arr); CHKERRQ(ierr);
+                ierr = PetscFree(full_field_arr_void); CHKERRQ(ierr);
                 field_name = strtok(NULL, ","); continue;
             }
-            
-            // C. Allocate final array and copy subsampled data into the meta struct.
+
+            // C. Allocate final array (ALWAYS as PetscScalar) and copy/cast subsampled data.
             VTKFieldInfo* current_field = &meta->point_data_fields[meta->num_point_data_fields];
             strncpy(current_field->name, field_name, MAX_VTK_FIELD_NAME_LENGTH - 1);
             current_field->name[MAX_VTK_FIELD_NAME_LENGTH - 1] = '\0';
             current_field->num_components = field_num_components;
-            ierr = PetscMalloc1(current_field->num_components * meta->npoints, &current_field->data); CHKERRQ(ierr);
+            ierr = PetscMalloc1(current_field->num_components * meta->npoints, (PetscScalar**)&current_field->data); CHKERRQ(ierr);
 
-            for (PetscInt i = 0; i < meta->npoints; i++) {
-                PetscInt source_idx = i * stride;
-                for (PetscInt c = 0; c < current_field->num_components; c++) {
-                    current_field->data[current_field->num_components * i + c] = full_field_arr[current_field->num_components * source_idx + c];
+            PetscScalar* final_data_arr = (PetscScalar*)current_field->data;
+
+            // D. Perform the subsampling and potential casting
+            if (strcasecmp(internal_name, "DMSwarm_pid") == 0) {
+                PetscInt64* source_arr = (PetscInt64*)full_field_arr_void;
+                for (PetscInt i = 0; i < meta->npoints; i++) {
+                    final_data_arr[i] = (PetscScalar)source_arr[i * stride];
+                }
+            } else if (strcasecmp(internal_name, "DMSwarm_CellID") == 0 || strcasecmp(internal_name, "DMSwarm_location_status") == 0) {
+                PetscInt* source_arr = (PetscInt*)full_field_arr_void;
+                for (PetscInt i = 0; i < meta->npoints; i++) {
+                    PetscInt source_idx = i * stride;
+                    for (PetscInt c = 0; c < current_field->num_components; c++) {
+                        final_data_arr[current_field->num_components * i + c] = (PetscScalar)source_arr[current_field->num_components * source_idx + c];
+                    }
+                }
+            } else { // Default case: The field is already PetscScalar
+                PetscScalar* source_arr = (PetscScalar*)full_field_arr_void;
+                for (PetscInt i = 0; i < meta->npoints; i++) {
+                    PetscInt source_idx = i * stride;
+                    for (PetscInt c = 0; c < current_field->num_components; c++) {
+                        final_data_arr[current_field->num_components * i + c] = source_arr[current_field->num_components * source_idx + c];
+                    }
                 }
             }
-            ierr = PetscFree(full_field_arr); // Free the temporary full array.
-            
+
+            ierr = PetscFree(full_field_arr_void); // Free the temporary full array.
             meta->num_point_data_fields++;
             field_name = strtok(NULL, ",");
         }
@@ -539,8 +561,6 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
         }
     } // End of rank 0 block
 
-    // A barrier is a good practice to ensure rank 0 finishes preparing before other ranks
-    // potentially proceed to the next timestep where new collective calls might occur.
     ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);

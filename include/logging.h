@@ -691,4 +691,12 @@ PetscErrorCode DualMonitorDestroy(void **ctx);
  */
 PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user);
 
+/**
+ * @brief A function that outputs the name of the current level in the ParticleLocation enum.
+ * @param level The ParticleLocation enum value.
+ * @return A constant character string corresponding to the enum. Returns
+ *        "UNKNOWN_LEVEL" if the enum value is not recognized.
+ */
+const char* ParticleLocationStatusToString(ParticleLocationStatus level); 
+
 #endif // LOGGING_H
