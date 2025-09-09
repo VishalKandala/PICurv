@@ -582,6 +582,7 @@ static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_na
     /* File exists, so we MUST be able to read it. */
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "File for %s found, attempting to read...\n", field_label);
     if(strcasecmp(field_name,"DMSwarm_CellID") == 0 || strcasecmp(field_name,"DMSwarm_pid")== 0 || strcasecmp(field_name,"DMSwarm_location_status")== 0 ) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading integer swarm field '%s'.\n", field_name);
         ierr = ReadSwarmIntField(user,field_name,ti,ext);
     }
     else{
@@ -1023,35 +1024,51 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt
     PetscErrorCode ierr;
     DM             swarm = user->swarm;
     Vec            temp_vec;
-    PetscInt       nlocal, i;
+    PetscInt       nlocal, nglobal, bs, i;
     const PetscScalar *scalar_array; // Read-only pointer from the temp Vec
-    PetscInt          *int_array;    // Writable pointer to the swarm field
+    void           *field_array_void;
+
 
     PetscFunctionBeginUser;
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadSwarmIntField - Reading '%s' via temporary Vec.\n", field_name);
 
-    // 1. Create a temporary Vec to hold the floating-point data (based on mandatory field 'position')
-    DMSwarmVectorDefineField(swarm,"position");
-    
-    ierr = DMCreateGlobalVector(swarm, &temp_vec); CHKERRQ(ierr);
+    // Get the properties of the swarm field to determine the expected layout
+    ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
+    ierr = DMSwarmGetSize(swarm, &nglobal); CHKERRQ(ierr);
+    // We get the block size but not the data pointer yet
+    ierr = DMSwarmGetField(swarm, field_name, &bs, NULL, NULL); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, field_name, &bs, NULL, NULL); CHKERRQ(ierr);
 
-    // 2. Call your existing reader to populate the temporary Vec
+    // Create a temporary Vec with the CORRECT layout to receive the data
+    ierr = VecCreate(PETSC_COMM_WORLD, &temp_vec); CHKERRQ(ierr);
+    ierr = VecSetType(temp_vec, VECMPI); CHKERRQ(ierr);
+    ierr = VecSetSizes(temp_vec, nlocal * bs, nglobal * bs); CHKERRQ(ierr);
+    ierr = VecSetBlockSize(temp_vec, bs); CHKERRQ(ierr);
+    ierr = VecSetUp(temp_vec); CHKERRQ(ierr);
+
+    // Call your existing reader to populate the temporary Vec
     ierr = ReadFieldData(user, field_name, temp_vec, ti, ext); CHKERRQ(ierr);
 
-    // 3. Get local pointers
-    ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
+    // Get local pointers
     ierr = VecGetArrayRead(temp_vec, &scalar_array); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, field_name, NULL, NULL, (void **)&int_array); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, NULL, NULL, &field_array_void); CHKERRQ(ierr);
     
-    // 4. Perform the cast back from PetscScalar to PetscInt
-    for (i = 0; i < nlocal; i++) {
-        // Note: This is a truncating cast, which is correct for this case.
-        int_array[i] = (PetscInt)scalar_array[i];
-    }
+    // Perform the cast back, using the correct loop size (nlocal * bs)
+    if (strcmp(field_name, "DMSwarm_pid") == 0) {
+        PetscInt64 *int64_array = (PetscInt64 *)field_array_void;
+        for (i = 0; i < nlocal * bs; i++) {
+            int64_array[i] = (PetscInt64)scalar_array[i];
+        }
+    } else {
+        PetscInt *int_array = (PetscInt *)field_array_void;
+        for (i = 0; i < nlocal * bs; i++) {
+            int_array[i] = (PetscInt)scalar_array[i];
+        }
+    }    
 
-    // 5. Restore access
-    ierr = DMSwarmRestoreField(swarm, field_name, NULL, NULL, (void **)&int_array); CHKERRQ(ierr);
+    // Restore access
+    ierr = DMSwarmRestoreField(swarm, field_name, NULL, NULL, &field_array_void); CHKERRQ(ierr);
     ierr = VecRestoreArrayRead(temp_vec, &scalar_array); CHKERRQ(ierr);
 
     // 6. Clean up
@@ -1109,7 +1126,7 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
   ierr = ReadOptionalSwarmField(user, "DMSwarm_CellID",          "Cell ID",                    ti, "dat"); CHKERRQ(ierr);
   ierr = ReadOptionalSwarmField(user, "weight",                  "Particle Weight",            ti, "dat"); CHKERRQ(ierr);
   ierr = ReadOptionalSwarmField(user, "Psi",                     "Scalar Psi",                 ti, "dat"); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "DMSwarm_location_status", "Particle Location Status",   ti, "dat"); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "DMSwarm_location_status", "Migration Status",   ti, "dat"); CHKERRQ(ierr);
 
   LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading DMSwarm fields for timestep %d.\n", ti);
   PetscFunctionReturn(0);
@@ -1481,37 +1498,52 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscIn
     PetscErrorCode ierr;
     DM             swarm = user->swarm;
     Vec            temp_vec;       // Temporary Vec to hold casted data
-    PetscInt       nlocal, i;
-    PetscInt       *int_array;     // Pointer to the swarm's integer data
+    PetscInt       nlocal, nglobal,bs,i;
+    void           *field_array_void;
     PetscScalar    *scalar_array;  // Pointer to the temporary Vec's scalar data
 
     PetscFunctionBeginUser;
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Casting '%s' to Vec for writing.\n", field_name);
 
-    // Defining Vector field to mandatory field 'position'
-    ierr = DMSwarmVectorDefineField(swarm,"position");
-    // 1. Create a temporary parallel Vec with a layout compatible with the swarm
-    ierr = DMCreateGlobalVector(swarm, &temp_vec); CHKERRQ(ierr);
-
-    // 2. Get local pointers to the source (int) and destination (scalar) arrays
+    // Get the swarm field properties
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, field_name, NULL, NULL, (void **)&int_array); CHKERRQ(ierr);
+    ierr = DMSwarmGetSize(swarm, &nglobal); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, &bs, NULL, &field_array_void); CHKERRQ(ierr);
+
+    // Create Temporary parallel Vec wit the CORRECT layout
+    ierr = VecCreate(PETSC_COMM_WORLD, &temp_vec); CHKERRQ(ierr);
+    ierr = VecSetType(temp_vec, VECMPI); CHKERRQ(ierr);
+    ierr = VecSetSizes(temp_vec, nlocal*bs, nglobal*bs); CHKERRQ(ierr);
+    ierr = VecSetUp(temp_vec); CHKERRQ(ierr);
+
+    // Defining Vector field to mandatory field 'position'
+    DMSwarmVectorDefineField(swarm,"position");
+              
     ierr = VecGetArray(temp_vec, &scalar_array); CHKERRQ(ierr);
 
-    // 3. Perform the cast from PetscInt to PetscScalar
-    for (i = 0; i < nlocal; i++) {
-        scalar_array[i] = (PetscScalar)int_array[i];
+    if(strcasecmp(field_name,"DMSwarm_pid") == 0){
+        PetscInt64 *int64_array = (PetscInt64 *)field_array_void;
+        // Perform the cast from PetscInt64 to PetscScalar
+        for (i = 0; i < nlocal*bs; i++) {
+            scalar_array[i] = (PetscScalar)int64_array[i];
+        }
+    }else{
+        PetscInt *int_array = (PetscInt *)field_array_void;
+        //Perform the cast from PetscInt to PetscScalar
+        for (i = 0; i < nlocal*bs; i++) {
+            scalar_array[i] = (PetscScalar)int_array[i];
+        }
     }
 
-    // 4. Restore access to both arrays
+    // Restore access to both arrays
     ierr = VecRestoreArray(temp_vec, &scalar_array); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, field_name, NULL, NULL, (void **)&int_array); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, field_name, &bs, NULL, &field_array_void); CHKERRQ(ierr);
 
-    // 5. Call your existing writer with the temporary, populated Vec
+    // Call your existing writer with the temporary, populated Vec
     ierr = WriteFieldData(user, field_name, temp_vec, ti, ext); CHKERRQ(ierr);
 
-    // 6. Clean up
+    // Clean up
     ierr = VecDestroy(&temp_vec); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
@@ -1566,6 +1598,9 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user)
 
     // Write the particle location status (e.g., inside or outside the domain)
     ierr = WriteSwarmIntField(user, "DMSwarm_location_status", simCtx->step, "dat"); CHKERRQ(ierr);
+
+    // Write the unique particle ID
+    ierr = WriteSwarmIntField(user, "DMSwarm_pid", simCtx->step, "dat"); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "WriteAllSwarmFields - Finished writing swarm fields.\n");
 
@@ -1663,66 +1698,91 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
 }
 
 /**
- * @brief Gathers a distributed DMSwarm field into a single C array on rank 0.
+ * @brief Gathers any DMSwarm field from all ranks to a single, contiguous array on rank 0.
  *
- * This is a high-performance helper specifically for post-processing I/O. It
- * directly accesses local swarm data and uses MPI_Gatherv to collect it on rank 0,
- * avoiding the overhead of creating an intermediate PETSc Vec object.
+ * This is a generic, type-aware version of SwarmFieldToArrayOnRank0.
+ * It is a COLLECTIVE operation.
  *
- * @param[in]  swarm             The DMSwarm object.
- * @param[in]  field_name        The name of the field to gather (e.g., "velocity").
- * @param[out] out_n_global      On rank 0, contains the total number of particles. 0 on other ranks.
- * @param[out] out_n_components  On rank 0, contains the number of components for the field. 0 on other ranks.
- * @param[out] out_data_rank0    On rank 0, a pointer to a newly allocated array with the gathered data.
- *                               The caller is responsible for freeing this memory.
+ * @param[in]  swarm             The DMSwarm to gather from.
+ * @param[in]  field_name        The name of the field to gather.
+ * @param[out] n_total_particles (Output on rank 0) Total number of particles in the global swarm.
+ * @param[out] n_components      (Output on rank 0) Number of components for the field.
+ * @param[out] gathered_array    (Output on rank 0) A newly allocated array containing the full, gathered data.
+ *                               The caller is responsible for freeing this memory and for casting it to the correct type.
  * @return PetscErrorCode
  */
-PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char* field_name, PetscInt *out_n_global, PetscInt *out_n_components, PetscScalar **out_data_rank0)
+PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name, PetscInt *n_total_particles, PetscInt *n_components, void **gathered_array)
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank, size;
-    PetscInt       n_local, n_global, n_comp;
-    PetscScalar    *local_data;
+    PetscInt       nlocal, nglobal, bs;
+    void           *local_array_void;
+    size_t         element_size = 0;
+    MPI_Datatype   mpi_type = MPI_BYTE; // We'll send raw bytes
 
     PetscFunctionBeginUser;
+
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
 
-    // Access the raw local data pointer and field info
-    ierr = DMSwarmGetLocalSize(swarm, &n_local); CHKERRQ(ierr);
-    ierr = DMSwarmGetSize(swarm, &n_global); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, field_name, &n_comp, NULL, (void**)&local_data); CHKERRQ(ierr);
-
-    // --- MPI_Gatherv Implementation ---
-    PetscInt *recvcounts = NULL, *displs = NULL;
-    if (rank == 0) {
-        ierr = PetscMalloc1(size, &recvcounts); CHKERRQ(ierr);
-        ierr = PetscMalloc1(size, &displs); CHKERRQ(ierr);
-        ierr = PetscMalloc1(n_global * n_comp, out_data_rank0); CHKERRQ(ierr);
+    // All ranks get swarm properties to determine send/receive counts
+    ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
+    ierr = DMSwarmGetSize(swarm, &nglobal); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, &bs, NULL, &local_array_void); CHKERRQ(ierr);
+    
+    // Determine the size of one element of the field's data type
+    if (strcasecmp(field_name, "DMSwarm_pid") == 0) {
+        element_size = sizeof(PetscInt64);
+    } else if (strcasecmp(field_name, "DMSwarm_CellID") == 0 || strcasecmp(field_name, "DMSwarm_location_status") == 0) {
+        element_size = sizeof(PetscInt);
+    } else {
+        element_size = sizeof(PetscScalar);
     }
-    PetscInt sendcount = n_local * n_comp;
-    ierr = MPI_Gather(&sendcount, 1, MPIU_INT, recvcounts, 1, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
     if (rank == 0) {
-        displs[0] = 0;
-        for (int i = 1; i < size; i++) {
-            displs[i] = displs[i - 1] + recvcounts[i - 1];
+        *n_total_particles = nglobal;
+        *n_components = bs;
+        *gathered_array = NULL; // Initialize output
+    }
+
+    if (size == 1) { // Serial case is a simple copy
+        if (rank == 0) {
+            ierr = PetscMalloc(nglobal * bs * element_size, gathered_array); CHKERRQ(ierr);
+            ierr = PetscMemcpy(*gathered_array, local_array_void, nglobal * bs * element_size); CHKERRQ(ierr);
+        }
+    } else { // Parallel case: use MPI_Gatherv
+        PetscInt *recvcounts = NULL, *displs = NULL;
+        if (rank == 0) {
+            ierr = PetscMalloc1(size, &recvcounts); CHKERRQ(ierr);
+            ierr = PetscMalloc1(size, &displs); CHKERRQ(ierr);
+        }
+        PetscInt sendcount = nlocal * bs;
+        
+        // Gather the number of elements (not bytes) from each rank
+        ierr = MPI_Gather(&sendcount, 1, MPIU_INT, recvcounts, 1, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+        if (rank == 0) {
+            displs[0] = 0;
+            // Convert counts and calculate displacements in terms of BYTES
+            for (PetscMPIInt i = 0; i < size; i++) recvcounts[i] *= element_size;
+            for (PetscMPIInt i = 1; i < size; i++) displs[i] = displs[i-1] + recvcounts[i-1];
+            
+            ierr = PetscMalloc(nglobal * bs * element_size, gathered_array); CHKERRQ(ierr);
+        }
+        
+        // Use Gatherv with MPI_BYTE to handle any data type generically
+        ierr = MPI_Gatherv(local_array_void, nlocal * bs * element_size, MPI_BYTE,
+                           *gathered_array, recvcounts, displs, MPI_BYTE,
+                           0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+        if (rank == 0) {
+            ierr = PetscFree(recvcounts); CHKERRQ(ierr);
+            ierr = PetscFree(displs); CHKERRQ(ierr);
         }
     }
-    ierr = MPI_Gatherv(local_data, sendcount, MPIU_SCALAR,
-                       (rank == 0) ? *out_data_rank0 : NULL, recvcounts, displs, MPIU_SCALAR,
-                       0, PETSC_COMM_WORLD); CHKERRQ(ierr);
-    // --- End MPI_Gatherv ---
 
-    ierr = DMSwarmRestoreField(swarm, field_name, &n_comp, NULL, (void**)&local_data); CHKERRQ(ierr);
-    
-    if (rank == 0) {
-        *out_n_global = n_global;
-        *out_n_components = n_comp;
-        ierr = PetscFree(recvcounts); CHKERRQ(ierr);
-        ierr = PetscFree(displs); CHKERRQ(ierr);
-    } else {
-        *out_n_global = 0; *out_n_components = 0; *out_data_rank0 = NULL;
-    }
+    ierr = DMSwarmRestoreField(swarm, field_name, &bs, NULL, &local_array_void); CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
 }
 

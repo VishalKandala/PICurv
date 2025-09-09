@@ -868,3 +868,21 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
 
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief A function that outputs the name of the current level in the ParticleLocation enum.
+ * @param level The ParticleLocation enum value.
+ * @return A constant character string corresponding to the enum. Returns
+ *        "UNKNOWN_LEVEL" if the enum value is not recognized.
+ */
+const char* ParticleLocationStatusToString(ParticleLocationStatus level) 
+{
+    switch (level) {
+        case NEEDS_LOCATION:        return "NEEDS_LOCATION";
+        case ACTIVE_AND_LOCATED: return "ACTIVE_AND_LOCATED";
+        case MIGRATING_OUT:     return "MIGRATING_OUT";
+        case LOST:               return "LOST";
+        case UNINITIALIZED:      return "UNINITIALIZED";
+        default:            return "UNKNOWN_LEVEL";
+    }
+}

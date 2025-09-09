@@ -543,6 +543,8 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
         PetscFunctionReturn(0);
     }
 
+    ierr = PetscMemzero(&part_meta, sizeof(VTKMetaData)); CHKERRQ(ierr);
+
     // --- 1. PREPARE (Collective Call) ---
     ierr = PrepareOutputParticleData(user, pps, &part_meta, &n_total_particles_before_subsample); CHKERRQ(ierr);
 
@@ -630,7 +632,7 @@ int main(int argc, char **argv)
             
             // 2. Load particle data into the correctly sized swarm
             ierr = ReadAllSwarmFields(user, ti); CHKERRQ(ierr);
-
+            
             // 3. Transform particle data
             ierr = ParticleDataProcessingPipeline(user, pps); CHKERRQ(ierr);
             

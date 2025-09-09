@@ -305,21 +305,20 @@ PetscInt CreateVTKFileFromMetadata(const char       *filename,
 PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut);
 
 /**
- * @brief Gathers a distributed DMSwarm field into a single C array on rank 0.
+ * @brief Gathers any DMSwarm field from all ranks to a single, contiguous array on rank 0.
  *
- * This is a high-performance helper specifically for post-processing I/O. It
- * directly accesses local swarm data and uses MPI_Gatherv to collect it on rank 0,
- * avoiding the overhead of creating an intermediate PETSc Vec object.
+ * This is a generic, type-aware version of SwarmFieldToArrayOnRank0.
+ * It is a COLLECTIVE operation.
  *
- * @param[in]  swarm             The DMSwarm object.
- * @param[in]  field_name        The name of the field to gather (e.g., "velocity").
- * @param[out] out_n_global      On rank 0, contains the total number of particles. 0 on other ranks.
- * @param[out] out_n_components  On rank 0, contains the number of components for the field. 0 on other ranks.
- * @param[out] out_data_rank0    On rank 0, a pointer to a newly allocated array with the gathered data.
- *                               The caller is responsible for freeing this memory.
+ * @param[in]  swarm             The DMSwarm to gather from.
+ * @param[in]  field_name        The name of the field to gather.
+ * @param[out] n_total_particles (Output on rank 0) Total number of particles in the global swarm.
+ * @param[out] n_components      (Output on rank 0) Number of components for the field.
+ * @param[out] gathered_array    (Output on rank 0) A newly allocated array containing the full, gathered data.
+ *                               The caller is responsible for freeing this memory and for casting it to the correct type.
  * @return PetscErrorCode
  */
-PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char* field_name, PetscInt *out_n_global, PetscInt *out_n_components, PetscScalar **out_data_rank0);
+PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name, PetscInt *n_total_particles, PetscInt *n_components, void **gathered_array);
 
 /**
  * @brief Reads data from a file into a specified field of a PETSc DMSwarm.
