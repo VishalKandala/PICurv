@@ -1638,6 +1638,8 @@ void          *cornerPtr  = NULL;       // Will hold the typed corner array
 }
 */
 
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateAllFieldsToSwarm"
  /**
  * @brief Interpolates all relevant fields from the DMDA to the DMSwarm.
  *
@@ -1662,6 +1664,8 @@ PetscErrorCode InterpolateAllFieldsToSwarm(UserCtx *user)
   PetscErrorCode ierr;
   PetscMPIInt rank;
   PetscFunctionBegin;
+
+  PROFILE_FUNCTION_BEGIN;
 
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
 
@@ -1706,6 +1710,8 @@ PetscErrorCode InterpolateAllFieldsToSwarm(UserCtx *user)
   ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
   LOG_ALLOW(LOCAL, LOG_INFO,
 	    "[rank %d]Completed Interpolateting all fields to the swarm.\n",rank);
+
+PROFILE_FUNCTION_END;
 
   PetscFunctionReturn(0);
 }
@@ -2199,7 +2205,8 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "ScatterAllParticleFieldsToEulerFields"
 /**
  * @brief Scatters a predefined set of particle fields to their corresponding Eulerian fields.
  * @ingroup scatter_module
@@ -2224,6 +2231,7 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting scattering of specified particle fields to Eulerian grids.\n");
 
@@ -2309,6 +2317,7 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
     // Add more fields as needed following the pattern above...
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished scattering specified particle fields.\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 

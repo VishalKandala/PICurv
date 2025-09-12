@@ -946,6 +946,8 @@ static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
 #define TW  17
 #define BW  18
 
+#undef __FUNCT__
+#define __FUNCT__ "Projection"
 /**
  * @brief Performs the projection step to enforce an incompressible velocity field.
  *
@@ -986,6 +988,7 @@ static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
 PetscErrorCode Projection(UserCtx *user)
 {
   PetscFunctionBeginUser;
+  PROFILE_FUNCTION_BEGIN;  
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering Projection step to correct velocity field.\n");
 
   //================================================================================
@@ -1503,9 +1506,12 @@ PetscErrorCode Projection(UserCtx *user)
   GhostNodeVelocity(user);
 
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting Projection step.\n");
+  PROFILE_FUNCTION_END;
   PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "UpdatePressure"
 /**
  * @brief Updates the pressure field and handles periodic boundary conditions.
  *
@@ -1536,6 +1542,7 @@ PetscErrorCode Projection(UserCtx *user)
 PetscErrorCode UpdatePressure(UserCtx *user)
 {
   PetscFunctionBeginUser;
+  PROFILE_FUNCTION_BEGIN;
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering UpdatePressure.\n");
 
   //================================================================================
@@ -1697,6 +1704,7 @@ PetscErrorCode UpdatePressure(UserCtx *user)
   UpdateLocalGhosts(user,"Phi");
   
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting UpdatePressure.\n");
+  PROFILE_FUNCTION_END;
   PetscFunctionReturn(0);
 }
 
@@ -3994,6 +4002,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
     UserCtx *user;
 
     PetscFunctionBeginUser; // Moved to after variable declarations
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting Multigrid Poisson Solve...\n");
 
     for (bi = 0; bi < block_number; bi++) {
@@ -4209,5 +4218,6 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
     } // End of loop over blocks
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Multigrid Poisson Solve complete.\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

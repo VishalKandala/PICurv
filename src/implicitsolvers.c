@@ -167,6 +167,7 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
     PetscReal *normF0_bk, *normF1_bk, *normF_bk, *relF_bk, *lambda;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Executing implicit-like RK solver (ImpRK) for %d block(s).\n", block_number);
 
@@ -385,5 +386,6 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
     ierr = PetscFree(relF_bk); CHKERRQ(ierr);
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "ImpRK solve completed after %d iterations.\n", pseudot);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

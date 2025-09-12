@@ -195,6 +195,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     PetscInt removed_local_lost, removed_global_lost;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting main time-marching loop: %d steps from step %d (t=%.4f), dt=%.4f\n",
               StepsToRun, StartStep, simCtx->StartTime, dt);
 
@@ -290,5 +291,6 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     } // --- End of Time-Marching Loop ---
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", simCtx->ti + dt);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
