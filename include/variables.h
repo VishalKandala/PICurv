@@ -605,6 +605,11 @@ typedef struct SimCtx {
     PetscReal summationRHS;
     PetscReal MaxDiv;
     PetscInt  MaxDivFlatArg, MaxDivx,MaxDivy,MaxDivz;
+    // Profiling 
+    char      criticalFuncsFile[PETSC_MAX_PATH_LEN];
+    PetscBool useCriticalFuncsCfg;
+    char      **criticalFuncs;
+    PetscInt  nCriticalFuncs;
 
     //================ Group 12: Post-Processing =================================================
     char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];

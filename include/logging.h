@@ -699,4 +699,73 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user);
  */
 const char* ParticleLocationStatusToString(ParticleLocationStatus level); 
 
+/**
+ * @brief Initializes the custom profiling system using configuration from SimCtx.
+ *
+ * This function sets up the internal data structures for tracking function
+ * performance. It reads the list of "critical functions" from the provided
+ * SimCtx and marks them for per-step logging at LOG_INFO level.
+ *
+ * It should be called once at the beginning of the application, after
+ * CreateSimulationContext() but before the main time loop.
+ *
+ * @param simCtx The master simulation context, which contains the list of
+ *               critical function names to always log.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ProfilingInitialize(SimCtx *simCtx);
+
+/**
+ * @brief Logs the performance summary for the current timestep and resets timers.
+ *
+ * Depending on the current log level, this function will print:
+ * - LOG_PROFILE: Timings for ALL functions called during the step.
+ * - LOG_INFO/LOG_DEBUG: Timings for only the "always log" functions.
+ *
+ * It must be called once per timestep, typically at the end of the main loop.
+ * After logging, it resets the per-step counters and timers.
+ *
+ * @param step The current simulation step number, for logging context.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ProfilingLogTimestepSummary(PetscInt step);
+
+/**
+ * @brief Prints the final, cumulative performance summary and cleans up resources.
+ *
+ * This should be called once at the end of the simulation, before PetscFinalize().
+ * It prints a table with total time, call count, and average time per call for
+ * every function that was profiled. This summary is only printed if the log level
+ * is LOG_PROFILE.
+ *
+ * @return PetscErrorCode
+ */
+PetscErrorCode ProfilingFinalize(void);
+
+
+// --- Internal functions, do not call directly ---
+// These are called by the macros below.
+void _ProfilingStart(const char *func_name);
+void _ProfilingEnd(const char *func_name);
+
+
+/**
+ * @brief Marks the beginning of a profiled code block (typically a function).
+ *
+ * Place this macro at the very beginning of a function you wish to profile.
+ * It automatically captures the function's name and starts a wall-clock timer.
+ */
+#define PROFILE_FUNCTION_BEGIN \
+    _ProfilingStart(__FUNCT__)
+
+/**
+ * @brief Marks the end of a profiled code block.
+ *
+ * Place this macro just before every return point in a function that starts
+ * with PROFILE_FUNCTION_BEGIN. It stops the timer and accumulates the results.
+ */
+#define PROFILE_FUNCTION_END \
+    _ProfilingEnd(__FUNCT__)
+
+
 #endif // LOGGING_H

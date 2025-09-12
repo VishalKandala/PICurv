@@ -139,7 +139,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->summationRHS = 0.0;
     simCtx->MaxDiv = 0.0;
     simCtx->MaxDivFlatArg = 0; simCtx->MaxDivx = 0; simCtx->MaxDivy = 0; simCtx->MaxDivz = 0;
-    
+    strcpy(simCtx->criticalFuncsFile, "config/profile.cfg");
+    simCtx->useCriticalFuncsCfg =  PETSC_FALSE;
+    simCtx->criticalFuncs = NULL;
+    simCtx->nCriticalFuncs = 0;
     // --- Group 11: Post-Processing Information ---
     strcpy(simCtx->PostprocessingControlFile, "config/postprocess.cfg");
     ierr = PetscNew(&simCtx->pps); CHKERRQ(ierr);
@@ -159,7 +162,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
         CHKERRQ(ierr); // A different error occurred, so we should stop.
     }
     
-    // === 3. Configure Logging System ========================================
+    // === 3. A Configure Logging System ========================================
     // This logic determines the logging configuration and STORES it in simCtx for
     // later reference and cleanup.
     ierr = PetscOptionsGetString(NULL, NULL, "-func_config_file", simCtx->allowedFile, PETSC_MAX_PATH_LEN, &simCtx->useCfg); CHKERRQ(ierr);
@@ -187,6 +190,29 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // Now that the logger is configured, we can use it.
     LOG_ALLOW(LOCAL, LOG_INFO, "Context created. Initializing on rank %d of %d.\n", simCtx->rank, simCtx->size);
     print_log_level(); // This will now correctly reflect the LOG_LEVEL environment variable.
+
+    // === 3.B Configure Profiling System ========================================
+    ierr = PetscOptionsGetString(NULL, NULL, "-profile_config_file", simCtx->criticalFuncsFile, PETSC_MAX_PATH_LEN, &simCtx->useCriticalFuncsCfg); CHKERRQ(ierr);
+        if (simCtx->useCriticalFuncsCfg) {
+        ierr = LoadAllowedFunctionsFromFile(simCtx->criticalFuncsFile, &simCtx->criticalFuncs, &simCtx->nCriticalFuncs);
+        if (ierr) {
+            PetscPrintf(PETSC_COMM_SELF, "[%s] WARNING: Failed to load critical profiling functions from '%s'. Falling back to default list.\n", __func__, simCtx->criticalFuncsFile);
+            simCtx->useCriticalFuncsCfg = PETSC_FALSE;
+            ierr = 0;
+        }
+    }
+    if (!simCtx->useCriticalFuncsCfg) {
+        // Fallback to a hardcoded default list if no file or loading failed
+        simCtx->nCriticalFuncs = 4;
+        ierr = PetscMalloc1(simCtx->nCriticalFuncs, &simCtx->criticalFuncs); CHKERRQ(ierr);
+        ierr = PetscStrallocpy("Flow_Solver", &simCtx->criticalFuncs[0]); CHKERRQ(ierr);
+        ierr = PetscStrallocpy("AdvanceSimulation", &simCtx->criticalFuncs[1]); CHKERRQ(ierr);
+        ierr = PetscStrallocpy("LocateAllParticlesInGrid_TEST", &simCtx->criticalFuncs[2]); CHKERRQ(ierr);
+        ierr = PetscStrallocpy("InterpolateAllFieldsToSwarm", &simCtx->criticalFuncs[3]); CHKERRQ(ierr);
+    }
+
+    // Initialize the profiling system with the current updated simulation context.
+    ierr = ProfilingInitialize(simCtx); CHKERRQ(ierr);
 
     // === 4. Parse All Command Line Options ==================================
     LOG_ALLOW(GLOBAL, LOG_INFO, "Parsing command-line options...\n");

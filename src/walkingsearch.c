@@ -134,7 +134,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Edge2 (v4-v1): (%.6e, %.6e, %.6e)\n", edge2_x, edge2_y, edge2_z);
 
     // --- Compute Initial Normal Vector (Cross Product: edge1 x edge2) ---
-    PetscReal normal_x_initial = edge1_y * edge2_z - edge1_z * edge2_y;
+    PetscReal normal_x_initial = edge1_y * edge2_z - edge1_z * edge2_y;  
     PetscReal normal_y_initial = edge1_z * edge2_x - edge1_x * edge2_z;
     PetscReal normal_z_initial = edge1_x * edge2_y - edge1_y * edge2_x;
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Initial Raw Normal (edge1 x edge2): (%.6e, %.6e, %.6e)\n", normal_x_initial, normal_y_initial, normal_z_initial);
@@ -154,7 +154,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_USER, "Degenerate plane detected (normal vector is near zero).");
     }
 
-    // --- Calculate the Centroid of the Four Face Vertices (v1, v2, v3, v4) ---
+    // --- Calculate the Centroid of the Four Face Vertices (v1, v2, v3, v4) ---    
     PetscReal face_centroid_x = 0.25 * (v1.x + v2.x + v3.x + v4.x);
     PetscReal face_centroid_y = 0.25 * (v1.y + v2.y + v3.y + v4.y);
     PetscReal face_centroid_z = 0.25 * (v1.z + v2.z + v3.z + v4.z);
@@ -1115,7 +1115,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget_TEST(UserCtx *user,
     // --- 1. Initialize the Search ---
     ierr = InitializeTraversalParameters(user, particle, &idx, &idy, &idz, &traversal_steps); CHKERRQ(ierr);
 
-    LOG_ALLOW(LOCAL,LOG_INFO, " The Threshold for considering a particle to be at a face is %.9f.\n",DISTANCE_THRESHOLD);
+    LOG_ALLOW(LOCAL,LOG_INFO, " The Threshold for considering a particle to be at a face is %.16f.\n",DISTANCE_THRESHOLD);
     
     LOG_ALLOW(LOCAL,LOG_DEBUG," [PID %lld]Traversal Initiated at : i = %d, j = %d, k = %d.\n",(long long)particle->PID,idx,idy,idz); 
     
@@ -1124,7 +1124,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget_TEST(UserCtx *user,
         traversal_steps++;
 
         // --- 2a. GLOBAL Domain Boundary Check ---
-        if (idx < 0 || idx >= user->IM || idy < 0 || idy >= user->JM || idz < 0 || idz >= user->KM) {
+        if (idx < 0 || idx >= (user->IM - 1) || idy < 0 || idy >= (user->JM - 1) || idz < 0 || idz >= (user->KM - 1)) {
             LOG_ALLOW(LOCAL, LOG_WARNING, "[PID %lld]: Walked outside GLOBAL domain boundaries to invalid cell (%d,%d,%d). Search fails.\n",
                       (long long)particle->PID, idx, idy, idz);
             idx = -1; // Invalidate the result to signal failure

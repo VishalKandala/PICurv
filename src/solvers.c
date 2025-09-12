@@ -32,6 +32,7 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
     PetscReal      tm_s, tm_e, tp_e, tpr_e; // Timers for profiling
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "[Step %d] Entering Flow_Solver orchestrator...\n", simCtx->step);
 
     /*
@@ -214,5 +215,6 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
                     simCtx->step, tm_e - tm_s, tp_e - tm_e, tpr_e - tp_e, tpr_e - tm_s);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Flow_Solver orchestrator finished for step %d.\n", simCtx->step);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
