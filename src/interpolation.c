@@ -396,9 +396,9 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector( // Or original name if
     PetscInt zs_node = info_nodes.zs, zm_node = info_nodes.zm, ze_node = zs_node + zm_node;
 
     // Global grid dimensions (NODES) - Used for global cell index check
-    PetscInt MX_node = info_nodes.mx;
-    PetscInt MY_node = info_nodes.my;
-    PetscInt MZ_node = info_nodes.mz;
+    PetscInt MX_node = user->IM; //info_nodes.mx;
+    PetscInt MY_node = user->JM; //info_nodes.my;
+    PetscInt MZ_node = user->KM; //info_nodes.mz;
     PetscInt IM = MX_node - 1; // Max cell index i
     PetscInt JM = MY_node - 1; // Max cell index j
     PetscInt KM = MZ_node - 1; // Max cell index k
@@ -479,9 +479,9 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector( // Or original name if
 			    
 
 			    
-                            if (cell_idx_i >= 0 && cell_idx_i <= IM - 1 && // Cell index check
-                                cell_idx_j >= 0 && cell_idx_j <= JM - 1 &&
-                                cell_idx_k >= 0 && cell_idx_k <= KM - 1)
+                            if (cell_idx_i >= 0 && cell_idx_i <= MX_node && // Cell index check
+                                cell_idx_j >= 0 && cell_idx_j <= MY_node &&
+                                cell_idx_k >= 0 && cell_idx_k <= MZ_node)
                             {
                             
 			      /*
@@ -506,9 +506,14 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector( // Or original name if
 					      cell_idx_k, cell_idx_j, cell_idx_i);
 
 				    attempted_read = PETSC_TRUE; // Mark that we are attempting a read
-
+                                    
+                                    // Convert GLOBAL neighbor index to LOCAL index for reading from the ghosted array
+                                    PetscInt k_local_read = node_idx_k - gzs_node;
+                                    PetscInt j_local_read = node_idx_j - gys_node;
+                                    PetscInt i_local_read = node_idx_i - gxs_node;
                                     // ---> READ <---
-                                    Cmpnts cell_val = centfield_arr[node_idx_k][node_idx_j][node_idx_i];
+                                    Cmpnts cell_val = centfield_arr[k_local_read][j_local_read][i_local_read];
+//                                  Cmpnts cell_val = centfield_arr[node_idx_k][node_idx_j][node_idx_i];
 
                                     // Log success immediately after read
                                     LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_DEBUG,k,6,"POST-READ: Rank %d successful read from [%d][%d][%d] -> (%.2f, %.2f, %.2f)\n",
@@ -535,7 +540,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector( // Or original name if
 		// Local indices range from 0 to (zm-1, ym-1, xm-1)
 		PetscInt k_local = k - zs_node; // Offset by the starting global index
 		PetscInt j_local = j - ys_node;
-                PetscInt i_local = i - xs_node;
+        PetscInt i_local = i - xs_node;
                 // Calculate average and write to output node (k,j,i)
                 if (count > 0) {
 		  LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_DEBUG,k,6,"PRE-WRITE: Rank %d targeting Node(k,j,i)=%d,%d,%d. Writing avg (count=%d)\n", rank,k,j,i, count);
