@@ -152,6 +152,58 @@ PetscErrorCode PerformInitialSetup(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "FinalizeRestartState"
+/**
+ * @brief Performs post-load/post-init consistency checks for a restarted simulation.
+ *
+ * This function is called from main() ONLY when a restart is being performed
+ * (i.e., StartStep > 0). It inspects the particle restart mode to determine the
+ * correct finalization procedure for the Lagrangian swarm.
+ *
+ * - If particles were loaded from a file (`mode == "load"`), it verifies their
+ *   locations within the grid to establish necessary runtime links.
+ * - If new particles were initialized into the restarted flow (`mode == "init"`),
+ *   it runs the full `PerformInitialSetup` sequence to migrate, locate, and
+ *   couple the new particles with the existing fluid state.
+ *
+ * @param simCtx The main simulation context.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    UserCtx       *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+
+    PetscFunctionBeginUser;
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Finalizing RESTART from state (step=%d, t=%.4f) ---\n", simCtx->step, simCtx->ti);
+
+    // This function only needs to handle the particle finalization logic.
+    // The Eulerian state is assumed to be fully loaded and consistent at this point.
+    if (simCtx->np > 0) {
+
+        // Use the particle restart mode to decide the workflow.
+        if (strcmp(simCtx->particleRestartMode, "load") == 0) {
+            // PARTICLES WERE LOADED: The state is complete, but we must verify
+            // the loaded CellIDs and build the in-memory grid-to-particle links.
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Mode 'load': Verifying particle locations and building grid links...\n");
+            ierr = LocateAllParticlesInGrid_TEST(user, simCtx->bboxlist); CHKERRQ(ierr);
+
+        } else { // Mode must be "init"
+            // PARTICLES WERE RE-INITIALIZED: They need to be fully settled and coupled
+            // to the surrounding (restarted) fluid state.
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Mode 'init': Running full initial setup for new particles in restarted flow.\n");
+            ierr = PerformInitialSetup(simCtx); CHKERRQ(ierr);
+        }
+    } else {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, restart finalization is complete.\n");
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Restart state successfully finalized. ---\n\n");
+
+    PetscFunctionReturn(0);
+}
 
 #undef __FUNCT__
 #define __FUNCT__ "AdvanceSimulation"

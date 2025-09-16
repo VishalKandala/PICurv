@@ -80,4 +80,22 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx);
  */
 PetscErrorCode PerformInitialSetup(SimCtx *simCtx);
 
+/**
+ * @brief Performs post-load/post-init consistency checks for a restarted simulation.
+ *
+ * This function is called from main() ONLY when a restart is being performed
+ * (i.e., StartStep > 0). It inspects the particle restart mode to determine the
+ * correct finalization procedure for the Lagrangian swarm.
+ *
+ * - If particles were loaded from a file (`mode == "load"`), it verifies their
+ *   locations within the grid to establish necessary runtime links.
+ * - If new particles were initialized into the restarted flow (`mode == "init"`),
+ *   it runs the full `PerformInitialSetup` sequence to migrate, locate, and
+ *   couple the new particles with the existing fluid state.
+ *
+ * @param simCtx The main simulation context.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode FinalizeRestartState(SimCtx *simCtx);
+
 #endif  // SIMULATION_H

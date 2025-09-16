@@ -2131,7 +2131,7 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
     MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
     MPI_Allreduce(&Fluxbcs,&Fluxbcssum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
  
-    if (simCtx->step==simCtx->StartStep && simCtx->rstart_flg && simCtx->ccc==0) {
+    if (simCtx->step==simCtx->StartStep && simCtx->StartStep > 0 && simCtx->ccc==0) {
       simCtx->ccc=1;
       simCtx->FluxInSum=Fluxbcssum;
 //	simCtx->FluxInSum=6.3908; 

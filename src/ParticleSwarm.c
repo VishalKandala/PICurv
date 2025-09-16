@@ -1149,98 +1149,85 @@
         PetscFunctionReturn(0);
     }
 
+/**
+ * @brief Initializes or loads the particle swarm based on the simulation context.
+ *
+ * This function is the central point for setting up the DMSwarm. Its behavior
+ * depends on the simulation context (simCtx):
+ *
+ * 1.  **Fresh Start (simCtx->StartStep == 0):** A new particle population is
+ *     generated according to the specified initial conditions.
+ *
+ * 2.  **Restart (simCtx->StartStep > 0):**
+ *     - If `simCtx->particleRestartMode` is "init", a new particle population
+ *       is generated, just like a fresh start. This allows injecting fresh
+ *       particles into a pre-computed flow field.
+ *     - If `simCtx->particleRestartMode` is "load", the particle state is loaded
+ *       from restart files corresponding to the StartStep.
+ *
+ * @param[in,out] simCtx Pointer to the main SimulationContext, which contains all
+ *                       configuration and provides access to the UserCtx.
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+#undef __FUNCT__
+#define __FUNCT__ "InitializeParticleSwarm"
+PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscInt       particlesPerProcess = 0;
+    UserCtx       *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
 
-    /**
-     * @brief Perform particle swarm initialization, particle-grid interaction, and related operations.
-     *
-     * This function handles the following tasks:
-     * 1. Initializes the particle swarm using the provided bounding box list (bboxlist) to determine initial placement
-     *    if ParticleInitialization is 0.
-     * 2. Locates particles within the computational grid.
-     * 3. Updates particle positions based on grid interactions (if such logic exists elsewhere in the code).
-     * 4. Interpolates particle velocities from grid points using trilinear interpolation.
-     *
-     * @param[in,out] user     Pointer to the UserCtx structure containing grid and particle swarm information.
-     * @param[in]     np       Number of particles to initialize in the swarm.
-     * @param[in]     bboxlist Pointer to an array of BoundingBox structures, one per MPI rank.
-     *
-     * @return PetscErrorCode Returns 0 on success, non-zero on failure.
-     *
-     * @note
-     * - Ensure that `np` (number of particles) is positive.
-     * - The `bboxlist` array must be correctly computed and passed in before calling this function.
-     * - If ParticleInitialization == 0, particles will be placed at the midpoint of the local bounding box.
-     */
-    PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
-    {
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
-        PetscErrorCode ierr;
-        PetscInt particlesPerProcess = 0;         // Number of particles assigned to the local MPI process.
-        PetscRandom randx,randy,randz;     // Random number generators[x,y,z]. (used if ParticleInitialization==1).
-        PetscRandom rand_logic_i, rand_logic_j,rand_logic_k; // RNGs for Logical space.
-        PetscInt    start_step = simCtx->StartStep;
-        PetscInt    np = simCtx->np;
-        BoundingBox    *bboxlist = simCtx->bboxlist;
-        UserCtx *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
-        
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Starting particle swarm Initialization with %d particles.\n", np);
-        
-        // Step 1: Create and initialize the particle swarm
-        // Here we pass in the bboxlist, which will be used by CreateParticleSwarm() and subsequently
-        // by AssignInitialProperties() to position particles if ParticleInitialization == 0.
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Creating particle swarm.\n");
-        ierr = CreateParticleSwarm(user, np, &particlesPerProcess,bboxlist); CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Particle swarm created successfully.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting particle swarm setup for %d particles.\n", simCtx->np);
 
-        ierr = PetscOptionsGetInt(NULL, NULL, "-rstart", &start_step, NULL); CHKERRQ(ierr);
+    // --- Phase 1: Create the DMSwarm Object (Always required) ---
+    // This creates the container and registers the fields. It does not add particles yet.
+    ierr = CreateParticleSwarm(user, simCtx->np, &particlesPerProcess, simCtx->bboxlist); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "DMSwarm object and fields created successfully.\n");
 
-        if(start_step == 0){
-        
-        // Create the RNGs
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Initializing physical space RNGs.\n");
-        ierr = InitializeRandomGenerators(user, &randx, &randy, &randz); CHKERRQ(ierr);
-        
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Initializing logical space RNGs [0,1).\n");
-        ierr = InitializeLogicalSpaceRNGs(&rand_logic_i, &rand_logic_j, &rand_logic_k); CHKERRQ(ierr);
-        // Assign initial properties to particles
-        // The bboxlist array is passed here so that if ParticleInitialization == 0,
-        // particles can be placed at the midpoint of the local bounding box corresponding to this rank.
-        ierr = AssignInitialPropertiesToSwarm(user, particlesPerProcess, &randx, &randy, &randz, &rand_logic_i,&rand_logic_j,&rand_logic_k,bboxlist); CHKERRQ(ierr);
-        // Finalize swarm setup by destroying RNGs if ParticleInitialization == 1
-        ierr = FinalizeSwarmSetup(&randx, &randy, &randz, &rand_logic_i, &rand_logic_j, &rand_logic_k); CHKERRQ(ierr);  
 
-        // Ensure all ranks complete before proceeding
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, " Particles generated & initialized.\n");
+    // --- Phase 2: Decide whether to Initialize new particles or Load existing ones ---
+    PetscBool should_initialize_new_particles = PETSC_FALSE;
+    if (simCtx->StartStep == 0) {
+        should_initialize_new_particles = PETSC_TRUE; // Standard fresh start
+    } else {
+        // It's a restart, so check the user's requested particle mode.
+        if (strcmp(simCtx->particleRestartMode, "init") == 0) {
+            should_initialize_new_particles = PETSC_TRUE; // User wants to re-initialize particles in a restarted flow.
         }
-        
-        else if (start_step > 0){
-
-        LOG_ALLOW(LOCAL,LOG_DEBUG," Particle Swarm status being set at restart [Step %d].\n",start_step);
-        
-        ierr = PreCheckAndResizeSwarm(user,start_step,"dat");
-
-        // --- Read Particle Data (EVERY timestep) ---
-        // ReadAllSwarmFields should read position and velocity for timestep 'ti'
-        
-        ierr = ReadAllSwarmFields(user, start_step);
-        if (ierr) {
-        // Check if the error was specifically a file open error (missing file)
-        if (ierr == PETSC_ERR_FILE_OPEN) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "Missing particle data file(s) for timestep %d. Skipping VTK output for this step.\n",(PetscInt)user->simCtx->step );
-        } else {
-        LOG_ALLOW(GLOBAL, LOG_ERROR, "Failed to read swarm fields for timestep %d (Error code: %d). Skipping VTK output for this step.\n",(PetscInt)user->simCtx->step  , ierr);
-        }
-        }
-
-        // Ensure  all the swarm fields not read from file are initialized.
-        ierr = PrepareLoadedSwarmForRelocation(user);
-        
-        // Ensure all ranks complete before proceeding
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, " Particles generated & initialized.\n");
-        
-        
-        }
-        return 0;
     }
 
-    
+
+    // --- Phase 3: Execute the chosen particle setup path ---
+    if (should_initialize_new_particles) {
+        // --- PATH A: Generate a fresh population of particles ---
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Mode: INITIALIZE. Generating new particle population.\n");
+        PetscRandom randx, randy, randz;
+        PetscRandom rand_logic_i, rand_logic_j, rand_logic_k;
+
+        ierr = InitializeRandomGenerators(user, &randx, &randy, &randz); CHKERRQ(ierr);
+        ierr = InitializeLogicalSpaceRNGs(&rand_logic_i, &rand_logic_j, &rand_logic_k); CHKERRQ(ierr);
+        ierr = AssignInitialPropertiesToSwarm(user, particlesPerProcess, &randx, &randy, &randz, &rand_logic_i, &rand_logic_j, &rand_logic_k, simCtx->bboxlist); CHKERRQ(ierr);
+        ierr = FinalizeSwarmSetup(&randx, &randy, &randz, &rand_logic_i, &rand_logic_j, &rand_logic_k); CHKERRQ(ierr);
+
+    } else {
+        // --- PATH B: Load particle population from restart files ---
+        // This path is only taken if simCtx->StartStep > 0 AND simCtx->particleRestartMode == "load"
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Mode: LOAD. Loading particle population from files for step %d.\n", simCtx->StartStep);
+
+        ierr = PreCheckAndResizeSwarm(user, simCtx->StartStep, "dat"); CHKERRQ(ierr);
+
+        ierr = ReadAllSwarmFields(user, simCtx->StartStep); CHKERRQ(ierr);
+        // Note: We check for file-open errors inside ReadAllSwarmFields now.
+
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Particle data loaded. CellID and status are preserved from file.\n");
+    }
+
+    LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "Particle swarm setup complete.\n");
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
