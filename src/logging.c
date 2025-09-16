@@ -655,6 +655,35 @@ const char* BCFaceToString(BCFace face) {
 }
 
 /**
+ * @brief Helper function to convert FieldInitialization to a string representation.
+ * @param[in] PetscInt The FieldInitialization value.
+ * @return Pointer to a constant string representing the FieldInitialization.
+ */
+const char* FieldInitializationToString(PetscInt FieldInitialization)
+{
+    switch(FieldInitialization){
+        case 0: return "Zero";
+        case 1: return "Constant Normal velocity";
+        case 2: return "Poiseuille Normal velocity";
+        default: return "Unknown Field Initialization";
+    }
+}
+
+/**
+ * @brief Helper function to convert ParticleInitialization to a string representation.
+ * @param[in] PetscInt The ParticleInitialization value.
+ * @return Pointer to a constant string representing the FieldInitialization.
+ */
+const char* ParticleInitializationToString(PetscInt ParticleInitialization)
+{
+    switch(ParticleInitialization){
+        case 0: return "Surface";
+        case 1: return "Volume";
+        default: return "Unknown Particle Initialization";
+    }
+}
+
+/**
  * @brief Helper function to convert BCType enum to a string representation.
  * @param[in] type The BCType enum value.
  * @return Pointer to a constant string representing the BC type.

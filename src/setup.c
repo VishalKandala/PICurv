@@ -55,7 +55,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // --- Group 2: Simulation Control, Time, and I/O ---
     simCtx->step = 0; simCtx->ti = 0.0; simCtx->StartStep = 0; simCtx->StepsToRun = 10;
     simCtx->tiout = 10; simCtx->StartTime = 0.0; simCtx->dt = 0.001;
-    simCtx->rstart_flg = PETSC_FALSE; simCtx->OnlySetup = PETSC_FALSE;
+    simCtx->OnlySetup = PETSC_FALSE;
     simCtx->logviewer = NULL; simCtx->OutputFreq = simCtx->tiout;
     // --- Group 3: High-Level Physics & Model Selection Flags ---
     simCtx->immersed = 0; simCtx->movefsi = 0; simCtx->rotatefsi = 0;
@@ -77,7 +77,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->mglevels = 3; simCtx->mg_MAX_IT = 30; simCtx->mg_idx = 1;
     simCtx->mg_preItr = 1; simCtx->mg_poItr = 1;
     simCtx->poisson = 0; simCtx->poisson_tol = 5.e-9;
-    simCtx->STRONG_COUPLING = 0; simCtx->InitialGuessOne = 0;simCtx->central=0;
+    simCtx->STRONG_COUPLING = 0;simCtx->central=0;
     simCtx->ren = 100.0; simCtx->cfl = 0.1; simCtx->vnn = 0.1;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
     simCtx->FieldInitialization = 0;
@@ -125,6 +125,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->np = 0; simCtx->readFields = PETSC_FALSE;
     simCtx->dm_swarm = NULL; simCtx->bboxlist = NULL;
     simCtx->ParticleInitialization = 0;
+    strcpy(simCtx->particleRestartMode,"load");
 
     // --- Group 10: Immersed Boundary & FSI Data Object Pointers ---
     simCtx->ibm = NULL; simCtx->ibmv = NULL; simCtx->fsi = NULL;
@@ -219,18 +220,14 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Group 2
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 2: Simulation Control,Time and I/O.\n");
-    // Read the integer step number to start from.
-    ierr = PetscOptionsGetInt(NULL, NULL, "-rstart", &simCtx->StartStep, &simCtx->rstart_flg); CHKERRQ(ierr);
-
     // Read the physical time to start from.
     // The default is already 0.0, so this will only be non-zero if the user provides it.
-    ierr = PetscOptionsGetReal(NULL, NULL, "-ti", &simCtx->StartTime, NULL); CHKERRQ(ierr);
-
+    ierr = PetscOptionsGetInt(NULL, NULL, "-start_step", &simCtx->StartStep, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL,NULL, "-totalsteps", &simCtx->StepsToRun, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-only_setup", &simCtx->OnlySetup, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-dt", &simCtx->dt, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-tio", &simCtx->tiout, NULL); CHKERRQ(ierr);
-    simCtx->OutputFreq = simCtx->tiout;
+    simCtx->OutputFreq = simCtx->tiout; // backward compatibility related redundancy.
 
     //  --- Group 3
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 3: High-Level Physics & Model Selection Flags\n");    
@@ -288,7 +285,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-poisson", &simCtx->poisson, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-poisson_tol", &simCtx->poisson_tol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-str", &simCtx->STRONG_COUPLING, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-init1", &simCtx->InitialGuessOne, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ren", &simCtx->ren, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-cfl", &simCtx->cfl, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-vnn", &simCtx->vnn, NULL); CHKERRQ(ierr);
@@ -394,7 +390,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-numParticles", &simCtx->np, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-read_fields", &simCtx->readFields, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-pinit", &simCtx->ParticleInitialization, NULL); CHKERRQ(ierr);
-    
+    ierr = PetscOptionsGetString(NULL,NULL,"-particle_restart_mode",simCtx->particleRestartMode,sizeof(simCtx->particleRestartMode),NULL); CHKERRQ(ierr);
+    // Validation for Particle Restart Mode
+    if (strcmp(simCtx->particleRestartMode, "load") != 0 && strcmp(simCtx->particleRestartMode, "init") != 0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -particle_restart_mode. Must be 'load' or 'init'. You provided '%s'.", simCtx->particleRestartMode);
+    }
     // --- Group 10
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 10: Immersed Boundary & FSI Data Object Pointers \n");
     ierr = PetscOptionsGetBool(NULL, NULL, "-rs_fsi", &simCtx->rstart_fsi, NULL); CHKERRQ(ierr);
@@ -409,11 +409,16 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     }
     
     // --- Group 12
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 12: Post-Processing Information.");
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 12: Post-Processing Information.\n");
     // This logic determines the Post Processing configuration and STORES it in simCtx for later reference and cleanup.
     ierr = PetscOptionsGetString(NULL,NULL,"-postprocessing_config_file",simCtx->PostprocessingControlFile,PETSC_MAX_PATH_LEN,NULL); CHKERRQ(ierr);
     ierr = PetscNew(&simCtx->pps); CHKERRQ(ierr);
     ierr = ParsePostProcessingSettings(simCtx);
+
+    // === 5. Dependent Parameter Calculations ================================
+    // Some parameters depend on others, so we calculate them here.
+    simCtx->StartTime = (PetscReal)simCtx->StartStep*simCtx->dt;
+    simCtx->ti = simCtx->StartTime;
 
     // === 5. Log Summary and Finalize Setup ==================================
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "-- Console Output Functions [Total : %d] : --\n", simCtx->nAllowed);
@@ -427,6 +432,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Time step size (dt): %g\n", simCtx->dt);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Immersed Boundary: %s\n", simCtx->immersed ? "ENABLED" : "DISABLED");
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particles: %d\n", simCtx->np);
+    if (simCtx->StartStep > 0 && simCtx->np > 0) {
+      LOG_ALLOW(GLOBAL, LOG_INFO, "    - Particle Restart Mode: %s\n", simCtx->particleRestartMode);
+    }
     
     // --- Initialize PETSc's internal performance logging stage ---
     ierr = PetscLogDefaultBegin(); CHKERRQ(ierr);

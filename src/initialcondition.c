@@ -358,7 +358,7 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initializing Eulerian State ---\n");
 
-    if (simCtx->rstart_flg) {
+    if (simCtx->StartStep > 0) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Starting from RESTART files (t=%.4f, step=%d).\n",
                   simCtx->StartTime, simCtx->StartStep);
         ierr = SetInitialFluidState_Restart(simCtx); CHKERRQ(ierr);

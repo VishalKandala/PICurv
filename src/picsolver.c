@@ -79,20 +79,16 @@ int main(int argc, char **argv)
 
       if(simCtx->StartStep == 0){
          if(simCtx->np>0){
-	ierr = PerformInitialSetup(simCtx); CHKERRQ(ierr);
+	        ierr = PerformInitialSetup(simCtx); CHKERRQ(ierr);
         }
       }else{
-	
-	// Restart logic
-        LOG_ALLOW(GLOBAL,LOG_INFO," Restart from Time step %d.\n",simCtx->StartStep);
+        ierr = FinalizeRestartState(simCtx); CHKERRQ(ierr);
       }
-
       if(simCtx->StepsToRun > 0){
-	 ierr = AdvanceSimulation(simCtx); CHKERRQ(ierr);
+	      ierr = AdvanceSimulation(simCtx); CHKERRQ(ierr);
       }else{
-	LOG_ALLOW(GLOBAL,LOG_INFO,"Initial setup complete.No steps to run.Exiting!.\n");
+	      LOG_ALLOW(GLOBAL,LOG_INFO,"Initial setup complete.No steps to run.Exiting!.\n");
       }
-
     }else{
       LOG_ALLOW(GLOBAL,LOG_INFO,"SETUP ONLY MODE enabled. Skipping time loop.\n");
     }

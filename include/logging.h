@@ -634,6 +634,20 @@ PetscErrorCode LoadAllowedFunctionsFromFile(const char   filename[],
 const char* BCFaceToString(BCFace face);
 
 /**
+ * @brief Helper function to convert FieldInitialization to a string representation.
+ * @param[in] PetscInt The FieldInitialization value.
+ * @return Pointer to a constant string representing the FieldInitialization.
+ */
+const char* FieldInitializationToString(PetscInt FieldInitialization);
+
+/**
+ * @brief Helper function to convert ParticleInitialization to a string representation.
+ * @param[in] PetscInt The ParticleInitialization value.
+ * @return Pointer to a constant string representing the FieldInitialization.
+ */
+const char* ParticleInitializationToString(PetscInt ParticleInitialization);
+
+/**
  * @brief Helper function to convert BCType enum to a string representation.
  * @param[in] type The BCType enum value.
  * @return Pointer to a constant string representing the BC type.

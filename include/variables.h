@@ -222,6 +222,7 @@ typedef enum {
     BC_HANDLER_WALL_NOSLIP, BC_HANDLER_WALL_MOVING,
     BC_HANDLER_SYMMETRY_PLANE,BC_HANDLER_INLET_PARABOLIC,
     BC_HANDLER_INLET_CONSTANT_VELOCITY, BC_HANDLER_INLET_PULSANTILE_FLUX, BC_HANDLER_INLET_DEVELOPED_PROFILE,
+    BC_HANDLER_INLET_INTERP_FROM_FILE,
     BC_HANDLER_OUTLET_CONSERVATION, BC_HANDLER_OUTLET_PRESSURE,
     BC_HANDLER_FARFIELD_NONREFLECTING,
     BC_HANDLER_PERIODIC, BC_HANDLER_INTERFACE_OVERSET
@@ -525,7 +526,6 @@ typedef struct SimCtx {
     PetscInt  tiout;
     PetscReal StartTime;
     PetscReal dt;
-    PetscBool rstart_flg;
     PetscBool OnlySetup;
     PetscViewer logviewer;
     PetscInt    OutputFreq;
@@ -545,7 +545,7 @@ typedef struct SimCtx {
     PetscInt  mglevels,mg_MAX_IT, mg_idx, mg_preItr, mg_poItr;
     PetscInt  poisson;
     PetscReal poisson_tol;
-    PetscInt  STRONG_COUPLING, InitialGuessOne, central;
+    PetscInt  STRONG_COUPLING,central;
     PetscReal ren, st,cfl, vnn, cdisx, cdisy, cdisz;
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
@@ -587,6 +587,7 @@ typedef struct SimCtx {
     DM        dm_swarm;
     BoundingBox *bboxlist;
     PetscInt   ParticleInitialization;
+    char particleRestartMode[16];
 
     //================ Group 10: Immersed Boundary & FSI Data Object Pointers ================
     IBMNodes  *ibm;
