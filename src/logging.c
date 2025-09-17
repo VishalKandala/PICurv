@@ -1141,3 +1141,59 @@ PetscErrorCode ProfilingFinalize(void)
     g_profiler_capacity = 0;
     PetscFunctionReturn(0);
 }
+
+/*================================================================================*
+ *                          PROGRESS BAR UTILITY                                  *
+ *================================================================================*/
+
+/**
+ * @brief Prints a progress bar to the console.
+ *
+ * This function should only be called by the root process (rank 0). It uses
+ * a carriage return `\r` to overwrite the same line in the terminal, creating
+ * a dynamic progress bar.
+ *
+ * @param step           The current step index from the loop (e.g., from 0 to N-1).
+ * @param startStep      The global starting step number of the simulation.
+ * @param totalSteps     The total number of steps to be run in this simulation instance.
+ * @param currentTime    The current simulation time to display.
+ */
+void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, PetscReal currentTime)
+{
+    if (totalSteps <= 0) return;
+
+    // --- Configuration ---
+    const int barWidth = 50;
+
+    // --- Calculation ---
+    // Calculate progress as a fraction from 0.0 to 1.0
+    PetscReal progress = (PetscReal)(step - startStep + 1) / totalSteps;
+    // Ensure progress doesn't exceed 1.0 due to floating point inaccuracies
+    if (progress > 1.0) progress = 1.0;
+
+    int pos = (int)(barWidth * progress);
+
+    // --- Printing ---
+    // Carriage return moves cursor to the beginning of the line
+    PetscPrintf(PETSC_COMM_SELF, "\rProgress: [");
+
+    for (int i = 0; i < barWidth; ++i) {
+        if (i < pos) {
+            PetscPrintf(PETSC_COMM_SELF, "=");
+        } else if (i == pos) {
+            PetscPrintf(PETSC_COMM_SELF, ">");
+        } else {
+            PetscPrintf(PETSC_COMM_SELF, " ");
+        }
+    }
+
+    // Print percentage, step count, and current time
+    PetscPrintf(PETSC_COMM_SELF, "] %3d%% (Step %ld/%ld, t=%.4f)",
+                (int)(progress * 100.0),
+                step + 1,
+                startStep + totalSteps,
+                currentTime);
+
+    // Flush the output buffer to ensure the bar is displayed immediately
+    fflush(stdout);
+}

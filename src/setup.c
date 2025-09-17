@@ -419,6 +419,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // Some parameters depend on others, so we calculate them here.
     simCtx->StartTime = (PetscReal)simCtx->StartStep*simCtx->dt;
     simCtx->ti = simCtx->StartTime;
+    simCtx->step = simCtx->StartStep;
 
     // === 5. Log Summary and Finalize Setup ==================================
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "-- Console Output Functions [Total : %d] : --\n", simCtx->nAllowed);

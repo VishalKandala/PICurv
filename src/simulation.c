@@ -101,10 +101,6 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
 
     PetscFunctionBeginUser;
     
-    // --- Set simulation time and step for this specific phase ---
-    simCtx->step = 0;
-    simCtx->ti   = simCtx->StartTime;
-
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Performing initial particle setup procedures.\n", simCtx->ti, simCtx->step);
 
     // --- 1. Initial Particle Settlement (Location and Migration) ---
@@ -139,7 +135,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initial simulation data.\n", simCtx->ti, simCtx->step);
         
         // --- Particle Output (assumes functions operate on the master user context) ---
-        ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
+        if(get_log_level() >= LOG_INFO) ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
         ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
         
         // --- Eulerian Field Output (MUST loop over all blocks) --- // <<< CHANGED/FIXED
@@ -196,7 +192,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initial simulation data.\n", simCtx->ti, simCtx->step);
         
         // --- Particle Output (assumes functions operate on the master user context) ---
-        ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
+        if(get_log_level() >=LOG_INFO) ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
         ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
         
         // --- Eulerian Field Output (MUST loop over all blocks) --- // <<< CHANGED/FIXED
@@ -402,7 +398,21 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 		}
             }
         }
+
+        // Update Progress Bar
+        if(simCtx->rank == 0) {
+            PrintProgressBar(step,StartStep,StepsToRun,simCtx->ti);
+            if(get_log_level()>LOG_ERROR) PetscPrintf(PETSC_COMM_SELF,"\n");
+        }
     } // --- End of Time-Marching Loop ---
+
+    // After the loop, print the 100% complete bar on rank 0 and add a newline
+    // to ensure subsequent terminal output starts on a fresh line.
+    if (simCtx->rank == 0 && StepsToRun > 0) {
+        PrintProgressBar(StartStep + StepsToRun - 1, StartStep, StepsToRun, simCtx->ti);
+        PetscPrintf(PETSC_COMM_SELF, "\n");
+        fflush(stdout);
+    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", simCtx->ti);
     PROFILE_FUNCTION_END;

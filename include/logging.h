@@ -713,6 +713,24 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user);
  */
 const char* ParticleLocationStatusToString(ParticleLocationStatus level); 
 
+/*================================================================================*
+ *                          PROGRESS BAR UTILITY                                  *
+ *================================================================================*/
+
+/**
+ * @brief Prints a progress bar to the console.
+ *
+ * This function should only be called by the root process (rank 0). It uses
+ * a carriage return `\r` to overwrite the same line in the terminal, creating
+ * a dynamic progress bar.
+ *
+ * @param step           The current step index from the loop (e.g., from 0 to N-1).
+ * @param startStep      The global starting step number of the simulation.
+ * @param totalSteps     The total number of steps to be run in this simulation instance.
+ * @param currentTime    The current simulation time to display.
+ */
+void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, PetscReal currentTime);
+
 /**
  * @brief Initializes the custom profiling system using configuration from SimCtx.
  *
@@ -755,7 +773,6 @@ PetscErrorCode ProfilingLogTimestepSummary(PetscInt step);
  * @return PetscErrorCode
  */
 PetscErrorCode ProfilingFinalize(void);
-
 
 // --- Internal functions, do not call directly ---
 // These are called by the macros below.

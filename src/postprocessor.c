@@ -641,6 +641,24 @@ int main(int argc, char **argv)
             // 4. Write particle output
            ierr = WriteParticleFile(user, pps, ti); CHKERRQ(ierr);            
         }
+
+        if(simCtx->rank == 0){
+            PetscInt StepsToRun = pps->endTime - pps->startTime;
+            PetscReal currentTime = (PetscReal)ti*simCtx->dt;
+            PrintProgressBar(ti-1,pps->startTime,StepsToRun,currentTime);
+            if(get_log_level()>LOG_ERROR)PetscPrintf(PETSC_COMM_SELF,"\n");
+        }
+    }
+
+    // After the loop, print the 100% complete bar on rank 0 and add a newline
+    // to ensure subsequent terminal output starts on a fresh line.
+    if (simCtx->rank == 0) {
+        PetscInt endTime = pps->endTime-1; // needs to be verified.
+        PetscInt StepsToRun = pps->endTime - pps->startTime;
+        PetscReal endTimeValue = (PetscReal)pps->endTime*simCtx->dt;
+        PrintProgressBar(endTime, pps->startTime, StepsToRun, endTimeValue);
+        PetscPrintf(PETSC_COMM_SELF, "\n");
+        fflush(stdout);
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "=============================================================\n");
