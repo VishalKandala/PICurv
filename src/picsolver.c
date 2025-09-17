@@ -79,7 +79,13 @@ int main(int argc, char **argv)
 
       if(simCtx->StartStep == 0){
          if(simCtx->np>0){
-	        ierr = PerformInitialSetup(simCtx); CHKERRQ(ierr);
+	        ierr = PerformInitializedParticleSetup(simCtx); CHKERRQ(ierr);
+        }else{ 
+          // Write the initial Eulerian fields.
+          UserCtx *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
+          for(PetscInt bi = 0; bi < simCtx->block_number; bi++){
+            ierr = WriteSimulationFields(&user[bi]);
+          }
         }
       }else{
         ierr = FinalizeRestartState(simCtx); CHKERRQ(ierr);
