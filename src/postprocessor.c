@@ -86,6 +86,8 @@ PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
     PetscFunctionReturn(0);
 }
 
+
+
 /**
  * @brief Parses the processing pipeline string from the config and executes the requested kernels in sequence.
  *
@@ -629,7 +631,7 @@ int main(int argc, char **argv)
         if(pps->outputParticles) {
             // 1. Resize swarm based on particle count in this timestep's file
             ierr = PreCheckAndResizeSwarm(user, ti, pps->particleExt); CHKERRQ(ierr);
-            
+
             // 2. Load particle data into the correctly sized swarm
             ierr = ReadAllSwarmFields(user, ti); CHKERRQ(ierr);
             

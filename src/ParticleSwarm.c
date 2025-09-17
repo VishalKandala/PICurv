@@ -1190,15 +1190,18 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
 
     // --- Phase 2: Decide whether to Initialize new particles or Load existing ones ---
     PetscBool should_initialize_new_particles = PETSC_FALSE;
-    if (simCtx->StartStep == 0) {
-        should_initialize_new_particles = PETSC_TRUE; // Standard fresh start
-    } else {
+    if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
+        should_initialize_new_particles = PETSC_TRUE;
+    }else{
+        if (simCtx->StartStep == 0) {
+            should_initialize_new_particles = PETSC_TRUE; // Standard fresh start
+        } else {
         // It's a restart, so check the user's requested particle mode.
-        if (strcmp(simCtx->particleRestartMode, "init") == 0) {
-            should_initialize_new_particles = PETSC_TRUE; // User wants to re-initialize particles in a restarted flow.
+            if (strcmp(simCtx->particleRestartMode, "init") == 0) {
+                should_initialize_new_particles = PETSC_TRUE; // User wants to re-initialize particles in a restarted flow.
+            }
         }
     }
-
 
     // --- Phase 3: Execute the chosen particle setup path ---
     if (should_initialize_new_particles) {

@@ -177,7 +177,7 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 
     PetscFunctionBeginUser;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Finalizing RESTART from state (step=%d, t=%.4f) ---\n", simCtx->step, simCtx->ti);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Finalizing RESTART from state (step=%d, t=%.4f) ---\n", simCtx->StartStep, simCtx->ti);
 
     // This function only needs to handle the particle finalization logic.
     // The Eulerian state is assumed to be fully loaded and consistent at this point.
@@ -200,7 +200,7 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, restart finalization is complete.\n");
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Restart state successfully finalized. ---\n\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Restart state successfully finalized. --\n");
 
     PetscFunctionReturn(0);
 }
@@ -252,17 +252,17 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
               StepsToRun, StartStep, simCtx->StartTime, dt);
 
     // --- Main Time-Marching Loop ---
-    for (PetscInt step = StartStep; step < StartStep + StepsToRun; ++step) {
+    for (PetscInt step = StartStep; step < StartStep + StepsToRun; step++) {
         
         // =================================================================
         //     1. PRE-STEP SETUP
         // =================================================================
         
         // Update simulation time and step counters in the master context
-        simCtx->step = step;
-        simCtx->ti   = simCtx->StartTime + step * simCtx->dt;
+        simCtx->step = step + 1;
+        simCtx->ti   += simCtx->dt; //simCtx->StartTime + step * simCtx->dt;
 
-        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Advancing Step %d (t=%.4f) ---\n", step, simCtx->ti);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Advancing Step %d (To t=%.4f) ---\n", simCtx->step, simCtx->ti);
         
         // Update any time-dependent boundary conditions (e.g., pulsating inlet)
 	// if (simCtx->inletprofile == 3) {
@@ -329,7 +329,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 
         // Handle periodic file output
         if (OutputFreq > 0 && (step + 1) % OutputFreq == 0) {
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Writing output for step %d.\n", step + 1);
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Writing output for step %d.\n",simCtx->step);
             for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
                 ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
             }
@@ -342,7 +342,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         }
     } // --- End of Time-Marching Loop ---
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", simCtx->ti + dt);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", simCtx->ti);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
