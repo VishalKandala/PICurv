@@ -78,7 +78,24 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx);
  * @param simCtx Pointer to the main simulation context structure.
  * @return PetscErrorCode 0 on success, non-zero on failure.
  */
-PetscErrorCode PerformInitialSetup(SimCtx *simCtx);
+PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx);
+
+/**
+ * @brief Finalizes the simulation state after particle and fluid data have been loaded from a restart.
+ *
+ * This helper function performs the critical sequence of operations required to ensure
+ * the loaded Lagrangian and Eulerian states are fully consistent and the solver is
+ * ready to proceed. This includes:
+ * 1. Verifying particle locations in the grid and building runtime links.
+ * 2. Synchronizing particle velocity with the authoritative grid velocity via interpolation.
+ * 3. Scattering particle source terms (e.g., volume fraction) back to the grid.
+ * 4. Updating the solver's history vectors with the final, fully-coupled state.
+ * 5. Writing the complete, consistent state to output files for the restart step.
+ *
+ * @param simCtx The main simulation context.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx);
 
 /**
  * @brief Performs post-load/post-init consistency checks for a restarted simulation.

@@ -92,7 +92,7 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user)
  * @param simCtx Pointer to the main simulation context structure.
  * @return PetscErrorCode 0 on success, non-zero on failure.
  */
-PetscErrorCode PerformInitialSetup(SimCtx *simCtx)
+PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     // --- Get pointers from SimCtx instead of passing them as arguments ---
@@ -148,7 +148,64 @@ PetscErrorCode PerformInitialSetup(SimCtx *simCtx)
         }
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initial setup complete. Ready for time marching. ---\n\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initial setup complete. Ready for time marching. ---\n");
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "PerformLoadedParticleSetup"
+/**
+ * @brief Finalizes the simulation state after particle and fluid data have been loaded from a restart.
+ *
+ * This helper function performs the critical sequence of operations required to ensure
+ * the loaded Lagrangian and Eulerian states are fully consistent and the solver is
+ * ready to proceed. This includes:
+ * 1. Verifying particle locations in the grid and building runtime links.
+ * 2. Synchronizing particle velocity with the authoritative grid velocity via interpolation.
+ * 3. Scattering particle source terms (e.g., volume fraction) back to the grid.
+ * 4. Updating the solver's history vectors with the final, fully-coupled state.
+ * 5. Writing the complete, consistent state to output files for the restart step.
+ *
+ * @param simCtx The main simulation context.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    UserCtx     *user     = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
+
+    // 1. Rebuild grid-to-particle links based on loaded coordinates.
+    ierr = LocateAllParticlesInGrid_TEST(user, simCtx->bboxlist); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
+
+    // 2. Ensure particles have velocity from the authoritative loaded grid for consistency.
+    ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
+
+    // 3. Update Eulerian source terms from the loaded particle data.
+    ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+
+    // --- 4. Initial History and Output ---
+    // Update solver history vectors with the t=0 state before the first real step
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        ierr = UpdateSolverHistoryVectors(&user[bi]); CHKERRQ(ierr);
+    }
+
+    if (simCtx->OutputFreq > 0 || (simCtx->StepsToRun == 0 && simCtx->StartStep == 0)) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initial simulation data.\n", simCtx->ti, simCtx->step);
+        
+        // --- Particle Output (assumes functions operate on the master user context) ---
+        ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
+        ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
+        
+        // --- Eulerian Field Output (MUST loop over all blocks) --- // <<< CHANGED/FIXED
+        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+            ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
+        }
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initial setup complete. Ready for time marching. ---\n");
     PetscFunctionReturn(0);
 }
 
@@ -188,16 +245,21 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
             // PARTICLES WERE LOADED: The state is complete, but we must verify
             // the loaded CellIDs and build the in-memory grid-to-particle links.
             LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Mode 'load': Verifying particle locations and building grid links...\n");
-            ierr = LocateAllParticlesInGrid_TEST(user, simCtx->bboxlist); CHKERRQ(ierr);
+            ierr = PerformLoadedParticleSetup(simCtx); CHKERRQ(ierr);
 
         } else { // Mode must be "init"
             // PARTICLES WERE RE-INITIALIZED: They need to be fully settled and coupled
             // to the surrounding (restarted) fluid state.
             LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Mode 'init': Running full initial setup for new particles in restarted flow.\n");
-            ierr = PerformInitialSetup(simCtx); CHKERRQ(ierr);
+            ierr = PerformInitializedParticleSetup(simCtx); CHKERRQ(ierr);
         }
     } else {
         LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, restart finalization is complete.\n");
+
+        // Write the initial eulerian fields (this is done in PerformInitialSetup if particles exist.)
+        for(PetscInt bi = 0; bi < simCtx->block_number; bi ++){
+            ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
+        }
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Restart state successfully finalized. --\n");
