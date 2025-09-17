@@ -549,6 +549,58 @@ static PetscErrorCode CheckDataFile(PetscInt ti, const char *fieldName, const ch
 }
 
 /**
+ * @brief Checks for and reads an optional Eulerian field from a file into a Vec.
+ *
+ * This helper function first checks if the corresponding data file exists in a
+ * parallel-safe manner using CheckDataFile().
+ * - If the file does not exist, it logs a warning and returns success (0),
+ *   gracefully skipping the field. The target Vec is not modified.
+ * - If the file exists, it calls ReadFieldData() to read the data into the
+ *   provided Vec. Any error during this read operation is considered fatal
+ *   (e.g., file is corrupt, permissions issue, or size mismatch), as the
+ *   presence of the file implies an intent to load it.
+ *
+ * @param[in] user        Pointer to the UserCtx structure.
+ * @param[in] field_name  Internal name of the field for the filename (e.g., "cs").
+ * @param[in] field_label A user-friendly name for logging (e.g., "Smagorinsky Constant").
+ * @param[in,out] field_vec The PETSc Vec to load the data into.
+ * @param[in] ti          Time index for the file name.
+ * @param[in] ext         File extension.
+ *
+ * @return PetscErrorCode Returns 0 on success or if the optional file was not found.
+ *         Returns a non-zero error code on a fatal read error.
+ */
+static PetscErrorCode ReadOptionalField(UserCtx *user, const char *field_name, const char *field_label, Vec field_vec, PetscInt ti, const char *ext)
+{
+  PetscErrorCode ierr;
+  PetscBool      fileExists;
+
+  PetscFunctionBeginUser;
+
+  /* Check if the data file for this optional field exists. */
+  ierr = CheckDataFile(ti, field_name, ext, &fileExists); CHKERRQ(ierr);
+
+  if (fileExists) {
+    /* File exists, so we MUST be able to read it. */
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "File for %s found, attempting to read...\n", field_label);
+    ierr = ReadFieldData(user, field_name, field_vec, ti, ext);
+
+    if (ierr) {
+      /* Any error here is fatal. A PETSC_ERR_FILE_OPEN would mean a race condition or
+         permissions issue. Other errors could be size mismatch or corruption. */
+      SETERRQ(PETSC_COMM_WORLD, ierr, "Failed to read data for %s from existing file for step %d. The file may be corrupt or have an incorrect size.", field_label, ti);
+    } else {
+      LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully read %s field for step %d.\n", field_label, ti);
+    }
+  } else {
+    /* File does not exist, which is acceptable for an optional field. */
+    LOG_ALLOW(GLOBAL, LOG_WARNING, "Optional %s file for step %d not found. Skipping.\n", field_label, ti);
+  }
+
+  PetscFunctionReturn(0);
+}
+
+/**
  * @brief Checks for and reads an optional DMSwarm field from a file.
  *
  * This helper function first checks if the corresponding data file exists.
@@ -840,12 +892,14 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     // Read node state field (nvert)
     ierr = ReadFieldData(user, "nvfield", user->Nvert, ti, "dat"); CHKERRQ(ierr);
 
+    LOG_ALLOW(GLOBAL,LOG_INFO,"Successfully read all mandatory fields. \n");
+
     if(simCtx->np>0){    
     // Read Particle Count field
     if(!user->ParticleCount){
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ParticleCount Vec is NULL but np>0");
     }
-    ierr = ReadFieldData(user, "ParticleCount", user->ParticleCount, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "ParticleCount", "Particle Count", user->ParticleCount, ti, "dat"); CHKERRQ(ierr);
     }
     else{
         LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, skipping ParticleCount field read.\n");
@@ -887,10 +941,10 @@ PetscErrorCode ReadStatisticalFields(UserCtx *user,PetscInt ti)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read statistical fields.\n");
 
-    ierr = ReadFieldData(user, "su0", user->Ucat_sum, ti, "dat"); CHKERRQ(ierr);
-    ierr = ReadFieldData(user, "su1", user->Ucat_cross_sum, ti, "dat"); CHKERRQ(ierr);
-    ierr = ReadFieldData(user, "su2", user->Ucat_square_sum, ti, "dat"); CHKERRQ(ierr);
-    ierr = ReadFieldData(user, "sp", user->P_sum, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "su0", "Velocity Sum",       user->Ucat_sum,        ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "su1", "Velocity Cross Sum", user->Ucat_cross_sum,  ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "su2", "Velocity Square Sum",user->Ucat_square_sum, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "sp",  "Pressure Sum",       user->P_sum,           ti, "dat"); CHKERRQ(ierr);    
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading statistical fields.\n");
 
@@ -916,7 +970,7 @@ PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read LES fields.\n");
 
     VecDuplicate(user->P, &Cs);
-    ierr = ReadFieldData(user, "cs", Cs, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "cs", "Smagorinsky Constant (Cs)", Cs, ti, "dat"); CHKERRQ(ierr);
     DMGlobalToLocalBegin(user->da, Cs, INSERT_VALUES, user->lCs);
     DMGlobalToLocalEnd(user->da, Cs, INSERT_VALUES, user->lCs);
     VecDestroy(&Cs);
@@ -943,7 +997,8 @@ PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read RANS fields.\n");
 
-    ierr = ReadFieldData(user, "kfield", user->K_Omega, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "kfield", "K-Omega RANS", user->K_Omega, ti, "dat"); CHKERRQ(ierr);
+
     VecCopy(user->K_Omega, user->K_Omega_o);
 
     DMGlobalToLocalBegin(user->fda2, user->K_Omega, INSERT_VALUES, user->lK_Omega);
