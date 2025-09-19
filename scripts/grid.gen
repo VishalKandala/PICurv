@@ -1,0 +1,574 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# Copyright (c) 2023 [Your Name or Organization]
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""! @file grid.gen
+    @brief A command-line utility for generating 3D all-hexahedral structured grids.
+"""
+
+"""
+Curvilinear Grid Generation Tool
+
+A command-line utility for generating high-quality, 3D, all-hexahedral structured
+grids, with a logical indexing convention suitable for CFD applications.
+
+Logical Coordinate System:
+- i (xi): First cross-sectional direction.
+- j (eta): Second cross-sectional direction.
+- k (zeta): Streamwise direction along the primary path.
+
+This script can be controlled via command-line arguments or a configuration file.
+"""
+
+import argparse
+import configparser
+import os
+import sys
+from typing import Tuple, List
+
+import numpy as np
+
+# Type alias for grid coordinates for clarity
+GridCoords = Tuple[np.ndarray, np.ndarray, np.ndarray]
+
+# --- Core Grid Generation Functions ---
+
+def cartesian_pipe_grid(
+    ncells_i: int, ncells_j: int, ncells_k: int,
+    side_lengths: List[float], Rc_factor: float,
+    straight_factor: float, bend_angle_deg: float,
+    orientation: str, origin: List[float]
+) -> GridCoords:
+    """!
+    @brief Generates a bent pipe grid by warping a Cartesian block.
+    """
+    print(f"Generating Cartesian Pipe Grid (Orientation: {orientation.upper()}) ---")
+    side_i, side_j = side_lengths
+    bend_angle_rad = np.deg2rad(bend_angle_deg)
+    ref_dim = side_i
+    Rc = Rc_factor * ref_dim
+    L_in = straight_factor * ref_dim
+    L_bend = Rc * bend_angle_rad
+    L_out = straight_factor * ref_dim
+    total_len = L_in + L_bend + L_out
+
+    IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
+    xi_vals = np.linspace(-0.5, 0.5, IM)
+    eta_vals = np.linspace(-0.5, 0.5, JM)
+    zeta_vals = np.linspace(0, 1, KM)
+
+    XI, ETA = np.meshgrid(xi_vals, eta_vals, indexing='ij')
+    d_xi = side_i * XI
+    d_eta = side_j * ETA
+
+    X, Y, Z = (np.zeros((IM, JM, KM)) for _ in range(3))
+
+    for k, zeta in enumerate(zeta_vals):
+        s = zeta * total_len
+        if s <= L_in:
+            xc = -L_in + s; yc, zc = 0.0, 0.0
+            tangent = np.array([1.0, 0.0, 0.0])
+        elif s <= L_in + L_bend:
+            s_bend = s - L_in; theta = s_bend / Rc
+            cos_t, sin_t = np.cos(theta), np.sin(theta)
+            xc = Rc * sin_t
+            if orientation == 'xy': yc = Rc - Rc*cos_t; zc = 0.0; tangent = np.array([cos_t, sin_t, 0.0])
+            else: yc = 0.0; zc = Rc - Rc*cos_t; tangent = np.array([cos_t, 0.0, sin_t])
+        else:
+            s_out = s - L_in - L_bend
+            cos_a, sin_a = np.cos(bend_angle_rad), np.sin(bend_angle_rad)
+            xc_bend_end = Rc * sin_a
+            if orientation == 'xy':
+                yc_bend_end = Rc - Rc*cos_a; zc_bend_end = 0.0
+                tangent = np.array([cos_a, sin_a, 0.0])
+            else:
+                yc_bend_end = 0.0; zc_bend_end = Rc - Rc*cos_a
+                tangent = np.array([cos_a, 0.0, sin_a])
+            xc = xc_bend_end + s_out * tangent[0]
+            yc = yc_bend_end + s_out * tangent[1]
+            zc = zc_bend_end + s_out * tangent[2]
+        if orientation == 'xy': v_up = np.array([0.0,0.0,1.0]); v_eta=v_up; v_xi=np.cross(v_eta, tangent)
+        else: v_up = np.array([0.0,1.0,0.0]); v_eta=v_up; v_xi=np.cross(v_eta, tangent)
+        X[:,:,k] = xc + d_xi*v_xi[0] + d_eta*v_eta[0]
+        Y[:,:,k] = yc + d_xi*v_xi[1] + d_eta*v_eta[1]
+        Z[:,:,k] = zc + d_xi*v_xi[2] + d_eta*v_eta[2]
+    
+    # Shift grid to align its minimum bounding box corner with the specified origin
+    shift_x = origin[0] - np.min(X)
+    shift_y = origin[1] - np.min(Y)
+    shift_z = origin[2] - np.min(Z)
+    
+    return X + shift_x, Y + shift_y, Z + shift_z
+
+def bent_pipe_grid(
+    ncells_phi: int, ncells_r: int, ncells_path: int,
+    D: float, Rc_factor: float, straight_factor: float,
+    bend_angle_deg: float, pinhole_factor: float,
+    orientation: str, origin: List[float]
+) -> GridCoords:
+    """!
+    @brief Generates a structured O-grid for a bent pipe.
+    """
+    print(f"Generating O-Grid Pipe (Orientation: {orientation.upper()}) ---")
+    Rp = 0.5 * D; bend_angle_rad = np.deg2rad(bend_angle_deg); Rc = Rc_factor * D
+    L_in = straight_factor*D; L_bend = Rc*bend_angle_rad; L_out = straight_factor*D
+    total_len = L_in + L_bend + L_out
+    IM, JM, KM = ncells_phi + 1, ncells_r + 1, ncells_path + 1
+    phi_vals = np.linspace(0, 2 * np.pi, IM)
+    r_vals_norm = np.linspace(0, 1, JM)
+    zeta_vals = np.linspace(0, 1, KM)
+    if 0 < pinhole_factor < 1: print(f"Applying pinhole with radius factor: {pinhole_factor}")
+    pinhole_radius = pinhole_factor * Rp
+    physical_r = pinhole_radius + r_vals_norm * (Rp - pinhole_radius)
+    PHI, R = np.meshgrid(phi_vals, physical_r, indexing='ij')
+    disp_xi, disp_eta = R * np.cos(PHI), R * np.sin(PHI)
+    X, Y, Z = (np.zeros((IM, JM, KM)) for _ in range(3))
+
+    for k, zeta in enumerate(zeta_vals):
+        s = zeta * total_len
+        if s <= L_in:
+            xc = -L_in + s; yc, zc = 0.0, 0.0
+            tangent = np.array([1.0, 0.0, 0.0])
+        elif s <= L_in + L_bend:
+            s_bend = s - L_in; theta = s_bend / Rc
+            cos_t, sin_t = np.cos(theta), np.sin(theta)
+            xc = Rc * sin_t
+            if orientation == 'xy': yc=Rc-Rc*cos_t; zc=0.0; tangent=np.array([cos_t, sin_t, 0.0])
+            else: yc=0.0; zc=Rc-Rc*cos_t; tangent=np.array([cos_t, 0.0, sin_t])
+        else:
+            s_out = s - L_in - L_bend
+            cos_a, sin_a = np.cos(bend_angle_rad), np.sin(bend_angle_rad)
+            xc_bend_end = Rc * sin_a
+            if orientation == 'xy':
+                yc_bend_end=Rc-Rc*cos_a; zc_bend_end=0.0; tangent=np.array([cos_a, sin_a, 0.0])
+            else:
+                yc_bend_end=0.0; zc_bend_end=Rc-Rc*cos_a; tangent=np.array([cos_a, 0.0, sin_a])
+            xc = xc_bend_end + s_out*tangent[0]
+            yc = yc_bend_end + s_out*tangent[1]
+            zc = zc_bend_end + s_out*tangent[2]
+        if orientation == 'xy': v_up=np.array([0.0,0.0,1.0]); v_xi=np.cross(v_up,tangent); v_eta=v_up
+        else: v_up = np.array([0.0,1.0,0.0]); v_xi=v_up; v_eta=np.cross(tangent,v_xi)
+        X[:,:,k] = xc + disp_xi*v_xi[0] + disp_eta*v_eta[0]
+        Y[:,:,k] = yc + disp_xi*v_xi[1] + disp_eta*v_eta[1]
+        Z[:,:,k] = zc + disp_xi*v_xi[2] + disp_eta*v_eta[2]
+        
+    # Shift grid to align its minimum bounding box corner with the specified origin
+    shift_x = origin[0] - np.min(X)
+    shift_y = origin[1] - np.min(Y)
+    shift_z = origin[2] - np.min(Z)
+    
+    return X + shift_x, Y + shift_y, Z + shift_z
+
+def generate_curvilinear_grid(
+    ncells_i: int, ncells_j: int, ncells_k: int,
+    x_min: float, x_max: float, y_min: float, y_max: float, z_min: float, z_max: float,
+    A: float, B: float, C: float, origin: List[float]
+) -> GridCoords:
+    """!
+    @brief Generates a 3D all-hexahedral grid by warping a Cartesian block.
+    """
+    print("Generating Warped Box Grid ---")
+    IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
+    xi = np.linspace(0, 1, IM); eta = np.linspace(0, 1, JM); zeta = np.linspace(0, 1, KM)
+    XI, ETA, ZETA = np.meshgrid(xi, eta, zeta, indexing='ij')
+    X_norm = (XI+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*ETA)+C*np.sin(2*np.pi*ZETA))
+    Y_norm = (ETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ZETA))
+    Z_norm = (ZETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ETA))
+    
+    # Generate grid in local coordinates based on bounds
+    X_local = x_min + (x_max-x_min)*X_norm
+    Y_local = y_min + (y_max-y_min)*Y_norm
+    Z_local = z_min + (z_max-z_min)*Z_norm
+    
+    # Shift grid to align its minimum bounding box corner with the specified origin
+    shift_x = origin[0] - np.min(X_local)
+    shift_y = origin[1] - np.min(Y_local)
+    shift_z = origin[2] - np.min(Z_local)
+
+    return X_local + shift_x, Y_local + shift_y, Z_local + shift_z
+
+# --- Grid Analysis and Export Functions ---
+def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
+    """!
+    @brief Performs a comprehensive quality analysis on the grid and returns a dictionary of metrics.
+    @param[in] X, Y, Z Numpy arrays for the grid node coordinates.
+    @return A dictionary containing all calculated quality metrics.
+    """
+    stats = {}
+    IM, JM, KM = X.shape
+    eps = 1e-12
+
+    # --- Basic Dimensions ---
+    stats['dims_nodes'] = (IM, JM, KM)
+    stats['dims_cells'] = (IM - 1, JM - 1, KM - 1)
+    stats['total_nodes'] = IM * JM * KM
+    stats['total_cells'] = (IM - 1) * (JM - 1) * (KM - 1)
+    stats['bounds_x'] = (np.min(X), np.max(X))
+    stats['bounds_y'] = (np.min(Y), np.max(Y))
+    stats['bounds_z'] = (np.min(Z), np.max(Z))
+
+    # --- Volume / Jacobian Checks ---
+    ax=np.diff(X,axis=0)[:,:-1,:-1]; ay=np.diff(Y,axis=0)[:,:-1,:-1]; az=np.diff(Z,axis=0)[:,:-1,:-1]
+    bx=np.diff(X,axis=1)[:-1,:,:-1]; by=np.diff(Y,axis=1)[:-1,:,:-1]; bz=np.diff(Z,axis=1)[:-1,:,:-1]
+    cx=np.diff(X,axis=2)[:-1,:-1,:]; cy=np.diff(Y,axis=2)[:-1,:-1,:]; cz=np.diff(Z,axis=2)[:-1,:-1,:]
+    signed_volumes = ax*(by*cz-bz*cy) + ay*(bz*cx-bx*cz) + az*(bx*cy-by*cx)
+    
+    volume_signs = np.sign(signed_volumes)
+    stats['jacobian_consistent'] = np.all(volume_signs == volume_signs.flatten()[0])
+    volumes = np.abs(signed_volumes)
+    non_zero_volumes = volumes[volumes > eps]
+    
+    stats['total_volume'] = np.sum(non_zero_volumes)
+    stats['min_volume'] = np.min(non_zero_volumes) if non_zero_volumes.size > 0 else 0.0
+    stats['max_volume'] = np.max(non_zero_volumes) if non_zero_volumes.size > 0 else 0.0
+
+    # --- Advanced Metrics ---
+    P = np.stack((X, Y, Z), axis=-1)
+    C = 0.125 * (P[:-1,:-1,:-1] + P[1:,:-1,:-1] + P[:-1,1:,:-1] + P[1:,1:,:-1] + P[:-1,:-1,1:] + P[1:,:-1,1:] + P[:-1,1:,1:] + P[1:,1:,1:])
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        ratio_i = np.maximum(volumes[1:,:,:]/volumes[:-1,:,:], volumes[:-1,:,:]/volumes[1:,:,:])
+        ratio_j = np.maximum(volumes[:,1:,:]/volumes[:,:-1,:], volumes[:,:-1,:]/volumes[:,1:,:])
+        ratio_k = np.maximum(volumes[:,:,1:]/volumes[:,:,:-1], volumes[:,:,:-1]/volumes[:,:,1:])
+    stats['max_expansion_ratio'] = np.nanmax([np.nanmax(r) for r in [ratio_i, ratio_j, ratio_k] if r.size > 0])
+
+    edge_i = np.linalg.norm(np.diff(P, axis=0), axis=-1)
+    edge_j = np.linalg.norm(np.diff(P, axis=1), axis=-1)
+    edge_k = np.linalg.norm(np.diff(P, axis=2), axis=-1)
+    L_i = 0.25*(edge_i[:,:-1,:-1]+edge_i[:,1:,:-1]+edge_i[:,:-1,1:]+edge_i[:,1:,1:])
+    L_j = 0.25*(edge_j[:-1,:,:-1]+edge_j[1:,:,:-1]+edge_j[:-1,:,1:]+edge_j[1:,:,1:])
+    L_k = 0.25*(edge_k[:-1,:-1,:]+edge_k[1:,:-1,:]+edge_k[:-1,1:,:]+edge_k[1:,1:,:])
+    max_dims = np.maximum.reduce([L_i, L_j, L_k]); min_dims = np.minimum.reduce([L_i, L_j, L_k])
+    aspect_ratios = max_dims / (min_dims + eps)
+    stats['max_aspect_ratio'] = np.max(aspect_ratios)
+    stats['avg_aspect_ratio'] = np.mean(aspect_ratios)
+    stats['std_aspect_ratio'] = np.std(aspect_ratios)
+
+    # --- Particle Search Diagnostics ---
+    p0=P[1:-1,:-1,:-1]; p1=P[1:-1,1:,:-1]; p2=P[1:-1,1:,1:]; p3=P[1:-1,:-1,1:]
+    face_center = 0.25*(p0+p1+p2+p3)
+    face_normal = np.cross(p2-p0, p3-p1, axis=-1)
+    face_normal /= (np.linalg.norm(face_normal, axis=-1, keepdims=True) + eps)
+    dist0 = np.abs(np.einsum('...k,...k->...', p0-face_center, face_normal))
+    dist1 = np.abs(np.einsum('...k,...k->...', p1-face_center, face_normal))
+    L_char = np.mean((np.mean(edge_i), np.mean(edge_j), np.mean(edge_k)))
+    stats['max_warpage'] = np.max([dist0, dist1])
+    stats['max_warpage_norm'] = stats['max_warpage'] / L_char
+
+    # --- Non-Orthogonality ---
+    dC_i=C[1:,:,:]-C[:-1,:,:]; S_i=0.5*np.cross(P[1:-1,1:,1:]-P[1:-1,:-1,:-1], P[1:-1,:-1,1:]-P[1:-1,1:,:-1], axis=-1)
+    dC_j=C[:,1:,:]-C[:,:-1,:]; S_j=0.5*np.cross(P[1:,1:-1,1:]-P[:-1,1:-1,:-1], P[:-1,1:-1,1:]-P[1:,1:-1,:-1], axis=-1)
+    dC_k=C[:,:,1:]-C[:,:,:-1]; S_k=0.5*np.cross(P[1:,1:,1:-1]-P[:-1,:-1,1:-1], P[:-1,1:,1:-1]-P[1:,:-1,1:-1], axis=-1)
+    angle_i = np.rad2deg(np.arccos(np.clip(np.abs(np.einsum('...k,...k->...', dC_i, S_i)) / (np.linalg.norm(dC_i,axis=-1)*np.linalg.norm(S_i,axis=-1)+eps), -1, 1)))
+    angle_j = np.rad2deg(np.arccos(np.clip(np.abs(np.einsum('...k,...k->...', dC_j, S_j)) / (np.linalg.norm(dC_j,axis=-1)*np.linalg.norm(S_j,axis=-1)+eps), -1, 1)))
+    angle_k = np.rad2deg(np.arccos(np.clip(np.abs(np.einsum('...k,...k->...', dC_k, S_k)) / (np.linalg.norm(dC_k,axis=-1)*np.linalg.norm(S_k,axis=-1)+eps), -1, 1)))
+    all_ortho_angles = np.concatenate([a.flatten() for a in [angle_i, angle_j, angle_k] if a.size > 0])
+    stats['max_non_ortho'] = np.max(all_ortho_angles)
+    stats['avg_non_ortho'] = np.mean(all_ortho_angles)
+    stats['std_non_ortho'] = np.std(all_ortho_angles)
+
+    return stats
+
+def print_stats_to_console(stats: dict) -> None:
+    """!
+    @brief Prints a formatted summary of the grid quality analysis to the console.
+    """
+    print("\nGrid Quality Analysis ---")
+    print("\n[Dimensions & Domain]")
+    print(f"Node Dimensions (IM, JM, KM): {stats.get('dims_nodes', 'N/A')}")
+    print(f"Cell Dimensions (i, j, k):   {stats.get('dims_cells', 'N/A')}")
+    print(f"Total Nodes: {stats.get('total_nodes', 0):,}")
+    print(f"Total Cells: {stats.get('total_cells', 0):,}")
+    print("\nPhysical Domain Bounds:")
+    print(f"X range: [{stats.get('bounds_x', [0,0])[0]:.4f}, {stats.get('bounds_x', [0,0])[1]:.4f}]")
+    print(f"Y range: [{stats.get('bounds_y', [0,0])[0]:.4f}, {stats.get('bounds_y', [0,0])[1]:.4f}]")
+    print(f"Z range: [{stats.get('bounds_z', [0,0])[0]:.4f}, {stats.get('bounds_z', [0,0])[1]:.4f}]")
+    print(f"Total Domain Volume: {stats.get('total_volume', 0.0):.6e}")
+    
+    print("\n[Primary CFD Quality Checks]")
+    if stats.get('jacobian_consistent', False):
+        print(f"Jacobian Sign Consistency: PASS")
+    else:
+        print(f"Jacobian Sign Consistency: FAIL")
+        print("** CRITICAL ERROR: Grid contains inverted cells. Solver will abort. **")
+    print(f"Min/Max Cell Volume: [{stats.get('min_volume', 0.0):.6e}, {stats.get('max_volume', 0.0):.6e}]")
+    print(f"Max Volume Expansion Ratio: {stats.get('max_expansion_ratio', 0.0):.4f} (Ideal: ~1.0, Concern: >1.5)")
+    print(f"Non-Orthogonality [deg]: Max={stats.get('max_non_ortho', 0.0):.4f}, Avg={stats.get('avg_non_ortho', 0.0):.4f}, StdDev={stats.get('std_non_ortho', 0.0):.4f}")
+    if stats.get('max_non_ortho', 0.0) > 70:
+        print("** WARNING: High non-orthogonality detected. Solver accuracy may be affected. **")
+    
+    print("\n[Particle Search Algorithm Diagnostics]")
+    print(f"Aspect Ratio (Stretching): Max={stats.get('max_aspect_ratio', 0.0):.4f}, Avg={stats.get('avg_aspect_ratio', 0.0):.4f}, StdDev={stats.get('std_aspect_ratio', 0.0):.4f}")
+    print(f"Max Face Warpage (Normalized): {stats.get('max_warpage_norm', 0.0):.4f} (Ideal: 0.0, Concern: >0.01)")
+    if stats.get('max_warpage_norm', 0.0) > 0.01:
+        print("** WARNING: High face warpage. Particle search may be unreliable. **")
+        
+    print("-" * 30 + "\n")
+
+def export_stats_to_file(filename: str, stats: dict) -> None:
+    """!
+    @brief Writes the grid quality analysis metrics to a text file.
+    """
+    try:
+        with open(filename, 'w') as f:
+            f.write("# Grid Quality Analysis Report\n")
+            f.write("# --------------------------------\n\n")
+            
+            f.write("[Dimensions & Domain]\n")
+            f.write(f"Node_Dimensions = {stats.get('dims_nodes', 'N/A')}\n")
+            f.write(f"Cell_Dimensions = {stats.get('dims_cells', 'N/A')}\n")
+            f.write(f"Total_Nodes = {stats.get('total_nodes', 0):,}\n")
+            f.write(f"Total_Cells = {stats.get('total_cells', 0):,}\n")
+            f.write(f"X_Range = {stats.get('bounds_x', [0,0])[0]:.6e}, {stats.get('bounds_x', [0,0])[1]:.6e}\n")
+            f.write(f"Y_Range = {stats.get('bounds_y', [0,0])[0]:.6e}, {stats.get('bounds_y', [0,0])[1]:.6e}\n")
+            f.write(f"Z_Range = {stats.get('bounds_z', [0,0])[0]:.6e}, {stats.get('bounds_z', [0,0])[1]:.6e}\n")
+            f.write(f"Total_Domain_Volume = {stats.get('total_volume', 0.0):.6e}\n\n")
+
+            f.write("[Primary CFD Quality Checks]\n")
+            f.write(f"Jacobian_Sign_Consistent = {stats.get('jacobian_consistent', False)}\n")
+            f.write(f"Min_Volume = {stats.get('min_volume', 0.0):.6e}\n")
+            f.write(f"Max_Volume = {stats.get('max_volume', 0.0):.6e}\n")
+            f.write(f"Max_Volume_Expansion_Ratio = {stats.get('max_expansion_ratio', 0.0):.4f}\n")
+            f.write(f"Max_Non_Orthogonality_deg = {stats.get('max_non_ortho', 0.0):.4f}\n")
+            f.write(f"Avg_Non_Orthogonality_deg = {stats.get('avg_non_ortho', 0.0):.4f}\n")
+            f.write(f"Std_Non_Orthogonality_deg = {stats.get('std_non_ortho', 0.0):.4f}\n\n")
+
+            f.write("[Particle Search Diagnostics]\n")
+            f.write(f"Max_Aspect_Ratio = {stats.get('max_aspect_ratio', 0.0):.4f}\n")
+            f.write(f"Avg_Aspect_Ratio = {stats.get('avg_aspect_ratio', 0.0):.4f}\n")
+            f.write(f"Std_Aspect_Ratio = {stats.get('std_aspect_ratio', 0.0):.4f}\n")
+            f.write(f"Max_Face_Warpage_Normalized = {stats.get('max_warpage_norm', 0.0):.4f}\n")
+
+        print(f"Grid quality statistics successfully exported to: '{filename}'")
+    except IOError as e:
+        print(f"Error: Could not write stats to file '{filename}'.\n{e}", file=sys.stderr)
+
+def export_grid_to_picgrid(filename: str, X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> None:
+    IM, JM, KM = X.shape
+    try:
+        with open(filename, 'w') as f:
+            f.write("PICGRID\n"); f.write("1\n"); f.write(f"{IM} {JM} {KM}\n")
+            coords = np.stack((X, Y, Z), axis=-1)
+            flat_coords = coords.reshape((-1, 3), order='F')
+            np.savetxt(f, flat_coords, fmt='%.8e')
+        print(f"Grid successfully exported to PICGRID file: '{filename}'")
+    except IOError as e: print(f"Error: Could not write to file '{filename}'.\n{e}", file=sys.stderr)
+
+def export_grid_to_vts_manual(filename: str, X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> None:
+    IM, JM, KM = X.shape
+    x_flat, y_flat, z_flat = X.flatten(order='F'), Y.flatten(order='F'), Z.flatten(order='F')
+    try:
+        with open(filename, 'w') as f:
+            f.write('<?xml version="1.0"?>\n'); f.write('<VTKFile type="StructuredGrid" version="1.0" byte_order="LittleEndian">\n')
+            f.write(f'  <StructuredGrid WholeExtent="0 {IM-1} 0 {JM-1} 0 {KM-1}">\n'); f.write(f'    <Piece Extent="0 {IM-1} 0 {JM-1} 0 {KM-1}">\n')
+            f.write('      <Points>\n'); f.write('        <DataArray type="Float64" Name="Points" NumberOfComponents="3" format="ascii">\n')
+            for i in range(len(x_flat)): f.write(f"  {x_flat[i]:.8e} {y_flat[i]:.8e} {z_flat[i]:.8e}\n")
+            f.write('        </DataArray>\n'); f.write('      </Points>\n'); f.write('      <PointData></PointData>\n'); f.write('      <CellData></CellData>\n')
+            f.write('    </Piece>\n'); f.write('  </StructuredGrid>\n'); f.write('</VTKFile>\n')
+        print(f"Grid successfully exported to VTK file: '{filename}'")
+    except IOError as e: print(f"Error: Could not write to file '{filename}'.\n{e}", file=sys.stderr)
+
+# --- Main Command-Line Interface ---
+# --- Main Command-Line Interface ---
+def main() -> None:
+    """!
+    @brief Parses arguments and config file, then runs the grid generator.
+    """
+    prog_description = """
+A command-line utility for generating high-quality, 3D, all-hexahedral structured
+grids. It can be controlled via command-line arguments or a configuration file.
+
+Order of Precedence:
+1. Command-line arguments (highest priority)
+2. Configuration file settings
+3. Built-in script defaults (lowest priority)
+"""
+    prog_epilog = """
+Usage Examples:
+-----------------
+# Run using settings from a configuration file (command is taken from config)
+python3 grid.gen --config grid.cfg
+
+# Run using a config file, but override the command and a parameter
+python3 grid.gen --config grid.cfg pipe --ncells-path 200
+
+# Run without a config file, using command-line args and built-in defaults
+python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
+"""
+    
+    # --- Step 1: Define the parsers. ---
+    parser = argparse.ArgumentParser(description=prog_description, formatter_class=argparse.RawDescriptionHelpFormatter, epilog=prog_epilog)
+    parser.add_argument("-c", "--config", help="Path to configuration file.", metavar="FILE")
+    subparsers = parser.add_subparsers(dest='grid_type', title='Available Commands', metavar='COMMAND', help='Run "COMMAND -h" for more information.')
+
+    default_map = {
+        'cpipe': {
+            'ncells_i': 16, 'ncells_j': 16, 'ncells_k': 100, 'side_lengths': [1.0, 1.0],
+            'rc_factor': 4.0, 'straight_factor': 5.0, 'bend_angle': 90.0, 'orientation': 'xy',
+            'origin': [0.0, 0.0, 0.0], 'show_stats': True, 'write_vtk': True,
+        },
+        'pipe': {
+            'ncells_phi': 24, 'ncells_r': 12, 'ncells_path': 100, 'diameter': 1.0,
+            'rc_factor': 2.0, 'straight_factor': 5.0, 'bend_angle': 90.0,
+            'pinhole_factor': 0.05, 'orientation': 'xy', 'origin': [0.0, 0.0, 0.0],
+            'show_stats': True, 'write_vtk': True,
+        },
+        'warp': {
+            'ncells_i': 20, 'ncells_j': 20, 'ncells_k': 20, 'bounds_x': [0.0, 1.0],
+            'bounds_y': [0.0, 1.0], 'bounds_z': [0.0, 1.0], 'amp_A': 0.1,
+            'amp_B': 0.05, 'amp_C': 0.05, 'origin': [0.0, 0.0, 0.0],
+            'show_stats': True, 'write_vtk': True,
+        }
+    }
+
+    def add_arg(p, *args, **kwargs):
+        p.add_argument(*args, default=argparse.SUPPRESS, **kwargs)
+
+    parent = argparse.ArgumentParser(add_help=False)
+    add_arg(parent, '--vts', type=str, help="Output filename for VTK (.vts) format.")
+    add_arg(parent, '--output', type=str, help="Output filename for PICGRID format.")
+    add_arg(parent, '--origin', type=float, nargs=3, metavar=('X','Y','Z'), help="Set the [x,y,z] minimum corner of the grid's bounding box.")
+    add_arg(parent, '--stats-file', type=str, help="Output filename for grid quality statistics report.")
+    stats_group = parent.add_mutually_exclusive_group()
+    stats_group.add_argument('--show-stats', action='store_true', dest='show_stats', default=argparse.SUPPRESS, help="Print quality stats to console.")
+    stats_group.add_argument('--no-show-stats', action='store_false', dest='show_stats', default=argparse.SUPPRESS, help="Suppress printing quality stats.")
+    vtk_group = parent.add_mutually_exclusive_group()
+    vtk_group.add_argument('--write-vtk', action='store_true', dest='write_vtk', default=argparse.SUPPRESS, help="Write the default VTK output file.")
+    vtk_group.add_argument('--no-write-vtk', action='store_false', dest='write_vtk', default=argparse.SUPPRESS, help="Disable writing the VTK output file.")
+
+    p_cpipe = subparsers.add_parser('cpipe', help='Bent pipe with a rectangular cross-section.', parents=[parent])
+    add_arg(p_cpipe, '--ncells-i', type=int, help="Cells in 1st cross-section dir.")
+    add_arg(p_cpipe, '--ncells-j', type=int, help="Cells in 2nd cross-section dir.")
+    add_arg(p_cpipe, '--ncells-k', type=int, help="Cells along the pipe path (streamwise).")
+    add_arg(p_cpipe, '--side-lengths', type=float, nargs=2, metavar=('I', 'J'))
+    add_arg(p_cpipe, '--rc-factor', type=float)
+    add_arg(p_cpipe, '--straight-factor', type=float)
+    add_arg(p_cpipe, '--bend-angle', type=float, help="Bend angle in degrees.")
+    add_arg(p_cpipe, '--orientation', choices=['xy', 'xz'])
+
+    p_pipe = subparsers.add_parser('pipe', help='Bent pipe with a circular cross-section (O-grid).', parents=[parent])
+    add_arg(p_pipe, '--ncells-phi', type=int, help="Cells circumferentially (i-dir).")
+    add_arg(p_pipe, '--ncells-r', type=int, help="Cells radially (j-dir).")
+    add_arg(p_pipe, '--ncells-path', type=int, help="Cells along the pipe path (k-dir).")
+    add_arg(p_pipe, '--diameter', type=float)
+    add_arg(p_pipe, '--rc-factor', type=float)
+    add_arg(p_pipe, '--straight-factor', type=float)
+    add_arg(p_pipe, '--bend-angle', type=float, help="Bend angle in degrees.")
+    add_arg(p_pipe, '--pinhole-factor', type=float)
+    add_arg(p_pipe, '--orientation', choices=['xy', 'xz'])
+    
+    p_warp = subparsers.add_parser('warp', help='A generic warped Cartesian block.', parents=[parent])
+    add_arg(p_warp, '--ncells-i',type=int)
+    add_arg(p_warp, '--ncells-j',type=int)
+    add_arg(p_warp, '--ncells-k',type=int)
+    add_arg(p_warp, '--bounds-x',type=float,nargs=2,metavar=('MIN','MAX'))
+    add_arg(p_warp, '--bounds-y',type=float,nargs=2,metavar=('MIN','MAX'))
+    add_arg(p_warp, '--bounds-z',type=float,nargs=2,metavar=('MIN','MAX'))
+    add_arg(p_warp, '--amp-A',type=float)
+    add_arg(p_warp, '--amp-B',type=float)
+    add_arg(p_warp, '--amp-C',type=float)
+
+    # --- Step 2: Manually build the final parameters with correct precedence ---
+    cli_args = parser.parse_args()
+    
+    grid_type = cli_args.grid_type
+    config_params = {}
+    
+    # --- BUG FIX 1: Check if cli_args.config has a value, not just if it exists ---
+    if cli_args.config:
+        print(f"Reading settings from '{cli_args.config}' ---")
+        config = configparser.ConfigParser(inline_comment_prefixes=('#', ';'))
+        if os.path.exists(cli_args.config):
+            config.read(cli_args.config)
+            if not grid_type and config.sections():
+                grid_type = config.sections()[0]
+            
+            if grid_type and config.has_section(grid_type):
+                config_params = dict(config.items(grid_type))
+        else:
+            print(f"Warning: Config file '{cli_args.config}' not found.", file=sys.stderr)
+
+    if not grid_type:
+        parser.error("A grid type must be specified on the command line or as the first section in a config file.")
+        
+    params = default_map[grid_type].copy()
+
+    active_subparser = subparsers.choices[grid_type]
+    for key, value in config_params.items():
+        for action in active_subparser._actions:
+            if action.dest == key:
+                try:
+                    if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
+                        params[key] = value.lower() in ['true', 'yes', '1']
+                    elif action.nargs in [2, 3]:
+                        params[key] = [action.type(v) for v in value.split()]
+                    elif action.type:
+                        params[key] = action.type(value)
+                    else:
+                        params[key] = value
+                except Exception:
+                     parser.error(f"Invalid value for '{key}' from config file: '{value}'")
+                break
+    
+    # --- BUG FIX 2: Filter out None values from CLI args before updating ---
+    # This prevents `grid_type=None` from overwriting the value from the config file.
+    cli_only_args = {k: v for k, v in vars(cli_args).items() if v is not None}
+    params.update(cli_only_args)
+
+    params['grid_type'] = grid_type
+    
+    args = argparse.Namespace(**params)
+    
+    # --- Step 3 & 4: Call generator and export ---
+    X, Y, Z = None, None, None
+    if args.grid_type == 'cpipe':
+        X, Y, Z = cartesian_pipe_grid(ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k, side_lengths=args.side_lengths, Rc_factor=args.rc_factor, straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle, orientation=args.orientation, origin=args.origin)
+    elif args.grid_type == 'pipe':
+        X, Y, Z = bent_pipe_grid(ncells_phi=args.ncells_phi, ncells_r=args.ncells_r, ncells_path=args.ncells_path, D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor, orientation=args.orientation, origin=args.origin)
+    elif args.grid_type == 'warp':
+        X, Y, Z = generate_curvilinear_grid(ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k, x_min=args.bounds_x[0], x_max=args.bounds_x[1], y_min=args.bounds_y[0], y_max=args.bounds_y[1], z_min=args.bounds_z[0], z_max=args.bounds_z[1], A=args.amp_A, B=args.amp_B, C=args.amp_C, origin=args.origin)
+
+    if X is None:
+        print(f"Error: Grid generation failed for type '{args.grid_type}'.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.show_stats or hasattr(args, 'stats_file'):
+        stats_data = analyze_grid_quality(X, Y, Z)
+        if args.show_stats:
+            print_stats_to_console(stats_data)
+        if hasattr(args, 'stats_file'):
+            export_stats_to_file(args.stats_file, stats_data)
+
+    if hasattr(args, 'output'):
+        export_grid_to_picgrid(args.output, X, Y, Z)    
+    if args.write_vtk:
+        vts_filename = getattr(args, 'vts', None)
+        if not vts_filename:
+            if hasattr(args, 'output'):
+                base, _ = os.path.splitext(args.output)
+                vts_filename = base + ".vts"
+            else:
+                vts_filename = f"{args.grid_type}_grid_default.vts"
+        export_grid_to_vts_manual(vts_filename, X, Y, Z)
+
+if __name__ == "__main__":
+    main()

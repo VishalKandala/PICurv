@@ -813,6 +813,7 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     
     ierr = DMDAVecRestoreArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->Centx, &centx); CHKERRQ(ierr);
+
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   i-face centers (Centx) calculated and ghosts updated.\n", user->simCtx->rank);
@@ -1656,8 +1657,8 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
             // These functions are self-contained and operate on the data within the provided context.
             ierr = ComputeFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeCellCenteredJacobianInverse(user); CHKERRQ(ierr);
-	    ierr = CheckAndFixGridOrientation(user); CHKERRQ(ierr);
-	    ierr = ComputeCellCentersAndSpacing(user); CHKERRQ(ierr);
+	        ierr = CheckAndFixGridOrientation(user); CHKERRQ(ierr);
+	        ierr = ComputeCellCentersAndSpacing(user); CHKERRQ(ierr);
             ierr = ComputeIFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeJFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeKFaceMetrics(user); CHKERRQ(ierr); 
