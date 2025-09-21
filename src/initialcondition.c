@@ -316,7 +316,7 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
 /**
  * @brief (HELPER) Reads fluid state for all blocks from restart files.
  */
-static PetscErrorCode SetInitialFluidState_Restart(SimCtx *simCtx)
+static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->mglevels - 1].user;
@@ -361,10 +361,18 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
     if (simCtx->StartStep > 0) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Starting from RESTART files (t=%.4f, step=%d).\n",
                   simCtx->StartTime, simCtx->StartStep);
-        ierr = SetInitialFluidState_Restart(simCtx); CHKERRQ(ierr);
+        ierr = SetInitialFluidState_Load(simCtx); CHKERRQ(ierr);
     } else {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Performing a FRESH START (t=0, step=0).\n");
-        ierr = SetInitialFluidState_FreshStart(simCtx); CHKERRQ(ierr);
+        if(strcmp(simCtx->eulerianSource,"solve")==0){
+            ierr = SetInitialFluidState_FreshStart(simCtx); CHKERRQ(ierr);
+        }else if(strcmp(simCtx->eulerianSource,"load")==0){
+            
+            LOG_ALLOW(GLOBAL,LOG_INFO,"FRESH START in LOAD mode. Reading files (t=%.4f,step=%d).\n",
+                      simCtx->StartTime,simCtx->StartStep);
+
+            ierr=SetInitialFluidState_Load(simCtx);CHKERRQ(ierr);
+        }
     }
 
     // This crucial step, taken from the end of the legacy setup, ensures

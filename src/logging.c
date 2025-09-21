@@ -869,8 +869,8 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
         }
 
         // Write a header only for the very first block (bi=0) on the very
-        // first timestep (ti=StartStep). This ensures it's written only once.
-        if (ti == simCtx->StartStep && bi == 0) {
+        // first timestep (ti=StartStep + 1). This ensures it's written only once.
+        if (ti == simCtx->StartStep + 1 && bi == 0) {
             PetscFPrintf(PETSC_COMM_SELF, f, "%-10s | %-6s | %-18s | %-30s | %-18s | %-18s | %-18s | %-18s\n",
                          "Timestep", "Block", "Max Divergence", "Max Divergence Location ([k][j][i]=idx)", "Sum(RHS)","Total Flux In", "Total Flux Out", "Net Flux");
             PetscFPrintf(PETSC_COMM_SELF, f, "------------------------------------------------------------------------------------------------------------------------------------------\n");
