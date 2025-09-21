@@ -57,6 +57,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->tiout = 10; simCtx->StartTime = 0.0; simCtx->dt = 0.001;
     simCtx->OnlySetup = PETSC_FALSE;
     simCtx->logviewer = NULL; simCtx->OutputFreq = simCtx->tiout;
+    strcpy(simCtx->eulerianSource,"solve");
+
     // --- Group 3: High-Level Physics & Model Selection Flags ---
     simCtx->immersed = 0; simCtx->movefsi = 0; simCtx->rotatefsi = 0;
     simCtx->sediment = 0; simCtx->rheology = 0; simCtx->invicid = 0;
@@ -227,7 +229,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetBool(NULL, NULL, "-only_setup", &simCtx->OnlySetup, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-dt", &simCtx->dt, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-tio", &simCtx->tiout, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-euler_field_source",simCtx->eulerianSource,64,NULL);
     simCtx->OutputFreq = simCtx->tiout; // backward compatibility related redundancy.
+    if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0){
+      SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Invalid value for -euler_field_source. Must be 'load' or 'solve'. You provided '%s'.",simCtx->eulerianSource);
+    }
 
     //  --- Group 3
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 3: High-Level Physics & Model Selection Flags\n");    

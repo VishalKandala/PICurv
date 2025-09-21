@@ -530,6 +530,7 @@ typedef struct SimCtx {
     PetscViewer logviewer;
     PetscInt    OutputFreq;
     ExecutionMode exec_mode;
+    char eulerianSource[64]; 
 
     //================ Group 3: High-Level Physics & Model Selection Flags ================
     PetscInt  immersed, movefsi, rotatefsi, sediment, rheology;

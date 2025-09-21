@@ -338,13 +338,20 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         //     2. EULERIAN SOLVER STEP
         // =================================================================
         
-        // Call the refactored, high-level legacy solver. This single function
-        // advances the entire multi-block fluid field from t_n to t_{n+1}.
-	LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
-	
-	ierr = Flow_Solver(simCtx); CHKERRQ(ierr);
-
-	LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field solved ...\n");
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
+        if(strcmp(simCtx->eulerianSource,"load")==0){
+            //LOAD mode: Read pre-computed fields for the current step.
+            LOG_ALLOW(GLOBAL,LOG_INFO,"Eulerian Source 'load': Reading fields (t=%.4f,step=%d)...",simCtx->ti,simCtx->step);
+            for(PetscInt bi = 0; bi < simCtx->block_number;bi++){
+                ierr = ReadSimulationFields(&user[bi],simCtx->step); CHKERRQ(ierr);
+            }
+        }else if(strcmp(simCtx->eulerianSource,"solve")==0){
+            // SOLVE mode:Call the refactored, high-level legacy solver. This single function
+            // advances the entire multi-block fluid field from t_n to t_{n+1}.
+            LOG_ALLOW(GLOBAL,LOG_INFO,"Eulerian Source 'solve'. Updating Eulerian field via Solver...\n");
+            ierr = Flow_Solver(simCtx); CHKERRQ(ierr);
+        }
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field Updated ...\n");
         // =================================================================
         //     3. LAGRANGIAN PARTICLE STEP
         // =================================================================
