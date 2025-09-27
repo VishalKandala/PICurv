@@ -42,6 +42,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 {
     PetscErrorCode ierr;
     SimCtx *simCtx;
+    char control_filename[PETSC_MAX_PATH_LEN] = ""; // Temporary placeholder for control file name.
+    PetscBool control_flg; // Temporary placeholder for control file tag existence check flag.
 
     PetscFunctionBeginUser;
 
@@ -58,6 +60,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->OnlySetup = PETSC_FALSE;
     simCtx->logviewer = NULL; simCtx->OutputFreq = simCtx->tiout;
     strcpy(simCtx->eulerianSource,"solve");
+    strcpy(simCtx->restart_dir,"results");
+    strcpy(simCtx->output_dir,"results");
+    strcpy(simCtx->log_dir,"logs");
 
     // --- Group 3: High-Level Physics & Model Selection Flags ---
     simCtx->immersed = 0; simCtx->movefsi = 0; simCtx->rotatefsi = 0;
@@ -68,7 +73,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->dgf_ax = 1; simCtx->dgf_ay = 0; simCtx->dgf_az = 0;
     simCtx->st = 1.0;
 
-    // --- Group 4: Specific Simulation Case Flags ---
+    // --- Group 4: Specific Simulation Case Flags --- (DEPRICATED)
     simCtx->cop=0; simCtx->fish=0; simCtx->fish_c=0; simCtx->fishcyl=0;
     simCtx->eel=0; simCtx->pizza=0; simCtx->turbine=0; simCtx->Pipe=0;
     simCtx->wing=0; simCtx->hydro=0; simCtx->MHV=0; simCtx->LV=0;
@@ -89,18 +94,15 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Group 6: Physical & Geometric Parameters ---
     simCtx->NumberOfBodies = 1; simCtx->Flux_in = 1.0; simCtx->angle = 0.0;
-    simCtx->L_dim = 1.0; simCtx->St_exp = 0.5; simCtx->wavelength = 0.95;
     simCtx->max_angle = -54. * 3.1415926 / 180.;
     simCtx->CMx_c=0.0; simCtx->CMy_c=0.0; simCtx->CMz_c=0.0;
-    simCtx->regime = 1; simCtx->radi = 10;
-    simCtx->chact_leng = 1.0;
 
     // --- Group 7: Grid, Domain, and Boundary Condition Settings ---
     simCtx->block_number = 1; simCtx->inletprofile = 1;
     simCtx->grid1d = 0; simCtx->Ogrid = 0; simCtx->channelz = 0;
     simCtx->i_periodic = 0; simCtx->j_periodic = 0; simCtx->k_periodic = 0;
     simCtx->blkpbc = 10; simCtx->pseudo_periodic = 0;
-    strcpy(simCtx->grid_file, "config/grid.dat");
+    strcpy(simCtx->grid_file, "config/grid.run");
     simCtx->generate_grid = PETSC_FALSE;
     simCtx->da_procs_x = PETSC_DECIDE;
     simCtx->da_procs_y = PETSC_DECIDE;
@@ -109,9 +111,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->Croty = 0.0; simCtx->Crotz = 0.0;
     simCtx->num_bcs_files = 1;
     ierr = PetscMalloc1(1, &simCtx->bcs_files); CHKERRQ(ierr);
-    ierr = PetscStrallocpy("config/bcs.dat", &simCtx->bcs_files[0]); CHKERRQ(ierr);
+    ierr = PetscStrallocpy("config/bcs.run", &simCtx->bcs_files[0]); CHKERRQ(ierr);
     simCtx->FluxInSum = 0.0; simCtx->FluxOutSum = 0.0; simCtx->Fluxsum = 0.0;
-    simCtx->AreaOutSum = 0.0;
+    simCtx->AreaInSum = 0.0; simCtx->AreaOutSum = 0.0;
     simCtx->U_bc = 0.0; simCtx->ccc = 0;
     simCtx->ratio = 0.0;
     
@@ -134,7 +136,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->rstart_fsi = PETSC_FALSE; simCtx->duplicate = 0;
 
     // --- Group 11: Logging and Custom Configuration ---
-    strcpy(simCtx->allowedFile, "config/whitelist.dat");
+    strcpy(simCtx->allowedFile, "config/whitelist.run");
     simCtx->useCfg = PETSC_FALSE;
     simCtx->allowedFuncs = NULL;
     simCtx->nAllowed = 0;
@@ -142,33 +144,44 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->summationRHS = 0.0;
     simCtx->MaxDiv = 0.0;
     simCtx->MaxDivFlatArg = 0; simCtx->MaxDivx = 0; simCtx->MaxDivy = 0; simCtx->MaxDivz = 0;
-    strcpy(simCtx->criticalFuncsFile, "config/profile.cfg");
+    strcpy(simCtx->criticalFuncsFile, "config/profile.run");
     simCtx->useCriticalFuncsCfg =  PETSC_FALSE;
     simCtx->criticalFuncs = NULL;
     simCtx->nCriticalFuncs = 0;
     // --- Group 11: Post-Processing Information ---
-    strcpy(simCtx->PostprocessingControlFile, "config/postprocess.cfg");
+    strcpy(simCtx->PostprocessingControlFile, "config/post.run");
     ierr = PetscNew(&simCtx->pps); CHKERRQ(ierr);
 
     // === 2. Get MPI Info and Handle Config File =============================
     // -- Group 1:  Parallelism & MPI Information
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &simCtx->rank); CHKERRQ(ierr);
     ierr = MPI_Comm_size(PETSC_COMM_WORLD, &simCtx->size); CHKERRQ(ierr);
-
-    ierr = PetscOptionsInsertFile(PETSC_COMM_WORLD, NULL, "config/control.dat", PETSC_FALSE);
-    if (ierr == PETSC_ERR_FILE_OPEN) {
-        if (simCtx->rank == 0) {
-            PetscPrintf(PETSC_COMM_SELF, "INFO: Could not open optional 'control.dat' file. Proceeding with defaults and command-line options.\n");
-        }
-        ierr = 0; // Clear the benign file-not-found error.
-    } else {
-        CHKERRQ(ierr); // A different error occurred, so we should stop.
-    }
     
+ // First, check if the -control_file argument was provided by the user/script.
+    ierr = PetscOptionsGetString(NULL, NULL, "-control_file", control_filename, sizeof(control_filename), &control_flg); CHKERRQ(ierr);
+
+    // If the flag is NOT present or the filename is empty, abort with a helpful error.
+    if (!control_flg || strlen(control_filename) == 0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                "\n\n*** MANDATORY ARGUMENT MISSING ***\n"
+                "The -control_file argument was not provided.\n"
+                "This program must be launched with a configuration file.\n"
+                "Example: mpiexec -n 4 ./picsolver -control_file /path/to/your/config.control\n"
+                "This is typically handled automatically by the 'pic-flow' script.\n");
+    }
+
+    // At this point, we have a valid filename. Attempt to load it.
+    LOG(GLOBAL, LOG_INFO, "Loading mandatory configuration from: %s\n", control_filename);
+    ierr = PetscOptionsInsertFile(PETSC_COMM_WORLD, NULL, control_filename, PETSC_FALSE);
+    if (ierr == PETSC_ERR_FILE_OPEN) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_FILE_OPEN, "The specified control file was not found or could not be opened: %s", control_filename);
+    }
+    CHKERRQ(ierr);
+
     // === 3. A Configure Logging System ========================================
     // This logic determines the logging configuration and STORES it in simCtx for
     // later reference and cleanup.
-    ierr = PetscOptionsGetString(NULL, NULL, "-func_config_file", simCtx->allowedFile, PETSC_MAX_PATH_LEN, &simCtx->useCfg); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL, NULL, "-whitelist_config_file", simCtx->allowedFile, PETSC_MAX_PATH_LEN, &simCtx->useCfg); CHKERRQ(ierr);
     
     if (simCtx->useCfg) {
         ierr = LoadAllowedFunctionsFromFile(simCtx->allowedFile, &simCtx->allowedFuncs, &simCtx->nAllowed);
@@ -229,7 +242,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetBool(NULL, NULL, "-only_setup", &simCtx->OnlySetup, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-dt", &simCtx->dt, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-tio", &simCtx->tiout, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-euler_field_source",simCtx->eulerianSource,64,NULL);
+    ierr = PetscOptionsGetString(NULL,NULL,"-euler_field_source",simCtx->eulerianSource,64,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",&simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",&simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",&simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
+
     simCtx->OutputFreq = simCtx->tiout; // backward compatibility related redundancy.
     if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0){
       SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Invalid value for -euler_field_source. Must be 'load' or 'solve'. You provided '%s'.",simCtx->eulerianSource);
@@ -302,18 +319,13 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
      //  --- Group 6
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 6: Physical & Geometric Parameters \n");   
-    ierr = PetscOptionsGetInt(NULL, NULL, "-body", &simCtx->NumberOfBodies, NULL); CHKERRQ(ierr);
-    // NOTE: Flux_in and angle are not parsed in the original code, they are set programmatically. We will follow that.
-    ierr = PetscOptionsGetReal(NULL, NULL, "-St_exp", &simCtx->St_exp, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-wlngth", &simCtx->wavelength, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-x_c", &simCtx->CMx_c, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-y_c", &simCtx->CMy_c, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-z_c", &simCtx->CMz_c, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-reg", &simCtx->regime, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-radi", &simCtx->radi, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-chact_leng", &simCtx->chact_leng, NULL); CHKERRQ(ierr);
-    // NOTE: L_dim and max_angle are calculated based on other flags (like MHV) in the legacy code.
+    ierr = PetscOptionsGetInt(NULL, NULL, "-no_of_bodies", &simCtx->NumberOfBodies, NULL); CHKERRQ(ierr);
+    // NOTE: angle is not parsed in the original code, it set programmatically. We will follow that.
+    // NOTE: max_angle is calculated based on other flags (like MHV) in the legacy code.
     // We will defer that logic to a later setup stage and not parse them directly.
+    // The Scaling Information is calculated here
+    ierr = ParseScalingInformation(simCtx); CHKERRQ(ierr);
+
 
      //  --- Group 7
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 7: Grid, Domain, and Boundary Condition Settings \n");
@@ -1068,6 +1080,9 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
 
         // Call the adapter to translate into the legacy format
         ierr = TranslateModernBCsToLegacy(&user_finest[bi]); CHKERRQ(ierr);
+
+        // Call the function to calculate the center of the inlet face, which may be used to calculate Boundary values.
+        ierr = CalculateInletCenter(&user_finest[bi]); CHKERRQ(ierr); 
     }
 
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Boundary Conditions setup complete ---\n");   
@@ -1635,17 +1650,28 @@ PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user)
     PetscMPIInt    size, rank;
     PetscInt       px = PETSC_DECIDE, py = PETSC_DECIDE, pz = PETSC_DECIDE;
     PetscBool      px_set = PETSC_FALSE, py_set = PETSC_FALSE, pz_set = PETSC_FALSE;
+    SimCtx         *simCtx = user->simCtx;
+
+    // Set no.of processors in direction 1
+    if(simCtx->da_procs_x) {
+      px_set = PETSC_TRUE;
+      px = simCtx->da_procs_x;
+    }
+    // Set no.of processors in direction 2
+    if(simCtx->da_procs_y) {
+      py_set = PETSC_TRUE;
+      py = simCtx->da_procs_y;
+    }
+    // Set no.of processors in direction 1
+    if(simCtx->da_procs_z) {
+      pz_set = PETSC_TRUE;
+      pz = simCtx->da_procs_z;
+    }
 
     PetscFunctionBeginUser;
     ierr = MPI_Comm_size(PetscObjectComm((PetscObject)dm), &size); CHKERRQ(ierr);
     ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)dm), &rank); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Configuring DMDA processor layout for %d total processes.\n", rank, size);
-
-    // --- Read desired layout from options ---
-    // Use names like "-dm_processors_x" which are somewhat standard in PETSc examples
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dm_processors_x", &px, &px_set); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dm_processors_y", &py, &py_set); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dm_processors_z", &pz, &pz_set); CHKERRQ(ierr);
 
     // --- Validate User Input (Optional but Recommended) ---
     // Check if specified processor counts multiply to the total MPI size

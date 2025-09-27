@@ -1,0 +1,52 @@
+# ==============================================================================
+#                 Solver Profile: Implicit Multigrid (impRK) Standard
+# ==============================================================================
+# PURPOSE:
+# A standard, robust solver configuration using an implicit time-stepping
+# scheme preconditioned with a geometric multigrid solver. Suitable for a wide
+# range of incompressible flow problems.
+# ==============================================================================
+
+# --- Solver Operation Mode ---
+operation_mode:
+  eulerian_field_source: "solve"
+
+# --- Primary Solver Strategy & Tolerances ---
+strategy:
+  implicit: true
+tolerances:
+  max_iterations: 50
+  absolute_tol: 1.0e-8
+  relative_tol: 1.0e-3
+  step_tol: 1.0e-8
+
+# --- Pressure-Poisson Solver Configuration ---
+pressure_solver:
+  multigrid:
+    levels: 3
+    # Use semi-coarsening in the 'k' direction, assuming it's the longest.
+    semi_coarsening:
+      i: false  # -> -mg_i_semi 0
+      j: false  # -> -mg_j_semi 0
+      k: true   # -> -mg_k_semi 1
+      
+# --- PETSC PASSTHROUGH OPTIONS ---
+# Direct mapping to the solver's command-line flags.
+petsc_passthrough_options:
+
+  # --- Implicit Solver -----
+  # The CFL and VNN for the pseudo-timestepping in the impilcit solver.
+  -cfl: 0.1
+  -vnn: 0.1  
+
+  # --- Top-level KSP (Krylov Solver) ---
+  -ps_ksp_type: "fgmres"
+  -ps_ksp_gmres_restart: 20
+  -ps_ksp_max_it: 50
+  -ps_ksp_atol: 1.0e-5
+  -ps_ksp_rtol: 1.0e-11
+  
+  # --- Per-Level MG Smoothers ---
+  -ps_mg_levels_0_ksp_type: "richardson" # Finest level
+  -ps_mg_levels_1_ksp_type: "richardson"
+  -ps_mg_levels_2_ksp_type: "fgmres"     # Coarsest level

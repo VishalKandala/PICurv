@@ -926,3 +926,141 @@ PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
 
   return 0;
 }
+
+/**
+ * @brief Calculates the geometric center of the primary inlet face.
+ *
+ * This function identifies the first face designated as an INLET in the boundary
+ * condition configuration. It then iterates over all grid nodes on that physical
+ * face across all MPI processes, calculates the average of their coordinates,
+ * and stores the result in the user's SimCtx (CMx_c, CMy_c, CMz_c).
+ *
+ * This provides an automatic, robust way to determine the center for profiles
+ * like parabolic flow, removing the need for manual user input.
+ *
+ * @param user The main UserCtx struct, containing BC config and the grid coordinate vector.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode CalculateInletCenter(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    BCFace         inlet_face_id = -1;
+    PetscBool      inlet_found = PETSC_FALSE;
+
+    PetscReal      local_sum[3] = {0.0, 0.0, 0.0};
+    PetscReal      global_sum[3] = {0.0, 0.0, 0.0};
+    PetscCount     local_n_points = 0;
+    PetscCount     global_n_points = 0;
+    
+    DM             da = user->da;
+    DMDALocalInfo  info = user->info;
+    PetscInt       xs = info.xs, xe = info.xs + info.xm;
+    PetscInt       ys = info.ys, ye = info.ys + info.ym;
+    PetscInt       zs = info.zs, ze = info.zs + info.zm;
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
+    Vec            lCoor;
+    Cmpnts         ***coor;
+
+    PetscFunctionBeginUser;
+
+    // 1. Identify the primary inlet face from the configuration
+    for (int i = 0; i < 6; i++) {
+        if (user->boundary_faces[i].mathematical_type == INLET) {
+            inlet_face_id = user->boundary_faces[i].face_id;
+            inlet_found = PETSC_TRUE;
+            break; // Use the first inlet found
+        }
+    }
+
+    if (!inlet_found) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "No INLET face found. Skipping inlet center calculation.\n");
+        PetscFunctionReturn(0);
+    }
+    
+    // 2. Get the nodal coordinates
+    ierr = DMGetCoordinatesLocal(user->da,&lCoor);
+    ierr = DMDAVecGetArrayRead(user->fda, lCoor, &coor); CHKERRQ(ierr);
+
+    // 3. Loop over the identified inlet face and sum local coordinates
+    switch (inlet_face_id) {
+        case BC_FACE_NEG_X:
+            if (xs == 0) {
+                for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
+                    local_sum[0] += coor[k][j][0].x;
+                    local_sum[1] += coor[k][j][0].y;
+                    local_sum[2] += coor[k][j][0].z;
+                    local_n_points++;
+                }
+            }
+            break;
+        case BC_FACE_POS_X:
+            if (xe == mx) {
+                for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
+                    local_sum[0] += coor[k][j][mx-1].x;
+                    local_sum[1] += coor[k][j][mx-1].y;
+                    local_sum[2] += coor[k][j][mx-1].z;
+                    local_n_points++;
+                }
+            }
+            break;
+        case BC_FACE_NEG_Y:
+            if (ys == 0) {
+                for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) {
+                    local_sum[0] += coor[k][0][i].x;
+                    local_sum[1] += coor[k][0][i].y;
+                    local_sum[2] += coor[k][0][i].z;
+                    local_n_points++;
+                }
+            }
+            break;
+        case BC_FACE_POS_Y:
+            if (ye == my) {
+                for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) {
+                    local_sum[0] += coor[k][my-1][i].x;
+                    local_sum[1] += coor[k][my-1][i].y;
+                    local_sum[2] += coor[k][my-1][i].z;
+                    local_n_points++;
+                }
+            }
+            break;
+        case BC_FACE_NEG_Z:
+            if (zs == 0) {
+                for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) {
+                    local_sum[0] += coor[0][j][i].x;
+                    local_sum[1] += coor[0][j][i].y;
+                    local_sum[2] += coor[0][j][i].z;
+                    local_n_points++;
+                }
+            }
+            break;
+        case BC_FACE_POS_Z:
+            if (ze == mz) {
+                for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) {
+                    local_sum[0] += coor[mz-1][j][i].x;
+                    local_sum[1] += coor[mz-1][j][i].y;
+                    local_sum[2] += coor[mz-1][j][i].z;
+                    local_n_points++;
+                }
+            }
+            break;
+    }
+    
+    ierr = DMDAVecRestoreArrayRead(user->fda, lCoor, &coor); CHKERRQ(ierr);
+
+    // 4. Perform MPI Allreduce to get global sums
+    ierr = MPI_Allreduce(local_sum, global_sum, 3, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(&local_n_points, &global_n_points, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    // 5. Calculate average and store in SimCtx
+    if (global_n_points > 0) {
+        user->simCtx->CMx_c = global_sum[0] / global_n_points;
+        user->simCtx->CMy_c = global_sum[1] / global_n_points;
+        user->simCtx->CMz_c = global_sum[2] / global_n_points;
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Calculated inlet center for Face %d: (x=%.4f, y=%.4f, z=%.4f)\n", 
+                  inlet_face_id, user->simCtx->CMx_c, user->simCtx->CMy_c, user->simCtx->CMz_c);
+    } else {
+         LOG_ALLOW(GLOBAL, LOG_WARNING, "WARNING: Inlet face was identified but no grid points found on it. Center not calculated.\n");
+    }
+
+    PetscFunctionReturn(0);
+}

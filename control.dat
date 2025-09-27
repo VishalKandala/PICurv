@@ -1,0 +1,147 @@
+# ==========================================================================
+#
+#                   PIC-LES Solver Master Control File
+#
+# --------------------------------------------------------------------------
+#
+#   Description:
+#   This is a configuration file for the PIC-LES Solver.
+#   Parameters are grouped into logical sections below.
+#   
+# ==========================================================================
+
+
+# ==========================================================================
+# 1. Run Control & I/O
+# --------------------------------------------------------------------------
+# Governs the overall execution of the simulation and specifies
+# input/output files.
+# ==========================================================================
+
+# --- General Run Settings ---
+-start_step 0         # The Timestep to start at (0 default, change if restarting)        
+-totalsteps 1	      # Total number of time steps to execute
+#-setup_only          # Uncomment to run only the setup phase and then exit
+
+# --- File Paths ---
+-whitelist_config_file "config/whitelist.dat"  # Path to the function logger configuration
+-grid_file        "config/cpipe_coarse.grid"     # Path to a pre-existing grid file (if not generating)
+-bcs_files        "config/cpipe.bcs"      # Path to the boundary condition specifications
+-profile_config_file "config/profile.cfg"
+# --- I/O Control ---
+-tio 20                 # Time-step interval for output
+-logfreq 100           # Frequency for logging particles 
+
+# ==========================================================================
+# 2. Grid Generation & Geometry
+# --------------------------------------------------------------------------
+# Defines the computational grid, including its structure, dimensions,
+# and hierarchy.
+# ==========================================================================
+
+# --- Grid Generation ---
+-grid                  # Enable programmatic grid generation
+
+# --- Multigrid & Block Hierarchy ---
+-mg_level 3            # Number of multigrid levels
+-nblk 1                # Number of blocks in the grid
+-mg_i_semi 0           # Semi-coarsening in i-direction (0=off, 1=on)
+-mg_j_semi 0           # Semi-coarsening in j-direction (0=off, 1=on)
+-mg_k_semi 1           # Semi-coarsening in k-direction (0=off, 1=on)
+
+# --- Block Dimensions (Number of Cells) ---
+-im 25                 # Number of cells in the i-direction
+-jm 25                 # Number of cells in the j-direction
+-km 97                 # Number of cells in the k-direction
+
+# --- Block Domain Bounds (Physical Coordinates) ---
+-xMins 0.0             # Minimum x-coordinate
+-xMaxs 1.0             # Maximum x-coordinate
+-yMins 0.0             # Minimum y-coordinate
+-yMaxs 1.0             # Maximum y-coordinate
+-zMins 0.0             # Minimum z-coordinate
+-zMaxs 4.0             # Maximum z-coordinate
+
+# --- Grid Stretching & Type ---
+-rxs 1.0               # Stretching ratio in the x-direction
+-rys 1.0               # Stretching ratio in the y-direction
+-rzs 1.0               # Stretching ratio in the z-direction
+-cgrids 0              # Flag for C-grid type (0=off, 1=on)
+
+
+# ==========================================================================
+# 3. Physics & Flow Conditions
+# --------------------------------------------------------------------------
+# Defines the physical properties of the flow and the initial conditions.
+# ==========================================================================
+
+# --- Fluid Properties ---
+-ren 200               # Reynolds number
+
+# --- Initial Conditions ---
+-finit 1               # Initialization flag (1 is constant velocity, 2 is fully developed flow etc)
+-ucont_x 0.0           # velocity in x-direction
+-ucont_y 0.0           # velocity in y-direction
+-ucont_z 1.0           # velocity in z-direction
+
+# --- Boundary Conditions (Redundant) ----------
+-inlet 1               # Inlet flag for flow (1 is uniform flow, 2 is parabolic flow etc)
+
+# --- Time Step & Stability ---
+-dt  0.01              # Time step size
+-cfl 0.1               # Courant-Friedrichs-Lewy (CFL) number
+-vnn 0.1               # Von Neumann number
+
+
+# ==========================================================================
+# 4. Particle Configuration
+# --------------------------------------------------------------------------
+# Contains all parameters related to particle simulation.
+# ==========================================================================
+
+# --- Particle Initialization ---
+-numParticles 0        # Number of particles to simulate
+-pinit 0               # Particle Initialization flag (0 is particles initialized at inlet, 1 is throughout domain etc)
+-particle_restart_mode "init" # Particle Restart mode ("load" to load initial state from data, "init" to initialize freshly [ex: induce particles into a fully developed flow]) - "load" is default. 
+# ==========================================================================
+# 5. Numerical Solvers
+# --------------------------------------------------------------------------
+# Contains parameters that control the behavior of the various
+# numerical solvers.
+# ==========================================================================
+
+#-euler_field_source "load" # Eulerian field source ("load" to load the eulerian field for every timestep from data, "solve" to solve for the eulerian field every timestep.) - "solve" is default.
+# --- Implicit Solver Settings ---
+-imp 1                 # Enable implicit solver (0=off, 1=on)
+-imp_MAX_IT 50         # Maximum iterations for the implicit solver
+-imp_atol 1.e-8        # Absolute tolerance
+-imp_rtol 1.e-3        # Relative tolerance
+-imp_stol 1.e-8        # Stationarity tolerance
+
+# --- Pressure Poisson Solver (Main KSP Settings) ---
+-ps_ksp_type               fgmres         # Krylov subspace method type (Flexible GMRES)
+-ps_ksp_gmres_restart      20             # Restart parameter for GMRES
+-ps_ksp_max_it             50             # Maximum iterations
+-ps_ksp_atol               1.e-5          # Absolute tolerance
+-ps_ksp_rtol               1.e-11         # Relative tolerance
+
+# --- Pressure Poisson Solver (Multigrid Level Settings) ---
+-ps_mg_levels_1_ksp_type   richardson     # Solver for MG level 1
+-ps_mg_levels_2_ksp_type   richardson     # Solver for MG level 2
+-ps_mg_levels_3_ksp_type   fgmres         # Solver for MG level 3
+
+# --- Pressure Poisson Solver (Pre-conditioners)
+#-ps_pc_type                svd            # Use SVD as a preconditioner (for debugging)
+#-ps_pc_type                bjacobi        # Preconditioner type (Block Jacobi)
+
+# --- Pressure Poisson Solver (Monitoring & Debugging ---
+#-ps_ksp_pic_monitor_true_residual        # Custom Monitor for the true residual of the preconditioned system
+#-ps_ksp_monitor_true_residual           # Standard PETSC monitor.
+#-ps_ksp_truemonitor
+#-ps_ts_monitor
+#-ps_ksp_converged_reason                 # Print the reason for convergence or divergence
+#-ps_ksp_monitor_singular_value           # Monitor singular values
+#-ps_ksp_log
+#-ps_ksp_view
+
+#-ps_pc_svd_monitor

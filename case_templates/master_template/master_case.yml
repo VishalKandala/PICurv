@@ -1,0 +1,231 @@
+# ==============================================================================
+#                 PIC-Flow Master Case Configuration Template
+# ==============================================================================
+#
+# PURPOSE:
+# This file defines the complete physical setup for a single simulation experiment.
+# It describes the geometry, fluid properties, run duration, physical models,
+# and boundary conditions. It is the "digital lab notebook" for your run.
+#
+# SECTIONS OVERVIEW:
+#   1. simulation_control:  How long the simulation runs and at what time resolution.
+#   2. properties:          The core physical numbers (density, viscosity, scales).
+#   3. grid:                The geometric domain, either from a file or generated.
+#   4. models:              Switches to turn on/off different physics modules (LES, FSI, etc.).
+#   5. boundary_conditions: What happens at the edges of the domain.
+#
+# YAML SYNTAX NOTE:
+#   - Indentation matters! Use spaces, not tabs.
+#   - For lists, ensure there is a space after the hyphen (e.g., "- item").
+#   - For more details: https://learnxinyminutes.com/docs/yaml/
+#
+# ==============================================================================
+
+# ==============================================================================
+# 1. SIMULATION CONTROL
+#    Defines the duration and temporal resolution of the experiment.
+# ==============================================================================
+run_control:
+  # The simulation step number to start from.
+  # 0 for a new run, or a specific step number for a restart.
+  start_step: 0
+
+  # Total number of timesteps to execute in this run.
+  # Total simulation time = total_steps * dt_physical.
+  total_steps: 2000
+
+  # The physical time increment for each step, in seconds [s].
+  dt_physical: 0.001
+
+# ==============================================================================
+# 2. PHYSICAL PROPERTIES
+#    Defines the non-dimensional scaling and material properties.
+# ==============================================================================
+properties:
+  # --- Scaling ---
+  # These reference values are used to non-dimensionalize the problem for the solver.
+  scaling:
+    length_ref: 0.05    # [m] Characteristic length of the domain (e.g., pipe diameter, chord length).
+    velocity_ref: 1.5   # [m/s] Characteristic velocity (e.g., inlet velocity, freestream velocity).
+
+  # --- Fluid ---
+  # Properties of the fluid being simulated.
+  fluid:
+    density: 1000.0     # [kg/m^3]
+    viscosity: 0.001    # [Pa.s or kg/(m.s)]
+
+  # --- Initial Conditions ---
+  # The state of the fluid at the start of the simulation (t=0).
+  # Values are in physical units [m/s].
+  initial_conditions:
+    # --- Field Initialization Mode ---
+    # Defines the type of initial velocity field.
+    # Options:
+    #   - "Zero": All velocity components are zero.
+    #   - "Constant": A uniform velocity field is applied everywhere.
+    #   - "Poiseuille": A parabolic velocity profile (for channel/pipe flow).
+    mode: "Constant"  # This will be translated to -finit
+
+    # --- Initial Velocity (for 'Constant' mode) ---
+    # Values are in physical units [m/s].
+    u_physical: 0.0
+    v_physical: 0.0
+    w_physical: 0.0
+
+# ==============================================================================
+# 3. GRID DEFINITION
+#    Defines the computational mesh for the simulation.
+# ==============================================================================
+grid:
+  # --- Mode Selection ---
+  # Determines how the grid is provided to the solver.
+  # Options: 'file' or 'programmatic_c'.
+  mode: programmatic_c
+
+  # --- Option A: Grid from File ---
+  # Use this if you have a pre-generated grid file.
+  # The script will non-dimensionalize the coordinates using 'length_ref'.
+  # source_file: "grids/my_premade_grid.picgrid"
+
+  # --- Option B: Programmatic Grid Generation ---
+  # Use this to have the C solver generate a structured Cartesian grid.
+  # For MULTI-BLOCK cases, all values must be LISTS of the same length.
+  programmatic_settings:
+    # --- Cell Counts ---
+    im: 64              # [Cells in i-direction] -> For 2 blocks: [64, 128]
+    jm: 32              # [Cells in j-direction] -> For 2 blocks: [32, 32]
+    km: 128             # [Cells in k-direction] -> For 2 blocks: [128, 256]
+
+    # --- Domain Bounds (in physical units [m]) ---
+    xMins: 0.0          # [Min x-coordinate] -> For 2 blocks: [0.0, 1.0]
+    xMaxs: 1.0          # [Max x-coordinate] -> For 2 blocks: [1.0, 2.0]
+    yMins: 0.0
+    yMaxs: 0.5
+    zMins: 0.0
+    zMaxs: 2.0
+
+    # --- Grid Stretching Ratios ---
+    # 1.0 = uniform. >1.0 = stretching towards max coordinate.
+    rxs: 1.0
+    rys: 1.05
+    rzs: 1.0
+
+    # --- Domain Decomposition (for parallel runs) ---
+    # Number of MPI processes in each direction for this block.
+    # The product must equal the total number of processes assigned to the block.
+    da_processors_x: 2
+    da_processors_y: 2
+    da_processors_z: 4  # -> For a 2-block run on 32 procs (16 each): [2, 2]
+
+# ==============================================================================
+# 4. MODEL SELECTION
+#    User-friendly switches to enable different physical models and features.
+#    If a section or key is omitted, the C-code's default will be used.
+# ==============================================================================
+models:
+  # --- Domain and Block Configuration ---
+  domain:
+    blocks: 1          # [Integer] -> -nblk. CRITICAL for multi-block setups.
+    i_periodic: false  # [true/false] -> -i_periodic
+    j_periodic: false  # [true/false] -> -j_periodic
+    k_periodic: false  # [true/false] -> -k_periodic
+
+  # --- Core Physics Modules ---
+  physics:
+    dimensionality: "3D" # Options: "3D" (default), "2D" (sets -TwoD 1)
+    
+    fsi:
+      immersed: false    # [true/false] -> -imm (Immersed Boundary Method)
+      moving_fsi: false  # [true/false] -> -fsi (Fluid-Structure Interaction)
+
+    particles:
+      count: 0             # [Integer] -> -numParticles
+      init_mode: "Surface" # [string] -> -pinit. Options: "Surface" (0), "volume" (1)
+      restart_mode: "init" # [string] -> -particle_restart_mode. Options: "init", "load"
+
+    turbulence:
+      les: false           # [true/false] -> -les (Large Eddy Simulation)
+      rans: false          # [true/false] -> -rans (Reynolds-Averaged Navier-Stokes)
+      wall_function: false # [true/false] -> -wallfunction
+  
+  # --- Statistical Analysis ---
+  statistics:
+    time_averaging: false  # [true/false] -> -averaging. Enables running averages.
+
+# ==============================================================================
+# 5. BOUNDARY CONDITIONS
+#    Defines the behavior at each of the 6 faces of the computational domain(s).
+# ==============================================================================
+# --- For SINGLE-BLOCK cases: Provide a simple list of 6 face definitions. ---
+# --- For MULTI-BLOCK cases: Provide a LIST OF LISTS. The outer list corresponds
+#     to the block index [0, 1, ...], and each inner list defines the 6 faces
+#     for that block. See the multi-block example commented out below. ---
+boundary_conditions:
+  # --- Example for a Single Block Case ---
+  - face: "-Xi"
+    type: WALL
+    handler: noslip
+    
+  - face: "+Xi"
+    type: WALL
+    handler: noslip
+
+  - face: "-Eta"
+    type: INLET
+    handler: constant_velocity
+    params:
+      vector: [1.5, 0.0, 0.0]  # Physical velocity [m/s]
+      
+  - face: "+Eta"
+    type: OUTLET
+    handler: conservation
+    
+  - face: "-Zeta"
+    type: WALL
+    handler: noslip
+    
+  - face: "+Zeta"
+    type: WALL
+    handler: noslip
+
+# --- Example for a 2-Block Case (uncomment and adapt if models.domain.blocks > 1) ---
+# boundary_conditions:
+#   # --- Block 0 Definitions ---
+#   - - face: "-Xi"
+#       type: WALL
+#       handler: noslip
+#     - face: "+Xi"  # Interface where Block 0 connects to Block 1
+#       type: INTERFACE
+#       handler: overset
+#     - face: "-Eta"
+#       type: INLET
+#       handler: constant_velocity
+#       params: { vector: [1.5, 0.0, 0.0] }
+#     - face: "+Eta"
+#       type: WALL
+#       handler: noslip
+#     - face: "-Zeta"
+#       type: WALL
+#       handler: noslip
+#     - face: "+Zeta"
+#       type: WALL
+#       handler: noslip
+#   # --- Block 1 Definitions ---
+#   - - face: "-Xi"  # Interface where Block 1 connects to Block 0
+#       type: INTERFACE
+#       handler: overset
+#     - face: "+Xi"
+#       type: OUTLET
+#       handler: conservation
+#     - face: "-Eta"
+#       type: WALL
+#       handler: noslip
+#     - face: "+Eta"
+#       type: WALL
+#       handler: noslip
+#     - face: "-Zeta"
+#       type: WALL
+#       handler: noslip
+#     - face: "+Zeta"
+#       type: WALL
+#       handler: noslip

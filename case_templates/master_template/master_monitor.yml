@@ -1,0 +1,101 @@
+# ==============================================================================
+#                 PIC-Flow Master Monitor Configuration Template
+# ==============================================================================
+#
+# PURPOSE:
+# This file defines the OBSERVATION and DATA MANAGEMENT strategy for a SOLVER run.
+# It controls console verbosity, performance profiling, I/O frequency, and
+# detailed monitoring of the numerical solvers.
+#
+# IMPORTANT:
+# Changing this file will NEVER change the scientific result of the simulation.
+# It only changes what is observed and recorded.
+#
+# ==============================================================================
+
+# ==============================================================================
+# 1. LOGGING
+#    Controls what is printed to the console and saved in the main .log file.
+# ==============================================================================
+logging:
+  # --- Verbosity Level ---
+  # Sets the master LOG_LEVEL for the C-code.
+  # Options: ERROR, WARNING, INFO, DEBUG, PROFILE
+  verbosity: INFO
+
+  # --- Function Allow-List ---
+  # For targeted debugging. If this list is empty, all functions are allowed
+  # to log, filtered only by the 'verbosity' level.
+  enabled_functions: []
+
+# ==============================================================================
+# 2. PROFILING
+#    Controls the performance measurement system.
+# ==============================================================================
+profiling:
+  # --- Critical Functions ---
+  # A list of functions whose performance is reported per-timestep at INFO level.
+  critical_functions:
+    - AdvanceSimulation
+    - Flow_Solver
+
+# ==============================================================================
+# 3. I/O AND DATA MANAGEMENT
+#    Controls data file generation and locations for the SOLVER.
+# ==============================================================================
+io:
+  # --- Frequency Control ---
+  # How often data is written or printed, measured in timesteps.
+  
+  # Frequency for saving full simulation field data (for restarts/post-processing).
+  # [Integer] -> -tio
+  data_output_frequency: 100
+
+  # --- Particle Tracking in Console Log ---
+  # At each data output step (controlled by data_output_frequency), this setting
+  # prints data for every Nth particle to the console log for tracking.
+  # [Integer] -> -logfreq
+  particle_log_interval: 50
+
+  # --- Directory Management ---
+  # Specifies subdirectory names within the run folder. If omitted, C-code
+  # defaults will be used.
+  directories:
+    output: "results"   # [string] -> -output_dir
+    restart: "results"  # [string] -> -restart_dir
+    log: "logs"         # [string] -> -log_dir
+
+# ==============================================================================
+# 4. SOLVER MONITORING (PASSTHROUGH)
+# ==============================================================================
+#
+# This section provides maximum flexibility for debugging the numerical solvers.
+# Any key-value pair defined here is passed DIRECTLY to the C solver as a
+# command-line flag. This is primarily for PETSc monitoring options.
+#
+# The keys must be the exact flag names (e.g., '-ps_ksp_monitor_true_residual').
+# For flags that don't take an argument (boolean switches), set the value to `true`.
+#
+# ==============================================================================
+solver_monitoring:
+  # --- Example: KSP (Krylov Subspace Method) Monitors ---
+  # Uncomment to enable live monitoring of the pressure solver's convergence.
+  # This custom monitor provides detailed, formatted output.
+  -ps_ksp_pic_monitor_true_residual: true
+
+  # PETSc's standard true residual monitor.
+  # -ps_ksp_monitor_true_residual: true
+  
+  # Print the reason for KSP convergence or divergence (very useful for debugging).
+  # -ps_ksp_converged_reason: true
+  
+  # View the KSP object's configuration at runtime.
+  # -ps_ksp_view: true
+
+  # --- Example: PC (Preconditioner) Monitors ---
+  # If using an SVD-based preconditioner for debugging, monitor its singular values.
+  # -ps_pc_svd_monitor: true
+
+  # --- Example: TS (Time Stepper) Monitors ---
+  # (If your implicit solver uses PETSc's TS object)
+  # -ts_monitor: true

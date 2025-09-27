@@ -115,30 +115,36 @@ PetscErrorCode GetRandomCellAndLogicOnInletFace(
 
 PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user);
 
-/* Boundary condition defination (array user->bctype[0-5]):
-   0:	interpolation/interface
-   -1:  wallfunction
-   1:	solid wall (not moving)
-   2:	moving solid wall (U=1)
-   3:   slip wall/symmetry
-   5:	Inlet
-   4:	Outlet
-   6:   farfield
-   7:   periodic
-   8:   Characteristic BC
-   9:   Analytical Vortex
-   10:  Oulet Junction
-   11:  Annulus
-   12:  Ogrid
-   13:  Rheology
-   14:  Outlet with Interface
-  
-*/
+/**
+ * @brief Applies inlet boundary conditions based on the modern BC handling system.
+ *
+ * This function iterates through all 6 domain faces. For each face identified as an
+ * INLET, it applies the velocity profile specified by its assigned handler and
+ * parameters (e.g., 'constant_velocity' with vx,vy,vz or 'parabolic' with u_max).
+ *
+ * It calculates the contravariant flux (Ucont), Cartesian velocity on the face (Ubcs),
+ * and the staggered Cartesian velocity (Ucat). It also computes the total incoming
+ * flux and area across all MPI ranks.
+ *
+ * @param user The main UserCtx struct containing the BC configuration and PETSc objects.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode InflowFlux(UserCtx *user); 
 
-PetscErrorCode InflowFlux(UserCtx *user);
-
+/**
+ * @brief Calculates the total outgoing flux through all OUTLET faces for reporting.
+ *
+ * NOTE: In a mixed modern/legacy environment, this function is for DIAGNOSTICS ONLY.
+ * It reads the contravariant velocities and calculates the total flux passing through
+ * faces marked as OUTLET. It does NOT apply any boundary conditions itself, as that
+ * is still the responsibility of the legacy FormBCS function.
+ *
+ * @param user The main UserCtx struct containing BC config and PETSc vectors.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode OutflowFlux(UserCtx *user);
 
+// TO BE FIXED
 PetscErrorCode FormBCS(UserCtx *user);
 
 /**

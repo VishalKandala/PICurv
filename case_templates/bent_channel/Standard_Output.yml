@@ -1,0 +1,23 @@
+# ==============================================================================
+#                   Monitor Profile: Standard Output
+# ==============================================================================
+# PURPOSE:
+# A standard monitoring profile for production runs. Provides INFO-level
+# progress updates and saves data at a reasonable interval.
+# ==============================================================================
+
+# --- Logging ---
+logging:
+  verbosity: INFO
+  enabled_functions: [] # Allow all functions to log (filtered by verbosity)
+
+# --- Profiling ---
+profiling:
+  critical_functions:
+    - AdvanceSimulation
+    - Flow_Solver
+
+# --- I/O AND DATA MANAGEMENT ---
+io:
+  data_output_frequency: 100 # -> -tio
+  particle_log_interval: 100  # -> -logfreq (not used, but good to have)

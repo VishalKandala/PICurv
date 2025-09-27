@@ -1,5 +1,142 @@
 #include "postprocessing_kernels.h"
 
+// =========== Dimensionalization Kernels ========================
+
+/**
+ * @brief Scales a specified field from non-dimensional to dimensional units in-place.
+ *
+ * This function acts as a dispatcher. It takes the string name of a field,
+ * identifies the corresponding PETSc Vec object and the correct physical
+ * scaling factor (e.g., U_ref for velocity, P_ref for pressure), and then
+ * performs an in-place VecScale operation. It correctly handles the different
+ * physical dimensions of Cartesian velocity vs. contravariant volume flux.
+ *
+ * @param[in,out] user        The UserCtx containing the PETSc Vecs to be modified.
+ * @param[in]     field_name  The case-insensitive string name of the field to dimensionalize
+ *                            (e.g., "Ucat", "P", "Ucont", "Coordinates", "ParticlePosition", "ParticleVelocity").
+ * @return PetscErrorCode
+ */
+PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
+{
+    PetscErrorCode ierr;
+    SimCtx         *simCtx = user->simCtx;
+    Vec            target_vec = NULL;
+    PetscReal      scale_factor = 1.0;
+    char           field_type[64] = "Unknown";
+    PetscBool      is_swarm_field = PETSC_FALSE; // Flag for special swarm handling
+    const char     *swarm_field_name = NULL;    // Name of the field within the swarm
+
+    PetscFunctionBeginUser;
+    if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx is NULL.");
+    if (!field_name) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "field_name is NULL.");
+
+    // --- 1. Identify the target Vec and the correct scaling factor ---
+    if (strcasecmp(field_name, "Ucat") == 0) {
+        target_vec = user->Ucat;
+        scale_factor = simCtx->scaling.U_ref;
+        strcpy(field_type, "Cartesian Velocity (L/T)");
+    } else if (strcasecmp(field_name, "Ucont") == 0) {
+        target_vec = user->Ucont;
+        scale_factor = simCtx->scaling.U_ref * simCtx->scaling.L_ref * simCtx->scaling.L_ref;
+        strcpy(field_type, "Contravariant Volume Flux (L^3/T)");
+    } else if (strcasecmp(field_name, "P") == 0) {
+        target_vec = user->P;
+        scale_factor = simCtx->scaling.P_ref;
+        strcpy(field_type, "Pressure (M L^-1 T^-2)");
+    } else if (strcasecmp(field_name, "Coordinates") == 0) {
+        ierr = DMGetCoordinates(user->da, &target_vec); CHKERRQ(ierr);
+        scale_factor = simCtx->scaling.L_ref;
+        strcpy(field_type, "Grid Coordinates (L)");
+    } else if (strcasecmp(field_name, "ParticlePosition") == 0) {
+        is_swarm_field = PETSC_TRUE;
+        swarm_field_name = "position";
+        scale_factor = simCtx->scaling.L_ref;
+        strcpy(field_type, "Particle Position (L)");
+    } else if (strcasecmp(field_name, "ParticleVelocity") == 0) {
+        is_swarm_field = PETSC_TRUE;
+        swarm_field_name = "velocity";
+        scale_factor = simCtx->scaling.U_ref;
+        strcpy(field_type, "Particle Velocity (L/T)");
+    } else {
+        LOG(GLOBAL, LOG_WARNING, "DimensionalizeField: Unknown or unhandled field_name '%s'. Field will not be scaled.\n", field_name);
+        PetscFunctionReturn(0);
+    }
+    
+    // --- 2. Check for trivial scaling ---
+    if (PetscAbsReal(scale_factor - 1.0) < PETSC_MACHINE_EPSILON) {
+        LOG(GLOBAL, LOG_DEBUG, "DimensionalizeField: Scaling factor for '%s' is 1.0. Skipping operation.\n", field_name);
+        PetscFunctionReturn(0);
+    }
+
+    // --- 3. Perform the in-place scaling operation ---
+    LOG(GLOBAL, LOG_INFO, "Scaling '%s' field (%s) by factor %.4e.\n", field_name, field_type, scale_factor);
+
+    if (is_swarm_field) {
+        // Special handling for DMSwarm fields
+        ierr = DMSwarmCreateGlobalVectorFromField(user->swarm, swarm_field_name, &target_vec); CHKERRQ(ierr);
+        ierr = VecScale(target_vec, scale_factor); CHKERRQ(ierr);
+        ierr = DMSwarmDestroyGlobalVectorFromField(user->swarm, swarm_field_name, &target_vec); CHKERRQ(ierr);
+    } else {
+        // Standard handling for PETSc Vecs
+        if (target_vec) {
+            ierr = VecScale(target_vec, scale_factor); CHKERRQ(ierr);
+        } else {
+            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "Target vector for field '%s' was not found or is NULL.", field_name);
+        }
+    }
+    
+    // --- 4. Post-scaling updates for special cases ---
+    if (strcasecmp(field_name, "Coordinates") == 0) {
+        Vec l_coords;
+        ierr = DMGetCoordinates(user->da, &target_vec); CHKERRQ(ierr); // Re-get the global vector
+        ierr = DMGetCoordinatesLocal(user->da, &l_coords); CHKERRQ(ierr);
+        ierr = DMGlobalToLocalBegin(user->fda, target_vec, INSERT_VALUES, l_coords); CHKERRQ(ierr);
+        ierr = DMGlobalToLocalEnd(user->fda, target_vec, INSERT_VALUES, l_coords); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Orchestrates the dimensionalization of all relevant fields loaded from a file.
+ *
+ * This function is intended to be called in the post-processor immediately after
+ * all solver output has been read into memory. It calls DimensionalizeField() for each of the core
+ * physical quantities to convert the entire loaded state from non-dimensional to
+ * dimensional units, preparing it for analysis and visualization.
+ *
+ * @param[in,out] user The UserCtx containing all the fields to be dimensionalized.
+ * @return PetscErrorCode
+ */
+PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    SimCtx         *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+
+    LOG(GLOBAL, LOG_INFO, "--- Converting all loaded fields to dimensional units ---\n");
+
+    // Scale the grid itself first
+    ierr = DimensionalizeField(user, "Coordinates"); CHKERRQ(ierr);
+
+    // Scale primary fluid fields
+    ierr = DimensionalizeField(user, "Ucat"); CHKERRQ(ierr);
+    ierr = DimensionalizeField(user, "Ucont"); CHKERRQ(ierr);
+    ierr = DimensionalizeField(user, "P"); CHKERRQ(ierr);
+
+    // If particles are present, scale their fields
+    if (simCtx->np > 0 && user->swarm) {
+        ierr = DimensionalizeField(user, "ParticlePosition"); CHKERRQ(ierr);
+        ierr = DimensionalizeField(user, "ParticleVelocity"); CHKERRQ(ierr);
+    }
+
+    LOG(GLOBAL, LOG_INFO, "--- Field dimensionalization complete ---\n");
+
+    PetscFunctionReturn(0);
+}
+
+//============ Post-Processing Kernels ===========================
 /**
  * @brief Computes node-centered data by averaging 8 surrounding cell-centered values,
  *        exactly replicating the legacy code's indexing and boundary handling.
@@ -249,6 +386,12 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
     IS             is_from, is_to;
     VecScatter     scatter_ctx;
     Vec            ref_vec_seq;
+    PostProcessParams *pps = user->simCtx->pps;
+
+    // Fetch referenc point from pps.
+    ip = pps->reference[0];
+    jp = pps->reference[1];
+    kp = pps->reference[2];
 
     PetscFunctionBeginUser;
     LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running NormalizeRelativeField on '%s'.\n", relative_field_name);
@@ -262,9 +405,6 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
 
     // --- 2. Get reference point from options and calculate its global DA index ---
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-ip", &ip, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-jp", &jp, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-kp", &kp, NULL); CHKERRQ(ierr);
 
     // Convert the (i,j,k) logical grid coordinates to the global 1D index used by the DMDA vector
     ref_point_global_idx[0] = kp * (user->IM * user->JM) + jp * user->IM + ip;
@@ -357,3 +497,4 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
 
     PetscFunctionReturn(0);
 }
+

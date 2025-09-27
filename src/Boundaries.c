@@ -394,30 +394,14 @@ PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user)
     LOG_ALLOW(GLOBAL,LOG_DEBUG," Translating modern BC config to legacy integer codes...\n");
 
     for (int i = 0; i < 6; i++) {
-        BCType modern_type = user->boundary_faces[i].mathematical_type;
-        int legacy_code;
+      BCType modern_type = user->boundary_faces[i].mathematical_type;
+      user->bctype[i] = (int)modern_type;
 
-	/*
-        // This switch maps the modern, descriptive enum to the legacy "magic number".
-        // The numbers are taken from the comment block in the old FormBCS.
-        switch(modern_type) {
-            case WALL:          legacy_code = 1;  break; // solid wall (not moving)
-	    case MOVING_WALL:       legacy_code = 2;  break;
-            case SYMMETRY:      legacy_code = 3;  break; // slip wall/symmetry
-            case INLET:         legacy_code = 5;  break;
-            case OUTLET:        legacy_code = 4;  break;
-            case FARFIELD:      legacy_code = 6;  break;
-            case PERIODIC:      legacy_code = 7;  break;
-            case INTERFACE:     legacy_code = 0;  break; // interpolation/interface
-            // Add other cases as needed.
-            default:            legacy_code = 1;  break;
-        }
-	*/
-        user->bctype[i] = (int)modern_type; //legacy_code;
-	BCFace current_face = (BCFace)i;
-	const char* face_str  = BCFaceToString(current_face);
-	const char* bc_type_str = BCTypeToString(modern_type);
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," for face %s(%d), legacy type = %d & modern type = %s .\n",face_str,i,user->bctype[i],bc_type_str);
+      
+      BCFace current_face = (BCFace)i;
+      const char* face_str  = BCFaceToString(current_face);
+      const char* bc_type_str = BCTypeToString(modern_type);
+      LOG_ALLOW(GLOBAL,LOG_DEBUG," for face %s(%d), legacy type = %d & modern type = %s .\n",face_str,i,user->bctype[i],bc_type_str);
     }
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"    -> Translation complete.\n");
     PetscFunctionReturn(0);
@@ -453,376 +437,27 @@ PetscErrorCode BoundarySystem_ExecuteStep_Legacy(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-static PetscReal InletInterpolation(PetscReal r2, UserCtx *user)
-{
-  PetscInt i;
-  PetscReal temp;
-  PetscInt tstep, ts_p_cycle=2000;
-  PetscInt inletprofile = user->simCtx->inletprofile;
-  PetscInt ti = user->simCtx->step;
-  PetscReal *r = user->simCtx->r;
-  PetscReal *tin = user->simCtx->tin;
-  PetscReal **uinr = user->simCtx->uinr;
-  PetscReal Flux_in = user->simCtx->Flux_in;
-
-  tstep = ti/2 - ((ti / ts_p_cycle) * ts_p_cycle);
-
-  if (inletprofile == 8) {
-    user->simCtx->Flux_in=sin(2*3.14159*ti/200.);
-    return(Flux_in);
-  }
-  
-  if (inletprofile==3 || inletprofile==6) 
-    return(Flux_in);
-  
-  if (r2>1.) {
-    temp = uinr[99][tstep];
-    return(temp);
-  }
-  for (i=0; i<100; i++) {
-    if (r2>= (r[i]) && r2< (r[i+1])) {
-      temp = uinr[i][tstep] + (uinr[i+1][tstep] - uinr[i][tstep]) *
-	(r2-r[i]) / (r[i+1]-r[i]);
-    
-      return (temp);
-    }
-  }
-  return 0;   
-}
-/*
+/**
+ * @brief Applies inlet boundary conditions based on the modern BC handling system.
+ *
+ * This function iterates through all 6 domain faces. For each face identified as an
+ * INLET, it applies the velocity profile specified by its assigned handler and
+ * parameters (e.g., 'constant_velocity' with vx,vy,vz or 'parabolic' with u_max).
+ *
+ * It calculates the contravariant flux (Ucont), Cartesian velocity on the face (Ubcs),
+ * and the staggered Cartesian velocity (Ucat). It also computes the total incoming
+ * flux and area across all MPI ranks.
+ *
+ * @param user The main UserCtx struct containing the BC configuration and PETSc objects.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode InflowFlux(UserCtx *user) 
 {
-  //  PetscInt bi;
-  PetscInt   i, j, k;
-  PetscReal  FluxIn, r, uin, xc, yc,zc;
-  Vec        Coor;
-  Cmpnts     ***ucont, ***ubcs, ***ucat, ***coor, ***csi, ***eta, ***zet;
-  PetscReal  H=4.1, Umax=1.5;
-  PetscReal  lAreaIn, lAreaOut, AreaSumIn, AreaSumOut;
-  PetscReal	mat[3][3], det, det0, det1, det2;
-  PetscReal	q[3]; //local working array
-
-  DM            da = user->da, fda = user->fda;
-  DMDALocalInfo	info = user->info;
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-  PetscInt	lxs, lxe, lys, lye, lzs, lze;
-  PetscReal	***nvert; //local working array
-
-  SimCtx    *simCtx = user->simCtx;
-
-  PetscInt  inletprofile = simCtx->inletprofile;
-
-  PetscReal  CMx_c = simCtx->CMx_c;
-  PetscReal  CMy_c = simCtx->CMy_c;
-  PetscReal  CMz_c = simCtx->CMz_c;
-
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-  
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-  
-  if (xe==mx) lxe = xe-1;
-  if (ye==my) lye = ye-1;
-  if (ze==mz) lze = ze-1;
-
-  // DMDAGetGhostedCoordinates(da, &Coor);
-
-  DMGetCoordinatesLocal(da, &Coor);
-
-  DMDAVecGetArray(fda, Coor, &coor);
-  DMDAVecGetArray(fda, user->Ucont, &ucont);
-  DMDAVecGetArray(fda, user->Bcs.Ubcs, &ubcs);
-  DMDAVecGetArray(fda, user->Ucat,  &ucat);
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-
-  DMDAVecGetArray(fda, user->lCsi,  &csi);
-  DMDAVecGetArray(fda, user->lEta,  &eta);
-  DMDAVecGetArray(fda, user->lZet,  &zet);
-
-  if (user->bctype[4] == FARFIELD) FluxIn=0.;
-  if (user->bctype[4] == WALL) FluxIn=0.;
-  if (user->bctype[4] == SYMMETRY) FluxIn=0.;
-  //amir 
-  PetscReal cc;
-
-  LOG_ALLOW(GLOBAL,LOG_DEBUG," Inlet Profile: %d\n",inletprofile);
-  
-  if (user->bctype[4] == INLET) {
-    
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"-Zeta Inlet \n");
-    if (zs==0) {
-      k = 0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  
-	  xc = (coor[k][j][i  ].x + coor[k][j-1][i  ].x +
-		coor[k][j][i-1].x + coor[k][j-1][i-1].x) * 0.25-CMx_c;
-	  yc = (coor[k][j][i  ].y + coor[k][j-1][i  ].y +
-		coor[k][j][i-1].y + coor[k][j-1][i-1].y) * 0.25-CMy_c;
-	  zc = (coor[k][j][i  ].z + coor[k][j-1][i  ].z +
-		coor[k][j][i-1].z + coor[k][j-1][i-1].z) * 0.25-CMz_c;
-	  
-	  r = sqrt(zc * zc + yc * yc);
-	  
-	  if (inletprofile == 0) {
-	    uin = InletInterpolation(r, user);
-	  } else if (inletprofile == 1) {
-	    uin=1.;
-	  } else if (inletprofile == -1) {
-	    uin = -1.;
-	  } else if (inletprofile == 2) {
-	    uin = 4.*Umax*yc*(H-yc)/(H*H);//InletInterpolation(r, user);
-	  } else if (inletprofile == 3 || inletprofile == 6 || inletprofile == 8) {
-	    uin = InletInterpolation(r, user);
-	  } else if (inletprofile == 4) { //fully-developed pipe flow
-	    uin = 2.*(1.-4.*r*r);
-	    if (r>0.5) uin=0.; 
-	   
-	  } else if (inletprofile == 5) {
-	    uin = -InletInterpolation(r, user);
-	  } else if (inletprofile == 7) {
-	    uin = 1.5*(1.-4.*yc*yc);
-	  } else if (inletprofile == 10) {
-	    double _y = (yc-1.5)*2., _x=xc-0.5;
-			double A=1.;
-			#ifndef M_PI 
-			#define M_PI 3.14159265358979323846264338327950288
-			#endif
-			uin = 1- _y*_y;
-			int n;
-			for(n=0; n<20; n++) {	// exact solution for fully developed flows
-				uin -= 4.*pow(2./M_PI,3) *  
-				  pow(-1., n) / pow(2*n+1.,3.) * 
-				  cosh((2*n+1)*M_PI*_x/2.) * 
-				  cos((2.*n+1)*M_PI*_y/2.) / 
-				  cosh((2*n+1)*M_PI*A/2.);
-			}
-	  } else if (inletprofile == 11) {
-	    uin = 0.185;//0.2654;//	  			 
-	  } else {
-	    LOG_ALLOW(LOCAL,LOG_DEBUG, "WRONG INLET PROFILE TYPE!!!! U_in = 0\n");
-	    uin = 0.;
-	  }
-	  LOG_LOOP_ALLOW(GLOBAL,LOG_DEBUG,k,10,"uin = %.6f \n",uin);
-	  if (nvert[k+1][j][i]<0.1) {
-	
-	   ubcs[k][j][i].y = uin*zet[k][j][i].y/sqrt(zet[k][j][i].z*zet[k][j][i].z +
-						    zet[k][j][i].y*zet[k][j][i].y +
-						    zet[k][j][i].x*zet[k][j][i].x);
-	   ubcs[k][j][i].z = uin*zet[k][j][i].z/sqrt(zet[k][j][i].z*zet[k][j][i].z +
-						    zet[k][j][i].y*zet[k][j][i].y +
-						    zet[k][j][i].x*zet[k][j][i].x);
-	   ubcs[k][j][i].x = uin*zet[k][j][i].x/sqrt(zet[k][j][i].z*zet[k][j][i].z +
-						    zet[k][j][i].y*zet[k][j][i].y +
-						    zet[k][j][i].x*zet[k][j][i].x);
-	  
-	   ucont[k][j][i].z = uin*sqrt(zet[k][j][i].z*zet[k][j][i].z +
-				      zet[k][j][i].y*zet[k][j][i].y +
-				      zet[k][j][i].x*zet[k][j][i].x);
-	  }
-	}
-      }
-    }
-    
-    DMDAVecRestoreArray(fda, user->Ucont, &ucont);
-    
-    PetscBarrier(NULL);
-    
-    
-    DMDAVecGetArray(fda, user->Ucont, &ucont);
-    FluxIn = 0;
-    if (zs==0) {
-      k = 0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if (nvert[k+1][j][i]<0.1)
-	  FluxIn += ucont[k][j][i].z;
-	}
-      }
-    }
-    else {
-      FluxIn = 0;
-    }
-
-    MPI_Allreduce(&FluxIn, &simCtx->FluxInSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-
-
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"FluxInSum = %.6f \n",simCtx->FluxInSum);
-
-  } else if (user->bctype[5] == INLET) {
-
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"+Zeta Inlet \n");
-    //     calc lAreaOut
-    if (zs == 0) {
-      lAreaOut=0.;
-      k = zs;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if (nvert[k+1][j][i]<0.1)
-	  lAreaOut += sqrt(zet[k][j][i].z*zet[k][j][i].z+
-			   zet[k][j][i].y*zet[k][j][i].y+
-			   zet[k][j][i].x*zet[k][j][i].x);
-
-	}
-      }
-    }
-    else {
-      lAreaOut = 0.;
-    }
-    MPI_Allreduce(&lAreaOut,&AreaSumOut,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-   
-
-    //     calc lAreaIn     
-   if (ze == mz) {
-      lAreaIn=0.;
-      k = ze-2;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if (nvert[k][j][i]<0.1)
-	  lAreaIn += sqrt(zet[k][j][i].z*zet[k][j][i].z+
-			  zet[k][j][i].y*zet[k][j][i].y+
-			  zet[k][j][i].x*zet[k][j][i].x);
-
-	}
-      }
-    }
-    else {
-      lAreaIn = 0.;
-    }
-    MPI_Allreduce(&lAreaIn,&AreaSumIn,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-   
-
-    if (ze==mz) {
-      k = mz-1;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  
-	  xc = (coor[k-1][j][i].x + coor[k-1][j-1][i].x +
-		coor[k-1][j][i-1].x + coor[k-1][j-1][i-1].x) * 0.25;
-	  yc = (coor[k-1][j][i].y + coor[k-1][j-1][i].y +
-		coor[k-1][j][i-1].y + coor[k-1][j-1][i-1].y) * 0.25;
-	  r = sqrt(xc * xc + yc * yc);
-	  
-	  if (inletprofile == 0) {
-	    uin = InletInterpolation(r, user);
-	  } else if (inletprofile == 1) {
-	    uin=1.;
-	  } else if (inletprofile == -1) {
-	    uin = -1.;
-	  } else if (inletprofile == 2) {
-	    uin = 4.*Umax*yc*(H-yc)/(H*H);//InletInterpolation(r, user);
-	  } else if (inletprofile == 3) {
-	    uin = InletInterpolation(r, user)*AreaSumOut/AreaSumIn;
-	  } else {
-	    LOG_ALLOW(LOCAL,LOG_DEBUG, "WRONG INLET PROFILE TYPE!!!! U_in = 0\n");
-	    uin = 0.;
-	  }
-
-	  LOG_LOOP_ALLOW(GLOBAL,LOG_DEBUG,k,100,"uin = %.6f \n",uin);
-	  
-	  ucont[k-1][j][i].z = uin*sqrt(zet[k-1][j][i].z*zet[k-1][j][i].z+
-					zet[k-1][j][i].y*zet[k-1][j][i].y+
-					zet[k-1][j][i].x*zet[k-1][j][i].x);
-
-	  q[0] = 0.;
-	  q[1] = 0.;
-	  q[2] = ucont[k-1][j][i].z;
-
-	  mat[0][0] = 0.5 * (csi[k-1][j][i-1].x + csi[k-1][j][i].x);
-	  mat[0][1] = 0.5 * (csi[k-1][j][i-1].y + csi[k-1][j][i].y);
-	  mat[0][2] = 0.5 * (csi[k-1][j][i-1].z + csi[k-1][j][i].z);
-	  
-	  mat[1][0] = 0.5 * (eta[k-1][j-1][i].x + eta[k-1][j][i].x);
-	  mat[1][1] = 0.5 * (eta[k-1][j-1][i].y + eta[k-1][j][i].y);
-	  mat[1][2] = 0.5 * (eta[k-1][j-1][i].z + eta[k-1][j][i].z);
-	  
-	  mat[2][0] = zet[k-1][j][i].x;
-	  mat[2][1] = zet[k-1][j][i].y;
-	  mat[2][2] = zet[k-1][j][i].z;
-
-	  det = mat[0][0] * (mat[1][1] * mat[2][2] - mat[1][2] * mat[2][1]) -
-	    mat[0][1] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0]) +
-	    mat[0][2] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0]);
-
-	  det0 = q[0] * (mat[1][1] * mat[2][2] - mat[1][2] * mat[2][1]) -
-	    q[1] * (mat[0][1] * mat[2][2] - mat[0][2] * mat[2][1]) +
-	    q[2] * (mat[0][1] * mat[1][2] - mat[0][2] * mat[1][1]);
-
-	  det1 = -q[0] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0]) +
-	    q[1] * (mat[0][0] * mat[2][2] - mat[0][2] * mat[2][0]) -
-	    q[2] * (mat[0][0] * mat[1][2] - mat[0][2] * mat[1][0]);
-
-	  det2 = q[0] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0]) -
-	    q[1] * (mat[0][0] * mat[2][1] - mat[0][1] * mat[2][0]) +
-	    q[2] * (mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0]);
-
-	  ubcs[k][j][i].x = det0 / det;
-	  ubcs[k][j][i].y = det1 / det;
-	  ubcs[k][j][i].z = det2 / det;
-
-	  ucat[k-1][j][i].x = det0 / det;
-	  ucat[k-1][j][i].y = det1 / det;
-	  ucat[k-1][j][i].z = det2 / det;
-	  
-	}
-      }
-    }
-    
-    DMDAVecRestoreArray(fda, user->Ucont, &ucont);
-
-    PetscBarrier(NULL);
-
-
-    DMDAVecGetArray(fda, user->Ucont, &ucont);    
-    if (ze==mz) {
-      FluxIn = 0;
-      k = mz-2;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  FluxIn += ucont[k][j][i].z;
-	}
-      }
-    }
-    else {
-      FluxIn = 0;
-    }
-    MPI_Allreduce(&FluxIn,&simCtx->FluxInSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-  
-    
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Area in = %.6f| Area out = %.6f | FluxInSum = %.6f \n",AreaSumIn,AreaSumOut,simCtx->FluxInSum);
-
-	}
-     
-  DMDAVecRestoreArray(fda, Coor, &coor);
-  DMDAVecRestoreArray(fda, user->Ucont, &ucont);
-  DMDAVecRestoreArray(fda, user->Bcs.Ubcs, &ubcs);
-  DMDAVecRestoreArray(fda, user->Ucat,  &ucat);
-  
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-
-  DMDAVecRestoreArray(fda, user->lCsi,  &csi);
-  DMDAVecRestoreArray(fda, user->lEta,  &eta);
-  DMDAVecRestoreArray(fda, user->lZet,  &zet);
-
-  DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  return 0; 
-}
-*/
-
-PetscErrorCode InflowFlux(UserCtx *user) 
-{
-  PetscInt     i, j, k, rank, fn;
-  PetscReal    FluxIn, r, uin, uin_max, xc, yc, zc, d, H=4.1, Umax=1.5;
-  PetscReal    lAreaIn, AreaSumIn;
-  Vec          Coor,RFC;
+  PetscErrorCode ierr;
+  PetscReal    lFluxIn = 0.0, lAreaIn = 0.0, AreaSumIn;
+  Vec          lCoor;
   Cmpnts       ***ucont, ***ubcs, ***ucat, ***coor, ***csi, ***eta, ***zet, ***cent;  
+  PetscReal    ***nvert;
   
   DM            da = user->da, fda = user->fda;
   DMDALocalInfo	info = user->info;
@@ -831,412 +466,272 @@ PetscErrorCode InflowFlux(UserCtx *user)
   PetscInt	zs = info.zs, ze = info.zs + info.zm;
   PetscInt	mx = info.mx, my = info.my, mz = info.mz;
   PetscInt	lxs, lxe, lys, lye, lzs, lze;
-  PetscReal	***nvert, ***RR;
 
-  // Get context from the user struct, similar to the original code
+  // Get context for coordinate transformation if needed by a handler
   SimCtx      *simCtx = user->simCtx;
-  PetscInt    inletprofile = simCtx->inletprofile;
   PetscReal   CMx_c = simCtx->CMx_c;
   PetscReal   CMy_c = simCtx->CMy_c;
   PetscReal   CMz_c = simCtx->CMz_c;
   
-  MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+  PetscFunctionBeginUser;
 
-  // This temporary vector is used for profiles needing pre-calculated radius
-  VecDuplicate(user->lNvert, &RFC);
-  
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-  
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-  
-  if (xe==mx) lxe = xe-1;
-  if (ye==my) lye = ye-1;
-  if (ze==mz) lze = ze-1;
+  lxs = xs; lxe = xe; lys = ys; lye = ye; lzs = zs; lze = ze;
+  if (xs==0) lxs = xs+1; if (ys==0) lys = ys+1; if (zs==0) lzs = zs+1;
+  if (xe==mx) lxe = xe-1; if (ye==my) lye = ye-1; if (ze==mz) lze = ze-1;
 
-  DMGetCoordinatesLocal(da, &Coor); 
-  DMDAVecGetArray(fda, Coor, &coor);
+  // --- Get PETSc arrays ---
+  DMGetCoordinatesLocal(da,&lCoor);
+  DMDAVecGetArray(fda, lCoor, &coor); // Use local coordinates
   DMDAVecGetArray(fda, user->Ucont, &ucont);
   DMDAVecGetArray(fda, user->Bcs.Ubcs, &ubcs);
   DMDAVecGetArray(fda, user->Ucat,  &ucat);
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-  DMDAVecGetArray(da, RFC, &RR);
+  DMDAVecGetArray(da,  user->lNvert, &nvert);
   DMDAVecGetArray(fda, user->Cent, &cent);
   DMDAVecGetArray(fda, user->lCsi,  &csi);
   DMDAVecGetArray(fda, user->lEta,  &eta);
   DMDAVecGetArray(fda, user->lZet,  &zet);
 
-  FluxIn = 0.0;
-  lAreaIn = 0.0;
-  uin = 0.0;
+  // --- Main Loop over all 6 faces ---
+  for (PetscInt fn=0; fn<6; fn++) {
+    BoundaryFaceConfig *face_config = &user->boundary_faces[fn];
 
-
-  // ====================== DEBUGGING BLOCK ======================
-  if (rank == 0) {
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "--- InflowFlux Boundary Condition Setup ---\n");
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 0 (-X): %d\n", user->bctype[0]);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 1 (+X): %d\n", user->bctype[1]);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 2 (-Y): %d\n", user->bctype[2]);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 3 (+Y): %d\n", user->bctype[3]);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 4 (-Z): %d\n", user->bctype[4]);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Face 5 (+Z): %d\n", user->bctype[5]);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "(Note: INLET=%d, OUTLET=%d, WALL=%d, etc.)\n", INLET, OUTLET, WALL);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "-------------------------------------------\n");
-  }
-  PetscBarrier(NULL);
-  
-  // --- Pre-calculation Step ---
-  // Some profiles require a single velocity value based on total area (pulsatile)
-  // or a pre-calculated radius field (parabolic).
-  
-  // For pulsatile flow, we need the total area first to get a consistent velocity.
-  if (inletprofile == 3) {
-    lAreaIn = 0.0;
-    for (fn=0; fn<6; fn++) {
-      if (user->bctype[fn] == INLET) {
-        // This logic is duplicated from the main loop below for area calculation only
-        if (fn==0 && xs==0) { i=xs; for(k=lzs;k<lze;k++) for(j=lys;j<lye;j++) if(nvert[k][j][i+1]<0.1) lAreaIn+=sqrt(csi[k][j][i].x*csi[k][j][i].x+csi[k][j][i].y*csi[k][j][i].y+csi[k][j][i].z*csi[k][j][i].z); }
-        if (fn==1 && xe==mx) { i=mx-2; for(k=lzs;k<lze;k++) for(j=lys;j<lye;j++) if(nvert[k][j][i]<0.1)   lAreaIn+=sqrt(csi[k][j][i].x*csi[k][j][i].x+csi[k][j][i].y*csi[k][j][i].y+csi[k][j][i].z*csi[k][j][i].z); }
-        if (fn==2 && ys==0) { j=ys; for(k=lzs;k<lze;k++) for(i=lxs;i<lxe;i++) if(nvert[k][j+1][i]<0.1) lAreaIn+=sqrt(eta[k][j][i].x*eta[k][j][i].x+eta[k][j][i].y*eta[k][j][i].y+eta[k][j][i].z*eta[k][j][i].z); }
-        if (fn==3 && ye==my) { j=my-2; for(k=lzs;k<lze;k++) for(i=lxs;i<lxe;i++) if(nvert[k][j][i]<0.1)   lAreaIn+=sqrt(eta[k][j][i].x*eta[k][j][i].x+eta[k][j][i].y*eta[k][j][i].y+eta[k][j][i].z*eta[k][j][i].z); }
-        if (fn==4 && zs==0) { k=zs; for(j=lys;j<lye;j++) for(i=lxs;i<lxe;i++) if(nvert[k+1][j][i]<0.1) lAreaIn+=sqrt(zet[k][j][i].x*zet[k][j][i].x+zet[k][j][i].y*zet[k][j][i].y+zet[k][j][i].z*zet[k][j][i].z); }
-        if (fn==5 && ze==mz) { k=mz-2; for(j=lys;j<lye;j++) for(i=lxs;i<lxe;i++) if(nvert[k][j][i]<0.1)   lAreaIn+=sqrt(zet[k][j][i].x*zet[k][j][i].x+zet[k][j][i].y*zet[k][j][i].y+zet[k][j][i].z*zet[k][j][i].z); }
-      }
+    if (face_config->mathematical_type != INLET) {
+        continue; // Skip non-inlet faces
     }
-    MPI_Allreduce(&lAreaIn, &AreaSumIn, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
-    //  Flux_Waveform_Read(user);
-    // uin = Pulsatile_Plug_Inlet_Flux(user, AreaSumIn); // uin = Q(t) / A_total
-  } 
-  // For fully-developed pipe flow, pre-calculate radius at the inlet face
-  else if (inletprofile == 4) {
-    for (fn=0; fn<6; fn++) {
-      if (user->bctype[fn] == INLET && fn==4 && zs==0) { // Assuming profile 4 is only used on face 4 (-z)
-        k=0;
-        for(j=lys;j<lye;j++){
-          for(i=lxs;i<lxe;i++){
-            xc = cent[k+1][j][i].x - CMx_c;
-            yc = cent[k+1][j][i].y - CMy_c;
-            RR[k][j][i] = sqrt(xc*xc + yc*yc); // Store radius in temp array
+    
+    // This processor only acts if it is on the boundary of the global domain
+    PetscBool is_on_boundary = ( (fn==0 && xs==0) || (fn==1 && xe==mx) ||
+                                 (fn==2 && ys==0) || (fn==3 && ye==my) ||
+                                 (fn==4 && zs==0) || (fn==5 && ze==mz) );
+    if (!is_on_boundary) continue;
+
+    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Applying INLET handler for face: %d \n", fn);
+
+    // --- Loop over the specific face geometry ---
+    switch(face_config->face_id) {
+      case BC_FACE_NEG_X: // -Xi
+      case BC_FACE_POS_X: // +Xi
+      {
+        PetscReal sign = (face_config->face_id == BC_FACE_NEG_X) ? 1.0 : -1.0;
+        PetscInt i = (face_config->face_id == BC_FACE_NEG_X) ? xs : mx - 2;
+        for (PetscInt k=lzs; k<lze; k++) {
+          for (PetscInt j=lys; j<lye; j++) {
+            if ( (sign > 0 && nvert[k][j][i+1] > 0.1) || (sign < 0 && nvert[k][j][i] > 0.1) ) continue;
+
+            PetscReal uin_this_point = 0.0;
+            // --- Determine velocity based on the handler for this point ---
+            if (face_config->handler_type == BC_HANDLER_INLET_CONSTANT_VELOCITY) {
+                PetscBool found;
+                ierr = GetBCParamReal(face_config->params, "vx", &uin_this_point, &found); CHKERRQ(ierr);
+            } else if(face_config->handler_type== BC_HANDLER_INLET_PARABOLIC){
+              PetscBool found;
+              PetscReal umax,diameter=1.0;
+              ierr = GetBCParamReal(face_config->params,"u_max",&umax,&found); CHKERRQ(ierr);
+              ierr = GetBCParamReal(face_config->params,"diameter",&diameter,&found); CHKERRQ(ierr);
+
+              // Radius is in the YZ-plane for an X-face inlet
+              PetscReal yc = cent[k][j][i + (sign>0)].y - CMy_c;
+              PetscReal zc = cent[k][j][i + (sign>0)].z - CMz_c;
+              PetscReal r = sqrt(yc*yc + zc*zc);
+              PetscReal r_norm = 2.0 * r / diameter;
+              uin_this_point = umax * (1.0 - r_norm * r_norm);
+              if (r_norm > 1.0) uin_this_point = 0.0; 
+            }
+            // Add other X-face handlers like 'else if (handler == ...)' here
+
+            // --- Apply the calculated velocity ---
+            PetscReal CellArea = sqrt(csi[k][j][i].z*csi[k][j][i].z + csi[k][j][i].y*csi[k][j][i].y + csi[k][j][i].x*csi[k][j][i].x);
+            lAreaIn += CellArea;
+            ucont[k][j][i].x  = sign * uin_this_point * CellArea;
+            lFluxIn          += ucont[k][j][i].x;
+            ubcs[k][j][i + (sign < 0)].x = sign * uin_this_point * csi[k][j][i].x / CellArea;
+            ubcs[k][j][i + (sign < 0)].y = sign * uin_this_point * csi[k][j][i].y / CellArea;
+            ubcs[k][j][i + (sign < 0)].z = sign * uin_this_point * csi[k][j][i].z / CellArea;
+            ucat[k][j][i + (sign > 0)] = ubcs[k][j][i + (sign < 0)];
           }
         }
-      }
-      // Add similar blocks for other faces if this profile can be used elsewhere
-    }
-  }
-  
-  // For other uniform profiles, get the max velocity now.
-  if (inletprofile == 1 || inletprofile == 2 || inletprofile == 4 || inletprofile == 7) {
-    PetscOptionsGetReal(NULL,NULL, "-uin", &uin_max, NULL); // Get Umax from options
-  }
+      } break;
 
-  // --- Main Application Loop ---
-  lAreaIn = 0.0; // Reset for final summation
-  for (fn=0; fn<6; fn++) {
-   if (user->bctype[fn] == INLET) {
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Inlet detected at face: %d \n", fn);
-    switch(fn){
-    case 0: // -X face
-       if (xs==0) {
-       	i = xs;
-	for (k=lzs; k<lze; k++) {
-	  for (j=lys; j<lye; j++) {
-	    if (nvert[k][j][i+1]<0.1) {
-              // Calculate uin for this point based on profile
-              // Add profile-specific logic here if needed for this face
-              if (inletprofile == 1) uin = 1.0;
-              // ... other profiles
-	      
-	      d = sqrt(csi[k][j][i].z*csi[k][j][i].z + csi[k][j][i].y*csi[k][j][i].y + csi[k][j][i].x*csi[k][j][i].x);
-              lAreaIn += d;
-              ucont[k][j][i].x = uin*d;
-	      ubcs[k][j][i].x = uin*csi[k][j][i].x/d;
-	      ubcs[k][j][i].y = uin*csi[k][j][i].y/d;
-	      ubcs[k][j][i].z = uin*csi[k][j][i].z/d;
-	      ucat[k][j][i+1] = ubcs[k][j][i];
-	      FluxIn += ucont[k][j][i].x;
-	    }
-	  }
-	}
-      }
-      break;
-    case 1: // +X face
-      if (xe==mx) {
-	i = mx-2;
-	for (k=lzs; k<lze; k++) {
-	  for (j=lys; j<lye; j++) {
-	    if (nvert[k][j][i]<0.1) {
-              // Calculate uin for this point based on profile
-              if (inletprofile == 1) uin = 1.0;
-              // ... other profiles
+      case BC_FACE_NEG_Y: // -Eta
+      case BC_FACE_POS_Y: // +Eta
+      {
+        PetscReal sign = (face_config->face_id == BC_FACE_NEG_Y) ? 1.0 : -1.0;
+        PetscInt j = (face_config->face_id == BC_FACE_NEG_Y) ? ys : my - 2;
+        for (PetscInt k=lzs; k<lze; k++) {
+          for (PetscInt i=lxs; i<lxe; i++) {
+            if ( (sign > 0 && nvert[k][j+1][i] > 0.1) || (sign < 0 && nvert[k][j][i] > 0.1) ) continue;
 
-              d = sqrt(csi[k][j][i].z*csi[k][j][i].z + csi[k][j][i].y*csi[k][j][i].y + csi[k][j][i].x*csi[k][j][i].x);
-	      lAreaIn += d;
-              ucont[k][j][i].x = -uin*d;
-	      ubcs[k][j][i+1].x = -uin*csi[k][j][i].x/d;
-	      ubcs[k][j][i+1].y = -uin*csi[k][j][i].y/d;
-	      ubcs[k][j][i+1].z = -uin*csi[k][j][i].z/d;
-	      ucat[k][j][i] = ubcs[k][j][i+1];
-	      FluxIn += ucont[k][j][i].x;
-	    }
-	  }
-	}
-      }
-      break;
-    case 2: // -Y face
-      if (ys==0) {
-	j = ys;
-        for (k=lzs; k<lze; k++) {
-	  for (i=lxs; i<lxe; i++) {
-	    if (nvert[k][j+1][i]<0.1) {
-              // Calculate uin for this point based on profile
-              if (inletprofile == 1) uin = 1.0;
-              // ... other profiles
-
-	      d = sqrt(eta[k][j][i].z*eta[k][j][i].z + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].x*eta[k][j][i].x);
-              lAreaIn += d;
-              ucont[k][j][i].y = uin*d;
-	      ubcs[k][j][i].x = uin*eta[k][j][i].x/d;
-	      ubcs[k][j][i].y = uin*eta[k][j][i].y/d;
-	      ubcs[k][j][i].z = uin*eta[k][j][i].z/d;
-	      ucat[k][j+1][i] = ubcs[k][j][i];
-	      FluxIn += ucont[k][j][i].y;
-	    }
-	  }
-	}
-      }
-      break;
-    case 3: // +Y face
-      if (ye==my) {
-	j = my-2;
-	for (k=lzs; k<lze; k++) {
-	  for (i=lxs; i<lxe; i++) {
-	    if (nvert[k][j][i]<0.1) {
-              // Calculate uin for this point based on profile
-              if (inletprofile == 1) uin = 1.0;
-              // ... other profiles
-
- 	      d = sqrt(eta[k][j][i].z*eta[k][j][i].z + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].x*eta[k][j][i].x);   
-	      lAreaIn += d;
-              ucont[k][j][i].y = -uin*d;
-	      ubcs[k][j+1][i].x = -uin*eta[k][j][i].x/d;
-	      ubcs[k][j+1][i].y = -uin*eta[k][j][i].y/d;
-	      ubcs[k][j+1][i].z = -uin*eta[k][j][i].z/d;
-	      ucat[k][j][i] = ubcs[k][j+1][i];
-	      FluxIn += ucont[k][j][i].y;
-	    }
-	  }
-	}
-      }
-      break;
-    case 4: // -Z face
-      if (zs==0) {
-	k = 0;
-	for (j=lys; j<lye; j++) {
-	  for (i=lxs; i<lxe; i++) {
-	    if (nvert[k+1][j][i]<0.1) {
-              // This is where most profiles from the original code were defined.
-              // Calculate coordinates and radius for this specific point.
-	      xc = (coor[k][j][i].x + coor[k][j-1][i].x + coor[k][j][i-1].x + coor[k][j-1][i-1].x) * 0.25 - CMx_c;
-	      yc = (coor[k][j][i].y + coor[k][j-1][i].y + coor[k][j][i-1].y + coor[k][j-1][i-1].y) * 0.25 - CMy_c;
-              // NOTE: original code used zc*zc + yc*yc for r. This depends on problem setup. Assuming xy-plane radius.
-	      r = sqrt(xc*xc + yc*yc);
+            PetscReal uin_this_point = 0.0;
+            if (face_config->handler_type == BC_HANDLER_INLET_CONSTANT_VELOCITY) {
+                PetscBool found;
+                ierr = GetBCParamReal(face_config->params, "vy", &uin_this_point, &found); CHKERRQ(ierr);
+            }else if(face_config->handler_type == BC_HANDLER_INLET_PARABOLIC){
+              PetscBool found;
+              PetscReal umax,diameter=1.0;
+              ierr = GetBCParamReal(face_config->params,"umax",&umax,&found); CHKERRQ(ierr);
+              ierr = GetBCParamReal(face_config->params,"diameter",&diameter,&found); CHKERRQ(ierr);
               
-              // *** MERGED INLET PROFILE LOGIC ***
-              if (inletprofile == 0 || inletprofile == 6 || inletprofile == 8) {
-                uin = InletInterpolation(r, user);
-              } else if (inletprofile == 1) {
-                uin = 1.0;
-              } else if (inletprofile == -1) {
-                uin = -1.0;
-              } else if (inletprofile == 2) { // 2D channel flow from target code
-                uin = 4.0 * uin_max * yc * (H - yc) / (H * H);
-              } else if (inletprofile == 3) {
-                // uin already calculated for pulsatile plug flow
-              } else if (inletprofile == 4) { // Fully-developed pipe flow
-                r = RR[k][j][i]; // Use pre-calculated radius
-                uin = uin_max * (1.0 - 4.0 * r * r); // Assumes max radius is 0.5
-                if (r > 0.5) uin=0.; 
-              } else if (inletprofile == 5) {
-                uin = -InletInterpolation(r, user);
-              } else if (inletprofile == 7) {
-                uin = uin_max * (1.0 - 4.0 * yc * yc);
-              } else if (inletprofile == 10) {
-                double _y = (yc-1.5)*2., _x=xc-0.5;
-                double A=1.;
-                #ifndef M_PI 
-                #define M_PI 3.14159265358979323846264338327950288
-                #endif
-                uin = 1 - _y*_y;
-                int n;
-                for(n=0; n<20; n++) {
-                  uin -= 4.*pow(2./M_PI,3) * pow(-1., n) / pow(2*n+1.,3.) * cosh((2*n+1)*M_PI*_x/2.) * cos((2.*n+1)*M_PI*_y/2.) / cosh((2*n+1)*M_PI*A/2.);
-                }
-              } else if (inletprofile == 11) {
-                uin = 0.185;
-              } else {
-                // LOG_ALLOW(LOCAL,LOG_DEBUG, "WRONG INLET PROFILE TYPE!!!! U_in = 0\n");
-                uin = 0.;
-              }
+              // Radius is in the XZ-plane for a Y-face inlet
+              PetscReal xc = cent[k][j + (sign>0)][i].x - CMx_c;
+              PetscReal zc = cent[k][j + (sign>0)][i].z - CMz_c;
+              PetscReal r = sqrt(xc*xc + zc*zc);
+              PetscReal r_norm = 2.0 * r / diameter;
+              uin_this_point = umax * (1.0 - r_norm * r_norm);
+              if (r_norm > 1.0) uin_this_point = 0.0;
 
-	      d = sqrt(zet[k][j][i].z*zet[k][j][i].z + zet[k][j][i].y*zet[k][j][i].y + zet[k][j][i].x*zet[k][j][i].x);
-              lAreaIn += d;
-              ucont[k][j][i].z = uin*d;
-	      ubcs[k][j][i].x = uin*zet[k][j][i].x/d;
-	      ubcs[k][j][i].y = uin*zet[k][j][i].y/d;
-	      ubcs[k][j][i].z = uin*zet[k][j][i].z/d;
-	      ucat[k+1][j][i] = ubcs[k][j][i];
-	      FluxIn += ucont[k][j][i].z;
-	    }
-	  }
-	}
-      }
+            }
 
-      LOG_LOOP_ALLOW_EXACT(LOCAL,LOG_DEBUG,i+j,10,"\n",FluxIn);
-      break;
-    case 5: // +Z face
-      if (ze==mz) {	
-	k = mz-2;
-	for (j=lys; j<lye; j++) {
-	  for (i=lxs; i<lxe; i++) {
-	    if (nvert[k][j][i]<0.1) {
-              // Add profile-specific logic here if needed for this face
-              if (inletprofile == 1) uin = 1.0;
-              // ... other profiles
+            PetscReal CellArea = sqrt(eta[k][j][i].z*eta[k][j][i].z + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].x*eta[k][j][i].x);
+            lAreaIn += CellArea;
+            ucont[k][j][i].y  = sign * uin_this_point * CellArea;
+            lFluxIn          += ucont[k][j][i].y;
+            ubcs[k][j + (sign < 0)][i].x = sign * uin_this_point * eta[k][j][i].x / CellArea;
+            ubcs[k][j + (sign < 0)][i].y = sign * uin_this_point * eta[k][j][i].y / CellArea;
+            ubcs[k][j + (sign < 0)][i].z = sign * uin_this_point * eta[k][j][i].z / CellArea;
+            ucat[k][j + (sign > 0)][i] = ubcs[k][j + (sign < 0)][i];
+          }
+        }
+      } break;
 
-	      d = sqrt(zet[k][j][i].z*zet[k][j][i].z + zet[k][j][i].y*zet[k][j][i].y + zet[k][j][i].x*zet[k][j][i].x);
-              lAreaIn += d;
-              ucont[k][j][i].z = -uin*d;
-	      ubcs[k+1][j][i].x = -uin*zet[k][j][i].x/d;
-	      ubcs[k+1][j][i].y = -uin*zet[k][j][i].y/d;
-	      ubcs[k+1][j][i].z = -uin*zet[k][j][i].z/d;
-	      ucat[k][j][i] = ubcs[k+1][j][i];
-	      FluxIn += ucont[k][j][i].z;
-	    }
-	  }
-	}
-      }
+      case BC_FACE_NEG_Z: // -Zeta
+      case BC_FACE_POS_Z: // +Zeta
+      {
+        PetscReal sign = (face_config->face_id == BC_FACE_NEG_Z) ? 1.0 : -1.0;
+        PetscInt k = (face_config->face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
+        for (PetscInt j=lys; j<lye; j++) {
+          for (PetscInt i=lxs; i<lxe; i++) {
+            if ( (sign > 0 && nvert[k+1][j][i] > 0.1) || (sign < 0 && nvert[k][j][i] > 0.1) ) continue;
 
-       LOG_LOOP_ALLOW_EXACT(LOCAL,LOG_DEBUG,i+j,10,"\n",FluxIn);
-      break;
-    }//end switch
-   }// end inlet check
-   else if(user->bctype[fn]==WALL) {
-     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Solid Wall detected at face: %d \n",fn);
-   }
-   else if(user->bctype[fn]==SYMMETRY) {
-     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Symmetry detected at face: %d \n",fn);
-   }
-   else if(user->bctype[fn]==OUTLET){
-     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Outlet detected at face: %d \n",fn);
-   }
-  }// end face counter 
+            PetscReal uin_this_point = 0.0;
+            if (face_config->handler_type == BC_HANDLER_INLET_CONSTANT_VELOCITY) {
+                PetscBool found;
+                ierr = GetBCParamReal(face_config->params, "vz", &uin_this_point, &found); CHKERRQ(ierr);
+            } else if (face_config->handler_type == BC_HANDLER_INLET_PARABOLIC) {
+                PetscBool found;
+                PetscReal umax, diameter=1.0; // Default diameter for r_norm = 2*r
+                ierr = GetBCParamReal(face_config->params, "u_max", &umax, &found); CHKERRQ(ierr);
+                ierr = GetBCParamReal(face_config->params, "diameter", &diameter, &found); CHKERRQ(ierr); // Optional
+                
+                // Radius in the XY-plane for a Z-face inlet.
+                PetscReal xc = cent[k + (sign>0)][j][i].x - CMx_c;
+                PetscReal yc = cent[k + (sign>0)][j][i].y - CMy_c;
+                PetscReal r = sqrt(xc*xc + yc*yc);
+                PetscReal r_norm = 2.0 * r / diameter; // Normalized radius
+                uin_this_point = umax * (1.0 - r_norm * r_norm);
+                if (r_norm > 1.0) uin_this_point = 0.0;
+            }
 
-  // Sum flux and area from all processes
-  MPI_Allreduce(&FluxIn, &simCtx->FluxInSum, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
-  if (inletprofile != 3) { // AreaSumIn already computed for pulsatile
-     MPI_Allreduce(&lAreaIn, &AreaSumIn, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
-  }
-  PetscBarrier(NULL);
+            PetscReal CellArea = sqrt(zet[k][j][i].z*zet[k][j][i].z + zet[k][j][i].y*zet[k][j][i].y + zet[k][j][i].x*zet[k][j][i].x);
+            lAreaIn += CellArea;
+            ucont[k][j][i].z  = sign * uin_this_point * CellArea;
+            lFluxIn          += ucont[k][j][i].z;
+            ubcs[k + (sign < 0)][j][i].x = sign * uin_this_point * zet[k][j][i].x / CellArea;
+            ubcs[k + (sign < 0)][j][i].y = sign * uin_this_point * zet[k][j][i].y / CellArea;
+            ubcs[k + (sign < 0)][j][i].z = sign * uin_this_point * zet[k][j][i].z / CellArea;
+            ucat[k + (sign > 0)][j][i] = ubcs[k + (sign < 0)][j][i];
+          }
+        }
+      } break;
+    } // end switch(face_id)
+  } // end for(fn)
+
+  // --- Finalize: Sum flux and area from all processes ---
+  ierr = MPI_Allreduce(&lFluxIn, &simCtx->FluxInSum, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+  ierr = MPI_Allreduce(&lAreaIn, &AreaSumIn, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
   
-  LOG_ALLOW(GLOBAL,LOG_DEBUG,"Inflow Flux - Area:  %le - %le \n", simCtx->FluxInSum, AreaSumIn);    
+  LOG_ALLOW(GLOBAL,LOG_DEBUG,"Inflow: Flux - Area:  %le - %le \n", simCtx->FluxInSum, AreaSumIn);    
   
-  DMDAVecRestoreArray(fda, Coor, &coor);
+  // --- Restore PETSc arrays ---
+  DMDAVecRestoreArray(fda, lCoor, &coor);
   DMDAVecRestoreArray(fda, user->Ucont, &ucont);
   DMDAVecRestoreArray(fda, user->Bcs.Ubcs, &ubcs);
   DMDAVecRestoreArray(fda, user->Ucat,  &ucat);
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-  DMDAVecRestoreArray(da, RFC, &RR);
+  DMDAVecRestoreArray(da,  user->lNvert, &nvert);
   DMDAVecRestoreArray(fda, user->Cent, &cent);
   DMDAVecRestoreArray(fda, user->lCsi,  &csi);
   DMDAVecRestoreArray(fda, user->lEta,  &eta);
   DMDAVecRestoreArray(fda, user->lZet,  &zet);
 
-  VecDestroy(&RFC);
-
+  // --- Update local vectors for subsequent computations ---
   DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
   DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
   
-  return 0; 
+  PetscFunctionReturn(0); 
 }
 
+/**
+ * @brief Calculates the total outgoing flux through all OUTLET faces for reporting.
+ *
+ * NOTE: In a mixed modern/legacy environment, this function is for DIAGNOSTICS ONLY.
+ * It reads the contravariant velocities and calculates the total flux passing through
+ * faces marked as OUTLET. It does NOT apply any boundary conditions itself, as that
+ * is still the responsibility of the legacy FormBCS function.
+ *
+ * @param user The main UserCtx struct containing BC config and PETSc vectors.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode OutflowFlux(UserCtx *user) {
   
-  PetscInt i, j, k;
-  PetscReal FluxOut;
- 
-  Cmpnts	***ucont, ***ucat, ***zet;
+    PetscErrorCode ierr;
+    PetscReal      lFluxOut = 0.0;
+    Cmpnts         ***ucont;
 
-  DM fda = user->fda;
-  DMDALocalInfo	info = user->info;
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-  PetscInt	lxs, lxe, lys, lye, lzs, lze;
+    DM             fda = user->fda;
+    DMDALocalInfo  info = user->info;
+    PetscInt       xs = info.xs, xe = info.xs + info.xm;
+    PetscInt       ys = info.ys, ye = info.ys + info.ym;
+    PetscInt       zs = info.zs, ze = info.zs + info.zm;
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
+
+    PetscFunctionBeginUser;
+    
+    ierr = DMDAVecGetArrayRead(fda, user->Ucont, &ucont); CHKERRQ(ierr);
   
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-  
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-  
-  if (xe==mx) lxe = xe-1;
-  if (ye==my) lye = ye-1;
-  if (ze==mz) lze = ze-1;
-  
+    // --- Loop over all 6 faces to find OUTLETS ---
+    for (PetscInt fn = 0; fn < 6; fn++) {
+        if (user->boundary_faces[fn].mathematical_type != OUTLET) {
+            continue; 
+        }
 
-  DMDAVecGetArray(fda, user->Ucont, &ucont);
-  DMDAVecGetArray(fda, user->Ucat,  &ucat);
-  DMDAVecGetArray(fda, user->lZet,  &zet);
-  
-  FluxOut = 0;
+        PetscBool is_on_boundary = ( (fn==0 && xs==0) || (fn==1 && xe==mx) ||
+                                     (fn==2 && ys==0) || (fn==3 && ye==my) ||
+                                     (fn==4 && zs==0) || (fn==5 && ze==mz) );
+        if (!is_on_boundary) continue;
 
-  LOG_ALLOW(GLOBAL,LOG_DEBUG,"Block %d calculating Outflow Flux .\n",user->_this);
-  
-  if (user->bctype[5] == 4 || user->bctype[5] == 0 || user->bctype[5] == 14) {    
-    if (ze==mz) {
-      k = mz-2;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  FluxOut += ucont[k][j][i].z;
-	}
-      }
-    }
-    else {
-      FluxOut = 0;
-    }
+        // --- Sum the flux for the appropriate face and component ---
+        switch ((BCFace)fn) {
+            case BC_FACE_NEG_X: case BC_FACE_POS_X: {
+                PetscInt i = (fn == 0) ? xs : mx - 2;
+                for (PetscInt k=info.zs; k<info.zs+info.zm; k++) for (PetscInt j=info.ys; j<info.ys+info.ym; j++) {
+                    lFluxOut += ucont[k][j][i].x;
+                }
+            } break;
 
-  } else if (user->bctype[4] == 4 || user->bctype[4] == 0) {    
-    if (zs==0) {
-      k = 0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  FluxOut += ucont[k][j][i].z;
-	}
-      }
-    }
-    else {
-      FluxOut = 0;
-    }
-  }
-  MPI_Allreduce(&FluxOut,&user->simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+            case BC_FACE_NEG_Y: case BC_FACE_POS_Y: {
+                PetscInt j = (fn == 2) ? ys : my - 2;
+                for (PetscInt k=info.zs; k<info.zs+info.zm; k++) for (PetscInt i=info.xs; i<info.xs+info.xm; i++) {
+                    lFluxOut += ucont[k][j][i].y;
+                }
+            } break;
 
-  LOG_ALLOW(GLOBAL,LOG_DEBUG," Block %d FluxOutSum = %.6f .\n",user->_this,user->simCtx->FluxOutSum);
+            case BC_FACE_NEG_Z: case BC_FACE_POS_Z: {
+                PetscInt k = (fn == 4) ? zs : mz - 2;
+                for (PetscInt j=info.ys; j<info.ys+info.ym; j++) for (PetscInt i=info.xs; i<info.xs+info.xm; i++) {
+                    lFluxOut += ucont[k][j][i].z;
+                }
+            } break;
+        } // end switch
+    } // end for loop
 
-  DMDAVecRestoreArray(fda, user->Ucont, &ucont);
+    ierr = DMDAVecRestoreArrayRead(fda, user->Ucont, &ucont); CHKERRQ(ierr);
 
-  DMDAVecRestoreArray(fda, user->Ucat,  &ucat);
-  
-  DMDAVecRestoreArray(fda, user->lZet,  &zet);
+    // --- Finalize: Sum and store the global total flux ---
+    ierr = MPI_Allreduce(&lFluxOut, &user->simCtx->FluxOutSum, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
 
-  return 0;
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reported Global FluxOutSum = %.6f\n", user->simCtx->FluxOutSum);
+
+    PetscFunctionReturn(0);
 }
-
 
 /* Boundary condition defination (array user->bctype[0-5]):
    0:	interpolation/interface
@@ -2262,9 +1757,7 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
   /*     Rheology */
   /*  ==================================================================================== */
  
-
-  PetscOptionsGetReal(NULL,NULL, "-simCtx->U_bc", &(simCtx->U_bc), NULL);
-  //  LOG_ALLOW(GLOBAL,LOG_DEBUG, "moving plate velocity for rheology setup is %le \n",simCtx->U_bc);
+  LOG_ALLOW(GLOBAL,LOG_DEBUG, "moving plate velocity for rheology setup is %le \n",simCtx->U_bc);
 
   if (user->bctype[2]==13){
     if (ys==0){

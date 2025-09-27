@@ -1,0 +1,27 @@
+# Grid Quality Analysis Report
+# --------------------------------
+
+[Dimensions & Domain]
+Node_Dimensions = (21, 21, 145)
+Cell_Dimensions = (20, 20, 144)
+Total_Nodes = 63,945
+Total_Cells = 57,600
+X_Range = 5.000000e+00, 1.450000e+01
+Y_Range = 5.000000e-01, 1.000000e+01
+Z_Range = 5.000000e-01, 1.500000e+00
+Total_Domain_Volume = 1.632162e+01
+
+[Primary CFD Quality Checks]
+Jacobian_Sign_Consistent = True
+Min_Volume = 2.508577e-04
+Max_Volume = 3.179886e-04
+Max_Volume_Expansion_Ratio = 1.0978
+Max_Non_Orthogonality_deg = 0.2652
+Avg_Non_Orthogonality_deg = 0.0067
+Std_Non_Orthogonality_deg = 0.0191
+
+[Particle Search Diagnostics]
+Max_Aspect_Ratio = 2.5300
+Avg_Aspect_Ratio = 2.2615
+Std_Aspect_Ratio = 0.1009
+Max_Face_Warpage_Normalized = 0.0000
