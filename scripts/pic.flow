@@ -445,30 +445,44 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     print(f"[SUCCESS] Generated post-processor recipe: {os.path.relpath(post_recipe_path)}")
     return os.path.abspath(post_recipe_path)
 
-
-def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg: dict):
+def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg: dict = None):
     """!
     @brief Executes a command, streaming its output to the console and a log file.
-    @param[in] command A list of strings representing the command and its arguments.
-    @param[in] run_dir The directory in which to execute the command.
-    @param[in] log_filename The name of the file to save the command's output to.
-    @param[in] monitor_cfg The parsed monitor.yml dictionary, used to set LOG_LEVEL.
-    @throws SystemExit if the command fails or is not found.
+    ...
+    @param[in] monitor_cfg Optional. If provided, used to set LOG_LEVEL in a custom environment.
+                           If None, the process inherits the parent's environment directly.
     """
-    log_path = os.path.join(run_dir, "logs", log_filename)
+    # Create the log directory if it doesn't exist.
+    log_dir = os.path.join(run_dir, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    
+    log_path = os.path.join(log_dir, log_filename)
     print(f"[INFO] Launching Command...\n  > {' '.join(command)}")
     print(f"       Log file: {os.path.relpath(log_path)}")
     print("-" * 60)
-    run_env = os.environ.copy()
-    verbosity = monitor_cfg.get('logging', {}).get('verbosity', 'ERROR').upper()
-    run_env['LOG_LEVEL'] = verbosity
-    print(f"[INFO] Setting LOG_LEVEL={verbosity} for C executable.")
+
+    # --- Environment Handling ---
+    popen_kwargs = {
+        "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT,
+        "cwd": run_dir, "bufsize": 1, "universal_newlines": True,
+        "encoding": 'utf-8', "errors": 'replace'
+    }
+
+    if monitor_cfg:
+        print("[INFO] Creating custom environment to set LOG_LEVEL.")
+        run_env = os.environ.copy()
+        verbosity = monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()
+        run_env['LOG_LEVEL'] = verbosity
+        print(f"[INFO] Setting LOG_LEVEL={verbosity} for C executable.")
+        popen_kwargs['env'] = run_env
+    else:
+        print("[INFO] Using inherited environment for process.")
+
     print("-" * 60)
     try:
-        process = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            cwd=run_dir, env=run_env, bufsize=1, universal_newlines=True, encoding='utf-8', errors='replace'
-        )
+        # Pass the constructed keyword arguments dictionary to Popen
+        process = subprocess.Popen(command, **popen_kwargs)
+        
         with open(log_path, "w") as log_file:
             for line in process.stdout:
                 sys.stdout.write(line)
@@ -629,13 +643,13 @@ def run_workflow(args):
 def init_case(args):
     """!
     @brief Implements the 'init' command.
-    @details Creates a new case study directory by copying a template and then
-             creates relative symbolic links to all executables from the main
-             project's bin/ directory, making the new study directory a
-             self-contained workspace.
+    @details Creates a new case study directory by copying a template. It can then
+             either create relative symbolic links to the project's executables
+             (default) or create a full copy of them for a self-contained study.
     @param[in] args The command-line arguments parsed by argparse.
     """
-    template_path = os.path.join(PROJECT_ROOT, "case_templates", args.template_name)
+    template_path = os.path.join(PROJECT_ROOT, "examples", args.template_name)
+    # The destination path is relative to the current working directory.
     dest_path = os.path.abspath(os.path.join(os.getcwd(), args.dest_name if args.dest_name else args.template_name))
 
     if not os.path.isdir(template_path):
@@ -650,27 +664,39 @@ def init_case(args):
     shutil.copytree(template_path, dest_path)
     print(f"[SUCCESS] Copied template files to: {dest_path}")
     
-    print("[INFO] Creating symbolic links to project binaries...")
+    if args.copy_binaries:
+        print("[INFO] Copying project binaries for a self-contained case...")
+    else:
+        print("[INFO] Creating symbolic links to project binaries...")
+        
     main_bin_dir = os.path.join(PROJECT_ROOT, "bin")
     
     try:
-        binaries = [f for f in os.listdir(main_bin_dir) if os.path.isfile(os.path.join(main_bin_dir, f))]
+        # We only want to copy/link the actual executables, not the orchestrator script itself.
+        binaries = [f for f in os.listdir(main_bin_dir) if f != 'pic.flow' and os.path.isfile(os.path.join(main_bin_dir, f))]
         if not binaries:
-            print("[WARNING] Main project bin/ directory is empty or not found. No symbolic links created.", file=sys.stderr)
+            print("[WARNING] Main project bin/ directory contains no executables. Nothing to link or copy.", file=sys.stderr)
             return
 
         for binary_name in binaries:
             source_path_abs = os.path.abspath(os.path.join(main_bin_dir, binary_name))
-            link_path = os.path.join(dest_path, binary_name)
-            relative_source_path = os.path.relpath(source_path_abs, start=dest_path)
-            os.symlink(relative_source_path, link_path)
-            print(f"  - Linked '{binary_name}'")
+            dest_file_path = os.path.join(dest_path, binary_name)
             
-        print("[SUCCESS] Symbolic links created. You can now 'cd' into your study directory and run commands locally.")
-    except Exception as e:
-        print(f"[ERROR] Failed to create symbolic links: {e}", file=sys.stderr)
-        print("        Your case files were copied, but you will need to run commands from the project root.", file=sys.stderr)
+            if args.copy_binaries:
+                # Use copy2 to preserve permissions and metadata
+                shutil.copy2(source_path_abs, dest_file_path)
+                print(f"  - Copied '{binary_name}'")
+            else:
+                relative_source_path = os.path.relpath(source_path_abs, start=dest_path)
+                os.symlink(relative_source_path, dest_file_path)
+                print(f"  - Linked '{binary_name}'")
+            
+        print("[SUCCESS] Binaries are now available in your study directory.")
+        print("          You can now 'cd' into your study and run commands locally (e.g., './picsolver ...').")
 
+    except Exception as e:
+        print(f"[ERROR] Failed to process binaries: {e}", file=sys.stderr)
+        print("        Your case files were copied, but you will need to run commands from the project root.", file=sys.stderr)
 
 def build_project(args):
     """!
@@ -680,6 +706,7 @@ def build_project(args):
              cleaning, and other Makefile targets via the orchestrator.
     @param[in] args The command-line arguments parsed by argparse.
     """
+
     print("\n" + "="*27 + " BUILD STAGE " + "="*27)
     build_script_path = os.path.join(PROJECT_ROOT, "build.sh")
 
@@ -695,6 +722,9 @@ def build_project(args):
     # dict to execute_command. The command should be run in the project root.
     execute_command(command, PROJECT_ROOT, "build.log", {})
    
+
+
+
 # ==============================================================================
 # MAIN COMMAND-LINE INTERFACE PARSER
 # ==============================================================================
@@ -723,10 +753,15 @@ if __name__ == "__main__":
     
     p_run.add_argument('-n', '--num-procs', type=int, default=1, help="Number of MPI processes for either stage.")
 
-    # --- 'init' command ---
+# --- 'init' command ---
     p_init = subparsers.add_parser('init', help="Initialize a new case study directory from a template.")
     p_init.add_argument('template_name', help="Name of the case template directory to copy (e.g., 'laminar_pipe').")
-    p_init.add_argument('--dest', dest='dest_name', help="Optional name for the new directory. Defaults to template name.")
+    p_init.add_argument('--dest', dest='dest_name', 
+                        help="Optional name for the new directory. Defaults to the template name.\n"
+                             "Path is relative to your current working directory.")
+    p_init.add_argument('--copy-binaries', action='store_true',
+                        help="Copy executables into the case directory instead of symlinking.\n"
+                             "This creates a fully portable, self-contained case study.")
 
     # --- 'build' command ---
     p_build = subparsers.add_parser('build', help="Build project executables using the Makefile.",
