@@ -82,10 +82,6 @@
         ierr = RegisterSwarmField(swarm,"Psi", 1,PETSC_REAL); CHKERRQ(ierr);
         LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'Psi' - Scalar.\n");
 
-
-        ierr = RegisterSwarmField(swarm,"pos_phy", 3,PETSC_REAL); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'pos_phy' - Physical Position.\n");
-
         ierr =  RegisterSwarmField(swarm,"DMSwarm_location_status",1,PETSC_INT);CHKERRQ(ierr);
         LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'DMSwarm_location_status' - Status of Location of Particle(located,lost etc).\n");
         
@@ -348,7 +344,6 @@
         PetscErrorCode ierr;
         DM             swarm = user->swarm;
         PetscReal      *positions_field = NULL; // Pointer to swarm field for physical positions (x,y,z)
-        PetscReal      *pos_phy_field = NULL;   // Pointer to swarm field for physical positions (backup/alternative)
         PetscInt64     *particleIDs = NULL;     // Pointer to swarm field for Particle IDs
         PetscInt       *cellIDs_petsc = NULL;   // Pointer to swarm field for DMSwarm_CellID (i,j,k of containing cell)
         PetscInt       *status_field  = NULL;   // Pointer to swarm field for DMSwarm_location_status(NEEDS_LOCATION etc)
@@ -396,7 +391,6 @@
 
         // --- 3. Get Access to Swarm Fields ---
         ierr = DMSwarmGetField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, "pos_phy",        NULL, NULL, (void**)&pos_phy_field);   CHKERRQ(ierr);
         ierr = DMSwarmGetField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
         ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs_petsc);  CHKERRQ(ierr);
         ierr = DMSwarmGetField(swarm, "DMSwarm_location_status",NULL,NULL,(void**)&status_field); CHKERRQ(ierr);
@@ -451,9 +445,7 @@
             positions_field[3*p+0] = phys_coords.x; 
             positions_field[3*p+1] = phys_coords.y; 
             positions_field[3*p+2] = phys_coords.z;
-            pos_phy_field[3*p+0]   = phys_coords.x; 
-            pos_phy_field[3*p+1]   = phys_coords.y; 
-            pos_phy_field[3*p+2]   = phys_coords.z;
+
             particleIDs[p]         = (PetscInt64)base_pid_for_rank + p; 
             cellIDs_petsc[3*p+0]   = -1; cellIDs_petsc[3*p+1] = -1; cellIDs_petsc[3*p+2] = -1;
         status_field[p]        = UNINITIALIZED;
@@ -476,7 +468,6 @@
 
         // --- 6. Restore Pointers and Cleanup ---
         ierr = DMSwarmRestoreField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
-        ierr = DMSwarmRestoreField(swarm, "pos_phy",        NULL, NULL, (void**)&pos_phy_field);   CHKERRQ(ierr);
         ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
         ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs_petsc);  CHKERRQ(ierr);
         ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_field); CHKERRQ(ierr);
@@ -719,9 +710,6 @@
      */
     PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscRandom *randz, PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k) {
         PetscErrorCode ierr;  // Error code for PETSc functions
-        PetscInt  ParticleInitialization; 
-
-        ierr = PetscOptionsGetInt(NULL, NULL, "-pinit", &ParticleInitialization, NULL); CHKERRQ(ierr);
     
         // Destroy random number generators to free resources
         // Physical space
@@ -771,10 +759,6 @@
         LOG_ALLOW(GLOBAL,LOG_DEBUG, "CreateParticleSwarm - Number of particles must be positive. Given: %d\n", numParticles);
             return PETSC_ERR_ARG_OUTOFRANGE;
         }
-
-        // Insert PETSc options from "control.dat" into the PETSc options database
-        //  ierr = PetscOptionsInsertFile(PETSC_COMM_WORLD, NULL, "control.dat", PETSC_TRUE); CHKERRQ(ierr);
-        // LOG_ALLOW(LOCAL,LOG_DEBUG,"CreateParticleSwarm - Inserted options from control.dat\n");
         
         LOG_ALLOW_SYNC(GLOBAL,LOG_DEBUG, "CreateParticleSwarm - Domain dimensions: Min_X=%.2f, Max_X=%.2f,Min_Y=%.2f, Max_Y=%.2f,Min_Z=%.2f, Max_Z=%.2f \n", 
             user->Min_X,user->Max_X,user->Min_Y,user->Max_Y, user->Min_Z,user->Max_Z);

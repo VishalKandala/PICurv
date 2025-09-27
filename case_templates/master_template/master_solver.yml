@@ -1,0 +1,83 @@
+# ==============================================================================
+#                 PIC-Flow Master Solver Configuration Template
+# ==============================================================================
+#
+# PURPOSE:
+# This file defines the NUMERICAL STRATEGY for the simulation. It is divided
+# into user-friendly structured sections for common settings, and a flexible
+# 'petsc_passthrough_options' section for advanced users to inject any valid
+# PETSc command-line flag.
+#
+# ==============================================================================
+
+# ==============================================================================
+# 1. SOLVER OPERATION MODE
+# ==============================================================================
+operation_mode:
+  # 'solve': (Default) Compute the fluid dynamics equations.
+  # 'load':  Load pre-computed field data from disk.
+  eulerian_field_source: "solve"  # -> -euler_field_source
+
+# ==============================================================================
+# 2. PRIMARY SOLVER STRATEGY & TOLERANCES
+# ==============================================================================
+# --- Main Time-Stepping Scheme ---
+strategy:
+  implicit: true      # [true/false] -> -imp
+  central_diff: false # [true/false] -> -central
+
+# --- Convergence Criteria for the Implicit Solver ---
+tolerances:
+  max_iterations: 50   # [Integer] -> -imp_MAX_IT
+  absolute_tol: 1.0e-8 # [Float] -> -imp_atol
+  relative_tol: 1.0e-5 # [Float] -> -imp_rtol
+  step_tol:     1.0e-8 # [Float] -> -imp_stol
+
+# ==============================================================================
+# 3. PRESSURE-POISSON SOLVER CONFIGURATION
+# ==============================================================================
+pressure_solver:
+  # --- Main Tolerance ---
+  tolerance: 1.0e-9 # [Float] -> -poisson_tol
+
+  # --- Geometric Multigrid (PCMG) Settings ---
+  multigrid:
+    levels: 3         # [Integer] -> -mg_level
+    pre_sweeps: 2     # [Integer] -> -mg_pre_it
+    post_sweeps: 2    # [Integer] -> -mg_post_it
+    semi_coarsening:
+      i: false        # [true/false] -> -mg_i_semi
+      j: false        # [true/false] -> -mg_j_semi
+      k: true         # [true/false] -> -mg_k_semi
+      
+    # --- CONVENIENCE: Smoother Configuration Per Level ---
+    # This section sets the KSP (solver) type for the smoother on each MG level.
+    # NOTE: The C-code hardcodes the preconditioner (PC) for each smoother to
+    #       Block Jacobi (PCBJACOBI). You can only set the KSP type here.
+    # Level 0 is the finest grid.
+    level_solvers:
+      level_0:
+        ksp_type: "richardson" # -> -ps_mg_levels_0_ksp_type "richardson"
+      level_1:
+        ksp_type: "chebyshev"  # -> -ps_mg_levels_1_ksp_type "chebyshev"
+      level_2:
+        # The coarsest level often uses a more robust solver.
+        ksp_type: "gmres"      # -> -ps_mg_levels_2_ksp_type "gmres"
+
+# ==============================================================================
+# 4. PETSC PASSTHROUGH OPTIONS (FOR ADVANCED USERS)
+# ==============================================================================
+petsc_passthrough_options:
+  # --- Top-level KSP settings ---
+  -ps_ksp_type: "fgmres"
+  -ps_ksp_rtol: 1.0e-11
+  -ps_ksp_max_it: 50
+  
+  # --- PC (Preconditioner) Settings ---
+  # The C-code forces the top-level PC to be 'mg'. This line is for clarity.
+  -ps_pc_type: "mg"
+
+  # --- Redundant/Ineffective Flag Example ---
+  # You could add the following line here, but the C-code's hardcoded
+  # PCSetType(subpc, PCBJACOBI) call would override it. It will have no effect.
+  # -ps_mg_levels_1_pc_type: "sor"

@@ -441,6 +441,16 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler);
 void FreeBC_ParamList(BC_Param *head);
 
 /**
+ * @brief Searches a BC_Param linked list for a key and returns its value as a double.
+ * @param params The head of the BC_Param linked list.
+ * @param key The key to search for (case-insensitive).
+ * @param[out] value_out The found value, converted to a PetscReal.
+ * @param[out] found Set to PETSC_TRUE if the key was found, PETSC_FALSE otherwise.
+ * @return 0 on success.
+ */
+PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *value_out, PetscBool *found);
+
+/**
  * @brief Parses the boundary conditions file to configure the type, handler, and
  *        any associated parameters for all 6 global faces of the domain.
  *
@@ -481,5 +491,18 @@ void TrimWhitespace(char *str);
  */
 PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx);
 
+/**
+ * @brief Parses physical scaling parameters from command-line options.
+ *
+ * This function reads the reference length, velocity, and density from the
+ * PETSc options database (provided via -scaling_L_ref, etc.). It populates
+ * the simCtx->scaling struct and calculates the derived reference pressure.
+ * It sets default values of 1.0 for a fully non-dimensional case if the
+ * options are not provided.
+ *
+ * @param[in,out] simCtx The simulation context whose 'scaling' member will be populated.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ParseScalingInformation(SimCtx *simCtx);
 
 #endif // IO_H

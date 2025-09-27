@@ -1,0 +1,66 @@
+# ==============================================================================
+#                 Case Profile: Flat Channel (Laminar Flow)
+# ==============================================================================
+# PURPOSE:
+# A simple, fundamental test case simulating laminar flow (Re=200) through a
+# straight rectangular channel. This serves as an excellent starting point and
+# validation case.
+# ==============================================================================
+
+# --- Simulation Control ---
+run_control:
+  start_step: 0
+  total_steps: 1000 # Let's set a more realistic number of steps
+  dt_physical: 0.04   # A physical timestep that will result in dt*=0.01
+
+# --- Physical Properties ---
+properties:
+  scaling:
+    length_ref: 1.0     # [m] Channel height
+    velocity_ref: 1.0   # [m/s] Inlet velocity
+  fluid:
+    density: 200.0      # [kg/m^3]
+    viscosity: 1.0      # [Pa.s] -> results in Re = (200*1*1)/1 = 200
+  initial_conditions:
+    mode: "Constant"
+    u_physical: 0.0
+    v_physical: 0.0
+    w_physical: 1.0     # Initial flow is in the z-direction
+
+# --- Grid Definition ---
+grid:
+  mode: file
+
+  source_file: case_templates/bent_channel/bent_channel.picgrid
+
+# --- Model Selection ---
+models:
+  domain:
+    blocks: 1
+  physics:
+    particles:
+      count: 0 # No particles for this case
+
+# --- Boundary Conditions ---
+# Simple inlet/outlet flow in Z-direction, with walls on X and Y faces.
+boundary_conditions:
+  - face: "-Xi"
+    type: WALL
+    handler: noslip
+  - face: "+Xi"
+    type: WALL
+    handler: noslip
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  - face: "-Zeta"
+    type: INLET
+    handler: constant_velocity
+    params:
+      vector: [0.0, 0.0, 1.0] # Physical velocity [m/s]
+  - face: "+Zeta"
+    type: OUTLET
+    handler: conservation

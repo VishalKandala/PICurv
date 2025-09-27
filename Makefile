@@ -89,6 +89,7 @@ INCDIR := include
 OBJDIR := obj
 BINDIR := bin
 DOCSDIR := docs
+SCRIPTDIR := scripts
 
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
@@ -119,15 +120,16 @@ POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
 # Define the final paths for the compiled programs.
 PICSOLVER_EXE     := $(BINDIR)/picsolver
 POSTPROCESSOR_EXE := $(BINDIR)/postprocessor
+CONDUCTOR_EXE     := $(BINDIR)/pic-flow
 
 # ==============================================================================
 # --- 5. Build Targets & Rules ---
 # ==============================================================================
-.PHONY: all picsolver postprocessor dirs
+.PHONY: all picsolver postprocessor conductor dirs
 
 ## @target all
 ## @brief Default target. Builds all project executables.
-all: picsolver postprocessor
+all: picsolver postprocessor conductor
 
 ## @target picsolver
 ## @brief Builds the `picsolver` executable.
@@ -136,6 +138,10 @@ picsolver: $(PICSOLVER_EXE)
 ## @target postprocessor
 ## @brief Builds the `postprocessor` executable.
 postprocessor: $(POSTPROCESSOR_EXE)
+
+## @target conductor
+## @brief Installs the `pic-flow` conductor script.
+conductor: $(CONDUCTOR_EXE)
 
 # Explicit rule for linking the main solver.
 $(PICSOLVER_EXE): $(PICSOLVER_OBJS) | dirs
@@ -149,6 +155,11 @@ $(POSTPROCESSOR_EXE): $(POSTPROCESSOR_OBJS) | dirs
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 	@echo "--- Build Complete: $(@) ---"
 
+# This rule copies the source script to the bin directory and makes it executable.
+$(CONDUCTOR_EXE): $(SCRIPTDIR)/pic.flow | dirs
+	@echo "--- Installing Conductor Script: $(@) ---"
+	@cp $< $@
+	@chmod +x $@
 
 # Generic rule for compiling any .c file from SRCDIR into an object file in OBJDIR.
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | dirs
@@ -200,7 +211,9 @@ clean-project: cleanobj clean-project-docs clean-project-tags
 ## @target cleanobj
 ## @brief (Internal) Removes object files and executables.
 cleanobj:
-	@rm -rf $(OBJDIR) $(BINDIR)
+	@echo "--- Removing object files and compiled executables"
+	@rm -rf $(OBJDIR) 
+	@rm -f $(PICSOLVER_EXE) $(POSTPROCESSOR_EXE)
 
 ## @target clean-project-docs
 ## @brief (Internal) Removes generated documentation.

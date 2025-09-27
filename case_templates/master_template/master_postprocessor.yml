@@ -1,0 +1,143 @@
+# ==============================================================================
+#                 PIC-Flow Master Post-Processing Profile
+# ==============================================================================
+#
+# This file is the definitive template for post-processing tasks, derived
+# directly from the capabilities of the C post-processor executable. All options
+# here map to specific, implemented C functions and configuration keys.
+#
+# Use this as a guide to create specific analysis profiles (e.g., standard_analysis.yml).
+#
+# ==============================================================================
+# SECTION 1: SOURCE DATA & RUN CONTROL
+# ------------------------------------------------------------------------------
+# Defines where to find the input data and which timesteps to process.
+# This section directly configures the main processing loop in the C executable.
+# ==============================================================================
+source_data:
+  # (Required) The directory containing the input solver data files (.dat).
+  #
+  # SPECIAL TOKEN: "<solver_output_dir>"
+  #   The pic.flow script replaces this with the solver's output directory.
+  #   This is the standard and recommended setting.
+  directory: "<solver_output_dir>"
+
+run_control:
+  # (Required) The first timestep to process.
+  # Maps to 'startTime' in the C-side post.cfg.
+  start_step: 0
+
+  # (Required) The last timestep to process.
+  # A value of -1 means "process up to the last available step".
+  # Maps to 'endTime' in the C-side post.cfg.
+  end_step: -1
+
+  # (Optional) The interval for processing steps (e.g., 10 means process
+  # steps 0, 10, 20...). Defaults to 1.
+  # Maps to 'timeStep' in the C-side post.cfg.
+  step_interval: 1
+
+# ==============================================================================
+# SECTION 2: GLOBAL OPERATIONS
+# ------------------------------------------------------------------------------
+# These are operations that apply to the entire dataset at the beginning of each
+# timestep's processing.
+# ==============================================================================
+global_operations:
+  # (Optional) If true, converts all loaded fields (grid and data) to physical,
+  # dimensional units before any other processing.
+  # Corresponds to adding `DimensionalizeAllLoadedFields` to the C-side pipeline.
+  dimensionalize: true
+
+# ==============================================================================
+# SECTION 3: PROCESSING PIPELINE
+# ------------------------------------------------------------------------------
+# Defines a sequence of operations to perform on the loaded data. The pic.flow
+# script will serialize these lists into semicolon-separated strings for the
+# C executable's 'process_pipeline' and 'particle_pipeline' keys.
+# ==============================================================================
+eulerian_pipeline:
+
+  # Computes the Q-Criterion for vortex identification.
+  # Creates a new field named "Qcrit".
+  # Invokes the C function: `ComputeQCriterion()`.
+  - task: q_criterion
+
+  # (Optional) Performs cell-to-node averaging on specified fields.
+  # For each field in the list (e.g., 'P'), this computes a new field
+  # named with a "_nodal" suffix (e.g., 'P_nodal').
+  # Invokes the C function: `ComputeNodalAverage(user, "P", "P_nodal")`.
+  - task: nodal_average
+    input_field:  'P'
+    output_field: 'P_nodal'
+
+  - task: nodal_average
+    input_field:  'Ucat'
+    output_field: 'Ucat_nodal'
+
+  # (Optional) Normalizes a relative field (like pressure) by subtracting
+  # the value at a specific grid index.
+  # Invokes the C function: `NormalizeRelativeField()`.
+  - task:normalize:
+    # The field to normalize. Currently, only "P" is supported by the C code.
+    field: 'P'
+    # The [i, j, k] grid indices of the reference point. The Python script will
+    # generate 'reference_ip', 'reference_jp', 'reference_kp' keys in post.cfg.
+    reference_point: [1, 1, 1]
+
+# --- Lagrangian (Particle-Based) Pipeline ---
+lagrangian_pipeline:
+  # A list of operations performed on particle data.
+  # Computes the specific kinetic energy (0.5 * |v|^2) for each particle.
+  # Creates a new particle field named "specific_ke".
+  # Invokes the C function: `ComputeSpecificKE()`.
+  - task: specific_ke
+    input_field: 'velocity'
+    output_field: 'ske'
+
+# ==============================================================================
+# SECTION 3: OUTPUT CONFIGURATION
+# ------------------------------------------------------------------------------
+# Controls what data is written to the final VTK files.
+# ==============================================================================
+io:
+  # (Required) The directory where output files will be saved, relative to the
+  # main run directory (e.g., 'runs/my_run_id/'). The pic.flow script will
+  # create this directory if it does not exist.
+  # Maps to 'output_dir' in post.cfg and is passed as a command-line flag
+  # to the C executable to ensure it has the absolute path.
+  output_directory: "visualization/standard_analysis"
+
+  # (Required) The base name for the output files. The C code will append
+  # the timestep and extension, e.g., "eulerian_data_00100.vts".
+  # Maps to 'output_prefix' in post.cfg for Eulerian files and
+  # 'particle_output_prefix' for particle files.
+  output_filename_prefix: "eulerian_data"
+
+  # (Required) List of Eulerian fields to save to the output .vts files.
+  # You can include original fields ('P', 'Ucat') and newly computed fields
+  # from the pipeline ('Qcrit', 'P_nodal', 'Ucat_nodal').
+  # Maps to 'output_fields_instantaneous' in post.cfg.
+  eulerian_fields:
+    - 'Ucat_nodal'
+    - 'Qcrit'
+    - 'P_nodal'
+
+  # (Optional) A master switch for all particle-related output. Defaults to false.
+  # Maps to 'output_particles' in post.cfg.
+  output_particles: true
+
+  # (Optional) List of particle fields to save to the output .vtp files.
+  # Can include original fields and newly computed fields like 'specific_ke'.
+  # Standard Swarm Fields: 'position', 'velocity', 'pid', 'CellID', 'weight'
+  # Maps to 'particle_fields_instantaneous' in post.cfg.
+  particle_fields:
+    - 'velocity'
+    - 'pid'
+    - 'specific_ke'
+
+  # (Optional) The frequency for subsampling particles for output.
+  # A value of 1 saves every particle. A value of 10 saves every 10th particle.
+  # Defaults to 1 if not specified.
+  # Maps to 'particle_output_freq' in post.cfg.
+  particle_subsampling_frequency: 1

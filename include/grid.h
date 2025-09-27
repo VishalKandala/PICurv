@@ -112,5 +112,20 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes);
  */
 PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist);
 
+/**
+ * @brief Calculates the geometric center of the primary inlet face.
+ *
+ * This function identifies the first face designated as an INLET in the boundary
+ * condition configuration. It then iterates over all grid nodes on that physical
+ * face across all MPI processes, calculates the average of their coordinates,
+ * and stores the result in the user's SimCtx (CMx_c, CMy_c, CMz_c).
+ *
+ * This provides an automatic, robust way to determine the center for profiles
+ * like parabolic flow, removing the need for manual user input.
+ *
+ * @param user The main UserCtx struct, containing BC config and the grid coordinate vector.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode CalculateInletCenter(UserCtx *user);
 
 #endif // GRID_H

@@ -92,6 +92,7 @@ typedef struct VTKFieldInfo VTKFieldInfo;
 typedef struct VTKMetaData VTKMetaData;
 typedef struct IBMInfo IBMInfo;
 typedef struct SurfElmtInfo SurfElmtInfo;
+typedef struct ScalingCtx; 
 
 // --- Foundational Geometric and Data Types ---
 
@@ -204,16 +205,23 @@ typedef enum {
 
 /** @brief Defines the general mathematical/physical category of a boundary. */
 typedef enum {
-    WALLFUNCTION = -1,
-    INTERFACE = 0,
-    WALL = 1 , MOVING_WALL = 2,SYMMETRY = 3,
-    INLET = 4,
-    OUTLET , FARFIELD, PERIODIC, CHARACTERISTIC_BC,
-    ANALYTICAL_VORTEX,JUNCTION,
-    ANNULUS,
-    OGRID,
-    RHEOLOGY,
-    NOGRAD
+    WALLFUNCTION       = -1,
+    INTERFACE          = 0,
+    WALL               = 1 , 
+    MOVING_WALL        = 2,
+    SYMMETRY           = 3,
+    OUTLET             = 4,
+    INLET              = 5, 
+    FARFIELD           = 6,
+    PERIODIC           = 7,
+    CHARACTERISTIC_BC  = 8,
+    ANALYTICAL_VORTEX  = 9,
+    JUNCTION           = 10,
+    ANNULUS            = 11,
+    OGRID              = 12,
+    RHEOLOGY           = 13,
+    // Note:  Legacy 14 can be a JUNCTION with a specific handler.
+    NOGRAD             = 15
 } BCType;
 
 /** @brief Defines the specific computational "strategy" for a boundary handler. */
@@ -221,7 +229,7 @@ typedef enum {
     BC_HANDLER_UNDEFINED = 0,BC_HANDLER_NOGRAD_COPY_GHOST,
     BC_HANDLER_WALL_NOSLIP, BC_HANDLER_WALL_MOVING,
     BC_HANDLER_SYMMETRY_PLANE,BC_HANDLER_INLET_PARABOLIC,
-    BC_HANDLER_INLET_CONSTANT_VELOCITY, BC_HANDLER_INLET_PULSANTILE_FLUX, BC_HANDLER_INLET_DEVELOPED_PROFILE,
+    BC_HANDLER_INLET_CONSTANT_VELOCITY, BC_HANDLER_INLET_PULSATILE_FLUX, BC_HANDLER_INLET_DEVELOPED_PROFILE,
     BC_HANDLER_INLET_INTERP_FROM_FILE,
     BC_HANDLER_OUTLET_CONSERVATION, BC_HANDLER_OUTLET_PRESSURE,
     BC_HANDLER_FARFIELD_NONREFLECTING,
@@ -442,6 +450,9 @@ typedef struct UserMG {
  *        This is an enhanced version combining command-line and file-based settings.
  */
 typedef struct PostProcessParams {
+    // -- Source Directory --- (For Data)
+    char source_dir[PETSC_MAX_PATH_LEN];
+  
     // --- Time Controls (can be set by command line or file) ---
     PetscInt startTime;
     PetscInt endTime;
@@ -461,6 +472,9 @@ typedef struct PostProcessParams {
     // --- Legacy settings ---
     char eulerianExt[8]; // from original PostProcessParams (repurposed for PreCheckAndResize() as the input file extension.)
     char particleExt[8]; // from original PostProcessParams
+
+    // --- Processing Parameters ---
+    PetscInt reference[3]; // Reference point for normalizing any field against.
     
 } PostProcessParams;
 
@@ -498,6 +512,16 @@ typedef enum {
     EXEC_MODE_POSTPROCESSOR,   // The application is running as the post-processor.
     EXEC_MODE_UNKNOWN          // Default/error state.
 } ExecutionMode;
+
+//-------------------------------------------------------------------------------
+//             8. SCALING AND DIMENSIONAL ANALYSIS STRUCTS
+//-------------------------------------------------------------------------------
+typedef struct ScalingCtx{
+  PetscReal L_ref;
+  PetscReal U_ref;
+  PetscReal rho_ref;
+  PetscReal P_ref;
+}ScalingCtx;
 //-------------------------------------------------------------------------------
 /*================================================================================*
  *                        MAIN APPLICATION CONTEXT                                *
@@ -530,7 +554,10 @@ typedef struct SimCtx {
     PetscViewer logviewer;
     PetscInt    OutputFreq;
     ExecutionMode exec_mode;
-    char eulerianSource[64]; 
+    char eulerianSource[64];
+    char restart_dir[PETSC_MAX_PATH_LEN];
+    char output_dir[PETSC_MAX_PATH_LEN];
+    char log_dir[PETSC_MAX_PATH_LEN];
 
     //================ Group 3: High-Level Physics & Model Selection Flags ================
     PetscInt  immersed, movefsi, rotatefsi, sediment, rheology;
@@ -554,10 +581,9 @@ typedef struct SimCtx {
 
     //================ Group 6: Physical & Geometric Parameters ================
     PetscInt  NumberOfBodies;
-    PetscReal Flux_in, angle, L_dim, St_exp, wavelength, max_angle;
+    PetscReal Flux_in, angle,max_angle;
     PetscReal CMx_c, CMy_c, CMz_c;
-    PetscInt  regime, radi;
-    PetscReal chact_leng;
+    ScalingCtx scaling;
 
     //================ Group 7: Grid, Domain, and Boundary Condition Settings ================
     PetscInt  block_number, inletprofile, grid1d, Ogrid, channelz;
@@ -570,7 +596,7 @@ typedef struct SimCtx {
     PetscInt num_bcs_files;
     char **bcs_files;
     PetscReal  FluxInSum, FluxOutSum,Fluxsum;
-    PetscReal  AreaOutSum;
+    PetscReal  AreaInSum, AreaOutSum;
     PetscReal  U_bc;
     PetscInt   ccc;
     PetscReal  ratio;
@@ -617,7 +643,6 @@ typedef struct SimCtx {
     char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];
     PostProcessParams *pps;
     
-
    //=============== Group 13: Miscellaneous =============================================
    PetscReal	r[101], tin[101], uinr[101][1001];
 

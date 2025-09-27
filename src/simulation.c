@@ -322,11 +322,6 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 
         LOG_ALLOW(GLOBAL, LOG_INFO, "--- Advancing Step %d (To t=%.4f) ---\n", simCtx->step, simCtx->ti);
         
-        // Update any time-dependent boundary conditions (e.g., pulsating inlet)
-	// if (simCtx->inletprofile == 3) {
-        //    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Updating time-dependent inlet flux.\n");
-	    //    fluxin(&user[0]); // Assumes block 0 drives the global flux value
-	//        }
 
         // For particles, reset their status to prepare for the new advection/location cycle
         if (simCtx->np > 0) {

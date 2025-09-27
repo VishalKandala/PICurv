@@ -1062,7 +1062,6 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     PetscMPIInt    rank;                        // MPI rank of the current process
     DM             swarm = user->swarm;         // The particle swarm DM
     PetscReal      *positions_field = NULL;     // Pointer to swarm field for physical positions
-    PetscReal      *pos_phy_field = NULL;       // Pointer to swarm field for physical positions (backup)
     PetscInt64     *particleIDs = NULL;         // Pointer to swarm field for Particle IDs (for logging)
     PetscInt       *cell_ID_field = NULL;       // Pointer to swarm field for Cell IDs (for resetting after migration)
     const Cmpnts   ***coor_nodes_local_array;   // Read-only access to local node coordinates
@@ -1111,7 +1110,6 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     ierr = DMGetCoordinatesLocal(user->da, &Coor_local); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "pos_phy",        NULL, NULL, (void**)&pos_phy_field);   CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr); // For logging
     ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
 
@@ -1143,9 +1141,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
         positions_field[3*p+0] = phys_coords.x; 
         positions_field[3*p+1] = phys_coords.y; 
         positions_field[3*p+2] = phys_coords.z;
-        pos_phy_field[3*p+0]   = phys_coords.x; 
-        pos_phy_field[3*p+1]   = phys_coords.y; 
-        pos_phy_field[3*p+2]   = phys_coords.z;
+
         particles_actually_reinitialized_count++;
 
 	cell_ID_field[3*p+0] = -1;
@@ -1173,7 +1169,6 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     ierr = PetscRandomDestroy(&rand_logic_reinit_k); CHKERRQ(ierr);
 
     ierr = DMSwarmRestoreField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "pos_phy",        NULL, NULL, (void**)&pos_phy_field);   CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);

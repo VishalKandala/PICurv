@@ -29,6 +29,36 @@ static PetscBool g_file_has_been_read = PETSC_FALSE;
 //                      PUBLIC FUNCTION IMPLEMENTATIONS
 // =============================================================================
 
+/**
+ * @brief Trims leading and trailing whitespace from a string in-place.
+ * @param str The string to be trimmed.
+ */
+void TrimWhitespace(char *str) {
+    if (!str) return;
+
+    char *start = str;
+    // Find the first non-whitespace character
+    while (isspace((unsigned char)*start)) {
+        start++;
+    }
+
+    // Find the end of the string
+    char *end = str + strlen(str) - 1;
+    // Move backwards from the end to find the last non-whitespace character
+    while (end > start && isspace((unsigned char)*end)) {
+        end--;
+    }
+
+    // Null-terminate after the last non-whitespace character
+    *(end + 1) = '\0';
+
+    // If there was leading whitespace, shift the string to the left
+    if (str != start) {
+        memmove(str, start, (end - start) + 2); // +2 to include the new null terminator
+    }
+}
+
+
 #undef __FUNCT__
 #define __FUNCT__ "ReadGridGenerationInputs"
 /**
@@ -311,6 +341,31 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
     return 0; // Combination is valid
 }
 
+/**
+ * @brief Searches a BC_Param linked list for a key and returns its value as a double.
+ * @param params The head of the BC_Param linked list.
+ * @param key The key to search for (case-insensitive).
+ * @param[out] value_out The found value, converted to a PetscReal.
+ * @param[out] found Set to PETSC_TRUE if the key was found, PETSC_FALSE otherwise.
+ * @return 0 on success.
+ */
+PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *value_out, PetscBool *found) {
+    *found = PETSC_FALSE;
+    *value_out = 0.0;
+    if (!key) return 0; // No key to search for
+
+    BC_Param *current = params;
+    while (current) {
+        if (strcasecmp(current->key, key) == 0) {
+            *value_out = atof(current->value);
+            *found = PETSC_TRUE;
+            return 0; // Found it, we're done
+        }
+        current = current->next;
+    }
+    return 0; // It's not an error to not find the key.
+}
+
 //================================================================================
 //
 //                        PUBLIC PARSING FUNCTION
@@ -489,7 +544,8 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
     // --- Set legacy fields for compatibility with particle system ---
     user->inletFaceDefined = PETSC_FALSE;
     for (int i=0; i<6; i++) {
-        if (user->boundary_faces[i].mathematical_type == INLET) {
+        
+        if (user->boundary_faces[i].mathematical_type == INLET && !user->inletFaceDefined) {
             user->inletFaceDefined = PETSC_TRUE;
             user->identifiedInletBCFace = (BCFace)i;
             LOG_ALLOW(GLOBAL, LOG_INFO, "Inlet face for particle initialization identified as Face %d.\n", i);
@@ -497,10 +553,13 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
         }
     }
 
+    
     if (rank == 0) {
-        // Rank 0 can now free the linked lists it created, as they have been broadcast.
-        // Or, if user->boundary_faces was used directly, this is not needed.
+        // Rank 0 can now free the linked lists it created for the temporary storage.
+        // As written, user->boundary_faces was populated directly on rank 0, so no extra free is needed.
+        // for(int i=0; i<6; i++) FreeBC_ParamList(configs_rank0[i].params); // This would be needed if we used configs_rank0 exclusively
     }
+
     
     PetscFunctionReturn(0);
 }
@@ -656,6 +715,7 @@ static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_na
   PetscFunctionReturn(0);
 }
 
+
 /************************************************************************************************
 *  @file   io.c
 *  @brief  Utility for (re-)loading PETSc Vec-based fields written by rank-0 in a previous run
@@ -698,20 +758,33 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    char           filename[PETSC_MAX_PATH_LEN];
    MPI_Comm       comm;
    PetscMPIInt    rank,size;
+   SimCtx         *simCtx = user->simCtx;
+
 
    PetscFunctionBeginUser;
 
    ierr = PetscObjectGetComm((PetscObject)field_vec,&comm);CHKERRQ(ierr);
    ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
    ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
+   const char *source_path = NULL;
+   if(simCtx->exec_mode == EXEC_MODE_SOLVER) {
+        source_path = simCtx->restart_dir;
+      //  LOG_ALLOW(GLOBAL,LOG_DEBUG,"restart_dir:%s | source_path:%s \n",simCtx->restart_dir,source_path);
+   }else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
+        source_path = simCtx->pps->source_dir;
+      //  LOG_ALLOW(GLOBAL,LOG_DEBUG,"source_dir:%s | source_path:%s \n",simCtx->pps->source_dir,source_path);
+   }
 
+   if(!source_path){
+    SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE, "source_path was not set for the current execution mode.");
+   }
    /* ---------------------------------------------------------------------
     * Compose <results>/<field_name><step with 5 digits>_0.<ext>
     * (all restart files are written by rank-0 with that naming scheme).
     * ------------------------------------------------------------------ */
    ierr = PetscSNPrintf(filename,sizeof(filename),
-                        "results/%s%05" PetscInt_FMT "_0.%s",
-                        field_name,ti,ext);CHKERRQ(ierr);
+                        "%s/%s%05" PetscInt_FMT "_0.%s",
+                        source_path,field_name,ti,ext);CHKERRQ(ierr);
 
    LOG_ALLOW(GLOBAL,LOG_DEBUG,
              "Attempting to read <%s> on rank %d/%d\n",
@@ -729,7 +802,7 @@ PetscErrorCode ReadFieldData(UserCtx *user,
 
       ierr = PetscTestFile(filename,'r',&found);CHKERRQ(ierr);
       if(!found) SETERRQ(comm,PETSC_ERR_FILE_OPEN,
-                         "Restart file not found: %s",filename);
+                         "Restart/Source file not found: %s",filename);
 
       ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF,filename,FILE_MODE_READ,&viewer);CHKERRQ(ierr);
 // ---- START MODIFICATION ----
@@ -1244,6 +1317,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
 
     const PetscInt placeholder_int = 0;                    /* keep legacy name */
     char           filename[PETSC_MAX_PATH_LEN];
+    SimCtx  *simCtx=user->simCtx;
 
     PetscFunctionBeginUser;
 
@@ -1255,8 +1329,8 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
 
     ierr = PetscSNPrintf(filename,sizeof(filename),
-                         "results/%s%05" PetscInt_FMT "_%d.%s",
-                         field_name,ti,placeholder_int,ext);CHKERRQ(ierr);
+                         "%s/%s%05" PetscInt_FMT "_%d.%s",
+                         simCtx->output_dir,field_name,ti,placeholder_int,ext);CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL,LOG_DEBUG,
               "WriteFieldData - Preparing to write <%s> on rank %d/%d\n",
@@ -1961,22 +2035,6 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
 }
 
 /**
- * @brief Helper function to trim leading/trailing whitespace from a string.
- * @param str The string to trim in-place.
- */
-void TrimWhitespace(char *str) {
-    char *end;
-    // Trim leading space
-    while(isspace((unsigned char)*str)) str++;
-    if(*str == 0) return; // All spaces?
-
-    // Trim trailing space
-    end = str + strlen(str) - 1;
-    while(end > str && isspace((unsigned char)*end)) end--;
-    end[1] = '\0';
-}
-
-/**
  * @brief Initializes post-processing settings from a config file and command-line overrides.
  *
  * This function establishes the configuration for a post-processing run by:
@@ -1989,7 +2047,7 @@ void TrimWhitespace(char *str) {
  * @param pps Pointer to the PostProcessParams struct to be populated.
  * @return PetscErrorCode
  */
-PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
+PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
 {
     FILE *file;
     char line[1024];
@@ -2014,12 +2072,15 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
     strcpy(pps->process_pipeline, "");
     strcpy(pps->output_fields_instantaneous, "Ucat,P");
     strcpy(pps->output_fields_averaged, "");
-    strcpy(pps->output_prefix, "results/viz");
-    strcpy(pps->particle_output_prefix,"results/viz");
+    strcpy(pps->output_prefix, "Field");
+    strcpy(pps->particle_output_prefix,"Particle");
     strcpy(pps->particle_fields,"velocity,CellID,weight,pid");
     strcpy(pps->particle_pipeline,"");
     strcpy(pps->particleExt,"dat"); // The input file format for particles.
     strcpy(pps->eulerianExt,"dat"); // The input file format for Eulerian fields.
+    pps->reference[0] = pps->reference[1] = pps->reference[2] = 1;
+    strncpy(pps->source_dir, simCtx->output_dir, sizeof(pps->source_dir) - 1);
+    pps->source_dir[sizeof(pps->source_dir) - 1] = '\0'; // Ensure null-termination
 
     // --- 2. Parse the Configuration File (overrides defaults) ---
     file = fopen(configFile, "r");
@@ -2058,6 +2119,12 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
                     pps->particle_pipeline[MAX_PIPELINE_LENGTH - 1] = '\0';
                 } else if (strcasecmp(key, "particle_output_freq") == 0) {
                     pps->particle_output_freq = atoi(value);
+                } else if (strcmp(key, "reference_ip") == 0) {pps->reference[0] = atoi(value);
+                } else if (strcmp(key, "reference_jp") == 0) {pps->reference[1] = atoi(value);
+                } else if (strcmp(key, "reference_kp") == 0) {pps->reference[2] = atoi(value);
+                } else if (strcasecmp(key, "source_directory") == 0) {
+                    strncpy(pps->source_dir, value, sizeof(pps->source_dir) - 1);
+                    pps->source_dir[sizeof(pps->source_dir) - 1] = '\0';
                 } else {
                     LOG_ALLOW(GLOBAL, LOG_WARNING, "Unknown key '%s' in post-processing config file. Ignoring.\n", key);
                 }
@@ -2075,6 +2142,10 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
     PetscOptionsGetInt(NULL, NULL, "-timeStep", &pps->timeStep, &timeStepSet);
     PetscOptionsGetBool(NULL, NULL, "-output_particles", &pps->outputParticles, NULL);
 
+    if(pps->endTime==-1){
+        pps->endTime = simCtx->StartStep + simCtx->StepsToRun; // Total steps if endTime is set to -1.
+    }
+
     // If only startTime is given on command line, run for a single step
     if (startTimeSet && !endTimeSet) {
         pps->endTime = pps->startTime;
@@ -2090,6 +2161,7 @@ PetscErrorCode ParsePostProcessingSettings(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Fields: %s\n", pps->particle_fields);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Pipeline: %s\n", pps->particle_pipeline);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Frequency: %d\n", pps->particle_output_freq);
+
     PetscFunctionReturn(0);
 }
 
@@ -2326,4 +2398,52 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
             "ReadFieldDataWrapper - Successfully gathered field '%s'. Nscalars=%d.\n",
             fieldName, *Nscalars);
   PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Parses physical scaling parameters from command-line options.
+ *
+ * This function reads the reference length, velocity, and density from the
+ * PETSc options database (provided via -scaling_L_ref, etc.). It populates
+ * the simCtx->scaling struct and calculates the derived reference pressure.
+ * It sets default values of 1.0 for a fully non-dimensional case if the
+ * options are not provided.
+ *
+ * @param[in,out] simCtx The simulation context whose 'scaling' member will be populated.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ParseScalingInformation(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscBool      flg;
+
+    PetscFunctionBeginUser;
+
+    if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx is NULL in ParseScalingInformation");
+
+    // --- 1. Set default values to 1.0 ---
+    // This represents a purely non-dimensional run if no scaling is provided.
+    simCtx->scaling.L_ref   = 1.0;
+    simCtx->scaling.U_ref   = 1.0;
+    simCtx->scaling.rho_ref = 1.0;
+    
+    // --- 2. Read overrides from the command line / control file ---
+    ierr = PetscOptionsGetReal(NULL, NULL, "-scaling_L_ref", &simCtx->scaling.L_ref, &flg); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-scaling_U_ref", &simCtx->scaling.U_ref, &flg); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-scaling_rho_ref", &simCtx->scaling.rho_ref, &flg); CHKERRQ(ierr);
+    
+    // --- 3. Calculate derived scaling factors ---
+    // Check for division by zero to be safe, though U_ref should be positive.
+    if (simCtx->scaling.U_ref <= 0.0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Reference velocity U_ref must be positive. Got %g", (double)simCtx->scaling.U_ref);
+    }
+    simCtx->scaling.P_ref = simCtx->scaling.rho_ref * simCtx->scaling.U_ref * simCtx->scaling.U_ref;
+
+    // --- 4. Log the final, effective scales for verification ---
+    LOG(GLOBAL, LOG_INFO, "--- Physical Scales Initialized ---\n");
+    LOG(GLOBAL, LOG_INFO, "  L_ref: %.4e, U_ref: %.4e, rho_ref: %.4e, P_ref: %.4e\n",
+        simCtx->scaling.L_ref, simCtx->scaling.U_ref, simCtx->scaling.rho_ref, simCtx->scaling.P_ref);
+    LOG(GLOBAL, LOG_INFO, "-----------------------------------\n");
+
+    PetscFunctionReturn(0);
 }

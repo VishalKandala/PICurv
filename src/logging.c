@@ -724,7 +724,7 @@ const char* BCHandlerTypeToString(BCHandlerType handler_type) {
 
         // Inlet Handlers
         case BC_HANDLER_INLET_CONSTANT_VELOCITY: return "constant_velocity";
-        case BC_HANDLER_INLET_PULSANTILE_FLUX:   return "pulsatile_flux";
+        case BC_HANDLER_INLET_PULSATILE_FLUX:   return "pulsatile_flux";
         case BC_HANDLER_INLET_PARABOLIC: return "parabolic";
 
         // Outlet Handlers
@@ -860,7 +860,7 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
     if (!rank) {
         FILE *f;
         char filen[128];
-        sprintf(filen, "logs/Continuity_Metrics.log");
+        sprintf(filen, "%s/Continuity_Metrics.log",simCtx->log_dir);
 
         // Open the log file in append mode.
         f = fopen(filen, "a");
