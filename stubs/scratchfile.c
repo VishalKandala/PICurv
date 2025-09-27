@@ -4199,3 +4199,90 @@ PetscErrorCode OutflowFlux(UserCtx *user) {
 
   return 0;
 }
+
+
+def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg: dict):
+    """!
+    @brief Executes a command, streaming its output to the console and a log file.
+    @param[in] command A list of strings representing the command and its arguments.
+    @param[in] run_dir The directory in which to execute the command.
+    @param[in] log_filename The name of the file to save the command's output to.
+    @param[in] monitor_cfg The parsed monitor.yml dictionary, used to set LOG_LEVEL.
+    @throws SystemExit if the command fails or is not found.
+    """
+    log_path = os.path.join(run_dir, "logs", log_filename)
+    print(f"[INFO] Launching Command...\n  > {' '.join(command)}")
+    print(f"       Log file: {os.path.relpath(log_path)}")
+    print("-" * 60)
+    run_env = os.environ.copy()
+    verbosity = monitor_cfg.get('logging', {}).get('verbosity', 'ERROR').upper()
+    run_env['LOG_LEVEL'] = verbosity
+    print(f"[INFO] Setting LOG_LEVEL={verbosity} for C executable.")
+    print("-" * 60)
+    try:
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            cwd=run_dir, env=run_env, bufsize=1, universal_newlines=True, encoding='utf-8', errors='replace'
+        )
+        with open(log_path, "w") as log_file:
+            for line in process.stdout:
+                sys.stdout.write(line)
+                log_file.write(line)
+        process.wait()
+        return_code = process.returncode
+        print("-" * 60)
+        if return_code == 0:
+            print(f"[SUCCESS] Execution finished successfully.")
+        else:
+            print(f"[FATAL] Execution failed with exit code {return_code}. Check log: {os.path.relpath(log_path)}", file=sys.stderr)
+            sys.exit(return_code)
+    except FileNotFoundError:
+        print(f"[FATAL] Command not found or is not executable: '{command[0]}'", file=sys.stderr)
+        print("        Please check that the path is correct and the file has execute permissions.", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"[FATAL] An unexpected error occurred during execution: {e}", file=sys.stderr)
+        sys.exit(1)
+
+# ==============================================================================
+# --- TEMPORARY DIAGNOSTIC FUNCTION ---
+# ==============================================================================
+def build_project(args):
+    """!
+    @brief Diagnostic function to inspect the Python process environment.
+    """
+    print("\n" + "="*20 + " PYTHON ENVIRONMENT DIAGNOSTICS " + "="*20)
+    
+    # Print the exact Python executable being used
+    print(f"\n[INFO] Python executable path (from sys.executable):")
+    print(f"  > {sys.executable}")
+
+    # Print the PATH environment variable as Python sees it
+    python_path = os.environ.get('PATH')
+    print(f"\n[INFO] The PATH environment variable available to Python:")
+    if python_path:
+        # Print each path on a new line for clarity
+        for p in python_path.split(':'):
+            print(f"  > {p}")
+    else:
+        print("  > [FATAL] The PATH environment variable is not set at all!")
+
+    # Use the definitive tool, shutil.which, to see what Python can find
+    print("\n[INFO] Using shutil.which() to search the above PATH:")
+    bash_location = shutil.which('bash')
+    sh_location = shutil.which('sh')
+    ls_location = shutil.which('ls')
+
+    print(f"  > Location of 'bash': {bash_location}")
+    print(f"  > Location of 'sh':   {sh_location}")
+    print(f"  > Location of 'ls':   {ls_location}")
+
+    # Check for the existence of /bin/bash directly
+    print("\n[INFO] Checking existence of absolute paths using os.path.isfile():")
+    bin_bash_exists = os.path.isfile('/bin/bash')
+    bin_sh_exists = os.path.isfile('/bin/sh')
+    print(f"  > Does '/bin/bash' exist? {bin_bash_exists}")
+    print(f"  > Does '/bin/sh' exist?   {bin_sh_exists}")
+
+    print("\n" + "="*25 + " DIAGNOSTICS COMPLETE " + "="*25)
+    sys.exit(0) # Exit cleanly after printing diagnostics
