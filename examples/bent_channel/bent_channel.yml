@@ -31,7 +31,7 @@ properties:
 grid:
   mode: file
 
-  source_file: case_templates/bent_channel/bent_channel.picgrid
+  source_file: bent_channel.picgrid
 
 # --- Model Selection ---
 models:

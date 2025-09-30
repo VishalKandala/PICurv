@@ -296,7 +296,8 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     grid_cfg = case_cfg.get('grid', {})
     if grid_cfg.get('mode') == 'file':
         print("[INFO] Grid Mode: Using external file...")
-        source_grid = os.path.join(PROJECT_ROOT, grid_cfg['source_file'])
+        case_file_dir = os.path.dirname(configs['case_path'])
+        source_grid = os.path.join(case_file_dir, grid_cfg['source_file'])
         nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
         try:
             with open(source_grid, 'r') as f_in:
