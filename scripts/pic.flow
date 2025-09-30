@@ -377,13 +377,14 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     post_recipe_path = os.path.join(config_dir, "post.run")
     
     lines = [generate_header(run_id, source_files)]
+
     c_config = {}
 
     # --- 1. Process Run Control ---
     rc = post_cfg.get('run_control', {})
-    c_config['startTime'] = rc.get('start_step', 0)
-    c_config['endTime'] = rc.get('end_step', 10)
-    c_config['timeStep'] = rc.get('step_interval', 1)
+    c_config['startTime'] = rc.get('startTime', 0)
+    c_config['endTime'] = rc.get('endTime', 10)
+    c_config['timeStep'] = rc.get('timeStep', 1)
 
     # --- 2. Process Global Operations ---
     eulerian_pipeline_parts = []
