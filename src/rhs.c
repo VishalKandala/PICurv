@@ -9,9 +9,12 @@
 // Forward declarations for the legacy helper functions if they are not in a header.
 // It is best practice to move these to rhs.h if they are in rhs.c.
 
-
-static void Calculate_Covariant_metrics(double g[3][3], double G[3][3])
+#undef __FUNCT__
+#define __FUNCT__ "CalculateCovariantMetrics"
+PetscErrorCode CalculateCovariantMetrics(double g[3][3], double G[3][3])
 {
+	PetscFunctionBeginUser;
+	PROFILE_FUNCTION_BEGIN;
 	/*
 		| csi.x  csi.y csi.z |-1		| x.csi  x.eta x.zet | 
 		| eta.x eta.y eta.z |	 =	| y.csi   y.eta  y.zet |
@@ -27,10 +30,17 @@ static void Calculate_Covariant_metrics(double g[3][3], double G[3][3])
 	G[0][0] = (a33*a22-a32*a23)/det,	G[0][1] = - (a33*a12-a32*a13)/det, 	G[0][2] = (a23*a12-a22*a13)/det;
 	G[1][0] = -(a33*a21-a31*a23)/det, G[1][1] = (a33*a11-a31*a13)/det,	G[1][2] = - (a23*a11-a21*a13)/det;
 	G[2][0] = (a32*a21-a31*a22)/det,	G[2][1] = - (a32*a11-a31*a12)/det,	G[2][2] = (a22*a11-a21*a12)/det;
-};
+	
+	PROFILE_FUNCTION_END;
+	PetscFunctionReturn(0);
+}
 
-static void Calculate_normal_and_area(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak)
+#undef __FUNCT__
+#define __FUNCT__ "CalculateNormalAndArea"
+PetscErrorCode CalculateNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak)
 {
+	PetscFunctionBeginUser;
+	PROFILE_FUNCTION_BEGIN;
 	double g[3][3];
 	double G[3][3];
 	
@@ -38,7 +48,7 @@ static void Calculate_normal_and_area(Cmpnts csi, Cmpnts eta, Cmpnts zet, double
 	g[1][0]=eta.x, g[1][1]=eta.y, g[1][2]=eta.z;
 	g[2][0]=zet.x, g[2][1]=zet.y, g[2][2]=zet.z;
 	
-	Calculate_Covariant_metrics(g, G);
+	CalculateCovariantMetrics(g, G);
 	double xcsi=G[0][0], ycsi=G[1][0], zcsi=G[2][0];
 	double xeta=G[0][1], yeta=G[1][1], zeta=G[2][1];
 	double xzet=G[0][2], yzet=G[1][2], zzet=G[2][2];
@@ -62,17 +72,23 @@ static void Calculate_normal_and_area(Cmpnts csi, Cmpnts eta, Cmpnts zet, double
 	ni[0] = nx_i, ni[1] = ny_i, ni[2] = nz_i;
 	nj[0] = nx_j, nj[1] = ny_j, nj[2] = nz_j;
 	nk[0] = nx_k, nk[1] = ny_k, nk[2] = nz_k;
+
+	PROFILE_FUNCTION_END;
+	PetscFunctionReturn(0);
 }
 
-
-static void Calculate_dxdydz(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz)
+#undef __FUNCT__
+#define __FUNCT__ "Calculatedxdydz"
+PetscErrorCode Calculatedxdydz(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz)
 {
+		PetscFunctionBeginUser;
+		PROFILE_FUNCTION_BEGIN;
         double ni[3], nj[3], nk[3];
         double Li, Lj, Lk;
         double Ai, Aj, Ak;
         double vol = 1./ajc;
 
-        Calculate_normal_and_area(csi, eta, zet, ni, nj, nk, &Ai, &Aj, &Ak);
+        CalculateNormalAndArea(csi, eta, zet, ni, nj, nk, &Ai, &Aj, &Ak);
         Li = vol / Ai;
         Lj = vol / Aj;
         Lk = vol / Ak;
@@ -81,9 +97,13 @@ static void Calculate_dxdydz(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, 
         *dx = fabs( Li * ni[0] + Lj * nj[0] + Lk * nk[0] );
         *dy = fabs( Li * ni[1] + Lj * nj[1] + Lk * nk[1] );
         *dz = fabs( Li * ni[2] + Lj * nj[2] + Lk * nk[2] );
+
+		PROFILE_FUNCTION_END;
+		PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "Convection"
 PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 {
 
@@ -112,6 +132,8 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
   PetscInt	lxs, lxe, lys, lye, lzs, lze, gxs, gxe, gys, gye, gzs,gze;
 
   PetscReal	***nvert,***aj;
+
+  PROFILE_FUNCTION_BEGIN;
 
   DMDAGetLocalInfo(da, &info);
   mx = info.mx; my = info.my; mz = info.mz;
@@ -574,9 +596,13 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 
   LOG_ALLOW(GLOBAL,LOG_DEBUG,"Convective term calculated .\n");
   
+  PROFILE_FUNCTION_END;
   return (0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "Viscous"
 PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 {
   
@@ -624,6 +650,8 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
   const PetscInt clark = simCtx->clark;
   solid = 0.5;
   innerblank = 7.;
+
+  PROFILE_FUNCTION_BEGIN;
   
   DMDAVecGetArray(fda, Ucont, &ucont);
   DMDAVecGetArray(fda, Ucat,  &ucat);
@@ -818,7 +846,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
 	if(clark) {
 	  double dc, de, dz;
-	  Calculate_dxdydz (ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
+	  Calculatedxdydz (ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
 	  double dc2=dc*dc, de2=de*de, dz2=dz*dz;
 	  
 	  double t11 = ( dudc * dudc * dc2 + dude * dude * de2 + dudz * dudz * dz2 );
@@ -967,7 +995,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 		
 	if(clark) {
 	  double dc, de, dz;
-	  Calculate_dxdydz(ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
+	  Calculatedxdydz(ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
 	  double dc2=dc*dc, de2=de*de, dz2=dz*dz;
 			
 	  double t11 = ( dudc * dudc * dc2 + dude * dude * de2 + dudz * dudz * dz2 );
@@ -1107,7 +1135,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
 	if(clark) {
 	  double dc, de, dz;
-	  Calculate_dxdydz(ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
+	  Calculatedxdydz(ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
 	  double dc2=dc*dc, de2=de*de, dz2=dz*dz;
 			
 	  double t11 = ( dudc * dudc * dc2 + dude * dude * de2 + dudz * dudz * dz2 );
@@ -1206,12 +1234,14 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
 
   LOG_ALLOW(GLOBAL,LOG_DEBUG,"Viscous terms calculated .\n");
+
+  PROFILE_FUNCTION_END;
   
   return(0);
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "FormFunction1"
+#define __FUNCT__ "ComputeRHS"
 /**
  * @brief Computes the Right-Hand-Side (RHS) of the momentum equations.
  *
@@ -1228,7 +1258,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
  * @param Rhs  The PETSc Vec where the calculated RHS will be stored.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode FormFunction1(UserCtx *user, Vec Rhs)
+PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 {
     PetscErrorCode ierr;
     SimCtx *simCtx = user->simCtx;
@@ -1257,6 +1287,7 @@ PetscErrorCode FormFunction1(UserCtx *user, Vec Rhs)
     Vec Conv, Visc, Rc, Rct;
 
     PetscFunctionBeginUser;
+	PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Computing RHS (FormFunction1)...\n",
               simCtx->rank, user->_this);
 
@@ -1982,5 +2013,8 @@ PetscErrorCode FormFunction1(UserCtx *user, Vec Rhs)
     
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: RHS computation complete.\n",
               simCtx->rank, user->_this);
+
+
+	PROFILE_FUNCTION_END;		  
     PetscFunctionReturn(0);
 }

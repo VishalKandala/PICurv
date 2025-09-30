@@ -6,6 +6,11 @@
 /*================================================================================*
  *                       CORE NUMERICAL KERNELS                                   *
  *================================================================================*/
+PetscErrorCode CalculateCovariantMetrics(double g[3][3], double G[3][3]);
+
+PetscErrorCode CalculateNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak); 
+
+PetscErrorCode Calculatedxdydz(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz);
 
 PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc);
 
@@ -21,7 +26,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv);
  * @param Rhs  The PETSc Vec where the RHS result will be stored.
  * @return PetscErrorCode 0 on success.
  */
-extern PetscErrorCode FormFunction1(UserCtx *user, Vec Rhs);
+extern PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs);
 
 
 #endif // RHS_H

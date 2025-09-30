@@ -5,6 +5,8 @@
 
 #define BBOX_TOLERANCE 1e-6
 
+#undef __FUNCT__
+#define __FUNCT__ "ParseAndSetGridInputs"
 /**
  * @brief Determines the grid source and calls the appropriate parsing routine.
  *
@@ -24,6 +26,8 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
 
     PetscFunctionBeginUser;
 
+    PROFILE_FUNCTION_BEGIN;
+
     if (simCtx->generate_grid) {
         LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
         ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
@@ -32,10 +36,14 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
         ierr = ReadGridFile(user); CHKERRQ(ierr);
     }
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
 
+#undef __FUNCT__
+#define __FUNCT__ "DefineAllGridDimensions"
 /**
  * @brief Orchestrates the parsing and setting of grid dimensions for all blocks.
  *
@@ -62,6 +70,8 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
 
     PetscFunctionBeginUser;
 
+    PROFILE_FUNCTION_BEGIN;
+
     if (simCtx->usermg.mglevels == 0) {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "MG levels not set. Cannot get finest_users.");
     }
@@ -82,6 +92,8 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
         // all necessary information from the UserCtx pointer it receives.
         ierr = ParseAndSetGridInputs(&fine_users[bi]); CHKERRQ(ierr);
     }
+
+    PROFILE_FUNCTION_END;
 
     PetscFunctionReturn(0);
 }
@@ -118,6 +130,8 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
     PetscInt m, n, p;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     if (coarse_user) {
         // --- This is a FINE grid; it must be aligned with the COARSE grid ---
@@ -208,6 +222,8 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
     ierr = DMDAGetLocalInfo(user->da, &user->info); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   DM creation for block %d level %d complete.\n", simCtx->rank, user->_this, user->thislevel);
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -235,6 +251,9 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
     PetscInt       nblk = simCtx->block_number;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(GLOBAL, LOG_INFO, "Creating DMDA objects for all levels and blocks...\n");
 
     // --- Part 1: Calculate Coarse Grid Dimensions & VALIDATE ---
@@ -285,6 +304,9 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "DMDA object creation complete.\n");
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -321,6 +343,9 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
     PetscInt       nblk = simCtx->block_number;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(GLOBAL, LOG_INFO, "Assigning physical coordinates to all grid DMs...\n");
 
     // --- Part 1: Populate the Finest Grid Level ---
@@ -343,6 +368,9 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Physical coordinates assigned to all grid levels and blocks.\n");
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -370,6 +398,8 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
     SimCtx         *simCtx = user->simCtx;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Setting finest level coordinates for block %d...\n", simCtx->rank, user->_this);
 
@@ -418,6 +448,8 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
     
     ierr = DMGlobalToLocalBegin(user->fda, gCoor, INSERT_VALUES, lCoor); CHKERRQ(ierr);
     ierr = DMGlobalToLocalEnd(user->fda, gCoor, INSERT_VALUES, lCoor); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
 
     PetscFunctionReturn(0);
 }
@@ -481,6 +513,9 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     Vec            lCoor;
     
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   Generating coordinates for block %d...\n", user->simCtx->rank, user->_this);
     
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
@@ -506,6 +541,9 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     }
 
     ierr = DMDAVecRestoreArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 #undef __FUNCT__
@@ -545,6 +583,9 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
     PetscReal      *gc = NULL; // Global coordinate buffer, allocated on all ranks
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Reading interleaved coordinates from file for block %d...\n",
               simCtx->rank, block_index);
 
@@ -596,6 +637,9 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
     // 5. Clean up and restore.
     ierr = DMDAVecRestoreArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
     ierr = PetscFree(gc); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -624,6 +668,9 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
     PetscInt       ih, jh, kh; // Fine-grid indices corresponding to coarse-grid i,j,k
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Restricting coords from level %d to level %d for block %d\n",
                    fine_user->simCtx->rank, fine_user->thislevel, coarse_user->thislevel, coarse_user->_this);
 
@@ -676,10 +723,13 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
     ierr = DMGlobalToLocalBegin(coarse_user->fda, c_gCoor, INSERT_VALUES, c_lCoor); CHKERRQ(ierr);
     ierr = DMGlobalToLocalEnd(coarse_user->fda, c_gCoor, INSERT_VALUES, c_lCoor); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "ComputeLocalBoundingBox"
 /**
  * @brief Computes the local bounding box of the grid on the current process.
  *
@@ -709,6 +759,10 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     Vec coordinates;
     Cmpnts ***coordArray;
     Cmpnts minCoords, maxCoords;
+
+    PetscFunctionBeginUser;
+    
+    PROFILE_FUNCTION_BEGIN;
 
     // Start of function execution
     LOG_ALLOW(GLOBAL, LOG_INFO, "Entering the function.\n");
@@ -819,8 +873,14 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     user->bbox = *localBBox;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Exiting the function successfully.\n");
-    return 0;
+
+    PROFILE_FUNCTION_END;
+
+    PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "GatherAllBoundingBoxes"
 
 /**
  * @brief Gathers local bounding boxes from all MPI processes to rank 0.
@@ -840,6 +900,10 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
   PetscMPIInt    rank, size;
   BoundingBox    *bboxArray = NULL;
   BoundingBox     localBBox;
+
+  PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
 
   /* Validate */
   if (!user || !allBBoxes) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
@@ -880,8 +944,13 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
     *allBBoxes = NULL;
   }
 
-  return 0;
+  PROFILE_FUNCTION_END;
+
+  PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "BroadcastAllBoundingBoxes"
 
 /**
  * @brief Broadcasts the bounding box list from rank 0 to all ranks.
@@ -897,6 +966,10 @@ PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
 {
   PetscErrorCode ierr;
   PetscMPIInt    rank, size;
+
+  PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
 
   if (!bboxlist) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                           "BroadcastAllBoundingBoxes: NULL pointer");
@@ -924,8 +997,14 @@ PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
   LOG_ALLOW_SYNC(GLOBAL, LOG_INFO,
     "Rank %d: completed MPI_Bcast(%d boxes)\n", rank, size);
 
-  return 0;
+
+  PROFILE_FUNCTION_END;
+
+  PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "CalculateInletCenter"
 
 /**
  * @brief Calculates the geometric center of the primary inlet face.
@@ -962,6 +1041,8 @@ PetscErrorCode CalculateInletCenter(UserCtx *user)
     Cmpnts         ***coor;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     // 1. Identify the primary inlet face from the configuration
     for (int i = 0; i < 6; i++) {
@@ -1061,6 +1142,9 @@ PetscErrorCode CalculateInletCenter(UserCtx *user)
     } else {
          LOG_ALLOW(GLOBAL, LOG_WARNING, "WARNING: Inlet face was identified but no grid points found on it. Center not calculated.\n");
     }
+
+
+    PROFILE_FUNCTION_END;
 
     PetscFunctionReturn(0);
 }

@@ -5,6 +5,8 @@
 
  #include "initialcondition.h"
 
+#undef __FUNCT__
+#define __FUNCT__ "SetInitialInteriorField"
 /**
  * @brief Sets the initial values for the INTERIOR of a specified Eulerian field.
  *
@@ -32,6 +34,8 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
 
+    PROFILE_FUNCTION_BEGIN;
+
     SimCtx *simCtx = user->simCtx;
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Setting initial INTERIOR field for '%s' with profile %d.\n", fieldName, simCtx->FieldInitialization);
@@ -39,6 +43,9 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
     // This function currently only implements logic for Ucont.
     if (strcmp(fieldName, "Ucont") != 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Skipping SetInitialInteriorField for non-Ucont field '%s'.\n", fieldName);
+
+        PROFILE_FUNCTION_END;
+
         PetscFunctionReturn(0);
     }
 
@@ -232,9 +239,13 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
         ierr = Deallocate3DArray(cent_coor, zm_cell, ym_cell); CHKERRQ(ierr);
     }
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "FinalizeBlockState"
 /**
  * @brief (HELPER) Finalizes a block's state by applying BCs, converting to Cartesian,
  * and synchronizing ghost regions.
@@ -243,6 +254,8 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     // This sequence ensures a fully consistent state for a single block.
     // 1. Apply BCs using the information from InflowFlux/OutflowFlux.
@@ -260,10 +273,14 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
     ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG," Ucat field ghosts updated.\n"); 
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
 
+#undef __FUNCT__
+#define __FUNCT__ "SetInitialFluidState_FreshStart"
 /**
  * @brief (HELPER) Sets the t=0 fluid state for all blocks.
  *
@@ -276,6 +293,8 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
     PetscErrorCode ierr;
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d, Block %d: Setting t=0 state.\n", simCtx->rank, bi);
@@ -310,9 +329,13 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
         }
     }
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "SetInitialFluidState_Load"
 /**
  * @brief (HELPER) Reads fluid state for all blocks from restart files.
  */
@@ -321,6 +344,8 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
     PetscErrorCode ierr;
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->mglevels - 1].user;
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d, Block %d: Reading restart files for step %d.\n",
@@ -337,9 +362,13 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
         // ... add ghost updates for any other fields read from file ...
     }
     
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "InitializeEulerianState"
 /**
  * @brief High-level orchestrator to set the complete initial state of the Eulerian solver.
  *
@@ -355,6 +384,8 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initializing Eulerian State ---\n");
 
@@ -383,5 +414,8 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Eulerian State Initialized and History Vectors Populated ---\n");
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }

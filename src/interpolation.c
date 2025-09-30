@@ -16,7 +16,8 @@
 #define ERROR_MSG_BUFFER_SIZE 256 // Or use PETSC_MAX_PATH_LEN if appropriate
 #endif
 
-
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateFieldFromCornerToCenter_Vector"
 /**
  * @brief Interpolates a vector field from corner nodes to cell centers.
  *
@@ -42,6 +43,9 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
                    "Rank %d starting InterpolateFieldFromCornerToCenter_Vector.\n", rank);
@@ -129,9 +133,14 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
 
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
                    "Rank %d completed InterpolateFieldFromCornerToCenter_Vector.\n", rank);
-    return 0;
+    
+    PROFILE_FUNCTION_END;
+
+    PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateFieldFromCornerToCenter_Scalar"
 // -----------------------------------------------------------------------------
 // Interpolation: Corner -> Center (scalar)
 // -----------------------------------------------------------------------------
@@ -161,6 +170,8 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
                    "Rank %d starting InterpolateFieldFromCornerToCenter_Scalar.\n", rank);
@@ -237,9 +248,14 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
 
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
                    "Rank %d completed InterpolateFieldFromCornerToCenter_Scalar.\n", rank);
-    return 0;
+    
+    PROFILE_FUNCTION_END;
+              
+    PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateFieldFromCenterToCorner_Scalar"
 // -----------------------------------------------------------------------------
 // Interpolation: Center -> Corner (scalar)
 // -----------------------------------------------------------------------------
@@ -269,6 +285,11 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank;
+
+    PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
       "Rank %d starting interpolation.\n", rank);
@@ -350,9 +371,15 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
 
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
               "Rank %d completed interpolation.\n", rank);
-    return 0;
+    
+    
+    PROFILE_FUNCTION_END;
+
+    PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateFieldFromCenterToCorner_Vector" 
 
 // -----------------------------------------------------------------------------
 // Interpolation: Center -> Corner (vector)
@@ -385,6 +412,9 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector( // Or original name if
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     DMDALocalInfo info_nodes;
@@ -584,9 +614,14 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector( // Or original name if
 
     LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, // Use INFO for completion
               "Rank %d completed interpolation function.\n", rank); // Changed message slightly
-    return 0;
+    
+    PROFILE_FUNCTION_END;
+              
+    PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateFieldFromCenterToCorner_Vector_Petsc"
 /**
  * @brief Interpolates a vector field from cell centers to corner nodes.
  *
@@ -608,6 +643,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
     PetscErrorCode ierr;
     DMDALocalInfo  info_nodes;
     PetscMPIInt    rank;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
     ierr = DMDAGetLocalInfo(user->fda, &info_nodes); CHKERRQ(ierr);
 
@@ -680,9 +716,13 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
             }
         }
     }
+    PROFILE_FUNCTION_END;
     return 0;
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateFieldFromCenterToCorner_Scalar_Petsc"
 /**
  * @brief Interpolates a scalar field from cell centers to corner nodes.
  *
@@ -703,6 +743,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar_Petsc(
 {
     PetscErrorCode ierr;
     DMDALocalInfo  info_nodes;
+    PROFILE_FUNCTION_BEGIN;
     ierr = DMDAGetLocalInfo(user->fda, &info_nodes); CHKERRQ(ierr);
 
     // Node ownership range (GLOBAL indices)
@@ -753,9 +794,13 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar_Petsc(
             }
         }
     }
+    PROFILE_FUNCTION_END;
     return 0;
 }
 
+
+#undef __FUNCT
+#define __FUNCT "PiecWiseLinearInterpolation_Scalar"
 /**
  * @brief Retrieves the scalar value at the cell (iCell, jCell, kCell).
  *
@@ -788,7 +833,8 @@ PetscErrorCode PieceWiseLinearInterpolation_Scalar(
   PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT
+#define __FUNCT "PiecWiseLinearInterpolation_Vector"
 /**
  * @brief Retrieves the vector (Cmpnts) at the cell (iCell, jCell, kCell).
  *
@@ -825,6 +871,10 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
 
   PetscFunctionReturn(0);
 }
+
+
+#undef __FUNCT
+#define __FUNCT "ComputeTrilinearWeights"
 
 /**
  * @brief Computes the trilinear Interpolatetion weights from the Interpolatetion coefficients.
@@ -867,6 +917,9 @@ static inline void ComputeTrilinearWeights(PetscReal a1, PetscReal a2, PetscReal
         "w0=%f, w1=%f, w2=%f, w3=%f, w4=%f, w5=%f, w6=%f, w7=%f. \n",
         w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
 }
+
+#undef __FUNCT
+#define __FUNCT "TrilinearInterpolation_Scalar"
 
 /**
  * @brief Computes the trilinear Interpolateted scalar at a given point.
@@ -939,6 +992,8 @@ PetscErrorCode TrilinearInterpolation_Scalar(
 }
 
 
+#undef __FUNCT
+#define __FUNCT "TrilinearInterpolation_Vector"
 /**
  * @brief Computes the trilinear Interpolateted vector (e.g., velocity) at a given point.
  *
@@ -1047,6 +1102,8 @@ PetscErrorCode TrilinearInterpolation_Vector(
 }
 
 
+#undef __FUNCT
+#define __FUNCT "InterpolateEulerFieldToSwarmForParticle"
 /**
  * @brief Interpolates a single field (scalar or vector) for one particle, storing the result in a swarm array.
  *
@@ -1092,6 +1149,8 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
 {
   PetscErrorCode ierr;
   PetscFunctionBegin;
+
+  PROFILE_FUNCTION_BEGIN;
 
   // Optional logging at start
   LOG_ALLOW(LOCAL, LOG_DEBUG,
@@ -1174,8 +1233,12 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
       (PetscInt)blockSize);
   }
 
+  PROFILE_FUNCTION_END;
   PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateEulerFieldToSwarm"
 
 /**
  * @brief Interpolates a cell-centered field (scalar or vector) onto DMSwarm particles,
@@ -1235,6 +1298,7 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     PetscInt   nLocal;
 
     PetscFunctionBegin;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     ierr = DMDAGetLocalInfo(fda, &info); CHKERRQ(ierr);
     ierr = VecGetBlockSize(fieldLocal_cellCentered, &bs); CHKERRQ(ierr);
@@ -1400,248 +1464,9 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     ierr = DMRestoreGlobalVector(fda, &cornerGlobal); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished for field '%s'.\n", fieldName);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
-
-/**
- * @brief Interpolates a cell-centered field (scalar or vector) onto DMSwarm particles,
- *        converting the cell-center data to corner data first, then looping over particles.
- *
- * Steps:
- *   1) Check that the Vec has blockSize=1 or 3 (scalar vs. vector).
- *   2) Map the cell-centered Vec to a local array (fieldGlobal -> localPtr).
- *   3) Allocate a corner array (cornerPtr) via Allocate3DArray(...), sized (zm+1, ym+1, xm+1).
- *   4) Convert from cell-centers to corners via InterpolateFieldFromCenterToCorner(...).
- *   5) Restore the cell-centered array.
- *   6) Retrieve DMSwarm fields: "DMSwarm_CellID", "weight", and swarmOutFieldName.
- *   7) Loop over local particles, clamp i/j/k, skip or zero out if out of range, read (a1,a2,a3).
- *   8) Call InterpolateEulerFieldToSwarmForParticle(...) with cornerPtr to do final Interpolatetion.
- *   9) Restore swarm fields, free the corner array.
- *
- * @param[in]  user              User context with:
- *                                - user->da     (cell-centered DMDA),
- *                                - user->swarm  (DMSwarm).
- * @param[in]  fieldGlobal       Vec with blockSize=1 or 3, storing the cell-centered field.
- * @param[in]  fieldName         Human-readable field name for logging (e.g. "velocity").
- * @param[in]  swarmOutFieldName Name of the DMSwarm field where Interpolatetion results go.
- *
- * @return PetscErrorCode  0 on success, non-zero on error.
- */
-/*
-PetscErrorCode InterpolateEulerFieldToSwarm(
-    UserCtx    *user,
-    Vec         fieldGlobal,       //DMDA Vec containing cell‐center data 
-    const char *fieldName,         // e.g., "Ucat" 
-    const char *swarmOutFieldName) // Name of the output DMSwarm field 
-{
-  PetscErrorCode ierr;
-  DM             fda    = user->fda;      // DM for cell‐center field data 
-  //  DM             da     = user->da;        DM for grid information (local indices) 
-  DM             swarm  = user->swarm;     DMSwarm for particles 
-  PetscInt       bs;                      Block size: 1 (scalar) or 3 (vector) 
-  DMDALocalInfo  info;                  // Local grid info 
-void          *localPtr   = NULL;       // Pointer to cell‐center data from fda 
-void          *cornerPtr  = NULL;       // Will hold the typed corner array 
-  void          *swarmOut   = NULL;     // Pointer to the swarm output field 
-  PetscInt    *cellIDs    = NULL;     // Particle cell indices from swarm 
-  PetscReal     *weights    = NULL;     // Interpolation coefficients from swarm 
-  PetscInt       nLocal;
-  PetscMPIInt    rank;
-
-  
-  
-  PetscFunctionBegin;
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-  // (A) Check block size and get local domain info 
-  ierr = VecGetBlockSize(fieldGlobal, &bs); CHKERRQ(ierr);
-  if (bs != 1 && bs != 3) {
-    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP,
-             "InterpolateEulerFieldToSwarm: blockSize must be 1 or 3, got %d.", (PetscInt)bs);
-  }
-  ierr = DMDAGetLocalInfo(fda, &info); CHKERRQ(ierr);
-
-  PetscInt xs_node = info.xs;
-  PetscInt ys_node = info.ys;
-  PetscInt zs_node = info.zs;
-  
-  LOG_ALLOW(GLOBAL, LOG_INFO,
-    "InterpolateEulerFieldToSwarm: Starting with field='%s', blockSize=%d, local domain: (%d x %d x %d)\n",
-    fieldName, bs, info.xm, info.ym, info.zm);
-
-  // (B) Map the cell-centered Vec to a local array using the DM attached to fieldGlobal 
-  LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d] Dumping DM state (user->fda) BEFORE GetArray:\n", rank);
-
-  if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) DMView(user->fda, PETSC_VIEWER_STDOUT_SELF);
-
-  ierr = DMDAVecGetArrayRead(fda, fieldGlobal, &localPtr); CHKERRQ(ierr);
-
-    // Corner domain is larger than cell center domain 
-    PetscInt nz = info.zm; 
-    PetscInt ny = info.ym;
-    PetscInt nx = info.xm;
-    LOG_ALLOW(LOCAL, LOG_DEBUG,
-      "[Rank %d]  Allocating corner array of size (%d x %d x %d), blockSize = %d\n",
-	      rank,nx, ny, nz, bs);
-    if (bs == 1) {
-      // Declare a typed Pointer for scalar corners 
-      PetscReal ***cornerScal = NULL;
-      ierr = Allocate3DArray(&cornerScal, nz, ny, nx); CHKERRQ(ierr);
-      if (!cornerScal) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "InterpolateEulerFieldToSwarm: 3D Array Allocation for scalar corners failed.\n");
-      }
-      // Save typed Pointer into cornerPtr so later code can cast appropriately 
-      cornerPtr = (void*) cornerScal;
-      // (D) Convert cell-center data to corners for scalar field 
-      ierr = InterpolateFieldFromCenterToCorner( (PetscReal ***) localPtr, cornerScal, user); CHKERRQ(ierr);
-    } else {
-      // For vector fields 
-      Cmpnts ***cornerVec = NULL;
-      ierr = Allocate3DArray(&cornerVec, nz, ny, nx); CHKERRQ(ierr);
-      if (!cornerVec) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "InterpolateEulerFieldToSwarm: 3D Array Allocation for vector corners failed.\n");
-      }
-      cornerPtr = (void*) cornerVec;
-
-      // Comment out the actual call:
-      ierr = InterpolateFieldFromCenterToCorner( (Cmpnts ***) localPtr, (Cmpnts ***)cornerPtr, user); CHKERRQ(ierr);
-      */
-      /*
-      // --- DEBUG - BYPASS SECTION ---
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "[%d] DEBUG: Bypassing InterpolateFieldFromCenterToCorner call.\n", rank);
-
-
-      // Instead, populate cornerPtr with fixed values
-      // Use local indices 0..nz-1, 0..ny-1, 0..nx-1 because cornerPtr is a local array
-      if (bs == 3) {
-	Cmpnts ***cornerVec_bypass = (Cmpnts ***)cornerPtr;
-	for (PetscInt k_local = 0; k_local < nz; ++k_local) {
-          for (PetscInt j_local = 0; j_local < ny; ++j_local) {
-	    for (PetscInt i_local = 0; i_local < nx; ++i_local) {
-	      cornerVec_bypass[k_local][j_local][i_local].x = 1.0; // Or 0.0, or rank number
-	      cornerVec_bypass[k_local][j_local][i_local].y = 2.0;
-	      cornerVec_bypass[k_local][j_local][i_local].z = 3.0;
-	    }
-          }
-	}
-	LOG_ALLOW(LOCAL,LOG_DEBUG, "[%d] DEBUG: Finished setting fixed values in cornerVec_bypass.\n", rank);
-      
-      }
-      */
-      /*
-    LOG_ALLOW(LOCAL, LOG_INFO,
-      "InterpolateEulerFieldToSwarm: Rank %d Completed center-to-corner Interpolatetion for field='%s'.\n",
-	      rank,fieldName);
-    }
-  // (E) Restore the cell-centered array since we now have corner data 
-  ierr = DMDAVecRestoreArrayRead(fda, fieldGlobal, &localPtr); CHKERRQ(ierr);
-
-  // (F) Retrieve swarm fields: cell IDs, weights, and the output field 
-  ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "DMSwarm_CellID",  NULL, NULL, (void**)&cellIDs);  CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "weight",          NULL, NULL, (void**)&weights);  CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut);         CHKERRQ(ierr);
-  LOG_ALLOW(GLOBAL, LOG_INFO,
-    "InterpolateEulerFieldToSwarm: Found %d local particles to process for field='%s'.\n",
-    nLocal, fieldName);
-
-  // (G) Loop over each local particle and perform the final Interpolatetion from corners 
-  for (PetscInt p = 0; p < nLocal; p++) {
-    PetscInt iCell_global = (PetscInt)cellIDs[3*p + 0];
-    PetscInt jCell_global = (PetscInt)cellIDs[3*p + 1];
-    PetscInt kCell_global = (PetscInt)cellIDs[3*p + 2];
-
-// --- Convert GLOBAL cell index to LOCAL cell index ---
-      // NOTE: This assumes the cell index corresponds directly to the
-      //       "lower-left-front" node index for interpolation purposes.
-      //       We need the local index relative to the cornerPtr array,
-      //       which is indexed from 0 based on owned NODES.
-    
-      PetscInt iCell_local = iCell_global - xs_node;
-      PetscInt jCell_local = jCell_global - ys_node;
-      PetscInt kCell_local = kCell_global - zs_node;
-
-      // --- Clamp LOCAL indices and check bounds for the BASE cell index ---
-      // This check ensures the base index (i,j,k) for the interpolation
-      // is within the bounds of the locally allocated cornerPtr array.
-      // The interpolation function will handle the +1 offsets.
-    // Boundary clamp: adjust indices to be within [0, mx), [0, my), [0, mz) 
-    if (iCell_local >= user->info.mx) iCell_local = user->info.mx - 1;
-    if (jCell_local >= user->info.my) jCell_local = user->info.my - 1;
-    if (kCell_local >= user->info.mz) kCell_local = user->info.mz - 1;
-    
-    if (iCell_local < 0 ||
-	jCell_local < 0 ||
-	kCell_local < 0 ||
-        iCell_local >= user->info.xm-1 ||
-        jCell_local >= user->info.ym-1 ||
-        kCell_local >= user->info.zm-1)
-    {
-
-      LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d] Rank/Domain boundary reached(cell wise): (k,j,i) - (%d,%d,%d).\n",rank,kCell_local,jCell_local,iCell_local);
-      
-      // Out-of-range: set output to zero       
-      if (bs == 1) {
-        ((PetscReal*)swarmOut)[p] = 0.0;
-      } else {
-        ((PetscReal*)swarmOut)[3*p + 0] = 0.0;
-        ((PetscReal*)swarmOut)[3*p + 1] = 0.0;
-        ((PetscReal*)swarmOut)[3*p + 2] = 0.0;
-      }
-      continue;
-    }
-    
-    
-    // Retrieve Interpolatetion coefficients (a1, a2, a3) for this particle 
-    PetscReal alpha1 = weights[3*p + 0];
-    PetscReal alpha2 = weights[3*p + 1];
-    PetscReal alpha3 = weights[3*p + 2];
-      */
-    /* (Optional) If your final Interpolatetion expects a corner offset, adjust here.
-       For example, if the cell center corresponds to the average of corners at (iCell,jCell,kCell)
-       and (iCell+1, jCell+1, kCell+1), you might add +1. For now, we pass indices as is.
-    */
-     /*  
-    PetscInt iUse = iCell_local;  // + 1 if required
-    PetscInt jUse = jCell_local;  // + 1 if required
-    PetscInt kUse = kCell_local;  // + 1 if required
-     */
-    /* (H) Call the per-particle Interpolatetion function.
-       This function will use your _Generic macro (TrilinearInterpolation or PiecewiseLinearInterpolation)
-       on the corner data.
-    */
-     /* 
-    ierr = InterpolateEulerFieldToSwarmForParticle(
-              fieldName,    // e.g., "Ucat" 
-              cornerPtr,    // typed Pointer: (PetscReal***) or (Cmpnts***) 
-              iUse, jUse, kUse,
-              alpha1, alpha2, alpha3,
-              swarmOut,     // Pointer to swarm output array 
-              p,            // particle index 
-              bs);          // block size: 1 or 3 
-    CHKERRQ(ierr);
-  }
-
-  // (I) Restore swarm fields 
-  ierr = DMSwarmRestoreField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut);        CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "weight",          NULL, NULL, (void**)&weights); CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID",  NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
-
-  // (J) Deallocate the corner array using the generic deallocation macro 
-  if (bs == 1) {
-    PetscReal ***cornerScal = (PetscReal ***) cornerPtr;
-    ierr = Deallocate3DArray(cornerScal, info.zm, info.ym); CHKERRQ(ierr);
-  } else {
-    Cmpnts ***cornerVec = (Cmpnts ***) cornerPtr;
-    ierr = Deallocate3DArray(cornerVec, info.zm, info.ym); CHKERRQ(ierr);
-  }
-
-  LOG_ALLOW(GLOBAL, LOG_INFO,
-    "InterpolateEulerFieldToSwarm: Rank %d Completed Interpolatetion of field='%s' for %d local particles.\n",
-	    rank,fieldName, nLocal);
-
-  PetscFunctionReturn(0);
-}
-*/
 
 #undef __FUNCT__
 #define __FUNCT__ "InterpolateAllFieldsToSwarm"
@@ -1658,7 +1483,7 @@ void          *cornerPtr  = NULL;       // Will hold the typed corner array
  *
  * @param[in,out] user Pointer to a UserCtx containing:
  *                     - user->da (DM for the grid),
- *                     - user->swarm (DMSwarm for particles),
+ *                     - user->swarm (DMSwarm for particles),.
  *                     - user->Ucat (Vec for the vector field),
  *                     - possibly more fields like user->Tcat, user->Pcat, etc.
  *
@@ -1716,7 +1541,7 @@ PetscErrorCode InterpolateAllFieldsToSwarm(UserCtx *user)
   LOG_ALLOW(LOCAL, LOG_INFO,
 	    "[rank %d]Completed Interpolateting all fields to the swarm.\n",rank);
 
-PROFILE_FUNCTION_END;
+  PROFILE_FUNCTION_END;
 
   PetscFunctionReturn(0);
 }
@@ -1764,6 +1589,8 @@ PROFILE_FUNCTION_END;
  * @{
  */
 
+#undef __FUNCT__
+#define __FUNCT__ "GetScatterTargetInfo"
 /**
  * @brief Determines the target Eulerian DM and expected DOF for scattering a given particle field.
  *
@@ -1786,6 +1613,8 @@ PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName
 {
     char           msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     // --- Input Validation ---
     // Check for NULL pointers in essential inputs
@@ -1822,9 +1651,13 @@ PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); // Use WRONG argument error code
     }
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "AccumulateParticleField"
 
 /**
  * @brief Accumulates a particle field (scalar or vector) into a target grid sum vector.
@@ -1861,6 +1694,9 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     char              msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     // --- Get DOF from the target grid DM ---
@@ -1930,9 +1766,14 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     ierr = VecAssemblyBegin(gridSumVec); CHKERRQ(ierr);
     ierr = VecAssemblyEnd(gridSumVec); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "NormalizeGridVectorByCount"
 
 /**
  * @brief Normalizes a grid vector of sums by a grid vector of counts to produce an average.
@@ -1969,6 +1810,9 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
 
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     // --- Validation ---
@@ -2043,6 +1887,9 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
     ierr = VecAssemblyBegin(avgVec); CHKERRQ(ierr);
     ierr = VecAssemblyEnd(avgVec); CHKERRQ(ierr);
 
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -2054,6 +1901,9 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
 //-----------------------------------------------------------------------------
 // MODULE 4: Internal Scatter Orchestration Helper - No PetscErrorClear
 //-----------------------------------------------------------------------------
+
+#undef __FUNCT__
+#define __FUNCT__   "ScatterParticleFieldToEulerField_Internal"
 /**
  * @brief Internal helper function to orchestrate the scatter operation (accumulate + normalize).
  * @ingroup scatter_module_internal
@@ -2082,6 +1932,8 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
     char           msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     if (!user || !user->swarm || !user->ParticleCount || !particleFieldName || !targetDM || !eulerFieldAverageVec)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "NULL input provided to ScatterParticleFieldToEulerField_Internal.");
@@ -2123,8 +1975,14 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
     // --- Cleanup ---
     ierr = VecDestroy(&sumVec); CHKERRQ(ierr);
 
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "ScatterParticleFieldToEulerField"
 
 /**
  * @brief Scatters a particle field (scalar or vector) to the corresponding Eulerian field average.
@@ -2158,6 +2016,8 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     char           msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     // --- Essential Input Validation ---
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx pointer is NULL.");
@@ -2207,6 +2067,9 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     CHKERRQ(ierr); // Handle potential errors from the internal function
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "ScatterParticleFieldToEulerField: Successfully scattered field '%s'.\n", particleFieldName);
+   
+    PROFILE_FUNCTION_END;
+   
     PetscFunctionReturn(0);
 }
 
@@ -2328,6 +2191,10 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
 
 /** @} */ // End of scatter_module group
 
+
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateCornerToFaceCenter_Scalar"
+
 /**
  * @brief Interpolates a scalar field from corner nodes to all face centers.
  *
@@ -2354,6 +2221,11 @@ PetscErrorCode InterpolateCornerToFaceCenter_Scalar(
 {
     PetscErrorCode ierr;
     DMDALocalInfo info;
+
+    PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
 
     // Determine owned-cell ranges based on corner-node ownership
@@ -2418,8 +2290,13 @@ PetscErrorCode InterpolateCornerToFaceCenter_Scalar(
         }
     }
 
-    return 0;
+    PROFILE_FUNCTION_END;
+
+    PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateCornerToFaceCenter_Vector"
 
 /**
  * @brief Interpolates a vector field from corner nodes to all face centers.
@@ -2445,6 +2322,10 @@ PetscErrorCode InterpolateCornerToFaceCenter_Vector(
     PetscErrorCode ierr;
     DMDALocalInfo info;
     PetscMPIInt rank;
+
+    PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
@@ -2533,5 +2414,6 @@ PetscErrorCode InterpolateCornerToFaceCenter_Vector(
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
                    "Rank %d z-face Interpolation complete.\n", rank);
     
-    return 0;
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
 }

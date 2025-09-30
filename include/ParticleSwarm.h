@@ -254,31 +254,6 @@ PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *p
 PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle);
 
 /**
- * @brief Resets the location-dependent state of a loaded swarm to force relocation.
- * @ingroup ParticleRestart
- *
- * This function is a critical part of the simulation restart procedure. It must be
- * called immediately after `ReadAllSwarmFields` has populated a swarm from restart
- * files. Its purpose is to invalidate the "location" state of the loaded particles,
- * ensuring that the `LocateAllParticlesInGrid_TEST` orchestrator performs a fresh,
- * comprehensive search for every particle based on its loaded position.
- *
- * It does this by performing two actions on every locally-owned particle:
- * 1.  It resets the `DMSwarm_CellID` field to a sentinel value of `(-1, -1, -1)`.
- *     This invalidates any cell index that might have been loaded or defaulted to 0.
- * 2.  It sets the `DMSwarm_location_status` field to `NEEDS_LOCATION`.
- *
- * This guarantees that the location logic will not mistakenly use a stale cell index
- * from a previous run and will instead use the robust "Guess -> Verify" strategy
- * appropriate for particles with unknown locations.
- *
- * @param[in,out] user Pointer to the UserCtx structure which contains the `DMSwarm` object
- *                     that has just been loaded with data from restart files.
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code if field access fails.
- */
-PetscErrorCode PrepareLoadedSwarmForRelocation(UserCtx *user);
-
-/**
  * @brief Perform particle swarm initialization, particle-grid interaction, and related operations.
  *
  * This function handles the following tasks:

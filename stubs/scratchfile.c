@@ -4286,3 +4286,346 @@ def build_project(args):
 
     print("\n" + "="*25 + " DIAGNOSTICS COMPLETE " + "="*25)
     sys.exit(0) # Exit cleanly after printing diagnostics
+
+////////////////////////////////
+
+/**
+ * @brief Interpolates a cell-centered field (scalar or vector) onto DMSwarm particles,
+ *        converting the cell-center data to corner data first, then looping over particles.
+ *
+ * Steps:
+ *   1) Check that the Vec has blockSize=1 or 3 (scalar vs. vector).
+ *   2) Map the cell-centered Vec to a local array (fieldGlobal -> localPtr).
+ *   3) Allocate a corner array (cornerPtr) via Allocate3DArray(...), sized (zm+1, ym+1, xm+1).
+ *   4) Convert from cell-centers to corners via InterpolateFieldFromCenterToCorner(...).
+ *   5) Restore the cell-centered array.
+ *   6) Retrieve DMSwarm fields: "DMSwarm_CellID", "weight", and swarmOutFieldName.
+ *   7) Loop over local particles, clamp i/j/k, skip or zero out if out of range, read (a1,a2,a3).
+ *   8) Call InterpolateEulerFieldToSwarmForParticle(...) with cornerPtr to do final Interpolatetion.
+ *   9) Restore swarm fields, free the corner array.
+ *
+ * @param[in]  user              User context with:
+ *                                - user->da     (cell-centered DMDA),
+ *                                - user->swarm  (DMSwarm).
+ * @param[in]  fieldGlobal       Vec with blockSize=1 or 3, storing the cell-centered field.
+ * @param[in]  fieldName         Human-readable field name for logging (e.g. "velocity").
+ * @param[in]  swarmOutFieldName Name of the DMSwarm field where Interpolatetion results go.
+ *
+ * @return PetscErrorCode  0 on success, non-zero on error.
+ */
+/*
+PetscErrorCode InterpolateEulerFieldToSwarm(
+    UserCtx    *user,
+    Vec         fieldGlobal,       //DMDA Vec containing cell‐center data 
+    const char *fieldName,         // e.g., "Ucat" 
+    const char *swarmOutFieldName) // Name of the output DMSwarm field 
+{
+  PetscErrorCode ierr;
+  DM             fda    = user->fda;      // DM for cell‐center field data 
+  //  DM             da     = user->da;        DM for grid information (local indices) 
+  DM             swarm  = user->swarm;     DMSwarm for particles 
+  PetscInt       bs;                      Block size: 1 (scalar) or 3 (vector) 
+  DMDALocalInfo  info;                  // Local grid info 
+void          *localPtr   = NULL;       // Pointer to cell‐center data from fda 
+void          *cornerPtr  = NULL;       // Will hold the typed corner array 
+  void          *swarmOut   = NULL;     // Pointer to the swarm output field 
+  PetscInt    *cellIDs    = NULL;     // Particle cell indices from swarm 
+  PetscReal     *weights    = NULL;     // Interpolation coefficients from swarm 
+  PetscInt       nLocal;
+  PetscMPIInt    rank;
+
+  
+  
+  PetscFunctionBegin;
+  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+  // (A) Check block size and get local domain info 
+  ierr = VecGetBlockSize(fieldGlobal, &bs); CHKERRQ(ierr);
+  if (bs != 1 && bs != 3) {
+    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP,
+             "InterpolateEulerFieldToSwarm: blockSize must be 1 or 3, got %d.", (PetscInt)bs);
+  }
+  ierr = DMDAGetLocalInfo(fda, &info); CHKERRQ(ierr);
+
+  PetscInt xs_node = info.xs;
+  PetscInt ys_node = info.ys;
+  PetscInt zs_node = info.zs;
+  
+  LOG_ALLOW(GLOBAL, LOG_INFO,
+    "InterpolateEulerFieldToSwarm: Starting with field='%s', blockSize=%d, local domain: (%d x %d x %d)\n",
+    fieldName, bs, info.xm, info.ym, info.zm);
+
+  // (B) Map the cell-centered Vec to a local array using the DM attached to fieldGlobal 
+  LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d] Dumping DM state (user->fda) BEFORE GetArray:\n", rank);
+
+  if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) DMView(user->fda, PETSC_VIEWER_STDOUT_SELF);
+
+  ierr = DMDAVecGetArrayRead(fda, fieldGlobal, &localPtr); CHKERRQ(ierr);
+
+    // Corner domain is larger than cell center domain 
+    PetscInt nz = info.zm; 
+    PetscInt ny = info.ym;
+    PetscInt nx = info.xm;
+    LOG_ALLOW(LOCAL, LOG_DEBUG,
+      "[Rank %d]  Allocating corner array of size (%d x %d x %d), blockSize = %d\n",
+	      rank,nx, ny, nz, bs);
+    if (bs == 1) {
+      // Declare a typed Pointer for scalar corners 
+      PetscReal ***cornerScal = NULL;
+      ierr = Allocate3DArray(&cornerScal, nz, ny, nx); CHKERRQ(ierr);
+      if (!cornerScal) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "InterpolateEulerFieldToSwarm: 3D Array Allocation for scalar corners failed.\n");
+      }
+      // Save typed Pointer into cornerPtr so later code can cast appropriately 
+      cornerPtr = (void*) cornerScal;
+      // (D) Convert cell-center data to corners for scalar field 
+      ierr = InterpolateFieldFromCenterToCorner( (PetscReal ***) localPtr, cornerScal, user); CHKERRQ(ierr);
+    } else {
+      // For vector fields 
+      Cmpnts ***cornerVec = NULL;
+      ierr = Allocate3DArray(&cornerVec, nz, ny, nx); CHKERRQ(ierr);
+      if (!cornerVec) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "InterpolateEulerFieldToSwarm: 3D Array Allocation for vector corners failed.\n");
+      }
+      cornerPtr = (void*) cornerVec;
+
+      // Comment out the actual call:
+      ierr = InterpolateFieldFromCenterToCorner( (Cmpnts ***) localPtr, (Cmpnts ***)cornerPtr, user); CHKERRQ(ierr);
+      */
+      /*
+      // --- DEBUG - BYPASS SECTION ---
+      LOG_ALLOW(LOCAL,LOG_DEBUG, "[%d] DEBUG: Bypassing InterpolateFieldFromCenterToCorner call.\n", rank);
+
+
+      // Instead, populate cornerPtr with fixed values
+      // Use local indices 0..nz-1, 0..ny-1, 0..nx-1 because cornerPtr is a local array
+      if (bs == 3) {
+	Cmpnts ***cornerVec_bypass = (Cmpnts ***)cornerPtr;
+	for (PetscInt k_local = 0; k_local < nz; ++k_local) {
+          for (PetscInt j_local = 0; j_local < ny; ++j_local) {
+	    for (PetscInt i_local = 0; i_local < nx; ++i_local) {
+	      cornerVec_bypass[k_local][j_local][i_local].x = 1.0; // Or 0.0, or rank number
+	      cornerVec_bypass[k_local][j_local][i_local].y = 2.0;
+	      cornerVec_bypass[k_local][j_local][i_local].z = 3.0;
+	    }
+          }
+	}
+	LOG_ALLOW(LOCAL,LOG_DEBUG, "[%d] DEBUG: Finished setting fixed values in cornerVec_bypass.\n", rank);
+      
+      }
+      */
+      /*
+    LOG_ALLOW(LOCAL, LOG_INFO,
+      "InterpolateEulerFieldToSwarm: Rank %d Completed center-to-corner Interpolatetion for field='%s'.\n",
+	      rank,fieldName);
+    }
+  // (E) Restore the cell-centered array since we now have corner data 
+  ierr = DMDAVecRestoreArrayRead(fda, fieldGlobal, &localPtr); CHKERRQ(ierr);
+
+  // (F) Retrieve swarm fields: cell IDs, weights, and the output field 
+  ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, "DMSwarm_CellID",  NULL, NULL, (void**)&cellIDs);  CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, "weight",          NULL, NULL, (void**)&weights);  CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut);         CHKERRQ(ierr);
+  LOG_ALLOW(GLOBAL, LOG_INFO,
+    "InterpolateEulerFieldToSwarm: Found %d local particles to process for field='%s'.\n",
+    nLocal, fieldName);
+
+  // (G) Loop over each local particle and perform the final Interpolatetion from corners 
+  for (PetscInt p = 0; p < nLocal; p++) {
+    PetscInt iCell_global = (PetscInt)cellIDs[3*p + 0];
+    PetscInt jCell_global = (PetscInt)cellIDs[3*p + 1];
+    PetscInt kCell_global = (PetscInt)cellIDs[3*p + 2];
+
+// --- Convert GLOBAL cell index to LOCAL cell index ---
+      // NOTE: This assumes the cell index corresponds directly to the
+      //       "lower-left-front" node index for interpolation purposes.
+      //       We need the local index relative to the cornerPtr array,
+      //       which is indexed from 0 based on owned NODES.
+    
+      PetscInt iCell_local = iCell_global - xs_node;
+      PetscInt jCell_local = jCell_global - ys_node;
+      PetscInt kCell_local = kCell_global - zs_node;
+
+      // --- Clamp LOCAL indices and check bounds for the BASE cell index ---
+      // This check ensures the base index (i,j,k) for the interpolation
+      // is within the bounds of the locally allocated cornerPtr array.
+      // The interpolation function will handle the +1 offsets.
+    // Boundary clamp: adjust indices to be within [0, mx), [0, my), [0, mz) 
+    if (iCell_local >= user->info.mx) iCell_local = user->info.mx - 1;
+    if (jCell_local >= user->info.my) jCell_local = user->info.my - 1;
+    if (kCell_local >= user->info.mz) kCell_local = user->info.mz - 1;
+    
+    if (iCell_local < 0 ||
+	jCell_local < 0 ||
+	kCell_local < 0 ||
+        iCell_local >= user->info.xm-1 ||
+        jCell_local >= user->info.ym-1 ||
+        kCell_local >= user->info.zm-1)
+    {
+
+      LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d] Rank/Domain boundary reached(cell wise): (k,j,i) - (%d,%d,%d).\n",rank,kCell_local,jCell_local,iCell_local);
+      
+      // Out-of-range: set output to zero       
+      if (bs == 1) {
+        ((PetscReal*)swarmOut)[p] = 0.0;
+      } else {
+        ((PetscReal*)swarmOut)[3*p + 0] = 0.0;
+        ((PetscReal*)swarmOut)[3*p + 1] = 0.0;
+        ((PetscReal*)swarmOut)[3*p + 2] = 0.0;
+      }
+      continue;
+    }
+    
+    
+    // Retrieve Interpolatetion coefficients (a1, a2, a3) for this particle 
+    PetscReal alpha1 = weights[3*p + 0];
+    PetscReal alpha2 = weights[3*p + 1];
+    PetscReal alpha3 = weights[3*p + 2];
+      */
+    /* (Optional) If your final Interpolatetion expects a corner offset, adjust here.
+       For example, if the cell center corresponds to the average of corners at (iCell,jCell,kCell)
+       and (iCell+1, jCell+1, kCell+1), you might add +1. For now, we pass indices as is.
+    */
+     /*  
+    PetscInt iUse = iCell_local;  // + 1 if required
+    PetscInt jUse = jCell_local;  // + 1 if required
+    PetscInt kUse = kCell_local;  // + 1 if required
+     */
+    /* (H) Call the per-particle Interpolatetion function.
+       This function will use your _Generic macro (TrilinearInterpolation or PiecewiseLinearInterpolation)
+       on the corner data.
+    */
+     /* 
+    ierr = InterpolateEulerFieldToSwarmForParticle(
+              fieldName,    // e.g., "Ucat" 
+              cornerPtr,    // typed Pointer: (PetscReal***) or (Cmpnts***) 
+              iUse, jUse, kUse,
+              alpha1, alpha2, alpha3,
+              swarmOut,     // Pointer to swarm output array 
+              p,            // particle index 
+              bs);          // block size: 1 or 3 
+    CHKERRQ(ierr);
+  }
+
+  // (I) Restore swarm fields 
+  ierr = DMSwarmRestoreField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut);        CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, "weight",          NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID",  NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+
+  // (J) Deallocate the corner array using the generic deallocation macro 
+  if (bs == 1) {
+    PetscReal ***cornerScal = (PetscReal ***) cornerPtr;
+    ierr = Deallocate3DArray(cornerScal, info.zm, info.ym); CHKERRQ(ierr);
+  } else {
+    Cmpnts ***cornerVec = (Cmpnts ***) cornerPtr;
+    ierr = Deallocate3DArray(cornerVec, info.zm, info.ym); CHKERRQ(ierr);
+  }
+
+  LOG_ALLOW(GLOBAL, LOG_INFO,
+    "InterpolateEulerFieldToSwarm: Rank %d Completed Interpolatetion of field='%s' for %d local particles.\n",
+	    rank,fieldName, nLocal);
+
+  PetscFunctionReturn(0);
+}
+*/
+
+///////////////////
+
+//////////////////////////////////
+
+/**
+ * @brief Resets the location-dependent state of a loaded swarm to force relocation.
+ * @ingroup ParticleRestart
+ *
+ * This function is a critical part of the simulation restart procedure. It must be
+ * called immediately after `ReadAllSwarmFields` has populated a swarm from restart
+ * files. Its purpose is to invalidate the "location" state of the loaded particles,
+ * ensuring that the `LocateAllParticlesInGrid_TEST` orchestrator performs a fresh,
+ * comprehensive search for every particle based on its loaded position.
+ *
+ * It does this by performing two actions on every locally-owned particle:
+ * 1.  It resets the `DMSwarm_CellID` field to a sentinel value of `(-1, -1, -1)`.
+ *     This invalidates any cell index that might have been loaded or defaulted to 0.
+ * 2.  It sets the `DMSwarm_location_status` field to `NEEDS_LOCATION`.
+ *
+ * This guarantees that the location logic will not mistakenly use a stale cell index
+ * from a previous run and will instead use the robust "Guess -> Verify" strategy
+ * appropriate for particles with unknown locations.
+ *
+ * @param[in,out] user Pointer to the UserCtx structure which contains the `DMSwarm` object
+ *                     that has just been loaded with data from restart files.
+ * @return PetscErrorCode 0 on success, or a non-zero PETSc error code if field access fails.
+ */
+PetscErrorCode PrepareLoadedSwarmForRelocation(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DM             swarm;
+    PetscInt       n_local;
+    PetscInt      *cell_p;    // Pointer to the raw data for the CellID field
+    PetscInt      *status_p;  // Pointer to the raw data for the location_status field
+    PetscInt64    *PIDs;      // Pointer to the raw data for the Particle ID field.
+    PetscMPIInt   rank,size;
+
+    PetscFunctionBeginUser;
+
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);  CHKERRQ(ierr);
+    ierr = MPI_Comm_size(PETSC_COMM_WORLD,&size);  CHKERRQ(ierr);
+
+    SimCtx *simCtx = user->simCtx;
+    
+    // --- 1. Input Validation and Setup ---
+    if (!user || !user->swarm) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx or its DMSwarm is NULL in PrepareLoadedSwarmForRelocation.");
+    }
+    swarm = user->swarm;
+
+    // Get the number of particles on this MPI rank.
+    ierr = DMSwarmGetLocalSize(swarm, &n_local); CHKERRQ(ierr);
+
+    // If there are no local particles, there is nothing to do.
+    if (n_local == 0) {
+        PetscFunctionReturn(0);
+    }
+
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Preparing %d loaded particles for relocation by resetting their CellID and Status.\n", n_local);
+
+    // --- 2. Get Writable Access to Swarm Fields ---
+    // This provides direct pointers to the underlying data arrays for the fields.
+    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_p);   CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_p); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&PIDs); CHKERRQ(ierr); CHKERRQ(ierr);
+
+    // --- 3. Determine Starting Global PID for this Rank ---
+    PetscInt particles_per_rank_ideal = simCtx->np / size; // Assumes user->size is PETSC_COMM_WORLD size
+    PetscInt remainder_particles = simCtx->np % size;
+    PetscInt base_pid_for_rank = rank * particles_per_rank_ideal + PetscMin(rank, remainder_particles);
+    // This calculation must match how particlesPerProcess was determined (e.g., in DistributeParticles).
+    
+    // --- 4. Loop Through All Local Particles and Reset State ---
+    for (PetscInt p = 0; p < n_local; ++p) {
+
+        
+        // Reset the 3 components of the cell index vector.
+        cell_p[3*p + 0] = -1;
+        cell_p[3*p + 1] = -1;
+        cell_p[3*p + 2] = -1;
+
+        // Reset the status to ensure it will be processed by the location algorithm.
+        status_p[p] = (ParticleLocationStatus)UNINITIALIZED;
+
+    //set the PID for each particle
+    PIDs[p] =  (PetscInt64)base_pid_for_rank + p;
+    }
+
+    // --- 4. Restore Fields ---
+    // This returns control of the data arrays back to the DMSwarm. It is a mandatory
+    // step to ensure data consistency and prevent memory issues.
+    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_p);   CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_p); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&PIDs); CHKERRQ(ierr); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Successfully reset location state for all loaded particles.\n");
+
+    PetscFunctionReturn(0);
+}

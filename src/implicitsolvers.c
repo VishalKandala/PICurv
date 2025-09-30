@@ -32,6 +32,9 @@ PetscErrorCode RungeKutta(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
     PetscReal alfa[] = {0.25, 1.0/3.0, 0.5, 1.0};
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(GLOBAL, LOG_INFO, "Executing explicit momentum solver (Runge-Kutta) for %d block(s).\n",simCtx->block_number);
 
     // --- 1. Pre-Loop Initialization (Legacy Logic) ---
@@ -68,7 +71,7 @@ PetscErrorCode RungeKutta(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
                 LOG_ALLOW(LOCAL, LOG_DEBUG, "  Block %d, RK Stage %d (alpha=%.4f)...\n", bi, istage, alfa[istage]);
 
                 // a. Calculate the Right-Hand Side (RHS) of the momentum equation.
-                ierr = FormFunction1(&user[bi], user[bi].Rhs); CHKERRQ(ierr);
+                ierr = ComputeRHS(&user[bi], user[bi].Rhs); CHKERRQ(ierr);
 
                 // b. Advance Ucont to the next intermediate stage using the RK coefficient.
                 //    Ucont_new = Ucont_old + alpha * dt * RHS
@@ -114,6 +117,9 @@ PetscErrorCode RungeKutta(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
     }
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Runge-Kutta solve completed for all blocks.\n");
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -208,7 +214,7 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 	LOG_ALLOW(GLOBAL,LOG_DEBUG," BCs and workspace vectors prepared for Initial RHS calculation.\n");
 	
         // --- Calculate INITIAL RHS for convergence check ---
-        ierr = FormFunction1(&user[bi], user[bi].Rhs); CHKERRQ(ierr);
+        ierr = ComputeRHS(&user[bi], user[bi].Rhs); CHKERRQ(ierr);
 
 	LOG_ALLOW(GLOBAL,LOG_DEBUG, " Initial RHS calculated for convergence check .\n");
 	
@@ -254,7 +260,7 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 		LOG_ALLOW(GLOBAL,LOG_INFO, " Ghosts synced and BCs reapplied.\n");
 
                 // --- Re-calculate the full RHS for the next RK stage ---
-                ierr = FormFunction1(&user[bi], user[bi].Rhs); CHKERRQ(ierr);
+                ierr = ComputeRHS(&user[bi], user[bi].Rhs); CHKERRQ(ierr);
 
 		LOG_ALLOW(GLOBAL,LOG_INFO, " RHS calculated for the next RK stage.\n");
 		

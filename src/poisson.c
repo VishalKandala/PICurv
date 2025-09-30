@@ -2,59 +2,8 @@
 #include "poisson.h" // The new header for this file
 #include "logging.h"
 
-static void Calculate_Covariant_metrics(double g[3][3], double G[3][3])
-{
-	/*
-		| csi.x  csi.y csi.z |-1		| x.csi  x.eta x.zet | 
-		| eta.x eta.y eta.z |	 =	| y.csi   y.eta  y.zet |
-		| zet.x zet.y zet.z |		| z.csi  z.eta z.zet |
-	
-	*/
-	const double a11=g[0][0], a12=g[0][1], a13=g[0][2];
-	const double a21=g[1][0], a22=g[1][1], a23=g[1][2];
-	const double a31=g[2][0], a32=g[2][1], a33=g[2][2];
-
-	double det= a11*(a33*a22-a32*a23)-a21*(a33*a12-a32*a13)+a31*(a23*a12-a22*a13);
-	
-	G[0][0] = (a33*a22-a32*a23)/det,	G[0][1] = - (a33*a12-a32*a13)/det, 	G[0][2] = (a23*a12-a22*a13)/det;
-	G[1][0] = -(a33*a21-a31*a23)/det, G[1][1] = (a33*a11-a31*a13)/det,	G[1][2] = - (a23*a11-a21*a13)/det;
-	G[2][0] = (a32*a21-a31*a22)/det,	G[2][1] = - (a32*a11-a31*a12)/det,	G[2][2] = (a22*a11-a21*a12)/det;
-};
-
-static void Calculate_normal(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3])
-{
-	double g[3][3];
-	double G[3][3];
-	
-	g[0][0]=csi.x, g[0][1]=csi.y, g[0][2]=csi.z;
-	g[1][0]=eta.x, g[1][1]=eta.y, g[1][2]=eta.z;
-	g[2][0]=zet.x, g[2][1]=zet.y, g[2][2]=zet.z;
-	
-	Calculate_Covariant_metrics(g, G);
-	double xcsi=G[0][0], ycsi=G[1][0], zcsi=G[2][0];
-	double xeta=G[0][1], yeta=G[1][1], zeta=G[2][1];
-	double xzet=G[0][2], yzet=G[1][2], zzet=G[2][2];
-	      
-	double nx_i = xcsi, ny_i = ycsi, nz_i = zcsi;
-	double nx_j = xeta, ny_j = yeta, nz_j = zeta;
-	double nx_k = xzet, ny_k = yzet, nz_k = zzet;
-	      
-	double sum_i=sqrt(nx_i*nx_i+ny_i*ny_i+nz_i*nz_i);
-	double sum_j=sqrt(nx_j*nx_j+ny_j*ny_j+nz_j*nz_j);
-	double sum_k=sqrt(nx_k*nx_k+ny_k*ny_k+nz_k*nz_k);
-
-//	*Ai = sqrt( g[0][0]*g[0][0] + g[0][1]*g[0][1] + g[0][2]*g[0][2] );	// area
-//	*Aj = sqrt( g[1][0]*g[1][0] + g[1][1]*g[1][1] + g[1][2]*g[1][2] );
-//	*Ak =sqrt( g[2][0]*g[2][0] + g[2][1]*g[2][1] + g[2][2]*g[2][2] );
-		
-	nx_i /= sum_i, ny_i /= sum_i, nz_i /= sum_i;
-	nx_j /= sum_j, ny_j /= sum_j, nz_j /= sum_j;
-	nx_k /= sum_k, ny_k /= sum_k, nz_k /= sum_k;
-
-	ni[0] = nx_i, ni[1] = ny_i, ni[2] = nz_i;
-	nj[0] = nx_j, nj[1] = ny_j, nj[2] = nz_j;
-	nk[0] = nx_k, nk[1] = ny_k, nk[2] = nz_k;
-}
+#undef __FUNCT__
+#define __FUNCT__ "GhostNodeVelocity"
 
 static PetscErrorCode GhostNodeVelocity(UserCtx *user)
 {
@@ -104,6 +53,10 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
   if (ye==my) lye = ye-1;
   if (ze==mz) lze = ze-1;
 
+  PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
+
   DMDAVecGetArray(fda, user->lCsi,  &csi);
   DMDAVecGetArray(fda, user->lEta,  &eta);
   DMDAVecGetArray(fda, user->lZet,  &zet);
@@ -142,7 +95,7 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
 	    Uc = ucat[k][j][i-1];
 	  }
 	  
-	  Calculate_normal(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk);
+	  CalculateNormalAndArea(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk,NULL,NULL,NULL); // Passing Null pointers for area calculation.
 	  if(i==mx-2) ni[0]*=-1, ni[1]*=-1, ni[2]*=-1;
 	  
 	  //if(i==1) printf("%f %f, %f %f %f, %e %e %e, %e\n", sc, sb, Ua.x, Ua.y, Ua.z, Uc.x, Uc.y, Uc.z, ucat[k][j][i+2].z);
@@ -169,7 +122,7 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
 	    Uc = ucat[k][j-1][i];
 	  }
 	  
-	  Calculate_normal(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk);
+	  CalculateNormalAndArea(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk,NULL,NULL,NULL); // Passing Null pointers for Area.
 	  //if(j==my-2) nj[0]*=-1, nj[1]*=-1, nj[2]*=-1;
 	  
 	  wall_function (user, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], nj[0], nj[1], nj[2]);
@@ -837,7 +790,8 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
   DMDAVecRestoreArray(fda, user->lEta,  &eta);
   DMDAVecRestoreArray(fda, user->lZet,  &zet);
 
-  return(0);
+  PROFILE_FUNCTION_END;
+  PetscFunctionReturn(0);
   
 }
 
@@ -893,10 +847,15 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
   return (nidx);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "GridRestriction"
+
 static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
 			       PetscInt *ih, PetscInt *jh, PetscInt *kh,
 			       UserCtx *user)
 {
+  PetscFunctionBeginUser;
+  PROFILE_FUNCTION_BEGIN;
   if ((user->isc)) {
     *ih = i;
   }
@@ -918,7 +877,8 @@ static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
     *kh = 2 * k;
   }
 
-  return 0;
+  PROFILE_FUNCTION_END;
+  PetscFunctionReturn(0);
 }
 
 
@@ -1708,9 +1668,10 @@ PetscErrorCode UpdatePressure(UserCtx *user)
   PetscFunctionReturn(0);
 }
 
+
+
 static PetscErrorCode mymatmultadd(Mat mat, Vec v1, Vec v2)
 {
-
   Vec vt;
   VecDuplicate(v2, &vt);
   MatMult(mat, v1, vt);
@@ -1719,6 +1680,9 @@ static PetscErrorCode mymatmultadd(Mat mat, Vec v1, Vec v2)
   return(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "PoissonNullSpaceFunction"
 PetscErrorCode PoissonNullSpaceFunction(MatNullSpace nullsp,Vec X, void *ctx)
 {
   UserCtx *user = (UserCtx*)ctx;
@@ -2193,6 +2157,9 @@ PetscErrorCode MyRestriction(Mat A, Vec X, Vec F)
   return 0;
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "PoissonLHSNew"
+
 /**
  * @brief Assembles the Left-Hand Side (LHS) matrix for the Pressure Poisson Equation.
  *
@@ -2240,6 +2207,7 @@ PetscErrorCode MyRestriction(Mat A, Vec X, Vec F)
 PetscErrorCode PoissonLHSNew(UserCtx *user)
 {
   PetscFunctionBeginUser;
+  PROFILE_FUNCTION_BEGIN;
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering PoissonLHSNew to assemble Laplacian matrix.\n");
   PetscErrorCode ierr;
   //================================================================================
@@ -2831,8 +2799,13 @@ PetscErrorCode PoissonLHSNew(UserCtx *user)
   DMDAVecRestoreArray(da, user->lNvert, &nvert);
   
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting PoissonLHSNew.\n");
+  PROFILE_FUNCTION_END;
   PetscFunctionReturn(0);
 }
+
+
+#undef __FUNCT__
+#define __FUNCT__ "PoissonRHS"
 
 PetscErrorCode PoissonRHS(UserCtx *user, Vec B)
 {
@@ -2849,6 +2822,8 @@ PetscErrorCode PoissonRHS(UserCtx *user, Vec B)
     PetscReal y;
     PetscReal z;
   } *** ucont;
+
+  PROFILE_FUNCTION_BEGIN;
 
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering PoissonRHS to compute pressure equation RHS.\n");
 
@@ -2908,6 +2883,8 @@ PetscErrorCode PoissonRHS(UserCtx *user, Vec B)
   DMDAVecRestoreArray(user->da, user->lAj, &aj);
   DMDAVecRestoreArray(user->da, B, &rb);
  
+
+  PROFILE_FUNCTION_END;
   return 0;
 }
 

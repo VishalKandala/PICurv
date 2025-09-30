@@ -89,6 +89,7 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
     PetscReal *zMins = NULL, *zMaxs = NULL, *rzs = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Reading generated grid inputs for block %d.\n", simCtx->rank, block_index);
 
@@ -150,6 +151,7 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
     ierr = PetscFree6(xMins, xMaxs, rxs, yMins, yMaxs, rys); CHKERRQ(ierr);
     ierr = PetscFree3(zMins, zMaxs, rzs); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -179,6 +181,7 @@ PetscErrorCode ReadGridFile(UserCtx *user)
     PetscInt block_index = user->_this;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // --- One-Time Read and Broadcast Logic ---
     if (!g_file_has_been_read) {
@@ -242,6 +245,7 @@ PetscErrorCode ReadGridFile(UserCtx *user)
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Set file inputs for Block %d: IM=%d, JM=%d, KM=%d\n",
               simCtx->rank, block_index, user->IM, user->JM, user->KM);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -371,7 +375,8 @@ PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *valu
 //                        PUBLIC PARSING FUNCTION
 //
 //================================================================================
-
+#undef __FUNCT__
+#define __FUNCT__ "ParseAllBoundaryConditions"
 /**
  * @brief Parses the boundary conditions file to configure the type, handler, and
  *        any associated parameters for all 6 global faces of the domain.
@@ -400,6 +405,7 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
     BoundaryFaceConfig configs_rank0[6];
     
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     if (rank == 0) {
@@ -560,7 +566,7 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
         // for(int i=0; i<6; i++) FreeBC_ParamList(configs_rank0[i].params); // This would be needed if we used configs_rank0 exclusively
     }
 
-    
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -715,7 +721,8 @@ static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_na
   PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "ReadFieldData"
 /************************************************************************************************
 *  @file   io.c
 *  @brief  Utility for (re-)loading PETSc Vec-based fields written by rank-0 in a previous run
@@ -762,6 +769,7 @@ PetscErrorCode ReadFieldData(UserCtx *user,
 
 
    PetscFunctionBeginUser;
+   PROFILE_FUNCTION_BEGIN;
 
    ierr = PetscObjectGetComm((PetscObject)field_vec,&comm);CHKERRQ(ierr);
    ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
@@ -842,6 +850,8 @@ PetscErrorCode ReadFieldData(UserCtx *user,
       */
       LOG_ALLOW(GLOBAL,LOG_INFO,
                 "Loaded <%s> (serial path)\n",filename);
+
+      PROFILE_FUNCTION_END;          
       PetscFunctionReturn(0);
    }
 
@@ -929,6 +939,7 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    LOG_ALLOW(GLOBAL,LOG_INFO,
              "ReadFieldData - Loaded <%s> (parallel path)\n",filename);
 
+   PROFILE_FUNCTION_END;          
    PetscFunctionReturn(0);
 }
 
@@ -1260,6 +1271,9 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
   PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "WriteFieldData" 
  /**
  * @brief Writes data from a specific PETSc vector to a single, sequential file.
  *
@@ -1320,7 +1334,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     SimCtx  *simCtx=user->simCtx;
 
     PetscFunctionBeginUser;
-
+    PROFILE_FUNCTION_BEGIN;
     /* ------------------------------------------------------------ */
     /*                  Basic communicator information              */
     /* ------------------------------------------------------------ */
@@ -1392,6 +1406,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     ierr = VecScatterDestroy(&scatter);CHKERRQ(ierr);
     ierr = VecDestroy(&seq_vec);CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -2034,6 +2049,8 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ParsePostProcessingSettings"
 /**
  * @brief Initializes post-processing settings from a config file and command-line overrides.
  *
@@ -2054,6 +2071,7 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     PetscBool startTimeSet, endTimeSet, timeStepSet;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     if (!simCtx || !simCtx->pps) {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "SimCtx or its pps member is NULL in ParsePostProcessingSettings.");
@@ -2162,8 +2180,63 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Pipeline: %s\n", pps->particle_pipeline);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Frequency: %d\n", pps->particle_output_freq);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
+
+
+#undef __FUNCT__
+#define __FUNCT__ "ParseScalingInformation"
+/**
+ * @brief Parses physical scaling parameters from command-line options.
+ *
+ * This function reads the reference length, velocity, and density from the
+ * PETSc options database (provided via -scaling_L_ref, etc.). It populates
+ * the simCtx->scaling struct and calculates the derived reference pressure.
+ * It sets default values of 1.0 for a fully non-dimensional case if the
+ * options are not provided.
+ *
+ * @param[in,out] simCtx The simulation context whose 'scaling' member will be populated.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ParseScalingInformation(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscBool      flg;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx is NULL in ParseScalingInformation");
+
+    // --- 1. Set default values to 1.0 ---
+    // This represents a purely non-dimensional run if no scaling is provided.
+    simCtx->scaling.L_ref   = 1.0;
+    simCtx->scaling.U_ref   = 1.0;
+    simCtx->scaling.rho_ref = 1.0;
+    
+    // --- 2. Read overrides from the command line / control file ---
+    ierr = PetscOptionsGetReal(NULL, NULL, "-scaling_L_ref", &simCtx->scaling.L_ref, &flg); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-scaling_U_ref", &simCtx->scaling.U_ref, &flg); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-scaling_rho_ref", &simCtx->scaling.rho_ref, &flg); CHKERRQ(ierr);
+    
+    // --- 3. Calculate derived scaling factors ---
+    // Check for division by zero to be safe, though U_ref should be positive.
+    if (simCtx->scaling.U_ref <= 0.0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Reference velocity U_ref must be positive. Got %g", (double)simCtx->scaling.U_ref);
+    }
+    simCtx->scaling.P_ref = simCtx->scaling.rho_ref * simCtx->scaling.U_ref * simCtx->scaling.U_ref;
+
+    // --- 4. Log the final, effective scales for verification ---
+    LOG(GLOBAL, LOG_INFO, "--- Physical Scales Initialized ---\n");
+    LOG(GLOBAL, LOG_INFO, "  L_ref: %.4e, U_ref: %.4e, rho_ref: %.4e, P_ref: %.4e\n",
+        simCtx->scaling.L_ref, simCtx->scaling.U_ref, simCtx->scaling.rho_ref, simCtx->scaling.P_ref);
+    LOG(GLOBAL, LOG_INFO, "-----------------------------------\n");
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
 
 //  ---------------------------------------------------------------------
 //  UTILITY FUNCTIONS NOT USED IN THE MAIN CODE BUT MAY BE USEFUL
@@ -2400,50 +2473,4 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
   PetscFunctionReturn(0);
 }
 
-/**
- * @brief Parses physical scaling parameters from command-line options.
- *
- * This function reads the reference length, velocity, and density from the
- * PETSc options database (provided via -scaling_L_ref, etc.). It populates
- * the simCtx->scaling struct and calculates the derived reference pressure.
- * It sets default values of 1.0 for a fully non-dimensional case if the
- * options are not provided.
- *
- * @param[in,out] simCtx The simulation context whose 'scaling' member will be populated.
- * @return PetscErrorCode
- */
-PetscErrorCode ParseScalingInformation(SimCtx *simCtx)
-{
-    PetscErrorCode ierr;
-    PetscBool      flg;
 
-    PetscFunctionBeginUser;
-
-    if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx is NULL in ParseScalingInformation");
-
-    // --- 1. Set default values to 1.0 ---
-    // This represents a purely non-dimensional run if no scaling is provided.
-    simCtx->scaling.L_ref   = 1.0;
-    simCtx->scaling.U_ref   = 1.0;
-    simCtx->scaling.rho_ref = 1.0;
-    
-    // --- 2. Read overrides from the command line / control file ---
-    ierr = PetscOptionsGetReal(NULL, NULL, "-scaling_L_ref", &simCtx->scaling.L_ref, &flg); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-scaling_U_ref", &simCtx->scaling.U_ref, &flg); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-scaling_rho_ref", &simCtx->scaling.rho_ref, &flg); CHKERRQ(ierr);
-    
-    // --- 3. Calculate derived scaling factors ---
-    // Check for division by zero to be safe, though U_ref should be positive.
-    if (simCtx->scaling.U_ref <= 0.0) {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Reference velocity U_ref must be positive. Got %g", (double)simCtx->scaling.U_ref);
-    }
-    simCtx->scaling.P_ref = simCtx->scaling.rho_ref * simCtx->scaling.U_ref * simCtx->scaling.U_ref;
-
-    // --- 4. Log the final, effective scales for verification ---
-    LOG(GLOBAL, LOG_INFO, "--- Physical Scales Initialized ---\n");
-    LOG(GLOBAL, LOG_INFO, "  L_ref: %.4e, U_ref: %.4e, rho_ref: %.4e, P_ref: %.4e\n",
-        simCtx->scaling.L_ref, simCtx->scaling.U_ref, simCtx->scaling.rho_ref, simCtx->scaling.P_ref);
-    LOG(GLOBAL, LOG_INFO, "-----------------------------------\n");
-
-    PetscFunctionReturn(0);
-}

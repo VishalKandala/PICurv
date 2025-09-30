@@ -1,6 +1,8 @@
 {
     "files.associations": {
         "variables.h": "c",
-        "postprocessing_kernels.h": "c"
+        "postprocessing_kernels.h": "c",
+        "solvers.h": "c",
+        "implicitsolvers.h": "c"
     }
 }

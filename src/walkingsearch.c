@@ -11,7 +11,8 @@
 #define DISTANCE_THRESHOLD 1e-11
 #define REPEAT_COUNT_THRESHOLD 5
 
-
+#undef __FUNCT__
+#define __FUNCT__ "GetCellCharacteristicSize"
 /**
  * @brief Estimates a characteristic length of the cell for threshold scaling.
  *
@@ -25,6 +26,8 @@
 PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize)
 {
     PetscErrorCode ierr = 0;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (!cell || !cellSize) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, 
         "GetCellCharacteristicSize: Null pointer(s).");
 
@@ -55,9 +58,13 @@ PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize)
     // Average edge length
     *cellSize = totalEdgeLen / 12.0;
 
-    return ierr;
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(ierr);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeSignedDistanceToPlane"
 /**
  * @brief Computes the signed distance from a point to the plane approximating a quadrilateral face.
  *
@@ -107,6 +114,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
     PetscMPIInt rank;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     if (d_signed == NULL) {
         ierr = MPI_Comm_rank(MPI_COMM_WORLD, &rank); CHKERRQ(ierr);
@@ -223,10 +231,13 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "ComputeSignedDistanceToPlane - Final Signed Distance: %.15e\n", *d_signed);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 
+#undef __FUNCT__
+#define __FUNCT__ "CalculateDistancesToCellFaces"
 /**
  * @brief Computes the signed distances from a point to each face of a cubic cell.
  *
@@ -271,6 +282,9 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
 PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, PetscReal *d, const PetscReal threshold)
 {
     PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
     // Validate that the 'cell' pointer is not NULL to prevent dereferencing a null pointer.
     if (cell == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "CalculateDistancesToCellFaces - 'cell' is NULL.\n");
@@ -385,9 +399,12 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 	      "[%.3e, %.3e, %.3e, %.3e, %.3e, %.3e]\n",
 	      d[0], d[1], d[2], d[3], d[4], d[5]);
     
-    return 0; // Indicate successful execution of the function.
+    PROFILE_FUNCTION_END;      
+    PetscFunctionReturn(0); // Indicate successful execution of the function.
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "DeterminePointPosition"
 /**
  * @brief Classifies a point based on precomputed face distances.
  *
@@ -407,7 +424,8 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
 {
     
-
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     // Validate input pointers
     if (d == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "DeterminePointPosition - 'd' is NULL.\n");
@@ -458,9 +476,12 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
         LOG_ALLOW(LOCAL,LOG_DEBUG, "DeterminePointPosition - Particle is outside the cell.\n");
     }
 
-    return 0; // Indicate successful execution
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0); // Indicate successful execution
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "GetCellVerticesFromGrid"
 /**
  * @brief Retrieves the coordinates of the eight vertices of a cell based on grid indices.
  *
@@ -522,6 +543,8 @@ PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt id
                                        Cell *cell)
 {
 
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     // Validate input pointers
     if (coor == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "GetCellVerticesFromGrid - 'coor' is NULL.\n");
@@ -545,9 +568,12 @@ PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt id
 
     LOG_ALLOW(LOCAL,LOG_DEBUG, "GetCellVerticesFromGrid - Retrieved vertices for cell (%d, %d, %d).\n", idx, idy, idz);
 
-    return 0; // Indicate successful execution
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0); // Indicate successful execution
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "InitializeTraversalParameters"
 /**
  * @brief Initializes traversal parameters for locating a particle.
  *
@@ -572,6 +598,9 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
 {
     PetscErrorCode ierr;
     DMDALocalInfo info;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // Validate input pointers
     if (user == NULL || particle == NULL || idx == NULL || idy == NULL || idz == NULL || traversal_steps == NULL) {
@@ -625,9 +654,12 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
     LOG_ALLOW(LOCAL,LOG_INFO, "InitializeTraversalParameters - Traversal for particle %lld initialized to start at cell (%d, %d, %d).\n",
                (long long)particle->PID, *idx, *idy, *idz);
 
-    return 0;
+    PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "CheckCellWithinLocalGrid"
 /**
  * @brief Checks if the current GLOBAL CELL indices are within the LOCAL GHOSTED grid boundaries
  *        accessible by this MPI process.
@@ -653,6 +685,7 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
     DMDALocalInfo info_nodes; // Node information from the DMDA that defines ghost regions (user->fda)
 
     PetscFunctionBeginUser; // Assuming this is part of your PETSc style
+    PROFILE_FUNCTION_BEGIN;
 
     // Validate inputs
     if (user == NULL || is_within == NULL) {
@@ -704,10 +737,12 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
               gys_cell_global_start, gye_cell_global_end_exclusive,
               gzs_cell_global_start, gze_cell_global_end_exclusive);
 
+    PROFILE_FUNCTION_END;          
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "RetrieveCurrentCell"
 /**
  * @brief Retrieves the coordinates of the eight vertices of the current cell.
  *
@@ -726,6 +761,9 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     Cmpnts ***coor_array;
     PetscMPIInt rank;
     DMDALocalInfo info_nodes;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // Validate input pointers
     if (user == NULL || cell == NULL) {
@@ -760,9 +798,12 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     LOG_ALLOW(LOCAL,LOG_DEBUG, "RetrieveCurrentCell - Cell (%d, %d, %d) vertices \n", idx, idy, idz);
     ierr = LOG_CELL_VERTICES(cell, rank); CHKERRQ(ierr);
 
-    return 0;
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "EvaluateParticlePosition"
 /**
  * @brief Determines the spatial relationship of a particle relative to a cubic cell.
  *
@@ -813,6 +854,8 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
     PetscErrorCode ierr;
     PetscReal cellSize;
     PetscReal cellThreshold;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // Validate input pointers to ensure they are not NULL, preventing potential segmentation faults.
     if (cell == NULL || position == NULL) {
@@ -855,9 +898,12 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
     ierr = DeterminePointPosition(d,position); 
     CHKERRQ(ierr); // Check for errors in position determination.
 
-    return 0; // Indicate successful execution of the function.
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0); // Indicate successful execution of the function.
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "UpdateCellIndicesBasedOnDistancesTEST"
 /**
  * @brief Updates the cell indices based on the signed distances to each face.
  *
@@ -882,6 +928,8 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
 PetscErrorCode UpdateCellIndicesBasedOnDistancesTEST( PetscReal d[NUM_FACES], PetscInt *idx, PetscInt *idy, PetscInt *idz)
 {
 
+   PetscFunctionBeginUser;
+   PROFILE_FUNCTION_BEGIN;
   /*
     PetscInt cxm,cxs;  // maximum & minimum cell ID in x
     PetscInt cym,cys;  // maximum & minimum cell ID in y
@@ -955,9 +1003,13 @@ PetscErrorCode UpdateCellIndicesBasedOnDistancesTEST( PetscReal d[NUM_FACES], Pe
 
     LOG_ALLOW(LOCAL,LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Updated Indices  - idx, idy, idz: %d, %d, %d\n", *idx, *idy, *idz);
 
-    return 0; // Indicate successful execution
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0); // Indicate successful execution
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "FinalizeTraversal"
 /**
  * @brief Finalizes the traversal by reporting the results.
  *
@@ -976,6 +1028,7 @@ PetscErrorCode UpdateCellIndicesBasedOnDistancesTEST( PetscReal d[NUM_FACES], Pe
  */
 PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt traversal_steps, PetscBool cell_found, PetscInt idx, PetscInt idy, PetscInt idz)
 {
+    PetscFunctionBeginUser;
     // Validate input pointers
     if (user == NULL || particle == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "FinalizeTraversal - One or more input pointers are NULL.\n");
@@ -996,10 +1049,12 @@ PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt tra
     LOG_ALLOW(LOCAL, LOG_INFO, "FinalizeTraversal - Completed final traversal sync across all ranks.\n");
 
 
-    return 0;
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "FindOwnerOfCell"
 /**
  * @brief Finds the MPI rank that owns a given global cell index.
  * @ingroup DomainInfo
@@ -1029,6 +1084,8 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
     PetscMPIInt size;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     ierr = MPI_Comm_size(PETSC_COMM_WORLD,&size); CHKERRQ(ierr);
 
@@ -1067,8 +1124,12 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
         LOG_ALLOW(LOCAL, LOG_DEBUG, "FindOwnerOfCell: Owner of cell (%d, %d, %d) is Rank %d.\n", i, j, k, *owner_rank);
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
+
+#undef  __FUNCT__
+#define __FUNCT__ "LocateParticleOrFindMigrationTarget_TEST"
 
 /**
  * @brief Locates a particle's host cell or identifies its migration target using a robust walk search.
@@ -1109,8 +1170,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget_TEST(UserCtx *user,
     PetscInt  last_position_result = -999;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    LOG_FUNC_TIMER_BEGIN_EVENT(EVENT_IndividualLocation, LOCAL);
 
     // --- 1. Initialize the Search ---
     ierr = InitializeTraversalParameters(user, particle, &idx, &idy, &idz, &traversal_steps); CHKERRQ(ierr);
@@ -1237,10 +1298,13 @@ PetscErrorCode LocateParticleOrFindMigrationTarget_TEST(UserCtx *user,
     // --- 4. Report the Final Outcome ---
     ierr = ReportSearchOutcome(particle, *status_out, traversal_steps); CHKERRQ(ierr);
     
-    LOG_FUNC_TIMER_END_EVENT(EVENT_IndividualLocation, LOCAL);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "ReportSearchOutcome"
 /**
  * @brief Logs the final outcome of the particle location search.
  */
@@ -1249,6 +1313,7 @@ PetscErrorCode ReportSearchOutcome(const Particle *particle,
                                           PetscInt traversal_steps)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     switch (status) {
         case ACTIVE_AND_LOCATED:
             LOG_ALLOW(LOCAL, LOG_INFO, "Search SUCCESS [PID %lld]: Located in global cell (%d, %d, %d) after %d steps.\n",
@@ -1266,5 +1331,6 @@ PetscErrorCode ReportSearchOutcome(const Particle *particle,
             LOG_ALLOW(LOCAL, LOG_WARNING, "Search ended with unexpected status %d for PID %lld.\n", status, (long long)particle->PID);
             break;
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

@@ -8,6 +8,9 @@
 
 #include "postprocessor.h" // Use our new header
 
+
+#undef __FUNCT__
+#define __FUNCT__ "SetupPostProcessSwarm"
 /**
  * @brief Creates a new, dedicated DMSwarm for post-processing tasks.
  *
@@ -21,6 +24,7 @@ PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     char *pipeline_copy, *step_token, *step_saveptr;
     PetscBool finalize_needed = PETSC_FALSE;
 
@@ -83,11 +87,13 @@ PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
         
     LOG_ALLOW(GLOBAL, LOG_INFO, "Post-Processing DMSwarm setup complete.\n");
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 
-
+#undef __FUNCT__
+#define __FUNCT__ "EulerianDataProcessingPipeline"
 /**
  * @brief Parses the processing pipeline string from the config and executes the requested kernels in sequence.
  *
@@ -107,6 +113,7 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
     char *pipeline_copy, *step_token, *step_saveptr;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Data Transformation Pipeline ---\n");
     
     // Do nothing if the pipeline string is empty
@@ -169,9 +176,13 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
 
     ierr = PetscFree(pipeline_copy); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Data Transformation Pipeline Complete ---\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "WriteEulerianFile"
 PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt ti)
 {
     PetscErrorCode ierr;
@@ -179,6 +190,7 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
     char           filename[MAX_FILENAME_LENGTH];
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     if (pps->output_fields_instantaneous[0] == '\0') {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "No instantaneous fields requested for output at ti=%" PetscInt_FMT ". Skipping.\n", ti);
@@ -445,9 +457,13 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
     ierr = CreateVTKFileFromMetadata(filename, &meta, PETSC_COMM_WORLD); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Eulerian File Writing for ti = %" PetscInt_FMT " Complete ---\n", ti);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "ParticleDataProcessingPipeline"
 /**
  * @brief Parses and executes the particle pipeline using a robust two-pass approach.
  *
@@ -473,6 +489,8 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
     char *pipeline_copy, *step_token, *step_saveptr;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     // --- Timestep Setup: Synchronize post_swarm size ---
     PetscInt n_global_source;
@@ -518,10 +536,13 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
     ierr = PetscFree(pipeline_copy); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Particle Data Transformation Pipeline Complete ---\n");
+
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "WriteParticleFile"
 /** 
  * @brief Writes particle data to a VTP file using the Prepare-Write-Cleanup pattern.
  */
@@ -533,6 +554,7 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
     PetscInt       n_total_particles_before_subsample;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // These checks can be done on all ranks
     if (!pps->outputParticles || pps->particle_fields[0] == '\0') {
@@ -573,6 +595,7 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Particle File Writing for ti = %" PetscInt_FMT " Complete ---\n", ti);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -667,6 +690,7 @@ int main(int argc, char **argv)
 
     // === VIII. FINALIZE =========================================================
    // ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
+    ierr = ProfilingFinalize(simCtx); CHKERRQ(ierr);
     ierr = PetscFinalize();
     return ierr;
 }
