@@ -1,4 +1,4 @@
---- No target specified. Defaulting to 'make all' for a full build. ---
+--- Executing make in '/root/PE/PICurv' with specified arguments: 'all' ---
 make: Entering directory '/root/PE/PICurv'
 Using PETSC_ARCH: arch-linux-c-debug
 ------------------------------------------------
@@ -19,8 +19,8 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/setup.c: In function ‘CreateSimulationContext’:
-src/setup.c:246:58: warning: passing argument 4 of ‘PetscOptionsGetString’ from incompatible pointer type [-Wincompatible-pointer-types]
-  246 |     ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",&simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
+src/setup.c:251:58: warning: passing argument 4 of ‘PetscOptionsGetString’ from incompatible pointer type [-Wincompatible-pointer-types]
+  251 |     ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",&simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
       |                                                          ^~~~~~~~~~~~~~~~~~~
       |                                                          |
       |                                                          char (*)[4096]
@@ -32,8 +32,8 @@ In file included from /root/software/petsc-3.20.3/include/petscsys.h:1198,
 /root/software/petsc-3.20.3/include/petscoptions.h:36:93: note: expected ‘char *’ but argument is of type ‘char (*)[4096]’
    36 | PETSC_EXTERN PetscErrorCode PetscOptionsGetString(PetscOptions, const char[], const char[], char[], size_t, PetscBool *);
       |                                                                                             ^~~~~~
-src/setup.c:247:59: warning: passing argument 4 of ‘PetscOptionsGetString’ from incompatible pointer type [-Wincompatible-pointer-types]
-  247 |     ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",&simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
+src/setup.c:252:59: warning: passing argument 4 of ‘PetscOptionsGetString’ from incompatible pointer type [-Wincompatible-pointer-types]
+  252 |     ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",&simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
       |                                                           ^~~~~~~~~~~~~~~~~~~~
       |                                                           |
       |                                                           char (*)[4096]
@@ -45,8 +45,8 @@ In file included from /root/software/petsc-3.20.3/include/petscsys.h:1198,
 /root/software/petsc-3.20.3/include/petscoptions.h:36:93: note: expected ‘char *’ but argument is of type ‘char (*)[4096]’
    36 | PETSC_EXTERN PetscErrorCode PetscOptionsGetString(PetscOptions, const char[], const char[], char[], size_t, PetscBool *);
       |                                                                                             ^~~~~~
-src/setup.c:248:55: warning: passing argument 4 of ‘PetscOptionsGetString’ from incompatible pointer type [-Wincompatible-pointer-types]
-  248 |     ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",&simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
+src/setup.c:253:55: warning: passing argument 4 of ‘PetscOptionsGetString’ from incompatible pointer type [-Wincompatible-pointer-types]
+  253 |     ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",&simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
       |                                                       ^~~~~~~~~~~~~~~~
       |                                                       |
       |                                                       char (*)[4096]
@@ -66,35 +66,42 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/logging.c: In function ‘PrintProgressBar’:
-src/logging.c:1191:51: warning: format ‘%ld’ expects argument of type ‘long int’, but argument 4 has type ‘int’ [-Wformat=]
- 1191 |     PetscPrintf(PETSC_COMM_SELF, "] %3d%% (Step %ld/%ld, t=%.4f)",
+src/logging.c:1213:51: warning: format ‘%ld’ expects argument of type ‘long int’, but argument 4 has type ‘int’ [-Wformat=]
+ 1213 |     PetscPrintf(PETSC_COMM_SELF, "] %3d%% (Step %ld/%ld, t=%.4f)",
       |                                                 ~~^
       |                                                   |
       |                                                   long int
       |                                                 %d
- 1192 |                 (int)(progress * 100.0),
- 1193 |                 step + 1,
+ 1214 |                 (int)(progress * 100.0),
+ 1215 |                 step + 1,
       |                 ~~~~~~~~                           
       |                      |
       |                      int
-src/logging.c:1191:55: warning: format ‘%ld’ expects argument of type ‘long int’, but argument 5 has type ‘PetscInt’ {aka ‘int’} [-Wformat=]
- 1191 |     PetscPrintf(PETSC_COMM_SELF, "] %3d%% (Step %ld/%ld, t=%.4f)",
+src/logging.c:1213:55: warning: format ‘%ld’ expects argument of type ‘long int’, but argument 5 has type ‘PetscInt’ {aka ‘int’} [-Wformat=]
+ 1213 |     PetscPrintf(PETSC_COMM_SELF, "] %3d%% (Step %ld/%ld, t=%.4f)",
       |                                                     ~~^
       |                                                       |
       |                                                       long int
       |                                                     %d
 ......
- 1194 |                 startStep + totalSteps,
+ 1216 |                 startStep + totalSteps,
       |                 ~~~~~~~~~~~~~~~~~~~~~~                 
       |                           |
       |                           PetscInt {aka int}
 src/logging.c: In function ‘LOG_CONTINUITY_METRICS’:
-src/logging.c:863:25: warning: ‘%s’ directive writing up to 4095 bytes into a region of size 128 [-Wformat-overflow=]
-  863 |         sprintf(filen, "%s/Continuity_Metrics.log",simCtx->log_dir);
+src/logging.c:853:25: warning: ‘%s’ directive writing up to 4095 bytes into a region of size 128 [-Wformat-overflow=]
+  853 |         sprintf(filen, "%s/Continuity_Metrics.log",simCtx->log_dir);
       |                         ^~
-src/logging.c:863:9: note: ‘sprintf’ output between 24 and 4119 bytes into a destination of size 128
-  863 |         sprintf(filen, "%s/Continuity_Metrics.log",simCtx->log_dir);
+src/logging.c:853:9: note: ‘sprintf’ output between 24 and 4119 bytes into a destination of size 128
+  853 |         sprintf(filen, "%s/Continuity_Metrics.log",simCtx->log_dir);
       |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+src/logging.c: In function ‘ProfilingFinalize’:
+src/logging.c:1091:25: warning: ‘%s’ directive writing up to 4095 bytes into a region of size 128 [-Wformat-overflow=]
+ 1091 |         sprintf(filen, "%s/ProfilingSummary.log",simCtx->log_dir);
+      |                         ^~
+src/logging.c:1091:9: note: ‘sprintf’ output between 22 and 4117 bytes into a destination of size 128
+ 1091 |         sprintf(filen, "%s/ProfilingSummary.log",simCtx->log_dir);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 --- Compiling: src/grid.c ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0 -I/root/software/petsc-3.20.3/include -I/root/software/petsc-3.20.3/arch-linux-c-debug/include -Wall -g -O0 -Iinclude -c src/grid.c -o obj/grid.o
 In file included from include/grid.h:6,
@@ -103,8 +110,8 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/grid.c: In function ‘CalculateInletCenter’:
-src/grid.c:955:20: warning: unused variable ‘da’ [-Wunused-variable]
-  955 |     DM             da = user->da;
+src/grid.c:1034:20: warning: unused variable ‘da’ [-Wunused-variable]
+ 1034 |     DM             da = user->da;
       |                    ^~
 --- Compiling: src/io.c ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0 -I/root/software/petsc-3.20.3/include -I/root/software/petsc-3.20.3/arch-linux-c-debug/include -Wall -g -O0 -Iinclude -c src/io.c -o obj/io.o
@@ -114,8 +121,8 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/io.c: In function ‘SwarmFieldToArrayOnRank0’:
-src/io.c:1850:20: warning: unused variable ‘mpi_type’ [-Wunused-variable]
- 1850 |     MPI_Datatype   mpi_type = MPI_BYTE; // We'll send raw bytes
+src/io.c:1865:20: warning: unused variable ‘mpi_type’ [-Wunused-variable]
+ 1865 |     MPI_Datatype   mpi_type = MPI_BYTE; // We'll send raw bytes
       |                    ^~~~~~~~
 --- Compiling: src/Metric.c ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0 -I/root/software/petsc-3.20.3/include -I/root/software/petsc-3.20.3/arch-linux-c-debug/include -Wall -g -O0 -Iinclude -c src/Metric.c -o obj/Metric.o
@@ -124,21 +131,27 @@ In file included from include/Metric.h:6,
 include/variables.h:95:16: warning: useless storage class specifier in empty declaration
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
+src/Metric.c:72: warning: "__FUNCT__" redefined
+   72 | #define __FUNCT__ "MetricLogicalToPhysical"
+      | 
+src/Metric.c:44: note: this is the location of the previous definition
+   44 | #define __FUNCT__ "TrilinearBlend"
+      | 
 src/Metric.c: In function ‘ComputeIFaceMetrics’:
-src/Metric.c:762:14: warning: variable ‘lxs’ set but not used [-Wunused-but-set-variable]
-  762 |     PetscInt lxs = xs; PetscInt lxe = xe;
+src/Metric.c:815:14: warning: variable ‘lxs’ set but not used [-Wunused-but-set-variable]
+  815 |     PetscInt lxs = xs; PetscInt lxe = xe;
       |              ^~~
 src/Metric.c: In function ‘ComputeJFaceMetrics’:
-src/Metric.c:967:14: warning: variable ‘lys’ set but not used [-Wunused-but-set-variable]
-  967 |     PetscInt lys = ys; PetscInt lye = ye;
+src/Metric.c:1025:14: warning: variable ‘lys’ set but not used [-Wunused-but-set-variable]
+ 1025 |     PetscInt lys = ys; PetscInt lye = ye;
       |              ^~~
 src/Metric.c: In function ‘ComputeKFaceMetrics’:
-src/Metric.c:1171:14: warning: variable ‘lzs’ set but not used [-Wunused-but-set-variable]
- 1171 |     PetscInt lzs = zs; PetscInt lze = ze;
+src/Metric.c:1234:14: warning: variable ‘lzs’ set but not used [-Wunused-but-set-variable]
+ 1234 |     PetscInt lzs = zs; PetscInt lze = ze;
       |              ^~~
 src/Metric.c: In function ‘ComputeMetricsDivergence’:
-src/Metric.c:1475:15: warning: passing argument 2 of ‘VecMax’ from incompatible pointer type [-Wincompatible-pointer-types]
- 1475 |   VecMax(Div, &MaxFlatIndex, &maxdiv);
+src/Metric.c:1550:15: warning: passing argument 2 of ‘VecMax’ from incompatible pointer type [-Wincompatible-pointer-types]
+ 1550 |   VecMax(Div, &MaxFlatIndex, &maxdiv);
       |               ^~~~~~~~~~~~~
       |               |
       |               PetscReal * {aka double *}
@@ -150,14 +163,14 @@ In file included from /root/software/petsc-3.20.3/include/petscsf.h:8,
       |                                         ^~~~~~~~~~
 In file included from include/Metric.h:7,
                  from src/Metric.c:14:
-include/logging.h:211:31: warning: format ‘%d’ expects argument of type ‘int’, but argument 5 has type ‘PetscReal’ {aka ‘double’} [-Wformat=]
-  211 |             PetscPrintf(comm, "[%s] " fmt, __func__, ##__VA_ARGS__); \
+include/logging.h:203:31: warning: format ‘%d’ expects argument of type ‘int’, but argument 5 has type ‘PetscReal’ {aka ‘double’} [-Wformat=]
+  203 |             PetscPrintf(comm, "[%s] " fmt, __func__, ##__VA_ARGS__); \
       |                               ^~~~~~~
-src/Metric.c:1476:3: note: in expansion of macro ‘LOG_ALLOW’
- 1476 |   LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence is %e at flat index %d.\n",maxdiv,MaxFlatIndex);
+src/Metric.c:1551:3: note: in expansion of macro ‘LOG_ALLOW’
+ 1551 |   LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence is %e at flat index %d.\n",maxdiv,MaxFlatIndex);
       |   ^~~~~~~~~
-src/Metric.c:1476:81: note: format string is defined here
- 1476 |   LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence is %e at flat index %d.\n",maxdiv,MaxFlatIndex);
+src/Metric.c:1551:81: note: format string is defined here
+ 1551 |   LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence is %e at flat index %d.\n",maxdiv,MaxFlatIndex);
       |                                                                                ~^
       |                                                                                 |
       |                                                                                 int
@@ -170,17 +183,17 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/Boundaries.c: In function ‘InflowFlux’:
-src/Boundaries.c:479:3: warning: this ‘if’ clause does not guard... [-Wmisleading-indentation]
-  479 |   if (xs==0) lxs = xs+1; if (ys==0) lys = ys+1; if (zs==0) lzs = zs+1;
+src/Boundaries.c:511:3: warning: this ‘if’ clause does not guard... [-Wmisleading-indentation]
+  511 |   if (xs==0) lxs = xs+1; if (ys==0) lys = ys+1; if (zs==0) lzs = zs+1;
       |   ^~
-src/Boundaries.c:479:26: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘if’
-  479 |   if (xs==0) lxs = xs+1; if (ys==0) lys = ys+1; if (zs==0) lzs = zs+1;
+src/Boundaries.c:511:26: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘if’
+  511 |   if (xs==0) lxs = xs+1; if (ys==0) lys = ys+1; if (zs==0) lzs = zs+1;
       |                          ^~
-src/Boundaries.c:480:3: warning: this ‘if’ clause does not guard... [-Wmisleading-indentation]
-  480 |   if (xe==mx) lxe = xe-1; if (ye==my) lye = ye-1; if (ze==mz) lze = ze-1;
+src/Boundaries.c:512:3: warning: this ‘if’ clause does not guard... [-Wmisleading-indentation]
+  512 |   if (xe==mx) lxe = xe-1; if (ye==my) lye = ye-1; if (ze==mz) lze = ze-1;
       |   ^~
-src/Boundaries.c:480:27: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘if’
-  480 |   if (xe==mx) lxe = xe-1; if (ye==my) lye = ye-1; if (ze==mz) lze = ze-1;
+src/Boundaries.c:512:27: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘if’
+  512 |   if (xe==mx) lxe = xe-1; if (ye==my) lye = ye-1; if (ze==mz) lze = ze-1;
       |                           ^~
 In file included from /root/software/petsc-3.20.3/include/petscsys.h:1369,
                  from /root/software/petsc-3.20.3/include/petscvec.h:8,
@@ -191,107 +204,107 @@ src/Boundaries.c: In function ‘FormBCS’:
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:933:3: note: in expansion of macro ‘MPI_Allreduce’
-  933 |   MPI_Allreduce(&FarFluxIn,&FarFluxInSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:980:3: note: in expansion of macro ‘MPI_Allreduce’
+  980 |   MPI_Allreduce(&FarFluxIn,&FarFluxInSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:934:3: note: in expansion of macro ‘MPI_Allreduce’
-  934 |   MPI_Allreduce(&FarFluxOut,&FarFluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:981:3: note: in expansion of macro ‘MPI_Allreduce’
+  981 |   MPI_Allreduce(&FarFluxOut,&FarFluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:935:3: note: in expansion of macro ‘MPI_Allreduce’
-  935 |   MPI_Allreduce(&lFlux_abs,&FluxSum_abs,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:982:3: note: in expansion of macro ‘MPI_Allreduce’
+  982 |   MPI_Allreduce(&lFlux_abs,&FluxSum_abs,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:936:3: note: in expansion of macro ‘MPI_Allreduce’
-  936 |   MPI_Allreduce(&FarAreaIn,&FarAreaInSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:983:3: note: in expansion of macro ‘MPI_Allreduce’
+  983 |   MPI_Allreduce(&FarAreaIn,&FarAreaInSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:937:3: note: in expansion of macro ‘MPI_Allreduce’
-  937 |   MPI_Allreduce(&FarAreaOut,&FarAreaOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:984:3: note: in expansion of macro ‘MPI_Allreduce’
+  984 |   MPI_Allreduce(&FarAreaOut,&FarAreaOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:1318:5: note: in expansion of macro ‘MPI_Allreduce’
- 1318 |     MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:1365:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1365 |     MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:1385:5: note: in expansion of macro ‘MPI_Allreduce’
- 1385 |     MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:1432:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1432 |     MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:1386:5: note: in expansion of macro ‘MPI_Allreduce’
- 1386 |     MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:1433:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1433 |     MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:1439:5: note: in expansion of macro ‘MPI_Allreduce’
- 1439 |     MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:1486:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1486 |     MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:1484:5: note: in expansion of macro ‘MPI_Allreduce’
- 1484 |     MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:1531:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1531 |     MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:1485:5: note: in expansion of macro ‘MPI_Allreduce’
- 1485 |     MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:1532:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1532 |     MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:1625:5: note: in expansion of macro ‘MPI_Allreduce’
- 1625 |     MPI_Allreduce(&FluxIn,&simCtx->Fluxsum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:1672:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1672 |     MPI_Allreduce(&FluxIn,&simCtx->Fluxsum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:1626:5: note: in expansion of macro ‘MPI_Allreduce’
- 1626 |     MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:1673:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1673 |     MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/Boundaries.c:1627:5: note: in expansion of macro ‘MPI_Allreduce’
- 1627 |     MPI_Allreduce(&Fluxbcs,&Fluxbcssum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/Boundaries.c:1674:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1674 |     MPI_Allreduce(&Fluxbcs,&Fluxbcssum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
-src/Boundaries.c:1849:25: warning: unused variable ‘nk’ [-Wunused-variable]
- 1849 |    double ni[3], nj[3], nk[3];
+src/Boundaries.c:1896:25: warning: unused variable ‘nk’ [-Wunused-variable]
+ 1896 |    double ni[3], nj[3], nk[3];
       |                         ^~
-src/Boundaries.c:1849:11: warning: unused variable ‘ni’ [-Wunused-variable]
- 1849 |    double ni[3], nj[3], nk[3];
+src/Boundaries.c:1896:11: warning: unused variable ‘ni’ [-Wunused-variable]
+ 1896 |    double ni[3], nj[3], nk[3];
       |           ^~
-src/Boundaries.c:788:37: warning: variable ‘gze’ set but not used [-Wunused-but-set-variable]
-  788 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
+src/Boundaries.c:832:37: warning: variable ‘gze’ set but not used [-Wunused-but-set-variable]
+  832 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
       |                                     ^~~
-src/Boundaries.c:788:27: warning: variable ‘gye’ set but not used [-Wunused-but-set-variable]
-  788 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
+src/Boundaries.c:832:27: warning: variable ‘gye’ set but not used [-Wunused-but-set-variable]
+  832 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
       |                           ^~~
-src/Boundaries.c:788:17: warning: variable ‘gxe’ set but not used [-Wunused-but-set-variable]
-  788 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
+src/Boundaries.c:832:17: warning: variable ‘gxe’ set but not used [-Wunused-but-set-variable]
+  832 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
       |                 ^~~
-src/Boundaries.c:778:17: warning: variable ‘V_frame’ set but not used [-Wunused-but-set-variable]
-  778 |   Cmpnts        V_frame;
+src/Boundaries.c:822:17: warning: variable ‘V_frame’ set but not used [-Wunused-but-set-variable]
+  822 |   Cmpnts        V_frame;
       |                 ^~~~~~~
-src/Boundaries.c:772:31: warning: unused variable ‘ratio’ [-Wunused-variable]
-  772 |   PetscScalar FluxIn, FluxOut,ratio;
+src/Boundaries.c:816:31: warning: unused variable ‘ratio’ [-Wunused-variable]
+  816 |   PetscScalar FluxIn, FluxOut,ratio;
       |                               ^~~~~
 --- Compiling: src/wallfunction.c ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0 -I/root/software/petsc-3.20.3/include -I/root/software/petsc-3.20.3/arch-linux-c-debug/include -Wall -g -O0 -Iinclude -c src/wallfunction.c -o obj/wallfunction.o
@@ -345,15 +358,15 @@ In file included from /root/software/petsc-3.20.3/include/petscsys.h:1112,
                  from include/ParticleMotion.h:12,
                  from src/ParticleMotion.c:3:
 src/ParticleMotion.c: In function ‘CalculateParticleCountPerCell’:
-src/ParticleMotion.c:737:154: warning: format not a string literal and no format arguments [-Wformat-security]
-  737 |      if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %d.", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
+src/ParticleMotion.c:626:154: warning: format not a string literal and no format arguments [-Wformat-security]
+  626 |      if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %d.", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
       |                                                                                                                                                          ^~~
 /root/software/petsc-3.20.3/include/petscerror.h:56:127: note: in definition of macro ‘SETERRQ’
    56 |     PetscErrorCode ierr_seterrq_petsc_ = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__, ierr, PETSC_ERROR_INITIAL, __VA_ARGS__); \
       |                                                                                                                               ^~~~~~~~~~~
 At top level:
-src/ParticleMotion.c:1181:12: warning: ‘compare_PetscInt64’ defined but not used [-Wunused-function]
- 1181 | static int compare_PetscInt64(const void *a, const void *b) {
+src/ParticleMotion.c:1086:12: warning: ‘compare_PetscInt64’ defined but not used [-Wunused-function]
+ 1086 | static int compare_PetscInt64(const void *a, const void *b) {
       |            ^~~~~~~~~~~~~~~~~~
 --- Compiling: src/interpolation.c ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0 -I/root/software/petsc-3.20.3/include -I/root/software/petsc-3.20.3/arch-linux-c-debug/include -Wall -g -O0 -Iinclude -c src/interpolation.c -o obj/interpolation.o
@@ -363,24 +376,24 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/interpolation.c: In function ‘InterpolateFieldFromCenterToCorner_Vector’:
-src/interpolation.c:404:14: warning: unused variable ‘KM’ [-Wunused-variable]
-  404 |     PetscInt KM = MZ_node - 1; // Max cell index k
+src/interpolation.c:434:14: warning: unused variable ‘KM’ [-Wunused-variable]
+  434 |     PetscInt KM = MZ_node - 1; // Max cell index k
       |              ^~
-src/interpolation.c:403:14: warning: unused variable ‘JM’ [-Wunused-variable]
-  403 |     PetscInt JM = MY_node - 1; // Max cell index j
+src/interpolation.c:433:14: warning: unused variable ‘JM’ [-Wunused-variable]
+  433 |     PetscInt JM = MY_node - 1; // Max cell index j
       |              ^~
-src/interpolation.c:402:14: warning: unused variable ‘IM’ [-Wunused-variable]
-  402 |     PetscInt IM = MX_node - 1; // Max cell index i
+src/interpolation.c:432:14: warning: unused variable ‘IM’ [-Wunused-variable]
+  432 |     PetscInt IM = MX_node - 1; // Max cell index i
       |              ^~
 src/interpolation.c: In function ‘InterpolateFieldFromCenterToCorner_Vector_Petsc’:
-src/interpolation.c:627:14: warning: unused variable ‘gzs’ [-Wunused-variable]
-  627 |     PetscInt gzs = info_nodes.gzs;
+src/interpolation.c:663:14: warning: unused variable ‘gzs’ [-Wunused-variable]
+  663 |     PetscInt gzs = info_nodes.gzs;
       |              ^~~
-src/interpolation.c:626:14: warning: unused variable ‘gys’ [-Wunused-variable]
-  626 |     PetscInt gys = info_nodes.gys;
+src/interpolation.c:662:14: warning: unused variable ‘gys’ [-Wunused-variable]
+  662 |     PetscInt gys = info_nodes.gys;
       |              ^~~
-src/interpolation.c:625:14: warning: unused variable ‘gxs’ [-Wunused-variable]
-  625 |     PetscInt gxs = info_nodes.gxs;
+src/interpolation.c:661:14: warning: unused variable ‘gxs’ [-Wunused-variable]
+  661 |     PetscInt gxs = info_nodes.gxs;
       |              ^~~
 In file included from /root/software/petsc-3.20.3/include/petscsys.h:1112,
                  from /root/software/petsc-3.20.3/include/petscvec.h:8,
@@ -388,47 +401,47 @@ In file included from /root/software/petsc-3.20.3/include/petscsys.h:1112,
                  from include/interpolation.h:4,
                  from src/interpolation.c:10:
 src/interpolation.c: In function ‘GetScatterTargetInfo’:
-src/interpolation.c:1822:55: warning: format not a string literal and no format arguments [-Wformat-security]
- 1822 |         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); // Use WRONG argument error code
+src/interpolation.c:1651:55: warning: format not a string literal and no format arguments [-Wformat-security]
+ 1651 |         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); // Use WRONG argument error code
       |                                                       ^~~
 /root/software/petsc-3.20.3/include/petscerror.h:56:127: note: in definition of macro ‘SETERRQ’
    56 |     PetscErrorCode ierr_seterrq_petsc_ = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__, ierr, PETSC_ERROR_INITIAL, __VA_ARGS__); \
       |                                                                                                                               ^~~~~~~~~~~
 src/interpolation.c: In function ‘AccumulateParticleField’:
-src/interpolation.c:1871:55: warning: format not a string literal and no format arguments [-Wformat-security]
- 1871 |         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg);
+src/interpolation.c:1707:55: warning: format not a string literal and no format arguments [-Wformat-security]
+ 1707 |         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg);
       |                                                       ^~~
 /root/software/petsc-3.20.3/include/petscerror.h:56:127: note: in definition of macro ‘SETERRQ’
    56 |     PetscErrorCode ierr_seterrq_petsc_ = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__, ierr, PETSC_ERROR_INITIAL, __VA_ARGS__); \
       |                                                                                                                               ^~~~~~~~~~~
 src/interpolation.c: In function ‘NormalizeGridVectorByCount’:
-src/interpolation.c:1977:153: warning: format not a string literal and no format arguments [-Wformat-security]
- 1977 |     if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %d.", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
+src/interpolation.c:1821:153: warning: format not a string literal and no format arguments [-Wformat-security]
+ 1821 |     if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %d.", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
       |                                                                                                                                                         ^~~
 /root/software/petsc-3.20.3/include/petscerror.h:56:127: note: in definition of macro ‘SETERRQ’
    56 |     PetscErrorCode ierr_seterrq_petsc_ = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__, ierr, PETSC_ERROR_INITIAL, __VA_ARGS__); \
       |                                                                                                                               ^~~~~~~~~~~
-src/interpolation.c:1978:170: warning: format not a string literal and no format arguments [-Wformat-security]
- 1978 |     if (data_dof != 1 && data_dof != 3) { PetscSNPrintf(msg, sizeof(msg), "dataDM DOF must be 1 or 3, got %d.", data_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
+src/interpolation.c:1822:170: warning: format not a string literal and no format arguments [-Wformat-security]
+ 1822 |     if (data_dof != 1 && data_dof != 3) { PetscSNPrintf(msg, sizeof(msg), "dataDM DOF must be 1 or 3, got %d.", data_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
       |                                                                                                                                                                          ^~~
 /root/software/petsc-3.20.3/include/petscerror.h:56:127: note: in definition of macro ‘SETERRQ’
    56 |     PetscErrorCode ierr_seterrq_petsc_ = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__, ierr, PETSC_ERROR_INITIAL, __VA_ARGS__); \
       |                                                                                                                               ^~~~~~~~~~~
 src/interpolation.c: In function ‘ScatterParticleFieldToEulerField’:
-src/interpolation.c:2180:61: warning: format not a string literal and no format arguments [-Wformat-security]
- 2180 |          SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, msg);
+src/interpolation.c:2040:61: warning: format not a string literal and no format arguments [-Wformat-security]
+ 2040 |          SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, msg);
       |                                                             ^~~
 /root/software/petsc-3.20.3/include/petscerror.h:56:127: note: in definition of macro ‘SETERRQ’
    56 |     PetscErrorCode ierr_seterrq_petsc_ = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__, ierr, PETSC_ERROR_INITIAL, __VA_ARGS__); \
       |                                                                                                                               ^~~~~~~~~~~
-src/interpolation.c:2191:56: warning: format not a string literal and no format arguments [-Wformat-security]
- 2191 |         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, msg);
+src/interpolation.c:2051:56: warning: format not a string literal and no format arguments [-Wformat-security]
+ 2051 |         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, msg);
       |                                                        ^~~
 /root/software/petsc-3.20.3/include/petscerror.h:56:127: note: in definition of macro ‘SETERRQ’
    56 |     PetscErrorCode ierr_seterrq_petsc_ = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__, ierr, PETSC_ERROR_INITIAL, __VA_ARGS__); \
       |                                                                                                                               ^~~~~~~~~~~
-src/interpolation.c:2196:57: warning: format not a string literal and no format arguments [-Wformat-security]
- 2196 |          SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, msg);
+src/interpolation.c:2056:57: warning: format not a string literal and no format arguments [-Wformat-security]
+ 2056 |          SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, msg);
       |                                                         ^~~
 /root/software/petsc-3.20.3/include/petscerror.h:56:127: note: in definition of macro ‘SETERRQ’
    56 |     PetscErrorCode ierr_seterrq_petsc_ = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__, ierr, PETSC_ERROR_INITIAL, __VA_ARGS__); \
@@ -447,15 +460,15 @@ In file included from include/rhs.h:4,
 include/variables.h:95:16: warning: useless storage class specifier in empty declaration
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
-src/rhs.c: In function ‘FormFunction1’:
-src/rhs.c:1254:37: warning: unused variable ‘ucont’ [-Wunused-variable]
- 1254 |     Cmpnts ***rhs, ***rc, ***rct,***ucont;
+src/rhs.c: In function ‘ComputeRHS’:
+src/rhs.c:1284:37: warning: unused variable ‘ucont’ [-Wunused-variable]
+ 1284 |     Cmpnts ***rhs, ***rc, ***rct,***ucont;
       |                                     ^~~~~
-src/rhs.c:1253:65: warning: unused variable ‘nvert_o’ [-Wunused-variable]
- 1253 |     PetscReal ***p, ***iaj, ***jaj, ***kaj, ***aj, ***nvert, ***nvert_o;
+src/rhs.c:1283:65: warning: unused variable ‘nvert_o’ [-Wunused-variable]
+ 1283 |     PetscReal ***p, ***iaj, ***jaj, ***kaj, ***aj, ***nvert, ***nvert_o;
       |                                                                 ^~~~~~~
-src/rhs.c:1249:14: warning: unused variable ‘mz_end’ [-Wunused-variable]
- 1249 |     PetscInt mz_end = (user->bctype[5] == 8) ? mz - 2 : mz - 3;
+src/rhs.c:1279:14: warning: unused variable ‘mz_end’ [-Wunused-variable]
+ 1279 |     PetscInt mz_end = (user->bctype[5] == 8) ? mz - 2 : mz - 3;
       |              ^~~~~~
 --- Compiling: src/solvers.c ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0 -I/root/software/petsc-3.20.3/include -I/root/software/petsc-3.20.3/arch-linux-c-debug/include -Wall -g -O0 -Iinclude -c src/solvers.c -o obj/solvers.o
@@ -465,21 +478,9 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/solvers.c: In function ‘Flow_Solver’:
-src/solvers.c:97:16: warning: implicit declaration of function ‘ImpRK’ [-Wimplicit-function-declaration]
-   97 |         ierr = ImpRK(user, NULL, NULL); CHKERRQ(ierr);
+src/solvers.c:95:16: warning: implicit declaration of function ‘ImpRK’ [-Wimplicit-function-declaration]
+   95 |         ierr = ImpRK(user, NULL, NULL); CHKERRQ(ierr);
       |                ^~~~~
-src/solvers.c:134:11: warning: implicit declaration of function ‘PoissonSolver_MG’ [-Wimplicit-function-declaration]
-  134 |    ierr = PoissonSolver_MG(usermg); CHKERRQ(ierr);
-      |           ^~~~~~~~~~~~~~~~
-src/solvers.c:151:16: warning: implicit declaration of function ‘UpdatePressure’ [-Wimplicit-function-declaration]
-  151 |         ierr = UpdatePressure(&user[bi]); CHKERRQ(ierr);
-      |                ^~~~~~~~~~~~~~
-src/solvers.c:154:16: warning: implicit declaration of function ‘Projection’ [-Wimplicit-function-declaration]
-  154 |         ierr = Projection(&user[bi]); CHKERRQ(ierr);
-      |                ^~~~~~~~~~
-src/solvers.c:186:9: warning: implicit declaration of function ‘Divergence’ [-Wimplicit-function-declaration]
-  186 |  ierr = Divergence(&user[bi]); CHKERRQ(ierr);
-      |         ^~~~~~~~~~
 --- Compiling: src/implicitsolvers.c ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0 -I/root/software/petsc-3.20.3/include -I/root/software/petsc-3.20.3/arch-linux-c-debug/include -Wall -g -O0 -Iinclude -c src/implicitsolvers.c -o obj/implicitsolvers.o
 In file included from include/implicitsolvers.h:4,
@@ -488,17 +489,17 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/implicitsolvers.c: In function ‘ImpRK’:
-src/implicitsolvers.c:160:37: warning: unused variable ‘ibi’ [-Wunused-variable]
-  160 |     PetscInt       istage, pseudot, ibi;
+src/implicitsolvers.c:166:37: warning: unused variable ‘ibi’ [-Wunused-variable]
+  166 |     PetscInt       istage, pseudot, ibi;
       |                                     ^~~
-src/implicitsolvers.c:147:20: warning: unused variable ‘immersed’ [-Wunused-variable]
-  147 |     const PetscInt immersed = simCtx->immersed;
+src/implicitsolvers.c:153:20: warning: unused variable ‘immersed’ [-Wunused-variable]
+  153 |     const PetscInt immersed = simCtx->immersed;
       |                    ^~~~~~~~
-src/implicitsolvers.c:323:33: warning: ‘%s’ directive writing up to 4095 bytes into a region of size 80 [-Wformat-overflow=]
-  323 |                 sprintf(filen, "%s/Momentum_Solver_Convergence_History_Block_%1d.log", simCtx->log_dir,bi);
+src/implicitsolvers.c:329:33: warning: ‘%s’ directive writing up to 4095 bytes into a region of size 80 [-Wformat-overflow=]
+  329 |                 sprintf(filen, "%s/Momentum_Solver_Convergence_History_Block_%1d.log", simCtx->log_dir,bi);
       |                                 ^~
-src/implicitsolvers.c:323:17: note: ‘sprintf’ output between 49 and 4154 bytes into a destination of size 80
-  323 |                 sprintf(filen, "%s/Momentum_Solver_Convergence_History_Block_%1d.log", simCtx->log_dir,bi);
+src/implicitsolvers.c:329:17: note: ‘sprintf’ output between 49 and 4154 bytes into a destination of size 80
+  329 |                 sprintf(filen, "%s/Momentum_Solver_Convergence_History_Block_%1d.log", simCtx->log_dir,bi);
       |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 --- Compiling: src/poisson.c ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0 -I/root/software/petsc-3.20.3/include -I/root/software/petsc-3.20.3/arch-linux-c-debug/include -Wall -g -O0 -Iinclude -c src/poisson.c -o obj/poisson.o
@@ -508,26 +509,26 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/poisson.c: In function ‘GhostNodeVelocity’:
-src/poisson.c:513:1: warning: "/*" within comment [-Wcomment]
-  513 | /* ==================================================================================             */
+src/poisson.c:466:1: warning: "/*" within comment [-Wcomment]
+  466 | /* ==================================================================================             */
       |  
-src/poisson.c:93:37: warning: variable ‘gze’ set but not used [-Wunused-but-set-variable]
-   93 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
+src/poisson.c:42:37: warning: variable ‘gze’ set but not used [-Wunused-but-set-variable]
+   42 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
       |                                     ^~~
-src/poisson.c:93:27: warning: variable ‘gye’ set but not used [-Wunused-but-set-variable]
-   93 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
+src/poisson.c:42:27: warning: variable ‘gye’ set but not used [-Wunused-but-set-variable]
+   42 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
       |                           ^~~
-src/poisson.c:93:17: warning: variable ‘gxe’ set but not used [-Wunused-but-set-variable]
-   93 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
+src/poisson.c:42:17: warning: variable ‘gxe’ set but not used [-Wunused-but-set-variable]
+   42 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
       |                 ^~~
-src/poisson.c:70:18: warning: unused variable ‘ti’ [-Wunused-variable]
-   70 |   const PetscInt ti = simCtx->step;
+src/poisson.c:19:18: warning: unused variable ‘ti’ [-Wunused-variable]
+   19 |   const PetscInt ti = simCtx->step;
       |                  ^~
-src/poisson.c:69:18: warning: unused variable ‘rans’ [-Wunused-variable]
-   69 |   const PetscInt rans = simCtx->rans;
+src/poisson.c:18:18: warning: unused variable ‘rans’ [-Wunused-variable]
+   18 |   const PetscInt rans = simCtx->rans;
       |                  ^~~~
-src/poisson.c:68:18: warning: unused variable ‘les’ [-Wunused-variable]
-   68 |   const PetscInt les = simCtx->les;
+src/poisson.c:17:18: warning: unused variable ‘les’ [-Wunused-variable]
+   17 |   const PetscInt les = simCtx->les;
       |                  ^~~
 In file included from /root/software/petsc-3.20.3/include/petscsys.h:1369,
                  from /root/software/petsc-3.20.3/include/petscvec.h:8,
@@ -538,46 +539,46 @@ src/poisson.c: In function ‘PoissonNullSpaceFunction’:
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:1775:5: note: in expansion of macro ‘MPI_Allreduce’
- 1775 |     MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/poisson.c:1739:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1739 |     MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:1776:5: note: in expansion of macro ‘MPI_Allreduce’
- 1776 |     MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/poisson.c:1740:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1740 |     MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:1804:5: note: in expansion of macro ‘MPI_Allreduce’
- 1804 |     MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/poisson.c:1768:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1768 |     MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:1805:5: note: in expansion of macro ‘MPI_Allreduce’
- 1805 |     MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/poisson.c:1769:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1769 |     MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:1831:5: note: in expansion of macro ‘MPI_Allreduce’
- 1831 |     MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/poisson.c:1795:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1795 |     MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:1832:5: note: in expansion of macro ‘MPI_Allreduce’
- 1832 |     MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/poisson.c:1796:5: note: in expansion of macro ‘MPI_Allreduce’
+ 1796 |     MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 src/poisson.c: In function ‘PoissonLHSNew’:
-src/poisson.c:2276:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
- 2276 |     MatCreateAIJ(PETSC_COMM_WORLD, M, M, N, N, 19, PETSC_NULL, 19, PETSC_NULL, &(user->A));
+src/poisson.c:2244:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
+ 2244 |     MatCreateAIJ(PETSC_COMM_WORLD, M, M, N, N, 19, PETSC_NULL, 19, PETSC_NULL, &(user->A));
       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                                                                             
-src/poisson.c:2276:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
-src/poisson.c:2251:11: warning: unused variable ‘simCtx’ [-Wunused-variable]
- 2251 |   SimCtx *simCtx = user->simCtx;
+src/poisson.c:2244:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
+src/poisson.c:2219:11: warning: unused variable ‘simCtx’ [-Wunused-variable]
+ 2219 |   SimCtx *simCtx = user->simCtx;
       |           ^~~~~~
 In file included from /root/software/petsc-3.20.3/include/petscsys.h:1369,
                  from /root/software/petsc-3.20.3/include/petscvec.h:8,
@@ -588,36 +589,36 @@ src/poisson.c: In function ‘PoissonRHS’:
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:2900:3: note: in expansion of macro ‘MPI_Allreduce’
- 2900 |   MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:2875:3: note: in expansion of macro ‘MPI_Allreduce’
+ 2875 |   MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 src/poisson.c: In function ‘VolumeFlux_rev’:
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3012:3: note: in expansion of macro ‘MPI_Allreduce’
- 3012 |   MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:2989:3: note: in expansion of macro ‘MPI_Allreduce’
+ 2989 |   MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3013:3: note: in expansion of macro ‘MPI_Allreduce’
- 3013 |   MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:2990:3: note: in expansion of macro ‘MPI_Allreduce’
+ 2990 |   MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3137:3: note: in expansion of macro ‘MPI_Allreduce’
- 3137 |   MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:3114:3: note: in expansion of macro ‘MPI_Allreduce’
+ 3114 |   MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3138:3: note: in expansion of macro ‘MPI_Allreduce’
- 3138 |   MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:3115:3: note: in expansion of macro ‘MPI_Allreduce’
+ 3115 |   MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
-src/poisson.c:2923:18: warning: unused variable ‘NumberOfBodies’ [-Wunused-variable]
- 2923 |   const PetscInt NumberOfBodies = simCtx->NumberOfBodies;
+src/poisson.c:2900:18: warning: unused variable ‘NumberOfBodies’ [-Wunused-variable]
+ 2900 |   const PetscInt NumberOfBodies = simCtx->NumberOfBodies;
       |                  ^~~~~~~~~~~~~~
 In file included from /root/software/petsc-3.20.3/include/petscsys.h:1369,
                  from /root/software/petsc-3.20.3/include/petscvec.h:8,
@@ -628,59 +629,59 @@ src/poisson.c: In function ‘VolumeFlux’:
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3412:3: note: in expansion of macro ‘MPI_Allreduce’
- 3412 |   MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:3389:3: note: in expansion of macro ‘MPI_Allreduce’
+ 3389 |   MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3413:3: note: in expansion of macro ‘MPI_Allreduce’
- 3413 |   MPI_Allreduce(&libm_Flux_abs, &ibm_Flux_abs,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:3390:3: note: in expansion of macro ‘MPI_Allreduce’
+ 3390 |   MPI_Allreduce(&libm_Flux_abs, &ibm_Flux_abs,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3414:3: note: in expansion of macro ‘MPI_Allreduce’
- 3414 |   MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:3391:3: note: in expansion of macro ‘MPI_Allreduce’
+ 3391 |   MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3417:5: note: in expansion of macro ‘MPI_Allreduce’
- 3417 |     MPI_Allreduce(lIB_Flux,IB_Flux,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/poisson.c:3394:5: note: in expansion of macro ‘MPI_Allreduce’
+ 3394 |     MPI_Allreduce(lIB_Flux,IB_Flux,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3418:5: note: in expansion of macro ‘MPI_Allreduce’
- 3418 |     MPI_Allreduce(lIB_area,IB_Area,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+src/poisson.c:3395:5: note: in expansion of macro ‘MPI_Allreduce’
+ 3395 |     MPI_Allreduce(lIB_area,IB_Area,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
       |     ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3664:3: note: in expansion of macro ‘MPI_Allreduce’
- 3664 |   MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:3641:3: note: in expansion of macro ‘MPI_Allreduce’
+ 3641 |   MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:524:164: warning: value computed is not used [-Wunused-value]
   524 |     #define MPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Allreduce((sendbuf), (recvbuf), (count), (datatype), (op), (comm)))
       |                                                                                                                                                                    ^~
-src/poisson.c:3665:3: note: in expansion of macro ‘MPI_Allreduce’
- 3665 |   MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+src/poisson.c:3642:3: note: in expansion of macro ‘MPI_Allreduce’
+ 3642 |   MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
       |   ^~~~~~~~~~~~~
-src/poisson.c:3180:37: warning: variable ‘gze’ set but not used [-Wunused-but-set-variable]
- 3180 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
+src/poisson.c:3157:37: warning: variable ‘gze’ set but not used [-Wunused-but-set-variable]
+ 3157 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
       |                                     ^~~
-src/poisson.c:3180:27: warning: variable ‘gye’ set but not used [-Wunused-but-set-variable]
- 3180 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
+src/poisson.c:3157:27: warning: variable ‘gye’ set but not used [-Wunused-but-set-variable]
+ 3157 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
       |                           ^~~
-src/poisson.c:3180:17: warning: variable ‘gxe’ set but not used [-Wunused-but-set-variable]
- 3180 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
+src/poisson.c:3157:17: warning: variable ‘gxe’ set but not used [-Wunused-but-set-variable]
+ 3157 |   PetscInt gxs, gxe, gys, gye, gzs, gze;
       |                 ^~~
-src/poisson.c:3165:18: warning: unused variable ‘fish’ [-Wunused-variable]
- 3165 |   const PetscInt fish = simCtx->fish;
+src/poisson.c:3142:18: warning: unused variable ‘fish’ [-Wunused-variable]
+ 3142 |   const PetscInt fish = simCtx->fish;
       |                  ^~~~
-src/poisson.c:3164:18: warning: unused variable ‘channelz’ [-Wunused-variable]
- 3164 |   const PetscInt channelz = simCtx->channelz;
+src/poisson.c:3141:18: warning: unused variable ‘channelz’ [-Wunused-variable]
+ 3141 |   const PetscInt channelz = simCtx->channelz;
       |                  ^~~~~~~~
 In file included from /root/software/petsc-3.20.3/include/petscsys.h:1369,
                  from /root/software/petsc-3.20.3/include/petscvec.h:8,
@@ -691,49 +692,49 @@ src/poisson.c: In function ‘FullyBlocked’:
 /root/software/petsc-3.20.3/include/petsclog.h:526:152: warning: value computed is not used [-Wunused-value]
   526 |     #define MPI_Bcast(buffer, count, datatype, root, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Bcast((buffer), (count), (datatype), (root), (comm)))
       |                                                                                                                                                        ^~
-src/poisson.c:3848:5: note: in expansion of macro ‘MPI_Bcast’
- 3848 |     MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD);
+src/poisson.c:3825:5: note: in expansion of macro ‘MPI_Bcast’
+ 3825 |     MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD);
       |     ^~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:526:152: warning: value computed is not used [-Wunused-value]
   526 |     #define MPI_Bcast(buffer, count, datatype, root, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Bcast((buffer), (count), (datatype), (root), (comm)))
       |                                                                                                                                                        ^~
-src/poisson.c:3850:7: note: in expansion of macro ‘MPI_Bcast’
- 3850 |       MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD);
+src/poisson.c:3827:7: note: in expansion of macro ‘MPI_Bcast’
+ 3827 |       MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD);
       |       ^~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:526:152: warning: value computed is not used [-Wunused-value]
   526 |     #define MPI_Bcast(buffer, count, datatype, root, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Bcast((buffer), (count), (datatype), (root), (comm)))
       |                                                                                                                                                        ^~
-src/poisson.c:3855:5: note: in expansion of macro ‘MPI_Bcast’
- 3855 |     MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD);
+src/poisson.c:3832:5: note: in expansion of macro ‘MPI_Bcast’
+ 3832 |     MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD);
       |     ^~~~~~~~~
 /root/software/petsc-3.20.3/include/petsclog.h:526:152: warning: value computed is not used [-Wunused-value]
   526 |     #define MPI_Bcast(buffer, count, datatype, root, comm) (PetscAddLogDouble(&petsc_allreduce_ct, &petsc_allreduce_ct_th, PetscMPIParallelComm(comm)) || MPI_Bcast((buffer), (count), (datatype), (root), (comm)))
       |                                                                                                                                                        ^~
-src/poisson.c:3857:7: note: in expansion of macro ‘MPI_Bcast’
- 3857 |       MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD);
+src/poisson.c:3834:7: note: in expansion of macro ‘MPI_Bcast’
+ 3834 |       MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD);
       |       ^~~~~~~~~
 src/poisson.c: In function ‘PoissonSolver_MG’:
-src/poisson.c:4085:13: warning: Use "SETERRQ" (since version 3.17.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_17_0.
- 4085 |                 SETERRQ1(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not open KSP monitor log file: %s", filen);
+src/poisson.c:4062:13: warning: Use "SETERRQ" (since version 3.17.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_17_0.
+ 4062 |                 SETERRQ1(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not open KSP monitor log file: %s", filen);
       |             ^   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                                                 
-src/poisson.c:4098:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
- 4098 |  ierr = PCMGSetLevels(mgpc, usermg->mglevels, PETSC_NULL); CHKERRQ(ierr);
+src/poisson.c:4075:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
+ 4075 |  ierr = PCMGSetLevels(mgpc, usermg->mglevels, PETSC_NULL); CHKERRQ(ierr);
       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                                                                                               
-src/poisson.c:4174:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
- 4174 |      ierr = MatNullSpaceCreate(PETSC_COMM_WORLD, PETSC_TRUE, 0, PETSC_NULL, &user[bi].nullsp); CHKERRQ(ierr);
+src/poisson.c:4151:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
+ 4151 |      ierr = MatNullSpaceCreate(PETSC_COMM_WORLD, PETSC_TRUE, 0, PETSC_NULL, &user[bi].nullsp); CHKERRQ(ierr);
       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                                                           
-src/poisson.c:4182:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
- 4182 |                 ierr = MatCreateVecs(user[bi].A, &user[bi].R, PETSC_NULL); CHKERRQ(ierr);
+src/poisson.c:4159:13: warning: Use "PETSC_NULLPTR" (since version 3.19.0) instead. Silence this warning (as well as all others for this version) by defining PETSC_SILENCE_DEPRECATION_WARNINGS_3_19_0.
+ 4159 |                 ierr = MatCreateVecs(user[bi].A, &user[bi].R, PETSC_NULL); CHKERRQ(ierr);
       |             ^   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                                                                               
-src/poisson.c:4074:20: warning: ‘%s’ directive writing up to 4095 bytes into a region of size 128 [-Wformat-overflow=]
- 4074 |    sprintf(filen, "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir,bi);
+src/poisson.c:4051:20: warning: ‘%s’ directive writing up to 4095 bytes into a region of size 128 [-Wformat-overflow=]
+ 4051 |    sprintf(filen, "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir,bi);
       |                    ^~
-src/poisson.c:4074:4: note: ‘sprintf’ output between 48 and 4153 bytes into a destination of size 128
- 4074 |    sprintf(filen, "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir,bi);
+src/poisson.c:4051:4: note: ‘sprintf’ output between 48 and 4153 bytes into a destination of size 128
+ 4051 |    sprintf(filen, "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir,bi);
       |    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 At top level:
-src/poisson.c:1711:23: warning: ‘mymatmultadd’ defined but not used [-Wunused-function]
- 1711 | static PetscErrorCode mymatmultadd(Mat mat, Vec v1, Vec v2)
+src/poisson.c:1673:23: warning: ‘mymatmultadd’ defined but not used [-Wunused-function]
+ 1673 | static PetscErrorCode mymatmultadd(Mat mat, Vec v1, Vec v2)
       |                       ^~~~~~~~~~~~
 --- Linking Executable: bin/picsolver ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0  -o bin/picsolver obj/picsolver.o obj/setup.o obj/logging.o obj/grid.o obj/io.o obj/Metric.o obj/Boundaries.o obj/wallfunction.o obj/simulation.o obj/walkingsearch.o obj/ParticleSwarm.o obj/ParticleMotion.o obj/interpolation.o obj/initialcondition.o obj/rhs.o obj/solvers.o obj/implicitsolvers.o obj/poisson.o -Wl,-rpath,/root/software/petsc-3.20.3/arch-linux-c-debug/lib -L/root/software/petsc-3.20.3/arch-linux-c-debug/lib -Wl,-rpath,/root/software/petsc-3.20.3/arch-linux-c-debug/lib -L/root/software/petsc-3.20.3/arch-linux-c-debug/lib -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/9 -L/usr/lib/gcc/x86_64-linux-gnu/9 -lpetsc -lflapack -lfblas -lpthread -lm -lX11 -ldl -lmpifort -lmpi -lgfortran -lm -lgfortran -lm -lgcc_s -lquadmath -lstdc++ -ldl
@@ -747,26 +748,26 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/postprocessor.c: In function ‘SetupPostProcessSwarm’:
-src/postprocessor.c:58:19: warning: unused variable ‘inputs_str’ [-Wunused-variable]
-   58 |             char *inputs_str = strtok(args_str, ">");
+src/postprocessor.c:62:19: warning: unused variable ‘inputs_str’ [-Wunused-variable]
+   62 |             char *inputs_str = strtok(args_str, ">");
       |                   ^~~~~~~~~~
 src/postprocessor.c: In function ‘WriteEulerianFile’:
-src/postprocessor.c:444:42: warning: ‘%05d’ directive output may be truncated writing between 5 and 11 bytes into a region of size between 0 and 255 [-Wformat-truncation=]
-  444 |     snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti);
+src/postprocessor.c:456:42: warning: ‘%05d’ directive output may be truncated writing between 5 and 11 bytes into a region of size between 0 and 255 [-Wformat-truncation=]
+  456 |     snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti);
       |                                          ^~~~~~~~
-src/postprocessor.c:444:46: note: format string is defined here
-  444 |     snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti);
-src/postprocessor.c:444:5: note: ‘snprintf’ output between 11 and 272 bytes into a destination of size 256
-  444 |     snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti);
+src/postprocessor.c:456:46: note: format string is defined here
+  456 |     snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti);
+src/postprocessor.c:456:5: note: ‘snprintf’ output between 11 and 272 bytes into a destination of size 256
+  456 |     snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti);
       |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 src/postprocessor.c: In function ‘WriteParticleFile’:
-src/postprocessor.c:566:50: warning: ‘%05d’ directive output may be truncated writing between 5 and 11 bytes into a region of size between 0 and 255 [-Wformat-truncation=]
-  566 |             snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti);
+src/postprocessor.c:588:50: warning: ‘%05d’ directive output may be truncated writing between 5 and 11 bytes into a region of size between 0 and 255 [-Wformat-truncation=]
+  588 |             snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti);
       |                                                  ^~~~~~~~
-src/postprocessor.c:566:54: note: format string is defined here
-  566 |             snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti);
-src/postprocessor.c:566:13: note: ‘snprintf’ output between 11 and 272 bytes into a destination of size 256
-  566 |             snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti);
+src/postprocessor.c:588:54: note: format string is defined here
+  588 |             snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti);
+src/postprocessor.c:588:13: note: ‘snprintf’ output between 11 and 272 bytes into a destination of size 256
+  588 |             snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti);
       |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 --- Compiling: src/postprocessing_kernels.c ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0 -I/root/software/petsc-3.20.3/include -I/root/software/petsc-3.20.3/arch-linux-c-debug/include -Wall -g -O0 -Iinclude -c src/postprocessing_kernels.c -o obj/postprocessing_kernels.o
@@ -776,8 +777,8 @@ include/variables.h:95:16: warning: useless storage class specifier in empty dec
    95 | typedef struct ScalingCtx;
       |                ^~~~~~~~~~
 src/postprocessing_kernels.c: In function ‘ComputeSpecificKE’:
-src/postprocessing_kernels.c:482:69: warning: passing argument 5 of ‘DMSwarmGetField’ from incompatible pointer type [-Wincompatible-pointer-types]
-  482 |     ierr = DMSwarmGetField(user->swarm, velocity_field, NULL, NULL, (const void**)&vel_arr); CHKERRQ(ierr);
+src/postprocessing_kernels.c:507:69: warning: passing argument 5 of ‘DMSwarmGetField’ from incompatible pointer type [-Wincompatible-pointer-types]
+  507 |     ierr = DMSwarmGetField(user->swarm, velocity_field, NULL, NULL, (const void**)&vel_arr); CHKERRQ(ierr);
       |                                                                     ^~~~~~~~~~~~~~~~~~~~~~
       |                                                                     |
       |                                                                     const void **
@@ -787,8 +788,8 @@ In file included from include/variables.h:32,
 /root/software/petsc-3.20.3/include/petscdmswarm.h:86:92: note: expected ‘void **’ but argument is of type ‘const void **’
    86 | PETSC_EXTERN PetscErrorCode DMSwarmGetField(DM, const char[], PetscInt *, PetscDataType *, void **);
       |                                                                                            ^~~~~~~
-src/postprocessing_kernels.c:495:73: warning: passing argument 5 of ‘DMSwarmRestoreField’ from incompatible pointer type [-Wincompatible-pointer-types]
-  495 |     ierr = DMSwarmRestoreField(user->swarm, velocity_field, NULL, NULL, (const void**)&vel_arr); CHKERRQ(ierr);
+src/postprocessing_kernels.c:520:73: warning: passing argument 5 of ‘DMSwarmRestoreField’ from incompatible pointer type [-Wincompatible-pointer-types]
+  520 |     ierr = DMSwarmRestoreField(user->swarm, velocity_field, NULL, NULL, (const void**)&vel_arr); CHKERRQ(ierr);
       |                                                                         ^~~~~~~~~~~~~~~~~~~~~~
       |                                                                         |
       |                                                                         const void **
@@ -825,5 +826,6 @@ include/io.h:321:135: note: expected ‘void **’ but argument is of type ‘Pe
 --- Linking Executable: bin/postprocessor ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0  -o bin/postprocessor obj/postprocessor.o obj/setup.o obj/logging.o obj/grid.o obj/io.o obj/Metric.o obj/Boundaries.o obj/wallfunction.o obj/postprocessing_kernels.o obj/vtk_io.o obj/ParticleSwarm.o obj/ParticleMotion.o obj/interpolation.o obj/walkingsearch.o -Wl,-rpath,/root/software/petsc-3.20.3/arch-linux-c-debug/lib -L/root/software/petsc-3.20.3/arch-linux-c-debug/lib -Wl,-rpath,/root/software/petsc-3.20.3/arch-linux-c-debug/lib -L/root/software/petsc-3.20.3/arch-linux-c-debug/lib -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/9 -L/usr/lib/gcc/x86_64-linux-gnu/9 -lpetsc -lflapack -lfblas -lpthread -lm -lX11 -ldl -lmpifort -lmpi -lgfortran -lm -lgfortran -lm -lgcc_s -lquadmath -lstdc++ -ldl
 --- Build Complete: bin/postprocessor ---
+--- Installing Conductor Script: bin/pic-flow ---
 make: Leaving directory '/root/PE/PICurv'
 --- Make command finished successfully. ---
