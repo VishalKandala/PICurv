@@ -9,7 +9,7 @@ run_control:
   # Analyze only the final timestep from the solver run.
   # For a movie, you could use: startTime: 0, endTime: 1000, timeStep: 100
   #time_steps: "10"
-  starTime: 0
+  startTime: 0
   endTime: 10
   timeStep: 1
 
@@ -17,19 +17,19 @@ global_operations:
   dimensionalize: true
 
 eulerian_pipeline:
-  -task: q_criterion
+  - task: q_criterion
   
-  -task: nodal_average
-  input_field: 'P'
-  output_field: 'P_nodal'
+  - task: nodal_average
+    input_field: 'P'
+    output_field: 'P_nodal'
   
-  -task: nodal_average
-  input_field: 'Ucat'
-  output_field: 'Ucat_nodal'
+  - task: nodal_average
+    input_field: 'Ucat'
+    output_field: 'Ucat_nodal'
 
-  -task: normalize_field
-  field: 'P'
-  reference_point: [1,1,1]
+  - task: normalize_field
+    field: 'P'
+    reference_point: [1,1,1]
 
 io:
 

@@ -9,7 +9,7 @@ run_control:
   # Analyze only the final timestep from the solver run.
   # For a movie, you could use: startTime: 0, endTime: 1000, timeStep: 100
   #time_steps: "10"
-  starTime: 0
+  startTime: 0
   endTime: 10
   timeStep: 1
 
