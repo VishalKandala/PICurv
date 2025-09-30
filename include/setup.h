@@ -373,4 +373,6 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user);
 PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 key, PetscBool *found);
 
 
+PetscErrorCode ComputeDivergence(UserCtx *user);
+
  #endif // SETUP_H

@@ -44,14 +44,6 @@ typedef enum {
 #define LOCAL  0  ///< Scope for local logging on the current process.
 #define GLOBAL 1  ///< Scope for global logging across all processes.
 
-
-// ---------------------Logging Events declarations ----------------
-
-extern PetscLogEvent EVENT_Individualwalkingsearch;
-extern PetscLogEvent EVENT_walkingsearch;
-extern PetscLogEvent EVENT_GlobalParticleLocation;
-extern PetscLogEvent EVENT_IndividualLocation;
-
 //----------------------- Custom KSP Monitor Struct ------------
 
 /**
@@ -417,65 +409,6 @@ do {                                                                            
         }                                                                     \
     } while (0)
 
-/**
- * @brief Begins timing a function by:
- *        1. Starting a wall-clock timer (PetscTime).
- *        2. Beginning a PETSc log event.
- *
- * @param eventID   A previously registered PetscLogEvent (e.g., EVENT_EvalPosition).
- * @param scope     LOCAL or GLOBAL (for potential later usage in logging).
- * @param level     LOG_ERROR, LOG_WARNING, LOG_INFO, LOG_DEBUG.
- *
- * Example usage:
- * \code{.c}
- * LOG_FUNC_TIMER_BEGIN_EVENT(EVENT_EvalPosition, LOCAL, LOG_DEBUG);
- * // ... function body ...
- * LOG_FUNC_TIMER_END_EVENT(EVENT_EvalPosition, LOCAL, LOG_DEBUG);
- * \endcode
- */
-#define LOG_FUNC_TIMER_BEGIN_EVENT(eventID, scope)			\
-    double __funcTimerStart = 0.0;                                              \
-    PetscBool __funcTimerActive = PETSC_FALSE;                                  \
-    do {                                                                        \
-        if (is_function_allowed(__func__) && (int)(LOG_PROFILE) == (int)get_log_level()) { \
-            PetscLogDouble _timeStamp = 0.0;                                    \
-            PetscTime(&_timeStamp);                                             \
-            __funcTimerStart = (double)_timeStamp;                              \
-            __funcTimerActive = PETSC_TRUE;                                     \
-            /* Start the PETSc log event (rank-wide). */                        \
-            (void)PetscLogEventBegin(eventID, 0, 0, 0, 0);                            \
-        }                                                                       \
-    } while (0)
-
-/**
- * @brief Ends timing a function by:
- *        1. Ending a PETSc log event.
- *        2. Logging the wall-clock elapsed time, if active.
- *
- * @param eventID  The same PetscLogEvent handle passed to LOG_FUNC_TIMER_BEGIN_EVENT.
- * @param scope    LOCAL or GLOBAL for possible MPI_Comm usage.
- * @param level    The log level at which to print the timing message.
- *
- * The log message is only printed if the function is in the allow-list
- * and the current log level is >= the requested `level`.
- */
-#define LOG_FUNC_TIMER_END_EVENT(eventID, scope)                         \
-    do {                                                                        \
-        if (__funcTimerActive == PETSC_TRUE) {                                  \
-            /* End the PETSc log event */                                       \
-            (void)PetscLogEventEnd(eventID, 0, 0, 0, 0);                              \
-            /* Log the wall-clock elapsed time */                               \
-            if (is_function_allowed(__func__) && (int)(LOG_PROFILE) == (int)get_log_level()) { \
-                PetscLogDouble _timeEnd = 0.0;                                  \
-                PetscTime(&_timeEnd);                                           \
-                double elapsed = (double)_timeEnd - __funcTimerStart;           \
-                MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
-                PetscPrintf(comm, "[%s] Elapsed Time: %f seconds\n", __func__, elapsed); \
-            }                                                                   \
-        }                                                                       \
-    } while (0)
-
-
 #define LOG_PROFILE_MSG(scope, fmt, ...)                                     \
     do {                                                                     \
         if ((int)(LOG_PROFILE) <= (int)get_log_level()) {                    \
@@ -747,6 +680,8 @@ void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, Pe
  */
 PetscErrorCode ProfilingInitialize(SimCtx *simCtx);
 
+PetscErrorCode ProfilingResetTimestepCounters(void);
+
 /**
  * @brief Logs the performance summary for the current timestep and resets timers.
  *
@@ -762,17 +697,15 @@ PetscErrorCode ProfilingInitialize(SimCtx *simCtx);
  */
 PetscErrorCode ProfilingLogTimestepSummary(PetscInt step);
 
+
 /**
- * @brief Prints the final, cumulative performance summary and cleans up resources.
- *
- * This should be called once at the end of the simulation, before PetscFinalize().
- * It prints a table with total time, call count, and average time per call for
- * every function that was profiled. This summary is only printed if the log level
- * is LOG_PROFILE.
- *
- * @return PetscErrorCode
+ * @brief the profiling excercise and build a profiling summary which is then printed to a log file.
+ * 
+ * @param simCtx  The Simulation Context Structure that can contains all the data regarding the simulation.
+ * 
+ * @return        PetscErrorCode 0 on success.
  */
-PetscErrorCode ProfilingFinalize(void);
+PetscErrorCode ProfilingFinalize(SimCtx *simCtx);
 
 // --- Internal functions, do not call directly ---
 // These are called by the macros below.

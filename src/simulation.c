@@ -401,10 +401,12 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             }
         }
 
+        ProfilingLogTimestepSummary(simCtx->step);
+
         // Update Progress Bar
         if(simCtx->rank == 0) {
             PrintProgressBar(step,StartStep,StepsToRun,simCtx->ti);
-            if(get_log_level()>LOG_ERROR) PetscPrintf(PETSC_COMM_SELF,"\n");
+            if(get_log_level()>=LOG_WARNING) PetscPrintf(PETSC_COMM_SELF,"\n");
         }
     } // --- End of Time-Marching Loop ---
 

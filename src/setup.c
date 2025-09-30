@@ -6,6 +6,9 @@
 
  #include "setup.h"
 
+#undef __FUNCT__
+#define __FUNCT__ "CreateSimulationContext"
+
 /**
  * @brief Allocates and populates the master SimulationContext object.
  *
@@ -46,6 +49,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     PetscBool control_flg; // Temporary placeholder for control file tag existence check flag.
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     // === 1. Allocate the Context Struct and Set ALL Defaults ==================
     ierr = PetscNew(p_simCtx); CHKERRQ(ierr);
@@ -460,11 +465,12 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finished CreateSimulationContext successfully on rank %d.\n", simCtx->rank);
 
-    
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "AllocateContextHeirarchy"
 /**
  * @brief Allocates the memory for the UserMG and UserCtx hierarchy.
  *
@@ -491,6 +497,7 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
     PetscInt       nblk = simCtx->block_number;
     PetscBool      found;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Allocating context hierarchy for %d levels and %d blocks...\n", simCtx->mglevels, nblk);
 
@@ -573,12 +580,16 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
     ierr = PetscFree3(isc, jsc, ksc); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Context hierarchy allocation complete.\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "SetupSolverParameters"
 static PetscErrorCode SetupSolverParameters(SimCtx *simCtx){
   
   PetscFunctionBeginUser;
+  PROFILE_FUNCTION_BEGIN;
 
   LOG_ALLOW(GLOBAL,LOG_INFO, " -- Setting up solver parameters -- .\n");
 
@@ -595,8 +606,12 @@ static PetscErrorCode SetupSolverParameters(SimCtx *simCtx){
       user->multinullspace = PETSC_FALSE;
     }
   }
+  PROFILE_FUNCTION_END;
   PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "SetupGridAndSolvers"
 /**
  * @brief The main orchestrator for setting up all grid-related components.
  * (Implementation of the orchestrator function itself)
@@ -605,6 +620,8 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Grid and Solvers Setup ---\n");
 
@@ -620,9 +637,14 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
     ierr = CalculateAllGridMetrics(simCtx); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Grid and Solvers Setup Complete ---\n");
+    
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "CreateAndInitializeAllVectors"
 /**
  * @brief Creates and initializes all PETSc Vec objects for all fields.
  *
@@ -636,12 +658,14 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
  */
 PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 {
-       PetscErrorCode ierr;
+    PetscErrorCode ierr;
     UserMG         *usermg = &simCtx->usermg;
     MGCtx          *mgctx = usermg->mgctx;
     PetscInt       nblk = simCtx->block_number;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Creating and initializing all simulation vectors...\n");
         
@@ -784,10 +808,13 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "All simulation vectors created and initialized.\n");
+
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "UpdateLocalGhosts"
 /**
  * @brief Updates the local vector (including ghost points) from its corresponding global vector.
  *
@@ -812,6 +839,7 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
     DM             dm = NULL; // The DM associated with this field pair
 
     PetscFunctionBeginUser; // Use User version for application code
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Starting ghost update for field '%s'.\n", rank, fieldName);
 
@@ -1052,10 +1080,12 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
     } // end debug logging check
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Completed ghost update for field '%s'.\n", rank, fieldName);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "SetupBoundaryConditions"
 /**
  * @brief (Orchestrator) Sets up all boundary conditions for the simulation.
  */
@@ -1063,6 +1093,8 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Setting up Boundary Conditions ---\n");
     
@@ -1087,6 +1119,8 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
 
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Boundary Conditions setup complete ---\n");   
 
+
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -1330,6 +1364,8 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
   PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "GetOwnedCellRange"
 /**
  * @brief Gets the global starting index of cells owned by this rank and the number of such cells.
  *
@@ -1382,6 +1418,7 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
     PetscInt GlobalNodesInDim_from_info; // Total number of global nodes in this dimension, from DMDALocalInfo.
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // --- 1. Input Validation ---
     if (!info_nodes || !xs_cell_global_out || !xm_cell_local_out) {
@@ -1456,8 +1493,12 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
             *xm_cell_local_out = actual_last_origin_this_rank_can_form - first_potential_origin_on_rank + 1;
         }
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(ierr);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "GetGhostedCellRange"
 
 /**
  * @brief Gets the global cell range for a rank, including boundary cells.
@@ -1488,6 +1529,7 @@ PetscErrorCode GetGhostedCellRange(const DMDALocalInfo *info_nodes,
     PetscErrorCode ierr;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // --- 1. Get the base, conservative range from the original function ---
     ierr = GetOwnedCellRange(info_nodes, dim, xs_cell_global_out, xm_cell_local_out); CHKERRQ(ierr);
@@ -1503,10 +1545,12 @@ PetscErrorCode GetGhostedCellRange(const DMDALocalInfo *info_nodes,
         (*xm_cell_local_out)++;
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "ComputeAndStoreNeighborRanks"
 /**
  * @brief Computes and stores the Cartesian neighbor ranks for the DMDA decomposition.
  *
@@ -1529,6 +1573,7 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
     const PetscMPIInt *neighbor_ranks_ptr; // Pointer to raw neighbor data from PETSc
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr); // Get MPI size for validation
 
@@ -1626,9 +1671,12 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
     PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); // Ensure logs are flushed
 
     // Note: neighbor_ranks_ptr memory is managed by PETSc, do not free it.
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "SetDMDAProcLayout"
 /**
  * @brief Sets the processor layout for a given DMDA based on PETSc options.
  *
@@ -1669,6 +1717,7 @@ PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user)
     }
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_size(PetscObjectComm((PetscObject)dm), &size); CHKERRQ(ierr);
     ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)dm), &rank); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Configuring DMDA processor layout for %d total processes.\n", rank, size);
@@ -1709,10 +1758,12 @@ PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user)
         user->procs_z = pz;
     }
     */
-    
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "SetupDomainRankInfo"
 /**
  * @brief Sets up the full rank communication infrastructure for all blocks.
  *
@@ -1733,6 +1784,7 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx)
     BoundingBox    *final_bboxlist = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting full rank communication setup for %d block(s).\n", nblk);
 
@@ -1786,9 +1838,13 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Domain Cell Composition set and broadcasted.\n");
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "SetupDomainRankInfo: Completed successfully.\n");
+
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "Contra2Cart"
 /**
  * @brief Reconstructs Cartesian velocity (Ucat) at cell centers from contravariant
  *        velocity (Ucont) defined on cell faces.
@@ -1834,6 +1890,7 @@ PetscErrorCode Contra2Cart(UserCtx *user)
     PetscReal    ***laj_arr;                          // Local Jacobian Determinant inverse array
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Starting Contravariant-to-Cartesian velocity transformation.\n");
 
     // --- 1. Get DMDA Info and Check for Valid Inputs ---
@@ -1948,10 +2005,12 @@ PetscErrorCode Contra2Cart(UserCtx *user)
     ierr = DMDAVecRestoreArray(user->fda, user->Ucat, &gucat_arr); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Completed Contravariant-to-Cartesian velocity transformation. \n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "SetupDomainCellDecompositionMap"
 /**
  * @brief Creates and distributes a map of the domain's cell decomposition to all ranks.
  * @ingroup DomainInfo
@@ -1986,6 +2045,7 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
     PetscMPIInt    rank, size;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // --- 1. Input Validation and MPI Info ---
     if (!user) {
@@ -2035,9 +2095,12 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Domain cell decomposition map created and distributed successfully.\n");
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "BinarySearchInt64"
 /**
  * @brief Performs a binary search for a key in a sorted array of PetscInt64.
  *
@@ -2060,6 +2123,7 @@ PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 
     PetscInt low = 0, high = n - 1;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // --- 1. Input Validation ---
     if (!found) {
@@ -2089,11 +2153,12 @@ PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 
         }
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 
+static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 {
   PetscInt nidx;
   DMDALocalInfo	info = user->info;
@@ -2109,7 +2174,10 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
   return (nidx);
 }
 
-PetscErrorCode Divergence(UserCtx *user )
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeDivergence"
+PetscErrorCode ComputeDivergence(UserCtx *user )
 {
   DM		da = user->da, fda = user->fda;
   DMDALocalInfo	info = user->info;
@@ -2140,6 +2208,9 @@ PetscErrorCode Divergence(UserCtx *user )
   if (xe==mx) lxe = xe-1;
   if (ye==my) lye = ye-1;
   if (ze==mz) lze = ze-1;
+
+  PetscFunctionBeginUser;
+  PROFILE_FUNCTION_BEGIN;
 
   DMDAVecGetArray(fda,user->lUcont, &ucont);
   DMDAVecGetArray(da, user->lAj, &aj);
@@ -2254,10 +2325,11 @@ PetscErrorCode Divergence(UserCtx *user )
   }
 
   
-
  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-  DMDAVecRestoreArray(fda, user->lUcont, &ucont);
-  DMDAVecRestoreArray(da, user->lAj, &aj);
-  VecDestroy(&Div);
-  return(0);
+ DMDAVecRestoreArray(fda, user->lUcont, &ucont);
+ DMDAVecRestoreArray(da, user->lAj, &aj);
+ VecDestroy(&Div);
+ 
+ PROFILE_FUNCTION_END;
+ PetscFunctionReturn(0);
 }

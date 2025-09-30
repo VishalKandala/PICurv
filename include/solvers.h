@@ -5,6 +5,8 @@
 #include "implicitsolvers.h"
 #include "rhs.h"
 #include "logging.h"
+#include "poisson.h"
+#include "setup.h"
 /*================================================================================*
  *                      HIGH-LEVEL SOLVER ORCHESTRATOR                            *
  *================================================================================*/

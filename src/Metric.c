@@ -13,6 +13,9 @@
 #include <petsc.h>
 #include "Metric.h"          /* forward declarations + Cmpnts + UserCtx */
 
+
+#undef __FUNCT__
+#define __FUNCT__ "MetricGetCellVertices"
 /* ------------------------------------------------------------------------- */
 /**
  * @brief Extract the eight vertex coordinates of the hexahedral cell (i,j,k).
@@ -36,6 +39,9 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
   }
   PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "TrilinearBlend"
 
 /* ------------------------------------------------------------------------- */
 /**
@@ -61,6 +67,9 @@ static inline void TrilinearBlend(const Cmpnts V[8],
   Xp->x = x; Xp->y = y; Xp->z = z;
 }
 
+
+#undef _FUNCT__
+#define __FUNCT__ "MetricLogicalToPhysical"
 /* ------------------------------------------------------------------------- */
 /**
  * @brief Public wrapper: map (cell index, ξ,η,ζ) to (x,y,z).
@@ -74,11 +83,19 @@ PetscErrorCode MetricLogicalToPhysical(UserCtx  *user,
   PetscErrorCode ierr;
   Cmpnts V[8];
   PetscFunctionBeginUser;
+  
+  PROFILE_FUNCTION_BEGIN;
+
   ierr = MetricGetCellVertices(user,X,i,j,k,V); CHKERRQ(ierr);
   TrilinearBlend(V,xi,eta,zta,Xp);
+
+  PROFILE_FUNCTION_END;
+
   PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "MetricJacobian"
 /* ------------------------------------------------------------------------- */
 /**
  * @brief Compute Jacobian matrix and its determinant at (xi,eta,zta).
@@ -99,6 +116,9 @@ PetscErrorCode MetricJacobian(UserCtx *user,
   PetscErrorCode ierr;
   Cmpnts V[8];
   PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
+
   ierr = MetricGetCellVertices(user,X,i,j,k,V); CHKERRQ(ierr);
 
   /* derivatives of trilinear shape functions */
@@ -131,9 +151,15 @@ PetscErrorCode MetricJacobian(UserCtx *user,
           - x_eta*(y_xi*z_zta - y_zta*z_xi)
           + x_zta*(y_xi*z_eta - y_eta*z_xi);
   }
+
+  PROFILE_FUNCTION_END;
+
   PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "MetricVelocityContravariant"
 /* ------------------------------------------------------------------------- */
 /**
  * @brief Convert physical velocity (u,v,w) to contravariant components (u^xi, u^eta, u^zta).
@@ -142,6 +168,9 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3], PetscReal de
                                            const PetscReal u[3], PetscReal uc[3])
 {
   PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
+
   /* contravariant basis vectors (row of adjugate(J)) divided by detJ */
   PetscReal gxi[3]  = {  J[1][1]*J[2][2]-J[1][2]*J[2][1],
                         -J[0][1]*J[2][2]+J[0][2]*J[2][1],
@@ -159,10 +188,14 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3], PetscReal de
   uc[0] = gxi [0]*u[0] + gxi [1]*u[1] + gxi [2]*u[2];
   uc[1] = geta[0]*u[0] + geta[1]*u[1] + geta[2]*u[2];
   uc[2] = gzta[0]*u[0] + gzta[1]*u[1] + gzta[2]*u[2];
+
+  PROFILE_FUNCTION_END;
+
   PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "CheckAndFixGridOrientation"
 /* -------------------------------------------------------------------------- */
 /**
  * @brief Ensure a **right-handed** metric basis (`Csi`, `Eta`, `Zet`) and a
@@ -199,6 +232,8 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
     PetscMPIInt    rank;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     /* ---------------- step 1: global extrema of Aj ---------------- */
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
@@ -257,10 +292,13 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
             "[orientation] Grid confirmed %s-handed after flip (orientation=%+d)\n",
             (orientation>0) ? "right" : "left", orientation);
 
+    PROFILE_FUNCTION_END;        
+
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "ComputeFaceMetrics"
 /**
  * @brief Computes the primary face metric components (Csi, Eta, Zet), including
  *        boundary extrapolation, and stores them in the corresponding global Vec
@@ -292,6 +330,9 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user)
     Vec            localCoords_from_dm;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting calculation and update for Csi, Eta, Zet.\n");
 
     ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
@@ -474,11 +515,15 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user)
     ierr = UpdateLocalGhosts(user, "Zet"); CHKERRQ(ierr);
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Completed calculation, extrapolation, and update for Csi, Eta, Zet.\n");
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
 
-
+#undef __FUNCT__
+#define __FUNCT__ "ComputeCellCenteredJacobianInverse"
 /**
  * @brief Calculates the cell-centered inverse Jacobian determinant (1/J), including
  *        boundary extrapolation, stores it in `user->Aj`, assembles `user->Aj`, and
@@ -651,6 +696,9 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
     PetscReal      xcp, ycp, zcp, xcm, ycm, zcm;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing cell centers and spacing for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
@@ -709,6 +757,8 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
     ierr = UpdateLocalGhosts(user, "Cent"); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, "GridSpace"); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -749,6 +799,9 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     PetscReal      dxdc, dydc, dzdc, dxde, dyde, dzde, dxdz, dydz, dzdz;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing i-face metrics for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
@@ -913,6 +966,8 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     ierr = UpdateLocalGhosts(user, "IZet"); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, "IAj"); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -953,6 +1008,9 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     PetscReal      dxdc, dydc, dzdc, dxde, dyde, dzde, dxdz, dydz, dzdz;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing j-face metrics for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
@@ -1116,6 +1174,8 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     ierr = UpdateLocalGhosts(user, "JZet"); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, "JAj"); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -1156,6 +1216,9 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     PetscReal      dxdc, dydc, dzdc, dxde, dyde, dzde, dxdz, dydz, dzdz;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing k-face metrics for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
@@ -1319,6 +1382,8 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     ierr = UpdateLocalGhosts(user, "KZet"); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, "KAj"); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -1347,6 +1412,9 @@ PetscErrorCode MetricsDivergence(UserCtx *user)
     PetscInt       max_idx;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Performing metric divergence check for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
@@ -1382,6 +1450,9 @@ PetscErrorCode MetricsDivergence(UserCtx *user)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Maximum metric divergence: %e\n", maxdiv);
 
     ierr = VecDestroy(&Div); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
@@ -1402,6 +1473,8 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
   return (nidx);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ComputeMetricsDivergence"
 /**
  * @brief Computes the divergence of the grid metrics and identifies the maximum value.
  *
@@ -1430,6 +1503,8 @@ PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
   PetscReal     maxdiv;
 
   PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
 
   lxs = xs; lxe = xe;
   lys = ys; lye = ye;
@@ -1492,9 +1567,14 @@ PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
   DMDAVecRestoreArray(da, user->lAj, &aj);
   VecDestroy(&Div);
 
+
+  PROFILE_FUNCTION_END;
+
   PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ComputeMetricNorms"
 /**
  * @brief Computes the max-min values of the grid metrics.
  *
@@ -1514,6 +1594,8 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user)
   PetscInt      i, j, k;
   
   PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
 
   PetscReal CsiMax, EtaMax, ZetMax;
   PetscReal ICsiMax, IEtaMax, IZetMax;
@@ -1623,9 +1705,13 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user)
   VecView(user->lZet,PETSC_VIEWER_STDOUT_WORLD);
   */
   
+  PROFILE_FUNCTION_END;
+
   PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ComputeAllGridMetrics"
 /**
  * @brief Orchestrates the calculation of all grid metrics.
  *
@@ -1645,6 +1731,9 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
     PetscInt       nblk = simCtx->block_number;
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     LOG_ALLOW(GLOBAL, LOG_INFO, "Calculating grid metrics for all levels and blocks...\n");
 
     // Loop through all levels and all blocks
@@ -1672,6 +1761,9 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Grid metrics calculation complete.\n");
+
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 /* ------------------------------------------------------------------------- */

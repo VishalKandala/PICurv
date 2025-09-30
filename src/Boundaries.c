@@ -2,7 +2,8 @@
 #include <string.h>    // For strcasecmp
 #include <ctype.h>     // For isspace
 
-
+#undef __FUNCT__
+#define __FUNCT__ "CanRankServiceInletFace"
 /**
  * @brief Determines if the current MPI rank owns any part of the globally defined inlet face,
  *        making it responsible for placing particles on that portion of the surface.
@@ -28,6 +29,7 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
     PetscErrorCode ierr;
     PetscMPIInt    rank_for_logging; // For detailed debugging logs
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
 
@@ -110,8 +112,13 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
         IM_nodes_global, JM_nodes_global, KM_nodes_global,
         (*can_service_inlet_out) ? "TRUE" : "FALSE");
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "CanRankServiceFace"
 
 /**
  * @brief Determines if the current MPI rank owns any part of a specified global face.
@@ -132,6 +139,8 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, BCFace face_id, Pet
     PetscErrorCode ierr;
     PetscMPIInt    rank_for_logging;
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
 
@@ -203,8 +212,13 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, BCFace face_id, Pet
     LOG_ALLOW(LOCAL, LOG_DEBUG, "CanRankServiceFace - Rank %d check for face %d: Result=%s. \n",
         rank_for_logging, face_id, (*can_service_out ? "TRUE" : "FALSE"));
 
+    PROFILE_FUNCTION_END;
+        
     PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "GetRandomFCellAndLogicOnInletFace"
 
 /**
  * @brief Assuming the current rank services the inlet face, this function selects a random
@@ -237,6 +251,9 @@ PetscErrorCode GetRandomCellAndLogicOnInletFace(
     PetscMPIInt rank_for_logging; 
 
     PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr); 
 
     // Defaults for cell origin node (local index for the rank's DA patch, including ghosts)
@@ -385,12 +402,18 @@ PetscErrorCode GetRandomCellAndLogicOnInletFace(
         rank_for_logging, *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
         *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "TranslateModernBCsToLegacy"
 
 PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL,LOG_DEBUG," Translating modern BC config to legacy integer codes...\n");
 
     for (int i = 0; i < 6; i++) {
@@ -404,8 +427,12 @@ PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user)
       LOG_ALLOW(GLOBAL,LOG_DEBUG," for face %s(%d), legacy type = %d & modern type = %s .\n",face_str,i,user->bctype[i],bc_type_str);
     }
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"    -> Translation complete.\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "BoundarySystem_ExecuteStep_Legacy"
 
 /**
  * @brief Acts as a temporary bridge to the legacy boundary condition implementation.
@@ -425,7 +452,7 @@ PetscErrorCode BoundarySystem_ExecuteStep_Legacy(UserCtx *user)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
-
+    PROFILE_FUNCTION_BEGIN;
     // The sole purpose of this function is to call the old logic for the
     // specific block context that was passed in.
     ierr = FormBCS(user); CHKERRQ(ierr);
@@ -433,9 +460,12 @@ PetscErrorCode BoundarySystem_ExecuteStep_Legacy(UserCtx *user)
     // NOTE: The legacy `main` called Block_Interface_U after the FormBCS loop.
     // We will handle that at a higher level (in our AdvanceSimulation loop)
     // after all blocks have had their BCs applied for the step.
-
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "InflowFlux"
 
 /**
  * @brief Applies inlet boundary conditions based on the modern BC handling system.
@@ -474,6 +504,8 @@ PetscErrorCode InflowFlux(UserCtx *user)
   PetscReal   CMz_c = simCtx->CMz_c;
   
   PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
 
   lxs = xs; lxe = xe; lys = ys; lye = ye; lzs = zs; lze = ze;
   if (xs==0) lxs = xs+1; if (ys==0) lys = ys+1; if (zs==0) lzs = zs+1;
@@ -656,8 +688,13 @@ PetscErrorCode InflowFlux(UserCtx *user)
   DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
   DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
   
+  PROFILE_FUNCTION_END;
+
   PetscFunctionReturn(0); 
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "OutflowFlux"
 
 /**
  * @brief Calculates the total outgoing flux through all OUTLET faces for reporting.
@@ -685,6 +722,8 @@ PetscErrorCode OutflowFlux(UserCtx *user) {
 
     PetscFunctionBeginUser;
     
+    PROFILE_FUNCTION_BEGIN;
+
     ierr = DMDAVecGetArrayRead(fda, user->Ucont, &ucont); CHKERRQ(ierr);
   
     // --- Loop over all 6 faces to find OUTLETS ---
@@ -730,8 +769,13 @@ PetscErrorCode OutflowFlux(UserCtx *user) {
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reported Global FluxOutSum = %.6f\n", user->simCtx->FluxOutSum);
 
+    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "FormBCS"
 
 /* Boundary condition defination (array user->bctype[0-5]):
    0:	interpolation/interface
@@ -799,6 +843,9 @@ PetscErrorCode FormBCS(UserCtx *user)
   if (ye==my ) lye = ye-1;
   if (ze==mz ) lze = ze-1;
 
+  PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
 
   DMDAVecGetArray(fda, user->Bcs.Ubcs, &ubcs);
 
@@ -2592,5 +2639,7 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
   DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
   DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont); 
 
-  return(0);
+  PROFILE_FUNCTION_END;
+
+  PetscFunctionReturn(0);
   }

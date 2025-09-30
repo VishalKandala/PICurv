@@ -25,16 +25,6 @@ static char** gAllowedFunctions = NULL;
  */
 static int gNumAllowed = 0;
 
-
-
-
-//-----------------------------  Logging Events definition (PetscLog) ---------------------
-
-PetscLogEvent EVENT_Individualwalkingsearch = 0 ; //Individual walking search in (walkingsearch.c/LocateParticleInGrid()
-PetscLogEvent EVENT_walkingsearch = 0 ; // Total walking search in (ParticleSwarm.c/LocateAllParticlesInGrid()
-PetscLogEvent EVENT_GlobalParticleLocation = 0; // Global Particle Location routine (Search + Hand-Off)
-PetscLogEvent EVENT_IndividualLocation = 0;
-
 // --------------------- Function Implementations ---------------------
 
 /**
@@ -1020,6 +1010,16 @@ void _ProfilingEnd(const char *func_name)
     g_profiler_registry[idx].current_step_call_count++;
 }
 
+PetscErrorCode ProfilingResetTimestepCounters(void)
+{
+    PetscFunctionBeginUser;
+    for (PetscInt i = 0; i < g_profiler_count; ++i) {
+        g_profiler_registry[i].current_step_time = 0.0;
+        g_profiler_registry[i].current_step_call_count = 0;
+    }
+    PetscFunctionReturn(0);
+}
+
 PetscErrorCode ProfilingLogTimestepSummary(PetscInt step)
 {
     LogLevel log_level = get_log_level();
@@ -1028,7 +1028,7 @@ PetscErrorCode ProfilingLogTimestepSummary(PetscInt step)
     PetscFunctionBeginUser;
 
     // Decide if we should print anything at all
-    if (log_level >= LOG_INFO) {
+    if (log_level >= LOG_PROFILE) {
         for (PetscInt i = 0; i < g_profiler_count; ++i) {
             if (g_profiler_registry[i].current_step_call_count > 0) {
                  if (log_level == LOG_PROFILE || g_profiler_registry[i].always_log) {
@@ -1040,11 +1040,11 @@ PetscErrorCode ProfilingLogTimestepSummary(PetscInt step)
     }
     
     if (should_print) {
-        PetscPrintf(MPI_COMM_WORLD, "[PROFILE] ----- Timestep %d Summary -----\n", step);
+        PetscPrintf(PETSC_COMM_SELF, "[PROFILE] ----- Timestep %d Summary -----\n", step);
         for (PetscInt i = 0; i < g_profiler_count; ++i) {
             if (g_profiler_registry[i].current_step_call_count > 0) {
                 if (log_level == LOG_PROFILE || g_profiler_registry[i].always_log) {
-                    PetscPrintf(MPI_COMM_WORLD, "[PROFILE]   %-25s: %.6f s (%lld calls)\n",
+                    PetscPrintf(PETSC_COMM_SELF, "[PROFILE]   %-25s: %.6f s (%lld calls)\n",
                                 g_profiler_registry[i].name,
                                 g_profiler_registry[i].current_step_time,
                                 g_profiler_registry[i].current_step_call_count);
@@ -1072,11 +1072,30 @@ static int _CompareProfiledFunctions(const void *a, const void *b)
     return 0;
 }
 
-PetscErrorCode ProfilingFinalize(void)
+/**
+ * @brief the profiling excercise and build a profiling summary which is then printed to a log file.
+ * 
+ * @param simCtx  The Simulation Context Structure that can contains all the data regarding the simulation.
+ * 
+ * @return        PetscErrorCode 0 on success.
+ */
+PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
 {
+    PetscInt rank = simCtx->rank;
     PetscFunctionBeginUser;
-    if (get_log_level() >= LOG_PROFILE) {
-        
+    if (!rank) {
+
+        //--- Step 0: Create a file viewer for log file
+        FILE *f;
+        char filen[128];
+        sprintf(filen, "%s/ProfilingSummary.log",simCtx->log_dir);
+
+        // Open the log file in write mode.
+        f = fopen(filen,"w");
+        if(!f){
+            SETERRQ(PETSC_COMM_SELF,PETSC_ERR_FILE_OPEN,"Cannot Open log file: %s",filen);
+        }
+       
         // --- Step 1: Sort the data for readability ---
         qsort(g_profiler_registry, g_profiler_count, sizeof(ProfiledFunction), _CompareProfiledFunctions);
 
@@ -1099,39 +1118,42 @@ PetscErrorCode ProfilingFinalize(void)
         const int avg_width = 22;
 
         // --- Step 4: Print the formatted table ---
-        PetscPrintf(MPI_COMM_WORLD, "\n=======================================================================================\n");
-        PetscPrintf(MPI_COMM_WORLD, "                         FINAL PROFILING SUMMARY (Sorted by Total Time)\n");
-        PetscPrintf(MPI_COMM_WORLD, "=======================================================================================\n");
+        PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
+        PetscFPrintf(PETSC_COMM_SELF, f, "                         FINAL PROFILING SUMMARY (Sorted by Total Time)\n");
+        PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
         
         // Header Row
-        PetscPrintf(MPI_COMM_WORLD, "%-*s | %-*s | %-*s | %-*s\n",
+        PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %-*s | %-*s | %-*s\n",
                     max_name_len, "Function",
                     time_width, "Total Time (s)",
                     count_width, "Call Count",
                     avg_width, "Avg. Time/Call (ms)");
         
         // Separator Line (dynamically sized)
-        for (int i = 0; i < max_name_len; i++) PetscPrintf(MPI_COMM_WORLD, "-");
-        PetscPrintf(MPI_COMM_WORLD, "-|-");
-        for (int i = 0; i < time_width; i++) PetscPrintf(MPI_COMM_WORLD, "-");
-        PetscPrintf(MPI_COMM_WORLD, "-|-");
-        for (int i = 0; i < count_width; i++) PetscPrintf(MPI_COMM_WORLD, "-");
-        PetscPrintf(MPI_COMM_WORLD, "-|-");
-        for (int i = 0; i < avg_width; i++) PetscPrintf(MPI_COMM_WORLD, "-");
-        PetscPrintf(MPI_COMM_WORLD, "\n");
+        for (int i = 0; i < max_name_len; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
+        PetscFPrintf(PETSC_COMM_SELF, f, "-|-");
+        for (int i = 0; i < time_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
+        PetscFPrintf(PETSC_COMM_SELF, f, "-|-");
+        for (int i = 0; i < count_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
+        PetscFPrintf(PETSC_COMM_SELF, f, "-|-");
+        for (int i = 0; i < avg_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
+        PetscFPrintf(PETSC_COMM_SELF, f, "\n");
 
         // Data Rows
         for (PetscInt i = 0; i < g_profiler_count; ++i) {
             if (g_profiler_registry[i].total_call_count > 0) {
                 double avg_time_ms = (g_profiler_registry[i].total_time / g_profiler_registry[i].total_call_count) * 1000.0;
-                PetscPrintf(MPI_COMM_WORLD, "%-*s | %*.*f | %*lld | %*.*f\n",
+                PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %*.*f | %*lld | %*.*f\n",
                             max_name_len, g_profiler_registry[i].name,
                             time_width, 6, g_profiler_registry[i].total_time,
                             count_width, g_profiler_registry[i].total_call_count,
                             avg_width, 6, avg_time_ms);
+                PetscFPrintf(PETSC_COMM_SELF, f, "------------------------------------------------------------------------------------------------------------------\n");
             }
         }
-        PetscPrintf(MPI_COMM_WORLD, "=======================================================================================\n");
+        PetscFPrintf(PETSC_COMM_SELF, f, "==================================================================================================================\n");
+    
+        fclose(f);
     }
 
     // --- Final Cleanup ---

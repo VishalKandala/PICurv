@@ -1,7 +1,8 @@
 #include "postprocessing_kernels.h"
 
 // =========== Dimensionalization Kernels ========================
-
+#undef __FUNCT__
+#define __FUNCT__ "DimensionalizeField"
 /**
  * @brief Scales a specified field from non-dimensional to dimensional units in-place.
  *
@@ -27,6 +28,7 @@ PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
     const char     *swarm_field_name = NULL;    // Name of the field within the swarm
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx is NULL.");
     if (!field_name) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "field_name is NULL.");
 
@@ -59,12 +61,14 @@ PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
         strcpy(field_type, "Particle Velocity (L/T)");
     } else {
         LOG(GLOBAL, LOG_WARNING, "DimensionalizeField: Unknown or unhandled field_name '%s'. Field will not be scaled.\n", field_name);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     
     // --- 2. Check for trivial scaling ---
     if (PetscAbsReal(scale_factor - 1.0) < PETSC_MACHINE_EPSILON) {
         LOG(GLOBAL, LOG_DEBUG, "DimensionalizeField: Scaling factor for '%s' is 1.0. Skipping operation.\n", field_name);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -94,9 +98,12 @@ PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
         ierr = DMGlobalToLocalEnd(user->fda, target_vec, INSERT_VALUES, l_coords); CHKERRQ(ierr);
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "DimensionalizeAllLoadedFields"
 /**
  * @brief Orchestrates the dimensionalization of all relevant fields loaded from a file.
  *
@@ -114,6 +121,7 @@ PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user)
     SimCtx         *simCtx = user->simCtx;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     LOG(GLOBAL, LOG_INFO, "--- Converting all loaded fields to dimensional units ---\n");
 
@@ -133,10 +141,14 @@ PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user)
 
     LOG(GLOBAL, LOG_INFO, "--- Field dimensionalization complete ---\n");
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 //============ Post-Processing Kernels ===========================
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeNodalAverage"
 /**
  * @brief Computes node-centered data by averaging 8 surrounding cell-centered values,
  *        exactly replicating the legacy code's indexing and boundary handling.
@@ -159,6 +171,7 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     PetscInt       dof = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running ComputeNodalAverage on '%s' -> '%s'.\n", in_field_name, out_field_name);
 
     // --- 1. Map string names to PETSc objects ---
@@ -229,9 +242,13 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
         ierr = DMDAVecRestoreArrayRead(dm_in,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArray(dm_out,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeQCriterion"
 /**
  * @brief Computes the Q-Criterion, a scalar value identifying vortex cores.
  *
@@ -251,6 +268,7 @@ PetscErrorCode ComputeQCriterion(UserCtx* user)
     PetscReal      ***gq;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running ComputeQCriterion.\n");
 
     // --- 1. Ensure all required ghost values are up-to-date ---
@@ -359,9 +377,12 @@ PetscErrorCode ComputeQCriterion(UserCtx* user)
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lNvert, (void*)&lnvert);  CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->da,  user->Qcrit, (void*)&gq);       CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "NormalizeRelativeField"
 /**
  * @brief Normalizes a relative field by subtracting a reference value.
  *
@@ -394,6 +415,7 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
     kp = pps->reference[2];
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running NormalizeRelativeField on '%s'.\n", relative_field_name);
 
     // --- 1. Map string argument to the PETSc Vec ---
@@ -445,13 +467,15 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
     ierr = VecScatterDestroy(&scatter_ctx); CHKERRQ(ierr);
     ierr = VecDestroy(&ref_vec_seq); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 // ===========================================================================
 // Particle Post-Processing Kernels
 // ===========================================================================
-
+#undef __FUNCT__
+#define __FUNCT__ "ComputeSpecificKE"
 /**
  * @brief Computes the specific kinetic energy (KE per unit mass) for each particle.
  *
@@ -472,6 +496,7 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
     PetscScalar *ske_arr;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running ComputeSpecificKE ('%s' -> '%s').\n", velocity_field, ske_field);
 
     // Get local data arrays from the DMSwarm
@@ -495,6 +520,7 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
     ierr = DMSwarmRestoreField(user->swarm, velocity_field, NULL, NULL, (const void**)&vel_arr); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(user->post_swarm, ske_field, NULL, NULL, (void**)&ske_arr); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 

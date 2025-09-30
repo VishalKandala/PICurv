@@ -29,7 +29,6 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
     UserMG         *usermg = &simCtx->usermg;
     PetscInt       level = usermg->mglevels - 1;
     UserCtx        *user = usermg->mgctx[level].user;
-    PetscReal      tm_s, tm_e, tp_e, tpr_e; // Timers for profiling
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -88,7 +87,6 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
     // field by solving the momentum equations.
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Beginning momentum solve (Implicit Flag = %d)...\n", simCtx->implicit);
-    ierr = PetscTime(&tm_s); CHKERRQ(ierr);
     
     if (simCtx->implicit > 0) {
         // --- Implicit Path ---
@@ -101,26 +99,6 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
         // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
 	ierr = RungeKutta(user, NULL, NULL); CHKERRQ(ierr);
     }
-    
-    ierr = PetscTime(&tm_e); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Momentum solve completed in %.4f seconds.\n", tm_e - tm_s);
-
-    // ========================================================================
-    //   !!! DIAGNOSTIC CHECKPOINT 1: BEFORE CORRECTION !!!
-    // ========================================================================
-    PetscReal unorm, pnorm, phinorm;
-    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-      VecNorm(user[bi].Ucont, NORM_2, &unorm);
-      VecNorm(user[bi].P, NORM_2, &pnorm);
-      VecNorm(user[bi].Phi,NORM_2,&phinorm);
-      LOG_ALLOW(GLOBAL, LOG_DEBUG, "Before Correction (Block %d): Ucont Norm = %e, P  Norm = %e Phi Norm = %e \n", bi, unorm, pnorm, phinorm);
-      UpdateLocalGhosts(&user[bi],"Ucont");
-      UpdateLocalGhosts(&user[bi],"P");
-    }
-    
-    unorm = 0.0;
-    pnorm = 0.0;
-    phinorm = 0.0;
     
 // ========================================================================
 //   SECTION: Pressure-Poisson Solver
@@ -137,9 +115,6 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
    LOG_ALLOW(GLOBAL, LOG_WARNING, "Poisson solver type %d is not currently enabled.\n", simCtx->poisson);
  }
     
- ierr = PetscTime(&tp_e); CHKERRQ(ierr);
- LOG_ALLOW(GLOBAL, LOG_DEBUG, "Pressure-Poisson solve completed in %.4f seconds.\n", tp_e - tm_e);
-
     // ========================================================================
     //   SECTION: Velocity Correction (Projection)
     // ========================================================================
@@ -159,19 +134,6 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
 	ierr = UpdateLocalGhosts(&user[bi],"P");
     }
     
-    ierr = PetscTime(&tpr_e); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Velocity correction completed in %.4f seconds.\n", tpr_e - tp_e);
-
-
-    // ========================================================================
-    //   !!! DIAGNOSTIC CHECKPOINT 2: AFTER CORRECTION !!!
-    // ========================================================================
-    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-      VecNorm(user[bi].Ucont, NORM_2, &unorm);
-      VecNorm(user[bi].P, NORM_2, &pnorm);
-      VecNorm(user[bi].Phi,NORM_2,&phinorm);
-      LOG_ALLOW(GLOBAL, LOG_DEBUG, "After Correction (Block %d): Ucont Norm = %e, P  Norm = %e, Phi Norm = %e\n", bi, unorm, pnorm,phinorm);
-    }
     // ========================================================================
     
     // ========================================================================
@@ -183,7 +145,7 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
         
         // --- Perform Divergence Check ---
         // This is a diagnostic to verify the quality of the velocity correction.
-	ierr = Divergence(&user[bi]); CHKERRQ(ierr);
+	ierr = ComputeDivergence(&user[bi]); CHKERRQ(ierr);
 
 	// -- Log Continuity metrics ----
 	ierr = LOG_CONTINUITY_METRICS(&user[bi]);
@@ -209,11 +171,6 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
         // }
     }
     
-    // --- Profiling Output ---
-    // (This can be kept as is, but it's good practice to wrap it in a LOG_PROFILE check)
-    LOG_PROFILE_MSG(GLOBAL, "[Step %d]: Momentum=%.4fs, Poisson=%.4fs, Projection=%.4fs, TOTAL=%.4fs\n",
-                    simCtx->step, tm_e - tm_s, tp_e - tm_e, tpr_e - tp_e, tpr_e - tm_s);
-
     LOG_ALLOW(GLOBAL, LOG_INFO, "Flow_Solver orchestrator finished for step %d.\n", simCtx->step);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
