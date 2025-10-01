@@ -1,0 +1,7 @@
+<map id="WriteParticleFile" name="WriteParticleFile">
+<area shape="rect" id="node1" title="Writes particle data to a VTP file using the Prepare&#45;Write&#45;Cleanup pattern." alt="" coords="5,31,133,57"/>
+<area shape="rect" id="node2" href="$io_8h.html#ad4eeaada0c8227f332499bf5fc4d3bc0" title=" " alt="" coords="181,5,389,32"/>
+<area shape="rect" id="node3" href="$vtk__io_8h.html#af1bf47e0b45318d43a97d2bdbf766888" title="Gathers, subsamples, and prepares all particle data for VTK output." alt="" coords="187,56,383,83"/>
+<area shape="rect" id="node4" href="$io_8h.html#a093c8c981643c86a2c594fea39dec0c1" title="Gathers any DMSwarm field from all ranks to a single, contiguous array on rank 0." alt="" coords="437,31,643,57"/>
+<area shape="rect" id="node5" href="$io_8h.html#a61850e757fea41eb461a930936c34401" title="Helper function to trim leading/trailing whitespace from a string." alt="" coords="477,81,603,108"/>
+</map>

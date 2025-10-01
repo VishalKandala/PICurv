@@ -1,0 +1,13 @@
+<map id="CreateSimulationContext" name="CreateSimulationContext">
+<area shape="rect" id="node1" title="Allocates and populates the master SimulationContext object." alt="" coords="5,132,192,159"/>
+<area shape="rect" id="node2" href="$logging_8h.html#a6c0ddc8d3a828f3ab26c557ba0aedf75" title="Load function names from a text file." alt="" coords="240,5,463,32"/>
+<area shape="rect" id="node4" href="$io_8h.html#a048b921bc98a7354369a176193c2bd62" title="Initializes post&#45;processing settings from a config file and command&#45;line overrides." alt="" coords="247,56,456,83"/>
+<area shape="rect" id="node6" href="$io_8h.html#a10269cd4ddae9d1a84b84de3e2913158" title="Parses physical scaling parameters from command&#45;line options." alt="" coords="261,107,442,133"/>
+<area shape="rect" id="node7" href="$logging_8h.html#a4d4a385a6fac09d0e106eeb2dfde18ba" title="Prints the current logging level to the console." alt="" coords="292,157,411,184"/>
+<area shape="rect" id="node9" href="$logging_8h.html#ac4f5428199f6cd908056ad3e0ead934f" title="Initializes the custom profiling system using configuration from SimCtx." alt="" coords="285,208,417,235"/>
+<area shape="rect" id="node11" href="$logging_8h.html#a0c30361e55f762e47599a9e2a5999d24" title="Sets the global list of function names that are allowed to log." alt="" coords="268,259,435,285"/>
+<area shape="rect" id="node3" href="$logging_8c.html#a6b21b3f128c91055d8784740fcf05519" title=" " alt="" coords="559,5,609,32"/>
+<area shape="rect" id="node5" href="$io_8c.html#a61850e757fea41eb461a930936c34401" title="Trims leading and trailing whitespace from a string in&#45;place." alt="" coords="521,56,647,83"/>
+<area shape="rect" id="node8" href="$logging_8c.html#a9585f583c260f40a73f2490914edc689" title="Retrieves the current logging level from the environment variable LOG_LEVEL." alt="" coords="529,157,639,184"/>
+<area shape="rect" id="node10" href="$logging_8c.html#a8fbe318914200aec241a83c62863537a" title=" " alt="" coords="511,208,657,235"/>
+</map>

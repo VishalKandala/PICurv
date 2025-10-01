@@ -1,0 +1,10 @@
+<map id="EvaluateParticlePosition" name="EvaluateParticlePosition">
+<area shape="rect" id="node1" title="Determines the spatial relationship of a particle relative to a cubic cell." alt="" coords="5,147,185,174"/>
+<area shape="rect" id="node2" href="$walkingsearch_8c.html#a7af34c8e2ed4672f0e1f83829159bbe6" title="Computes the signed distances from a point to each face of a cubic cell." alt="" coords="233,5,420,47"/>
+<area shape="rect" id="node4" href="$walkingsearch_8c.html#a7db2c59feb52c21a5d3bcd2bd67bbb43" title="Classifies a point based on precomputed face distances." alt="" coords="239,71,415,98"/>
+<area shape="rect" id="node5" href="$logging_8h.html#a9585f583c260f40a73f2490914edc689" title="Retrieves the current logging level from the environment variable LOG_LEVEL." alt="" coords="272,122,381,149"/>
+<area shape="rect" id="node6" href="$walkingsearch_8c.html#a2ed7a27dd4de3fbd6bb46684482ce165" title="Estimates a characteristic length of the cell for threshold scaling." alt="" coords="233,173,420,199"/>
+<area shape="rect" id="node7" href="$logging_8h.html#a2358badbcda33fc9d80ebd6a59d2a2cd" title="Checks if a given function is in the allow&#45;list." alt="" coords="251,223,402,250"/>
+<area shape="rect" id="node8" href="$logging_8h.html#a9baaed9103be8264832b39c7dbb2ce1a" title="Prints the signed distances to each face of the cell." alt="" coords="242,274,411,301"/>
+<area shape="rect" id="node3" href="$walkingsearch_8c.html#a621082a77ddbec81ffd282870175b603" title="Computes the signed distance from a point to the plane approximating a quadrilateral face." alt="" coords="468,13,700,39"/>
+</map>

@@ -6,10 +6,9 @@ OUTPUT_DIRECTORY       = docs_build
 CREATE_SUBDIRS         = NO
 OUTPUT_LANGUAGE        = English
 OPTIMIZE_OUTPUT_FOR_C  = YES
-OPTIMIZE_OUTPUT_FOR_CPLUS_PLUS = NO
 
 #------------------------- Input ---------------------------
-INPUT                  = ../include ../src ./mainpage.md ./pages
+INPUT                  = ../include ../src . pages
 FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md
 RECURSIVE              = YES
 EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/*
@@ -26,7 +25,7 @@ JAVADOC_AUTOBRIEF      = YES
 MULTILINE_CPP_IS_BRIEF = YES
 QT_AUTOBRIEF           = YES
 MARKDOWN_SUPPORT       = YES
-USE_MDFILE_AS_MAINPAGE = docs/mainpage.md
+USE_MDFILE_AS_MAINPAGE = mainpage.md
 
 #------------------------- Warnings ------------------------
 WARN_IF_UNDOCUMENTED   = YES
@@ -51,7 +50,7 @@ GENERATE_HTML          = YES
 HTML_OUTPUT            = html
 HTML_DYNAMIC_MENUS     = YES
 SEARCHENGINE           = YES
-
+HTML_EXTRA_STYLESHEET    = custom.css
 #------------------------- LaTeX/PDF (optional) ------------
 GENERATE_LATEX         = NO
 
@@ -71,3 +70,6 @@ FULL_PATH_NAMES        = NO
 #------------------------- Tag/Graphs Cache ----------------
 DOT_GRAPH_MAX_NODES    = 80
 DOT_TRANSPARENT        = YES
+
+#------------------------- Layout File -------------------
+LAYOUT_FILE            = DoxygenLayout.xml

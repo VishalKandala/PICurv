@@ -1,0 +1,10 @@
+<map id="GridRestriction" name="GridRestriction">
+<area shape="rect" id="node1" title=" " alt="" coords="900,56,1019,83"/>
+<area shape="rect" id="node2" href="$poisson_8c.html#a0f0addfc422c642ad5eb5315ace4ff2f" title=" " alt="" coords="674,5,822,32"/>
+<area shape="rect" id="node7" href="$poisson_8c.html#a5fa351d4c691fef0d76cedf5cc5cbb72" title="The callback function for the multigrid restriction operator (MatShell)." alt="" coords="692,56,804,83"/>
+<area shape="rect" id="node8" href="$poisson_8c.html#a85e1eff3b6e34605b863323d6336eecd" title=" " alt="" coords="644,107,852,133"/>
+<area shape="rect" id="node3" href="$poisson_8c.html#acfdf6d56006b1b5f68d400deb6cf0959" title="Solves the pressure&#45;Poisson equation using a geometric multigrid method." alt="" coords="453,56,596,83"/>
+<area shape="rect" id="node4" href="$solvers_8c.html#a2ed4825273a593f371a3d48071708255" title="Orchestrates a single time step of the Eulerian fluid solver." alt="" coords="304,56,405,83"/>
+<area shape="rect" id="node5" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="108,56,256,83"/>
+<area shape="rect" id="node6" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,56,60,83"/>
+</map>

@@ -1,0 +1,4 @@
+<map id="GuessParticleOwnerWithBBox" name="GuessParticleOwnerWithBBox">
+<area shape="rect" id="node1" title="Provides a fast, heuristic&#45;based guess for a particle&#39;s owner rank using bounding boxes." alt="" coords="5,5,223,32"/>
+<area shape="rect" id="node2" href="$ParticleMotion_8c.html#ad2b9ac6b5e4d13799fa82dcd34432da4" title="Checks if a particle position is within the bounds of a given bounding box." alt="" coords="271,5,389,32"/>
+</map>

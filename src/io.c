@@ -493,7 +493,7 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
     // =========================================================================
     // This is a critical step to ensure all processes have the same configuration.
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d broadcasting/receiving BC configuration.\n", rank);
+    LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d broadcasting/receiving BC configuration.\n", rank);
 
     for (int i = 0; i < 6; i++) {
         // --- Broadcast simple enums ---
@@ -2228,10 +2228,10 @@ PetscErrorCode ParseScalingInformation(SimCtx *simCtx)
     simCtx->scaling.P_ref = simCtx->scaling.rho_ref * simCtx->scaling.U_ref * simCtx->scaling.U_ref;
 
     // --- 4. Log the final, effective scales for verification ---
-    LOG(GLOBAL, LOG_INFO, "--- Physical Scales Initialized ---\n");
-    LOG(GLOBAL, LOG_INFO, "  L_ref: %.4e, U_ref: %.4e, rho_ref: %.4e, P_ref: %.4e\n",
+    LOG(GLOBAL, LOG_INFO, "---------------- Physical Scales Initialized -----------------\n");
+    LOG(GLOBAL, LOG_INFO, "  L_ref: %.4f, U_ref: %.4f, rho_ref: %.4f, P_ref: %.4f\n",
         simCtx->scaling.L_ref, simCtx->scaling.U_ref, simCtx->scaling.rho_ref, simCtx->scaling.P_ref);
-    LOG(GLOBAL, LOG_INFO, "-----------------------------------\n");
+    LOG(GLOBAL, LOG_INFO, "--------------------------------------------------------------\n");
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

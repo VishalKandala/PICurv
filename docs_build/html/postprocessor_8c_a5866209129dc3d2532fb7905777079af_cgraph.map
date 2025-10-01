@@ -1,0 +1,6 @@
+<map id="ParticleDataProcessingPipeline" name="ParticleDataProcessingPipeline">
+<area shape="rect" id="node1" title="Parses and executes the particle pipeline using a robust two&#45;pass approach." alt="" coords="5,56,229,83"/>
+<area shape="rect" id="node2" href="$postprocessing__kernels_8h.html#a37ee1aa2e642bbfd24a6faf33a92568c" title="Computes the specific kinetic energy (KE per unit mass) for each particle." alt="" coords="285,5,434,32"/>
+<area shape="rect" id="node3" href="$ParticleMotion_8h.html#a38b5e7348bc556d505e2c4b31c29b086" title=" " alt="" coords="277,56,441,83"/>
+<area shape="rect" id="node4" href="$io_8h.html#a61850e757fea41eb461a930936c34401" title="Helper function to trim leading/trailing whitespace from a string." alt="" coords="296,107,423,133"/>
+</map>

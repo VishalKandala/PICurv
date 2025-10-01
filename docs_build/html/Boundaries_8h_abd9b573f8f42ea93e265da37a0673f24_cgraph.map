@@ -1,0 +1,6 @@
+<map id="InflowFlux" name="InflowFlux">
+<area shape="rect" id="node1" title="Applies inlet boundary conditions based on the modern BC handling system." alt="" coords="5,56,96,83"/>
+<area shape="rect" id="node2" href="$logging_8h.html#a9b417fe56a110c0f6a3e64860e3e5cdb" title="Helper function to convert BCFace enum to a string representation." alt="" coords="150,5,273,32"/>
+<area shape="rect" id="node3" href="$io_8h.html#a1ac7631f5ff3a878c3f5788d6880c22c" title="Searches a BC_Param linked list for a key and returns its value as a double." alt="" coords="144,56,279,83"/>
+<area shape="rect" id="node4" href="$wallfunction_8h.html#a61e5145bbc7aa0f76c074b4e9e91e06b" title=" " alt="" coords="187,107,236,133"/>
+</map>

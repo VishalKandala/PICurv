@@ -1,0 +1,12 @@
+<map id="ReadOptionalField" name="ReadOptionalField">
+<area shape="rect" id="node1" title="Checks for and reads an optional Eulerian field from a file into a Vec." alt="" coords="969,81,1109,108"/>
+<area shape="rect" id="node2" href="$io_8c.html#a45ad89f26c78131d2990f09126abba4b" title="Reads LES&#45;related fields." alt="" coords="785,5,900,32"/>
+<area shape="rect" id="node3" href="$io_8c.html#a3a009dabc71ccfa59f196e1bc045de45" title="Reads simulation fields from files into their respective PETSc vectors." alt="" coords="553,81,716,108"/>
+<area shape="rect" id="node9" href="$io_8c.html#a19e2e0b57afae458bae068610141c031" title="Reads RANS&#45;related fields." alt="" coords="779,107,907,133"/>
+<area shape="rect" id="node10" href="$io_8c.html#a03f5b76975eea55434d764a23fd42623" title="Reads statistical fields for averaging purposes." alt="" coords="764,157,921,184"/>
+<area shape="rect" id="node4" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="117,44,265,71"/>
+<area shape="rect" id="node6" href="$postprocessor_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="386,81,441,108"/>
+<area shape="rect" id="node7" href="$initialcondition_8c.html#a095ad9c41ee9300bcfa152c411835a91" title="(HELPER) Reads fluid state for all blocks from restart files." alt="" coords="321,132,505,159"/>
+<area shape="rect" id="node5" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,81,60,108"/>
+<area shape="rect" id="node8" href="$initialcondition_8c.html#ad0dd7d3f2528b6a7802fcd551e88ea99" title="High&#45;level orchestrator to set the complete initial state of the Eulerian solver." alt="" coords="108,107,273,133"/>
+</map>

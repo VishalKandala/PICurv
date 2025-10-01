@@ -1,0 +1,6 @@
+<map id="ComputeNodalAverage" name="ComputeNodalAverage">
+<area shape="rect" id="node1" title="Computes node&#45;centered data by averaging 8 surrounding cell&#45;centered values, exactly replicating the ..." alt="" coords="5,31,177,57"/>
+<area shape="rect" id="node2" href="$setup_8h.html#ad5f82951adcce74b3d37cb5880acf43a" title="Updates the local vector (including ghost points) from its corresponding global vector." alt="" coords="225,31,373,57"/>
+<area shape="rect" id="node3" href="$logging_8h.html#a9585f583c260f40a73f2490914edc689" title="Retrieves the current logging level from the environment variable LOG_LEVEL." alt="" coords="442,5,551,32"/>
+<area shape="rect" id="node4" href="$logging_8h.html#a2358badbcda33fc9d80ebd6a59d2a2cd" title="Checks if a given function is in the allow&#45;list." alt="" coords="421,56,572,83"/>
+</map>

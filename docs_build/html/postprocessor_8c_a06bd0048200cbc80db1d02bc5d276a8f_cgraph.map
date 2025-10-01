@@ -1,0 +1,8 @@
+<map id="WriteEulerianFile" name="WriteEulerianFile">
+<area shape="rect" id="node1" title="Orchestrates the writing of a combined, multi&#45;field VTK file for a single time step." alt="" coords="5,81,137,108"/>
+<area shape="rect" id="node2" href="$io_8h.html#ad4eeaada0c8227f332499bf5fc4d3bc0" title=" " alt="" coords="197,5,405,32"/>
+<area shape="rect" id="node3" href="$vtk__io_8h.html#a53beb8d06e750522a2381c7666c5011c" title="Creates a C array of coordinates corresponding to a subsampled (legacy&#45;style) grid." alt="" coords="203,56,398,83"/>
+<area shape="rect" id="node5" href="$vtk__io_8h.html#a20704fac26a2ed14228875d307f002aa" title="Creates a C array of field data corresponding to a subsampled (legacy&#45;style) grid." alt="" coords="185,107,416,133"/>
+<area shape="rect" id="node6" href="$io_8h.html#a61850e757fea41eb461a930936c34401" title="Helper function to trim leading/trailing whitespace from a string." alt="" coords="237,157,364,184"/>
+<area shape="rect" id="node4" href="$io_8h.html#aa3512c89570bb1d27f4765819fad4985" title="Gathers the contents of a distributed PETSc Vec into a single array on rank 0." alt="" coords="464,81,619,108"/>
+</map>

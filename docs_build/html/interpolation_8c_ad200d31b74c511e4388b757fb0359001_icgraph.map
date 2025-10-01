@@ -1,0 +1,9 @@
+<map id="InterpolateEulerFieldToSwarm" name="InterpolateEulerFieldToSwarm">
+<area shape="rect" id="node1" title="Interpolates a cell&#45;centered field (scalar or vector) onto DMSwarm particles, using a robust,..." alt="" coords="817,61,1032,88"/>
+<area shape="rect" id="node2" href="$interpolation_8c.html#a25d384c0bcf5426864f90ab568e37511" title="Interpolates all relevant fields from the DMDA to the DMSwarm." alt="" coords="563,61,769,88"/>
+<area shape="rect" id="node3" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="110,5,258,32"/>
+<area shape="rect" id="node5" href="$simulation_8c.html#aa5b3c3a0cd447931b47a01267c36acdd" title="Finalizes the simulation setup at t=0, ensuring a consistent state before time marching." alt="" coords="318,54,505,95"/>
+<area shape="rect" id="node7" href="$simulation_8c.html#ad8038ca2fcc4f0534e04d144c4ffbbef" title="Finalizes the simulation state after particle and fluid data have been loaded from a restart." alt="" coords="308,120,515,147"/>
+<area shape="rect" id="node4" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,60,60,87"/>
+<area shape="rect" id="node6" href="$simulation_8c.html#a7bc2bae7b01f179706b367c8637534c2" title="Performs post&#45;load/post&#45;init consistency checks for a restarted simulation." alt="" coords="108,111,260,137"/>
+</map>

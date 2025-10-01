@@ -1,0 +1,42 @@
+<map id="get_log_level" name="get_log_level">
+<area shape="rect" id="node1" title="Retrieves the current logging level from the environment variable LOG_LEVEL." alt="" coords="1416,1009,1525,1036"/>
+<area shape="rect" id="node2" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="372,1085,520,1112"/>
+<area shape="rect" id="node4" href="$setup_8c.html#acf739211501f0646c25ceb99a68a1163" title="Allocates the memory for the UserMG and UserCtx hierarchy." alt="" coords="617,56,806,83"/>
+<area shape="rect" id="node6" href="$ParticleSwarm_8c.html#a063f4fd13a24b248fabd0268c49fd38c" title="Creates and initializes a Particle Swarm." alt="" coords="1181,5,1340,32"/>
+<area shape="rect" id="node8" href="$walkingsearch_8c.html#a556871801ba0b3214285a2ca1fe622ac" title="Determines the spatial relationship of a particle relative to a cubic cell." alt="" coords="1171,1152,1351,1179"/>
+<area shape="rect" id="node11" href="$simulation_8c.html#aa5b3c3a0cd447931b47a01267c36acdd" title="Finalizes the simulation setup at t=0, ensuring a consistent state before time marching." alt="" coords="353,969,539,1010"/>
+<area shape="rect" id="node13" href="$simulation_8c.html#ad8038ca2fcc4f0534e04d144c4ffbbef" title="Finalizes the simulation state after particle and fluid data have been loaded from a restart." alt="" coords="343,1035,549,1061"/>
+<area shape="rect" id="node14" href="$grid_8c.html#aa0b95ab3ac28c8df985e38b888c9bb52" title="Orchestrates the creation of DMDA objects for every block and multigrid level." alt="" coords="1185,292,1336,319"/>
+<area shape="rect" id="node15" href="$interpolation_8c.html#ad200d31b74c511e4388b757fb0359001" title="Interpolates a cell&#45;centered field (scalar or vector) onto DMSwarm particles, using a robust,..." alt="" coords="1153,1035,1368,1061"/>
+<area shape="rect" id="node17" href="$interpolation_8c.html#a8e20ad6b773e06f8cc29773322297095" title="Interpolates a vector field from cell centers to corner nodes." alt="" coords="1161,1086,1360,1127"/>
+<area shape="rect" id="node18" href="$postprocessor_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="419,807,473,833"/>
+<area shape="rect" id="node19" href="$logging_8c.html#a4d4a385a6fac09d0e106eeb2dfde18ba" title="Prints the current logging level to the console." alt="" coords="1201,1320,1320,1347"/>
+<area shape="rect" id="node21" href="$logging_8c.html#af2d563ccb13b1830a29ad7d13647eecc" title="Logs the performance summary for the current timestep and resets timers." alt="" coords="600,1371,823,1397"/>
+<area shape="rect" id="node22" href="$walkingsearch_8c.html#ae8ed9e0a01de5ee0f332170562b1f9ea" title="Updates the cell indices based on the signed distances to each face." alt="" coords="1161,1203,1360,1245"/>
+<area shape="rect" id="node23" href="$setup_8c.html#ad5f82951adcce74b3d37cb5880acf43a" title="Updates the local vector (including ghost points) from its corresponding global vector." alt="" coords="1187,528,1335,555"/>
+<area shape="rect" id="node3" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,1001,60,1028"/>
+<area shape="rect" id="node5" href="$setup_8c.html#a2be2815aeb79afe9b95caf39c7b3312c" title="The main orchestrator for setting up all grid&#45;related components." alt="" coords="367,183,525,209"/>
+<area shape="rect" id="node7" href="$ParticleSwarm_8c.html#ada215a5db25227a8fd2cd2596e7d3e57" title="Perform particle swarm initialization, particle&#45;grid interaction, and related operations." alt="" coords="115,181,287,208"/>
+<area shape="rect" id="node9" href="$walkingsearch_8c.html#a0b63dfe82e0fdee5c2c3bdd477f9901f" title="Locates a particle&#39;s host cell or identifies its migration target using a robust walk search." alt="" coords="881,1145,1098,1186"/>
+<area shape="rect" id="node10" href="$ParticleMotion_8c.html#a727054a4a467fd8504a19caed5a5916b" title="Orchestrates the complete particle location and migration process for one timestep." alt="" coords="603,1085,819,1112"/>
+<area shape="rect" id="node12" href="$simulation_8c.html#a7bc2bae7b01f179706b367c8637534c2" title="Performs post&#45;load/post&#45;init consistency checks for a restarted simulation." alt="" coords="125,1027,277,1053"/>
+<area shape="rect" id="node16" href="$interpolation_8c.html#a25d384c0bcf5426864f90ab568e37511" title="Interpolates all relevant fields from the DMDA to the DMSwarm." alt="" coords="608,1035,815,1061"/>
+<area shape="rect" id="node20" href="$setup_8c.html#a977df65dac293c1308451334cb198693" title="Allocates and populates the master SimulationContext object." alt="" coords="108,1224,295,1251"/>
+<area shape="rect" id="node24" href="$Metric_8c.html#a436bb94905ee06971f632571f5bc8cbb" title="Ensure a right&#45;handed metric basis (Csi, Eta, Zet) and a positive Jacobian (Aj) over the whole domain..." alt="" coords="887,360,1092,387"/>
+<area shape="rect" id="node26" href="$Metric_8c.html#a92d28e2f14645b0eb563144f4ccf2b49" title="Calculates the cell&#45;centered inverse Jacobian determinant (1/J), including boundary extrapolation,..." alt="" coords="879,411,1099,453"/>
+<area shape="rect" id="node27" href="$Metric_8c.html#a46e70c0ae8f36f97321c5c892fc56be5" title="Computes the physical location of cell centers and the spacing between them." alt="" coords="873,477,1105,504"/>
+<area shape="rect" id="node28" href="$Metric_8c.html#a6f0dfb324211e230a387501f93cfd316" title="Computes the primary face metric components (Csi, Eta, Zet), including boundary extrapolation,..." alt="" coords="910,157,1069,184"/>
+<area shape="rect" id="node29" href="$Metric_8c.html#af935307ea3e9727a63b6ef9a3932caa8" title="Computes metrics centered on constant&#45;i faces (i&#45;faces)." alt="" coords="908,208,1071,235"/>
+<area shape="rect" id="node30" href="$Metric_8c.html#a4ecbe44ffb23d82193f9278ab61c1b47" title="Computes metrics centered on constant&#45;j faces (j&#45;faces)." alt="" coords="908,259,1071,285"/>
+<area shape="rect" id="node31" href="$Metric_8c.html#a95e22e5238b2cd02b992366766730687" title="Computes metrics centered on constant&#45;k faces (k&#45;faces)." alt="" coords="905,309,1073,336"/>
+<area shape="rect" id="node32" href="$postprocessing__kernels_8c.html#ad5b0c0f1721b13944b83a57f2471cd02" title="Computes node&#45;centered data by averaging 8 surrounding cell&#45;centered values, exactly replicating the ..." alt="" coords="903,731,1075,757"/>
+<area shape="rect" id="node34" href="$postprocessing__kernels_8c.html#a303c5afb89d6fdaab3e40f9371d8f1b2" title="Computes the Q&#45;Criterion, a scalar value identifying vortex cores." alt="" coords="916,680,1063,707"/>
+<area shape="rect" id="node35" href="$initialcondition_8c.html#af6a26611066aa455efddcca2fd80fe35" title="(HELPER) Finalizes a block&#39;s state by applying BCs, converting to Cartesian, and synchronizing ghost ..." alt="" coords="919,629,1060,656"/>
+<area shape="rect" id="node36" href="$initialcondition_8c.html#a51d0251f84a962a611ff0c0a8797a3e4" title="(HELPER) Sets the t=0 fluid state for all blocks." alt="" coords="638,611,785,653"/>
+<area shape="rect" id="node38" href="$solvers_8c.html#a2ed4825273a593f371a3d48071708255" title="Orchestrates a single time step of the Eulerian fluid solver." alt="" coords="661,832,762,859"/>
+<area shape="rect" id="node39" href="$initialcondition_8c.html#a095ad9c41ee9300bcfa152c411835a91" title="(HELPER) Reads fluid state for all blocks from restart files." alt="" coords="619,549,803,576"/>
+<area shape="rect" id="node40" href="$poisson_8c.html#a7cf2cfc0383ba0076f827f7d3856f2ed" title="Updates the pressure field and handles periodic boundary conditions." alt="" coords="927,832,1052,859"/>
+<area shape="rect" id="node25" href="$Metric_8c.html#a063043da47b68702c78c7e0769325b36" title="Orchestrates the calculation of all grid metrics." alt="" coords="624,284,799,311"/>
+<area shape="rect" id="node33" href="$postprocessor_8c.html#a059ce04ba04e66a5f1ef982fdf375e80" title="Parses the processing pipeline string from the config and executes the requested kernels in sequence." alt="" coords="597,731,825,757"/>
+<area shape="rect" id="node37" href="$initialcondition_8c.html#ad0dd7d3f2528b6a7802fcd551e88ea99" title="High&#45;level orchestrator to set the complete initial state of the Eulerian solver." alt="" coords="363,619,529,645"/>
+</map>

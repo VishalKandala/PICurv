@@ -830,17 +830,30 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     ierr = DMDAVecGetArray(user->fda, user->Centx, &centx); CHKERRQ(ierr);
     //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
+    //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Calculating i-face centers (Centx) with i[%d,%d], j[%d,%d], k[%d,%d] ...\n", user->simCtx->rank,gxs,gxe,gys,gye,gzs,gze);
+
     // Loop over the ghosted region to calculate all local face centers
     for (PetscInt k = gzs + 1; k < gze; k++) {
         for (PetscInt j = gys + 1; j < gye; j++) {
             for (PetscInt i = gxs; i < gxe; i++) {
+                //----- DEBUG ------
+                //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:     Calculating i-face center at (k=%d, j=%d, i=%d)\n", user->simCtx->rank, k, j, i);
+                //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:       Using corner nodes: (%f,%f,%f), (%f,%f,%f), (%f,%f,%f), (%f,%f,%f)\n", user->simCtx->rank,
+                //          coor[k][j][i].x, coor[k][j][i].y, coor[k][j][i].z,
+                //          coor[k-1][j][i].x, coor[k-1][j][i].y, coor[k-1][j][i].z,
+                //          coor[k][j-1][i].x, coor[k][j-1][i].y, coor[k][j-1][i].z,
+                //          coor[k-1][j-1][i].x, coor[k-1][j-1][i].y, coor[k-1][j-1][i].z);
+
                 centx[k][j][i].x = 0.25 * (coor[k][j][i].x + coor[k-1][j][i].x + coor[k][j-1][i].x + coor[k-1][j-1][i].x);
                 centx[k][j][i].y = 0.25 * (coor[k][j][i].y + coor[k-1][j][i].y + coor[k][j-1][i].y + coor[k-1][j-1][i].y);
                 centx[k][j][i].z = 0.25 * (coor[k][j][i].z + coor[k-1][j][i].z + coor[k][j-1][i].z + coor[k-1][j-1][i].z);
+            
+                //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:       Calculated i-face center: (%f,%f,%f)\n", user->simCtx->rank, centx[k][j][i].x, centx[k][j][i].y, centx[k][j][i].z);
             }
         }
     }
 
+    //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: i-face center coordinates calculated. \n", user->simCtx->rank);
     /*
     if(xs==0){
       for(PetscInt k=gzs+1;k < gze; k++){

@@ -1,0 +1,7 @@
+<map id="WriteSimulationFields" name="WriteSimulationFields">
+<area shape="rect" id="node1" title="Writes simulation fields to files." alt="" coords="5,54,169,80"/>
+<area shape="rect" id="node2" href="$io_8c.html#a3f37cf6ed1f13d0656740b8cff2b4ed8" title="Writes data from a specific PETSc vector to a single, sequential file." alt="" coords="424,54,543,80"/>
+<area shape="rect" id="node3" href="$io_8c.html#aa7fe2d107007076b401d19ba9145a354" title="Writes LES&#45;related fields." alt="" coords="238,28,355,55"/>
+<area shape="rect" id="node4" href="$io_8c.html#a87768b32e2f93a36633fe104cebcdfe8" title="Writes RANS&#45;related fields." alt="" coords="231,79,362,106"/>
+<area shape="rect" id="node5" href="$io_8c.html#a3515d51bdd91f00faf8e5023bc82534b" title="Writes statistical fields for averaging purposes." alt="" coords="217,130,376,156"/>
+</map>

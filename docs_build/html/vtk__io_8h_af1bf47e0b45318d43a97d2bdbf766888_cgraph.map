@@ -1,0 +1,5 @@
+<map id="PrepareOutputParticleData" name="PrepareOutputParticleData">
+<area shape="rect" id="node1" title="Gathers, subsamples, and prepares all particle data for VTK output." alt="" coords="5,31,201,57"/>
+<area shape="rect" id="node2" href="$io_8h.html#a093c8c981643c86a2c594fea39dec0c1" title="Gathers any DMSwarm field from all ranks to a single, contiguous array on rank 0." alt="" coords="249,5,455,32"/>
+<area shape="rect" id="node3" href="$io_8h.html#a61850e757fea41eb461a930936c34401" title="Helper function to trim leading/trailing whitespace from a string." alt="" coords="289,56,415,83"/>
+</map>

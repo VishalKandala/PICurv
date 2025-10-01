@@ -1,0 +1,33 @@
+/* Style for the three main navigation buttons on the main page */
+.main_page_buttons {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 20px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.main_page_button {
+    flex: 1;
+    min-width: 250px;
+    padding: 20px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.2s ease-in-out;
+    background-color: #f9f9f9;
+}
+
+.main_page_button:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border-color: #00599C; /* A blue color to match Doxygen theme */
+}
+
+.main_page_button h2 {
+    margin-top: 0;
+    color: #00599C;
+}

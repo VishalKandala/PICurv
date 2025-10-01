@@ -1,0 +1,13 @@
+<map id="TrimWhitespace" name="TrimWhitespace">
+<area shape="rect" id="node1" title="Trims leading and trailing whitespace from a string in&#45;place." alt="" coords="641,132,768,159"/>
+<area shape="rect" id="node2" href="$postprocessor_8c.html#a059ce04ba04e66a5f1ef982fdf375e80" title="Parses the processing pipeline string from the config and executes the requested kernels in sequence." alt="" coords="108,56,336,83"/>
+<area shape="rect" id="node4" href="$io_8c.html#a048b921bc98a7354369a176193c2bd62" title="Initializes post&#45;processing settings from a config file and command&#45;line overrides." alt="" coords="384,5,593,32"/>
+<area shape="rect" id="node7" href="$postprocessor_8c.html#a5866209129dc3d2532fb7905777079af" title="Parses and executes the particle pipeline using a robust two&#45;pass approach." alt="" coords="110,157,334,184"/>
+<area shape="rect" id="node8" href="$vtk__io_8c.html#af1bf47e0b45318d43a97d2bdbf766888" title="Gathers, merges, subsamples, and prepares particle data for VTK output." alt="" coords="391,208,587,235"/>
+<area shape="rect" id="node10" href="$postprocessor_8c.html#ac3854bbfeab13a489af2f23b95b456d2" title="Creates a new, dedicated DMSwarm for post&#45;processing tasks." alt="" coords="397,259,580,285"/>
+<area shape="rect" id="node11" href="$postprocessor_8c.html#a06bd0048200cbc80db1d02bc5d276a8f" title="Orchestrates the writing of a combined, multi&#45;field VTK file for a single time step." alt="" coords="423,107,555,133"/>
+<area shape="rect" id="node3" href="$postprocessor_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,157,60,184"/>
+<area shape="rect" id="node5" href="$setup_8c.html#a977df65dac293c1308451334cb198693" title="Allocates and populates the master SimulationContext object." alt="" coords="129,5,315,32"/>
+<area shape="rect" id="node6" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,5,60,32"/>
+<area shape="rect" id="node9" href="$postprocessor_8c.html#a90f52cd32d5560474c4892cf669c6ef8" title="Writes particle data to a VTP file using the Prepare&#45;Write&#45;Cleanup pattern." alt="" coords="158,208,286,235"/>
+</map>

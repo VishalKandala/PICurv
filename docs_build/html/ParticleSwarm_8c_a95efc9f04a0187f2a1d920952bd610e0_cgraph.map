@@ -1,0 +1,10 @@
+<map id="InitializeParticleBasicProperties" name="InitializeParticleBasicProperties">
+<area shape="rect" id="node1" title="Initializes basic properties for particles on the local process." alt="" coords="5,93,233,120"/>
+<area shape="rect" id="node2" href="$Boundaries_8h.html#ab679d620b2d750179fbc2363fc562a1f" title="Determines if the current MPI rank owns any part of the globally defined inlet face,..." alt="" coords="318,5,505,32"/>
+<area shape="rect" id="node4" href="$ParticleSwarm_8c.html#ae333eaf5cdf54d396fb84ef574a4945b" title="Determines cell selection and intra&#45;cell logical coordinates for volumetric initialization (Mode 1)." alt="" coords="290,57,533,98"/>
+<area shape="rect" id="node5" href="$Boundaries_8h.html#ac07befc354128d23bac8ed5f2612ffdf" title="Assuming the current rank services the inlet face, this function selects a random cell (owned by this..." alt="" coords="281,123,541,149"/>
+<area shape="rect" id="node6" href="$Metric_8h.html#af0ba1966641e609476ac6fc3d5cdbbfc" title="Public wrapper: map (cell index, ξ,η,ζ) to (x,y,z)." alt="" coords="323,173,500,200"/>
+<area shape="rect" id="node3" href="$setup_8h.html#a9b17552f79ebe16d0363986217a01ff3" title="Determines the global starting index and number of CELLS owned by the current processor in a specifie..." alt="" coords="593,52,749,79"/>
+<area shape="rect" id="node7" href="$Metric_8c.html#a4859ff8031c003e036eab9cf8fb351f6" title="Extract the eight vertex coordinates of the hexahedral cell (i,j,k)." alt="" coords="589,148,753,175"/>
+<area shape="rect" id="node8" href="$Metric_8c.html#a379d85074cc67dd1230cecc94b9169aa" title="Map logical coordinates to physical space using trilinear basis." alt="" coords="615,199,727,225"/>
+</map>

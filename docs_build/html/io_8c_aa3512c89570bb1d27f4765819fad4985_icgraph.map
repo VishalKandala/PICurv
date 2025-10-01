@@ -1,0 +1,9 @@
+<map id="VecToArrayOnRank0" name="VecToArrayOnRank0">
+<area shape="rect" id="node1" title="Gather a (possibly distributed) PETSc Vec onto rank 0 as a contiguous C array." alt="" coords="567,81,721,108"/>
+<area shape="rect" id="node2" href="$vtk__io_8c.html#a53beb8d06e750522a2381c7666c5011c" title="Creates a C array of coordinates corresponding to a subsampled (legacy&#45;style) grid." alt="" coords="306,5,501,32"/>
+<area shape="rect" id="node5" href="$vtk__io_8c.html#a20704fac26a2ed14228875d307f002aa" title="Creates a C array of field data corresponding to a subsampled (legacy&#45;style) grid." alt="" coords="288,56,519,83"/>
+<area shape="rect" id="node6" href="$io_8c.html#a9b18cb531c659ac173987ed73b1c1d24" title="Reads a named field from file into a PETSc Vec, then gathers it to rank 0." alt="" coords="318,107,489,133"/>
+<area shape="rect" id="node7" href="$io_8c.html#abbdec83c0db92b3f9a78ccaf8ec06d60" title="Reads coordinate data (for particles) from file into a PETSc Vec, then gathers it to rank 0." alt="" coords="319,157,488,184"/>
+<area shape="rect" id="node3" href="$postprocessor_8c.html#a06bd0048200cbc80db1d02bc5d276a8f" title="Orchestrates the writing of a combined, multi&#45;field VTK file for a single time step." alt="" coords="108,31,240,57"/>
+<area shape="rect" id="node4" href="$postprocessor_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,31,60,57"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="ReadOptionalField" name="ReadOptionalField">
+<area shape="rect" id="node1" title="Checks for and reads an optional Eulerian field from a file into a Vec." alt="" coords="5,31,145,57"/>
+<area shape="rect" id="node2" href="$io_8c.html#ab7d7097c8ad047feb1d460e4694b8b4f" title="Checks for a data file&#39;s existence in a parallel&#45;safe manner." alt="" coords="194,5,309,32"/>
+<area shape="rect" id="node3" href="$io_8c.html#a570806d7e0694b5d996e0c6018b48908" title="Reads data for a specific field from a file into the provided vector." alt="" coords="193,56,309,83"/>
+</map>

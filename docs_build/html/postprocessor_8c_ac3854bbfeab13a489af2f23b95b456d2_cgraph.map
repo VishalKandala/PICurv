@@ -1,0 +1,5 @@
+<map id="SetupPostProcessSwarm" name="SetupPostProcessSwarm">
+<area shape="rect" id="node1" title="Creates a new, dedicated DMSwarm for post&#45;processing tasks." alt="" coords="5,31,188,57"/>
+<area shape="rect" id="node2" href="$ParticleSwarm_8h.html#adcaec962a8ff017ba9f859716405f51a" title="Registers a swarm field without finalizing registration." alt="" coords="236,5,387,32"/>
+<area shape="rect" id="node3" href="$io_8h.html#a61850e757fea41eb461a930936c34401" title="Helper function to trim leading/trailing whitespace from a string." alt="" coords="248,56,375,83"/>
+</map>
