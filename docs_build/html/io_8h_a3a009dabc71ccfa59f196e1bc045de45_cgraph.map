@@ -1,0 +1,9 @@
+<map id="ReadSimulationFields" name="ReadSimulationFields">
+<area shape="rect" id="node1" title="Reads binary field data for velocity, pressure, and other required vectors." alt="" coords="5,92,168,118"/>
+<area shape="rect" id="node2" href="$io_8c.html#a570806d7e0694b5d996e0c6018b48908" title="Reads data for a specific field from a file into the provided vector." alt="" coords="609,16,725,42"/>
+<area shape="rect" id="node3" href="$io_8c.html#a45ad89f26c78131d2990f09126abba4b" title="Reads LES&#45;related fields." alt="" coords="237,41,352,68"/>
+<area shape="rect" id="node4" href="$io_8c.html#ac414e8adc74c5fb5e149b42c95baf495" title="Checks for and reads an optional Eulerian field from a file into a Vec." alt="" coords="421,92,561,118"/>
+<area shape="rect" id="node6" href="$io_8c.html#a19e2e0b57afae458bae068610141c031" title="Reads RANS&#45;related fields." alt="" coords="231,142,359,169"/>
+<area shape="rect" id="node7" href="$io_8c.html#a03f5b76975eea55434d764a23fd42623" title="Reads statistical fields for averaging purposes." alt="" coords="216,193,373,220"/>
+<area shape="rect" id="node5" href="$io_8c.html#ab7d7097c8ad047feb1d460e4694b8b4f" title="Checks for a data file&#39;s existence in a parallel&#45;safe manner." alt="" coords="610,92,725,118"/>
+</map>

@@ -1,0 +1,4 @@
+<map id="ReadSwarmIntField" name="ReadSwarmIntField">
+<area shape="rect" id="node1" title="Reads integer swarm data by using ReadFieldData and casting the result." alt="" coords="5,5,152,32"/>
+<area shape="rect" id="node2" href="$io_8c.html#a570806d7e0694b5d996e0c6018b48908" title="Reads data for a specific field from a file into the provided vector." alt="" coords="200,5,316,32"/>
+</map>

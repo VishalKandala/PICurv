@@ -1,0 +1,4 @@
+<map id="GetRandomCellAndLogicOnInletFace" name="GetRandomCellAndLogicOnInletFace">
+<area shape="rect" id="node1" title="Assuming the current rank services the inlet face, this function selects a random cell (owned by this..." alt="" coords="5,5,265,32"/>
+<area shape="rect" id="node2" href="$setup_8h.html#a9b17552f79ebe16d0363986217a01ff3" title="Determines the global starting index and number of CELLS owned by the current processor in a specifie..." alt="" coords="313,5,469,32"/>
+</map>

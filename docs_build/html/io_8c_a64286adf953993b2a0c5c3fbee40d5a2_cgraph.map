@@ -1,0 +1,8 @@
+<map id="ReadAllSwarmFields" name="ReadAllSwarmFields">
+<area shape="rect" id="node1" title="Reads multiple fields into a DMSwarm, gracefully handling missing optional files." alt="" coords="5,81,160,108"/>
+<area shape="rect" id="node2" href="$io_8c.html#aed3ed919a52fa88c62e1201b4316b2c4" title="Checks for and reads an optional DMSwarm field from a file." alt="" coords="208,56,393,83"/>
+<area shape="rect" id="node4" href="$io_8c.html#a84fff45b8cbd148ed2429ba8fe12428f" title="Reads data from a file into a specified field of a PETSc DMSwarm." alt="" coords="449,107,580,133"/>
+<area shape="rect" id="node3" href="$io_8c.html#ab7d7097c8ad047feb1d460e4694b8b4f" title="Checks for a data file&#39;s existence in a parallel&#45;safe manner." alt="" coords="457,5,572,32"/>
+<area shape="rect" id="node6" href="$io_8c.html#a2b23e672a36206721d69d7ff16d797c5" title="Reads integer swarm data by using ReadFieldData and casting the result." alt="" coords="441,56,588,83"/>
+<area shape="rect" id="node5" href="$io_8c.html#a570806d7e0694b5d996e0c6018b48908" title="Reads data for a specific field from a file into the provided vector." alt="" coords="636,81,752,108"/>
+</map>

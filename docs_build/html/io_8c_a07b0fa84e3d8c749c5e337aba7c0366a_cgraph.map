@@ -1,0 +1,6 @@
+<map id="WriteAllSwarmFields" name="WriteAllSwarmFields">
+<area shape="rect" id="node1" title="Writes a predefined set of PETSc Swarm fields to files." alt="" coords="5,31,161,57"/>
+<area shape="rect" id="node2" href="$io_8c.html#a2c3ac50e182d193208800c89201ff236" title="Writes data from a specific field in a PETSc Swarm to a file." alt="" coords="218,5,350,32"/>
+<area shape="rect" id="node4" href="$io_8c.html#aa66be4f86c7c18609e457dd542541dd3" title="Writes integer swarm data by casting it to a temporary Vec and using WriteFieldData." alt="" coords="209,56,359,83"/>
+<area shape="rect" id="node3" href="$io_8c.html#a3f37cf6ed1f13d0656740b8cff2b4ed8" title="Writes data from a specific PETSc vector to a single, sequential file." alt="" coords="407,31,525,57"/>
+</map>

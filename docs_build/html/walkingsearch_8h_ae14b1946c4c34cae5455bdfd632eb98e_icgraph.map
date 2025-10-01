@@ -1,0 +1,11 @@
+<map id="GetCellVerticesFromGrid" name="GetCellVerticesFromGrid">
+<area shape="rect" id="node1" title="Retrieves the coordinates of the eight vertices of a cell based on grid indices." alt="" coords="1291,61,1473,88"/>
+<area shape="rect" id="node2" href="$walkingsearch_8c.html#acb77aa5204ab90392c67f10a55227bb6" title="Retrieves the coordinates of the eight vertices of the current cell." alt="" coords="1092,61,1243,88"/>
+<area shape="rect" id="node3" href="$walkingsearch_8c.html#a0b63dfe82e0fdee5c2c3bdd477f9901f" title="Locates a particle&#39;s host cell or identifies its migration target using a robust walk search." alt="" coords="827,54,1044,95"/>
+<area shape="rect" id="node4" href="$ParticleMotion_8c.html#a727054a4a467fd8504a19caed5a5916b" title="Orchestrates the complete particle location and migration process for one timestep." alt="" coords="563,61,779,88"/>
+<area shape="rect" id="node5" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="110,5,258,32"/>
+<area shape="rect" id="node7" href="$simulation_8c.html#aa5b3c3a0cd447931b47a01267c36acdd" title="Finalizes the simulation setup at t=0, ensuring a consistent state before time marching." alt="" coords="318,54,505,95"/>
+<area shape="rect" id="node9" href="$simulation_8c.html#ad8038ca2fcc4f0534e04d144c4ffbbef" title="Finalizes the simulation state after particle and fluid data have been loaded from a restart." alt="" coords="308,120,515,147"/>
+<area shape="rect" id="node6" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,60,60,87"/>
+<area shape="rect" id="node8" href="$simulation_8c.html#a7bc2bae7b01f179706b367c8637534c2" title="Performs post&#45;load/post&#45;init consistency checks for a restarted simulation." alt="" coords="108,111,260,137"/>
+</map>

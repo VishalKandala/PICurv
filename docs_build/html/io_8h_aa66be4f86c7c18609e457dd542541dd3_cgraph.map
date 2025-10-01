@@ -1,0 +1,4 @@
+<map id="WriteSwarmIntField" name="WriteSwarmIntField">
+<area shape="rect" id="node1" title="Writes integer data from a specific PETSc Swarm field to a file." alt="" coords="5,5,155,32"/>
+<area shape="rect" id="node2" href="$io_8c.html#a3f37cf6ed1f13d0656740b8cff2b4ed8" title="Writes data from a specific PETSc vector to a single, sequential file." alt="" coords="203,5,321,32"/>
+</map>

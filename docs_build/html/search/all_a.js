@@ -1,0 +1,26 @@
+var searchData=
+[
+  ['j_480',['J',['../variables_8h.html#a2a1d23e49c7faca1576c778fd93fade6',1,'IBMVNodes']]],
+  ['j1_481',['j1',['../variables_8h.html#a96b196e35f88ec27e59dcba134e08936',1,'IBMInfo']]],
+  ['j11_482',['j11',['../variables_8h.html#a14c33e7c31379bc7d5e88860ad56b8ad',1,'IBMInfo']]],
+  ['j2_483',['j2',['../variables_8h.html#a0aab84937c9a4303e99a8dff54f84a35',1,'IBMInfo']]],
+  ['j22_484',['j22',['../variables_8h.html#ad23ced398209a0a896b685cc1b94600a',1,'IBMInfo']]],
+  ['j3_485',['j3',['../variables_8h.html#a16e4cc744c1a98bbb56d85fa713e7d48',1,'IBMInfo']]],
+  ['j33_486',['j33',['../variables_8h.html#a844439dc97e57608c01371a0418e57a2',1,'IBMInfo']]],
+  ['j_5fhomo_5ffilter_487',['j_homo_filter',['../variables_8h.html#a8c2555d0e12b81177396765b584f1a14',1,'SimCtx']]],
+  ['j_5fperiodic_488',['j_periodic',['../variables_8h.html#afd3cbef00a91e3115e40ccd7b0a8cfbb',1,'SimCtx']]],
+  ['jaj_489',['JAj',['../variables_8h.html#ac07ad1cd425926ccddebaca19310d090',1,'UserCtx']]],
+  ['jcell_490',['jcell',['../variables_8h.html#a70dac0c6d4e2a4aeb550f541b09889cd',1,'SurfElmtInfo']]],
+  ['jcsi_491',['JCsi',['../variables_8h.html#a0d160d8dbe2ebacbdf86c7c40edf6c68',1,'UserCtx']]],
+  ['jeta_492',['JEta',['../variables_8h.html#a14137f3f169b2ebe384683ea9a8b7f6d',1,'UserCtx']]],
+  ['jj1_493',['jj1',['../variables_8h.html#a36c97c156e0787e99101a35850b49996',1,'IBMInfo']]],
+  ['jj11_494',['jj11',['../variables_8h.html#a0be7db48fae92982e2efa0d4393e1a48',1,'IBMInfo']]],
+  ['jj2_495',['jj2',['../variables_8h.html#a2c14a0feb76f4435a0f674b8d44a05b5',1,'IBMInfo']]],
+  ['jj22_496',['jj22',['../variables_8h.html#a5ca17961be19c92a1e7769615ec4b757',1,'IBMInfo']]],
+  ['jj3_497',['jj3',['../variables_8h.html#a51b7c19d61de5f2e9b6fb010c86dcf4d',1,'IBMInfo']]],
+  ['jj33_498',['jj33',['../variables_8h.html#a84903c7d9799343a079d67eb947d8857',1,'IBMInfo']]],
+  ['jm_499',['JM',['../variables_8h.html#aa55a2a246e904b3569075eb4de0092a6',1,'UserCtx']]],
+  ['jsc_500',['jsc',['../variables_8h.html#ac9199af6c5bffa86ce1ba076ee15f59a',1,'UserMG::jsc()'],['../variables_8h.html#a5fd8588302a68eca03d086e01e8972c1',1,'UserCtx::jsc()']]],
+  ['junction_501',['JUNCTION',['../variables_8h.html#a0a00003814ee8095a2c39d1d5cba08faaf450e16147ffcf97341b35890aa4056c',1,'variables.h']]],
+  ['jzet_502',['JZet',['../variables_8h.html#a733ad785db194e51ad86c1613844ba31',1,'UserCtx']]]
+];

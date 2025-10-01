@@ -1,0 +1,20 @@
+<map id="ReadFieldData" name="ReadFieldData">
+<area shape="rect" id="node1" title="Reads data for a specific field from a file into the provided vector." alt="" coords="1223,233,1339,260"/>
+<area shape="rect" id="node2" href="$io_8c.html#a9b18cb531c659ac173987ed73b1c1d24" title="Reads a named field from file into a PETSc Vec, then gathers it to rank 0." alt="" coords="1004,81,1175,108"/>
+<area shape="rect" id="node3" href="$io_8c.html#ac414e8adc74c5fb5e149b42c95baf495" title="Checks for and reads an optional Eulerian field from a file into a Vec." alt="" coords="1019,132,1159,159"/>
+<area shape="rect" id="node5" href="$io_8c.html#a3a009dabc71ccfa59f196e1bc045de45" title="Reads simulation fields from files into their respective PETSc vectors." alt="" coords="560,132,723,159"/>
+<area shape="rect" id="node13" href="$io_8c.html#abbdec83c0db92b3f9a78ccaf8ec06d60" title="Reads coordinate data (for particles) from file into a PETSc Vec, then gathers it to rank 0." alt="" coords="1005,259,1174,285"/>
+<area shape="rect" id="node14" href="$io_8c.html#a84fff45b8cbd148ed2429ba8fe12428f" title="Reads data from a file into a specified field of a PETSc DMSwarm." alt="" coords="1024,309,1155,336"/>
+<area shape="rect" id="node18" href="$io_8c.html#a2b23e672a36206721d69d7ff16d797c5" title="Reads integer swarm data by using ReadFieldData and casting the result." alt="" coords="1016,360,1163,387"/>
+<area shape="rect" id="node4" href="$io_8c.html#a45ad89f26c78131d2990f09126abba4b" title="Reads LES&#45;related fields." alt="" coords="806,5,921,32"/>
+<area shape="rect" id="node11" href="$io_8c.html#a19e2e0b57afae458bae068610141c031" title="Reads RANS&#45;related fields." alt="" coords="799,107,927,133"/>
+<area shape="rect" id="node12" href="$io_8c.html#a03f5b76975eea55434d764a23fd42623" title="Reads statistical fields for averaging purposes." alt="" coords="785,157,942,184"/>
+<area shape="rect" id="node6" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="120,119,268,145"/>
+<area shape="rect" id="node8" href="$postprocessor_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="393,220,447,247"/>
+<area shape="rect" id="node9" href="$initialcondition_8c.html#a095ad9c41ee9300bcfa152c411835a91" title="(HELPER) Reads fluid state for all blocks from restart files." alt="" coords="328,169,512,196"/>
+<area shape="rect" id="node7" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,169,60,196"/>
+<area shape="rect" id="node10" href="$initialcondition_8c.html#ad0dd7d3f2528b6a7802fcd551e88ea99" title="High&#45;level orchestrator to set the complete initial state of the Eulerian solver." alt="" coords="111,169,277,196"/>
+<area shape="rect" id="node15" href="$io_8c.html#a64286adf953993b2a0c5c3fbee40d5a2" title="Reads multiple fields into a DMSwarm, gracefully handling missing optional files." alt="" coords="564,271,719,297"/>
+<area shape="rect" id="node17" href="$io_8c.html#aed3ed919a52fa88c62e1201b4316b2c4" title="Checks for and reads an optional DMSwarm field from a file." alt="" coords="771,321,956,348"/>
+<area shape="rect" id="node16" href="$ParticleSwarm_8c.html#ada215a5db25227a8fd2cd2596e7d3e57" title="Perform particle swarm initialization, particle&#45;grid interaction, and related operations." alt="" coords="108,245,280,272"/>
+</map>

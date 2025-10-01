@@ -1,0 +1,41 @@
+<doxygenlayout version="1.0">
+  <navindex>
+    <!-- Tab 1: Home -->
+    <tab type="mainpage" visible="yes" title="PICurv Home"/>
+
+    <!-- Tab 2: Getting Started (Basic User) -->
+    <tab type="pages" visible="yes" title="Getting Started" intro="For new users.">
+      <page name="Installation" url="@ref 01_Installation"/>
+      <page name="Tutorial: Flat Channel" url="@ref 02_Tutorial_Programmatic_Grid"/>
+      <page name="Tutorial: Bent Channel" url="@ref 03_Tutorial_File-Based_Grid"/>
+      <page name="Tutorial: Visualizing Results" url="@ref 04_Visualization_Tutorial"/>
+    </tab>
+
+    <!-- Tab 3: User Guide (Power User) -->
+    <tab type="pages" visible="yes" title="User Guide" intro="For power users.">
+      <page name="The pic.flow Conductor" url="@ref 05_The_Conductor_Script"/>
+      <page name="Case Configuration (.yml)" url="@ref 06_Case_Reference"/>
+      <page name="Solver Profiles (.yml)" url="@ref 07_Solver_Reference"/>
+      <page name="Monitor Profiles (.yml)" url="@ref 08_Monitor_Reference"/>
+      <page name="Post-Processing Recipes (.yml)" url="@ref 09_Post_Processing_Reference"/>
+      <page name="User How-To Guides" url="@ref 10_User_How_To_Guides"/>
+    </tab>
+
+    <!-- Tab 4: Developer Portal -->
+    <tab type="pages" visible="yes" title="Developer Portal" intro="For contributors.">
+      <page name="Code Architecture" url="@ref 11_Code_Architecture"/>
+      <page name="Core Algorithms" url="@ref 12_Core_Algorithms"/>
+      <page name="Developer How-To Guides" url="@ref 13_Developer_How_To_Guides"/>
+      <page name="Theory &amp; Numerics" url="@ref 14_Theory_and_Numerics"/>
+    </tab>
+
+    <!-- Tab 5: API Reference (Auto-generated) -->
+    <tab type="modules" visible="yes" title="API Reference" intro="The complete C API."/>
+    <tab type="files" visible="yes" title="File List"/>
+    <tab type="classes" visible="yes" title="Data Structures">
+        <class text="Struct List" url="@ref annotated"/>
+        <class text="Struct Hierarchy" url="@ref hierarchy"/>
+    </tab>
+
+  </navindex>
+</doxygenlayout>

@@ -1,0 +1,10 @@
+<map id="EulerianDataProcessingPipeline" name="EulerianDataProcessingPipeline">
+<area shape="rect" id="node1" title="Parses the processing pipeline string from the config and executes the requested kernels in sequence." alt="" coords="5,81,233,108"/>
+<area shape="rect" id="node2" href="$postprocessing__kernels_8h.html#ad5b0c0f1721b13944b83a57f2471cd02" title="Computes node&#45;centered data by averaging 8 surrounding cell&#45;centered values, exactly replicating the ..." alt="" coords="282,5,454,32"/>
+<area shape="rect" id="node6" href="$postprocessing__kernels_8h.html#a303c5afb89d6fdaab3e40f9371d8f1b2" title="Computes the Q&#45;Criterion, a scalar value identifying vortex cores." alt="" coords="295,56,441,83"/>
+<area shape="rect" id="node7" href="$postprocessing__kernels_8h.html#a86d13bca79c1355ce808509a999a1d88" title="Normalizes a relative field by subtracting a reference value." alt="" coords="281,107,455,133"/>
+<area shape="rect" id="node8" href="$io_8h.html#a61850e757fea41eb461a930936c34401" title="Helper function to trim leading/trailing whitespace from a string." alt="" coords="305,157,431,184"/>
+<area shape="rect" id="node3" href="$setup_8h.html#ad5f82951adcce74b3d37cb5880acf43a" title="Updates the local vector (including ghost points) from its corresponding global vector." alt="" coords="503,31,651,57"/>
+<area shape="rect" id="node4" href="$logging_8h.html#a9585f583c260f40a73f2490914edc689" title="Retrieves the current logging level from the environment variable LOG_LEVEL." alt="" coords="719,5,829,32"/>
+<area shape="rect" id="node5" href="$logging_8h.html#a2358badbcda33fc9d80ebd6a59d2a2cd" title="Checks if a given function is in the allow&#45;list." alt="" coords="699,56,849,83"/>
+</map>

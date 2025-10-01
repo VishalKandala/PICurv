@@ -1,0 +1,4 @@
+<map id="PrepareOutputCoordinates" name="PrepareOutputCoordinates">
+<area shape="rect" id="node1" title="Creates a C array of coordinates corresponding to a subsampled (legacy&#45;style) grid." alt="" coords="5,5,200,32"/>
+<area shape="rect" id="node2" href="$io_8h.html#aa3512c89570bb1d27f4765819fad4985" title="Gathers the contents of a distributed PETSc Vec into a single array on rank 0." alt="" coords="248,5,403,32"/>
+</map>

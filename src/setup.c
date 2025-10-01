@@ -209,9 +209,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     set_allowed_functions((const char**)simCtx->allowedFuncs, (size_t)simCtx->nAllowed);
     
     // Now that the logger is configured, we can use it.
-    LOG_ALLOW(LOCAL, LOG_INFO, "Context created. Initializing on rank %d of %d.\n", simCtx->rank, simCtx->size);
+    LOG_ALLOW_SYNC(LOCAL, LOG_INFO, "Context created. Initializing on rank %d of %d.\n", simCtx->rank, simCtx->size);
     print_log_level(); // This will now correctly reflect the LOG_LEVEL environment variable.
-
+   
     // === 3.B Configure Profiling System ========================================
     ierr = PetscOptionsGetString(NULL, NULL, "-profile_config_file", simCtx->criticalFuncsFile, PETSC_MAX_PATH_LEN, &simCtx->useCriticalFuncsCfg); CHKERRQ(ierr);
         if (simCtx->useCriticalFuncsCfg) {
@@ -330,7 +330,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // We will defer that logic to a later setup stage and not parse them directly.
     // The Scaling Information is calculated here
     ierr = ParseScalingInformation(simCtx); CHKERRQ(ierr);
-
 
      //  --- Group 7
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 7: Grid, Domain, and Boundary Condition Settings \n");
@@ -461,7 +460,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     }
     
     // --- Initialize PETSc's internal performance logging stage ---
-    ierr = PetscLogDefaultBegin(); CHKERRQ(ierr);
+    ierr = PetscLogDefaultBegin(); CHKERRQ(ierr); // REDUNDANT but safe.
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finished CreateSimulationContext successfully on rank %d.\n", simCtx->rank);
 
@@ -753,10 +752,10 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             ierr = VecDuplicate(user->Cent, &user->GridSpace); CHKERRQ(ierr); ierr = VecSet(user->GridSpace, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->lCent, &user->lGridSpace); CHKERRQ(ierr); ierr = VecSet(user->lGridSpace, 0.0); CHKERRQ(ierr);
 
-            // Face-center coordinate vectors are GLOBAL to hold calculated values before scattering
-            ierr = VecDuplicate(user->Cent, &user->Centx); CHKERRQ(ierr); ierr = VecSet(user->Centx, 0.0); CHKERRQ(ierr);
-            ierr = VecDuplicate(user->Cent, &user->Centy); CHKERRQ(ierr); ierr = VecSet(user->Centy, 0.0); CHKERRQ(ierr);
-            ierr = VecDuplicate(user->Cent, &user->Centz); CHKERRQ(ierr); ierr = VecSet(user->Centz, 0.0); CHKERRQ(ierr);
+            // Face-center coordinate vectors are LOCAL to hold calculated values before scattering
+            ierr = VecDuplicate(user->lCent, &user->Centx); CHKERRQ(ierr); ierr = VecSet(user->Centx, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCent, &user->Centy); CHKERRQ(ierr); ierr = VecSet(user->Centy, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCent, &user->Centz); CHKERRQ(ierr); ierr = VecSet(user->Centz, 0.0); CHKERRQ(ierr);
 
 	    if(level == usermg->mglevels -1){
 	    // --- Group F: Turbulence Models (Finest Level Only) ---
@@ -1809,7 +1808,7 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx)
 
         // A) GATHER: On rank 0, block_bboxlist is allocated and filled. On others, it's NULL.
         ierr = GatherAllBoundingBoxes(&user_finest[bi], &block_bboxlist); CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "  -> Gather complete for block %d.", bi);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "  -> Gather complete for block %d.\n", bi);
 
         // B) BROADCAST: On non-root ranks, block_bboxlist is allocated. Then, the data
         //    from rank 0 is broadcast to all ranks. After this call, ALL ranks have

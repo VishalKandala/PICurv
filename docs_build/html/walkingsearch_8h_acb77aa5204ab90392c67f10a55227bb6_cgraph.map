@@ -1,0 +1,5 @@
+<map id="RetrieveCurrentCell" name="RetrieveCurrentCell">
+<area shape="rect" id="node1" title="Retrieves the coordinates of the eight vertices of the current cell." alt="" coords="5,31,156,57"/>
+<area shape="rect" id="node2" href="$walkingsearch_8c.html#ae14b1946c4c34cae5455bdfd632eb98e" title="Retrieves the coordinates of the eight vertices of a cell based on grid indices." alt="" coords="204,5,387,32"/>
+<area shape="rect" id="node3" href="$logging_8h.html#ad2278570e8ce1a71bb269a51f9a20d88" title="Prints the coordinates of a cell&#39;s vertices." alt="" coords="217,56,374,83"/>
+</map>

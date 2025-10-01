@@ -537,7 +537,7 @@ PetscErrorCode InflowFlux(UserCtx *user)
                                  (fn==4 && zs==0) || (fn==5 && ze==mz) );
     if (!is_on_boundary) continue;
 
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Applying INLET handler for face: %d \n", fn);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Applying INLET handler for face: %s \n", BCFaceToString(face_config->face_id));
 
     // --- Loop over the specific face geometry ---
     switch(face_config->face_id) {
@@ -1804,8 +1804,10 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
   /*     Rheology */
   /*  ==================================================================================== */
  
-  LOG_ALLOW(GLOBAL,LOG_DEBUG, "moving plate velocity for rheology setup is %le \n",simCtx->U_bc);
-
+  if(simCtx->rheology && (user->bctype[2]==13 || user->bctype[3]==13 || user->bctype[4]==13 || user->bctype[5]==13)){
+      LOG_ALLOW(GLOBAL,LOG_DEBUG, "moving plate velocity for rheology setup is %le \n",simCtx->U_bc);
+  }
+  
   if (user->bctype[2]==13){
     if (ys==0){
       j=0;

@@ -1,0 +1,8 @@
+<map id="CreateVTKFileFromMetadata" name="CreateVTKFileFromMetadata">
+<area shape="rect" id="node1" title="Creates and writes a VTK file (either .vts or .vtp) from a populated metadata struct." alt="" coords="5,56,213,83"/>
+<area shape="rect" id="node2" href="$vtk__io_8c.html#a8a99613066a6b52c3bd5761f6393c54a" title=" " alt="" coords="261,5,445,32"/>
+<area shape="rect" id="node3" href="$vtk__io_8c.html#a47bae5c399297c757d205e078e7bbc96" title=" " alt="" coords="280,56,427,83"/>
+<area shape="rect" id="node4" href="$vtk__io_8c.html#ab573333485c75c29fedb1b7168a78202" title=" " alt="" coords="277,107,429,133"/>
+<area shape="rect" id="node5" href="$vtk__io_8c.html#ab7df0bd31982b21452e05631bdae784e" title=" " alt="" coords="493,81,651,108"/>
+<area shape="rect" id="node6" href="$vtk__io_8c.html#aa1aa05de126ac93886ab1ae4d8670b3f" title=" " alt="" coords="493,132,651,159"/>
+</map>

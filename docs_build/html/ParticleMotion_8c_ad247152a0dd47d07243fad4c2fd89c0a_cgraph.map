@@ -1,0 +1,4 @@
+<map id="FlagNewcomersForLocation" name="FlagNewcomersForLocation">
+<area shape="rect" id="node1" title="Identifies newly arrived particles after migration and flags them for a location search." alt="" coords="5,5,208,32"/>
+<area shape="rect" id="node2" href="$setup_8h.html#acd8d87dc85f19ba3e32811a623bf5b36" title="Performs a binary search for a key in a sorted array of PetscInt64." alt="" coords="256,5,397,32"/>
+</map>

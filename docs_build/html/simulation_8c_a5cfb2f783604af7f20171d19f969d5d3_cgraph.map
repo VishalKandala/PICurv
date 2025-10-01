@@ -1,0 +1,82 @@
+<map id="AdvanceSimulation" name="AdvanceSimulation">
+<area shape="rect" id="node1" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="5,1712,153,1739"/>
+<area shape="rect" id="node2" href="$group__scatter__module.html#ga81cfdf7b32472d8f614b44e30005ec6c" title="Counts particles in each cell of the DMDA &#39;da&#39; and stores the result in user&#45;&gt;ParticleCount." alt="" coords="207,664,423,691"/>
+<area shape="rect" id="node3" href="$ParticleMotion_8h.html#acb793f591b8baf11864bb85040730b28" title="Removes particles that have been definitively flagged as LOST by the location algorithm." alt="" coords="203,715,427,741"/>
+<area shape="rect" id="node4" href="$ParticleMotion_8h.html#a55852c79d34ca903c6e631941e210975" title="Checks for particles outside the physical domain boundaries and removes them using DMSwarmRemovePoint..." alt="" coords="201,1062,428,1103"/>
+<area shape="rect" id="node6" href="$solvers_8h.html#a2ed4825273a593f371a3d48071708255" title="Orchestrates a single time step of the Eulerian fluid solver." alt="" coords="264,765,365,792"/>
+<area shape="rect" id="node32" href="$logging_8h.html#a9585f583c260f40a73f2490914edc689" title="Retrieves the current logging level from the environment variable LOG_LEVEL." alt="" coords="1057,1099,1166,1125"/>
+<area shape="rect" id="node35" href="$interpolation_8h.html#a25d384c0bcf5426864f90ab568e37511" title="Interpolates all relevant fields from the DMDA to the DMSwarm." alt="" coords="211,1541,418,1568"/>
+<area shape="rect" id="node38" href="$ParticleMotion_8h.html#a727054a4a467fd8504a19caed5a5916b" title="Orchestrates the complete particle location and migration process for one timestep." alt="" coords="207,1247,423,1273"/>
+<area shape="rect" id="node52" href="$logging_8h.html#a9bb49594a4f7f15167fe4a9214709f29" title="Prints particle fields in a table that automatically adjusts its column widths." alt="" coords="229,1655,400,1681"/>
+<area shape="rect" id="node58" href="$logging_8h.html#a7d73ab7b1517a3c8256b2447f88b633e" title="Prints a progress bar to the console." alt="" coords="249,1712,380,1739"/>
+<area shape="rect" id="node59" href="$logging_8h.html#af2d563ccb13b1830a29ad7d13647eecc" title="Logs the performance summary for the current timestep and resets timers." alt="" coords="203,1788,426,1815"/>
+<area shape="rect" id="node61" href="$io_8h.html#a3a009dabc71ccfa59f196e1bc045de45" title="Reads binary field data for velocity, pressure, and other required vectors." alt="" coords="233,1864,396,1891"/>
+<area shape="rect" id="node67" href="$ParticleMotion_8h.html#a8be73031fbe89d58cd8f7ad2f312d2e9" title="This function is designed to be called at the end of a full timestep, after all particle&#45;based calcul..." alt="" coords="224,1915,405,1941"/>
+<area shape="rect" id="node68" href="$group__scatter__module.html#ga84b852e1186804ff34e9228fab1764c6" title="Scatters a predefined set of particle fields to their corresponding Eulerian fields." alt="" coords="229,1966,400,2007"/>
+<area shape="rect" id="node70" href="$ParticleMotion_8h.html#a74bec635d0f085bd2e8aef6c61aac629" title="Loops over all local particles in the DMSwarm, updating their positions based on velocity and the glo..." alt="" coords="217,2032,412,2059"/>
+<area shape="rect" id="node72" href="$simulation_8c.html#a78d6ef98da860e3271d6b7277a54e642" title="Copies the current time step&#39;s solution fields into history vectors (e.g., U(t_n) &#45;&gt; U_o,..." alt="" coords="211,2083,418,2109"/>
+<area shape="rect" id="node73" href="$io_8h.html#a07b0fa84e3d8c749c5e337aba7c0366a" title="Writes a predefined set of PETSc Swarm fields to files." alt="" coords="237,2419,393,2445"/>
+<area shape="rect" id="node77" href="$io_8h.html#a6228caf497c8e6134362aab6ba62828c" title="Writes simulation fields to files." alt="" coords="233,2267,397,2293"/>
+<area shape="rect" id="node5" href="$ParticleMotion_8c.html#ad2b9ac6b5e4d13799fa82dcd34432da4" title="Checks if a particle position is within the bounds of a given bounding box." alt="" coords="789,1019,908,1045"/>
+<area shape="rect" id="node7" href="$setup_8h.html#abab14dc7f20644674b043609950eefe2" title=" " alt="" coords="507,765,662,792"/>
+<area shape="rect" id="node9" href="$implicitsolvers_8c.html#a148a238901a4674420c87137c087e3ac" title="Advances the momentum equations using an iterative explicit Runge&#45;Kutta scheme." alt="" coords="552,81,617,108"/>
+<area shape="rect" id="node15" href="$logging_8h.html#ab2315d3303d45c97ca55836603a8acd3" title="Logs continuity metrics for a single block to a file." alt="" coords="483,335,686,361"/>
+<area shape="rect" id="node16" href="$poisson_8h.html#acfdf6d56006b1b5f68d400deb6cf0959" title="Solves the pressure&#45;Poisson equation using a geometric multigrid method." alt="" coords="513,588,656,615"/>
+<area shape="rect" id="node28" href="$poisson_8h.html#a34a113dcc9ca606d914c3d021a4d85fc" title="Corrects the contravariant velocity field Ucont to be divergence&#45;free using the gradient of the press..." alt="" coords="541,385,628,412"/>
+<area shape="rect" id="node30" href="$implicitsolvers_8h.html#a89ae58d48076ba82dc70438b5e389bf5" title="Advances the momentum equations using an explicit 4th&#45;order Runge&#45;Kutta scheme." alt="" coords="536,132,633,159"/>
+<area shape="rect" id="node31" href="$setup_8h.html#ad5f82951adcce74b3d37cb5880acf43a" title="Updates the local vector (including ghost points) from its corresponding global vector." alt="" coords="775,917,923,944"/>
+<area shape="rect" id="node34" href="$poisson_8h.html#a7cf2cfc0383ba0076f827f7d3856f2ed" title="Updates the pressure field P with the pressure correction Phi computed by the Poisson solver." alt="" coords="522,867,647,893"/>
+<area shape="rect" id="node8" href="$setup_8c.html#a3d538200fed5b9ee9d1ef391bb61036c" title=" " alt="" coords="823,867,875,893"/>
+<area shape="rect" id="node10" href="$rhs_8h.html#af191235c93d0d91fa83f8e3b0e9274d8" title="Computes the Right&#45;Hand Side (RHS) of the momentum equations." alt="" coords="795,5,903,32"/>
+<area shape="rect" id="node12" href="$Boundaries_8h.html#adcd96cff4b9e15e03cdff9f5ea695dec" title=" " alt="" coords="808,157,889,184"/>
+<area shape="rect" id="node13" href="$Boundaries_8h.html#abd9b573f8f42ea93e265da37a0673f24" title="Applies inlet boundary conditions based on the modern BC handling system." alt="" coords="803,56,894,83"/>
+<area shape="rect" id="node14" href="$Boundaries_8h.html#a684320111be78b3001fda2ba25638e79" title="Calculates the total outgoing flux through all OUTLET faces for reporting." alt="" coords="798,107,899,133"/>
+<area shape="rect" id="node11" href="$setup_8h.html#a515c9a96eb4bcac29f79e78c8882d7aa" title="Reconstructs Cartesian velocity (Ucat) at cell centers from contravariant velocity (Ucont) defined on..." alt="" coords="1061,157,1161,184"/>
+<area shape="rect" id="node17" href="$logging_8h.html#ab0414bd7dfd804d39019da707808a819" title="A custom KSP monitor that logs to a file and optionally to the console." alt="" coords="785,765,912,792"/>
+<area shape="rect" id="node18" href="$logging_8h.html#a26f628c9bae473d94674a1a97641b474" title="Destroys the DualMonitorCtx." alt="" coords="772,816,925,843"/>
+<area shape="rect" id="node19" href="$poisson_8c.html#aaec10e12d0e5fba6c1f53e47d62b6efe" title=" " alt="" coords="797,309,901,336"/>
+<area shape="rect" id="node20" href="$poisson_8c.html#aa2fc17959230252f30b2278d81a16caf" title="The callback function for the multigrid interpolation operator (MatShell)." alt="" coords="786,360,911,387"/>
+<area shape="rect" id="node21" href="$poisson_8c.html#a0f0addfc422c642ad5eb5315ace4ff2f" title=" " alt="" coords="775,411,923,437"/>
+<area shape="rect" id="node22" href="$poisson_8c.html#a26f0e6321b7ace56b3b105e1eb10475e" title="Assembles the Left&#45;Hand Side (LHS) matrix for the Pressure Poisson Equation." alt="" coords="785,461,912,488"/>
+<area shape="rect" id="node23" href="$poisson_8c.html#a2648a0c6cafb7916a706cd757e5b92f5" title="The callback function for PETSc&#39;s MatNullSpace object." alt="" coords="753,512,945,539"/>
+<area shape="rect" id="node24" href="$poisson_8c.html#a9340445ae2c0a3c7be290e2a1aea3d67" title="Computes the Right&#45;Hand&#45;Side (RHS) of the Poisson equation, which is the divergence of the intermedia..." alt="" coords="799,563,898,589"/>
+<area shape="rect" id="node25" href="$poisson_8c.html#a85e1eff3b6e34605b863323d6336eecd" title=" " alt="" coords="745,613,953,640"/>
+<area shape="rect" id="node26" href="$poisson_8c.html#a8c4cb4c082ab40cc20db95c962fc1d5c" title="Calculates the net flux across the immersed boundary surface." alt="" coords="799,664,899,691"/>
+<area shape="rect" id="node27" href="$poisson_8c.html#a34f6242556bffd27f00a84b377c1bf9d" title="A specialized version of VolumeFlux, likely for reversed normals." alt="" coords="785,715,913,741"/>
+<area shape="rect" id="node29" href="$poisson_8c.html#a6046e36e2334fa29a86d652a0b8f0593" title=" " alt="" coords="775,259,922,285"/>
+<area shape="rect" id="node33" href="$logging_8h.html#a2358badbcda33fc9d80ebd6a59d2a2cd" title="Checks if a given function is in the allow&#45;list." alt="" coords="1036,1301,1187,1328"/>
+<area shape="rect" id="node36" href="$interpolation_8c.html#ad200d31b74c511e4388b757fb0359001" title="Interpolates a cell&#45;centered field (scalar or vector) onto DMSwarm particles, using a robust,..." alt="" coords="741,1453,956,1480"/>
+<area shape="rect" id="node37" href="$interpolation_8c.html#a556572fc2b40494da8bdb48d977dbaa1" title="Interpolates a single field (scalar or vector) for one particle, storing the result in a swarm array." alt="" coords="1004,1446,1219,1487"/>
+<area shape="rect" id="node39" href="$ParticleMotion_8c.html#a43df9caf0f5cbb317050f6258ac46fff" title="Safely adds a new migration task to a dynamically sized list." alt="" coords="511,1221,658,1248"/>
+<area shape="rect" id="node40" href="$ParticleMotion_8c.html#ad247152a0dd47d07243fad4c2fd89c0a" title="Identifies newly arrived particles after migration and flags them for a location search." alt="" coords="483,1272,686,1299"/>
+<area shape="rect" id="node42" href="$ParticleMotion_8c.html#a5d388b62daa726aa7ea467a71313a328" title="Creates a sorted snapshot of all Particle IDs (PIDs) from a raw data array." alt="" coords="504,1323,665,1349"/>
+<area shape="rect" id="node43" href="$ParticleMotion_8c.html#a1050c4075c2fb507d4579008921dd7b6" title="Provides a fast, heuristic&#45;based guess for a particle&#39;s owner rank using bounding boxes." alt="" coords="476,1019,693,1045"/>
+<area shape="rect" id="node44" href="$walkingsearch_8h.html#a0b63dfe82e0fdee5c2c3bdd477f9901f" title="Locates a particle&#39;s host cell or identifies its migration target using a robust walk search." alt="" coords="476,1374,693,1415"/>
+<area shape="rect" id="node48" href="$ParticleMotion_8c.html#af68865be3bc987bdf1be2c5c7a1903fa" title="Performs particle migration based on the pre&#45;populated DMSwarmPICField_rank field." alt="" coords="517,1440,653,1467"/>
+<area shape="rect" id="node49" href="$ParticleMotion_8c.html#a461def358c0f7c5337c283ba06dd65a0" title="Sets the target rank field (DMSwarmPICField_rank) for particles scheduled for migration." alt="" coords="512,1069,657,1096"/>
+<area shape="rect" id="node50" href="$ParticleSwarm_8h.html#aa353055e357151aab1542bbad367c657" title="Initializes a Particle struct with data from DMSwarm fields." alt="" coords="508,1120,661,1147"/>
+<area shape="rect" id="node51" href="$ParticleSwarm_8h.html#ac52b9e4afa9d1f2ba3bf59dc45b610d1" title="Updates DMSwarm fields with data from a Particle struct." alt="" coords="509,1171,660,1197"/>
+<area shape="rect" id="node41" href="$setup_8h.html#acd8d87dc85f19ba3e32811a623bf5b36" title="Performs a binary search for a key in a sorted array of PetscInt64." alt="" coords="778,1251,919,1277"/>
+<area shape="rect" id="node45" href="$walkingsearch_8c.html#afae6265db91aa72254a050c0b6159dab" title="Checks if the current GLOBAL CELL indices are within the LOCAL GHOSTED grid boundaries accessible by ..." alt="" coords="753,1403,944,1429"/>
+<area shape="rect" id="node46" href="$walkingsearch_8c.html#a556871801ba0b3214285a2ca1fe622ac" title="Determines the spatial relationship of a particle relative to a cubic cell." alt="" coords="759,1301,939,1328"/>
+<area shape="rect" id="node47" href="$walkingsearch_8c.html#a9aedf40cb1545b554e113ebb0863859d" title="Finds the MPI rank that owns a given global cell index." alt="" coords="783,1352,914,1379"/>
+<area shape="rect" id="node53" href="$logging_8c.html#a7b3c43abc3eb1a2e0a5c1c74a9143b65" title=" " alt="" coords="515,1744,655,1771"/>
+<area shape="rect" id="node54" href="$logging_8c.html#a64b10fa3837fcdfcbf13820eed2577ff" title=" " alt="" coords="501,1541,668,1568"/>
+<area shape="rect" id="node55" href="$logging_8c.html#a90c3c89c64920d436a9079a419523e21" title=" " alt="" coords="809,1592,888,1619"/>
+<area shape="rect" id="node56" href="$logging_8c.html#adc65395a00600e3e88641101c90725bf" title=" " alt="" coords="483,1643,687,1669"/>
+<area shape="rect" id="node57" href="$logging_8c.html#a9cd4e0aea4743cc718e597959fec0774" title=" " alt="" coords="789,1668,908,1695"/>
+<area shape="rect" id="node60" href="$logging_8c.html#a9585f583c260f40a73f2490914edc689" title="Retrieves the current logging level from the environment variable LOG_LEVEL." alt="" coords="530,1795,639,1821"/>
+<area shape="rect" id="node62" href="$io_8c.html#a570806d7e0694b5d996e0c6018b48908" title="Reads data for a specific field from a file into the provided vector." alt="" coords="1053,1896,1169,1923"/>
+<area shape="rect" id="node63" href="$io_8c.html#a45ad89f26c78131d2990f09126abba4b" title="Reads LES&#45;related fields." alt="" coords="527,1997,642,2024"/>
+<area shape="rect" id="node64" href="$io_8c.html#ac414e8adc74c5fb5e149b42c95baf495" title="Checks for and reads an optional Eulerian field from a file into a Vec." alt="" coords="779,1947,919,1973"/>
+<area shape="rect" id="node65" href="$io_8c.html#a19e2e0b57afae458bae068610141c031" title="Reads RANS&#45;related fields." alt="" coords="521,1896,649,1923"/>
+<area shape="rect" id="node66" href="$io_8c.html#a03f5b76975eea55434d764a23fd42623" title="Reads statistical fields for averaging purposes." alt="" coords="506,1947,663,1973"/>
+<area shape="rect" id="node69" href="$group__scatter__module.html#gaa6642e53fe1be75dcc180dab3cf3f692" title="Scatters a particle field (scalar or vector) to the corresponding Eulerian field average." alt="" coords="487,2099,682,2141"/>
+<area shape="rect" id="node71" href="$ParticleMotion_8c.html#a030c51d171d2f725c708cd334f51ef2c" title="Updates a particle&#39;s position based on its velocity and the timestep dt (stored in user&#45;&gt;dt)." alt="" coords="499,2165,670,2192"/>
+<area shape="rect" id="node74" href="$io_8c.html#a2c3ac50e182d193208800c89201ff236" title="Writes data from a specific field in a PETSc Swarm to a file." alt="" coords="519,2469,651,2496"/>
+<area shape="rect" id="node76" href="$io_8c.html#aa66be4f86c7c18609e457dd542541dd3" title="Writes integer swarm data by casting it to a temporary Vec and using WriteFieldData." alt="" coords="510,2419,659,2445"/>
+<area shape="rect" id="node75" href="$io_8c.html#a3f37cf6ed1f13d0656740b8cff2b4ed8" title="Writes data from a specific PETSc vector to a single, sequential file." alt="" coords="789,2343,908,2369"/>
+<area shape="rect" id="node78" href="$io_8c.html#aa7fe2d107007076b401d19ba9145a354" title="Writes LES&#45;related fields." alt="" coords="526,2368,643,2395"/>
+<area shape="rect" id="node79" href="$io_8c.html#a87768b32e2f93a36633fe104cebcdfe8" title="Writes RANS&#45;related fields." alt="" coords="519,2216,650,2243"/>
+<area shape="rect" id="node80" href="$io_8c.html#a3515d51bdd91f00faf8e5023bc82534b" title="Writes statistical fields for averaging purposes." alt="" coords="505,2267,664,2293"/>
+</map>

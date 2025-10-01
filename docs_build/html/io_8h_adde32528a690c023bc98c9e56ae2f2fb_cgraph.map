@@ -1,0 +1,7 @@
+<map id="DisplayBanner" name="DisplayBanner">
+<area shape="rect" id="node1" title="Displays a structured banner summarizing the simulation configuration." alt="" coords="5,81,123,108"/>
+<area shape="rect" id="node2" href="$logging_8h.html#a9b417fe56a110c0f6a3e64860e3e5cdb" title="Helper function to convert BCFace enum to a string representation." alt="" coords="202,5,325,32"/>
+<area shape="rect" id="node3" href="$logging_8h.html#a804d193057ea6054b3911ae508808821" title="Helper function to convert BCType enum to a string representation." alt="" coords="202,56,325,83"/>
+<area shape="rect" id="node4" href="$logging_8h.html#a80e6374d64447a79c3e41ed67f24020b" title="Helper function to convert FieldInitialization to a string representation." alt="" coords="171,107,356,133"/>
+<area shape="rect" id="node5" href="$logging_8h.html#a7a9f51ee7d4e08776019ee1a4482eb58" title="Helper function to convert ParticleInitialization to a string representation." alt="" coords="180,158,347,199"/>
+</map>

@@ -1,0 +1,9 @@
+<map id="ParseAllBoundaryConditions" name="ParseAllBoundaryConditions">
+<area shape="rect" id="node1" title="Parses the boundary conditions file to configure the type, handler, and any associated parameters for..." alt="" coords="5,132,212,159"/>
+<area shape="rect" id="node2" href="$logging_8h.html#ab17ab5ac0ff52ba6a344790a496f6111" title="Converts a BCHandlerType enum to its string representation." alt="" coords="280,5,453,32"/>
+<area shape="rect" id="node3" href="$io_8c.html#acee53553fb7d51eb948f1d4030518860" title="Frees the memory allocated for a linked list of BC_Param structs." alt="" coords="297,56,437,83"/>
+<area shape="rect" id="node4" href="$io_8c.html#ab6896c293521673fcbff33001706d3ec" title="Converts a string representation of a face to a BCFace enum." alt="" coords="305,107,428,133"/>
+<area shape="rect" id="node5" href="$io_8c.html#a15bdb2122be30f52df280e1d7204f578" title="Converts a string representation of a handler to a BCHandlerType enum." alt="" coords="280,157,453,184"/>
+<area shape="rect" id="node6" href="$io_8c.html#ad5fc2fe7ae3aa77361c5ab62343358a7" title="Converts a string representation of a BC type to a BCType enum." alt="" coords="305,208,428,235"/>
+<area shape="rect" id="node7" href="$io_8c.html#a5fe767286174b757deb2d404f2b4843f" title="Validates that a specific handler is compatible with a general BC type." alt="" coords="260,259,473,285"/>
+</map>

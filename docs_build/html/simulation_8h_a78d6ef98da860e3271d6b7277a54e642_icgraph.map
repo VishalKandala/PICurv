@@ -1,0 +1,9 @@
+<map id="UpdateSolverHistoryVectors" name="UpdateSolverHistoryVectors">
+<area shape="rect" id="node1" title="Copies the current time step&#39;s solution fields into history vectors (e.g., U(t_n) &#45;&gt; U_o,..." alt="" coords="576,85,783,112"/>
+<area shape="rect" id="node2" href="$simulation_8c.html#a5cfb2f783604af7f20171d19f969d5d3" title="Executes the main time&#45;marching loop for the coupled Euler&#45;Lagrange simulation." alt="" coords="117,5,265,32"/>
+<area shape="rect" id="node4" href="$initialcondition_8c.html#ad0dd7d3f2528b6a7802fcd551e88ea99" title="High&#45;level orchestrator to set the complete initial state of the Eulerian solver." alt="" coords="108,56,273,83"/>
+<area shape="rect" id="node5" href="$simulation_8c.html#aa5b3c3a0cd447931b47a01267c36acdd" title="Finalizes the simulation setup at t=0, ensuring a consistent state before time marching." alt="" coords="331,107,518,149"/>
+<area shape="rect" id="node7" href="$simulation_8c.html#ad8038ca2fcc4f0534e04d144c4ffbbef" title="Finalizes the simulation state after particle and fluid data have been loaded from a restart." alt="" coords="321,173,528,200"/>
+<area shape="rect" id="node3" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,81,60,108"/>
+<area shape="rect" id="node6" href="$simulation_8c.html#a7bc2bae7b01f179706b367c8637534c2" title="Performs post&#45;load/post&#45;init consistency checks for a restarted simulation." alt="" coords="115,157,267,184"/>
+</map>

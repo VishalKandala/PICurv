@@ -1,0 +1,293 @@
+warning: failed to open layout file 'DoxygenLayout.xml' for reading!
+warning: source ../include is not a readable file or directory... skipping.
+warning: source ../src is not a readable file or directory... skipping.
+warning: source pages is not a readable file or directory... skipping.
+/root/PE/PICurv/src/poisson.c:4201: warning: Reached end of file while still inside a (nested) comment. Nesting level 1 (probable line reference: 465)
+/root/PE/PICurv/src/interpolation.c:1: warning: the name 'Interpolatetion.c' supplied as the argument in the \file statement is not an input file
+/root/PE/PICurv/src/picsolver.c:1: warning: the name 'main.c' supplied as the argument in the \file statement is not an input file
+/root/PE/PICurv/include/logging.h:231: warning: explicit link request to 'define' could not be resolved
+/root/PE/PICurv/include/logging.h:246: warning: explicit link request to '__VA_ARGS__' could not be resolved
+/root/PE/PICurv/include/AnalyticalSolution.h:33: warning: The following parameters of SetLocalCartesianField(fieldName, fieldValue, coor, FieldInitialization, Constant) are not documented:
+  parameter 'FieldInitialization'
+  parameter 'Constant'
+/root/PE/PICurv/include/AnalyticalSolution.h:56: warning: The following parameters of SetLocalCartesianField_Scalar(const char *fieldName, PetscReal *scalarField, Cmpnts *coor, PetscInt FieldInitialization, PetscReal Constant) are not documented:
+  parameter 'FieldInitialization'
+  parameter 'Constant'
+/root/PE/PICurv/include/AnalyticalSolution.h:70: warning: The following parameters of SetLocalCartesianField_Vector(const char *fieldName, Cmpnts *vecField, Cmpnts *coor, PetscInt FieldInitialization, PetscReal Constant) are not documented:
+  parameter 'FieldInitialization'
+  parameter 'Constant'
+/root/PE/PICurv/include/AnalyticalSolution.h:134: warning: The following parameter of SetAnalyticalSolution(Vec tempVec, PetscInt FieldInitialization) is not documented:
+  parameter 'FieldInitialization'
+/root/PE/PICurv/src/Boundaries.c:225: warning: argument 'xs_gnode' of command @param is not found in the argument list of GetRandomCellAndLogicOnInletFace(UserCtx *user, const DMDALocalInfo *info, PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global, PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr, PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out, PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out)
+/root/PE/PICurv/src/Boundaries.c:225: warning: argument 'ys_gnode' of command @param is not found in the argument list of GetRandomCellAndLogicOnInletFace(UserCtx *user, const DMDALocalInfo *info, PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global, PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr, PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out, PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out)
+/root/PE/PICurv/src/Boundaries.c:225: warning: argument 'zs_gnode' of command @param is not found in the argument list of GetRandomCellAndLogicOnInletFace(UserCtx *user, const DMDALocalInfo *info, PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global, PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr, PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out, PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out)
+/root/PE/PICurv/src/Boundaries.c:239: warning: The following parameters of GetRandomCellAndLogicOnInletFace(UserCtx *user, const DMDALocalInfo *info, PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global, PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr, PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out, PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out) are not documented:
+  parameter 'xs_gnode_rank'
+  parameter 'ys_gnode_rank'
+  parameter 'zs_gnode_rank'
+/root/PE/PICurv/include/Boundaries.h:94: warning: argument 'xs_gnode' of command @param is not found in the argument list of GetRandomCellAndLogicOnInletFace(UserCtx *user, const DMDALocalInfo *info, PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global, PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr, PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out, PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out)
+/root/PE/PICurv/include/Boundaries.h:94: warning: argument 'ys_gnode' of command @param is not found in the argument list of GetRandomCellAndLogicOnInletFace(UserCtx *user, const DMDALocalInfo *info, PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global, PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr, PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out, PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out)
+/root/PE/PICurv/include/Boundaries.h:94: warning: argument 'zs_gnode' of command @param is not found in the argument list of GetRandomCellAndLogicOnInletFace(UserCtx *user, const DMDALocalInfo *info, PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global, PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr, PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out, PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out)
+/root/PE/PICurv/include/Boundaries.h:108: warning: The following parameters of GetRandomCellAndLogicOnInletFace(UserCtx *user, const DMDALocalInfo *info, PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global, PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr, PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out, PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out) are not documented:
+  parameter 'xs_gnode_rank'
+  parameter 'ys_gnode_rank'
+  parameter 'zs_gnode_rank'
+/root/PE/PICurv/src/grid.c:573: warning: The following parameter of ReadAndSetCoordinates(UserCtx *user, FILE *fd) is not documented:
+  parameter 'fd'
+/root/PE/PICurv/include/grid.h:82: warning: argument 'user' from the argument list of ComputeLocalBoundingBox has multiple @param documentation sections
+/root/PE/PICurv/include/grid.h:82: warning: argument 'localBBox' from the argument list of ComputeLocalBoundingBox has multiple @param documentation sections
+/root/PE/PICurv/include/grid.h:97: warning: argument 'user' from the argument list of GatherAllBoundingBoxes has multiple @param documentation sections
+/root/PE/PICurv/include/grid.h:97: warning: argument 'allBBoxes' from the argument list of GatherAllBoundingBoxes has multiple @param documentation sections
+/root/PE/PICurv/include/grid.h:113: warning: argument 'user' from the argument list of BroadcastAllBoundingBoxes has multiple @param documentation sections
+/root/PE/PICurv/include/grid.h:113: warning: argument 'bboxlist' from the argument list of BroadcastAllBoundingBoxes has multiple @param documentation sections
+/root/PE/PICurv/include/implicitsolvers.h:20: warning: argument 'user' from the argument list of RungeKutta has multiple @param documentation sections
+/root/PE/PICurv/include/implicitsolvers.h:20: warning: argument 'ibm' from the argument list of RungeKutta has multiple @param documentation sections
+/root/PE/PICurv/include/implicitsolvers.h:20: warning: argument 'fsi' from the argument list of RungeKutta has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1245: warning: argument 'fieldGlobal_cellCentered' of command @param is not found in the argument list of InterpolateEulerFieldToSwarm(UserCtx *user, Vec fieldLocal_cellCentered, const char *fieldName, const char *swarmOutFieldName)
+/root/PE/PICurv/src/interpolation.c:1273: warning: The following parameter of InterpolateEulerFieldToSwarm(UserCtx *user, Vec fieldLocal_cellCentered, const char *fieldName, const char *swarmOutFieldName) is not documented:
+  parameter 'fieldLocal_cellCentered'
+/root/PE/PICurv/include/interpolation.h:151: warning: argument 'fieldName' from the argument list of TrilinearInterpolation_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:151: warning: argument 'fieldScal' from the argument list of TrilinearInterpolation_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:151: warning: argument 'i' from the argument list of TrilinearInterpolation_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:151: warning: argument 'j' from the argument list of TrilinearInterpolation_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:151: warning: argument 'k' from the argument list of TrilinearInterpolation_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:151: warning: argument 'a1' from the argument list of TrilinearInterpolation_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:151: warning: argument 'a2' from the argument list of TrilinearInterpolation_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:151: warning: argument 'a3' from the argument list of TrilinearInterpolation_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:151: warning: argument 'val' from the argument list of TrilinearInterpolation_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:175: warning: argument 'fieldName' from the argument list of TrilinearInterpolation_Vector has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:175: warning: argument 'fieldVec' from the argument list of TrilinearInterpolation_Vector has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:175: warning: argument 'i' from the argument list of TrilinearInterpolation_Vector has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:175: warning: argument 'j' from the argument list of TrilinearInterpolation_Vector has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:175: warning: argument 'k' from the argument list of TrilinearInterpolation_Vector has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:175: warning: argument 'a1' from the argument list of TrilinearInterpolation_Vector has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:175: warning: argument 'a2' from the argument list of TrilinearInterpolation_Vector has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:175: warning: argument 'a3' from the argument list of TrilinearInterpolation_Vector has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:175: warning: argument 'vec' from the argument list of TrilinearInterpolation_Vector has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:188: warning: argument 'fieldGlobal_cellCentered' of command @param is not found in the argument list of InterpolateEulerFieldToSwarm(UserCtx *user, Vec fieldLocal_cellCentered, const char *fieldName, const char *swarmOutFieldName)
+/root/PE/PICurv/include/interpolation.h:216: warning: The following parameter of InterpolateEulerFieldToSwarm(UserCtx *user, Vec fieldLocal_cellCentered, const char *fieldName, const char *swarmOutFieldName) is not documented:
+  parameter 'fieldLocal_cellCentered'
+/root/PE/PICurv/include/interpolation.h:242: warning: argument 'user' from the argument list of InterpolateAllFieldsToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:253: warning: argument 'field' of command @param is not found in the argument list of InterpolateFieldFromCornerToCenter_Scalar(PetscReal ***field_arr, PetscReal ***centfield_arr, UserCtx *user)
+/root/PE/PICurv/include/interpolation.h:253: warning: argument 'centfield' of command @param is not found in the argument list of InterpolateFieldFromCornerToCenter_Scalar(PetscReal ***field_arr, PetscReal ***centfield_arr, UserCtx *user)
+/root/PE/PICurv/include/interpolation.h:272: warning: argument 'user' from the argument list of InterpolateFieldFromCornerToCenter_Scalar has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:277: warning: argument 'field' of command @param is not found in the argument list of InterpolateFieldFromCornerToCenter_Vector(Cmpnts ***field_arr, Cmpnts ***centfield_arr, UserCtx *user)
+/root/PE/PICurv/include/interpolation.h:277: warning: argument 'centfield' of command @param is not found in the argument list of InterpolateFieldFromCornerToCenter_Vector(Cmpnts ***field_arr, Cmpnts ***centfield_arr, UserCtx *user)
+/root/PE/PICurv/include/interpolation.h:294: warning: argument 'user' from the argument list of InterpolateFieldFromCornerToCenter_Vector has multiple @param documentation sections
+/root/PE/PICurv/src/io.c:1322: warning: argument 'user' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/src/io.c:1322: warning: argument 'field_name' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/src/io.c:1322: warning: argument 'field_vec' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/src/io.c:1322: warning: argument 'ti' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/src/io.c:1322: warning: argument 'ext' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/src/io.c:1935: warning: argument 'user' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'StartTime' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'StartStep' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'StepsToRun' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'num_mpi_procs' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'total_num_particles' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'bboxlist' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1951: warning: The following parameter of DisplayBanner(SimCtx *simCtx) is not documented:
+  parameter 'simCtx'
+/root/PE/PICurv/src/io.c:2056: warning: argument 'configFile' of command @param is not found in the argument list of ParsePostProcessingSettings(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:2056: warning: argument 'pps' of command @param is not found in the argument list of ParsePostProcessingSettings(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:2067: warning: The following parameter of ParsePostProcessingSettings(SimCtx *simCtx) is not documented:
+  parameter 'simCtx'
+/root/PE/PICurv/include/io.h:28: warning: argument 'user' from the argument list of ReadGridGenerationInputs has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:42: warning: argument 'user' from the argument list of ReadGridFile has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:45: warning: argument 'The' of command @param is not found in the argument list of ReadSimulationFields(UserCtx *user, PetscInt ti)
+/root/PE/PICurv/include/io.h:57: warning: argument 'user' from the argument list of ReadSimulationFields has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:77: warning: argument 'The' of command @param is not found in the argument list of ReadStatisticalFields(UserCtx *user, PetscInt ti)
+/root/PE/PICurv/include/io.h:88: warning: argument 'user' from the argument list of ReadStatisticalFields has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:101: warning: argument 'user' from the argument list of ReadLESFields has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:101: warning: argument 'ti' from the argument list of ReadLESFields has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:113: warning: argument 'user' from the argument list of ReadRANSFields has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:113: warning: argument 'ti' from the argument list of ReadRANSFields has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:129: warning: argument 'user' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:129: warning: argument 'field_name' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:129: warning: argument 'field_vec' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:129: warning: argument 'ti' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:129: warning: argument 'ext' from the argument list of WriteFieldData has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:201: warning: argument 'user' from the argument list of WriteSwarmField has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:201: warning: argument 'field_name' from the argument list of WriteSwarmField has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:201: warning: argument 'ti' from the argument list of WriteSwarmField has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:201: warning: argument 'ext' from the argument list of WriteSwarmField has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:219: warning: argument 'user' from the argument list of WriteSwarmIntField has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:219: warning: argument 'field_name' from the argument list of WriteSwarmIntField has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:219: warning: argument 'ti' from the argument list of WriteSwarmIntField has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:219: warning: argument 'ext' from the argument list of WriteSwarmIntField has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:305: warning: argument 'inVec' from the argument list of VecToArrayOnRank0 has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:305: warning: argument 'N' from the argument list of VecToArrayOnRank0 has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:305: warning: argument 'arrayOut' from the argument list of VecToArrayOnRank0 has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:373: warning: argument 'user' from the argument list of ReadAllSwarmFields has multiple @param documentation sections
+/root/PE/PICurv/include/io.h:373: warning: argument 'ti' from the argument list of ReadAllSwarmFields has multiple @param documentation sections
+/root/PE/PICurv/src/io.c:1935: warning: argument 'user' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'bboxlist' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'user' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'StartTime' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'StartStep' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'StepsToRun' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'num_mpi_procs' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'total_num_particles' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:1935: warning: argument 'bboxlist' of command @param is not found in the argument list of DisplayBanner(SimCtx *simCtx)
+/root/PE/PICurv/include/io.h:428: warning: The following parameter of DisplayBanner(SimCtx *simCtx) is not documented:
+  parameter 'simCtx'
+/root/PE/PICurv/include/io.h:478: warning: argument 'str' from the argument list of TrimWhitespace has multiple @param documentation sections
+/root/PE/PICurv/src/io.c:2056: warning: argument 'configFile' of command @param is not found in the argument list of ParsePostProcessingSettings(SimCtx *simCtx)
+/root/PE/PICurv/src/io.c:2056: warning: argument 'pps' of command @param is not found in the argument list of ParsePostProcessingSettings(SimCtx *simCtx)
+/root/PE/PICurv/src/logging.c:648: warning: argument 'PetscInt' of command @param is not found in the argument list of FieldInitializationToString(PetscInt FieldInitialization)
+/root/PE/PICurv/src/logging.c:652: warning: The following parameter of FieldInitializationToString(PetscInt FieldInitialization) is not documented:
+  parameter 'FieldInitialization'
+/root/PE/PICurv/src/logging.c:663: warning: argument 'PetscInt' of command @param is not found in the argument list of ParticleInitializationToString(PetscInt ParticleInitialization)
+/root/PE/PICurv/src/logging.c:667: warning: The following parameter of ParticleInitializationToString(PetscInt ParticleInitialization) is not documented:
+  parameter 'ParticleInitialization'
+/root/PE/PICurv/src/logging.c:740: warning: argument 'Ctx' of command @param is not found in the argument list of DualMonitorDestroy(void **ctx)
+/root/PE/PICurv/src/logging.c:746: warning: The following parameter of DualMonitorDestroy(void **ctx) is not documented:
+  parameter 'ctx'
+/root/PE/PICurv/include/logging.h:231: warning: explicit link request to 'define' could not be resolved
+/root/PE/PICurv/include/logging.h:246: warning: explicit link request to '__VA_ARGS__' could not be resolved
+/root/PE/PICurv/include/logging.h:231: warning: explicit link request to 'define' could not be resolved
+/root/PE/PICurv/include/logging.h:246: warning: explicit link request to '__VA_ARGS__' could not be resolved
+/root/PE/PICurv/include/logging.h:347: warning: The following parameter of LOG_LOOP_ALLOW_EXACT(scope, level, var, val, fmt,...) is not documented:
+  parameter 'fmt'
+  parameter '...'
+/root/PE/PICurv/include/logging.h:570: warning: argument 'PetscInt' of command @param is not found in the argument list of FieldInitializationToString(PetscInt FieldInitialization)
+/root/PE/PICurv/include/logging.h:574: warning: The following parameter of FieldInitializationToString(PetscInt FieldInitialization) is not documented:
+  parameter 'FieldInitialization'
+/root/PE/PICurv/include/logging.h:577: warning: argument 'PetscInt' of command @param is not found in the argument list of ParticleInitializationToString(PetscInt ParticleInitialization)
+/root/PE/PICurv/include/logging.h:581: warning: The following parameter of ParticleInitializationToString(PetscInt ParticleInitialization) is not documented:
+  parameter 'ParticleInitialization'
+/root/PE/PICurv/include/logging.h:619: warning: argument 'Ctx' of command @param is not found in the argument list of DualMonitorDestroy(void **ctx)
+/root/PE/PICurv/include/logging.h:625: warning: The following parameter of DualMonitorDestroy(void **ctx) is not documented:
+  parameter 'ctx'
+/root/PE/PICurv/include/Metric.h:66: warning: argument 'user' from the argument list of ComputeCellCenteredJacobianInverse has multiple @param documentation sections
+/root/PE/PICurv/src/Metric.c:226: warning: Unsupported xml/html tag <your> found
+/root/PE/PICurv/include/Metric.h:96: warning: argument 'user' from the argument list of CheckAndFixGridOrientation has multiple @param documentation sections
+/root/PE/PICurv/include/Metric.h:124: warning: argument 'user' from the argument list of ComputeIFaceMetrics has multiple @param documentation sections
+/root/PE/PICurv/include/Metric.h:172: warning: argument 'user' from the argument list of ComputeKFaceMetrics has multiple @param documentation sections
+/root/PE/PICurv/include/Metric.h:185: warning: argument 'user' from the argument list of ComputeMetricsDivergence has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:61: warning: argument 'user' from the argument list of CheckAndRemoveOutOfBoundsParticles has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:61: warning: argument 'removedCountLocal' from the argument list of CheckAndRemoveOutOfBoundsParticles has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:61: warning: argument 'removedCountGlobal' from the argument list of CheckAndRemoveOutOfBoundsParticles has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:61: warning: argument 'bboxlist' from the argument list of CheckAndRemoveOutOfBoundsParticles has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:87: warning: argument 'user' from the argument list of CheckAndRemoveLostParticles has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:87: warning: argument 'removedCountLocal' from the argument list of CheckAndRemoveLostParticles has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:87: warning: argument 'removedCountGlobal' from the argument list of CheckAndRemoveLostParticles has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:174: warning: argument 'fieldName' of command @param is not found in the argument list of PreCheckAndResizeSwarm(UserCtx *user, PetscInt ti, const char *ext)
+/root/PE/PICurv/include/ParticleMotion.h:174: warning: argument 'skipStep' of command @param is not found in the argument list of PreCheckAndResizeSwarm(UserCtx *user, PetscInt ti, const char *ext)
+/root/PE/PICurv/include/ParticleMotion.h:193: warning: argument 'user' from the argument list of PreCheckAndResizeSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:193: warning: argument 'ti' from the argument list of PreCheckAndResizeSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleMotion.h:193: warning: argument 'ext' from the argument list of PreCheckAndResizeSwarm has multiple @param documentation sections
+/root/PE/PICurv/src/ParticleSwarm.c:812: warning: End of list marker found without any preceding list items
+/root/PE/PICurv/src/ParticleSwarm.c:972: warning: argument 'LocStatus' of command @param is not found in the argument list of UpdateSwarmFields(PetscInt i, const Particle *particle, PetscReal *weights, PetscInt *cellIndices, PetscInt *status_field)
+/root/PE/PICurv/src/ParticleSwarm.c:983: warning: The following parameter of UpdateSwarmFields(PetscInt i, const Particle *particle, PetscReal *weights, PetscInt *cellIndices, PetscInt *status_field) is not documented:
+  parameter 'status_field'
+/root/PE/PICurv/include/ParticleSwarm.h:258: warning: argument 'user' of command @param is not found in the argument list of InitializeParticleSwarm(SimCtx *simCtx)
+/root/PE/PICurv/include/ParticleSwarm.h:258: warning: argument 'np' of command @param is not found in the argument list of InitializeParticleSwarm(SimCtx *simCtx)
+/root/PE/PICurv/include/ParticleSwarm.h:258: warning: argument 'bboxlist' of command @param is not found in the argument list of InitializeParticleSwarm(SimCtx *simCtx)
+/root/PE/PICurv/src/ParticleSwarm.c:1168: warning: The following parameter of InitializeParticleSwarm(SimCtx *simCtx) is not documented:
+  parameter 'simCtx'
+/root/PE/PICurv/include/ParticleSwarm.h:48: warning: argument 'user' from the argument list of CreateParticleSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:48: warning: argument 'numParticles' from the argument list of CreateParticleSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:48: warning: argument 'bboxlist' from the argument list of CreateParticleSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:144: warning: argument 'user' from the argument list of AssignInitialPropertiesToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:144: warning: argument 'particlesPerProcess' from the argument list of AssignInitialPropertiesToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:144: warning: argument 'rand_phys_x' from the argument list of AssignInitialPropertiesToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:144: warning: argument 'rand_phys_y' from the argument list of AssignInitialPropertiesToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:144: warning: argument 'rand_phys_z' from the argument list of AssignInitialPropertiesToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:144: warning: argument 'rand_logic_i' from the argument list of AssignInitialPropertiesToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:144: warning: argument 'rand_logic_j' from the argument list of AssignInitialPropertiesToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:144: warning: argument 'rand_logic_k' from the argument list of AssignInitialPropertiesToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:144: warning: argument 'bboxlist' from the argument list of AssignInitialPropertiesToSwarm has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:208: warning: argument 'LocStatus' of command @param is not found in the argument list of UpdateSwarmFields(PetscInt i, const Particle *particle, PetscReal *weights, PetscInt *cellIndices, PetscInt *status_field)
+/root/PE/PICurv/include/ParticleSwarm.h:219: warning: The following parameter of UpdateSwarmFields(PetscInt i, const Particle *particle, PetscReal *weights, PetscInt *cellIndices, PetscInt *status_field) is not documented:
+  parameter 'status_field'
+/root/PE/PICurv/include/ParticleSwarm.h:241: warning: argument 'bbox' from the argument list of IsParticleInsideBoundingBox has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:241: warning: argument 'particle' from the argument list of IsParticleInsideBoundingBox has multiple @param documentation sections
+/root/PE/PICurv/include/ParticleSwarm.h:258: warning: argument 'user' of command @param is not found in the argument list of InitializeParticleSwarm(SimCtx *simCtx)
+/root/PE/PICurv/include/ParticleSwarm.h:258: warning: argument 'np' of command @param is not found in the argument list of InitializeParticleSwarm(SimCtx *simCtx)
+/root/PE/PICurv/include/ParticleSwarm.h:258: warning: argument 'bboxlist' of command @param is not found in the argument list of InitializeParticleSwarm(SimCtx *simCtx)
+/root/PE/PICurv/include/ParticleSwarm.h:277: warning: The following parameter of InitializeParticleSwarm(SimCtx *simCtx) is not documented:
+  parameter 'simCtx'
+/root/PE/PICurv/include/poisson.h:36: warning: argument 'user' from the argument list of PoissonLHSNew has multiple @param documentation sections
+/root/PE/PICurv/include/poisson.h:55: warning: argument 'user' from the argument list of UpdatePressure has multiple @param documentation sections
+/root/PE/PICurv/include/poisson.h:64: warning: argument 'user' from the argument list of Projection has multiple @param documentation sections
+/root/PE/PICurv/include/postprocessor.h:56: warning: argument 'config' of command @param is not found in the argument list of EulerianDataProcessingPipeline(UserCtx *user, PostProcessParams *pps)
+/root/PE/PICurv/include/postprocessor.h:62: warning: argument 'user' from the argument list of EulerianDataProcessingPipeline has multiple @param documentation sections
+/root/PE/PICurv/include/rhs.h:29: warning: argument 'user' from the argument list of ComputeRHS has multiple @param documentation sections
+/root/PE/PICurv/include/rhs.h:29: warning: argument 'Rhs' from the argument list of ComputeRHS has multiple @param documentation sections
+/root/PE/PICurv/include/setup.h:178: warning: argument 'array' from the argument list of Allocate3DArrayVector has multiple @param documentation sections
+/root/PE/PICurv/include/setup.h:178: warning: argument 'nz' from the argument list of Allocate3DArrayVector has multiple @param documentation sections
+/root/PE/PICurv/include/setup.h:178: warning: argument 'ny' from the argument list of Allocate3DArrayVector has multiple @param documentation sections
+/root/PE/PICurv/include/setup.h:196: warning: argument 'xs_cell_global' of command @param is not found in the argument list of GetOwnedCellRange(const DMDALocalInfo *info_nodes, PetscInt dim, PetscInt *xs_cell_global_out, PetscInt *xm_cell_local_out)
+/root/PE/PICurv/include/setup.h:196: warning: argument 'xm_cell_local' of command @param is not found in the argument list of GetOwnedCellRange(const DMDALocalInfo *info_nodes, PetscInt dim, PetscInt *xs_cell_global_out, PetscInt *xm_cell_local_out)
+/root/PE/PICurv/include/setup.h:211: warning: argument 'info_nodes' from the argument list of GetOwnedCellRange has multiple @param documentation sections
+/root/PE/PICurv/include/setup.h:211: warning: argument 'dim' from the argument list of GetOwnedCellRange has multiple @param documentation sections
+/root/PE/PICurv/include/setup.h:255: warning: argument 'user' from the argument list of ComputeAndStoreNeighborRanks has multiple @param documentation sections
+/root/PE/PICurv/include/setup.h:274: warning: argument 'user' of command @param is not found in the argument list of SetupDomainRankInfo(SimCtx *simCtx)
+/root/PE/PICurv/include/setup.h:274: warning: argument 'bboxlist' of command @param is not found in the argument list of SetupDomainRankInfo(SimCtx *simCtx)
+/root/PE/PICurv/include/simulation.h:45: warning: argument 'user' of command @param is not found in the argument list of AdvanceSimulation(SimCtx *simCtx)
+/root/PE/PICurv/src/simulation.c:291: warning: The following parameter of AdvanceSimulation(SimCtx *simCtx) is not documented:
+  parameter 'simCtx'
+/root/PE/PICurv/include/simulation.h:45: warning: argument 'user' of command @param is not found in the argument list of AdvanceSimulation(SimCtx *simCtx)
+/root/PE/PICurv/include/simulation.h:45: warning: argument 'user' of command @param is not found in the argument list of AdvanceSimulation(SimCtx *simCtx)
+/root/PE/PICurv/include/simulation.h:64: warning: The following parameter of AdvanceSimulation(SimCtx *simCtx) is not documented:
+  parameter 'simCtx'
+/root/PE/PICurv/include/solvers.h:24: warning: argument 'simCtx' from the argument list of Flow_Solver has multiple @param documentation sections
+/root/PE/PICurv/include/vtk_io.h:71: warning: argument 'user' from the argument list of PrepareOutputParticleData has multiple @param documentation sections
+/root/PE/PICurv/include/vtk_io.h:71: warning: argument 'pps' from the argument list of PrepareOutputParticleData has multiple @param documentation sections
+/root/PE/PICurv/include/vtk_io.h:71: warning: argument 'meta' from the argument list of PrepareOutputParticleData has multiple @param documentation sections
+/root/PE/PICurv/include/vtk_io.h:71: warning: argument 'p_n_total' from the argument list of PrepareOutputParticleData has multiple @param documentation sections
+/root/PE/PICurv/src/walkingsearch.c:909: warning: argument 'info' of command @param is not found in the argument list of UpdateCellIndicesBasedOnDistancesTEST(PetscReal d[NUM_FACES], PetscInt *idx, PetscInt *idy, PetscInt *idz)
+/root/PE/PICurv/include/walkingsearch.h:95: warning: argument 'p' from the argument list of CalculateDistancesToCellFaces has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:95: warning: argument 'cell' from the argument list of CalculateDistancesToCellFaces has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:95: warning: argument 'd' from the argument list of CalculateDistancesToCellFaces has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:95: warning: argument 'threshold' from the argument list of CalculateDistancesToCellFaces has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:129: warning: argument 'coor' from the argument list of GetCellVerticesFromGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:129: warning: argument 'idx' from the argument list of GetCellVerticesFromGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:129: warning: argument 'idy' from the argument list of GetCellVerticesFromGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:129: warning: argument 'idz' from the argument list of GetCellVerticesFromGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:129: warning: argument 'cell' from the argument list of GetCellVerticesFromGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:146: warning: argument 'user' from the argument list of InitializeTraversalParameters has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:146: warning: argument 'particle' from the argument list of InitializeTraversalParameters has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:146: warning: argument 'idx' from the argument list of InitializeTraversalParameters has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:146: warning: argument 'idy' from the argument list of InitializeTraversalParameters has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:146: warning: argument 'idz' from the argument list of InitializeTraversalParameters has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:146: warning: argument 'traversal_steps' from the argument list of InitializeTraversalParameters has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:159: warning: argument 'user' from the argument list of CheckCellWithinLocalGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:159: warning: argument 'idx' from the argument list of CheckCellWithinLocalGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:159: warning: argument 'idy' from the argument list of CheckCellWithinLocalGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:159: warning: argument 'idz' from the argument list of CheckCellWithinLocalGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:159: warning: argument 'is_within' from the argument list of CheckCellWithinLocalGrid has multiple @param documentation sections
+/root/PE/PICurv/include/walkingsearch.h:364: warning: argument 'info' of command @param is not found in the argument list of UpdateCellIndicesBasedOnDistancesTEST(PetscReal d[NUM_FACES], PetscInt *idx, PetscInt *idy, PetscInt *idz)
+/root/PE/PICurv/include/interpolation.h:397: warning: argument 'user' from the argument list of GetScatterTargetInfo has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:397: warning: argument 'particleFieldName' from the argument list of GetScatterTargetInfo has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:397: warning: argument 'targetDM' from the argument list of GetScatterTargetInfo has multiple @param documentation sections
+/root/PE/PICurv/include/interpolation.h:397: warning: argument 'expected_dof' from the argument list of GetScatterTargetInfo has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:2009: warning: argument 'user' from the argument list of ScatterParticleFieldToEulerField has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:2009: warning: argument 'particleFieldName' from the argument list of ScatterParticleFieldToEulerField has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:2009: warning: argument 'eulerFieldAverageVec' from the argument list of ScatterParticleFieldToEulerField has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:2098: warning: argument 'user' from the argument list of ScatterAllParticleFieldsToEulerFields has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1682: warning: argument 'swarm' from the argument list of AccumulateParticleField has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1682: warning: argument 'particleFieldName' from the argument list of AccumulateParticleField has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1682: warning: argument 'gridSumDM' from the argument list of AccumulateParticleField has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1682: warning: argument 'gridSumVec' from the argument list of AccumulateParticleField has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1795: warning: argument 'countDM' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1795: warning: argument 'countVec' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1795: warning: argument 'dataDM' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1795: warning: argument 'sumVec' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
+/root/PE/PICurv/src/interpolation.c:1795: warning: argument 'avgVec' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
+/root/PE/PICurv/docs/mainpage.md:27: warning: found </strong> at different nesting level (7) than expected (4)
+/root/PE/PICurv/docs/mainpage.md:56: warning: image file high_level_architecture.png is not found in IMAGE_PATH: assuming external image.
+/root/PE/PICurv/docs/mainpage.md:60: warning: unable to resolve reference to 'getting_started' for \ref command
+/root/PE/PICurv/docs/mainpage.md:61: warning: unable to resolve reference to 'user_guide' for \ref command
+/root/PE/PICurv/docs/mainpage.md:62: warning: unable to resolve reference to 'developer_guide' for \ref command
+/root/PE/PICurv/docs/mainpage.md:63: warning: unable to resolve reference to 'theory_and_numerics' for \ref command
+/root/PE/PICurv/docs/mainpage.md:64: warning: end of comment block while expecting command </strong>
+/root/PE/PICurv/docs/mainpage.md:27: warning: found </strong> at different nesting level (7) than expected (4)
+/root/PE/PICurv/docs/mainpage.md:56: warning: image file high_level_architecture.png is not found in IMAGE_PATH: assuming external image.
+/root/PE/PICurv/docs/mainpage.md:60: warning: unable to resolve reference to 'getting_started' for \ref command
+/root/PE/PICurv/docs/mainpage.md:61: warning: unable to resolve reference to 'user_guide' for \ref command
+/root/PE/PICurv/docs/mainpage.md:62: warning: unable to resolve reference to 'developer_guide' for \ref command
+/root/PE/PICurv/docs/mainpage.md:63: warning: unable to resolve reference to 'theory_and_numerics' for \ref command
+/root/PE/PICurv/docs/mainpage.md:64: warning: end of comment block while expecting command </strong>
+error: Style sheet 'custom.css' specified by HTML_EXTRA_STYLESHEET does not exist!
