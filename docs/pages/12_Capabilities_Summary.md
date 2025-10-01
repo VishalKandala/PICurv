@@ -1,5 +1,4 @@
-/**
-@page 10_Capabilities_Summary Capabilities Summary: What You Can Do
+@page 12_Capabilities_Summary Capabilities Summary: What You Can Do
 
 This page provides a high-level summary of the features and models currently implemented in PICurv that are fully configurable through the `pic-flow` workflow and `.yml` files. This is the scope of what you can achieve as a user, without needing to modify the C source code.
 

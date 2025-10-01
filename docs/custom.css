@@ -13,12 +13,12 @@
     flex: 1;
     min-width: 250px;
     padding: 20px;
-    border: 1px solid #ccc;
+    border: 1px solid #e6a605;
     border-radius: 8px;
     text-decoration: none;
     color: inherit;
     transition: all 0.2s ease-in-out;
-    background-color: #f9f9f9;
+    background-color: #0c0000;
 }
 
 .main_page_button:hover {
