@@ -5,7 +5,6 @@ warning: source pages is not a readable file or directory... skipping.
 /root/PE/PICurv/src/poisson.c:4201: warning: Reached end of file while still inside a (nested) comment. Nesting level 1 (probable line reference: 465)
 /root/PE/PICurv/src/interpolation.c:1: warning: the name 'Interpolatetion.c' supplied as the argument in the \file statement is not an input file
 /root/PE/PICurv/src/picsolver.c:1: warning: the name 'main.c' supplied as the argument in the \file statement is not an input file
-/root/PE/PICurv/docs/mainpage.md:3: warning: found more than one \mainpage comment block! (first occurrence: /root/PE/PICurv/docs/mainpage.md, line 2), Skipping current block!
 /root/PE/PICurv/include/logging.h:231: warning: explicit link request to 'define' could not be resolved
 /root/PE/PICurv/include/logging.h:246: warning: explicit link request to '__VA_ARGS__' could not be resolved
 /root/PE/PICurv/include/AnalyticalSolution.h:33: warning: The following parameters of SetLocalCartesianField(fieldName, fieldValue, coor, FieldInitialization, Constant) are not documented:
@@ -260,6 +259,7 @@ warning: source pages is not a readable file or directory... skipping.
 /root/PE/PICurv/include/walkingsearch.h:159: warning: argument 'idz' from the argument list of CheckCellWithinLocalGrid has multiple @param documentation sections
 /root/PE/PICurv/include/walkingsearch.h:159: warning: argument 'is_within' from the argument list of CheckCellWithinLocalGrid has multiple @param documentation sections
 /root/PE/PICurv/include/walkingsearch.h:364: warning: argument 'info' of command @param is not found in the argument list of UpdateCellIndicesBasedOnDistancesTEST(PetscReal d[NUM_FACES], PetscInt *idx, PetscInt *idy, PetscInt *idz)
+/root/PE/PICurv/docs/pages/01_Installation.md:160: warning: unable to resolve reference to '_Tutorial_Programmatic_Grid' for \ref command
 /root/PE/PICurv/include/interpolation.h:397: warning: argument 'user' from the argument list of GetScatterTargetInfo has multiple @param documentation sections
 /root/PE/PICurv/include/interpolation.h:397: warning: argument 'particleFieldName' from the argument list of GetScatterTargetInfo has multiple @param documentation sections
 /root/PE/PICurv/include/interpolation.h:397: warning: argument 'targetDM' from the argument list of GetScatterTargetInfo has multiple @param documentation sections
@@ -277,4 +277,30 @@ warning: source pages is not a readable file or directory... skipping.
 /root/PE/PICurv/src/interpolation.c:1795: warning: argument 'dataDM' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
 /root/PE/PICurv/src/interpolation.c:1795: warning: argument 'sumVec' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
 /root/PE/PICurv/src/interpolation.c:1795: warning: argument 'avgVec' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
+/root/PE/PICurv/docs/mainpage.md:17: warning: Unexpected html tag <h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:17: warning: Unexpected html tag </h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:18: warning: Unexpected html tag <p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:18: warning: Unexpected html tag </p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:21: warning: Unexpected html tag <h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:21: warning: Unexpected html tag </h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:22: warning: Unexpected html tag <p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:22: warning: Unexpected html tag </p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:25: warning: Unexpected html tag <h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:25: warning: Unexpected html tag </h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:26: warning: Unexpected html tag <p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:26: warning: Unexpected html tag </p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:36: warning: image file high_level_architecture.png is not found in IMAGE_PATH: assuming external image.
+/root/PE/PICurv/docs/mainpage.md:17: warning: Unexpected html tag <h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:17: warning: Unexpected html tag </h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:18: warning: Unexpected html tag <p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:18: warning: Unexpected html tag </p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:21: warning: Unexpected html tag <h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:21: warning: Unexpected html tag </h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:22: warning: Unexpected html tag <p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:22: warning: Unexpected html tag </p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:25: warning: Unexpected html tag <h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:25: warning: Unexpected html tag </h2> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:26: warning: Unexpected html tag <p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:26: warning: Unexpected html tag </p> found within <a href=...> context
+/root/PE/PICurv/docs/mainpage.md:36: warning: image file high_level_architecture.png is not found in IMAGE_PATH: assuming external image.
 error: Style sheet 'custom.css' specified by HTML_EXTRA_STYLESHEET does not exist!

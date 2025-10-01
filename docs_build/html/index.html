@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=9"/>
 <meta name="generator" content="Doxygen 1.8.17"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PICurv: Main Page</title>
+<title>PICurv: PICurv Solver Documentation</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -84,10 +84,49 @@ $(document).ready(function(){initNavTree('index.html',''); initResizable(); });
 
 <div class="PageDoc"><div class="header">
   <div class="headertitle">
-<div class="title">PICurv Documentation</div>  </div>
+<div class="title">PICurv Solver Documentation </div>  </div>
 </div><!--header-->
 <div class="contents">
-<div class="textblock"><p>/** </p>
+<div class="textblock"><h1><a class="anchor" id="intro_sec"></a>
+Introduction</h1>
+<h1><a class="anchor" id="autotoc_md16"></a>
+🌀 PICurv: A Hybrid Eulerian-Lagrangian Framework for Scalar Transport</h1>
+<p>Welcome to the documentation for <b>PICurv</b>, a high-performance, parallel framework for simulating turbulent flows with actively coupled scalar fields using a hybrid Eulerian-Lagrangian method.</p>
+<p>PICurv is designed to tackle complex scalar transport problems where traditional grid-based methods suffer from numerical diffusion. It couples a curvilinear immersed boundary (CurvIB) fluid dynamics solver with a parallel Lagrangian particle method. In this framework, "particles" act as moving computational points that carry and evolve scalar properties. These properties are then projected back onto the Eulerian grid, creating a powerful two-way coupling. This makes PICurv an ideal platform for advanced simulations in turbulent mixing and combustion, such as transported Probability Density Function (t-PDF) or Flamelet/Progress Variable (FPV) models.</p>
+<hr  />
+<h1><a class="anchor" id="get_started_main"></a>
+To Begin, Choose Your Path:</h1>
+<div class="main_page_buttons"> <a href="01_Installation.html" class="main_page_button">Getting Started For new users. Install the code, run your first example simulation, and visualize the results in minutes. </a> <a href="04_Conductor_Script.html" class="main_page_button">User Guide For power users. Learn how to configure your own simulations using the powerful YAML-based workflow. </a> <a href="09_Code_Architecture.html" class="main_page_button">Developer Portal For contributors. Understand the C++ architecture and learn how to extend the solver with new models. </a> </div><hr  />
+<h1><a class="anchor" id="methodology_sec"></a>
+Core Methodology</h1>
+<p>PICurv's methodology is a tightly integrated, two-way coupled hybrid Eulerian-Lagrangian scheme. It solves for the fluid mechanics on a stationary grid while tracking the evolution of scalar fields on a vast number of moving Lagrangian markers.</p>
+<div class="image">
+<img src="high_level_architecture.png" alt="" width="800px"/>
+<div class="caption">
+High-Level Simulation Workflow</div></div>
+<h3><a class="anchor" id="autotoc_md19"></a>
+1. The Eulerian Phase (The Grid)</h3>
+<p>The background fluid flow is handled by the <b>CurvIB solver</b>, which employs a pressure-based <b>fractional-step projection method</b> for the incompressible Navier-Stokes equations. Turbulence is modeled using Large Eddy Simulation (LES). The grid also hosts Eulerian scalar fields (<code>phi_field</code>), which are constructed from the properties of the Lagrangian markers.</p>
+<h3><a class="anchor" id="autotoc_md20"></a>
+2. The Lagrangian Phase (The Markers)</h3>
+<p>The core of the scalar transport model resides in the Lagrangian phase, which consists of millions of computational markers. These are abstract, massless markers that act as carriers of scalar information (<code>phi_particle</code>). An evolution equation is solved for the scalar properties along each marker's trajectory, with parallel management handled by PETSc's <code>DMSwarm</code>.</p>
+<h3><a class="anchor" id="autotoc_md21"></a>
+3. The Two-Way Coupling Mechanism</h3>
+<p>The true power of PICurv lies in the continuous, two-way exchange of information between the grid and the markers.</p>
+<ul>
+<li><b>Grid → Marker (Interpolation):</b> Fluid velocity and other Eulerian properties are interpolated to each marker's location to advect it and evaluate source terms in its governing equation.</li>
+<li><b>Marker → Grid (Projection):</b> The Eulerian scalar field is reconstructed from the Lagrangian marker properties using cell averaging. This allows the high-resolution, non-diffusive information from the particles to directly influence the grid-based fields.</li>
+</ul>
+<h1><a class="anchor" id="features_sec"></a>
+Key Features</h1>
+<ul>
+<li><b>Hybrid Eulerian-Lagrangian Solver:</b> A modern framework for high-fidelity scalar transport in turbulent flows.</li>
+<li><b>YAML-Driven Workflow:</b> User-friendly configuration managed by a powerful Python conductor script (<code>pic.flow</code>).</li>
+<li><b>Advanced CFD for Transport:</b> Employs a pressure-based fractional-step method and LES to provide an accurate velocity field for Lagrangian advection.</li>
+<li><b>Two-Way Scalar Coupling:</b> Implements a robust mechanism for projecting Lagrangian scalar information back onto the Eulerian grid.</li>
+<li><b>Flexible Scalar Evolution:</b> The framework is designed to solve arbitrary user-defined transport equations on the Lagrangian markers.</li>
+<li><b>Parallel by Design:</b> Built on PETSc's <code>DMDA</code> and <code>DMSwarm</code> to ensure excellent performance and scalability on HPC systems. </li>
+</ul>
 </div></div><!-- PageDoc -->
 </div><!-- contents -->
 </div><!-- doc-content -->
