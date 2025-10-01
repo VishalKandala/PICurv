@@ -105,8 +105,8 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
             break;
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Inlet face enum %d. Owns cells (i,j,k):(%d,%d,%d) starting at cell (%d,%d,%d). Global nodes(I,J,K):(%d,%d,%d). ==> Can service: %s.\n",
-        rank_for_logging, user->identifiedInletBCFace,
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Inlet face %s. Owns cells (i,j,k):(%d,%d,%d) starting at cell (%d,%d,%d). Global nodes(I,J,K):(%d,%d,%d). ==> Can service: %s.\n",
+        rank_for_logging, BCFaceToString((BCFace)user->identifiedInletBCFace),
         num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k,
         owned_start_cell_i, owned_start_cell_j, owned_start_cell_k,
         IM_nodes_global, JM_nodes_global, KM_nodes_global,

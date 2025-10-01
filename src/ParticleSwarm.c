@@ -836,12 +836,13 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
         return PETSC_ERR_ARG_OUTOFRANGE;
     }
     
-    LOG_ALLOW_SYNC(GLOBAL,LOG_DEBUG, "CreateParticleSwarm - Domain dimensions: Min_X=%.2f, Max_X=%.2f,Min_Y=%.2f, Max_Y=%.2f,Min_Z=%.2f, Max_Z=%.2f \n", 
-        user->Min_X,user->Max_X,user->Min_Y,user->Max_Y, user->Min_Z,user->Max_Z);
-    
     // Retrieve MPI rank and size
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+
+    LOG_ALLOW_SYNC(GLOBAL,LOG_DEBUG, "[Rank %d]CreateParticleSwarm - Domain dimensions: Min_X=%.2f, Max_X=%.2f,Min_Y=%.2f, Max_Y=%.2f,Min_Z=%.2f, Max_Z=%.2f \n", 
+        rank,user->Min_X,user->Max_X,user->Min_Y,user->Max_Y, user->Min_Z,user->Max_Z);
+    
     LOG_ALLOW(GLOBAL,LOG_INFO, "CreateParticleSwarm - Rank %d out of %d processes.\n", rank, size);
 
     // Distribute particles among MPI processes
