@@ -127,4 +127,4 @@ You must specify at least one of the following stages:
 
 Now that you understand how to use the `pic-flow` conductor, the next step is to learn the details of the configuration files it consumes.
 
-Proceed to the **@subpage 06_Case_Reference** to learn about all the parameters available in the main `case.yml` file.
+Proceed to the **@subpage 06_Simulation_Anatomy** to learn about the modularity and versatility of the PICurv which helps you get up and running quickly and enables various experiments.
