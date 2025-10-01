@@ -1,4 +1,4 @@
-@page 09_Post_Processing_Reference Configuration Reference: Post-Processing Recipes (`post.yml`)
+@page 10_Post_Processing_Reference Configuration Reference: Post-Processing Recipes (`post.yml`)
 
 For a complete, heavily commented reference file showing every possible option, please see the master template:
 

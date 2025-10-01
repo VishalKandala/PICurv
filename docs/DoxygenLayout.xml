@@ -14,7 +14,7 @@
     <!-- Tab 3: User Guide (Power User) -->
       <tab type="pages" visible="yes" title="User Guide" intro="For power users.">
         <page name="The pic.flow Conductor" url="@ref 05_The_Conductor_Script"/>
-        <page name="Anatomy of a Simulation" url="@ref 06_Simulation_Anatomy"/> <!-- NEW PAGE -->
+        <page name="Anatomy of a Simulation" url="@ref 06_Simulation_Anatomy"/> 
         <page name="Case Configuration (.yml)" url="@ref 07_Case_Reference"/>
         <page name="Solver Profiles (.yml)" url="@ref 08_Solver_Reference"/>
         <page name="Monitor Profiles (.yml)" url="@ref 09_Monitor_Reference"/>
