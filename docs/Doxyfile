@@ -8,7 +8,7 @@ OUTPUT_LANGUAGE        = English
 OPTIMIZE_OUTPUT_FOR_C  = YES
 
 #------------------------- Input ---------------------------
-INPUT                  = ../include ../src . pages
+INPUT                  = ../include ../src . pages ../examples ../scripts
 FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md
 RECURSIVE              = YES
 EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/*
@@ -51,6 +51,7 @@ HTML_OUTPUT            = html
 HTML_DYNAMIC_MENUS     = YES
 SEARCHENGINE           = YES
 HTML_EXTRA_STYLESHEET  = custom.css
+VERBATIM_HEADERS      = YES
 #------------------------- LaTeX/PDF (optional) ------------
 GENERATE_LATEX         = NO
 
