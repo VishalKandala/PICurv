@@ -101,16 +101,23 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
             }
             break;
         default:
-             LOG_ALLOW(LOCAL, LOG_WARNING, "[Rank %d]: Unknown inlet face enum %d.\n", rank_for_logging, user->identifiedInletBCFace);
+             LOG_ALLOW(LOCAL, LOG_WARNING, "[Rank %d]: Unknown inlet face %s.\n", rank_for_logging, BCFaceToString((BCFace)user->identifiedInletBCFace));
             break;
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Inlet face %s. Owns cells (i,j,k):(%d,%d,%d) starting at cell (%d,%d,%d). Global nodes(I,J,K):(%d,%d,%d). ==> Can service: %s.\n",
-        rank_for_logging, BCFaceToString((BCFace)user->identifiedInletBCFace),
-        num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k,
-        owned_start_cell_i, owned_start_cell_j, owned_start_cell_k,
-        IM_nodes_global, JM_nodes_global, KM_nodes_global,
-        (*can_service_inlet_out) ? "TRUE" : "FALSE");
+
+      LOG_ALLOW(LOCAL, LOG_DEBUG,
+      "[Rank %d] Check Service for Inlet %s:\n"
+      "    - Local Domain: starts at cell (%d,%d,%d), has (%d,%d,%d) cells.\n"
+      "    - Global Domain: has (%d,%d,%d) nodes, so last cell is (%d,%d,%d).\n"
+      "    - Decision: %s\n",
+      rank_for_logging,
+      BCFaceToString((BCFace)user->identifiedInletBCFace),
+      owned_start_cell_i, owned_start_cell_j, owned_start_cell_k,
+      num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k,
+      IM_nodes_global, JM_nodes_global, KM_nodes_global,
+      last_global_cell_idx_i, last_global_cell_idx_j, last_global_cell_idx_k,
+      (*can_service_inlet_out) ? "CAN SERVICE" : "CANNOT SERVICE");
 
     PROFILE_FUNCTION_END;
 
