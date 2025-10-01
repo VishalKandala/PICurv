@@ -87,7 +87,7 @@ $(document).ready(function(){initNavTree('md_examples_flat_channel_flat_channel.
 <div class="title">Case Template: Laminar Flow in a Flat Channel </div>  </div>
 </div><!--header-->
 <div class="contents">
-<div class="textblock"><h1><a class="anchor" id="autotoc_md32"></a>
+<div class="textblock"><h1><a class="anchor" id="autotoc_md33"></a>
 1. Description</h1>
 <p>This template simulates <b>laminar, incompressible flow</b> through a straight channel with a square cross-section. The fluid enters with a uniform velocity, and a parabolic "Poiseuille" velocity profile develops as the flow moves down the channel.</p>
 <p>This is a fundamental validation case and an excellent starting point for learning the PIC-Flow workflow. The grid for this simulation is <b>generated programmatically</b> by the C-solver based on the settings in <code>case.yml</code>.</p>
@@ -96,29 +96,29 @@ $(document).ready(function(){initNavTree('md_examples_flat_channel_flat_channel.
 <li><b>Reynolds Number (Re):</b> 200</li>
 <li><b>Geometry:</b> Straight Square Duct</li>
 </ul>
-<h1><a class="anchor" id="autotoc_md33"></a>
+<h1><a class="anchor" id="autotoc_md34"></a>
 2. Files in this Template</h1>
 <ul>
 <li>**<code>flat_channel.yml</code>**: The main configuration file. Defines the physics, geometry, and run duration. <b>This is the primary file you will edit.</b></li>
 <li>**<code>Imp-MG-Standard.yml</code>**: A robust, pre-configured <b>solver profile</b> using an implicit method with a multigrid preconditioner. It's a good general-purpose solver.</li>
 <li>**<code>Standard_Output.yml</code>**: A standard <b>monitoring profile</b> that shows INFO-level progress updates and saves results every 100 timesteps.</li>
 </ul>
-<h1><a class="anchor" id="autotoc_md34"></a>
+<h1><a class="anchor" id="autotoc_md35"></a>
 3. How to Use this Template</h1>
-<h2><a class="anchor" id="autotoc_md35"></a>
+<h2><a class="anchor" id="autotoc_md36"></a>
 Step 1: Initialize a New Study</h2>
 <p>Navigate to your main project root directory (the one containing <code>bin/</code>) and run the <code>init</code> command. It's best practice to give your study a descriptive name using the <code>--dest</code> flag.</p>
 <div class="fragment"><div class="line"># Example: Create a new study directory named &quot;my_Re400_channel_study&quot;</div>
 <div class="line">./bin/pic.flow init flat_channel --dest my_Re400_channel_study</div>
 </div><!-- fragment --><p>This will create a new folder <code>my_Re400_channel_study/</code> containing copies of all the template files.</p>
-<h2><a class="anchor" id="autotoc_md36"></a>
+<h2><a class="anchor" id="autotoc_md37"></a>
 Step 2: Customize the Simulation</h2>
 <p>Navigate into your new directory (<code>cd my_Re400_channel_study</code>) and open <code>case.yml</code> in a text editor. The most common parameters you will want to change are:</p><ul>
 <li><b>Reynolds number:</b> Modify <code>density</code>, <code>viscosity</code>, <code>length_ref</code>, or <code>velocity_ref</code> under the <code>properties</code> section.</li>
 <li><b>Run duration:</b> Modify <code>total_steps</code> or <code>dt_physical</code> under the <code>run_control</code> section.</li>
 <li><b>Grid resolution:</b> Modify <code>im</code>, <code>jm</code>, or <code>km</code> under <code>grid.programmatic_settings</code>.</li>
 </ul>
-<h2><a class="anchor" id="autotoc_md37"></a>
+<h2><a class="anchor" id="autotoc_md38"></a>
 Step 3: Run the Simulation</h2>
 <p>Navigate back to the project root (<code>cd ..</code>) and launch the simulation using the <code>run</code> command, pointing to the files inside your new study directory.</p>
 <div class="fragment"><div class="line"># Run the simulation on 4 processor cores</div>
@@ -127,7 +127,7 @@ Step 3: Run the Simulation</h2>
 <div class="line">    --solver my_Re400_channel_study/Imp-MG-Standard.yml \</div>
 <div class="line">    --monitor my_Re400_channel_study/Standard_Output.yml \</div>
 <div class="line">    -n 4 --solve</div>
-</div><!-- fragment --><h1><a class="anchor" id="autotoc_md38"></a>
+</div><!-- fragment --><h1><a class="anchor" id="autotoc_md39"></a>
 4. Building a New Template from this Example</h1>
 <p>If you want to create a new template for a different programmatic grid case (e.g., a stretched channel), the easiest way is to:</p><ol type="1">
 <li><b>Initialize a study from this template:</b> <code>pic.flow init flat_channel --dest new_stretched_channel</code></li>
@@ -135,7 +135,7 @@ Step 3: Run the Simulation</h2>
 <li><b>Add a <code><a class="el" href="README_8md.html">README.md</a></code>:</b> Write a new README explaining your changes.</li>
 <li><b>Copy to <code>case_templates/</code>:</b> Copy the entire <code>new_stretched_channel</code> directory into the main <code>case_templates/</code> directory to make it a reusable template.</li>
 </ol>
-<h1><a class="anchor" id="autotoc_md39"></a>
+<h1><a class="anchor" id="autotoc_md40"></a>
 5. Expected Results &amp; Visualization</h1>
 <p>After the run completes, a new directory will be created under <code>runs/</code>. Inside its <code>results/</code> subdirectory, you will find a series of <code>.vts</code> files.</p><ul>
 <li>Open these files in a visualization tool like <b>ParaView</b>.</li>

@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['global_2266',['GLOBAL',['../logging_8h.html#a3de33738fd3c7e77bffbcfaefc3e7645',1,'logging.h']]],
-  ['gridinterpolation_2267',['GridInterpolation',['../poisson_8c.html#a846185bb780db2d5f6e9e58c09a08819',1,'poisson.c']]]
+  ['global_2270',['GLOBAL',['../logging_8h.html#a3de33738fd3c7e77bffbcfaefc3e7645',1,'logging.h']]],
+  ['gridinterpolation_2271',['GridInterpolation',['../poisson_8c.html#a846185bb780db2d5f6e9e58c09a08819',1,'poisson.c']]]
 ];

@@ -87,7 +87,7 @@ $(document).ready(function(){initNavTree('md_examples_bent_channel_bent_channel.
 <div class="title">Case Template: Laminar Flow in a Bent Channel </div>  </div>
 </div><!--header-->
 <div class="contents">
-<div class="textblock"><h1><a class="anchor" id="autotoc_md23"></a>
+<div class="textblock"><h1><a class="anchor" id="autotoc_md24"></a>
 1. Description</h1>
 <p>This template simulates <b>laminar, incompressible flow</b> through a 90-degree bent channel with a square cross-section. It is designed to demonstrate the platform's ability to handle complex, curvilinear geometries.</p>
 <p>The key feature of this template is that the grid is **read from a file (<code>grid.picgrid</code>)**, not generated programmatically. This is the standard workflow for any non-trivial geometry.</p>
@@ -96,28 +96,28 @@ $(document).ready(function(){initNavTree('md_examples_bent_channel_bent_channel.
 <li><b>Reynolds Number (Re):</b> 200</li>
 <li><b>Geometry:</b> 90-Degree Bent Square Duct</li>
 </ul>
-<h1><a class="anchor" id="autotoc_md24"></a>
+<h1><a class="anchor" id="autotoc_md25"></a>
 2. Files in this Template</h1>
 <ul>
 <li>**<code>bent_channel.yml</code>**: The main configuration file. Note that <code>grid.mode</code> is set to **<code>file</code>** and <code>source_file</code> points to the included grid.</li>
 <li>**<code>Imp-MG-Standard.yml</code>**: A general-purpose implicit <b>solver profile</b>. This is the same file as in the <code>flat_channel</code> template, demonstrating the modularity of solver profiles.</li>
 <li>**<code>Standard_Output.yml</code>**: A standard <b>monitoring profile</b>. This is also the same as in the <code>flat_channel</code> template, showing that monitor profiles are reusable across different cases.</li>
 </ul>
-<h2><a class="anchor" id="autotoc_md25"></a>
+<h2><a class="anchor" id="autotoc_md26"></a>
 Included Grid Artifacts</h2>
 <ul>
 <li>**<code>bent_channel_coarse.picgrid</code>**: The raw grid coordinate file used by the solver.</li>
 <li>**<code>bent_channel_coarse.vts</code>**: A VTK file of the grid. <b>You should open this file in ParaView first</b> to visualize the mesh and understand its structure before running a simulation.</li>
 <li>**<code>bent_channel_coarse.info</code>**: A text file containing quality metrics and statistics about the grid.</li>
 </ul>
-<h1><a class="anchor" id="autotoc_md26"></a>
+<h1><a class="anchor" id="autotoc_md27"></a>
 3. How to Use this Template</h1>
-<h2><a class="anchor" id="autotoc_md27"></a>
+<h2><a class="anchor" id="autotoc_md28"></a>
 Step 1: Initialize a New Study</h2>
 <p>From your project root, run the <code>init</code> command: </p><div class="fragment"><div class="line"># Example: Create a new study directory for the bent channel</div>
 <div class="line">./bin/pic.flow init bent_channel --dest my_bent_channel_study</div>
 </div><!-- fragment --><p>This will create the folder <code>my_bent_channel_study/</code> and copy all files, including all three grid artifacts.</p>
-<h2><a class="anchor" id="autotoc_md28"></a>
+<h2><a class="anchor" id="autotoc_md29"></a>
 Step 2: Customize the Simulation</h2>
 <p>Navigate into <code>my_bent_channel_study/</code> and open <code>case.yml</code>. You can modify physical properties (like <code>density</code> to change the Reynolds number) and <code>run_control</code> parameters.</p>
 <p><b>Important:</b> The grid is controlled by the included file. To change the geometry, you must:</p><ol type="1">
@@ -125,7 +125,7 @@ Step 2: Customize the Simulation</h2>
 <li>Place the new <code>.picgrid</code>, <code>.vts</code>, and <code>.info</code> files into your study directory.</li>
 <li>Update the <code>source_file</code> path in <code>case.yml</code> to point to your new grid file.</li>
 </ol>
-<h2><a class="anchor" id="autotoc_md29"></a>
+<h2><a class="anchor" id="autotoc_md30"></a>
 Step 3: Run the Simulation</h2>
 <p>From the project root, launch the simulation: </p><div class="fragment"><div class="line"># Run the simulation on 4 processor cores</div>
 <div class="line">./bin/pic.flow run \</div>
@@ -134,7 +134,7 @@ Step 3: Run the Simulation</h2>
 <div class="line">    --monitor my_bent_channel_study/Standard_Output.yml \</div>
 <div class="line">    -n 4 --solve</div>
 </div><!-- fragment --><p>Notice you can easily swap <code>--solver</code> or <code>--monitor</code> to point to a different profile from the central libraries (e.g., <code>solver_profiles/Robust-Solver.yml</code>) to test different numerical schemes on this complex geometry.</p>
-<h1><a class="anchor" id="autotoc_md30"></a>
+<h1><a class="anchor" id="autotoc_md31"></a>
 4. Expected Results &amp; Visualization</h1>
 <p>The output will be a series of <code>.vts</code> files in the <code>runs/</code> directory.</p><ul>
 <li>Open the files in <b>ParaView</b>.</li>

@@ -1,11 +1,5 @@
 var searchData=
 [
-  ['implicitsolvers_2ec_1185',['implicitsolvers.c',['../implicitsolvers_8c.html',1,'']]],
-  ['implicitsolvers_2eh_1186',['implicitsolvers.h',['../implicitsolvers_8h.html',1,'']]],
-  ['initialcondition_2ec_1187',['initialcondition.c',['../initialcondition_8c.html',1,'']]],
-  ['initialcondition_2eh_1188',['initialcondition.h',['../initialcondition_8h.html',1,'']]],
-  ['interpolation_2ec_1189',['interpolation.c',['../interpolation_8c.html',1,'']]],
-  ['interpolation_2eh_1190',['interpolation.h',['../interpolation_8h.html',1,'']]],
-  ['io_2ec_1191',['io.c',['../io_8c.html',1,'']]],
-  ['io_2eh_1192',['io.h',['../io_8h.html',1,'']]]
+  ['grid_2ec_1187',['grid.c',['../grid_8c.html',1,'']]],
+  ['grid_2eh_1188',['grid.h',['../grid_8h.html',1,'']]]
 ];

@@ -87,18 +87,18 @@ $(document).ready(function(){initNavTree('md_examples_master_template_master_tem
 <div class="title">PIC-Flow Master Configuration Templates </div>  </div>
 </div><!--header-->
 <div class="contents">
-<div class="textblock"><h1><a class="anchor" id="autotoc_md41"></a>
+<div class="textblock"><h1><a class="anchor" id="autotoc_md42"></a>
 1. Overview</h1>
 <p>This directory contains master templates for each of the core PIC-Flow configuration files: <code>master_case.yml</code>, <code>master_solver.yml</code>,<code>master_postprocessor.yml</code> and <code>master_monitor.yml</code>.</p>
 <p>These files are <b>not intended to be run directly</b>. They are heavily commented reference documents that showcase <b>every possible configuration option</b> that the <code>pic.flow</code> platform understands.</p>
-<h1><a class="anchor" id="autotoc_md42"></a>
+<h1><a class="anchor" id="autotoc_md43"></a>
 2. How to Use These Files</h1>
 <ol type="1">
 <li><b>Reference Manual:</b> When you are unsure about a specific setting or want to see all available options for a section, open the relevant master template file. For example, to see all available multigrid settings, open <code>master_solver.yml</code> and look under the <code>pressure_solver.multigrid</code> section.</li>
 <li><b>Snippet Library:</b> Use these files to copy-paste sections into your own configuration files. If you start with a simple <code>flat_channel</code> case but want to add turbulence modeling, you can copy the <code>models.physics.turbulence</code> section from <code>master_case.yml</code> into your study's <code>case.yml</code>.</li>
 <li><b>Learning Tool:</b> Reading through the comments in these files is the best way to learn about the full capabilities of the PIC-Flow platform.</li>
 </ol>
-<h1><a class="anchor" id="autotoc_md43"></a>
+<h1><a class="anchor" id="autotoc_md44"></a>
 3. Best Practices &amp; Workflow</h1>
 <p>The recommended workflow is to combine simple, working templates with the detailed master templates:</p>
 <ol type="1">
