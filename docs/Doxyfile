@@ -50,7 +50,7 @@ GENERATE_HTML          = YES
 HTML_OUTPUT            = html
 HTML_DYNAMIC_MENUS     = YES
 SEARCHENGINE           = YES
-HTML_EXTRA_STYLESHEET    = custom.css
+HTML_EXTRA_STYLESHEET  = custom.css
 #------------------------- LaTeX/PDF (optional) ------------
 GENERATE_LATEX         = NO
 
