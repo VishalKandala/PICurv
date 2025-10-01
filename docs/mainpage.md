@@ -1,4 +1,3 @@
-/**
 @mainpage PICurv Solver Documentation
 
 @section intro_sec Introduction
@@ -66,5 +65,3 @@ The true power of PICurv lies in the continuous, two-way exchange of information
 - **Ready to configure your own simulation?** Dive into the **@subpage 04_Conductor_Script "User Guide"**.
 - **Want to modify the code?** Explore the **@subpage 09_Code_Architecture "Developer Portal"**.
 - **Looking for the math?** Read the detailed **@subpage 11_Theory_and_Numerics "Theory and Numerics"** section.
-
-*/

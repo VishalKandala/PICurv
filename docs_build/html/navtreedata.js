@@ -23,14 +23,6 @@ for the JavaScript code in this file
 var NAVTREE =
 [
   [ "PICurv", "index.html", [
-    [ "PICurv Solver Documentation", "index.html", [
-      [ "Introduction", "index.html#intro_sec", null ],
-      [ "🌀 PICurv: A Hybrid Eulerian-Lagrangian Framework for Scalar Transport", "index.html#autotoc_md16", null ],
-      [ "Core Methodology", "index.html#methodology_sec", null ],
-      [ "Key Features", "index.html#features_sec", null ],
-      [ "Architecture and Program Flow", "index.html#arch_sec", null ],
-      [ "Next Steps", "index.html#nav_links", null ]
-    ] ],
     [ "PIC-Flow Monitor Profiles Library", "md_config_monitors_guide.html", [
       [ "1. Purpose of this Directory", "md_config_monitors_guide.html#autotoc_md1", null ],
       [ "2. Included Profiles", "md_config_monitors_guide.html#autotoc_md2", null ],
@@ -51,42 +43,42 @@ var NAVTREE =
     ] ],
     [ "Changelog", "md_docs_CHANGELOG.html", null ],
     [ "Case Template: Laminar Flow in a Bent Channel", "md_examples_bent_channel_bent_channel.html", [
-      [ "1. Description", "md_examples_bent_channel_bent_channel.html#autotoc_md21", null ],
-      [ "2. Files in this Template", "md_examples_bent_channel_bent_channel.html#autotoc_md22", [
-        [ "Included Grid Artifacts", "md_examples_bent_channel_bent_channel.html#autotoc_md23", null ]
+      [ "1. Description", "md_examples_bent_channel_bent_channel.html#autotoc_md23", null ],
+      [ "2. Files in this Template", "md_examples_bent_channel_bent_channel.html#autotoc_md24", [
+        [ "Included Grid Artifacts", "md_examples_bent_channel_bent_channel.html#autotoc_md25", null ]
       ] ],
-      [ "3. How to Use this Template", "md_examples_bent_channel_bent_channel.html#autotoc_md24", [
-        [ "Step 1: Initialize a New Study", "md_examples_bent_channel_bent_channel.html#autotoc_md25", null ],
-        [ "Step 2: Customize the Simulation", "md_examples_bent_channel_bent_channel.html#autotoc_md26", null ],
-        [ "Step 3: Run the Simulation", "md_examples_bent_channel_bent_channel.html#autotoc_md27", null ]
+      [ "3. How to Use this Template", "md_examples_bent_channel_bent_channel.html#autotoc_md26", [
+        [ "Step 1: Initialize a New Study", "md_examples_bent_channel_bent_channel.html#autotoc_md27", null ],
+        [ "Step 2: Customize the Simulation", "md_examples_bent_channel_bent_channel.html#autotoc_md28", null ],
+        [ "Step 3: Run the Simulation", "md_examples_bent_channel_bent_channel.html#autotoc_md29", null ]
       ] ],
-      [ "4. Expected Results & Visualization", "md_examples_bent_channel_bent_channel.html#autotoc_md28", null ]
+      [ "4. Expected Results & Visualization", "md_examples_bent_channel_bent_channel.html#autotoc_md30", null ]
     ] ],
     [ "Case Template: Laminar Flow in a Flat Channel", "md_examples_flat_channel_flat_channel.html", [
-      [ "1. Description", "md_examples_flat_channel_flat_channel.html#autotoc_md30", null ],
-      [ "2. Files in this Template", "md_examples_flat_channel_flat_channel.html#autotoc_md31", null ],
-      [ "3. How to Use this Template", "md_examples_flat_channel_flat_channel.html#autotoc_md32", [
-        [ "Step 1: Initialize a New Study", "md_examples_flat_channel_flat_channel.html#autotoc_md33", null ],
-        [ "Step 2: Customize the Simulation", "md_examples_flat_channel_flat_channel.html#autotoc_md34", null ],
-        [ "Step 3: Run the Simulation", "md_examples_flat_channel_flat_channel.html#autotoc_md35", null ]
+      [ "1. Description", "md_examples_flat_channel_flat_channel.html#autotoc_md32", null ],
+      [ "2. Files in this Template", "md_examples_flat_channel_flat_channel.html#autotoc_md33", null ],
+      [ "3. How to Use this Template", "md_examples_flat_channel_flat_channel.html#autotoc_md34", [
+        [ "Step 1: Initialize a New Study", "md_examples_flat_channel_flat_channel.html#autotoc_md35", null ],
+        [ "Step 2: Customize the Simulation", "md_examples_flat_channel_flat_channel.html#autotoc_md36", null ],
+        [ "Step 3: Run the Simulation", "md_examples_flat_channel_flat_channel.html#autotoc_md37", null ]
       ] ],
-      [ "4. Building a New Template from this Example", "md_examples_flat_channel_flat_channel.html#autotoc_md36", null ],
-      [ "5. Expected Results & Visualization", "md_examples_flat_channel_flat_channel.html#autotoc_md37", null ]
+      [ "4. Building a New Template from this Example", "md_examples_flat_channel_flat_channel.html#autotoc_md38", null ],
+      [ "5. Expected Results & Visualization", "md_examples_flat_channel_flat_channel.html#autotoc_md39", null ]
     ] ],
     [ "PIC-Flow Master Configuration Templates", "md_examples_master_template_master_template.html", [
-      [ "1. Overview", "md_examples_master_template_master_template.html#autotoc_md39", null ],
-      [ "2. How to Use These Files", "md_examples_master_template_master_template.html#autotoc_md40", null ],
-      [ "3. Best Practices & Workflow", "md_examples_master_template_master_template.html#autotoc_md41", null ]
+      [ "1. Overview", "md_examples_master_template_master_template.html#autotoc_md41", null ],
+      [ "2. How to Use These Files", "md_examples_master_template_master_template.html#autotoc_md42", null ],
+      [ "3. Best Practices & Workflow", "md_examples_master_template_master_template.html#autotoc_md43", null ]
     ] ],
     [ "PICurv", "md_README.html", [
-      [ "Overview", "md_README.html#autotoc_md44", null ],
-      [ "Prerequisites", "md_README.html#autotoc_md45", null ],
-      [ "Building", "md_README.html#autotoc_md46", null ],
-      [ "Running a Simulation", "md_README.html#autotoc_md47", null ],
-      [ "Directory Structure", "md_README.html#autotoc_md48", null ],
-      [ "Documentation", "md_README.html#autotoc_md49", null ],
-      [ "License", "md_README.html#autotoc_md50", null ],
-      [ "Authors", "md_README.html#autotoc_md51", null ]
+      [ "Overview", "md_README.html#autotoc_md46", null ],
+      [ "Prerequisites", "md_README.html#autotoc_md47", null ],
+      [ "Building", "md_README.html#autotoc_md48", null ],
+      [ "Running a Simulation", "md_README.html#autotoc_md49", null ],
+      [ "Directory Structure", "md_README.html#autotoc_md50", null ],
+      [ "Documentation", "md_README.html#autotoc_md51", null ],
+      [ "License", "md_README.html#autotoc_md52", null ],
+      [ "Authors", "md_README.html#autotoc_md53", null ]
     ] ],
     [ "guide", "md_sandbox_guide.html", null ],
     [ "Modules", "modules.html", "modules" ],
@@ -117,12 +109,12 @@ var NAVTREEINDEX =
 [
 "AnalyticalSolution_8h.html",
 "functions_vars_l.html",
-"interpolation_8h.html#a6ee27d5d1f4d8e21ce1369bd25372e3f",
-"md_examples_flat_channel_flat_channel.html#autotoc_md36",
-"variables_8h.html#a091373565c3562df29b6e1dc33a78c68",
-"variables_8h.html#a542f2811dc7768841a815597efcbf530",
-"variables_8h.html#ab17f6375fec794f8022ab283d28fa8a0",
-"variables_8h.html#structUserCtx"
+"interpolation_8h.html#ad200d31b74c511e4388b757fb0359001",
+"picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627",
+"variables_8h.html#a0a00003814ee8095a2c39d1d5cba08faa9ee1404b18b6acf6db149de82f6d677d",
+"variables_8h.html#a58031a9f370a4f28a35c5e48d65f5450",
+"variables_8h.html#ab6ee189c80a939393b9cfd780774966e",
+"vtk__io_8c.html#a20704fac26a2ed14228875d307f002aa"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

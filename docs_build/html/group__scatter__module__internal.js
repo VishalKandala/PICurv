@@ -1,8 +1,5 @@
 var group__scatter__module__internal =
 [
-    [ "1. The Eulerian Phase (The Grid)", "index.html#autotoc_md17", null ],
-    [ "2. The Lagrangian Phase (The Markers)", "index.html#autotoc_md18", null ],
-    [ "3. The Two-Way Coupling Mechanism", "index.html#autotoc_md19", null ],
     [ "__FUNCT__", "group__scatter__module__internal.html#gae60511a9aa5cbf216a00a1bb81006bc5", null ],
     [ "__FUNCT__", "group__scatter__module__internal.html#gae60511a9aa5cbf216a00a1bb81006bc5", null ],
     [ "__FUNCT__", "group__scatter__module__internal.html#gae60511a9aa5cbf216a00a1bb81006bc5", null ],

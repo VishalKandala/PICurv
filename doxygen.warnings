@@ -5,6 +5,7 @@ warning: source pages is not a readable file or directory... skipping.
 /root/PE/PICurv/src/poisson.c:4201: warning: Reached end of file while still inside a (nested) comment. Nesting level 1 (probable line reference: 465)
 /root/PE/PICurv/src/interpolation.c:1: warning: the name 'Interpolatetion.c' supplied as the argument in the \file statement is not an input file
 /root/PE/PICurv/src/picsolver.c:1: warning: the name 'main.c' supplied as the argument in the \file statement is not an input file
+/root/PE/PICurv/docs/mainpage.md:3: warning: found more than one \mainpage comment block! (first occurrence: /root/PE/PICurv/docs/mainpage.md, line 2), Skipping current block!
 /root/PE/PICurv/include/logging.h:231: warning: explicit link request to 'define' could not be resolved
 /root/PE/PICurv/include/logging.h:246: warning: explicit link request to '__VA_ARGS__' could not be resolved
 /root/PE/PICurv/include/AnalyticalSolution.h:33: warning: The following parameters of SetLocalCartesianField(fieldName, fieldValue, coor, FieldInitialization, Constant) are not documented:
@@ -276,18 +277,4 @@ warning: source pages is not a readable file or directory... skipping.
 /root/PE/PICurv/src/interpolation.c:1795: warning: argument 'dataDM' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
 /root/PE/PICurv/src/interpolation.c:1795: warning: argument 'sumVec' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
 /root/PE/PICurv/src/interpolation.c:1795: warning: argument 'avgVec' from the argument list of NormalizeGridVectorByCount has multiple @param documentation sections
-/root/PE/PICurv/docs/mainpage.md:27: warning: found </strong> at different nesting level (7) than expected (4)
-/root/PE/PICurv/docs/mainpage.md:56: warning: image file high_level_architecture.png is not found in IMAGE_PATH: assuming external image.
-/root/PE/PICurv/docs/mainpage.md:60: warning: unable to resolve reference to 'getting_started' for \ref command
-/root/PE/PICurv/docs/mainpage.md:61: warning: unable to resolve reference to 'user_guide' for \ref command
-/root/PE/PICurv/docs/mainpage.md:62: warning: unable to resolve reference to 'developer_guide' for \ref command
-/root/PE/PICurv/docs/mainpage.md:63: warning: unable to resolve reference to 'theory_and_numerics' for \ref command
-/root/PE/PICurv/docs/mainpage.md:64: warning: end of comment block while expecting command </strong>
-/root/PE/PICurv/docs/mainpage.md:27: warning: found </strong> at different nesting level (7) than expected (4)
-/root/PE/PICurv/docs/mainpage.md:56: warning: image file high_level_architecture.png is not found in IMAGE_PATH: assuming external image.
-/root/PE/PICurv/docs/mainpage.md:60: warning: unable to resolve reference to 'getting_started' for \ref command
-/root/PE/PICurv/docs/mainpage.md:61: warning: unable to resolve reference to 'user_guide' for \ref command
-/root/PE/PICurv/docs/mainpage.md:62: warning: unable to resolve reference to 'developer_guide' for \ref command
-/root/PE/PICurv/docs/mainpage.md:63: warning: unable to resolve reference to 'theory_and_numerics' for \ref command
-/root/PE/PICurv/docs/mainpage.md:64: warning: end of comment block while expecting command </strong>
 error: Style sheet 'custom.css' specified by HTML_EXTRA_STYLESHEET does not exist!
