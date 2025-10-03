@@ -181,11 +181,11 @@ PetscErrorCode LOG_CELL_VERTICES(const Cell *cell, PetscMPIInt rank)
 
     // Validate input pointers
     if (cell == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "LOG_CELL_VERTICES - 'cell' is NULL.\n");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "'cell' is NULL.\n");
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "LOG_CELL_VERTICES - Input parameter 'cell' is NULL.");
     }
 
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "LOG_CELL_VERTICES - Rank %d, Cell Vertices:\n", rank);
+      LOG_ALLOW(LOCAL,LOG_DEBUG, "Rank %d, Cell Vertices:\n", rank);
         for(int i = 0; i < 8; i++){ 
 	  LOG_ALLOW(LOCAL,LOG_DEBUG, "  Vertex[%d]: (%.2f, %.2f, %.2f)\n", 
                        i, cell->vertices[i].x, cell->vertices[i].y, cell->vertices[i].z);
@@ -221,11 +221,11 @@ PetscErrorCode LOG_FACE_DISTANCES(PetscReal* d)
 
     // Validate input array
     if (d == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, " LOG_FACE_DISTANCES - 'd' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, " LOG_FACE_DISTANCES - Input array 'd' is NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "  'd' is NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "  Input array 'd' is NULL.");
     }
 
-    PetscPrintf(PETSC_COMM_SELF, " LOG_FACE_DISTANCES - Face Distances:\n");
+    PetscPrintf(PETSC_COMM_SELF, "  Face Distances:\n");
     PetscPrintf(PETSC_COMM_SELF, "  LEFT(%d):   %.15f\n", LEFT, d[LEFT]);
     PetscPrintf(PETSC_COMM_SELF, "  RIGHT(%d):  %.15f\n", RIGHT, d[RIGHT]);
     PetscPrintf(PETSC_COMM_SELF, "  BOTTOM(%d): %.15f\n", BOTTOM, d[BOTTOM]);
@@ -403,10 +403,10 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     PetscMPIInt rank;
     
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_INFO, "PrintParticleFields - Rank %d is retrieving particle data.\n", rank);
+    LOG_ALLOW(LOCAL,LOG_INFO, "Rank %d is retrieving particle data.\n", rank);
 
     ierr = DMSwarmGetLocalSize(swarm, &localNumParticles); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"PrintParticleFields - Rank %d has %d particles.\n", rank, localNumParticles);
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"Rank %d has %d particles.\n", rank, localNumParticles);
 
     ierr = DMSwarmGetField(swarm, "position", NULL, NULL, (void**)&positions); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&particleIDs); CHKERRQ(ierr);
@@ -496,7 +496,7 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "\n"); CHKERRQ(ierr);
     ierr = PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); CHKERRQ(ierr);
 
-    LOG_ALLOW_SYNC(GLOBAL,LOG_DEBUG,"PrintParticleFields - Completed printing on Rank %d.\n", rank);
+    LOG_ALLOW_SYNC(GLOBAL,LOG_DEBUG,"Completed printing on Rank %d.\n", rank);
 
     /* Restore fields */
     ierr = DMSwarmRestoreField(swarm, "position", NULL, NULL, (void**)&positions); CHKERRQ(ierr);
@@ -506,7 +506,7 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     ierr = DMSwarmRestoreField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, "velocity", NULL, NULL, (void**)&velocities); CHKERRQ(ierr);
 
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "PrintParticleFields - Restored all particle fields.\n");
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Restored all particle fields.\n");
     return 0;
 }
 
@@ -1218,4 +1218,151 @@ void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, Pe
 
     // Flush the output buffer to ensure the bar is displayed immediately
     fflush(stdout);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "LogFieldMinMax"
+/**
+ * @brief Computes and logs the local and global min/max values of a 3-component vector field.
+ *
+ * This utility function inspects a PETSc Vec associated with a DMDA and calculates the
+ * minimum and maximum values for each of its three components (e.g., x, y, z) both for the
+ * local data on the current MPI rank and for the entire global domain.
+ *
+ * It uses the same "smart" logic as the flow solver, ignoring the padding nodes at the
+ * IM, JM, and KM boundaries of the grid. The results are printed to the standard output
+ * in a formatted, easy-to-read table.
+ *
+ * @param[in] user      Pointer to the user-defined context. Used for grid information (IM, JM, KM)
+ *                      and MPI rank.
+ * @param[in] fieldName A string descriptor for the field being analyzed (e.g., "Velocity",
+ *                      "Coordinates"). This is used for clear log output.
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
+{
+    PetscErrorCode ierr;
+    PetscInt       i, j, k;
+    PetscInt       xs, ys, zs, xe, ye, ze;
+    Cmpnts         ***fieldArray;
+    Cmpnts         localMin, localMax;
+    Cmpnts         globalMin, globalMax;
+    Vec            fieldVec = NULL;
+    DM             dm = NULL;
+    PetscInt       dof;
+
+    PetscFunctionBeginUser;
+    if(strcmp(fieldName,"Coordinates")==0){
+        ierr = DMGetCoordinatesLocal(user->da,&fieldVec);
+        dm       = user->fda;
+        dof      = 3;
+    }else if(strcmp(fieldName,"Ucat")==0){
+        fieldVec = user->Ucat;
+        dm       = user->fda;
+        dof      = 3;
+    }else if(strcmp(fieldName,"P")==0){
+        fieldVec = user->P;
+        dm       = user->da;
+        dof      = 1;
+    }else if(strcmp(fieldName,"Psi")==0){
+        fieldVec = user->Psi;
+        dm       = user->da;
+        dof      = 1;
+    }else{
+        SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_UNKNOWN_TYPE, "Field %s not recognized.",fieldName);
+    }
+    
+    if(!fieldVec){
+         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Vector for field '%s' is NULL.", fieldName);
+    }
+    if (!dm) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "DM for field '%s' is NULL.", fieldName);
+    }
+    ierr = DMDAGetCorners(dm, &xs, &ys, &zs, &xe, &ye, &ze); CHKERRQ(ierr);
+    xe += xs; ye += ys; ze += zs; // DMDAGetCorners gives sizes, convert to end indices
+
+    // --- 2. Barrier for clean, grouped output ---
+    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
+    if (user->simCtx->rank == 0) {
+        PetscPrintf(PETSC_COMM_SELF, "--- Field Ranges: [%s] ---\n", fieldName);
+    }
+
+    // --- 3. Branch on DoF and perform SMART calculation ---
+    if (dof == 1) {
+        PetscReal    localMin = PETSC_MAX_REAL, localMax = PETSC_MIN_REAL;
+        PetscReal    globalMin, globalMax;
+        PetscScalar  ***array;
+
+        ierr = DMDAVecGetArrayRead(dm, fieldVec, &array); CHKERRQ(ierr);
+        for (k = zs; k < ze; k++) {
+            for (j = ys; j < ye; j++) {
+                for (i = xs; i < xe; i++) {
+                    if (i < user->IM && j < user->JM && k < user->KM) {
+                        localMin = PetscMin(localMin, array[k][j][i]);
+                        localMax = PetscMax(localMax, array[k][j][i]);
+                    }
+                }
+            }
+        }
+        ierr = DMDAVecRestoreArrayRead(dm, fieldVec, &array); CHKERRQ(ierr);
+
+        ierr = MPI_Allreduce(&localMin, &globalMin, 1, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        ierr = MPI_Allreduce(&localMax, &globalMax, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local Range:  [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin, localMax);
+        ierr = PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); CHKERRQ(ierr);
+        if (user->simCtx->rank == 0) {
+           PetscPrintf(PETSC_COMM_SELF, "  Global Range:         [ %11.4e , %11.4e ]\n", globalMin, globalMax);
+        }
+
+    } else if (dof == 3) {
+        Cmpnts localMin = {PETSC_MAX_REAL, PETSC_MAX_REAL, PETSC_MAX_REAL};
+        Cmpnts localMax = {PETSC_MIN_REAL, PETSC_MIN_REAL, PETSC_MIN_REAL};
+        Cmpnts globalMin, globalMax;
+        Cmpnts ***array;
+
+        ierr = DMDAVecGetArrayRead(dm, fieldVec, &array); CHKERRQ(ierr);
+        for (k = zs; k < ze; k++) {
+            for (j = ys; j < ye; j++) {
+                for (i = xs; i < xe; i++) {
+                    if (i < user->IM && j < user->JM && k < user->KM) {
+                        localMin.x = PetscMin(localMin.x, array[k][j][i].x);
+                        localMin.y = PetscMin(localMin.y, array[k][j][i].y);
+                        localMin.z = PetscMin(localMin.z, array[k][j][i].z);
+                        localMax.x = PetscMax(localMax.x, array[k][j][i].x);
+                        localMax.y = PetscMax(localMax.y, array[k][j][i].y);
+                        localMax.z = PetscMax(localMax.z, array[k][j][i].z);
+                    }
+                }
+            }
+        }
+        ierr = DMDAVecRestoreArrayRead(dm, fieldVec, &array); CHKERRQ(ierr);
+
+        ierr = MPI_Allreduce(&localMin, &globalMin, 3, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        ierr = MPI_Allreduce(&localMax, &globalMax, 3, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local X-Range: [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin.x, localMax.x);
+        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local Y-Range: [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin.y, localMax.y);
+        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local Z-Range: [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin.z, localMax.z);
+        ierr = PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); CHKERRQ(ierr);
+
+        if (user->simCtx->rank == 0) {
+            PetscPrintf(PETSC_COMM_SELF, "  Global X-Range:       [ %11.4e , %11.4e ]\n", globalMin.x, globalMax.x);
+            PetscPrintf(PETSC_COMM_SELF, "  Global Y-Range:       [ %11.4e , %11.4e ]\n", globalMin.y, globalMax.y);
+            PetscPrintf(PETSC_COMM_SELF, "  Global Z-Range:       [ %11.4e , %11.4e ]\n", globalMin.z, globalMax.z);
+        }
+
+    } else {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "LogFieldStatistics only supports fields with 1 or 3 components, but field '%s' has %D.", fieldName, dof);
+    }
+    
+    // --- 4. Final barrier for clean output ordering ---
+    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
+    if (user->simCtx->rank == 0) {
+        PetscPrintf(PETSC_COMM_SELF, "--------------------------------------------\n\n");
+    }
+
+    PetscFunctionReturn(0);
 }

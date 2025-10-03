@@ -212,11 +212,11 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, BCFace face_id, Pet
             }
             break;
         default:
-             LOG_ALLOW(LOCAL, LOG_WARNING, "CanRankServiceFace - Rank %d: Unknown face enum %d. \n", rank_for_logging, face_id);
+             LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: Unknown face enum %d. \n", rank_for_logging, face_id);
             break;
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "CanRankServiceFace - Rank %d check for face %d: Result=%s. \n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d check for face %d: Result=%s. \n",
         rank_for_logging, face_id, (*can_service_out ? "TRUE" : "FALSE"));
 
     PROFILE_FUNCTION_END;
@@ -243,7 +243,7 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, BCFace face_id, Pet
  * @param[out] xi_metric_logic_out, eta_metric_logic_out, zta_metric_logic_out Logical coords [0,1] within the cell.
  * @return PetscErrorCode
  */
-PetscErrorCode GetRandomCellAndLogicOnInletFace(
+PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
     UserCtx *user, const DMDALocalInfo *info,
     PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, // Local starting node index (with ghosts) of the rank's DA patch
     PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global,
@@ -282,7 +282,7 @@ PetscErrorCode GetRandomCellAndLogicOnInletFace(
     PetscInt last_global_cell_idx_j = (JM_nodes_global > 1) ? (JM_nodes_global - 2) : -1;
     PetscInt last_global_cell_idx_k = (KM_nodes_global > 1) ? (KM_nodes_global - 2) : -1;
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Inlet face %d. Owned cells(i,j,k):(%d,%d,%d). GlobNodes(I,J,K):(%d,%d,%d). Rank's DA node starts (xs_g,ys_g,zs_g): (%d,%d,%d).\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Inlet face %s. Owned cells(i,j,k):(%d,%d,%d). GlobNodes(I,J,K):(%d,%d,%d). Rank's DA node starts at (%d,%d,%d).\n",
         rank_for_logging, user->identifiedInletBCFace, num_owned_cells_on_rank_i,num_owned_cells_on_rank_j,num_owned_cells_on_rank_k,
         IM_nodes_global,JM_nodes_global,KM_nodes_global, xs_gnode_rank,ys_gnode_rank,zs_gnode_rank);
 
@@ -405,7 +405,7 @@ PetscErrorCode GetRandomCellAndLogicOnInletFace(
         *eta_metric_logic_out = PetscMin(PetscMax(0.0, *eta_metric_logic_out), 1.0 - eps);
     }
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Target CellNode(loc lnode idx)=(%d,%d,%d). Logic(xi,et,zt)=(%.2e,%.2f,%.2f). \n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Target Cell Node =(%d,%d,%d). (xi,et,zt)=(%.2e,%.2f,%.2f). \n",
         rank_for_logging, *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
         *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
 

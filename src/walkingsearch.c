@@ -118,11 +118,11 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
 
     if (d_signed == NULL) {
         ierr = MPI_Comm_rank(MPI_COMM_WORLD, &rank); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL, LOG_ERROR, "ComputeSignedDistanceToPlane - Output pointer 'd_signed' is NULL on rank %d.\n", rank);
+        LOG_ALLOW(LOCAL, LOG_ERROR, "Output pointer 'd_signed' is NULL on rank %d.\n", rank);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output pointer 'd_signed' must not be NULL.");
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "ComputeSignedDistanceToPlane - Target point: (%.6e, %.6e, %.6e)\n", p_target.x, p_target.y, p_target.z);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Target point: (%.6e, %.6e, %.6e)\n", p_target.x, p_target.y, p_target.z);
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Cell Centroid: (%.6e, %.6e, %.6e)\n", cell_centroid.x, cell_centroid.y, cell_centroid.z);
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Face Vertices:\n");
     LOG_ALLOW(LOCAL, LOG_DEBUG, "    v1: (%.6e, %.6e, %.6e)\n", v1.x, v1.y, v1.z);
@@ -155,7 +155,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
     if (normal_magnitude < 1.0e-12) {
         ierr = MPI_Comm_rank(MPI_COMM_WORLD, &rank); CHKERRQ(ierr);
         LOG_ALLOW(LOCAL, LOG_ERROR,
-                  "ComputeSignedDistanceToPlane - Degenerate plane detected on rank %d. Normal magnitude (%.3e) is too small.\n",
+                  "Degenerate plane detected on rank %d. Normal magnitude (%.3e) is too small.\n",
                   rank, normal_magnitude);
         LOG_ALLOW(LOCAL, LOG_ERROR, "  Offending vertices for normal: v1(%.3e,%.3e,%.3e), v2(%.3e,%.3e,%.3e), v4(%.3e,%.3e,%.3e)\n",
                   v1.x,v1.y,v1.z, v2.x,v2.y,v2.z, v4.x,v4.y,v4.z);
@@ -197,7 +197,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
         // For now, we keep the original normal direction based on v1,v2,v4 ordering.
         // A more robust solution for this edge case might be needed if it occurs often.
         ierr = MPI_Comm_rank(MPI_COMM_WORLD, &rank); CHKERRQ(ierr);
-         LOG_ALLOW(LOCAL, LOG_WARNING, "ComputeSignedDistanceToPlane - Rank %d: Dot product for normal orientation is zero. Normal direction might be ambiguous. Keeping initial normal direction from (v2-v1)x(v4-v1).\n", rank);
+         LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: Dot product for normal orientation is zero. Normal direction might be ambiguous. Keeping initial normal direction from (v2-v1)x(v4-v1).\n", rank);
     }
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Oriented Raw Normal: (%.6e, %.6e, %.6e)\n", normal_x, normal_y, normal_z);
 
@@ -229,7 +229,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
         *d_signed = 0.0;
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "ComputeSignedDistanceToPlane - Final Signed Distance: %.15e\n", *d_signed);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Final Signed Distance: %.15e\n", *d_signed);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -287,14 +287,14 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 
     // Validate that the 'cell' pointer is not NULL to prevent dereferencing a null pointer.
     if (cell == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "CalculateDistancesToCellFaces - 'cell' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CalculateDistancesToCellFaces - 'cell' is NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "'cell' is NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "'cell' is NULL.");
     }
 
     // Validate that the 'd' pointer is not NULL to ensure there is memory allocated for distance storage.
     if (d == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "CalculateDistancesToCellFaces - 'd' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CalculateDistancesToCellFaces - 'd' is NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "'d' is NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "'d' is NULL.");
     }
 
     // Compute the centroid of the entire cell
@@ -308,7 +308,7 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
     cell_centroid.y /= 8.0;
     cell_centroid.z /= 8.0;
 
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "CalculateDistancesToCellFaces - Cell Centroid: (%.6e, %.6e, %.6e)\n",
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Cell Centroid: (%.6e, %.6e, %.6e)\n",
 	      cell_centroid.x, cell_centroid.y, cell_centroid.z);    
 
     
@@ -390,12 +390,12 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
         threshold           // Threshold for zero distance
     );  CHKERRQ(ierr);
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateDistancesToCellFaces - Populated d: "
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Populated d: "
 	      "d[LEFT=%d]=%.3e, d[RIGHT=%d]=%.3e, d[BOTTOM=%d]=%.3e, "
 	      "d[TOP=%d]=%.3e, d[FRONT=%d]=%.3e, d[BACK=%d]=%.3e\n",
 	      LEFT, d[LEFT], RIGHT, d[RIGHT], BOTTOM, d[BOTTOM],
 	      TOP, d[TOP], FRONT, d[FRONT], BACK, d[BACK]);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateDistancesToCellFaces - Raw d: "
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Raw d: "
 	      "[%.3e, %.3e, %.3e, %.3e, %.3e, %.3e]\n",
 	      d[0], d[1], d[2], d[3], d[4], d[5]);
     
@@ -428,12 +428,12 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
     PROFILE_FUNCTION_BEGIN;
     // Validate input pointers
     if (d == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "DeterminePointPosition - 'd' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "DeterminePointPosition - Input parameter 'd' is NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "'d' is NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input parameter 'd' is NULL.");
     }
     if (result == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "DeterminePointPosition - 'result' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "DeterminePointPosition - Output parameter 'result' is NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "'result' is NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output parameter 'result' is NULL.");
     }
 
     // Initialize flags
@@ -455,25 +455,25 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
     // Set the result based on flags
     if(isInside) {
         *result = 0; // Inside the cell
-        LOG_ALLOW(LOCAL,LOG_DEBUG, "DeterminePointPosition - Particle is inside the cell.\n");
+        LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is inside the cell.\n");
     }
     else if(isOnBoundary) {
       if(IntersectionCount == 1){ 
           *result = 1; // on face
-          LOG_ALLOW(LOCAL,LOG_DEBUG, "DeterminePointPosition - Particle is on a face of the cell.\n");
+          LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is on a face of the cell.\n");
       }
       else if(IntersectionCount == 2){ 
           *result = 2; // on edge
-          LOG_ALLOW(LOCAL,LOG_DEBUG, "DeterminePointPosition - Particle is on an edge of the cell.\n");
+          LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is on an edge of the cell.\n");
       }
       else if(IntersectionCount >= 3){ 
           *result = 3; // on corner
-          LOG_ALLOW(LOCAL,LOG_DEBUG, "DeterminePointPosition - Particle is on a corner of the cell.\n");
+          LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is on a corner of the cell.\n");
       }
     }
     else {
         *result = -1; // Outside the cell
-        LOG_ALLOW(LOCAL,LOG_DEBUG, "DeterminePointPosition - Particle is outside the cell.\n");
+        LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is outside the cell.\n");
     }
 
     PROFILE_FUNCTION_END;
@@ -547,12 +547,12 @@ PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt id
     PROFILE_FUNCTION_BEGIN;
     // Validate input pointers
     if (coor == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "GetCellVerticesFromGrid - 'coor' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "GetCellVerticesFromGrid - Input array 'coor' is NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "'coor' is NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input array 'coor' is NULL.");
     }
     if (cell == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "GetCellVerticesFromGrid - 'cell' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "GetCellVerticesFromGrid - Output parameter 'cell' is NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "'cell' is NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output parameter 'cell' is NULL.");
     }
 
     // Assign vertices based on grid indices matching the figure
@@ -566,7 +566,7 @@ PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt id
     cell->vertices[6] = coor[idz+1][idy][idx+1];     // Vertex 6: (i+1, j,   k+1)
     cell->vertices[7] = coor[idz+1][idy][idx];       // Vertex 7: (i,   j,   k+1)
 
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "GetCellVerticesFromGrid - Retrieved vertices for cell (%d, %d, %d).\n", idx, idy, idz);
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Retrieved vertices for cell (%d, %d, %d).\n", idx, idy, idz);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0); // Indicate successful execution
@@ -604,8 +604,8 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
 
     // Validate input pointers
     if (user == NULL || particle == NULL || idx == NULL || idy == NULL || idz == NULL || traversal_steps == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "InitializeTraversalParameters - One or more input pointers are NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "InitializeTraversalParameters - One or more input pointers are NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
     }
 
     // Get grid information (needed for fallback start and potentially validation)
@@ -626,7 +626,7 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
         *idy = particle->cell[1];
         *idz = particle->cell[2];
 
-	 LOG_ALLOW(LOCAL,LOG_DEBUG, "InitializeTraversalParameters - Particle %lld has previous cell (%d, %d, %d). Starting search there.\n",
+	 LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle %lld has previous cell (%d, %d, %d). Starting search there.\n",
 		   (long long)particle->PID, *idx, *idy, *idz); // Cast id to long long for printing PetscInt64
 	
       } else {
@@ -643,7 +643,7 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
         *idx = info.xs;
         *idy = info.ys;
         *idz = info.zs;
-        LOG_ALLOW(LOCAL,LOG_DEBUG, "InitializeTraversalParameters - Particle %lld has no valid previous cell. Starting search at local corner (%d, %d, %d).\n",
+        LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle %lld has no valid previous cell. Starting search at local corner (%d, %d, %d).\n",
                   (long long)particle->PID, *idx, *idy, *idz);
     }
 
@@ -651,7 +651,7 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
     *traversal_steps = 0;
 
     // Log the chosen starting point
-    LOG_ALLOW(LOCAL,LOG_INFO, "InitializeTraversalParameters - Traversal for particle %lld initialized to start at cell (%d, %d, %d).\n",
+    LOG_ALLOW(LOCAL,LOG_INFO, "Traversal for particle %lld initialized to start at cell (%d, %d, %d).\n",
                (long long)particle->PID, *idx, *idy, *idz);
 
     PetscFunctionReturn(0);
@@ -689,11 +689,11 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
 
     // Validate inputs
     if (user == NULL || is_within == NULL) {
-        LOG_ALLOW(LOCAL, LOG_ERROR, "Input pointer is NULL in CheckCellWithinLocalGrid.\n");
+        LOG_ALLOW(LOCAL, LOG_ERROR, "Input pointer is NULL.\n");
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input pointer is NULL in CheckCellWithinLocalGrid.");
     }
     if (user->fda == NULL) {
-        LOG_ALLOW(LOCAL, LOG_ERROR, "user->fda is NULL in CheckCellWithinLocalGrid. Cannot get ghost info.\n");
+        LOG_ALLOW(LOCAL, LOG_ERROR, "user->fda is NULL.Cannot get ghost info.\n");
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->fda is NULL. Cannot get ghost info.");
     }
 
@@ -767,8 +767,8 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
 
     // Validate input pointers
     if (user == NULL || cell == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "RetrieveCurrentCell - One or more input pointers are NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "RetrieveCurrentCell - One or more input pointers are NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
     }
 
     // Get local coordinates
@@ -795,7 +795,7 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     // Debug: Print cell vertices
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "RetrieveCurrentCell - Cell (%d, %d, %d) vertices \n", idx, idy, idz);
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Cell (%d, %d, %d) vertices \n", idx, idy, idz);
     ierr = LOG_CELL_VERTICES(cell, rank); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
@@ -859,8 +859,8 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
 
     // Validate input pointers to ensure they are not NULL, preventing potential segmentation faults.
     if (cell == NULL || position == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "EvaluateParticlePosition - One or more input pointers are NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "EvaluateParticlePosition - One or more input pointers are NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
     }
   
     // Compute a local cell size
@@ -878,7 +878,7 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
     // Catch degenerate-plane error manually:
     if (ierr == PETSC_ERR_USER) {
         LOG_ALLOW(LOCAL, LOG_WARNING,
-                  "EvaluateParticlePosition - Skipping cell due to degenerate face.\n");
+                  "Skipping cell due to degenerate face.\n");
         // We can set *position = -1 here
         *position = -1; // treat as outside
         return 0; // not a fatal error, just skip
@@ -888,7 +888,7 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
 
 
     // Debugging output: Print the computed distances to each face for verification purposes.
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "EvaluateParticlePosition - Face Distances:\n");
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Face Distances:\n");
     if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d); 
     CHKERRQ(ierr); // Check for errors in printing distances.
 
@@ -903,7 +903,7 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "UpdateCellIndicesBasedOnDistancesTEST"
+#define __FUNCT__ "UpdateCellIndicesBasedOnDistances"
 /**
  * @brief Updates the cell indices based on the signed distances to each face.
  *
@@ -925,7 +925,7 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode UpdateCellIndicesBasedOnDistancesTEST( PetscReal d[NUM_FACES], PetscInt *idx, PetscInt *idy, PetscInt *idz)
+PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscInt *idx, PetscInt *idy, PetscInt *idz)
 {
 
    PetscFunctionBeginUser;
@@ -940,56 +940,56 @@ PetscErrorCode UpdateCellIndicesBasedOnDistancesTEST( PetscReal d[NUM_FACES], Pe
     czs = info->zs; czm = czs + info->zm - 2; 
   */
 
-  //    LOG_ALLOW(LOCAL, LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Received d: "
+  //    LOG_ALLOW(LOCAL, LOG_DEBUG, "Received d: "
   //    "d[LEFT=%d]=%.3e, d[RIGHT=%d]=%.3e, d[BOTTOM=%d]=%.3e, "
   //	      "d[TOP=%d]=%.3e, d[FRONT=%d]=%.3e, d[BACK=%d]=%.3e\n",
 		//	      LEFT, d[LEFT], RIGHT, d[RIGHT], BOTTOM, d[BOTTOM],
 		//  TOP, d[TOP], FRONT, d[FRONT], BACK, d[BACK]);
-    //  LOG_ALLOW(LOCAL, LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Raw d: "
+    //  LOG_ALLOW(LOCAL, LOG_DEBUG, "Raw d: "
   //	      "[%.3e, %.3e, %.3e, %.3e, %.3e, %.3e]\n",
   //	      d[0], d[1], d[2], d[3], d[4], d[5]);
     
     // Validate input pointers
     if (d == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "UpdateCellIndicesBasedOnDistances - 'd' is NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UpdateCellIndicesBasedOnDistances - Input array 'd' is NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "'d' is NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input array 'd' is NULL.");
     }
     if (idx == NULL || idy == NULL || idz == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "UpdateCellIndicesBasedOnDistances - One or more index pointers are NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UpdateCellIndicesBasedOnDistances - One or more index pointers are NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "One or more index pointers are NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more index pointers are NULL.");
     }
 
     // Debug: Print current face distances
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Current Face Distances:\n");
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Current Face Distances:\n");
     if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d);
 
     // Update k-direction based on FRONT and BACK distances
     if (d[FRONT] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Condition met: d[FRONT] < 0.0, incrementing idz.\n");
+      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[FRONT] < 0.0, incrementing idz.\n");
         (*idz) += 1;
     }
     else if(d[BACK] < 0.0){
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Condition met: d[BACK] < 0.0, decrementing idz.\n");
+      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[BACK] < 0.0, decrementing idz.\n");
         (*idz) -= 1;
     }
 
     // Update i-direction based on LEFT and RIGHT distances
     if (d[LEFT] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Condition met: d[LEFT] < 0.0, decrementing idx.\n");
+      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[LEFT] < 0.0, decrementing idx.\n");
         (*idx) -= 1;
     }
     else if (d[RIGHT] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Condition met: d[RIGHT] < 0.0, incrementing idx.\n");
+      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[RIGHT] < 0.0, incrementing idx.\n");
         (*idx) += 1;
     }
 
     // Update j-direction based on BOTTOM and TOP distances
     if (d[BOTTOM] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Condition met: d[BOTTOM] < 0.0, decrementing idy.\n");
+      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[BOTTOM] < 0.0, decrementing idy.\n");
         (*idy) -= 1;
     }
     else if (d[TOP] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Condition met: d[TOP] < 0.0, incrementing idy.\n");
+      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[TOP] < 0.0, incrementing idy.\n");
         (*idy) += 1;
     }
 
@@ -1001,7 +1001,7 @@ PetscErrorCode UpdateCellIndicesBasedOnDistancesTEST( PetscReal d[NUM_FACES], Pe
     *idz = PetscMax(czs,               PetscMin(*idz, czm));
     */
 
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "UpdateCellIndicesBasedOnDistances - Updated Indices  - idx, idy, idz: %d, %d, %d\n", *idx, *idy, *idz);
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Updated Indices  - idx, idy, idz: %d, %d, %d\n", *idx, *idy, *idz);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0); // Indicate successful execution
@@ -1031,22 +1031,22 @@ PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt tra
     PetscFunctionBeginUser;
     // Validate input pointers
     if (user == NULL || particle == NULL) {
-      LOG_ALLOW(LOCAL,LOG_ERROR, "FinalizeTraversal - One or more input pointers are NULL.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "FinalizeTraversal - One or more input pointers are NULL.");
+      LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
     }
 
     if (cell_found) {
-      LOG_ALLOW(LOCAL,LOG_INFO, "FinalizeTraversal - Particle located in cell (%d, %d, %d) after %d traversal steps.\n",
+      LOG_ALLOW(LOCAL,LOG_INFO, "Particle located in cell (%d, %d, %d) after %d traversal steps.\n",
             idx, idy, idz, traversal_steps);
     }
     else {
-      LOG_ALLOW(LOCAL,LOG_WARNING, "FinalizeTraversal - Particle could not be located within the grid after %d traversal steps.\n", (PetscInt)traversal_steps);
+      LOG_ALLOW(LOCAL,LOG_WARNING, "Particle could not be located within the grid after %d traversal steps.\n", (PetscInt)traversal_steps);
         particle->cell[0] = -1;
         particle->cell[1] = -1;
         particle->cell[2] = -1;
     }
 
-    LOG_ALLOW(LOCAL, LOG_INFO, "FinalizeTraversal - Completed final traversal sync across all ranks.\n");
+    LOG_ALLOW(LOCAL, LOG_INFO, "Completed final traversal sync across all ranks.\n");
 
 
     PROFILE_FUNCTION_END;
@@ -1119,9 +1119,9 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
     // --- 3. Logging for Diagnostics ---
     // This is extremely useful for debugging particle migration issues.
     if (*owner_rank == -1) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "FindOwnerOfCell: No owner found for global cell (%d, %d, %d). It is likely outside the domain.\n", i, j, k);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "No owner found for global cell (%d, %d, %d). It is likely outside the domain.\n", i, j, k);
     } else {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "FindOwnerOfCell: Owner of cell (%d, %d, %d) is Rank %d.\n", i, j, k, *owner_rank);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "Owner of cell (%d, %d, %d) is Rank %d.\n", i, j, k, *owner_rank);
     }
 
     PROFILE_FUNCTION_END;
@@ -1129,7 +1129,7 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
 }
 
 #undef  __FUNCT__
-#define __FUNCT__ "LocateParticleOrFindMigrationTarget_TEST"
+#define __FUNCT__ "LocateParticleOrFindMigrationTarget"
 
 /**
  * @brief Locates a particle's host cell or identifies its migration target using a robust walk search.
@@ -1152,7 +1152,7 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
  *
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
  */
-PetscErrorCode LocateParticleOrFindMigrationTarget_TEST(UserCtx *user,
+PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                                                         Particle *particle,
                                                         ParticleLocationStatus *status_out)
 {
@@ -1212,7 +1212,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget_TEST(UserCtx *user,
             if (repeatedIndexCount > REPEAT_COUNT_THRESHOLD) {
                 // Only apply tie-breaker if we are stuck for the right reason (on a boundary)
                 if (last_position_result >= 1) {
-                    LOG_ALLOW(LOCAL, LOG_WARNING, "LocateOrMigrate [PID %lld]: Stuck on boundary of cell (%d,%d,%d) for %d steps. Applying enhanced tie-breaker.\n",
+                    LOG_ALLOW(LOCAL, LOG_WARNING, "[PID %lld]: Stuck on boundary of cell (%d,%d,%d) for %d steps. Applying enhanced tie-breaker.\n",
                               (long long)particle->PID, idx, idy, idz, repeatedIndexCount);
                     
                     // Re-evaluate at the stuck cell to get definitive weights
@@ -1259,7 +1259,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget_TEST(UserCtx *user,
             search_concluded = PETSC_TRUE;
             ierr = UpdateParticleWeights(distances, particle); CHKERRQ(ierr);
         } else { // Particle is OUTSIDE
-            ierr = UpdateCellIndicesBasedOnDistancesTEST(distances, &idx, &idy, &idz); CHKERRQ(ierr);
+            ierr = UpdateCellIndicesBasedOnDistances(distances, &idx, &idy, &idz); CHKERRQ(ierr);
         }
     }
 

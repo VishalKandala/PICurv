@@ -43,16 +43,16 @@
 PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user);
 
 /**
- * @brief Executes the main time-marching loop for the particle simulation. [TEST VERSION]
+ * @brief Executes the main time-marching loop for the particle simulation.
  *
- * This version uses the new, integrated `LocateAllParticlesInGrid_TEST` orchestrator
+ * This version uses the new, integrated `LocateAllParticlesInGrid` orchestrator
  * and the `ResetAllParticleStatuses` helper for a clean, robust, and understandable workflow.
  *
  * For each timestep, it performs:
  *  1. Sets the background fluid velocity field (Ucat) for the current step.
  *  2. Updates particle positions using velocity from the *previous* step's interpolation.
  *  3. Removes any particles that have left the global domain.
- *  4. A single call to `LocateAllParticlesInGrid_TEST`, which handles all
+ *  4. A single call to `LocateAllParticlesInGrid', which handles all
  *     particle location and migration until the swarm is fully settled.
  *  5. Interpolates the current fluid velocity to the newly settled particle locations.
  *  6. Scatters particle data back to Eulerian fields.

@@ -375,4 +375,35 @@ PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 
 
 PetscErrorCode ComputeDivergence(UserCtx *user);
 
+/**
+ * @brief Initializes random number generators for assigning particle properties.
+ *
+ * This function creates and configures separate PETSc random number generators for the x, y, and z coordinates.
+ *
+ * @param[in,out] user    Pointer to the UserCtx structure containing simulation context.
+ * @param[out]    randx   Pointer to store the RNG for the x-coordinate.
+ * @param[out]    randy   Pointer to store the RNG for the y-coordinate.
+ * @param[out]    randz   Pointer to store the RNG for the z-coordinate.
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode InitializeRandomGenerators(UserCtx *user, PetscRandom *randx, PetscRandom *randy, PetscRandom *randz);
+
+/**
+ * @brief Initializes random number generators for logical space operations [0.0, 1.0).
+ *
+ * This function creates and configures three separate PETSc random number generators,
+ * one for each logical dimension (i, j, k or xi, eta, zeta equivalent).
+ * Each RNG is configured to produce uniformly distributed real numbers in the interval [0.0, 1.0).
+ * These are typically used for selecting owned cells or generating intra-cell logical coordinates.
+ *
+ * @param[out]   rand_logic_i Pointer to store the RNG for the i-logical dimension.
+ * @param[out]   rand_logic_j Pointer to store the RNG for the j-logical dimension.
+ * @param[out]   rand_logic_k Pointer to store the RNG for the k-logical dimension.
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k);
+
+
  #endif // SETUP_H

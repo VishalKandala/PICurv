@@ -105,7 +105,7 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, BCFace face_id, Pet
  * @param[out] xi_metric_logic_out, eta_metric_logic_out, zta_metric_logic_out Logical coords [0,1] within the cell.
  * @return PetscErrorCode
  */
-PetscErrorCode GetRandomCellAndLogicOnInletFace(
+PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
     UserCtx *user, const DMDALocalInfo *info,
     PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, // Local starting node index (with ghosts) of the rank's DA patch
     PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global,

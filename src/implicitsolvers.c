@@ -11,7 +11,7 @@
  *
  * This is a minimally-edited version of the legacy solver. It retains its
  * internal loop over all blocks and is intended to be called once per time step
- * from the main Flow_Solver orchestrator. All former global variables are now
+ * from the main FlowSolver orchestrator. All former global variables are now
  * accessed via the SimCtx passed in through the first block's UserCtx.
  *
  * @param user The array of UserCtx structs for all blocks.
@@ -51,7 +51,7 @@ PetscErrorCode RungeKutta(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
         if (simCtx->immersed) {
             LOG_ALLOW(LOCAL, LOG_DEBUG, "  Performing pre-RK IBM interpolation for block %d.\n", bi);
             for (PetscInt ibi = 0; ibi < simCtx->NumberOfBodies; ibi++) {
-                // The 'ibm' and 'fsi' pointers are passed directly from Flow_Solver
+                // The 'ibm' and 'fsi' pointers are passed directly from FlowSolver
                 ierr = ibm_interpolation_advanced(&user[bi], &ibm[ibi], ibi, 1); CHKERRQ(ierr);
             }
         }

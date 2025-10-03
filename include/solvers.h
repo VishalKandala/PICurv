@@ -21,6 +21,6 @@
  *               multigrid structures, and data vectors.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode Flow_Solver(SimCtx *simCtx);
+PetscErrorCode FlowSolver(SimCtx *simCtx);
 
 #endif // SOLVERS_H

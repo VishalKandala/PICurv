@@ -600,7 +600,7 @@ static PetscErrorCode CheckDataFile(PetscInt ti, const char *fieldName, const ch
         ierr =  PetscSNPrintf(filename, sizeof(filename), "results/%s%05"PetscInt_FMT"_%d.%s", fieldName, ti, placeholder_int, ext); 
         ierr = PetscTestFile(filename, 'r', fileExists); CHKERRQ(ierr);
         if (!(*fileExists)) {
-            LOG_ALLOW(GLOBAL, LOG_WARNING, "CheckDataFile (Rank 0) - Optional data file '%s' not found.\n", filename);
+            LOG_ALLOW(GLOBAL, LOG_WARNING, "(Rank 0) - Optional data file '%s' not found.\n", filename);
         }
     }
 
@@ -895,7 +895,7 @@ PetscErrorCode ReadFieldData(UserCtx *user,
       ierr = VecGetArrayRead(seq_vec,&seqArray);CHKERRQ(ierr);
 
       LOG_ALLOW(GLOBAL,LOG_DEBUG,
-                "ReadFieldData - Rank 0 successfully loaded <%s>\n",filename);
+                "Rank 0 successfully loaded <%s>\n",filename);
    }
 
    /* -------------------- everybody : broadcast raw data ----------------- */
@@ -937,7 +937,7 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    }
 
    LOG_ALLOW(GLOBAL,LOG_INFO,
-             "ReadFieldData - Loaded <%s> (parallel path)\n",filename);
+             "Loaded <%s> (parallel path)\n",filename);
 
    PROFILE_FUNCTION_END;          
    PetscFunctionReturn(0);
@@ -1170,7 +1170,7 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt
 
     PetscFunctionBeginUser;
     
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadSwarmIntField - Reading '%s' via temporary Vec.\n", field_name);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading '%s' via temporary Vec.\n", field_name);
 
     // Get the properties of the swarm field to determine the expected layout
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
@@ -1347,7 +1347,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
                          simCtx->output_dir,field_name,ti,placeholder_int,ext);CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL,LOG_DEBUG,
-              "WriteFieldData - Preparing to write <%s> on rank %d/%d\n",
+              " Preparing to write <%s> on rank %d/%d\n",
               filename,rank,size);
 
     /* ------------------------------------------------------------ */
@@ -1362,7 +1362,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
         ierr = PetscViewerDestroy(&viewer);CHKERRQ(ierr);
 
         LOG_ALLOW(GLOBAL,LOG_INFO,
-                  "WriteFieldData - Wrote <%s> (serial path)\n",filename);
+                  " Wrote <%s> (serial path)\n",filename);
         PetscFunctionReturn(0);
     }
 
@@ -1390,7 +1390,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
         ierr = VecMin(seq_vec,NULL,&vmin);CHKERRQ(ierr);
         ierr = VecMax(seq_vec,NULL,&vmax);CHKERRQ(ierr);
         LOG_ALLOW(GLOBAL,LOG_DEBUG,
-                  "WriteFieldData - <%s> range = [%.4e … %.4e]\n",
+                  " <%s> range = [%.4e … %.4e]\n",
                   field_name,(double)vmin,(double)vmax);
 
         ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF,filename,
@@ -1399,7 +1399,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
         ierr = PetscViewerDestroy(&viewer);CHKERRQ(ierr);
 
         LOG_ALLOW(GLOBAL,LOG_INFO,
-                  "WriteFieldData - Wrote <%s> (parallel path)\n",filename);
+                  " Wrote <%s> (parallel path)\n",filename);
     }
 
     /* 2.4  Cleanup                                                 */
@@ -1427,7 +1427,7 @@ PetscErrorCode WriteSimulationFields(UserCtx *user)
 
     SimCtx *simCtx = user->simCtx;
     
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteSimulationFields - Starting to write simulation fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write simulation fields.\n");
 
     // Write contravariant velocity field
     ierr = WriteFieldData(user, "vfield", user->Ucont, simCtx->step, "dat"); CHKERRQ(ierr);
@@ -1461,7 +1461,7 @@ PetscErrorCode WriteSimulationFields(UserCtx *user)
         ierr = WriteStatisticalFields(user); CHKERRQ(ierr);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteSimulationFields - Finished writing simulation fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing simulation fields.\n");
 
     return 0;
 }
@@ -1482,14 +1482,14 @@ PetscErrorCode WriteStatisticalFields(UserCtx *user)
 
     SimCtx *simCtx = user->simCtx;
     
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteStatisticalFields - Starting to write statistical fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write statistical fields.\n");
 
     ierr = WriteFieldData(user, "su0", user->Ucat_sum, simCtx->step, "dat"); CHKERRQ(ierr);
     ierr = WriteFieldData(user, "su1", user->Ucat_cross_sum, simCtx->step, "dat"); CHKERRQ(ierr);
     ierr = WriteFieldData(user, "su2", user->Ucat_square_sum, simCtx->step, "dat"); CHKERRQ(ierr);
     ierr = WriteFieldData(user, "sp", user->P_sum, simCtx->step, "dat"); CHKERRQ(ierr);
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteStatisticalFields - Finished writing statistical fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing statistical fields.\n");
 
     return 0;
 }
@@ -1511,7 +1511,7 @@ PetscErrorCode WriteLESFields(UserCtx *user)
 
     SimCtx *simCtx = user->simCtx;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteLESFields - Starting to write LES fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write LES fields.\n");
 
     VecDuplicate(user->P, &Cs);
     DMLocalToGlobalBegin(user->da, user->lCs, INSERT_VALUES, Cs);
@@ -1519,7 +1519,7 @@ PetscErrorCode WriteLESFields(UserCtx *user)
     ierr = WriteFieldData(user, "cs", Cs, simCtx->step, "dat"); CHKERRQ(ierr);
     VecDestroy(&Cs);
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteLESFields - Finished writing LES fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing LES fields.\n");
 
     return 0;
 }
@@ -1540,11 +1540,11 @@ PetscErrorCode WriteRANSFields(UserCtx *user)
 
     SimCtx *simCtx = user->simCtx;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteRANSFields - Starting to write RANS fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write RANS fields.\n");
 
     ierr = WriteFieldData(user, "kfield", user->K_Omega, simCtx->step, "dat"); CHKERRQ(ierr);
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteRANSFields - Finished writing RANS fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing RANS fields.\n");
 
     return 0;
 }
@@ -1588,7 +1588,7 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt t
    *    It provides a read/write "view" of the swarm field as a global Vec.
    */
   LOG_ALLOW(GLOBAL, LOG_DEBUG,
-            "WriteSwarmField - Attempting to create global vector from field: %s\n",
+            "Attempting to create global vector from field: %s\n",
             field_name);
   ierr = DMSwarmCreateGlobalVectorFromField(swarm, field_name, &fieldVec);CHKERRQ(ierr);
 
@@ -1597,7 +1597,7 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt t
    *    The field name, time index, and extension are passed along for naming.
    */
   LOG_ALLOW(GLOBAL, LOG_DEBUG,
-            "WriteSwarmField - Calling WriteFieldData for field: %s\n",
+            "Calling WriteFieldData for field: %s\n",
             field_name);
   ierr = WriteFieldData(user, field_name, fieldVec, ti, ext);CHKERRQ(ierr);
 
@@ -1607,13 +1607,13 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt t
    *    DMSwarmDestroyGlobalVectorFromField() is also available in PETSc 3.14.4.
    */
   LOG_ALLOW(GLOBAL, LOG_DEBUG,
-            "WriteSwarmField - Destroying the global vector for field: %s\n",
+            "Destroying the global vector for field: %s\n",
             field_name);
   ierr = DMSwarmDestroyGlobalVectorFromField(swarm, field_name, &fieldVec);CHKERRQ(ierr);
 
   /* Log and return success. */
   LOG_ALLOW(GLOBAL, LOG_INFO,
-            "WriteSwarmField - Successfully wrote swarm data for field: %s\n",
+            "Successfully wrote swarm data for field: %s\n",
             field_name);
 
   PetscFunctionReturn(0); /* PETSc macro indicating end of function */
@@ -1721,7 +1721,7 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user)
         PetscFunctionReturn(0);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteAllSwarmFields - Starting to write swarm fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write swarm fields.\n");
 
     // Write particle position field
     ierr = WriteSwarmField(user, "position", simCtx->step, "dat"); CHKERRQ(ierr);
@@ -1746,7 +1746,7 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user)
     // Write the unique particle ID
     ierr = WriteSwarmIntField(user, "DMSwarm_pid", simCtx->step, "dat"); CHKERRQ(ierr);
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "WriteAllSwarmFields - Finished writing swarm fields.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing swarm fields.\n");
 
     PetscFunctionReturn(0);
 }
@@ -1991,7 +1991,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             // user->global_domain_bbox.max_coords = global_max_coords;
         } else {
             // Fallback or warning if bboxlist is not available for global calculation
-            LOG_ALLOW(PETSC_COMM_SELF, LOG_WARNING, "DisplayBanner (Rank 0) - bboxlist not provided or num_mpi_procs <=0; using user->bbox for domain bounds.\n");
+            LOG_ALLOW(PETSC_COMM_SELF, LOG_WARNING, "(Rank 0) - bboxlist not provided or num_mpi_procs <=0; using user->bbox for domain bounds.\n");
 	    // global_min_coords = user->bbox.min_coords; // Use local bbox of rank 0 as fallback
 	    // global_max_coords = user->bbox.max_coords;
         }
@@ -2263,13 +2263,13 @@ PetscInt ReadDataFileToArray(const char   *filename,
     PetscInt    fileExistsFlag = 0; /* 0 = doesn't exist, 1 = does exist */
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "ReadDataFileToArray - Start reading from file: %s\n",
+              "Start reading from file: %s\n",
               filename);
 
     /* Basic error checking: data_out, Nout must be non-null. */
     if (!filename || !data_out || !Nout) {
         LOG_ALLOW(GLOBAL, LOG_WARNING,
-                  "ReadDataFileToArray - Null pointer argument provided.\n");
+                  "Null pointer argument provided.\n");
         return 1;
     }
 
@@ -2294,7 +2294,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
         /* If file does not exist, log & return. */
         if (!rank) {
             LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "ReadDataFileToArray - File '%s' not found.\n",
+                      "File '%s' not found.\n",
                       filename);
         }
         return 2;
@@ -2305,7 +2305,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
         fp = fopen(filename, "r");
         if (!fp) {
             LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "ReadDataFileToArray - File '%s' could not be opened for reading.\n",
+                      "File '%s' could not be opened for reading.\n",
                       filename);
             return 3;
         }
@@ -2319,7 +2319,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
         }
 
         LOG_ALLOW(GLOBAL, LOG_DEBUG,
-                  "ReadDataFileToArray - File '%s' has %d lines.\n",
+                  "File '%s' has %d lines.\n",
                   filename, N);
 
         /* (3b) Allocate array on rank 0. */
@@ -2327,7 +2327,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
         if (!array) {
             fclose(fp);
             LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "ReadDataFileToArray - malloc failed for array.\n");
+                      "malloc failed for array.\n");
             return 4;
         }
 
@@ -2346,7 +2346,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
         fclose(fp);
 
         LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "ReadDataFileToArray - Successfully read %d values from '%s'.\n",
+                  "Successfully read %d values from '%s'.\n",
                   N, filename);
     }
 
@@ -2358,7 +2358,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
         array = (double*)malloc(N * sizeof(double));
         if (!array) {
             LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "ReadDataFileToArray - malloc failed on rank %d.\n",
+                      "malloc failed on rank %d.\n",
                       rank);
             return 5;
         }
@@ -2372,7 +2372,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
     *Nout     = N;
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "ReadDataFileToArray - Done. Provided array of length=%d to all ranks.\n",
+              "Done. Provided array of length=%d to all ranks.\n",
               N);
     return 0; /* success */
 }
@@ -2401,7 +2401,7 @@ PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
   PetscErrorCode ierr;
   Vec            coordsVec;
 
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadPositionsFromFile - Creating coords Vec.\n");
+  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating coords Vec.\n");
   ierr = VecCreate(PETSC_COMM_WORLD, &coordsVec);CHKERRQ(ierr);
   ierr = VecSetFromOptions(coordsVec);CHKERRQ(ierr);
 
@@ -2409,7 +2409,7 @@ PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
   ierr = ReadFieldData(user, "position", coordsVec, timeIndex, "dat");
   if (ierr) {
     LOG_ALLOW(GLOBAL, LOG_ERROR,
-              "ReadPositionsFromFile - Error reading position data (ti=%d).\n",
+              "Error reading position data (ti=%d).\n",
               timeIndex);
     PetscFunctionReturn(ierr);
   }
@@ -2420,7 +2420,7 @@ PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
   ierr = VecDestroy(&coordsVec);CHKERRQ(ierr);
 
   LOG_ALLOW(GLOBAL, LOG_DEBUG,
-            "ReadPositionsFromFile - Successfully gathered coordinates. Ncoords=%d.\n", *Ncoords);
+            "Successfully gathered coordinates. Ncoords=%d.\n", *Ncoords);
   PetscFunctionReturn(0);
 }
 
@@ -2450,25 +2450,25 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
   PetscErrorCode ierr;
   Vec            fieldVec;
 
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadFieldDataWrapper - Creating field Vec.\n");
+  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating field Vec.\n");
   ierr = VecCreate(PETSC_COMM_WORLD, &fieldVec);CHKERRQ(ierr);
   ierr = VecSetFromOptions(fieldVec);CHKERRQ(ierr);
 
   ierr = ReadFieldData(user, fieldName, fieldVec, timeIndex, "dat");
   if (ierr) {
     LOG_ALLOW(GLOBAL, LOG_ERROR,
-              "ReadFieldDataWrapper - Error reading field '%s' (ti=%d).\n",
+              "Error reading field '%s' (ti=%d).\n",
               fieldName, timeIndex);
     PetscFunctionReturn(ierr);
   }
 
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadFieldDataWrapper - Gathering field Vec to rank 0.\n");
+  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Gathering field Vec to rank 0.\n");
   ierr = VecToArrayOnRank0(fieldVec, Nscalars, scalarArray);CHKERRQ(ierr);
 
   ierr = VecDestroy(&fieldVec);CHKERRQ(ierr);
 
   LOG_ALLOW(GLOBAL, LOG_DEBUG,
-            "ReadFieldDataWrapper - Successfully gathered field '%s'. Nscalars=%d.\n",
+            "Successfully gathered field '%s'. Nscalars=%d.\n",
             fieldName, *Nscalars);
   PetscFunctionReturn(0);
 }
