@@ -29,10 +29,10 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
     PROFILE_FUNCTION_BEGIN;
 
     if (simCtx->generate_grid) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
+        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
         ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
     } else {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d is file-based. Calling file parser.\n", simCtx->rank, user->_this);
+        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is file-based. Calling file parser.\n", simCtx->rank, user->_this);
         ierr = ReadGridFile(user); CHKERRQ(ierr);
     }
 
@@ -66,7 +66,7 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     PetscInt       nblk = simCtx->block_number;
-    UserCtx        *fine_users;
+    UserCtx        *finest_users;
 
     PetscFunctionBeginUser;
 
@@ -76,21 +76,22 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "MG levels not set. Cannot get finest_users.");
     }
     // Get the UserCtx array for the finest grid level
-    fine_users = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    finest_users = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Defining grid dimensions for %d blocks...\n", nblk);
 
     // Loop over each block to configure its grid dimensions and geometry.
     for (PetscInt bi = 0; bi < nblk; bi++) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: --- Configuring Geometry for Block %d ---\n", simCtx->rank, bi);
+        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: --- Configuring Geometry for Block %d ---\n", simCtx->rank, bi);
 
         // Before calling any helpers, set the block index in the context.
         // This makes the UserCtx self-aware of which block it represents.
-        fine_users[bi]._this = bi;
+        LOG_ALLOW(GLOBAL,LOG_DEBUG,"finest_users->_this = %d, bi = %d\n",finest_users[bi]._this,bi);
+        //finest_user[bi]._this = bi;
 
         // Call the helper function for this specific block. It can now derive
         // all necessary information from the UserCtx pointer it receives.
-        ierr = ParseAndSetGridInputs(&fine_users[bi]); CHKERRQ(ierr);
+        ierr = ParseAndSetGridInputs(&finest_users[bi]); CHKERRQ(ierr);
     }
 
     PROFILE_FUNCTION_END;
@@ -353,9 +354,12 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
     for (PetscInt bi = 0; bi < nblk; bi++) {
         UserCtx *fine_user = &usermg->mgctx[usermg->mglevels - 1].user[bi];
         ierr = SetFinestLevelCoordinates(fine_user); CHKERRQ(ierr);
+        if(get_log_level()==LOG_DEBUG){
+            LOG_ALLOW(GLOBAL,LOG_DEBUG,"The Finest level coordinates for block %d have been set.\n",bi);
+            ierr = LOG_FIELD_MIN_MAX(fine_user,"Coordinates");
+        }
     }
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finest level coordinates have been set for all blocks.\n");
-
 
     // --- Part 2: Restrict Coordinates to Coarser Levels ---
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Restricting coordinates to coarser grid levels...\n");
@@ -364,6 +368,8 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
             UserCtx *coarse_user = &usermg->mgctx[level].user[bi];
             UserCtx *fine_user   = &usermg->mgctx[level + 1].user[bi];
             ierr = RestrictCoordinates(coarse_user, fine_user); CHKERRQ(ierr);
+
+            if(get_log_level==LOG_DEBUG) ierr = LOG_FIELD_MIN_MAX(coarse_user,"Coordinates");
         }
     }
 
@@ -516,10 +522,17 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   Generating coordinates for block %d...\n", user->simCtx->rank, user->_this);
+    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Generating coordinates for block %d...\n", user->simCtx->rank, user->_this);
     
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
     ierr = DMGetCoordinatesLocal(user->da, &lCoor); CHKERRQ(ierr);
+
+    PetscInt xs = info.xs, xe = info.xs + info.xm;
+    PetscInt ys = info.ys, ye = info.ys + info.ym;
+    PetscInt zs = info.zs, ze = info.zs + info.zm;
+
+    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Local Info for block %d - X range - [%d,%d], Y range - [%d,%d], Z range - [%d,%d]\n",
+              user->simCtx->rank, user->_this, xs, xe, ys, ye, zs, ze);
     ierr = VecSet(lCoor, 0.0); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
     
@@ -528,17 +541,29 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     PetscReal Lz = user->Max_Z - user->Min_Z;
 
     // Loop over the local nodes, including ghost nodes, owned by this process.
-    for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
-        for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
-            for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
-	      if(k<user->KM && j<user->JM && i < user->IM){
-                coor[k][j][i].x = user->Min_X + ComputeStretchedCoord(i, user->IM, Lx, user->rx);
-                coor[k][j][i].y = user->Min_Y + ComputeStretchedCoord(j, user->JM, Ly, user->ry);
-                coor[k][j][i].z = user->Min_Z + ComputeStretchedCoord(k, user->KM, Lz, user->rz);
-	      }
-	    }  
+    for (PetscInt k = zs; k < ze; k++) {
+        for (PetscInt j = ys; j < ye; j++) {
+            for (PetscInt i = xs; i < xe; i++) {
+	            if(k < user->KM && j < user->JM && i < user->IM){
+                    coor[k][j][i].x = user->Min_X + ComputeStretchedCoord(i, user->IM, Lx, user->rx);
+                    coor[k][j][i].y = user->Min_Y + ComputeStretchedCoord(j, user->JM, Ly, user->ry);
+                    coor[k][j][i].z = user->Min_Z + ComputeStretchedCoord(k, user->KM, Lz, user->rz);
+	            }
+	        }  
         }
     }
+
+    /// DEBUG: This verifies the presence of a last "unphysical" layer of coordinates.
+    /*
+    PetscInt KM = user->KM;
+    for (PetscInt j = ys; j < ye; j++){
+        for(PetscInt i = xs; i < xe; i++){
+            LOG_ALLOW(GLOBAL,LOG_DEBUG,"coor[%d][%d][%d].(x,y,z) = %le,%le,%le",KM,j,i,coor[KM][j][i].x,coor[KM][j][i].y,coor[KM][j][i].z);
+        }
+    }
+    */
+
+
 
     ierr = DMDAVecRestoreArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
 
@@ -624,7 +649,6 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
         for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
             for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
 	      if(k< KM && j < JM && i < IM){
-                //PetscInt base_idx = 3 * ((k * (JM + 1) + j) * (IM + 1) + i);
 		PetscInt base_idx = 3 * ((k * (JM) + j) * (IM) + i);
 		coor[k][j][i].x = gc[base_idx];
                 coor[k][j][i].y = gc[base_idx + 1];
@@ -692,6 +716,7 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
 
     // If this process owns the maximum boundary node, contract the loop by one
     // to prevent the index doubling `2*i` from going out of bounds.
+    // This is also ensuring we do not manipulate the unphysical layer of coors present in the finest level.
     if (xe == mx) xe--;
     if (ye == my) ye--;
     if (ze == mz) ze--;
@@ -827,16 +852,19 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     for (k = zs; k < ze; k++) {
         for (j = ys; j < ye; j++) {
             for (i = xs; i < xe; i++) {
-                Cmpnts coord = coordArray[k][j][i];
+                // Only consider nodes within the physical domain.
+                if(i < user->IM && j < user->JM && k < user->KM){
+                    Cmpnts coord = coordArray[k][j][i];
 
-                // Update min and max coordinates
-                if (coord.x < minCoords.x) minCoords.x = coord.x;
-                if (coord.y < minCoords.y) minCoords.y = coord.y;
-                if (coord.z < minCoords.z) minCoords.z = coord.z;
+                    // Update min and max coordinates
+                    if (coord.x < minCoords.x) minCoords.x = coord.x;
+                    if (coord.y < minCoords.y) minCoords.y = coord.y;
+                    if (coord.z < minCoords.z) minCoords.z = coord.z;
 
-                if (coord.x > maxCoords.x) maxCoords.x = coord.x;
-                if (coord.y > maxCoords.y) maxCoords.y = coord.y;
-                if (coord.z > maxCoords.z) maxCoords.z = coord.z;
+                    if (coord.x > maxCoords.x) maxCoords.x = coord.x;
+                    if (coord.y > maxCoords.y) maxCoords.y = coord.y;
+                    if (coord.z > maxCoords.z) maxCoords.z = coord.z;
+                }    
             }
         }
     }
@@ -854,7 +882,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     LOG_ALLOW(LOCAL,LOG_INFO," Tolerance added to the limits: %.8e .\n",(PetscReal)BBOX_TOLERANCE);
        
     // Log the computed min and max coordinates
-     LOG_ALLOW(LOCAL, LOG_INFO,"[Rank %d]minCoords=(%.6f, %.6f, %.6f), maxCoords=(%.6f, %.6f, %.6f).\n",rank,minCoords.x, minCoords.y, minCoords.z, maxCoords.x, maxCoords.y, maxCoords.z);
+     LOG_ALLOW(LOCAL, LOG_INFO,"[Rank %d] Bounding Box Ranges = X[%.6f, %.6f], Y[%.6f,%.6f], Z[%.6f, %.6f].\n",rank,minCoords.x, maxCoords.x,minCoords.y, maxCoords.y, minCoords.z, maxCoords.z);
 
 
     

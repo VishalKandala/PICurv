@@ -1,13 +1,13 @@
 #include "solvers.h" // The new header we will create
 
 #undef __FUNCT__
-#define __FUNCT__ "Flow_Solver"
+#define __FUNCT__ "FlowSolver"
 /**
  * @brief Orchestrates a single time step of the Eulerian fluid solver.
  *
  * This function is the refactored, high-level entry point for advancing the
  * fluid state from time t_n to t_{n+1}. It is a direct adaptation of the
- * legacy Flow_Solver, but it now takes the master SimCtx as its primary
+ * legacy FlowSolver, but it now takes the master SimCtx as its primary
  * argument to eliminate dependencies on global variables.
  *
  * The sequence of operations is:
@@ -23,7 +23,7 @@
  *               multigrid structures, and data vectors.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode Flow_Solver(SimCtx *simCtx)
+PetscErrorCode FlowSolver(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     UserMG         *usermg = &simCtx->usermg;
@@ -32,7 +32,7 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    LOG_ALLOW(GLOBAL, LOG_INFO, "[Step %d] Entering Flow_Solver orchestrator...\n", simCtx->step);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[Step %d] Entering orchestrator...\n", simCtx->step);
 
     /*
     // ========================================================================
@@ -171,7 +171,7 @@ PetscErrorCode Flow_Solver(SimCtx *simCtx)
         // }
     }
     
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Flow_Solver orchestrator finished for step %d.\n", simCtx->step);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "orchestrator finished for step %d.\n", simCtx->step);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

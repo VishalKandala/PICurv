@@ -194,7 +194,7 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
     PetscInt ye_cell_global_j_excl = ys_cell_global_j + ym_cell_local_j;
     PetscInt ze_cell_global_k_excl = zs_cell_global_k + zm_cell_local_k;
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d (IFCTCS): Processing Owned Cells (global indices) k=%d..%d (count %d), j=%d..%d (count %d), i=%d..%d (count %d)\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Processing Owned Cells (global indices) k=%d..%d (count %d), j=%d..%d (count %d), i=%d..%d (count %d)\n",
               rank,
               zs_cell_global_k, ze_cell_global_k_excl -1, zm_cell_local_k,
               ys_cell_global_j, ye_cell_global_j_excl -1, ym_cell_local_j,
@@ -827,7 +827,7 @@ PetscErrorCode PieceWiseLinearInterpolation_Scalar(
   
   // Optional logging
   LOG_ALLOW(LOCAL, LOG_DEBUG,
-      "PieceWiseLinearInterpolation_Scalar: Field '%s' at (i=%d, j=%d, k=%d) => val=%.6f\n",
+      "Field '%s' at (i=%d, j=%d, k=%d) => val=%.6f\n",
       fieldName, iCell, jCell, kCell, *val);
 
   PetscFunctionReturn(0);
@@ -866,7 +866,7 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
 
   // Optional logging
   LOG_ALLOW(LOCAL, LOG_DEBUG,
-      "PieceWiseLinearInterpolation_Vector: Field '%s' at (i=%d, j=%d, k=%d) => (x=%.6f, y=%.6f, z=%.6f)\n",
+      "Field '%s' at (i=%d, j=%d, k=%d) => (x=%.6f, y=%.6f, z=%.6f)\n",
       fieldName, iCell, jCell, kCell, vec->x, vec->y, vec->z);
 
   PetscFunctionReturn(0);
@@ -980,7 +980,7 @@ PetscErrorCode TrilinearInterpolation_Scalar(
 
     // Logging (optional)
     LOG_ALLOW(LOCAL, LOG_DEBUG,
-        "TrilinearInterpolation_Scalar: Field '%s' at (i=%d, j=%d, k=%d), "
+        "Field '%s' at (i=%d, j=%d, k=%d), "
         "a1=%.6f, a2=%.6f, a3=%.6f -> val=%.6f.\n",
         fieldName, i, j, k, a1, a2, a3, *val);
 
@@ -1154,7 +1154,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
 
   // Optional logging at start
   LOG_ALLOW(LOCAL, LOG_DEBUG,
-    "InterpolateEulerFieldToSwarmForParticle: field='%s', blockSize=%d, "
+    "field='%s', blockSize=%d, "
     "cell IDs=(%d,%d,%d), weights=(%.4f,%.4f,%.4f)\n",
     fieldName, blockSize, iCell, jCell, kCell, a1, a2, a3);
 
@@ -1185,7 +1185,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
     ((PetscReal*)swarmOut)[p] = val;
 
     LOG_ALLOW(LOCAL, LOG_DEBUG,
-      "InterpolateEulerFieldToSwarmForParticle [Scalar]: field='%s', result=%.6f "
+      "field='%s', result=%.6f "
       "stored at swarmOut index p=%d.\n", fieldName, val, (PetscInt)p);
   }
   else if (blockSize == 3) {
@@ -1216,7 +1216,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
     ((PetscReal*)swarmOut)[3*p + 2] = vec.z;
 
     LOG_ALLOW(LOCAL, LOG_DEBUG,
-      "InterpolateEulerFieldToSwarmForParticle [Vector]: field='%s', result=(%.6f,%.6f,%.6f) "
+      "field='%s', result=(%.6f,%.6f,%.6f) "
       "stored at swarmOut[3p..3p+2], p=%d.\n",
       fieldName, vec.x, vec.y, vec.z, (PetscInt)p);
 
@@ -1511,7 +1511,7 @@ PetscErrorCode InterpolateAllFieldsToSwarm(UserCtx *user)
   */
 
   LOG_ALLOW(LOCAL, LOG_DEBUG,
-		 "InterpolateteAllFieldsToSwarm: Interpolation of ucat to velocity begins on rank %d.\n",rank);
+		 " Interpolation of ucat to velocity begins on rank %d.\n",rank);
   // Make sure to pass the *GLOBAL* Vector to the function below! 
   ierr = InterpolateEulerFieldToSwarm(user, user->lUcat, 
                                       "Ucat", 
@@ -1630,13 +1630,13 @@ PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName
     if (strcmp(particleFieldName, "Psi") == 0 || strcmp(particleFieldName, "Nvert") == 0) {
         *expected_dof = 1;      // Scalar fields have DOF 1
         *targetDM = user->da;   // Target the primary scalar DMDA
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "GetScatterTargetInfo: Field '%s' targets DM 'da' (DOF=1).\n", particleFieldName);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Field '%s' targets DM 'da' (DOF=1).\n", particleFieldName);
     }
     // Compare with known vector fields targeting 'fda'
     else if (strcmp(particleFieldName, "Ucat") == 0 || strcmp(particleFieldName, "Ucont") == 0) {
         *expected_dof = 3;      // Vector fields have DOF 3
         *targetDM = user->fda;  // Target the vector DMDA (often node-based)
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "GetScatterTargetInfo: Field '%s' targets DM 'fda' (DOF=3).\n", particleFieldName);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Field '%s' targets DM 'fda' (DOF=3).\n", particleFieldName);
     }
     // --- Add rules for other fields here ---
     // else if (strcmp(particleFieldName, "SomeOtherScalar") == 0) { *expected_dof = 1; *targetDM = user->da; }
@@ -1646,7 +1646,7 @@ PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName
         *targetDM = NULL; // Indicate failure
         *expected_dof = 0;
         // Format the error message manually
-        PetscSNPrintf(msg, sizeof(msg), "GetScatterTargetInfo: Field name '%s' is not recognized for automatic DM selection.", particleFieldName);
+        PetscSNPrintf(msg, sizeof(msg), "Field name '%s' is not recognized for automatic DM selection.", particleFieldName);
         // Use SETERRQ with the formatted message and appropriate error code
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); // Use WRONG argument error code
     }
@@ -1703,7 +1703,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     ierr = DMDAGetInfo(gridSumDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
     // Validate that the DOF is supported (currently 1 or 3)
     if (dof != 1 && dof != 3) {
-        PetscSNPrintf(msg, sizeof(msg), "AccumulateParticleField: gridSumDM DOF must be 1 or 3, got %d.", dof);
+        PetscSNPrintf(msg, sizeof(msg), "gridSumDM DOF must be 1 or 3, got %d.", dof);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg);
     }
 
@@ -1721,7 +1721,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     ierr = DMDAGetGhostCorners(gridSumDM, &gxs, &gys, &gzs, &gxm, &gym, &gzm); CHKERRQ(ierr);
 
     // --- Accumulate Locally ---
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "AccumulateParticleField (Rank %d): Accumulating '%s' (DOF=%d) from %d particles using CellID field 'DMSwarm_CellID'.\n", rank, particleFieldName, dof, nlocal);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "(Rank %d): Accumulating '%s' (DOF=%d) from %d particles using CellID field 'DMSwarm_CellID'.\n", rank, particleFieldName, dof, nlocal);
     // Loop over all particles owned by this process
     for (p = 0; p < nlocal; ++p) {
         // Extract local cell indices (relative to start of ghosted patch, [0..gxm-1], etc.)
@@ -1750,7 +1750,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
         } else {
              // Log a warning if a particle's CellID is outside the expected local region.
              // This might indicate particles needing migration or boundary issues.
-             LOG_ALLOW(LOCAL, LOG_WARNING, "AccumulateParticleField (Rank %d): Particle %d (field '%s') has out-of-bounds CellID (%d, %d, %d). Ghosted dims: %dx%dx%d. Skipping.\n",
+             LOG_ALLOW(LOCAL, LOG_WARNING, "(Rank %d): Particle %d (field '%s') has out-of-bounds CellID (%d, %d, %d). Ghosted dims: %dx%dx%d. Skipping.\n",
                       rank, p, particleFieldName, pidx, pidy, pidz, gxm, gym, gzm);
         }
     } // End of particle loop
@@ -1762,7 +1762,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
 
     // --- Assemble Global Sum Vector ---
     // Crucial for parallel execution: sums contributions for cells shared across process boundaries.
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "AccumulateParticleField: Assembling global sum vector for '%s'.\n", particleFieldName);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Assembling global sum vector for '%s'.\n", particleFieldName);
     ierr = VecAssemblyBegin(gridSumVec); CHKERRQ(ierr);
     ierr = VecAssemblyEnd(gridSumVec); CHKERRQ(ierr);
 
@@ -1837,7 +1837,7 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
     ierr = DMDAGetCorners(countDM, &xs, &ys, &zs, &xm, &ym, &zm); CHKERRQ(ierr);
 
     // --- Normalize Over Owned Cells ---
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "NormalizeGridVectorByCount (Rank %d): Normalizing DOF=%d data over owned range [%d:%d, %d:%d, %d:%d].\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "(Rank %d): Normalizing DOF=%d data over owned range [%d:%d, %d:%d, %d:%d].\n",
               rank, data_dof, xs, xs+xm, ys, ys+ym, zs, zs+zm);
 
     // Loop using GLOBAL indices (i, j, k) over the range owned by this process
@@ -1883,7 +1883,7 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
     }
 
     // --- Assemble Final Average Vector ---
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "NormalizeGridVectorByCount: Assembling final average vector (DOF=%d).\n", data_dof);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Assembling final average vector (DOF=%d).\n", data_dof);
     ierr = VecAssemblyBegin(avgVec); CHKERRQ(ierr);
     ierr = VecAssemblyEnd(avgVec); CHKERRQ(ierr);
 
@@ -2058,7 +2058,7 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
 
     // --- Perform Scatter using Internal Helper ---
     // Log intent before calling the core logic
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "ScatterParticleFieldToEulerField: Scattering field '%s' (DOF=%d).\n", particleFieldName, expected_dof);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering field '%s' (DOF=%d).\n", particleFieldName, expected_dof);
     ierr = ScatterParticleFieldToEulerField_Internal(user, // Pass user context
                                                      particleFieldName, // Name of particle field
                                                      targetDM, // Determined target DM (da or fda)
@@ -2066,7 +2066,7 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
                                                      eulerFieldAverageVec); // The output vector
     CHKERRQ(ierr); // Handle potential errors from the internal function
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "ScatterParticleFieldToEulerField: Successfully scattered field '%s'.\n", particleFieldName);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully scattered field '%s'.\n", particleFieldName);
    
     PROFILE_FUNCTION_END;
    

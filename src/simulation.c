@@ -105,7 +105,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
 
     // --- 1. Initial Particle Settlement (Location and Migration) ---
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Initial Settlement: Locating and migrating all particles...\n", simCtx->ti, simCtx->step);
-    ierr = LocateAllParticlesInGrid_TEST(user, bboxlist); CHKERRQ(ierr);
+    ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
 
     // --- 2. Re-initialize Particles on Inlet Surface (if applicable) ---
     // Note: Use simCtx->ParticleInitialization for consistency
@@ -117,7 +117,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
         ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
     
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Post-Reinitialization Settlement...\n", simCtx->ti, simCtx->step);
-        ierr = LocateAllParticlesInGrid_TEST(user, bboxlist); CHKERRQ(ierr);
+        ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
     }
     
     // --- 3. Finalize State for t=0 ---
@@ -172,7 +172,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     UserCtx     *user     = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
 
     // 1. Rebuild grid-to-particle links based on loaded coordinates.
-    ierr = LocateAllParticlesInGrid_TEST(user, simCtx->bboxlist); CHKERRQ(ierr);
+    ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
 
@@ -275,7 +275,7 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
  * For each timestep, it performs the following sequence:
  *  1.  **Pre-Solver Actions:** Updates time-dependent boundary conditions (e.g., fluxin)
  *      and resets particle states for the new step.
- *  2.  **Eulerian Solve:** Calls the refactored legacy Flow_Solver to advance the
+ *  2.  **Eulerian Solve:** Calls the refactored legacy FlowSolver to advance the
  *      entire fluid field by one time step.
  *  3.  **Lagrangian Update:** Executes the full particle workflow: advection based
  *      on the previous step's velocity, followed by settling (location/migration)
@@ -344,7 +344,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             // SOLVE mode:Call the refactored, high-level legacy solver. This single function
             // advances the entire multi-block fluid field from t_n to t_{n+1}.
             LOG_ALLOW(GLOBAL,LOG_INFO,"Eulerian Source 'solve'. Updating Eulerian field via Solver...\n");
-            ierr = Flow_Solver(simCtx); CHKERRQ(ierr);
+            ierr = FlowSolver(simCtx); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field Updated ...\n");
         // =================================================================
@@ -359,7 +359,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = UpdateAllParticlePositions(user); CHKERRQ(ierr);
 
             // b. Settle all particles: find their new host cells and migrate them across ranks.
-            ierr = LocateAllParticlesInGrid_TEST(user, simCtx->bboxlist); CHKERRQ(ierr);
+            ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
  
             // c. Remove any particles that are now lost or out of the global domain.
             ierr = CheckAndRemoveLostParticles(user, &removed_local_lost, &removed_global_lost); CHKERRQ(ierr);
@@ -368,7 +368,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
                 LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %d particles globally this step.\n", removed_global_lost + removed_global_ob);
             }
 
-            // d. Interpolate the NEW fluid velocity (just computed by Flow_Solver) onto the
+            // d. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the
             //    particles' new positions. This gives them V_p(t_{n+1}) for the *next* advection step.
             ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
             

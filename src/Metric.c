@@ -1400,77 +1400,7 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricsDivergence"
-/**
- * @brief Performs a diagnostic check on the divergence of the face area metric vectors.
- *
- * For a closed cell, the sum of the face area vectors should be zero (Gauss's
- * divergence theorem). This function computes a measure of this divergence and
- * reports the maximum value over the domain. A small value indicates a
- * well-formed grid. This is a direct adaptation of the legacy function.
- *
- * @param user The UserCtx for a specific grid level (typically the finest).
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
- */
-PetscErrorCode MetricsDivergence(UserCtx *user)
-{
-    PetscErrorCode ierr;
-    DMDALocalInfo  info;
-    Vec            Div;
-    PetscReal    ***div_arr;
-    const Cmpnts ***csi_arr, ***eta_arr, ***zet_arr;
-    const PetscScalar ***aj_arr;
-    PetscReal      maxdiv;
-    PetscInt       max_idx;
-
-    PetscFunctionBeginUser;
-
-    PROFILE_FUNCTION_BEGIN;
-
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Performing metric divergence check for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
-
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
-
-    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi_arr); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet_arr); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->da, user->lAj, &aj_arr); CHKERRQ(ierr);
-    
-    ierr = VecDuplicate(user->P, &Div); CHKERRQ(ierr);
-    ierr = VecSet(Div, 0.0); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->da, Div, &div_arr); CHKERRQ(ierr);
-    
-    // Loop over the interior OWNED cells
-    for (PetscInt k=info.xs+1; k<info.xs+info.xm; k++) {
-        for (PetscInt j=info.ys+1; j<info.ys+info.ym; j++) {
-            for (PetscInt i=info.xs+1; i<info.xs+info.xm; i++) {
-                PetscReal div_x = (csi_arr[k][j][i].x - csi_arr[k][j][i-1].x) + (eta_arr[k][j][i].x - eta_arr[k][j-1][i].x) + (zet_arr[k][j][i].x - zet_arr[k-1][j][i].x);
-                PetscReal div_y = (csi_arr[k][j][i].y - csi_arr[k][j][i-1].y) + (eta_arr[k][j][i].y - eta_arr[k][j-1][i].y) + (zet_arr[k][j][i].y - zet_arr[k-1][j][i].y);
-                PetscReal div_z = (csi_arr[k][j][i].z - csi_arr[k][j][i-1].z) + (eta_arr[k][j][i].z - eta_arr[k][j-1][i].z) + (zet_arr[k][j][i].z - zet_arr[k-1][j][i].z);
-                div_arr[k][j][i] = PetscAbsScalar((div_x + div_y + div_z) * aj_arr[k][j][i]);
-            }
-        }
-    }
-
-    ierr = DMDAVecRestoreArray(user->da, Div, &div_arr); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi_arr); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet_arr); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lAj, &aj_arr); CHKERRQ(ierr);
-    
-    ierr = VecMax(Div, &max_idx, &maxdiv); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Maximum metric divergence: %e\n", maxdiv);
-
-    ierr = VecDestroy(&Div); CHKERRQ(ierr);
-
-    PROFILE_FUNCTION_END;
-
-    PetscFunctionReturn(0);
-}
-
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
-
 {
   PetscInt nidx;
   DMDALocalInfo	info = user->info;

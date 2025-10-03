@@ -732,4 +732,24 @@ void _ProfilingEnd(const char *func_name);
     _ProfilingEnd(__FUNCT__)
 
 
+/**
+ * @brief Computes and logs the local and global min/max values of a 3-component vector field.
+ *
+ * This utility function inspects a PETSc Vec associated with a DMDA and calculates the
+ * minimum and maximum values for each of its three components (e.g., x, y, z) both for the
+ * local data on the current MPI rank and for the entire global domain.
+ *
+ * It uses the same "smart" logic as the flow solver, ignoring the padding nodes at the
+ * IM, JM, and KM boundaries of the grid. The results are printed to the standard output
+ * in a formatted, easy-to-read table.
+ *
+ * @param[in] user      Pointer to the user-defined context. Used for grid information (IM, JM, KM)
+ *                      and MPI rank.
+ * @param[in] fieldName A string descriptor for the field being analyzed (e.g., "Velocity",
+ *                      "Coordinates"). This is used for clear log output.
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName);
+
 #endif // LOGGING_H

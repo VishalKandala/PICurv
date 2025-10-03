@@ -327,36 +327,6 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
 
 
 /**
- * @brief Locates all particles within the grid and calculates their interpolation weights.
- * @ingroup ParticleLocation
- *
- * This function iterates through all particles currently local to this MPI rank.
- * For each particle, it first checks if the particle is within the rank's
- * pre-calculated bounding box (`user->bbox`). If it is, it calls the
- * `LocateParticleInGrid` function to perform the walking search.
- *
- * `LocateParticleInGrid` is responsible for finding the containing cell `(i,j,k)`
- * and calculating the corresponding interpolation weights `(w1,w2,w3)`. It updates
- * the `particle->cell` and `particle->weights` fields directly upon success.
- * If the search fails (particle not found within MAX_TRAVERSAL, goes out of bounds,
- * or gets stuck without resolution), `LocateParticleInGrid` sets the particle's
- * `cell` to `{-1,-1,-1}` and `weights` to `{0.0, 0.0, 0.0}`.
- *
- * After attempting location, this function updates the corresponding entries in the
- * DMSwarm's "DMSwarm_CellID" and "weight" fields using the potentially modified
- * data from the `particle` struct.
- *
- * @param[in] user Pointer to the UserCtx structure containing grid, swarm, and bounding box info.
- *
- * @return PetscErrorCode Returns `0` on success, non-zero on failure (e.g., errors accessing DMSwarm fields).
- *
- * @note Assumes `user->bbox` is correctly initialized for the local rank.
- * @note Assumes `InitializeParticle` correctly populates the temporary `particle` struct.
- * @note Assumes `UpdateSwarmFields` correctly writes data back to the DMSwarm.
- */
-PetscErrorCode LocateAllParticlesInGrid(UserCtx *user);
-
-/**
  * @brief Orchestrates the complete particle location and migration process for one timestep.
  * @ingroup ParticleLocation
  *
@@ -388,7 +358,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user);
  *                      This array must be up-to-date and available on all ranks.
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
  */
-PetscErrorCode LocateAllParticlesInGrid_TEST(UserCtx *user,BoundingBox *bboxlist);
+PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist);
 
 /**
  * This function is designed to be called at the end of a full timestep, after all

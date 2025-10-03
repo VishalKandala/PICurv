@@ -264,123 +264,6 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
     PetscFunctionReturn(0);
 }
 
-/**
- * @brief Removes particles that have been definitively flagged as LOST by the location algorithm.
- *
- * This function is the designated cleanup utility for particles that have exited the
- * physical domain or could not be located for any other reason. It should be called
- * after a particle location and migration phase is complete.
- *
- * It iterates through all locally owned particles and checks their `DMSwarm_location_status`
- * field. If a particle's status is `LOST`, it is permanently removed from the simulation
- * using `DMSwarmRemovePointAtIndex`.
- *
- * The function uses a robust "Restore-Remove-Reacquire" pattern for modifying the swarm.
- * When a particle is removed, all pointers to swarm data are restored, the removal operation
- * is performed, and then the pointers are reacquired if the loop needs to continue.
- *
- * @warning This function contains a collective MPI operation (MPI_Allreduce). To avoid
- *          deadlocks, it MUST be called by ALL ranks in the communicator. This implementation
- *          is designed to be safe by ensuring all ranks, even those with zero local
- *          particles, participate in the collective call.
- *
- * @param[in,out]  user              Pointer to the UserCtx structure containing the swarm.
- * @param[out]     removedCountLocal Pointer to store the number of particles removed on THIS rank.
- * @param[out]     removedCountGlobal Pointer to store the total number of particles removed ACROSS ALL ranks.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
- */
-/*
-PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
-                                           PetscInt *removedCountLocal,
-                                           PetscInt *removedCountGlobal)
-{
-    PetscErrorCode ierr;
-    DM             swarm = user->swarm;
-    PetscInt       nLocalInitial;
-    PetscInt       *status_p = NULL;
-    PetscInt64     *pid_p = NULL; // For better logging
-    PetscReal      *pos_p = NULL; // For better logging
-    PetscInt       local_removed_count = 0;
-    PetscMPIInt    global_removed_count_mpi = 0;
-    PetscMPIInt    rank;
-
-    PetscFunctionBeginUser;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Checking for and removing LOST particles...\n", rank);
-
-    // Initialize output parameters
-    *removedCountLocal = 0;
-    if (removedCountGlobal) *removedCountGlobal = 0;
-
-    ierr = DMSwarmGetLocalSize(swarm, &nLocalInitial); CHKERRQ(ierr);
-
-    // Guard the local processing loop. If a rank has no particles, it will skip
-    // this block entirely but will still proceed to the collective MPI_Allreduce call.
-    // This is the critical fix to prevent deadlocks.
-    if (nLocalInitial > 0) {
-        // Get access to swarm fields. We get all three for robust processing and logging.
-        ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status_p); CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, "DMSwarm_pid",             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, "position",                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr);
-
-        // --- Iterate BACKWARDS to handle index changes safely during removal ---
-        for (PetscInt p = nLocalInitial - 1; p >= 0; p--) {
-            if (status_p[p] == LOST) {
-	      LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Removing LOST particle [PID %ld] at local index %d. Position: (%.4f, %.4f, %.4f).\n",rank, pid_p[p],p,pos_p[3*p], pos_p[3*p+1], pos_p[3*p+2]);
-
-                // --- Safe Removal Pattern: Restore -> Remove -> Reacquire ---
-
-                // 1. Restore all fields BEFORE modifying the swarm structure.
-                ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status_p); CHKERRQ(ierr);
-                ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr);
-                ierr = DMSwarmRestoreField(swarm, "position",                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr);
-
-                // 2. Remove the particle at the current local index 'p'.
-                ierr = DMSwarmRemovePointAtIndex(swarm, p); CHKERRQ(ierr);
-                local_removed_count++;
-
-                // 3. After removal, the swarm is modified. We MUST re-acquire pointers if we are to continue.
-                PetscInt nLocalCurrent;
-                ierr = DMSwarmGetLocalSize(swarm, &nLocalCurrent); CHKERRQ(ierr);
-                if (nLocalCurrent > 0) { // If there are still particles left to check
-                    ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status_p); CHKERRQ(ierr);
-                    ierr = DMSwarmGetField(swarm, "DMSwarm_pid",             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr);
-                    ierr = DMSwarmGetField(swarm, "position",                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr);
-                } else {
-                    // All particles on this rank have been removed. Invalidate pointers and exit the loop.
-                    status_p = NULL;
-                    pid_p = NULL;
-                    pos_p = NULL;
-                    break;
-                }
-            }
-        } // End of backwards loop
-
-        // Restore fields if the loop completed without a final removal (i.e., pointers are still valid).
-        if (status_p) { ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status_p); CHKERRQ(ierr); }
-        if (pid_p)    { ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr); }
-        if (pos_p)    { ierr = DMSwarmRestoreField(swarm, "position",                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr); }
-    } // End of if (nLocalInitial > 0)
-
-    // Get the *final* local size for logging
-    PetscInt nLocalFinal;
-    ierr = DMSwarmGetLocalSize(swarm, &nLocalFinal); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Finished removing %d LOST particles. Final local size: %d.\n", rank, local_removed_count, nLocalFinal);
-
-    // --- Synchronize counts across all ranks ---
-    // ALL ranks MUST reach this point to participate in the collective call.
-    *removedCountLocal = local_removed_count;
-    if (removedCountGlobal) {
-        ierr = MPI_Allreduce(&local_removed_count, &global_removed_count_mpi, 1, MPI_INT, MPI_SUM, PetscObjectComm((PetscObject)swarm)); CHKERRQ(ierr);
-        *removedCountGlobal = global_removed_count_mpi;
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Removed %d LOST particles globally.\n", rank, *removedCountGlobal);
-    }
-
-    PetscFunctionReturn(0);
-}
-*/
-
 #undef __FUNCT__
 #define __FUNCT__ "CheckAndRemoveLostParticles"
 /**
@@ -629,13 +512,13 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     ierr = VecSet(countVec, 0.0); CHKERRQ(ierr);
 
     // --- Get Particle Data ---
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "CalculateParticleCountPerCell: Accessing particle data.\n");
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Accessing particle data.\n");
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm,"DMSwarm_CellID", NULL, NULL, (void **)&global_cell_id_arr); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm,"DMSwarm_pid",NULL,NULL,(void **)&PID_arr);CHKERRQ(ierr);
 
     // --- Get Grid Vector Array using DMDA accessor ---
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "CalculateParticleCountPerCell: Accessing ParticleCount vector array (using DMDAVecGetArray).\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Accessing ParticleCount vector array (using DMDAVecGetArray).\n");
     ierr = DMDAVecGetArray(da, countVec, &count_arr_3d); CHKERRQ(ierr);
 
     // Get local owned range for validation/logging if needed, but not for indexing with DMDAVecGetArray
@@ -686,7 +569,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     ierr = DMSwarmRestoreField(swarm,"DMSwarm_pid",NULL,NULL,(void **)&PID_arr);CHKERRQ(ierr);
 
     // --- Assemble Global Vector ---
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "CalculateParticleCountPerCell: Assembling global ParticleCount vector.\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Assembling global ParticleCount vector.\n");
     ierr = VecAssemblyBegin(countVec); CHKERRQ(ierr);
     ierr = VecAssemblyEnd(countVec); CHKERRQ(ierr);
 
@@ -695,7 +578,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     ierr = VecSum(countVec, &total_counted_particles); CHKERRQ(ierr);
     PetscInt max_idx_global = -1;
     ierr = VecMax(countVec, &max_idx_global, &max_count_in_cell); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "CalculateParticleCountPerCell: Total counted globally = %.0f, Max count in cell = %.0f\n",
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Total counted globally = %.0f, Max count in cell = %.0f\n",
               total_counted_particles, max_count_in_cell);
 
     // --- ADD THIS DEBUGGING BLOCK ---
@@ -733,7 +616,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     }
     // --- END DEBUGGING BLOCK ---
     
-    LOG_ALLOW(GLOBAL, LOG_INFO, "CalculateParticleCountPerCell: Particle counting complete.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Particle counting complete.\n");
 
 
     PROFILE_FUNCTION_END;
@@ -769,7 +652,7 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target)
 
     if (delta < 0) { // Remove particles
         PetscInt num_to_remove_global = -delta;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "ResizeSwarmGlobally: Current size %d > target size %d. Removing %d particles globally.\n", N_current, N_target, num_to_remove_global);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Current size %d > target size %d. Removing %d particles globally.\n", N_current, N_target, num_to_remove_global);
 
         // --- Strategy: Remove the globally last 'num_to_remove_global' particles ---
         // Each rank needs to determine how many of its *local* particles fall
@@ -813,7 +696,7 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target)
 
     } else { // delta > 0: Add particles
         PetscInt num_to_add_global = delta;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "ResizeSwarmGlobally: Current size %d < target size %d. Adding %d particles globally.\n", N_current, N_target, num_to_add_global);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Current size %d < target size %d. Adding %d particles globally.\n", N_current, N_target, num_to_add_global);
         ierr = DMSwarmAddNPoints(swarm, num_to_add_global); CHKERRQ(ierr);
         // Note: Added particles will have uninitialized field data. Reading will overwrite.
     }
@@ -824,7 +707,7 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target)
     if (N_final != N_target) {
         SETERRQ(comm, PETSC_ERR_PLIB, "Failed to resize swarm: expected %d particles, got %d", N_target, N_final);
     }
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "ResizeSwarmGlobally: Swarm successfully resized to %d particles.\n", N_final);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Swarm successfully resized to %d particles.\n", N_final);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -875,7 +758,7 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
                          refFieldName, ti, placeholder_int, ext); CHKERRQ(ierr);
     // Note: Make sure the "results" directory exists or handle directory creation elsewhere.
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "PreCheckAndResizeSwarm: Checking particle count for timestep %d using ref file '%s'.\n", ti, filename);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Checking particle count for timestep %d using ref file '%s'.\n", ti, filename);
 
     // --- Rank 0 reads the file to determine the size ---
     if (rank == 0) {
@@ -1029,7 +912,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
         Cmpnts    phys_coords; // To store newly calculated physical coordinates
 
         // Get random cell on this rank's portion of the inlet and random logical coords within it
-        ierr = GetRandomCellAndLogicOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
+        ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
                                                 IM_nodes_global, JM_nodes_global, KM_nodes_global,
                                                 &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k,
                                                 &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
@@ -1218,7 +1101,7 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
         *capacity_p = new_capacity; // Update the capacity tracker
 
         ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "AddToMigrationList [Rank %d]: Reallocated migrationList capacity from %d to %d.\n",
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d]: Reallocated migrationList capacity from %d to %d.\n",
                   rank, old_capacity, new_capacity);
     }
 
@@ -1300,7 +1183,7 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
     // Get the number of particles on this rank *after* the migration.
     ierr = DMSwarmGetLocalSize(swarm, &n_local_after); CHKERRQ(ierr);
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "FlagNewcomersForLocation [Rank %d]: Checking for newcomers. Size before: %d, Size after: %d\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d]: Checking for newcomers. Size before: %d, Size after: %d\n",
               rank, n_local_before, n_local_after);
 
     // If there are no particles now, there's nothing to do.
@@ -1465,7 +1348,7 @@ PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
         if (IsParticleInBox(&bboxlist[r], &particle->loc)) {
           PetscBool is_in = PETSC_TRUE;
 	  // This detailed, synchronized print will solve the mystery
-	  LOG_ALLOW(LOCAL,LOG_DEBUG, "[Guess BBox | Rank %d] Checking PID %lld at (%.4f, %.4f, %.4f) against Rank %d's box: [(%.4f, %.4f, %.4f) to (%.4f, %.4f, %.4f)]. Result: %s\n",
+	  LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d] Checking PID %lld at (%.4f, %.4f, %.4f) against Rank %d's box: [(%.4f, %.4f, %.4f) to (%.4f, %.4f, %.4f)]. Result: %s\n",
 				  (int)rank, (long long)particle->PID,
 				  particle->loc.x, particle->loc.y, particle->loc.z,
 				  (int)r,
@@ -1492,7 +1375,7 @@ PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "LocateAllParticlesInGrid_TEST"
+#define __FUNCT__ "LocateAllParticlesInGrid"
 /**
  * @brief Orchestrates the complete particle location and migration process for one timestep.
  * @ingroup ParticleLocation
@@ -1525,7 +1408,7 @@ PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
  *                      This array must be up-to-date and available on all ranks.
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
  */
-PetscErrorCode LocateAllParticlesInGrid_TEST(UserCtx *user,BoundingBox *bboxlist)
+PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 {
     PetscErrorCode ierr;
     PetscInt       passes = 0;
@@ -1607,7 +1490,7 @@ PetscErrorCode LocateAllParticlesInGrid_TEST(UserCtx *user,BoundingBox *bboxlist
                 // It has moved, so we only need to run the robust walk from its last known location.
                 if (current_particle.cell[0] >= 0) {
 		  LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] has valid prior cell. Strategy: Robust Walk from previous cell.\n", current_particle.PID);
-		  ierr = LocateParticleOrFindMigrationTarget_TEST(user, &current_particle, &final_status); CHKERRQ(ierr);
+		  ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
                 } 
 
 		/*		
@@ -1628,7 +1511,7 @@ PetscErrorCode LocateAllParticlesInGrid_TEST(UserCtx *user,BoundingBox *bboxlist
                 if (final_status == NEEDS_LOCATION  || UNINITIALIZED) {
                     LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] Not resolved by guess, starting robust walk.\n", current_particle.PID);
                     // This function will update the particle's status and destination rank internally.
-		     ierr = LocateParticleOrFindMigrationTarget_TEST(user, &current_particle, &final_status); CHKERRQ(ierr);
+		     ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
                     destination_rank = current_particle.destination_rank; // Retrieve the result
                 }
 
@@ -1667,7 +1550,7 @@ PetscErrorCode LocateAllParticlesInGrid_TEST(UserCtx *user,BoundingBox *bboxlist
 		      LOG_ALLOW(LOCAL, LOG_WARNING, "[PID %ld] Guess FAILED to find an owner. Proceeding to robust walk for definitive search.\n", current_particle.PID);
 		    }
                         
-		    ierr = LocateParticleOrFindMigrationTarget_TEST(user, &current_particle, &final_status); CHKERRQ(ierr);
+		    ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
 		  }
                 }
 		
