@@ -136,12 +136,16 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
  * a non-zero extent (i.e., owns at least one cell) in the tangential dimensions of that face.
  *
  * @param info              Pointer to the DMDALocalInfo for the current rank's DA.
+ * @param IM_nodes_global Global number of nodes in the I-direction (e.g., user->IM + 1 if user->IM is cell count).
+ * @param JM_nodes_global Global number of nodes in the J-direction.
+ * @param KM_nodes_global Global number of nodes in the K-direction.
  * @param face_id           The specific global face (e.g., BC_FACE_NEG_Z) to check.
  * @param[out] can_service_out Pointer to a PetscBool; set to PETSC_TRUE if the rank
  *                           services the face, PETSC_FALSE otherwise.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, BCFace face_id, PetscBool *can_service_out)
+PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global,
+                                  BCFace face_id, PetscBool *can_service_out)
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank_for_logging;
@@ -152,11 +156,6 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, BCFace face_id, Pet
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
 
     *can_service_out = PETSC_FALSE; // Default to no service
-
-    // Get the global dimensions (total number of nodes) from the DMDALocalInfo
-    PetscInt IM_nodes_global = info->mx;
-    PetscInt JM_nodes_global = info->my;
-    PetscInt KM_nodes_global = info->mz;
 
     // Get the range of cells owned by this rank
     PetscInt owned_start_cell_i, num_owned_cells_on_rank_i;
@@ -221,6 +220,217 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, BCFace face_id, Pet
 
     PROFILE_FUNCTION_END;
         
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "GetDeterministicFaceGridLocation"
+
+/**
+ * @brief Places particles in a deterministic grid/raster pattern on a specified domain face.
+ *
+ * This function creates a set of equidistant, parallel lines of particles near the four
+ * edges of the face specified by user->identifiedInletBCFace. The number of lines drawn
+ * from each edge is hardcoded within this function (default is 2).
+ *
+ * For example, if grid_layers=2 on face BC_FACE_NEG_X, the function will create particle lines at:
+ * - y ~ 0*dy, y ~ 1*dy (parallel to the Z-axis, starting from the J=0 edge)
+ * - y ~ y_max, y ~ y_max-dy (parallel to the Z-axis, starting from the J=max edge)
+ * - z ~ 0*dz, z ~ 1*dz (parallel to the Y-axis, starting from the K=0 edge)
+ * - z ~ z_max, z ~ z_max-dz (parallel to the Y-axis, starting from the K=max edge)
+ *
+ * The particle's final position is set just inside the target cell face to ensure it is
+ * correctly located. The total number of particles (simCtx->np) is distributed as evenly
+ * as possible among all generated lines.
+ *
+ * The function includes extensive validation to stop with an error if the requested grid
+ * placement is geometrically impossible (e.g., in a 2D domain or if layers would overlap).
+ * It also issues warnings for non-fatal but potentially unintended configurations.
+ *
+ * @param user Pointer to UserCtx, which must contain a valid identifiedInletBCFace.
+ * @param info Pointer to DMDALocalInfo for the current rank's grid layout.
+ * @param xs_gnode_rank, ys_gnode_rank, zs_gnode_rank Local starting node indices (incl. ghosts) for the rank's DA.
+ * @param IM_cells_global, JM_cells_global, KM_cells_global Global cell counts.
+ * @param particle_global_id The unique global ID of the particle being placed (from 0 to np-1).
+ * @param[out] ci_metric_lnode_out Local I-node index of the selected cell's origin.
+ * @param[out] cj_metric_lnode_out Local J-node index of the selected cell's origin.
+ * @param[out] ck_metric_lnode_out Local K-node index of the selected cell's origin.
+ * @param[out] xi_metric_logic_out Logical xi-coordinate [0,1] within the cell.
+ * @param[out] eta_metric_logic_out Logical eta-coordinate [0,1] within the cell.
+ * @param[out] zta_metric_logic_out Logical zta-coordinate [0,1] within the cell.
+ * @param[out] placement_successful_out PETSC_TRUE if the point belongs to this rank, PETSC_FALSE otherwise.
+ * @return PetscErrorCode
+ */
+PetscErrorCode GetDeterministicFaceGridLocation(
+    UserCtx *user, const DMDALocalInfo *info,
+    PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank,
+    PetscInt IM_cells_global, PetscInt JM_cells_global, PetscInt KM_cells_global,
+    PetscInt64 particle_global_id,
+    PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out,
+    PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out,
+    PetscBool *placement_successful_out)
+{
+    SimCtx *simCtx = user->simCtx;
+    PetscReal global_logic_i, global_logic_j, global_logic_k;
+    PetscErrorCode ierr;
+    PetscMPIInt rank_for_logging;
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
+
+    *placement_successful_out = PETSC_FALSE; // Default to failure
+
+    // --- Step 1: Configuration and Input Validation ---
+
+    // *** Hardcoded number of grid layers. Change this value to alter the pattern. ***
+    const PetscInt grid_layers = 2;
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG,
+        "[Rank %d] Placing particle %lld on face %s with grid_layers=%d in global domain (%d,%d,%d) cells.\n",
+        rank_for_logging, (long long)particle_global_id, BCFaceToString(user->identifiedInletBCFace), grid_layers,
+        IM_cells_global, JM_cells_global, KM_cells_global);
+
+    const char *face_name = BCFaceToString(user->identifiedInletBCFace);
+
+    // Fatal Error Checks: Ensure the requested grid is geometrically possible.
+    // The total layers from opposite faces (2 * grid_layers) must be less than the domain size.
+    switch (user->identifiedInletBCFace) {
+        case BC_FACE_NEG_X: case BC_FACE_POS_X:
+            if (JM_cells_global <= 1 || KM_cells_global <= 1) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Cannot place grid on face %s for a 2D/1D domain (J-cells=%d, K-cells=%d).", face_name, JM_cells_global, KM_cells_global);
+            if (2 * grid_layers >= JM_cells_global || 2 * grid_layers >= KM_cells_global) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Grid layers (%d) from opposing J/K faces would overlap in this domain (J-cells=%d, K-cells=%d).", grid_layers, JM_cells_global, KM_cells_global);
+            break;
+        case BC_FACE_NEG_Y: case BC_FACE_POS_Y:
+            if (IM_cells_global <= 1 || KM_cells_global <= 1) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Cannot place grid on face %s for a 2D/1D domain (I-cells=%d, K-cells=%d).", face_name, IM_cells_global, KM_cells_global);
+            if (2 * grid_layers >= IM_cells_global || 2 * grid_layers >= KM_cells_global) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Grid layers (%d) from opposing I/K faces would overlap in this domain (I-cells=%d, K-cells=%d).", grid_layers, IM_cells_global, KM_cells_global);
+            break;
+        case BC_FACE_NEG_Z: case BC_FACE_POS_Z:
+            if (IM_cells_global <= 1 || JM_cells_global <= 1) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Cannot place grid on face %s for a 2D/1D domain (I-cells=%d, J-cells=%d).", face_name, IM_cells_global, JM_cells_global);
+            if (2 * grid_layers >= IM_cells_global || 2 * grid_layers >= JM_cells_global) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Grid layers (%d) from opposing I/J faces would overlap in this domain (I-cells=%d, J-cells=%d).", grid_layers, IM_cells_global, JM_cells_global);
+            break;
+        default: SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Invalid identifiedInletBCFace specified: %d", user->identifiedInletBCFace);
+    }
+
+    const PetscInt num_lines_total = 4 * grid_layers;
+    if (simCtx->np < num_lines_total) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "Warning: Total particle count (%lld) is less than the number of grid lines requested (%d). Some lines may be empty.\n", (long long)simCtx->np, num_lines_total);
+    }
+    if (simCtx->np > 0 && simCtx->np % num_lines_total != 0) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "Warning: Total particle count (%lld) is not evenly divisible by the number of grid lines (%d). Distribution will be uneven.\n", (long long)simCtx->np, num_lines_total);
+    }
+
+    // --- Step 2: Map global particle ID to a line and a point on that line ---
+    if (simCtx->np == 0) PetscFunctionReturn(0); // Nothing to do
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Distributing %lld particles over %d lines on face %s.\n",
+        rank_for_logging, (long long)simCtx->np, num_lines_total, face_name);
+
+    const PetscInt points_per_line = PetscMax(1, simCtx->np / num_lines_total);
+    PetscInt line_index = particle_global_id / points_per_line;
+    PetscInt point_index_on_line = particle_global_id % points_per_line;
+    line_index = PetscMin(line_index, num_lines_total - 1); // Clamp to handle uneven division
+
+    // Decode the line_index into an edge group (0-3) and a layer within that group (0 to grid_layers-1)
+    const PetscInt edge_group = line_index / grid_layers;
+    const PetscInt layer_index = line_index % grid_layers;
+
+    // --- Step 3: Calculate placement coordinates based on the decoded indices ---
+    const PetscReal epsilon = 1.0e-6; // Small offset to keep particles off exact cell boundaries
+    const PetscReal layer_spacing_norm_i = (IM_cells_global > 0) ? 1.0 / (PetscReal)IM_cells_global : 0.0;
+    const PetscReal layer_spacing_norm_j = (JM_cells_global > 0) ? 1.0 / (PetscReal)JM_cells_global : 0.0;
+    const PetscReal layer_spacing_norm_k = (KM_cells_global > 0) ? 1.0 / (PetscReal)KM_cells_global : 0.0;
+
+    PetscReal variable_coord; // The coordinate that varies along a line
+    if (points_per_line <= 1) {
+        variable_coord = 0.5; // Place single point in the middle
+    } else {
+        variable_coord = ((PetscReal)point_index_on_line + 0.5)/ (PetscReal)(points_per_line);
+    }
+    variable_coord = PetscMin(1.0 - epsilon, PetscMax(epsilon, variable_coord)); // Clamp within [eps, 1-eps]
+
+    // Main logic switch to determine the three global logical coordinates
+    switch (user->identifiedInletBCFace) {
+        case BC_FACE_NEG_X:
+            global_logic_i = 0.5 * layer_spacing_norm_i; // Place near the face, in the middle of the first cell
+            if (edge_group == 0)      { global_logic_j = (PetscReal)layer_index * layer_spacing_norm_j + epsilon; global_logic_k = variable_coord; }
+            else if (edge_group == 1) { global_logic_j = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_j) - epsilon; global_logic_k = variable_coord; }
+            else if (edge_group == 2) { global_logic_k = (PetscReal)layer_index * layer_spacing_norm_k + epsilon; global_logic_j = variable_coord; }
+            else /* edge_group == 3 */ { global_logic_k = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_k) - epsilon; global_logic_j = variable_coord; }
+            break;
+        case BC_FACE_POS_X:
+            global_logic_i = 1.0 - (0.5 * layer_spacing_norm_i); // Place near the face, in the middle of the last cell
+            if (edge_group == 0)      { global_logic_j = (PetscReal)layer_index * layer_spacing_norm_j + epsilon; global_logic_k = variable_coord; }
+            else if (edge_group == 1) { global_logic_j = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_j) - epsilon; global_logic_k = variable_coord; }
+            else if (edge_group == 2) { global_logic_k = (PetscReal)layer_index * layer_spacing_norm_k + epsilon; global_logic_j = variable_coord; }
+            else /* edge_group == 3 */ { global_logic_k = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_k) - epsilon; global_logic_j = variable_coord; }
+            break;
+        case BC_FACE_NEG_Y:
+            global_logic_j = 0.5 * layer_spacing_norm_j;
+            if (edge_group == 0)      { global_logic_i = (PetscReal)layer_index * layer_spacing_norm_i + epsilon; global_logic_k = variable_coord; }
+            else if (edge_group == 1) { global_logic_i = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_i) - epsilon; global_logic_k = variable_coord; }
+            else if (edge_group == 2) { global_logic_k = (PetscReal)layer_index * layer_spacing_norm_k + epsilon; global_logic_i = variable_coord; }
+            else /* edge_group == 3 */ { global_logic_k = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_k) - epsilon; global_logic_i = variable_coord; }
+            break;
+        case BC_FACE_POS_Y:
+            global_logic_j = 1.0 - (0.5 * layer_spacing_norm_j);
+            if (edge_group == 0)      { global_logic_i = (PetscReal)layer_index * layer_spacing_norm_i + epsilon; global_logic_k = variable_coord; }
+            else if (edge_group == 1) { global_logic_i = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_i) - epsilon; global_logic_k = variable_coord; }
+            else if (edge_group == 2) { global_logic_k = (PetscReal)layer_index * layer_spacing_norm_k + epsilon; global_logic_i = variable_coord; }
+            else /* edge_group == 3 */ { global_logic_k = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_k) - epsilon; global_logic_i = variable_coord; }
+            break;
+        case BC_FACE_NEG_Z:
+            global_logic_k = 0.5 * layer_spacing_norm_k;
+            if (edge_group == 0)      { global_logic_i = (PetscReal)layer_index * layer_spacing_norm_i + epsilon; global_logic_j = variable_coord; }
+            else if (edge_group == 1) { global_logic_i = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_i) - epsilon; global_logic_j = variable_coord; }
+            else if (edge_group == 2) { global_logic_j = (PetscReal)layer_index * layer_spacing_norm_j + epsilon; global_logic_i = variable_coord; }
+            else /* edge_group == 3 */ { global_logic_j = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_j) - epsilon; global_logic_i = variable_coord; }
+            break;
+        case BC_FACE_POS_Z:
+            global_logic_k = 1.0 - (0.5 * layer_spacing_norm_k);
+            if (edge_group == 0)      { global_logic_i = (PetscReal)layer_index * layer_spacing_norm_i + epsilon; global_logic_j = variable_coord; }
+            else if (edge_group == 1) { global_logic_i = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_i) - epsilon; global_logic_j = variable_coord; }
+            else if (edge_group == 2) { global_logic_j = (PetscReal)layer_index * layer_spacing_norm_j + epsilon; global_logic_i = variable_coord; }
+            else /* edge_group == 3 */ { global_logic_j = 1.0 - ((PetscReal)layer_index * layer_spacing_norm_j) - epsilon; global_logic_i = variable_coord; }
+            break;
+    }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG,
+        "[Rank %d] Particle %lld assigned to line %d (edge group %d, layer %d) with variable_coord=%.4f.\n"
+        "    -> Global logical coords: (i,j,k) = (%.6f, %.6f, %.6f)\n",
+        rank_for_logging, (long long)particle_global_id, line_index, edge_group, layer_index, variable_coord,
+        global_logic_i, global_logic_j, global_logic_k);
+
+    // --- Step 4: Convert global logical coordinate to global cell index and intra-cell logicals ---
+    PetscReal global_cell_coord_i = global_logic_i * IM_cells_global;
+    PetscInt  I_g = (PetscInt)global_cell_coord_i;
+    *xi_metric_logic_out = global_cell_coord_i - I_g;
+
+    PetscReal global_cell_coord_j = global_logic_j * JM_cells_global;
+    PetscInt  J_g = (PetscInt)global_cell_coord_j;
+    *eta_metric_logic_out = global_cell_coord_j - J_g;
+
+    PetscReal global_cell_coord_k = global_logic_k * KM_cells_global;
+    PetscInt  K_g = (PetscInt)global_cell_coord_k;
+    *zta_metric_logic_out = global_cell_coord_k - K_g;
+
+    // --- Step 5: Check if this rank owns the target cell and finalize outputs ---
+    if ((I_g >= info->xs && I_g < info->xs + info->xm) &&
+        (J_g >= info->ys && J_g < info->ys + info->ym) &&
+        (K_g >= info->zs && K_g < info->zs + info->zm))
+    {
+        // Convert global cell index to the local node index for this rank's DA patch
+        *ci_metric_lnode_out = (I_g - info->xs) + xs_gnode_rank;
+        *cj_metric_lnode_out = (J_g - info->ys) + ys_gnode_rank;
+        *ck_metric_lnode_out = (K_g - info->zs) + zs_gnode_rank;
+        *placement_successful_out = PETSC_TRUE;
+    }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG,
+        "[Rank %d] Particle %lld placement %s. Local cell origin node: (I,J,K) = (%d,%d,%d), intra-cell logicals: (xi,eta,zta)=(%.6f,%.6f,%.6f)\n",
+        rank_for_logging, (long long)particle_global_id,
+        (*placement_successful_out ? "SUCCESSFUL" : "NOT ON THIS RANK"),
+        *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
+        *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
+
     PetscFunctionReturn(0);
 }
 
@@ -413,6 +623,8 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 
     PetscFunctionReturn(0);
 }
+
+
 
 #undef __FUNCT__
 #define __FUNCT__ "TranslateModernBCsToLegacy"

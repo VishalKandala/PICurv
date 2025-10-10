@@ -107,9 +107,13 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Initial Settlement: Locating and migrating all particles...\n", simCtx->ti, simCtx->step);
     ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
 
+    if(get_log_level() == "LOG_DEBUG" && is_function_allowed(__FUNCT__)==true){
+        ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
+    }
+
     // --- 2. Re-initialize Particles on Inlet Surface (if applicable) ---
     // Note: Use simCtx->ParticleInitialization for consistency
-    if (simCtx->ParticleInitialization == 0 && user->inletFaceDefined) {
+    if ((simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) && user->inletFaceDefined) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Re-initializing particles on inlet surface...\n", simCtx->ti, simCtx->step);
         ierr = ReinitializeParticlesOnInletSurface(user, simCtx->ti, simCtx->step); CHKERRQ(ierr);
 
@@ -173,6 +177,10 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
 
     // 1. Rebuild grid-to-particle links based on loaded coordinates.
     ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
+
+    if(get_log_level() == "LOG_DEBUG" && is_function_allowed(__FUNCT__)==true){
+        ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
+    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
 
@@ -347,6 +355,36 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = FlowSolver(simCtx); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field Updated ...\n");
+
+        /*
+        Cmpnts ***ucat_array,***coor_array;
+        Vec Coor;
+        LOG_ALLOW(LOCAL,LOG_DEBUG,"Rank %d: Dumping top layer of Ucat after FlowSolver:\n",simCtx->rank);
+        for(PetscInt bi = 0; bi < simCtx->block_number;bi++){
+            ierr = DMGetCoordinates(user[bi].da,&Coor); CHKERRQ(ierr);
+            ierr = DMDAVecGetArray(user[bi].fda,Coor,&coor_array); CHKERRQ(ierr);
+            ierr = DMDAVecGetArray(user[bi].fda,user[bi].Ucat,&ucat_array); CHKERRQ(ierr);
+            for(PetscInt j = 8; j < 14; j++){
+                    PetscInt i = 25;
+
+                    PetscReal Ux, Uy, Uz;
+                    Ux = ucat_array[0][j][i].x;
+                    Uy = ucat_array[0][j][i].y;
+                    Uz = ucat_array[0][j][i].z;
+
+                    // Get physical coordinates for reference
+                    PetscReal x = coor_array[0][j][i].x;
+                    PetscReal y = coor_array[0][j][i].y;
+                    PetscReal z = coor_array[0][j][i].z;
+
+                    LOG_ALLOW(LOCAL,LOG_DEBUG,"Rank %d, Block %d, Side Ucat[%d,%d,%d] = (%.6f,%.6f,%.6f) | coor[%d,%d,%d] = (%.6f,%.6f,%.6f) \n",
+                        simCtx->rank,bi,0,j,i,Ux,Uy,Uz,0,j,i,x,y,z);
+            }
+            ierr = DMDAVecRestoreArray(user[bi].fda,user[bi].Ucat,&ucat_array); CHKERRQ(ierr);
+            ierr = DMDAVecRestoreArray(user[bi].fda,Coor,&coor_array); CHKERRQ(ierr);
+        }
+        */
+
         // =================================================================
         //     3. LAGRANGIAN PARTICLE STEP
         // =================================================================

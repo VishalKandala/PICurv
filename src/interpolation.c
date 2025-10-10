@@ -1,15 +1,15 @@
 /**
- * @file Interpolatetion.c
- * @brief Main program for DMSwarm Interpolatetion using the fdf-curvIB method.
+ * @file interpolation.c
+ * @brief Main program for DMSwarm interpolation using the fdf-curvIB method.
  *
- * Provides routines for Interpolatetion between corner-based and center-based
+ * Provides routines for interpolation between corner-based and center-based
  * fields in the cell-centered DM (fda), plus partial usage examples for
  * DMSwarm-based field sampling.
  */
 
 #include "interpolation.h"
 
-// Number of weights used in certain trilinear Interpolatetion examples
+// Number of weights used in certain trilinear interpolation examples
 #define NUM_WEIGHTS 8
 // Define a buffer size for error messages if not already available
 #ifndef ERROR_MSG_BUFFER_SIZE
@@ -653,9 +653,9 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
     PetscInt zs_node = info_nodes.zs, zm_node = info_nodes.zm, ze_node = zs_node + zm_node;
 
     // Global grid dimensions (used for valid cell check)
-    PetscInt IM = info_nodes.mx; // Total nodes in i-direction
-    PetscInt JM = info_nodes.my; // Total nodes in j-direction
-    PetscInt KM = info_nodes.mz; // Total nodes in k-direction
+    PetscInt IM = info_nodes.mx - 1; // Total nodes in i-direction
+    PetscInt JM = info_nodes.my - 1; // Total nodes in j-direction
+    PetscInt KM = info_nodes.mz - 1; // Total nodes in k-direction
 
     // Ghosted array starting indices (from the same info struct)
     PetscInt gxs = info_nodes.gxs;
@@ -669,12 +669,28 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
                 Cmpnts sum = {0.0, 0.0, 0.0};
                 PetscInt count = 0;
 		
+                // DEBUG 1 TEST
+                /*
+                if(rank == 0 && i == 24 && j == 12 && k == 0){
+                    PetscInt i_cell_A = i - 1; 
+                    PetscInt i_cell_B = i;
+
+                    Cmpnts ucat_A = centfield_arr[k][j][i_cell_A]; // 23
+                    Cmpnts ucat_B = centfield_arr[k][j][i_cell_B]; // 24 (out-of-bounds if IM=25)
+
+                    PetscPrintf(PETSC_COMM_WORLD,"[Rank %d] DEBUG TEST at Node(k,j,i)=%d,%d,%d: Read { Valid Cell }Ucat[%d][%d][%d]=(%.2f,%.2f,%.2f) and {Out-of-Bounds Cell}Ucat[%d][%d][%d]=(%.2f,%.2f,%.2f)\n",
+                             rank, k, j, i,
+                             k, j, i_cell_A, ucat_A.x, ucat_A.y, ucat_A.z,
+                             k, j, i_cell_B, ucat_B.x, ucat_B.y, ucat_B.z);
+
+                }
+                */             
                 // Loop over the 8 potential cells surrounding node N(k,j,i)
                 for (PetscInt dk_offset = -1; dk_offset <= 0; dk_offset++) {
                     for (PetscInt dj_offset = -1; dj_offset <= 0; dj_offset++) {
                         for (PetscInt di_offset = -1; di_offset <= 0; di_offset++) {
 
-			    // These are still GLOBAL cell indices
+			                // These are still GLOBAL cell indices
                             PetscInt global_cell_k = k + dk_offset;
                             PetscInt global_cell_j = j + dj_offset;
                             PetscInt global_cell_i = i + di_offset;
@@ -688,8 +704,8 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
                                 // Now, read from the local array using the local index
                                 Cmpnts cell_val = centfield_arr[global_cell_k][global_cell_j][global_cell_i];
 
-				LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_DEBUG,k,6,"[Rank %d] successful read from [%d][%d][%d] -> (%.2f, %.2f, %.2f)\n",
-						     rank,global_cell_k,global_cell_j,global_cell_i,cell_val.x, cell_val.y, cell_val.z);
+				                LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_DEBUG,k,6,"[Rank %d] successful read from [%d][%d][%d] -> (%.2f, %.2f, %.2f)\n",
+						            rank,global_cell_k,global_cell_j,global_cell_i,cell_val.x, cell_val.y, cell_val.z);
 				
                                 sum.x += cell_val.x;
                                 sum.y += cell_val.y;
@@ -712,7 +728,16 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
                     corner_arr[k][j][i] = (Cmpnts){0.0, 0.0, 0.0};
                 }
 
-		LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_DEBUG,k,6,"[Rank %d] Node(k,j,i)=%d,%d,%d finished loops and write.\n", rank, k, j, i);
+                // DEBUG 2
+                /*
+                if(rank == 0 && i == 24 && j == 12 && k == 0){
+                    Cmpnts ucat_node = corner_arr[k][j][i];
+                    PetscPrintf(PETSC_COMM_WORLD,"[Rank %d] DEBUG TEST at Node(k,j,i)=%d,%d,%d: Wrote CornerUcat[%d][%d][%d]=(%.2f,%.2f,%.2f)\n",
+                             rank, k, j, i,
+                             k, j, i, ucat_node.x, ucat_node.y, ucat_node.z);
+                }
+                */
+		        LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_DEBUG,k,6,"[Rank %d] Node(k,j,i)=%d,%d,%d finished loops and write.\n", rank, k, j, i);
             }
         }
     }
@@ -752,9 +777,9 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar_Petsc(
     PetscInt zs_node = info_nodes.zs, ze_node = info_nodes.zs + info_nodes.zm;
 
     // Global grid dimensions (number of nodes)
-    PetscInt IM = info_nodes.mx;
-    PetscInt JM = info_nodes.my;
-    PetscInt KM = info_nodes.mz;
+    PetscInt IM = info_nodes.mx-1;
+    PetscInt JM = info_nodes.my-1;
+    PetscInt KM = info_nodes.mz-1;
 
     // Loop over the GLOBAL indices of the NODES owned by this processor
     for (PetscInt k = zs_node; k < ze_node; k++) {
@@ -804,7 +829,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar_Petsc(
 /**
  * @brief Retrieves the scalar value at the cell (iCell, jCell, kCell).
  *
- * This function does a simple piecewise (zeroth‐order) Interpolatetion
+ * This function does a simple piecewise (zeroth‐order) interpolation
  * by returning fieldScal[kCell][jCell][iCell], ignoring any fractional coordinates.
  *
  * @param[in]  fieldName  A string identifying the field (e.g. "temperature").
@@ -877,10 +902,10 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
 #define __FUNCT "ComputeTrilinearWeights"
 
 /**
- * @brief Computes the trilinear Interpolatetion weights from the Interpolatetion coefficients.
+ * @brief Computes the trilinear interpolation weights from the interpolation coefficients.
  *
- * This function computes the weights for trilinear Interpolatetion at the eight corners of a cell
- * using the Interpolatetion coefficients provided along the x, y, and z directions.
+ * This function computes the weights for trilinear interpolation at the eight corners of a cell
+ * using the interpolation coefficients provided along the x, y, and z directions.
  *
  * @param[in]  a1 Interpolation coefficient along the x-direction (normalized coordinate within the cell).
  * @param[in]  a2 Interpolation coefficient along the y-direction (normalized coordinate within the cell).
@@ -985,7 +1010,7 @@ PetscErrorCode TrilinearInterpolation_Scalar(
         fieldName, i, j, k, a1, a2, a3, *val);
 
     // LOG_ALLOW_SYNC(GLOBAL, LOG_INFO,
-    //    "TrilinearInterpolation_Scalar: Completed Interpolatetion for field '%s' across local cells.\n",
+    //    "TrilinearInterpolation_Scalar: Completed interpolation for field '%s' across local cells.\n",
 	  //    fieldName);
 
     PetscFunctionReturn(0);
@@ -1012,7 +1037,7 @@ PetscErrorCode TrilinearInterpolation_Scalar(
  *
  * If any of the 8 corners (i or i+1, j or j+1, k or k+1) is out of [0..mx), [0..my), [0..mz),
  * that corner is skipped and the corresponding weight is omitted. The total is normalized
- * by the sum of used weights, so we get a partial Interpolatetion near boundaries.
+ * by the sum of used weights, so we get a partial interpolation near boundaries.
  */
 PetscErrorCode TrilinearInterpolation_Vector(
     const char   *fieldName,
@@ -1039,7 +1064,7 @@ PetscErrorCode TrilinearInterpolation_Vector(
   
   LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d]  Trilinear weights computed for local cell %d,%d,%d.\n",rank,i,j,k);
 
-  // For partial Interpolatetion, we'll keep track of how many corners are valid
+  // For partial interpolation, we'll keep track of how many corners are valid
   // and how much sum of weights is used. Then we do a final normalization.
   PetscReal sumW = 0.0;
   Cmpnts    accum = {0.0, 0.0, 0.0};
@@ -1196,7 +1221,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
 
     
     
-    // Piecewise Interpolatetion (zeroth order).
+    // Piecewise interpolation (zeroth order).
     //  PetscErrorCode ierr = PieceWiseLinearInterpolation(fieldName,
     //                                                   fieldVec,
     //                                                   iCell, jCell, kCell,
@@ -1318,6 +1343,62 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     // (B) Get a read-only array from the input cell-centered vector
     ierr = DMDAVecGetArrayRead(fda, fieldLocal_cellCentered, &cellCenterPtr_read); CHKERRQ(ierr);
 
+    // DEBUG: Inspect Ucat ghost cells before interpolation
+    /*
+    if (bs == 3) {
+        Cmpnts ***ucat_array = (Cmpnts***)cellCenterPtr_read;
+        DMDALocalInfo info_debug;
+        ierr = DMDAGetLocalInfo(fda, &info_debug); CHKERRQ(ierr);
+
+        // Only print on rank 0 to avoid clutter
+        if (rank == 0) {
+            PetscPrintf(PETSC_COMM_SELF, "\nDEBUG: Inspecting Ucat Ghost Cells...\n");
+            PetscPrintf(PETSC_COMM_SELF, "--------------------------------------------------\n");
+
+            // --- Check the MINIMUM-SIDE (-Xi) ---
+            // The first physical cell is at index info.xs (local index).
+            // The first ghost cell is at info.xs - 1.
+            PetscInt i_first_phys = info_debug.xs;
+            PetscInt i_first_ghost = info_debug.xs - 1;
+            PetscInt j_mid = info_debug.ys + info_debug.ym / 2;
+            PetscInt k_mid = info_debug.zs + info_debug.zm / 2;
+
+            PetscPrintf(PETSC_COMM_SELF, "MIN-SIDE (-Xi):\n");
+            PetscPrintf(PETSC_COMM_SELF, "  Ghost Cell Ucat[%d][%d][%d] = (% .6f, % .6f, % .6f)\n",
+                        k_mid, j_mid, i_first_ghost,
+                        ucat_array[k_mid][j_mid][i_first_ghost].x,
+                        ucat_array[k_mid][j_mid][i_first_ghost].y,
+                        ucat_array[k_mid][j_mid][i_first_ghost].z);
+            PetscPrintf(PETSC_COMM_SELF, "  First Phys Cell Ucat[%d][%d][%d] = (% .6f, % .6f, % .6f)\n",
+                        k_mid, j_mid, i_first_phys,
+                        ucat_array[k_mid][j_mid][i_first_phys].x,
+                        ucat_array[k_mid][j_mid][i_first_phys].y,
+                        ucat_array[k_mid][j_mid][i_first_phys].z);
+
+
+            // --- Check the MAXIMUM-SIDE (+Xi) ---
+            // The last physical cell is at index info.xs + info.xm - 1.
+            // The first ghost cell on the max side is at info.xs + info.xm.
+            PetscInt i_last_phys = info_debug.xs + info_debug.xm - 1;
+            PetscInt i_last_ghost = info_debug.xs + info_debug.xm;
+
+            PetscPrintf(PETSC_COMM_SELF, "MAX-SIDE (+Xi):\n");
+            PetscPrintf(PETSC_COMM_SELF, "  Last Phys Cell Ucat[%d][%d][%d] = (% .6f, % .6f, % .6f)\n",
+                        k_mid, j_mid, i_last_phys,
+                        ucat_array[k_mid][j_mid][i_last_phys].x,
+                        ucat_array[k_mid][j_mid][i_last_phys].y,
+                        ucat_array[k_mid][j_mid][i_last_phys].z);
+            PetscPrintf(PETSC_COMM_SELF, "  Ghost Cell Ucat[%d][%d][%d] = (% .6f, % .6f, % .6f)\n",
+                        k_mid, j_mid, i_last_ghost,
+                        ucat_array[k_mid][j_mid][i_last_ghost].x,
+                        ucat_array[k_mid][j_mid][i_last_ghost].y,
+                        ucat_array[k_mid][j_mid][i_last_ghost].z);
+            PetscPrintf(PETSC_COMM_SELF, "--------------------------------------------------\n\n");
+        }
+    }
+    */
+    // DEBUG   
+
     // (C) Perform the center-to-corner interpolation directly into the global corner vector
     void *cornerPtr_write = NULL;
     ierr = DMDAVecGetArray(fda, cornerLocal, &cornerPtr_write); CHKERRQ(ierr);
@@ -1362,7 +1443,49 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
 
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "DEBUG: About to get array from FDA on all ranks.\n");
        if (is_function_allowed(__func__) && (int)(LOG_DEBUG) <= (int)get_log_level()) {
-	 ierr = DMView(user->fda, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
+            // DEBUG: Inspect cornerLocal after ghost exchange
+            /*
+            if (bs == 3) {
+                Cmpnts ***corner_array;
+                DMDALocalInfo info_debug;
+                ierr = DMDAGetLocalInfo(fda, &info_debug); CHKERRQ(ierr);
+                ierr = DMDAVecGetArrayRead(fda, cornerLocal, &corner_array); CHKERRQ(ierr);
+
+                // Only print on rank 0 to avoid clutter
+                if (rank == 0) {
+                    PetscPrintf(PETSC_COMM_SELF, "\nDEBUG: Inspecting Nodal (Corner) Velocities...\n");
+                    PetscPrintf(PETSC_COMM_SELF, "--------------------------------------------------\n");
+
+                    PetscInt j_mid = info_debug.ys + info_debug.ym / 2;
+                    PetscInt k_mid = info_debug.zs + info_debug.zm / 2;
+                    
+                    // --- Check the MINIMUM-SIDE (-Xi) Node ---
+                    // The first node is at global index 0. Its local index is info.xs.
+                    PetscInt i_first_node = info_debug.xs;
+                    PetscPrintf(PETSC_COMM_SELF, "MIN-SIDE (-Xi) Node:\n");
+                    PetscPrintf(PETSC_COMM_SELF, "  Corner Vel[%d][%d][%d] = (% .6f, % .6f, % .6f)\n",
+                                k_mid, j_mid, i_first_node,
+                                corner_array[k_mid][j_mid][i_first_node].x,
+                                corner_array[k_mid][j_mid][i_first_node].y,
+                                corner_array[k_mid][j_mid][i_first_node].z);
+
+                    // --- Check the MAXIMUM-SIDE (+Xi) Node ---
+                    // The last node is at global index IM. Its local index is info.xs + info.xm -1.
+                    PetscInt i_last_node = info_debug.xs + info_debug.xm - 1;
+                    PetscPrintf(PETSC_COMM_SELF, "MAX-SIDE (+Xi) Node:\n");
+                    PetscPrintf(PETSC_COMM_SELF, "  Corner Vel[%d][%d][%d] = (% .6f, % .6f, % .6f)\n",
+                                k_mid, j_mid, i_last_node,
+                                corner_array[k_mid][j_mid][i_last_node].x,
+                                corner_array[k_mid][j_mid][i_last_node].y,
+                                corner_array[k_mid][j_mid][i_last_node].z);
+                    PetscPrintf(PETSC_COMM_SELF, "--------------------------------------------------\n\n");
+                }
+                ierr = DMDAVecRestoreArrayRead(fda, cornerLocal, &corner_array); CHKERRQ(ierr);
+            }
+            // DEBUG
+            */ 
+
+	    ierr = DMView(user->fda, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
        }
     LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "DEBUG: Finished DMView.\n");
     
@@ -1503,7 +1626,7 @@ PetscErrorCode InterpolateAllFieldsToSwarm(UserCtx *user)
      1) Interpolate the 'velocity' field (user->Ucat) into DMSwarm's "swarmVelocity".
         - The function InterpolateOneFieldOverSwarm() loops over all local particles,
           retrieves iCell, jCell, kCell, (a1,a2,a3) from the DMSwarm,
-          and calls the appropriate trilinear Interpolatetion routine.
+          and calls the appropriate trilinear interpolation routine.
 
         - "velocity" => just a label used in logging or debugging.
         - "swarmVelocity" => the DMSwarm field name where we store the result

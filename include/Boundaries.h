@@ -81,12 +81,60 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
  * a non-zero extent (i.e., owns at least one cell) in the tangential dimensions of that face.
  *
  * @param info              Pointer to the DMDALocalInfo for the current rank's DA.
+ * @param IM_nodes_global Global number of nodes in the I-direction (e.g., user->IM + 1 if user->IM is cell count).
+ * @param JM_nodes_global Global number of nodes in the J-direction.
+ * @param KM_nodes_global Global number of nodes in the K-direction.
  * @param face_id           The specific global face (e.g., BC_FACE_NEG_Z) to check.
  * @param[out] can_service_out Pointer to a PetscBool; set to PETSC_TRUE if the rank
  *                           services the face, PETSC_FALSE otherwise.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, BCFace face_id, PetscBool *can_service_out);
+PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global,
+                                  BCFace face_id, PetscBool *can_service_out);
+
+/**
+ * @brief Places particles in a deterministic grid/raster pattern on a specified domain face.
+ *
+ * This function creates a set of equidistant, parallel lines of particles near the four
+ * edges of the face specified by user->identifiedInletBCFace. The number of lines drawn
+ * from each edge is hardcoded within this function (default is 2).
+ *
+ * For example, if grid_layers=2 on face BC_FACE_NEG_X, the function will create particle lines at:
+ * - y ~ 0*dy, y ~ 1*dy (parallel to the Z-axis, starting from the J=0 edge)
+ * - y ~ y_max, y ~ y_max-dy (parallel to the Z-axis, starting from the J=max edge)
+ * - z ~ 0*dz, z ~ 1*dz (parallel to the Y-axis, starting from the K=0 edge)
+ * - z ~ z_max, z ~ z_max-dz (parallel to the Y-axis, starting from the K=max edge)
+ *
+ * The particle's final position is set just inside the target cell face to ensure it is
+ * correctly located. The total number of particles (simCtx->np) is distributed as evenly
+ * as possible among all generated lines.
+ *
+ * The function includes extensive validation to stop with an error if the requested grid
+ * placement is geometrically impossible (e.g., in a 2D domain or if layers would overlap).
+ * It also issues warnings for non-fatal but potentially unintended configurations.
+ *
+ * @param user Pointer to UserCtx, which must contain a valid identifiedInletBCFace.
+ * @param info Pointer to DMDALocalInfo for the current rank's grid layout.
+ * @param xs_gnode_rank, ys_gnode_rank, zs_gnode_rank Local starting node indices (incl. ghosts) for the rank's DA.
+ * @param IM_cells_global, JM_cells_global, KM_cells_global Global cell counts.
+ * @param particle_global_id The unique global ID of the particle being placed (from 0 to np-1).
+ * @param[out] ci_metric_lnode_out Local I-node index of the selected cell's origin.
+ * @param[out] cj_metric_lnode_out Local J-node index of the selected cell's origin.
+ * @param[out] ck_metric_lnode_out Local K-node index of the selected cell's origin.
+ * @param[out] xi_metric_logic_out Logical xi-coordinate [0,1] within the cell.
+ * @param[out] eta_metric_logic_out Logical eta-coordinate [0,1] within the cell.
+ * @param[out] zta_metric_logic_out Logical zta-coordinate [0,1] within the cell.
+ * @param[out] placement_successful_out PETSC_TRUE if the point belongs to this rank, PETSC_FALSE otherwise.
+ * @return PetscErrorCode
+ */
+PetscErrorCode GetDeterministicFaceGridLocation(
+    UserCtx *user, const DMDALocalInfo *info,
+    PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank,
+    PetscInt IM_cells_global, PetscInt JM_cells_global, PetscInt KM_cells_global,
+    PetscInt64 particle_global_id,
+    PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out,
+    PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out,
+    PetscBool *placement_successful_out);
 
 
 /**

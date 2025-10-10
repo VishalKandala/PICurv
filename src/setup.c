@@ -1377,34 +1377,25 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
  *
  * A cell `C_k` (0-indexed) is defined by its origin node `N_k` and extends to node `N_{k+1}`.
  * Thus, the last node in the global domain cannot be an origin for a cell. The last possible
- * cell origin node index is `GlobalNodesInDim - 2`.
+ * cell origin node index is `PhysicalGlobalNodesInDim - 2`.
+ *
+ * @warning THIS FUNCTION MAKES A CRITICAL ASSUMPTION: It assumes the DMDA it
+ *          receives information from was created with dimensions of
+ *          (physical_nodes_x + 1), (physical_nodes_y + 1), etc., where the `+1`
+ *          node is a "user-defined ghost" not meant for physical calculations.
+ *          It will internally subtract 1 from the global dimensions (mx, my, mz)
+ *          before calculating the number of cells.
  *
  * @param[in] info_nodes Pointer to the DMDALocalInfo struct for the current rank.
  *                       This struct contains local ownership information (xs, xm, etc.)
  *                       and global domain dimensions (mx, my, mz for nodes).
  * @param[in] dim        The dimension for which to get the cell range (0 for i/x, 1 for j/y, 2 for k/z).
  * @param[out] xs_cell_global_out Pointer to store the global index of the first cell whose origin node
- *                                is owned by this rank. If the rank owns no valid cell origins in this
- *                                dimension, this will be the rank's starting node index, but
- *                                `xm_cell_local_out` will be 0.
+ *                                is owned by this rank.
  * @param[out] xm_cell_local_out  Pointer to store the number of cells for which this rank owns the
- *                                origin node AND that origin node is a valid cell origin within the
- *                                global domain.
+ *                                origin node.
  *
  * @return PetscErrorCode 0 on success, or an error code on failure.
- *
- * @note Example: If GlobalNodesInDim = 11 (nodes N0 to N10), there are 10 cells (C0 to C9).
- *       The last cell, C9, has its origin at node N9. So, N9 (index 9) is the last valid
- *       cell origin (GlobalNodesInDim - 2 = 11 - 2 = 9).
- *       If a rank owns nodes N8, N9, N10 (xs=8, xm=3):
- *         - First potential origin on rank = N8.
- *         - Last potential origin on rank (node that is not the last owned node) = N9.
- *         - Actual last origin this rank can form = min(N9, GlobalMaxOrigin=N9) = N9.
- *         - Number of cells = (N9 - N8 + 1) = 2 cells (C8, C9).
- *       If a rank owns only node N10 (xs=10, xm=1):
- *         - First potential origin on rank = N10.
- *         - Actual last origin rank can form = min(N9, GlobalMaxOrigin=N9) (since N10-1=N9).
- *         - first_potential_origin_on_rank (N10) > actual_last_origin_this_rank_can_form (N9) => 0 cells.
  */
 PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
                                  PetscInt dim,
@@ -1414,10 +1405,9 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
     PetscErrorCode ierr = 0; // Standard PETSc error code, not explicitly set here but good practice.
     PetscInt xs_node_global_rank;   // Global index of the first node owned by this rank in the specified dimension.
     PetscInt num_nodes_owned_rank;  // Number of nodes owned by this rank in this dimension (local count, excluding ghosts).
-    PetscInt GlobalNodesInDim_from_info; // Total number of global nodes in this dimension, from DMDALocalInfo.
+    PetscInt GlobalNodesInDim_from_info; // Total number of DA points in this dimension, from DMDALocalInfo.
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
 
     // --- 1. Input Validation ---
     if (!info_nodes || !xs_cell_global_out || !xm_cell_local_out) {
@@ -1426,34 +1416,35 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
 
     // --- 2. Extract Node Ownership and Global Dimension Information from DMDALocalInfo ---
     if (dim == 0) { // I-direction
-        xs_node_global_rank = info_nodes->xs;       // Starting owned node index (global)
-        num_nodes_owned_rank  = info_nodes->xm;     // Number of nodes owned by this rank (local count)
-        GlobalNodesInDim_from_info = info_nodes->mx; // Total global nodes in this dimension
+        xs_node_global_rank      = info_nodes->xs;
+        num_nodes_owned_rank     = info_nodes->xm;
+        GlobalNodesInDim_from_info = info_nodes->mx;
     } else if (dim == 1) { // J-direction
-        xs_node_global_rank = info_nodes->ys;
-        num_nodes_owned_rank  = info_nodes->ym;
+        xs_node_global_rank      = info_nodes->ys;
+        num_nodes_owned_rank     = info_nodes->ym;
         GlobalNodesInDim_from_info = info_nodes->my;
     } else if (dim == 2) { // K-direction
-        xs_node_global_rank = info_nodes->zs;
-        num_nodes_owned_rank  = info_nodes->zm;
+        xs_node_global_rank      = info_nodes->zs;
+        num_nodes_owned_rank     = info_nodes->zm;
         GlobalNodesInDim_from_info = info_nodes->mz;
     } else {
       SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Invalid dimension %d in GetOwnedCellRange. Must be 0, 1, or 2.", dim);
     }
 
-    // --- 3. Handle Edge Cases for Global Domain Size ---
-    // If the global domain has 0 or 1 node plane, no cells can be formed.
-    if (GlobalNodesInDim_from_info <= 1) {
+    // --- 3. Correct for User-Defined Ghost Node ---
+    // Per the function's contract (@warning), the DA size includes an extra, non-physical
+    // node. We subtract 1 to get the true number of physical nodes for cell calculations.
+    const PetscInt physical_nodes_in_dim = GlobalNodesInDim_from_info - 1;
+
+    // --- 4. Handle Edge Cases for Physical Domain Size ---
+    // If the physical domain has 0 or 1 node, no cells can be formed.
+    if (physical_nodes_in_dim <= 1) {
         *xs_cell_global_out = xs_node_global_rank; // Still report the rank's starting node
-        *xm_cell_local_out = 0;                    // But 0 cells
+        *xm_cell_local_out  = 0;                    // But 0 cells
         PetscFunctionReturn(0);
     }
-    // Negative global dimension is an error (should be caught by DMDA setup, but defensive)
-    if (GlobalNodesInDim_from_info < 0 ) {
-         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "GlobalNodesInDim %d from DMDALocalInfo must be non-negative for dimension %d.", GlobalNodesInDim_from_info, dim);
-    }
 
-    // --- 4. Determine Cell Ownership Based on Node Ownership ---
+    // --- 5. Determine Cell Ownership Based on Corrected Node Ownership ---
     // The first cell this rank *could* define has its origin at the first node this rank owns.
     *xs_cell_global_out = xs_node_global_rank;
 
@@ -1461,91 +1452,40 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
     if (num_nodes_owned_rank == 0) {
         *xm_cell_local_out = 0;
     } else {
-        // Calculate the global index of the last possible node that can serve as a cell origin.
-        // If GlobalNodesInDim = N (nodes 0 to N-1), cells are C_0 to C_{N-2}.
-        // The origin of cell C_{N-2} is node N_{N-2}.
-        // So, the last valid cell origin node index is (GlobalNodesInDim - 2).
-        PetscInt last_possible_origin_global_idx = GlobalNodesInDim_from_info - 2;
+        // --- BUG FIX APPLIED HERE ---
+        // The previous logic incorrectly assumed a cell's end node (N_{k+1}) must be on the
+        // same rank as its origin node (N_k). The correct logic is to find the intersection
+        // between the nodes this rank owns and the nodes that are valid origins globally.
 
-        // Determine the range of nodes owned by this rank that could *potentially* be cell origins.
-        // The first node owned by the rank is a potential origin.
-        PetscInt first_potential_origin_on_rank = xs_node_global_rank;
+        // The first node owned by the rank is its first potential origin.
+        PetscInt first_owned_origin = xs_node_global_rank;
 
-        // A node can be an origin if there's at least one node after it to form the cell.
-        // So, the last node owned by the rank that could *potentially* be an origin is
-        // the second-to-last node it owns: (xs_node_global_rank + num_nodes_owned_rank - 1) - 1
-        // which simplifies to: xs_node_global_rank + num_nodes_owned_rank - 2.
-        PetscInt last_potential_origin_on_rank = xs_node_global_rank + num_nodes_owned_rank - 2;
+        // The absolute last node owned by this rank. Any node up to and including this one
+        // is a potential cell origin from this rank's perspective.
+        PetscInt last_node_owned_by_rank = xs_node_global_rank + num_nodes_owned_rank - 1;
 
-        // The actual last origin this rank can provide is capped by the global domain limit.
-        PetscInt actual_last_origin_this_rank_can_form = PetscMin(last_potential_origin_on_rank, last_possible_origin_global_idx);
+        // The absolute last node in the entire PHYSICAL domain that can serve as a cell origin.
+        // If there are `N` physical nodes (0 to N-1), this index is `N-2`.
+        PetscInt last_possible_origin_global_idx = physical_nodes_in_dim - 2;
 
-        // If the first potential origin this rank owns is already beyond the actual last origin it can form,
-        // then this rank forms no valid cell origins. This happens if:
-        //  - num_nodes_owned_rank is 1 (so last_potential_origin_on_rank = first_potential_origin_on_rank - 1).
-        //  - The rank only owns nodes at the very end of the global domain (e.g., only the last global node).
-        if (first_potential_origin_on_rank > actual_last_origin_this_rank_can_form) {
+        // The actual last origin this rank can provide is the *minimum* of what it owns
+        // and what is globally possible. This correctly handles both ranks in the middle of
+        // the domain and the very last rank.
+        PetscInt actual_last_origin_this_rank_can_form = PetscMin(last_node_owned_by_rank, last_possible_origin_global_idx);
+
+        // If the first potential origin this rank owns is already beyond the actual last
+        // origin it can form, then this rank forms no valid cell origins. This happens if
+        // the rank only owns the very last physical node.
+        if (first_owned_origin > actual_last_origin_this_rank_can_form) {
             *xm_cell_local_out = 0;
         } else {
             // The number of cells is the count of valid origins this rank owns.
             // (Count = Last Index - First Index + 1)
-            *xm_cell_local_out = actual_last_origin_this_rank_can_form - first_potential_origin_on_rank + 1;
+            *xm_cell_local_out = actual_last_origin_this_rank_can_form - first_owned_origin + 1;
         }
     }
-    PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(ierr);
-}
-
-#undef __FUNCT__
-#define __FUNCT__ "GetGhostedCellRange"
-
-/**
- * @brief Gets the global cell range for a rank, including boundary cells.
- *
- * This function first calls GetOwnedCellRange to get the conservative range of
- * fully-contained cells. It then extends this range by applying the
- * "Lower-Rank-Owns-Boundary" principle. A rank claims ownership of the
- * boundary cells it shares with neighbors in the positive (+x, +y, +z)
- * directions.
- *
- * This results in a final cell range that is gap-free and suitable for building
- * the definitive particle ownership map.
- *
- * @param[in]  info_nodes       Pointer to the DMDALocalInfo struct.
- * @param[in]  neighbors        Pointer to the RankNeighbors struct containing neighbor info.
- * @param[in]  dim              The dimension (0 for i/x, 1 for j/y, 2 for k/z).
- * @param[out] xs_cell_global_out Pointer to store the final starting cell index.
- * @param[out] xm_cell_local_out  Pointer to store the final number of cells.
- *
- * @return PetscErrorCode 0 on success, or an error code on failure.
- */
-PetscErrorCode GetGhostedCellRange(const DMDALocalInfo *info_nodes,
-                                   const RankNeighbors *neighbors,
-                                   PetscInt dim,
-                                   PetscInt *xs_cell_global_out,
-                                   PetscInt *xm_cell_local_out)
-{
-    PetscErrorCode ierr;
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    // --- 1. Get the base, conservative range from the original function ---
-    ierr = GetOwnedCellRange(info_nodes, dim, xs_cell_global_out, xm_cell_local_out); CHKERRQ(ierr);
-
-    // --- 2. Apply the "Lower-Rank-Owns-Boundary" correction ---
-    // A rank owns the boundary if it has a neighbor in the positive direction.
-    // We check if the neighbor's rank is valid (not MPI_PROC_NULL, which is < 0).
-    if (dim == 0 && neighbors->rank_xp > -1) {
-        (*xm_cell_local_out)++;
-    } else if (dim == 1 && neighbors->rank_yp > -1) {
-        (*xm_cell_local_out)++;
-    } else if (dim == 2 && neighbors->rank_zp > -1) {
-        (*xm_cell_local_out)++;
-    }
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
@@ -2065,16 +2005,11 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
 
     // Use the robust helper function to convert node ownership to cell ownership.
     // A cell's index is defined by its origin node.
-    
-    ierr = GetGhostedCellRange(&local_node_info, &user->neighbors, 0, &my_cell_info.xs_cell, &my_cell_info.xm_cell); CHKERRQ(ierr);
-    ierr = GetGhostedCellRange(&local_node_info, &user->neighbors, 1, &my_cell_info.ys_cell, &my_cell_info.ym_cell); CHKERRQ(ierr);
-    ierr = GetGhostedCellRange(&local_node_info, &user->neighbors, 2, &my_cell_info.zs_cell, &my_cell_info.zm_cell); CHKERRQ(ierr);
-    
-    /*
+     
     ierr = GetOwnedCellRange(&local_node_info, 0, &my_cell_info.xs_cell, &my_cell_info.xm_cell); CHKERRQ(ierr);
     ierr = GetOwnedCellRange(&local_node_info, 1, &my_cell_info.ys_cell, &my_cell_info.ym_cell); CHKERRQ(ierr);
     ierr = GetOwnedCellRange(&local_node_info, 2, &my_cell_info.zs_cell, &my_cell_info.zm_cell); CHKERRQ(ierr);
-    */
+    
     // Log the calculated local ownership for debugging purposes.
     LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Owns cells: i[%d, %d), j[%d, %d), k[%d, %d)\n",
               rank, my_cell_info.xs_cell, my_cell_info.xs_cell + my_cell_info.xm_cell,

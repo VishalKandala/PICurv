@@ -65,19 +65,19 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
     ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet_arr); CHKERRQ(ierr);
    
+    const PetscInt im_phys = info.mx - 1;
+    const PetscInt jm_phys = info.my - 1;
+    const PetscInt km_phys = info.mz - 1;    
+
     // --- 2. Compute Cell-Center Coordinates (only if needed by the selected profile) ---
     Cmpnts ***cent_coor = NULL;
     PetscInt xs_cell=0, xm_cell=0, ys_cell=0, ym_cell=0, zs_cell=0, zm_cell=0;
     
     if (simCtx->FieldInitialization == 2) { // Profile 2 (Poiseuille) requires cell centers.
-      /*
+        
         ierr = GetOwnedCellRange(&info, 0, &xs_cell, &xm_cell); CHKERRQ(ierr);
         ierr = GetOwnedCellRange(&info, 1, &ys_cell, &ym_cell); CHKERRQ(ierr);
         ierr = GetOwnedCellRange(&info, 2, &zs_cell, &zm_cell); CHKERRQ(ierr);
-      */
-      ierr = GetGhostedCellRange(&info,&user->neighbors,0, &xs_cell, &xm_cell); CHKERRQ(ierr);
-      ierr = GetGhostedCellRange(&info,&user->neighbors,1, &ys_cell, &ym_cell); CHKERRQ(ierr);
-      ierr = GetGhostedCellRange(&info,&user->neighbors,2, &zs_cell, &zm_cell); CHKERRQ(ierr);
       
         if (xm_cell > 0 && ym_cell > 0 && zm_cell > 0) {
             ierr = Allocate3DArray(&cent_coor, zm_cell, ym_cell, xm_cell); CHKERRQ(ierr);
@@ -109,9 +109,9 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
             for (i = xs; i < xe; i++) {
                 
                 // The crucial check to ensure we only modify interior nodes.
-                const PetscBool is_interior = (i > 0 && i < mx - 1 &&
-                                               j > 0 && j < my - 1 &&
-                                               k > 0 && k < mz - 1);
+                const PetscBool is_interior = (i > 0 && i < im_phys - 1 &&
+                                               j > 0 && j < jm_phys - 1 &&
+                                               k > 0 && k < km_phys - 1);
 
                 if (is_interior) {
                     Cmpnts ucont_val = {0.0, 0.0, 0.0}; // Default to zero velocity
@@ -143,8 +143,8 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
 
                                 // Define channel geometry in "index space" based on global grid dimensions
                                 // We subtract 2.0 because the interior runs from index 1 to mx-2 (or my-2).
-                                const PetscReal i_width  = (PetscReal)(mx - 2);
-                                const PetscReal j_width  = (PetscReal)(my - 2);
+                                const PetscReal i_width  = (PetscReal)(im_phys - 2);
+                                const PetscReal j_width  = (PetscReal)(jm_phys - 2);
                                 const PetscReal i_center = 1.0 + i_width / 2.0;
                                 const PetscReal j_center = 1.0 + j_width / 2.0;
 
