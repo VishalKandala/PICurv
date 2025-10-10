@@ -365,20 +365,19 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = DMDAVecGetArray(user[bi].fda,Coor,&coor_array); CHKERRQ(ierr);
             ierr = DMDAVecGetArray(user[bi].fda,user[bi].Ucat,&ucat_array); CHKERRQ(ierr);
             for(PetscInt j = 8; j < 14; j++){
-                    PetscInt i = 25;
+                    PetscInt i_dummy = 25;
+                    PetscInt i_wall = 24;
 
-                    PetscReal Ux, Uy, Uz;
-                    Ux = ucat_array[0][j][i].x;
-                    Uy = ucat_array[0][j][i].y;
-                    Uz = ucat_array[0][j][i].z;
+                    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Ucat[%d][%d][%d] = (%.4f,%.4f,%.4f) at Coor=(%.4f,%.4f,%.4f)\n",
+                            1,j,i_dummy,
+                            ucat_array[1][j][i_dummy].x,ucat_array[1][j][i_dummy].y,ucat_array[1][j][i_dummy].z,
+                            coor_array[1][j][i_dummy].x,coor_array[1][j][i_dummy].y,coor_array[1][j][i_dummy].z);
+                    
+                    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Ucat[%d][%d][%d] = (%.4f,%.4f,%.4f) at Coor=(%.4f,%.4f,%.4f)\n",
+                            1,j,i_wall,
+                            ucat_array[1][j][i_wall].x,ucat_array[1][j][i_wall].y,ucat_array[1][j][i_wall].z,
+                            coor_array[1][j][i_wall].x,coor_array[1][j][i_wall].y,coor_array[1][j][i_wall].z);
 
-                    // Get physical coordinates for reference
-                    PetscReal x = coor_array[0][j][i].x;
-                    PetscReal y = coor_array[0][j][i].y;
-                    PetscReal z = coor_array[0][j][i].z;
-
-                    LOG_ALLOW(LOCAL,LOG_DEBUG,"Rank %d, Block %d, Side Ucat[%d,%d,%d] = (%.6f,%.6f,%.6f) | coor[%d,%d,%d] = (%.6f,%.6f,%.6f) \n",
-                        simCtx->rank,bi,0,j,i,Ux,Uy,Uz,0,j,i,x,y,z);
             }
             ierr = DMDAVecRestoreArray(user[bi].fda,user[bi].Ucat,&ucat_array); CHKERRQ(ierr);
             ierr = DMDAVecRestoreArray(user[bi].fda,Coor,&coor_array); CHKERRQ(ierr);
@@ -424,7 +423,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             ierr = UpdateSolverHistoryVectors(&user[bi]); CHKERRQ(ierr);
         }
-
+        
+        //ierr = LOG_UCAT_ANATOMY(&user[0],"Final"); CHKERRQ(ierr);
+        
         // Handle periodic file output
         if (OutputFreq > 0 && (step + 1) % OutputFreq == 0) {
             LOG_ALLOW(GLOBAL, LOG_INFO, "Writing output for step %d.\n",simCtx->step);
