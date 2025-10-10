@@ -831,7 +831,7 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
  * @brief Re-initializes the positions of particles currently on this rank if this rank owns
  *        part of the designated inlet surface.
  *
- * This function is intended for `user->ParticleInitialization == 0` (Surface Initialization mode)
+ * This function is intended for `user->ParticleInitialization == 0 or 3` (Surface Initialization modes)
  * and is typically called after an initial migration step (e.g., in `PerformInitialSetup`).
  * It ensures that all particles that should originate from the inlet surface and are now
  * on the correct MPI rank are properly distributed across that rank's portion of the inlet.
@@ -865,7 +865,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     PROFILE_FUNCTION_BEGIN;
 
     // This function is only relevant for surface initialization mode and if an inlet face is defined.
-    if (user->simCtx->ParticleInitialization != 0 || !user->inletFaceDefined) {
+    if ((user->simCtx->ParticleInitialization != 0 && user->simCtx->ParticleInitialization !=3) || !user->inletFaceDefined) {
         PetscFunctionReturn(0);
     }
 
@@ -883,15 +883,24 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     ierr = DMDAGetInfo(user->da, NULL, &IM_nodes_global, &JM_nodes_global, &KM_nodes_global, NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL); CHKERRQ(ierr);
     ierr = DMDAGetGhostCorners(user->da, &xs_gnode_rank, &ys_gnode_rank, &zs_gnode_rank, NULL, NULL, NULL); CHKERRQ(ierr);
 
+    // Modification to IM_nodes_global etc. to account for 1-cell halo in each direction.
+    IM_nodes_global -= 1; JM_nodes_global -= 1; KM_nodes_global -= 1; 
+
+    const PetscInt IM_cells_global = IM_nodes_global > 0 ? IM_nodes_global - 1 : 0;
+    const PetscInt JM_cells_global = JM_nodes_global > 0 ? JM_nodes_global - 1 : 0;
+    const PetscInt KM_cells_global = KM_nodes_global > 0 ? KM_nodes_global - 1 : 0;
+
+
+
     // Check if this rank is responsible for (part of) the designated inlet surface
     ierr = CanRankServiceInletFace(user, &info, IM_nodes_global, JM_nodes_global, KM_nodes_global, &can_this_rank_service_inlet); CHKERRQ(ierr);
 
     if (!can_this_rank_service_inlet) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "[T=%.4f, Step=%d] Rank %d cannot service inlet face %d. Skipping re-initialization of %d particles.\n", currentTime, step, rank, user->identifiedInletBCFace, nlocal_current);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[T=%.4f, Step=%d] Rank %d cannot service inlet face %s. Skipping re-initialization of %d particles.\n", currentTime, step, rank, BCFaceToString(user->identifiedInletBCFace), nlocal_current);
         PetscFunctionReturn(0);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Rank %d is on inlet face %d. Attempting to re-place %d local particles.\n", currentTime, step, rank, user->identifiedInletBCFace, nlocal_current);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Rank %d is on inlet face %s. Attempting to re-place %d local particles.\n", currentTime, step, rank, BCFaceToString(user->identifiedInletBCFace), nlocal_current);
 
     // Get coordinate array and swarm fields for modification
     ierr = DMGetCoordinatesLocal(user->da, &Coor_local); CHKERRQ(ierr);
@@ -911,13 +920,23 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
         PetscReal xi_metric_logic, eta_metric_logic, zta_metric_logic; // Intra-cell logical coordinates
         Cmpnts    phys_coords; // To store newly calculated physical coordinates
 
+        if(user->simCtx->ParticleInitialization == 0){ 
         // Get random cell on this rank's portion of the inlet and random logical coords within it
         ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
                                                 IM_nodes_global, JM_nodes_global, KM_nodes_global,
                                                 &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k,
                                                 &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
                                                 &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
-        
+        }else if(user->simCtx->ParticleInitialization == 3){
+            PetscBool garbage_flag = PETSC_FALSE;
+            ierr = GetDeterministicFaceGridLocation(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
+                                                IM_cells_global, JM_cells_global, KM_cells_global,
+                                                particleIDs[p],
+                                                &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
+                                                &xi_metric_logic, &eta_metric_logic, &zta_metric_logic,&garbage_flag); CHKERRQ(ierr);
+        }else{
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "ReinitializeParticlesOnInletSurface only supports ParticleInitialization modes 0 and 3.");
+        }
         // Convert these logical coordinates to physical coordinates
         ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
                                        ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
@@ -931,12 +950,12 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
 
         particles_actually_reinitialized_count++;
 
-	cell_ID_field[3*p+0] = -1;
-	cell_ID_field[3*p+1] = -1;
-	cell_ID_field[3*p+2] = -1;
+        cell_ID_field[3*p+0] = -1;
+        cell_ID_field[3*p+1] = -1;
+        cell_ID_field[3*p+2] = -1;
 
         LOG_LOOP_ALLOW(LOCAL, LOG_DEBUG, p, (nlocal_current > 20 ? nlocal_current/10 : 1), // Sampled logging
-            "ReInit - Rank %d: PID %ld (idx %ld) RE-PLACED. CellOriginNode(locDAIdx):(%d,%d,%d). LogicCoords: (%.2e,%.2f,%.2f). PhysCoords: (%.6f,%.6f,%.6f).\n",
+            "Rank %d: PID %ld (idx %ld) RE-PLACED. CellOriginNode(locDAIdx):(%d,%d,%d). LogicCoords: (%.2e,%.2f,%.2f). PhysCoords: (%.6f,%.6f,%.6f).\n",
             rank, particleIDs[p], (long)p, 
             ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
             xi_metric_logic, eta_metric_logic, zta_metric_logic, 

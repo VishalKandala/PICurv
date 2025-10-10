@@ -667,8 +667,9 @@ const char* FieldInitializationToString(PetscInt FieldInitialization)
 const char* ParticleInitializationToString(PetscInt ParticleInitialization)
 {
     switch(ParticleInitialization){
-        case 0: return "Surface";
+        case 0: return "Surface: Random";
         case 1: return "Volume";
+        case 3: return "Surface: At edges";
         default: return "Unknown Particle Initialization";
     }
 }
@@ -1343,15 +1344,15 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
         ierr = MPI_Allreduce(&localMin, &globalMin, 3, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD); CHKERRQ(ierr);
         ierr = MPI_Allreduce(&localMax, &globalMax, 3, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRQ(ierr);
 
-        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local X-Range: [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin.x, localMax.x);
-        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local Y-Range: [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin.y, localMax.y);
-        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local Z-Range: [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin.z, localMax.z);
+        ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local X-Range: [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin.x, localMax.x);
+        ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local Y-Range: [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin.y, localMax.y);
+        ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "  [Rank %d] Local Z-Range: [ %11.4e , %11.4e ]\n", user->simCtx->rank, localMin.z, localMax.z);
         ierr = PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); CHKERRQ(ierr);
 
         if (user->simCtx->rank == 0) {
-            PetscPrintf(PETSC_COMM_SELF, "  Global X-Range:       [ %11.4e , %11.4e ]\n", globalMin.x, globalMax.x);
-            PetscPrintf(PETSC_COMM_SELF, "  Global Y-Range:       [ %11.4e , %11.4e ]\n", globalMin.y, globalMax.y);
-            PetscPrintf(PETSC_COMM_SELF, "  Global Z-Range:       [ %11.4e , %11.4e ]\n", globalMin.z, globalMax.z);
+            PetscPrintf(PETSC_COMM_SELF, "  [Global] X-Range: [ %11.4e , %11.4e ]\n", globalMin.x, globalMax.x);
+            PetscPrintf(PETSC_COMM_SELF, "  [Global] Y-Range: [ %11.4e , %11.4e ]\n", globalMin.y, globalMax.y);
+            PetscPrintf(PETSC_COMM_SELF, "  [Global] Z-Range: [ %11.4e , %11.4e ]\n", globalMin.z, globalMax.z);
         }
 
     } else {

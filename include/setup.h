@@ -214,33 +214,6 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
                                  PetscInt *xm_cell_local);
 
 /**
- * @brief Gets the global cell range for a rank, including boundary cells.
- *
- * This function first calls GetOwnedCellRange to get the conservative range of
- * fully-contained cells. It then extends this range by applying the
- * "Lower-Rank-Owns-Boundary" principle. A rank claims ownership of the
- * boundary cells it shares with neighbors in the positive (+x, +y, +z)
- * directions.
- *
- * This results in a final cell range that is gap-free and suitable for building
- * the definitive particle ownership map.
- *
- * @param[in]  info_nodes       Pointer to the DMDALocalInfo struct.
- * @param[in]  neighbors        Pointer to the RankNeighbors struct containing neighbor info.
- * @param[in]  dim              The dimension (0 for i/x, 1 for j/y, 2 for k/z).
- * @param[out] xs_cell_global_out Pointer to store the final starting cell index.
- * @param[out] xm_cell_local_out  Pointer to store the final number of cells.
- *
- * @return PetscErrorCode 0 on success, or an error code on failure.
- */
-PetscErrorCode GetGhostedCellRange(const DMDALocalInfo *info_nodes,
-                                   const RankNeighbors *neighbors,
-                                   PetscInt dim,
-                                   PetscInt *xs_cell_global_out,
-                                   PetscInt *xm_cell_local_out);
-
-
-/**
  * @brief Computes and stores the Cartesian neighbor ranks for the DMDA decomposition.
  *
  * This function retrieves the neighbor information from the primary DMDA (user->da)
