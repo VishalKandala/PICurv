@@ -1068,6 +1068,7 @@ PetscErrorCode CalculateInletCenter(UserCtx *user)
     Vec            lCoor;
     Cmpnts         ***coor;
 
+
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
@@ -1095,39 +1096,45 @@ PetscErrorCode CalculateInletCenter(UserCtx *user)
         case BC_FACE_NEG_X:
             if (xs == 0) {
                 for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
-                    local_sum[0] += coor[k][j][0].x;
-                    local_sum[1] += coor[k][j][0].y;
-                    local_sum[2] += coor[k][j][0].z;
-                    local_n_points++;
+                    if(j < user->JM && k < user->KM){ // Ensure within physical domain
+                        local_sum[0] += coor[k][j][0].x;
+                        local_sum[1] += coor[k][j][0].y;
+                        local_sum[2] += coor[k][j][0].z;
+                        local_n_points++;
+                    }
                 }
             }
             break;
         case BC_FACE_POS_X:
-            if (xe == mx) {
+            if (xe == mx) { // another check could be if (xe > user->IM - 1)
                 for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
-                    local_sum[0] += coor[k][j][mx-1].x;
-                    local_sum[1] += coor[k][j][mx-1].y;
-                    local_sum[2] += coor[k][j][mx-1].z;
-                    local_n_points++;
+                    if(j < user->JM && k < user->KM){ // Ensure within physical domain
+                        local_sum[0] += coor[k][j][mx-2].x; // mx-1 is the ghost layer 
+                        local_sum[1] += coor[k][j][mx-2].y; // mx-2 = IM - 1.
+                        local_sum[2] += coor[k][j][mx-2].z;
+                        local_n_points++;
+                    }
                 }
             }
             break;
         case BC_FACE_NEG_Y:
             if (ys == 0) {
                 for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) {
-                    local_sum[0] += coor[k][0][i].x;
-                    local_sum[1] += coor[k][0][i].y;
-                    local_sum[2] += coor[k][0][i].z;
-                    local_n_points++;
+                    if(i < user->IM && k < user->KM){ // Ensure within physical domain
+                        local_sum[0] += coor[k][0][i].x;
+                        local_sum[1] += coor[k][0][i].y;
+                        local_sum[2] += coor[k][0][i].z;
+                        local_n_points++;
+                    }
                 }
             }
             break;
         case BC_FACE_POS_Y:
-            if (ye == my) {
+            if (ye == my) { // another check could be if (ye > user->JM - 1)
                 for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) {
-                    local_sum[0] += coor[k][my-1][i].x;
-                    local_sum[1] += coor[k][my-1][i].y;
-                    local_sum[2] += coor[k][my-1][i].z;
+                    local_sum[0] += coor[k][my-2][i].x; // my-1 is the ghost layer
+                    local_sum[1] += coor[k][my-2][i].y; // my-2 = JM - 1.
+                    local_sum[2] += coor[k][my-2][i].z;
                     local_n_points++;
                 }
             }
@@ -1135,20 +1142,24 @@ PetscErrorCode CalculateInletCenter(UserCtx *user)
         case BC_FACE_NEG_Z:
             if (zs == 0) {
                 for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) {
-                    local_sum[0] += coor[0][j][i].x;
-                    local_sum[1] += coor[0][j][i].y;
-                    local_sum[2] += coor[0][j][i].z;
-                    local_n_points++;
+                    if(i < user->IM && j < user->JM){ // Ensure within physical domain
+                        local_sum[0] += coor[0][j][i].x;
+                        local_sum[1] += coor[0][j][i].y;
+                        local_sum[2] += coor[0][j][i].z;
+                        local_n_points++;
+                    }
                 }
             }
             break;
         case BC_FACE_POS_Z:
-            if (ze == mz) {
+            if (ze == mz) { // another check could be if (ze > user->KM - 1)
                 for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) {
-                    local_sum[0] += coor[mz-1][j][i].x;
-                    local_sum[1] += coor[mz-1][j][i].y;
-                    local_sum[2] += coor[mz-1][j][i].z;
-                    local_n_points++;
+                    if(i < user->IM && j < user->JM){ // Ensure within physical domain
+                        local_sum[0] += coor[mz-2][j][i].x; // mz-1 is the ghost layer
+                        local_sum[1] += coor[mz-2][j][i].y; // mz-2 = KM - 1.
+                        local_sum[2] += coor[mz-2][j][i].z;
+                        local_n_points++;
+                    }
                 }
             }
             break;

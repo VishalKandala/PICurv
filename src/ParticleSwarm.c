@@ -323,7 +323,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         if (can_this_rank_service_inlet) {
             LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Will attempt to place particles on inlet face %s.\n", rank, BCFaceToString((BCFace)user->identifiedInletBCFace));
         } else {
-            LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Cannot service inlet face %s. Particles will be at default (0,0,0) and rely on migration.\n", rank, BCFaceToString((BCFace)user->identifiedInletBCFace));
+            LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Cannot service inlet face %s. Particles will be at Inlet Center (%.6f,%.6f,%.6f) and rely on migration.\n", rank, BCFaceToString((BCFace)user->identifiedInletBCFace),user->simCtx->CMx_c,user->simCtx->CMy_c,user->simCtx->CMz_c);
         }
     }
 
@@ -359,6 +359,12 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                                             xi_metric_logic, eta_metric_logic, zta_metric_logic,
                                             &phys_coords); CHKERRQ(ierr);
                 particle_placed_by_this_rank = PETSC_TRUE;
+            }else{
+                // Rank cannot service inlet - place at inlet center to be migrated later
+                phys_coords.x = user->simCtx->CMx_c;
+                phys_coords.y = user->simCtx->CMy_c;
+                phys_coords.z = user->simCtx->CMz_c;
+                particle_placed_by_this_rank = PETSC_FALSE; // Relies on migration
             }
         }else if(simCtx->ParticleInitialization == 3) { // --- 5.a1. Custom Initialization DEBUG (Mode 3) ---
             if(can_this_rank_service_inlet) {
@@ -375,6 +381,12 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                                         xi_metric_logic, eta_metric_logic, zta_metric_logic,
                                         &phys_coords); CHKERRQ(ierr);
                                         
+            }else{
+                // Rank cannot service inlet - place at inlet center to be migrated later
+                phys_coords.x = user->simCtx->CMx_c;
+                phys_coords.y = user->simCtx->CMy_c;
+                phys_coords.z = user->simCtx->CMz_c;
+                particle_placed_by_this_rank = PETSC_FALSE; // Relies on migration
             }
         }else if(simCtx->ParticleInitialization == 1){ // --- 5.b. Volumetric Initialization (simCtx->ParticleInitialization == 1) ---
             PetscBool can_place_volumetrically;

@@ -2255,8 +2255,8 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
     DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
     DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
     DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-/* /\*   DMGlobalToLocalBegin(da, user->Nvert, INSERT_VALUES, user->lNvert); *\/ */
-/* /\*   DMGlobalToLocalEnd(da, user->Nvert, INSERT_VALUES, user->lNvert); *\/ */
+    /* /\*   DMGlobalToLocalBegin(da, user->Nvert, INSERT_VALUES, user->lNvert); *\/ */
+    /* /\*   DMGlobalToLocalEnd(da, user->Nvert, INSERT_VALUES, user->lNvert); *\/ */
   //Mohsen Dec 2015
     DMDAVecGetArray(da, user->lP, &lp);
     DMDAVecGetArray(da, user->lNvert, &lnvert);
@@ -2364,14 +2364,14 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
     DMDAVecRestoreArray(da, user->P, &p);
     DMDAVecRestoreArray(da, user->Nvert, &nvert);
 
-/*  /\*  DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); *\/ */
-/* /\*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); *\/ */
+  /*  /\*  DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); *\/ */
+  /* /\*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); *\/ */
 
-/* /\*   DMLocalToGlobalBegin(da, user->lP, INSERT_VALUES, user->P); *\/ */
-/* /\*   DMLocalToGlobalEnd(da, user->lP, INSERT_VALUES, user->P); *\/ */
+  /* /\*   DMLocalToGlobalBegin(da, user->lP, INSERT_VALUES, user->P); *\/ */
+  /* /\*   DMLocalToGlobalEnd(da, user->lP, INSERT_VALUES, user->P); *\/ */
 
-/* /\*   DMLocalToGlobalBegin(da, user->lNvert, INSERT_VALUES, user->Nvert); *\/ */
-/* /\*   DMLocalToGlobalEnd(da, user->lNvert, INSERT_VALUES, user->Nvert); *\/ */
+  /* /\*   DMLocalToGlobalBegin(da, user->lNvert, INSERT_VALUES, user->Nvert); *\/ */
+  /* /\*   DMLocalToGlobalEnd(da, user->lNvert, INSERT_VALUES, user->Nvert); *\/ */
 
     DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
     DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
@@ -2381,7 +2381,7 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
     
     DMGlobalToLocalBegin(da, user->Nvert, INSERT_VALUES, user->lNvert);
     DMGlobalToLocalEnd(da, user->Nvert, INSERT_VALUES, user->lNvert);
-  }
+}
  // 0 velocity on the corner point
 
   DMDAVecGetArray(fda, user->Ucat, &ucat);

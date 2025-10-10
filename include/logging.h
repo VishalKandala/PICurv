@@ -752,4 +752,26 @@ void _ProfilingEnd(const char *func_name);
  */
 PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName);
 
+/**
+ * @brief Logs the anatomy of the ucat field at key boundary locations.
+ *
+ * This function inspects the `ucat` vector field, which is a 3-component
+ * vector defined on a DMDA with ghost nodes. It prints out the values of
+ * `ucat` at critical boundary locations to help diagnose issues with
+ * boundary conditions and ghost node handling.
+ *
+ * The function focuses on the -Xi and +Xi boundaries, printing both the
+ * ghost node values and the first/last physical node values. It also prints
+ * the corner node at (0,0,0) for additional verification.
+ *
+ * The output is synchronized across MPI ranks to ensure readability.
+ *
+ * @param user       A pointer to the UserCtx structure containing the DMDA,
+ *                   ucat vector, and MPI rank information.
+ * @param stage_name A string identifier for the current stage of the simulation,
+ *                   used to label the log output.
+ * @return           PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode LOG_UCAT_ANATOMY(UserCtx *user, const char *stage_name);
+
 #endif // LOGGING_H

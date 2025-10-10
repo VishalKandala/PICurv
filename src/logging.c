@@ -1367,3 +1367,87 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
 
     PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "LOG_UCAT_ANATOMY"
+/**
+ * @brief Logs the anatomy of the ucat field at key boundary locations.
+ *
+ * This function inspects the `ucat` vector field, which is a 3-component
+ * vector defined on a DMDA with ghost nodes. It prints out the values of
+ * `ucat` at critical boundary locations to help diagnose issues with
+ * boundary conditions and ghost node handling.
+ *
+ * The function focuses on the -Xi and +Xi boundaries, printing both the
+ * ghost node values and the first/last physical node values. It also prints
+ * the corner node at (0,0,0) for additional verification.
+ *
+ * The output is synchronized across MPI ranks to ensure readability.
+ *
+ * @param user       A pointer to the UserCtx structure containing the DMDA,
+ *                   ucat vector, and MPI rank information.
+ * @param stage_name A string identifier for the current stage of the simulation,
+ *                   used to label the log output.
+ * @return           PetscErrorCode Returns 0 on success, non-zero on failure.
+ */
+PetscErrorCode LOG_UCAT_ANATOMY(UserCtx *user, const char *stage_name)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info;
+    Cmpnts       ***lucat_arr;
+    PetscMPIInt    rank;
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    // Get local info to know what this rank owns
+    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    
+    // Get the local, ghosted array for reading
+    ierr = DMDAVecGetArrayRead(user->fda, user->lUcat, &lucat_arr); CHKERRQ(ierr);
+
+    // Synchronize so the output is ordered
+    ierr = PetscBarrier(NULL);
+
+    PetscPrintf(PETSC_COMM_WORLD,"--- ucat Anatomy Log at Stage: [%s] ---\n", stage_name);
+
+    // Only print from ranks on the boundaries to avoid clutter
+    // We will check a slice at the center of the J and K domains
+    PetscInt j_mid = info.my / 2;
+    PetscInt k_mid = info.mz / 2;
+
+    // --- Check the -Xi boundary (i=0) ---
+    if (info.xs == 0) {
+        if (j_mid >= info.ys && j_mid < info.ys + info.ym &&
+            k_mid >= info.zs && k_mid < info.zs + info.zm)
+        {
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD,"Rank %d [-Xi face]: ucat[%d][%d][0] (Ghost) = (% .3e, % .3e, % .3e)\n", rank, k_mid, j_mid, lucat_arr[k_mid][j_mid][0].x, lucat_arr[k_mid][j_mid][0].y, lucat_arr[k_mid][j_mid][0].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [-Xi face]: ucat[%d][%d][1] (First Physical) = (% .3e, % .3e, % .3e)\n", rank, k_mid, j_mid, lucat_arr[k_mid][j_mid][1].x, lucat_arr[k_mid][j_mid][1].y, lucat_arr[k_mid][j_mid][1].z);
+        }
+    }
+
+    // --- Check the +Xi boundary (i=IM-1 and i=IM) ---
+    if (info.xs + info.xm == info.mx) {
+        if (j_mid >= info.ys && j_mid < info.ys + info.ym &&
+            k_mid >= info.zs && k_mid < info.zs + info.zm)
+        {
+            PetscInt IM = info.mx - 1;
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD,"Rank %d [+Xi face]: ucat[%d][%d][%d] (Last Physical) = (% .3e, % .3e, % .3e)\n", rank, k_mid, j_mid, IM-1, lucat_arr[k_mid][j_mid][IM-1].x, lucat_arr[k_mid][j_mid][IM-1].y, lucat_arr[k_mid][j_mid][IM-1].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD,"Rank %d [+Xi face]: ucat[%d][%d][%d] (Ghost) = (% .3e, % .3e, % .3e)\n", rank, k_mid, j_mid, IM,   lucat_arr[k_mid][j_mid][IM].x,   lucat_arr[k_mid][j_mid][IM].y,   lucat_arr[k_mid][j_mid][IM].z);
+        }
+    }
+    // 
+    // --- Check the corner at (0,0,0) ---
+    if (info.xs == 0 && info.ys == 0 && info.zs == 0) {
+        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [Corner 0,0,0]: ucat[0][0][0] = (% .3e, % .3e, % .3e)\n", rank, lucat_arr[0][0][0].x, lucat_arr[0][0][0].y, lucat_arr[0][0][0].z);
+        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [Corner 0,0,0]: ucat[0][0][1] = (% .3e, % .3e, % .3e)\n", rank, lucat_arr[0][0][1].x, lucat_arr[0][0][1].y, lucat_arr[0][0][1].z);
+        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [Corner 0,0,0]: ucat[0][1][0] = (% .3e, % .3e, % .3e)\n", rank, lucat_arr[0][1][0].x, lucat_arr[0][1][0].y, lucat_arr[0][1][0].z);
+        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [Corner 0,0,0]: ucat[1][0][0] = (% .3e, % .3e, % .3e)\n", rank, lucat_arr[1][0][0].x, lucat_arr[1][0][0].y, lucat_arr[1][0][0].z);
+    }
+    ierr = PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); CHKERRQ(ierr);
+
+
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcat, &lucat_arr); CHKERRQ(ierr);
+    ierr = PetscBarrier(NULL);
+    PetscFunctionReturn(0);
+}

@@ -895,19 +895,39 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     // Check if this rank is responsible for (part of) the designated inlet surface
     ierr = CanRankServiceInletFace(user, &info, IM_nodes_global, JM_nodes_global, KM_nodes_global, &can_this_rank_service_inlet); CHKERRQ(ierr);
 
-    if (!can_this_rank_service_inlet) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "[T=%.4f, Step=%d] Rank %d cannot service inlet face %s. Skipping re-initialization of %d particles.\n", currentTime, step, rank, BCFaceToString(user->identifiedInletBCFace), nlocal_current);
-        PetscFunctionReturn(0);
-    }
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Rank %d is on inlet face %s. Attempting to re-place %d local particles.\n", currentTime, step, rank, BCFaceToString(user->identifiedInletBCFace), nlocal_current);
-
     // Get coordinate array and swarm fields for modification
     ierr = DMGetCoordinatesLocal(user->da, &Coor_local); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr); // For logging
     ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
+
+    if (!can_this_rank_service_inlet) {
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[T=%.4f, Step=%d] Rank %d cannot service inlet face %s. Skipping re-initialization of %d particles.\n", currentTime, step, rank, BCFaceToString(user->identifiedInletBCFace), nlocal_current);
+        
+        //  FALLBACK ACTION: Reset position fields to Inlet center for migration and cell ID to -1 for safety.
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[T=%.4f, Step=%d] Rank %d is resetting %d local particles to inlet center (%.6f, %.6f, %.6f) for migration.\n", currentTime, step, rank, nlocal_current, user->simCtx->CMx_c, user->simCtx->CMy_c, user->simCtx->CMz_c);
+
+        for(PetscInt p = 0; p < nlocal_current; p++){
+            positions_field[3*p+0] = user->simCtx->CMx_c;
+            positions_field[3*p+1] = user->simCtx->CMy_c;
+            positions_field[3*p+2] = user->simCtx->CMz_c;
+
+            cell_ID_field[3*p+0] = -1;
+            cell_ID_field[3*p+1] = -1;
+            cell_ID_field[3*p+2] = -1;
+        }
+        
+        // Cleanup: restore swarm fields/coordinate array
+        ierr = DMDAVecRestoreArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr); // For logging
+        ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Rank %d is on inlet face %s. Attempting to re-place %d local particles.\n", currentTime, step, rank, BCFaceToString(user->identifiedInletBCFace), nlocal_current);
 
     // Initialize fresh RNGs for this re-placement to ensure good distribution
     ierr = InitializeLogicalSpaceRNGs(&rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k); CHKERRQ(ierr);
