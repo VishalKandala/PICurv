@@ -1221,24 +1221,29 @@ void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, Pe
     fflush(stdout);
 }
 
-
 #undef __FUNCT__
-#define __FUNCT__ "LogFieldMinMax"
+#define __FUNCT__ "LOG_FIELD_MIN_MAX"
 /**
- * @brief Computes and logs the local and global min/max values of a 3-component vector field.
+ * @brief Computes and logs the local and global min/max values of a specified field,
+ *        respecting the solver's data layout architecture.
  *
- * This utility function inspects a PETSc Vec associated with a DMDA and calculates the
- * minimum and maximum values for each of its three components (e.g., x, y, z) both for the
- * local data on the current MPI rank and for the entire global domain.
+ * This utility function inspects a PETSc Vec and calculates the minimum and maximum
+ * values for its components, both locally and globally.
  *
- * It uses the same "smart" logic as the flow solver, ignoring the padding nodes at the
- * IM, JM, and KM boundaries of the grid. The results are printed to the standard output
- * in a formatted, easy-to-read table.
+ * It is "architecture-aware" and adjusts its iteration range to only include
+ * physically meaningful data points:
  *
- * @param[in] user      Pointer to the user-defined context. Used for grid information (IM, JM, KM)
- *                      and MPI rank.
- * @param[in] fieldName A string descriptor for the field being analyzed (e.g., "Velocity",
- *                      "Coordinates"). This is used for clear log output.
+ * - **Cell-Centered Fields ("Ucat", "P"):** It uses the "Shifted Index Architecture,"
+ *   iterating from index 1 to N-1 to exclude the ghost/tool values at indices 0 and N.
+ * - **Node-Centered Fields ("Coordinates"):** It iterates from index 0 to N-1, covering all
+ *   physical nodes.
+ * - **Face-Centered Fields ("Ucont"):** It iterates from index 0 to N-1, covering all
+ *   physical faces.
+ *
+ * The results are printed to the standard output in a formatted, easy-to-read table.
+ *
+ * @param[in] user      Pointer to the user-defined context.
+ * @param[in] fieldName A string descriptor for the field being analyzed.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
@@ -1246,64 +1251,77 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
 {
     PetscErrorCode ierr;
     PetscInt       i, j, k;
-    PetscInt       xs, ys, zs, xe, ye, ze;
-    Cmpnts         ***fieldArray;
-    Cmpnts         localMin, localMax;
-    Cmpnts         globalMin, globalMax;
+    DMDALocalInfo  info;
+    
     Vec            fieldVec = NULL;
     DM             dm = NULL;
     PetscInt       dof;
+    char           data_layout[20];
 
     PetscFunctionBeginUser;
-    if(strcmp(fieldName,"Coordinates")==0){
-        ierr = DMGetCoordinatesLocal(user->da,&fieldVec);
-        dm       = user->fda;
-        dof      = 3;
-    }else if(strcmp(fieldName,"Ucat")==0){
-        fieldVec = user->Ucat;
-        dm       = user->fda;
-        dof      = 3;
-    }else if(strcmp(fieldName,"P")==0){
-        fieldVec = user->P;
-        dm       = user->da;
-        dof      = 1;
-    }else if(strcmp(fieldName,"Psi")==0){
-        fieldVec = user->Psi;
-        dm       = user->da;
-        dof      = 1;
-    }else{
-        SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_UNKNOWN_TYPE, "Field %s not recognized.",fieldName);
+
+    // --- 1. Map string name to PETSc objects and determine data layout ---
+    if (strcasecmp(fieldName, "Ucat") == 0) {
+        fieldVec = user->Ucat; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(fieldName, "P") == 0) {
+        fieldVec = user->P; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(fieldName, "Ucont") == 0) {
+        fieldVec = user->lUcont; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
+    } else if (strcasecmp(fieldName, "Coordinates") == 0) {
+        ierr = DMGetCoordinates(user->da, &fieldVec); CHKERRQ(ierr);
+        dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
+    } else if (strcasecmp(fieldName,"Psi") == 0) {
+        fieldVec = user->Psi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered"); // Assuming Psi is cell-centered
+    } else {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Field %s not recognized.", fieldName);
     }
-    
-    if(!fieldVec){
-         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Vector for field '%s' is NULL.", fieldName);
+
+    if (!fieldVec) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Vector for field '%s' is NULL.", fieldName);
     }
     if (!dm) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "DM for field '%s' is NULL.", fieldName);
     }
-    ierr = DMDAGetCorners(dm, &xs, &ys, &zs, &xe, &ye, &ze); CHKERRQ(ierr);
-    xe += xs; ye += ys; ze += zs; // DMDAGetCorners gives sizes, convert to end indices
 
-    // --- 2. Barrier for clean, grouped output ---
-    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
-    if (user->simCtx->rank == 0) {
-        PetscPrintf(PETSC_COMM_SELF, "--- Field Ranges: [%s] ---\n", fieldName);
+    ierr = DMDAGetLocalInfo(dm, &info); CHKERRQ(ierr);
+
+    // --- 2. Define Architecture-Aware Loop Bounds ---
+    PetscInt i_start, i_end, j_start, j_end, k_start, k_end;
+
+    if (strcmp(data_layout, "Cell-Centered") == 0) {
+        // For cell-centered data, the physical values are stored from index 1 to N-1.
+        // We find the intersection of the rank's owned range [xs, xe) with the
+        // physical data range [1, IM-1).
+        i_start = PetscMax(info.xs, 1);          i_end = PetscMin(info.xs + info.xm, user->IM);
+        j_start = PetscMax(info.ys, 1);          j_end = PetscMin(info.ys + info.ym, user->JM);
+        k_start = PetscMax(info.zs, 1);          k_end = PetscMin(info.zs + info.zm, user->KM);
+    } else { // For Node- or Face-Centered data
+        // The physical values are stored from index 0 to N-1.
+        // We find the intersection of the rank's owned range [xs, xe) with the
+        // physical data range [0, IM-1].
+        i_start = PetscMax(info.xs, 0);          i_end = PetscMin(info.xs + info.xm, user->IM);
+        j_start = PetscMax(info.ys, 0);          j_end = PetscMin(info.ys + info.ym, user->JM);
+        k_start = PetscMax(info.zs, 0);          k_end = PetscMin(info.zs + info.zm, user->KM);
     }
 
-    // --- 3. Branch on DoF and perform SMART calculation ---
+    // --- 3. Barrier for clean, grouped output ---
+    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
+    if (user->simCtx->rank == 0) {
+        PetscPrintf(PETSC_COMM_SELF, "\n--- Field Ranges: [%s] (Layout: %s) ---\n", fieldName, data_layout);
+    }
+
+    // --- 4. Branch on DoF and perform calculation with correct bounds ---
     if (dof == 1) {
         PetscReal    localMin = PETSC_MAX_REAL, localMax = PETSC_MIN_REAL;
         PetscReal    globalMin, globalMax;
-        PetscScalar  ***array;
+        const PetscScalar  ***array;
 
         ierr = DMDAVecGetArrayRead(dm, fieldVec, &array); CHKERRQ(ierr);
-        for (k = zs; k < ze; k++) {
-            for (j = ys; j < ye; j++) {
-                for (i = xs; i < xe; i++) {
-                    if (i < user->IM && j < user->JM && k < user->KM) {
-                        localMin = PetscMin(localMin, array[k][j][i]);
-                        localMax = PetscMax(localMax, array[k][j][i]);
-                    }
+        for (k = k_start; k < k_end; k++) {
+            for (j = j_start; j < j_end; j++) {
+                for (i = i_start; i < i_end; i++) {
+                    localMin = PetscMin(localMin, array[k][j][i]);
+                    localMax = PetscMax(localMax, array[k][j][i]);
                 }
             }
         }
@@ -1322,20 +1340,18 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
         Cmpnts localMin = {PETSC_MAX_REAL, PETSC_MAX_REAL, PETSC_MAX_REAL};
         Cmpnts localMax = {PETSC_MIN_REAL, PETSC_MIN_REAL, PETSC_MIN_REAL};
         Cmpnts globalMin, globalMax;
-        Cmpnts ***array;
+        const Cmpnts ***array;
 
         ierr = DMDAVecGetArrayRead(dm, fieldVec, &array); CHKERRQ(ierr);
-        for (k = zs; k < ze; k++) {
-            for (j = ys; j < ye; j++) {
-                for (i = xs; i < xe; i++) {
-                    if (i < user->IM && j < user->JM && k < user->KM) {
-                        localMin.x = PetscMin(localMin.x, array[k][j][i].x);
-                        localMin.y = PetscMin(localMin.y, array[k][j][i].y);
-                        localMin.z = PetscMin(localMin.z, array[k][j][i].z);
-                        localMax.x = PetscMax(localMax.x, array[k][j][i].x);
-                        localMax.y = PetscMax(localMax.y, array[k][j][i].y);
-                        localMax.z = PetscMax(localMax.z, array[k][j][i].z);
-                    }
+        for (k = k_start; k < k_end; k++) {
+            for (j = j_start; j < j_end; j++) {
+                for (i = i_start; i < i_end; i++) {
+                    localMin.x = PetscMin(localMin.x, array[k][j][i].x);
+                    localMin.y = PetscMin(localMin.y, array[k][j][i].y);
+                    localMin.z = PetscMin(localMin.z, array[k][j][i].z);
+                    localMax.x = PetscMax(localMax.x, array[k][j][i].x);
+                    localMax.y = PetscMax(localMax.y, array[k][j][i].y);
+                    localMax.z = PetscMax(localMax.z, array[k][j][i].z);
                 }
             }
         }
@@ -1358,8 +1374,8 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
     } else {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "LogFieldStatistics only supports fields with 1 or 3 components, but field '%s' has %D.", fieldName, dof);
     }
-    
-    // --- 4. Final barrier for clean output ordering ---
+
+    // --- 5. Final barrier for clean output ordering ---
     ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
     if (user->simCtx->rank == 0) {
         PetscPrintf(PETSC_COMM_SELF, "--------------------------------------------\n\n");
@@ -1369,85 +1385,231 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "LOG_UCAT_ANATOMY"
+#define __FUNCT__ "LOG_FIELD_ANATOMY"
 /**
- * @brief Logs the anatomy of the ucat field at key boundary locations.
+ * @brief Logs the anatomy of a specified field at key boundary locations,
+ *        respecting the solver's specific grid and variable architecture.
  *
- * This function inspects the `ucat` vector field, which is a 3-component
- * vector defined on a DMDA with ghost nodes. It prints out the values of
- * `ucat` at critical boundary locations to help diagnose issues with
- * boundary conditions and ghost node handling.
+ * This intelligent diagnostic function inspects a PETSc Vec and prints its values
+ * at critical boundary locations (-Xi/+Xi, -Eta/+Eta, -Zeta/+Zeta). It is "architecture-aware":
  *
- * The function focuses on the -Xi and +Xi boundaries, printing both the
- * ghost node values and the first/last physical node values. It also prints
- * the corner node at (0,0,0) for additional verification.
+ * - **Cell-Centered Fields ("Ucat", "P"):** It correctly applies the "Shifted Index Architecture,"
+ *   where the value for geometric `Cell i` is stored at array index `i+1`. It labels
+ *   the output to clearly distinguish between true physical values and ghost values.
+ * - **Face-Centered Fields ("Ucont"):** It uses a direct index mapping, where the value for
+ *   the face at `Node i` is stored at index `i`.
+ * - **Node-Centered Fields ("Coordinates"):** It uses a direct index mapping, where the value for
+ *   `Node i` is stored at index `i`.
  *
- * The output is synchronized across MPI ranks to ensure readability.
+ * The output is synchronized across MPI ranks to ensure readability and focuses on a
+ * slice through the center of the domain to be concise.
  *
- * @param user       A pointer to the UserCtx structure containing the DMDA,
- *                   ucat vector, and MPI rank information.
- * @param stage_name A string identifier for the current stage of the simulation,
- *                   used to label the log output.
+ * @param user       A pointer to the UserCtx structure containing the DMs and Vecs.
+ * @param field_name A string identifier for the field to log (e.g., "Ucat", "P", "Ucont", "Coordinates").
+ * @param stage_name A string identifier for the current simulation stage (e.g., "After Advection").
  * @return           PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode LOG_UCAT_ANATOMY(UserCtx *user, const char *stage_name)
+PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const char *stage_name)
 {
     PetscErrorCode ierr;
     DMDALocalInfo  info;
-    Cmpnts       ***lucat_arr;
     PetscMPIInt    rank;
+
+    Vec            vec_local = NULL;
+    DM             dm = NULL;
+    PetscInt       dof = 0;
+    char           data_layout[20]; // To store "Cell-Centered", "Face-Centered", etc.
 
     PetscFunctionBeginUser;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
-    // Get local info to know what this rank owns
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    // --- 1. Map string name to PETSc objects and determine data layout ---
+    if (strcasecmp(field_name, "Ucat") == 0) {
+        vec_local = user->lUcat; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(field_name, "P") == 0) {
+        vec_local = user->lP; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(field_name, "Psi") == 0) {
+        vec_local = user->lPsi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(field_name, "Ucont") == 0) {
+        vec_local = user->lUcont; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
+    } else if (strcasecmp(field_name, "Coordinates") == 0) {
+        ierr = DMGetCoordinatesLocal(user->da, &vec_local); CHKERRQ(ierr);
+        dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
+    } else {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Unknown field name for LOG_FIELD_ANATOMY: %s", field_name);
+    }
     
-    // Get the local, ghosted array for reading
-    ierr = DMDAVecGetArrayRead(user->fda, user->lUcat, &lucat_arr); CHKERRQ(ierr);
+    // --- 2. Get Grid Info and Array Pointers ---
+    ierr = DMDAGetLocalInfo(dm, &info); CHKERRQ(ierr);
 
-    // Synchronize so the output is ordered
+    // Synchronize for clean output
     ierr = PetscBarrier(NULL);
+    PetscPrintf(PETSC_COMM_WORLD, "\n--- Field Anatomy Log: [%s] | Stage: [%s] | Layout: [%s] ---\n", field_name, stage_name, data_layout);
 
-    PetscPrintf(PETSC_COMM_WORLD,"--- ucat Anatomy Log at Stage: [%s] ---\n", stage_name);
+    // We will check a slice at the center of the other two dimensions
+    PetscInt im_phys = user->IM, jm_phys = user->JM, km_phys = user->KM; // Number of physical nodes
+    PetscInt i_mid = im_phys / 2;
+    PetscInt j_mid = jm_phys / 2;
+    PetscInt k_mid = km_phys / 2;
 
-    // Only print from ranks on the boundaries to avoid clutter
-    // We will check a slice at the center of the J and K domains
-    PetscInt j_mid = info.my / 2;
-    PetscInt k_mid = info.mz / 2;
+    // --- 3. Print Boundary Information based on Data Layout ---
 
-    // --- Check the -Xi boundary (i=0) ---
-    if (info.xs == 0) {
-        if (j_mid >= info.ys && j_mid < info.ys + info.ym &&
-            k_mid >= info.zs && k_mid < info.zs + info.zm)
-        {
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD,"Rank %d [-Xi face]: ucat[%d][%d][0] (Ghost) = (% .3e, % .3e, % .3e)\n", rank, k_mid, j_mid, lucat_arr[k_mid][j_mid][0].x, lucat_arr[k_mid][j_mid][0].y, lucat_arr[k_mid][j_mid][0].z);
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [-Xi face]: ucat[%d][%d][1] (First Physical) = (% .3e, % .3e, % .3e)\n", rank, k_mid, j_mid, lucat_arr[k_mid][j_mid][1].x, lucat_arr[k_mid][j_mid][1].y, lucat_arr[k_mid][j_mid][1].z);
+    // ======================================================================
+    // === CASE 1: Cell-Centered Fields (Ucat, P) - USES SHIFTED INDEX    ===
+    // ======================================================================
+    if (strcmp(data_layout, "Cell-Centered") == 0) {
+        const void *l_arr; // Use void pointer for generic array access
+        ierr = DMDAVecGetArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
+
+        // --- I-Direction Boundaries ---
+        if (info.xs == 0) { // Rank on -Xi boundary
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Ghost for Cell 0)      = ", rank, 0);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[k_mid][j_mid][0]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[k_mid][j_mid][0].x, ((const Cmpnts***)l_arr)[k_mid][j_mid][0].y, ((const Cmpnts***)l_arr)[k_mid][j_mid][0].z);
+
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Value for Cell 0)      = ", rank, 1);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[k_mid][j_mid][1]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[k_mid][j_mid][1].x, ((const Cmpnts***)l_arr)[k_mid][j_mid][1].y, ((const Cmpnts***)l_arr)[k_mid][j_mid][1].z);
         }
-    }
+        if (info.xs + info.xm == info.mx) { // Rank on +Xi boundary
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Value for Cell %d) = ", rank, im_phys - 1, im_phys - 2);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[k_mid][j_mid][im_phys - 1]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys - 1].x, ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys - 1].y, ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys - 1].z);
 
-    // --- Check the +Xi boundary (i=IM-1 and i=IM) ---
-    if (info.xs + info.xm == info.mx) {
-        if (j_mid >= info.ys && j_mid < info.ys + info.ym &&
-            k_mid >= info.zs && k_mid < info.zs + info.zm)
-        {
-            PetscInt IM = info.mx - 1;
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD,"Rank %d [+Xi face]: ucat[%d][%d][%d] (Last Physical) = (% .3e, % .3e, % .3e)\n", rank, k_mid, j_mid, IM-1, lucat_arr[k_mid][j_mid][IM-1].x, lucat_arr[k_mid][j_mid][IM-1].y, lucat_arr[k_mid][j_mid][IM-1].z);
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD,"Rank %d [+Xi face]: ucat[%d][%d][%d] (Ghost) = (% .3e, % .3e, % .3e)\n", rank, k_mid, j_mid, IM,   lucat_arr[k_mid][j_mid][IM].x,   lucat_arr[k_mid][j_mid][IM].y,   lucat_arr[k_mid][j_mid][IM].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Ghost for Cell %d) = ", rank, im_phys, im_phys - 2);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[k_mid][j_mid][im_phys]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys].x, ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys].y, ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys].z);
         }
+
+        // --- J-Direction Boundaries ---
+        if (info.ys == 0) { // Rank on -Eta boundary
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (Ghost for Cell 0)      = ", rank, 0);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[k_mid][0][i_mid]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[k_mid][0][i_mid].x, ((const Cmpnts***)l_arr)[k_mid][0][i_mid].y, ((const Cmpnts***)l_arr)[k_mid][0][i_mid].z);
+            
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (Value for Cell 0)      = ", rank, 1);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[k_mid][1][i_mid]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[k_mid][1][i_mid].x, ((const Cmpnts***)l_arr)[k_mid][1][i_mid].y, ((const Cmpnts***)l_arr)[k_mid][1][i_mid].z);
+        }
+
+        if (info.ys + info.ym == info.my) { // Rank on +Eta boundary
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (Value for Cell %d) = ", rank, jm_phys - 1, jm_phys - 2);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[k_mid][jm_phys - 1][i_mid]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[k_mid][jm_phys - 1][i_mid].x, ((const Cmpnts***)l_arr)[k_mid][jm_phys - 1][i_mid].y, ((const Cmpnts***)l_arr)[k_mid][jm_phys - 1][i_mid].z);
+
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (Ghost for Cell %d) = ", rank, jm_phys, jm_phys - 2);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[k_mid][jm_phys][i_mid]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[k_mid][jm_phys][i_mid].x, ((const Cmpnts***)l_arr)[k_mid][jm_phys][i_mid].y, ((const Cmpnts***)l_arr)[k_mid][jm_phys][i_mid].z);
+        }
+
+        // --- K-Direction Boundaries ---
+        if (info.zs == 0) { // Rank on -Zeta boundary
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Ghost for Cell 0)      = ", rank, 0);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[0][j_mid][i_mid]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[0][j_mid][i_mid].x, ((const Cmpnts***)l_arr)[0][j_mid][i_mid].y, ((const Cmpnts***)l_arr)[0][j_mid][i_mid].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Value for Cell 0)      = ", rank, 1);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[1][j_mid][i_mid]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[1][j_mid][i_mid].x, ((const Cmpnts***)l_arr)[1][j_mid][i_mid].y, ((const Cmpnts***)l_arr)[1][j_mid][i_mid].z);
+        }
+        if (info.zs + info.zm == info.mz) { // Rank on +Zeta boundary
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Value for Cell %d) = ", rank, km_phys - 1, km_phys - 2);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[km_phys - 1][j_mid][i_mid]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[km_phys - 1][j_mid][i_mid].x, ((const Cmpnts***)l_arr)[km_phys - 1][j_mid][i_mid].y, ((const Cmpnts***)l_arr)[km_phys - 1][j_mid][i_mid].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Ghost for Cell %d) = ", rank, km_phys, km_phys - 2);
+            if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e)\n", ((const PetscReal***)l_arr)[km_phys][j_mid][i_mid]);
+            else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.3e, %.3e, %.3e)\n", ((const Cmpnts***)l_arr)[km_phys][j_mid][i_mid].x, ((const Cmpnts***)l_arr)[km_phys][j_mid][i_mid].y, ((const Cmpnts***)l_arr)[km_phys][j_mid][i_mid].z);
+        }
+
+        ierr = DMDAVecRestoreArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
     }
-    // 
-    // --- Check the corner at (0,0,0) ---
-    if (info.xs == 0 && info.ys == 0 && info.zs == 0) {
-        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [Corner 0,0,0]: ucat[0][0][0] = (% .3e, % .3e, % .3e)\n", rank, lucat_arr[0][0][0].x, lucat_arr[0][0][0].y, lucat_arr[0][0][0].z);
-        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [Corner 0,0,0]: ucat[0][0][1] = (% .3e, % .3e, % .3e)\n", rank, lucat_arr[0][0][1].x, lucat_arr[0][0][1].y, lucat_arr[0][0][1].z);
-        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [Corner 0,0,0]: ucat[0][1][0] = (% .3e, % .3e, % .3e)\n", rank, lucat_arr[0][1][0].x, lucat_arr[0][1][0].y, lucat_arr[0][1][0].z);
-        PetscSynchronizedPrintf(PETSC_COMM_WORLD, "Rank %d [Corner 0,0,0]: ucat[1][0][0] = (% .3e, % .3e, % .3e)\n", rank, lucat_arr[1][0][0].x, lucat_arr[1][0][0].y, lucat_arr[1][0][0].z);
+    // ======================================================================
+    // === CASE 2: Face-Centered & Node-Centered Fields - USES DIRECT INDEX      ===
+    // ======================================================================
+    else if (strcmp(data_layout, "Face-Centered") == 0 || strcmp(data_layout, "Node-Centered") == 0) {
+        const Cmpnts ***l_arr; // Both Ucont and Coordinates are Cmpnts
+        ierr = DMDAVecGetArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
+        
+        // --- I-Direction Boundaries ---
+        if (info.xs == 0) { // Rank on -Xi boundary
+            if(strcmp(data_layout, "Face-Centered")==0){
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (First Physical Face)     = (%.3e)\n", rank, 0,
+                                    l_arr[k_mid][j_mid][0].x);
+            }else if(strcmp(data_layout, "Node-Centered")==0){// Node-Centered
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (First Physical Face/Node) = (%.3e, %.3e, %.3e)\n", rank, 0,
+                                    l_arr[k_mid][j_mid][0].x, l_arr[k_mid][j_mid][0].y, l_arr[k_mid][j_mid][0].z);
+            }    
+        }
+        if (info.xs + info.xm == info.mx) { // Rank on +Xi boundary
+            if(strcmp(data_layout, "Face-Centered")==0){
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Last Physical Face)      = (%.3e)\n", rank, im_phys - 1,
+                                    l_arr[k_mid][j_mid][im_phys - 1].x);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Unused/Ghost Location)    = (%.3e)\n", rank, im_phys,
+                                    l_arr[k_mid][j_mid][im_phys].x);
+            }else if(strcmp(data_layout, "Node-Centered")==0){// Node-Centered
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Last Physical Face/Node)  = (%.3e, %.3e, %.3e)\n", rank, im_phys - 1,
+                                    l_arr[k_mid][j_mid][im_phys - 1].x, l_arr[k_mid][j_mid][im_phys - 1].y, l_arr[k_mid][j_mid][im_phys - 1].z);
+            // Also show the value at the unused memory location for verification
+             PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Unused/Ghost Location)    = (%.3e, %.3e, %.3e)\n", rank, im_phys,
+                                    l_arr[k_mid][j_mid][im_phys].x, l_arr[k_mid][j_mid][im_phys].y, l_arr[k_mid][j_mid][im_phys].z);
+             }
+        }                 
+        
+        // --- J-Direction
+
+        if (info.ys == 0) { // Rank on -Eta boundary
+            if(strcmp(data_layout, "Face-Centered")==0){
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (First Physical Face)     = (%.3e)\n", rank, 0,
+                                    l_arr[k_mid][0][i_mid].y);
+            }else if(strcmp(data_layout, "Node-Centered")==0){// Node-Centered
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (First Physical Face/Node) = (%.3e, %.3e, %.3e)\n", rank, 0,
+                                    l_arr[k_mid][0][i_mid].x, l_arr[k_mid][0][i_mid].y, l_arr[k_mid][0][i_mid].z);
+            }    
+        }
+        if (info.ys + info.ym == info.my) { // Rank on +Eta boundary
+            if(strcmp(data_layout, "Face-Centered")==0){
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (Last Physical Face)      = (%.3e)\n", rank, jm_phys - 1,
+                                    l_arr[k_mid][jm_phys - 1][i_mid].y);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (Unused/Ghost Location)    = (%.3e)\n", rank, jm_phys,
+                                    l_arr[k_mid][jm_phys][i_mid].y);
+            }else if(strcmp(data_layout, "Node-Centered")==0){// Node-Centered
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (Last Physical Face/Node)  = (%.3e, %.3e, %.3e)\n", rank, jm_phys - 1,
+                                    l_arr[k_mid][jm_phys - 1][i_mid].x, l_arr[k_mid][jm_phys - 1][i_mid].y, l_arr[k_mid][jm_phys - 1][i_mid].z);
+            // Also show the value at the unused memory location for verification
+             PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Idx %2d (Unused/Ghost Location)    = (%.3e, %.3e, %.3e)\n", rank, jm_phys,
+                                    l_arr[k_mid][jm_phys][i_mid].x, l_arr[k_mid][jm_phys][i_mid].y, l_arr[k_mid][jm_phys][i_mid].z);
+             }
+        }
+        // --- K-Direction ---
+        if (info.zs == 0) { // Rank on -Zeta boundary
+            if(strcmp(data_layout, "Face-Centered")==0){
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (First Physical Face)     = (%.3e)\n", rank, 0,
+                                    l_arr[0][j_mid][i_mid].z);
+            }else if(strcmp(data_layout, "Node-Centered")==0){// Node-Centered
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (First Physical Face/Node) = (%.3e, %.3e, %.3e)\n", rank, 0,
+                                    l_arr[0][j_mid][i_mid].x, l_arr[0][j_mid][i_mid].y, l_arr[0][j_mid][i_mid].z);                       
+            }
+        }
+        if(info.zs + info.zm == info.mz) { // Rank on +Zeta boundary
+            if(strcmp(data_layout, "Face-Centered")==0){
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Last Physical Face)      = (%.3e)\n", rank, km_phys - 1,
+                                    l_arr[km_phys - 1][j_mid][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Unused/Ghost Location)    = (%.3e)\n", rank, km_phys,
+                                    l_arr[km_phys][j_mid][i_mid].z);
+            }else if(strcmp(data_layout, "Node-Centered")==0){// Node-Centered
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Last Physical Face/Node)  = (%.3e, %.3e, %.3e)\n", rank, km_phys - 1,
+                                    l_arr[km_phys - 1][j_mid][i_mid].x, l_arr[km_phys - 1][j_mid][i_mid].y, l_arr[km_phys - 1][j_mid][i_mid].z);
+            // Also show the value at the unused memory location for verification
+             PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Unused/Ghost Location)    = (%.3e, %.3e, %.3e)\n", rank, km_phys,
+                                    l_arr[km_phys][j_mid][i_mid].x, l_arr[km_phys][j_mid][i_mid].y, l_arr[km_phys][j_mid][i_mid].z);
+             }
+        }
+
+        ierr = DMDAVecRestoreArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
+    }
+    else {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "LOG_FIELD_ANATOMY only supports fields with 1 or 3 components & certain data-layouts, but field '%s' has %D components and an unsupported data-layout %s  \n", field_name, dof,data_layout);
     }
     ierr = PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); CHKERRQ(ierr);
-
-
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcat, &lucat_arr); CHKERRQ(ierr);
     ierr = PetscBarrier(NULL);
     PetscFunctionReturn(0);
 }

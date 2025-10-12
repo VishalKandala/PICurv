@@ -107,12 +107,12 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Initial Settlement: Locating and migrating all particles...\n", simCtx->ti, simCtx->step);
     ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
 
-    if(get_log_level() == "LOG_DEBUG" && is_function_allowed(__FUNCT__)==true){
+    if(get_log_level() == LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Particle field states after Initial settlement...\n", simCtx->ti, simCtx->step);
         ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
     }
 
     // --- 2. Re-initialize Particles on Inlet Surface (if applicable) ---
-    // Note: Use simCtx->ParticleInitialization for consistency
     if ((simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) && user->inletFaceDefined) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Re-initializing particles on inlet surface...\n", simCtx->ti, simCtx->step);
         ierr = ReinitializeParticlesOnInletSurface(user, simCtx->ti, simCtx->step); CHKERRQ(ierr);
@@ -122,6 +122,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Post-Reinitialization Settlement...\n", simCtx->ti, simCtx->step);
         ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
+
     }
     
     // --- 3. Finalize State for t=0 ---
@@ -139,7 +140,10 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initial simulation data.\n", simCtx->ti, simCtx->step);
         
         // --- Particle Output (assumes functions operate on the master user context) ---
-        if(get_log_level() >= LOG_INFO) ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
+        if(get_log_level() == LOG_DEBUG){
+            LOG(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Initial Particle field.\n", simCtx->ti, simCtx->step);
+            ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
+        }
         ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
         
         // --- Eulerian Field Output (MUST loop over all blocks) --- // <<< CHANGED/FIXED
@@ -178,7 +182,8 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     // 1. Rebuild grid-to-particle links based on loaded coordinates.
     ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
 
-    if(get_log_level() == "LOG_DEBUG" && is_function_allowed(__FUNCT__)==true){
+    if(get_log_level() == LOG_DEBUG){
+        LOG(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Particle field states after locating loaded particles...\n", simCtx->ti, simCtx->step);
         ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
     }
 
@@ -340,7 +345,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // =================================================================
         //     2. EULERIAN SOLVER STEP
         // =================================================================
-        
+        if(get_log_level() == LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Coordinates","PreFlowSolver"); CHKERRQ(ierr);
+        }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
         if(strcmp(simCtx->eulerianSource,"load")==0){
             //LOAD mode: Read pre-computed fields for the current step.
@@ -355,34 +362,13 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = FlowSolver(simCtx); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field Updated ...\n");
-
-        /*
-        Cmpnts ***ucat_array,***coor_array;
-        Vec Coor;
-        LOG_ALLOW(LOCAL,LOG_DEBUG,"Rank %d: Dumping top layer of Ucat after FlowSolver:\n",simCtx->rank);
-        for(PetscInt bi = 0; bi < simCtx->block_number;bi++){
-            ierr = DMGetCoordinates(user[bi].da,&Coor); CHKERRQ(ierr);
-            ierr = DMDAVecGetArray(user[bi].fda,Coor,&coor_array); CHKERRQ(ierr);
-            ierr = DMDAVecGetArray(user[bi].fda,user[bi].Ucat,&ucat_array); CHKERRQ(ierr);
-            for(PetscInt j = 8; j < 14; j++){
-                    PetscInt i_dummy = 25;
-                    PetscInt i_wall = 24;
-
-                    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Ucat[%d][%d][%d] = (%.4f,%.4f,%.4f) at Coor=(%.4f,%.4f,%.4f)\n",
-                            1,j,i_dummy,
-                            ucat_array[1][j][i_dummy].x,ucat_array[1][j][i_dummy].y,ucat_array[1][j][i_dummy].z,
-                            coor_array[1][j][i_dummy].x,coor_array[1][j][i_dummy].y,coor_array[1][j][i_dummy].z);
-                    
-                    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Ucat[%d][%d][%d] = (%.4f,%.4f,%.4f) at Coor=(%.4f,%.4f,%.4f)\n",
-                            1,j,i_wall,
-                            ucat_array[1][j][i_wall].x,ucat_array[1][j][i_wall].y,ucat_array[1][j][i_wall].z,
-                            coor_array[1][j][i_wall].x,coor_array[1][j][i_wall].y,coor_array[1][j][i_wall].z);
-
-            }
-            ierr = DMDAVecRestoreArray(user[bi].fda,user[bi].Ucat,&ucat_array); CHKERRQ(ierr);
-            ierr = DMDAVecRestoreArray(user[bi].fda,Coor,&coor_array); CHKERRQ(ierr);
+        if(get_log_level() == LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
+            LOG_ALLOW(GLOBAL, LOG_DEBUG, "Post FlowSolver field states:\n");
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Ucat","PostFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"P","PostFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Ucont","PostFlowSolver"); CHKERRQ(ierr);
         }
-        */
+
 
         // =================================================================
         //     3. LAGRANGIAN PARTICLE STEP
@@ -408,10 +394,20 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             // d. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the
             //    particles' new positions. This gives them V_p(t_{n+1}) for the *next* advection step.
             ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
+
+            // e. Update the Particle Fields (e.g., temperature, concentration) if applicable.
+            //    This can be extended to include reactions, growth, etc.
+            ierr = UpdateAllParticleFields(user); CHKERRQ(ierr);
             
-            // e. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
+            // f. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
             ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
             ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+
+            if(get_log_level() == LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
+                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Post Lagrangian update field states:\n");
+                ierr = LOG_FIELD_ANATOMY(&user[0],"Psi","PostScatter"); CHKERRQ(ierr);
+                ierr = LOG_FIELD_MIN_MAX(&user[0],"Psi"); CHKERRQ(ierr);
+            }
         }
 
         // =================================================================
@@ -434,9 +430,10 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             }
             if (simCtx->np > 0) {
                 ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
-		if(get_log_level() >= LOG_INFO){
-		  LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency);
-		}
+                if(get_log_level() >= LOG_INFO){
+                LOG(GLOBAL, LOG_INFO, "Particle states at step %d:\n", simCtx->step);
+                LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency);
+                }
             }
         }
 
