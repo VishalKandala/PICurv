@@ -229,6 +229,8 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
                 field_vec = user->Ucat_nodal; num_components = 3;
             } else if (!strcasecmp(field_name, "Qcrit")) {
                 field_vec = user->Qcrit;    num_components = 1;
+            } else if (!strcasecmp(field_name, "Psi_nodal")){
+                field_vec = user->Psi_nodal; num_components = 1;
             } else {
                 LOG_ALLOW(LOCAL, LOG_WARNING, "Field '%s' not recognized. Skipping.\n", field_name);
                 field_name = strtok(NULL, ",");

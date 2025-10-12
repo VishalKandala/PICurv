@@ -984,9 +984,11 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ParticleCount Vec is NULL but np>0");
     }
     ierr = ReadOptionalField(user, "ParticleCount", "Particle Count", user->ParticleCount, ti, "dat"); CHKERRQ(ierr);
+    
+    ierr = ReadOptionalField(user, "psifield", "Scalar Psi Field", user->Psi, ti, "dat"); CHKERRQ(ierr);
     }
     else{
-        LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, skipping ParticleCount field read.\n");
+        LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, skipping Particle fields reading.\n");
     }
     // Process LES fields if enabled
     if (simCtx->les) {
@@ -1444,6 +1446,7 @@ PetscErrorCode WriteSimulationFields(UserCtx *user)
     // Write ParticleCountPerCell if enabled.
     if(simCtx->np>0){
     ierr = WriteFieldData(user, "ParticleCount",user->ParticleCount,simCtx->step,"dat"); CHKERRQ(ierr);
+    ierr = WriteFieldData(user, "psifield", user->Psi, simCtx->step, "dat"); CHKERRQ(ierr);
     }
     
     // Write LES fields if enabled

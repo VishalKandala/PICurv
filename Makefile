@@ -108,7 +108,7 @@ $(info Building for system: $(SYSTEM_NAME))
 PICSOLVER_OBJS := $(addprefix $(OBJDIR)/, \
                  picsolver.o setup.o logging.o grid.o io.o Metric.o \
                  Boundaries.o wallfunction.o simulation.o walkingsearch.o \
-                 ParticleSwarm.o ParticleMotion.o interpolation.o \
+                 ParticleSwarm.o ParticleMotion.o ParticlePhysics.o interpolation.o \
                  initialcondition.o rhs.o solvers.o implicitsolvers.o poisson.o)
 
 POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \

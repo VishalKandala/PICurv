@@ -753,25 +753,28 @@ void _ProfilingEnd(const char *func_name);
 PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName);
 
 /**
- * @brief Logs the anatomy of the ucat field at key boundary locations.
+ * @brief Logs the anatomy of a specified field at key boundary locations,
+ *        respecting the solver's specific grid and variable architecture.
  *
- * This function inspects the `ucat` vector field, which is a 3-component
- * vector defined on a DMDA with ghost nodes. It prints out the values of
- * `ucat` at critical boundary locations to help diagnose issues with
- * boundary conditions and ghost node handling.
+ * This intelligent diagnostic function inspects a PETSc Vec and prints its values
+ * at critical boundary locations (-Xi/+Xi, -Eta/+Eta, -Zeta/+Zeta). It is "architecture-aware":
  *
- * The function focuses on the -Xi and +Xi boundaries, printing both the
- * ghost node values and the first/last physical node values. It also prints
- * the corner node at (0,0,0) for additional verification.
+ * - **Cell-Centered Fields ("Ucat", "P"):** It correctly applies the "Shifted Index Architecture,"
+ *   where the value for geometric `Cell i` is stored at array index `i+1`. It labels
+ *   the output to clearly distinguish between true physical values and ghost values.
+ * - **Face-Centered Fields ("Ucont"):** It uses a direct index mapping, where the value for
+ *   the face at `Node i` is stored at index `i`.
+ * - **Node-Centered Fields ("Coordinates"):** It uses a direct index mapping, where the value for
+ *   `Node i` is stored at index `i`.
  *
- * The output is synchronized across MPI ranks to ensure readability.
+ * The output is synchronized across MPI ranks to ensure readability and focuses on a
+ * slice through the center of the domain to be concise.
  *
- * @param user       A pointer to the UserCtx structure containing the DMDA,
- *                   ucat vector, and MPI rank information.
- * @param stage_name A string identifier for the current stage of the simulation,
- *                   used to label the log output.
+ * @param user       A pointer to the UserCtx structure containing the DMs and Vecs.
+ * @param field_name A string identifier for the field to log (e.g., "Ucat", "P", "Ucont", "Coordinates").
+ * @param stage_name A string identifier for the current simulation stage (e.g., "After Advection").
  * @return           PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode LOG_UCAT_ANATOMY(UserCtx *user, const char *stage_name);
+PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const char *stage_name);
 
 #endif // LOGGING_H

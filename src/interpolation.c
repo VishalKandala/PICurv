@@ -1483,17 +1483,22 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     for (p = 0; p < nlocal; ++p) {
         // Extract local cell indices (relative to start of ghosted patch, [0..gxm-1], etc.)
         // Assumes DMSwarm_CellID stores (i, j, k) contiguously for each particle.
-        PetscInt pidx = cell_id_arr[p * 3 + 0]; // Local i-index
-        PetscInt pidy = cell_id_arr[p * 3 + 1]; // Local j-index
-        PetscInt pidz = cell_id_arr[p * 3 + 2]; // Local k-index
+        PetscInt pidx_geom = cell_id_arr[p * 3 + 0]; // Local i-index
+        PetscInt pidy_geom = cell_id_arr[p * 3 + 1]; // Local j-index
+        PetscInt pidz_geom = cell_id_arr[p * 3 + 2]; // Local k-index
+
+        // Apply the index shift to convert from geometric to cell-centered field indexing
+        PetscInt pidx_field = pidx_geom + 1;
+        PetscInt pidy_field = pidy_geom + 1;
+        PetscInt pidz_field = pidz_geom + 1; 
 
         // Bounds Check: Ensure the particle's cell index is within the valid local ghosted region
-        if (pidx >= 0 && pidx < gxm && pidy >= 0 && pidy < gym && pidz >= 0 && pidz < gzm)
+        if (pidx_field >= 0 && pidx_field < gxm && pidy_field >= 0 && pidy_field < gym && pidz_field >= 0 && pidz_field < gzm)
         {
              // Calculate the flat 1D index for this cell within the linear ghosted array
              // Uses PETSc's standard C-style row-major ordering (k-slowest, j-middle, i-fastest)
              // Corrected: k (slowest), j, i (fastest)
-              PetscInt cell_flat_idx = (pidz * gym + pidy) * gxm + pidx;
+              PetscInt cell_flat_idx = (pidz_field * gym + pidy_field) * gxm + pidx_field;
 
              // Calculate the base index for this particle's data in particle_arr
              PetscInt particle_base_idx = p * dof;
@@ -1508,7 +1513,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
              // Log a warning if a particle's CellID is outside the expected local region.
              // This might indicate particles needing migration or boundary issues.
              LOG_ALLOW(LOCAL, LOG_WARNING, "(Rank %d): Particle %d (field '%s') has out-of-bounds CellID (%d, %d, %d). Ghosted dims: %dx%dx%d. Skipping.\n",
-                      rank, p, particleFieldName, pidx, pidy, pidz, gxm, gym, gzm);
+                      rank, p, particleFieldName, pidx_field, pidy_field, pidz_field, gxm, gym, gzm);
         }
     } // End of particle loop
 
@@ -1865,8 +1870,8 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "UserCtx->ParticleCount is NULL. Compute counts before calling ScatterAllParticleFieldsToEulerFields.");
     }
 
-    // --- Scatter Particle Field "Psi" -> Eulerian Field user->P (on da) ---
-    // Check if the target Eulerian vector 'user->P' exists.
+    // --- Scatter Particle Field "Psi" -> Eulerian Field user->Psi (on da) ---
+    // Check if the target Eulerian vector 'user->Psi' exists.
     if (user->Psi) {
         
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering particle field 'Psi' to user->Psi.\n");
@@ -1876,7 +1881,7 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
 	Vec swarm_Psi;
 	PetscReal Avg_Psi,Avg_swarm_Psi;
 	     
-	ierr = VecMean(user->P,&Avg_Psi);
+	ierr = VecMean(user->Psi,&Avg_Psi);
 	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) before scatter: %.4f.\n",Avg_Psi);
 	     
 	ierr = DMSwarmCreateGlobalVectorFromField(user->swarm,"Psi",&swarm_Psi);

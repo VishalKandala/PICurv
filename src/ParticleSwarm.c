@@ -484,7 +484,6 @@ static PetscErrorCode InitializeSwarmFieldValue(const char *fieldName, PetscInt 
         fieldData[fieldDim * p + d] = 300.0;
         }
     } else if (strcmp(fieldName, "Psi") == 0) {
-        // For pressure, initialize to a default value (e.g., 101325.0)
         for (PetscInt d = 0; d < fieldDim; d++) {
         fieldData[fieldDim * p + d] = 0.0;
         }

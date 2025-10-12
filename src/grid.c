@@ -354,7 +354,7 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
     for (PetscInt bi = 0; bi < nblk; bi++) {
         UserCtx *fine_user = &usermg->mgctx[usermg->mglevels - 1].user[bi];
         ierr = SetFinestLevelCoordinates(fine_user); CHKERRQ(ierr);
-        if(get_log_level()==LOG_DEBUG){
+        if(get_log_level()==LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
             LOG_ALLOW(GLOBAL,LOG_DEBUG,"The Finest level coordinates for block %d have been set.\n",bi);
             ierr = LOG_FIELD_MIN_MAX(fine_user,"Coordinates");
         }
@@ -369,7 +369,10 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
             UserCtx *fine_user   = &usermg->mgctx[level + 1].user[bi];
             ierr = RestrictCoordinates(coarse_user, fine_user); CHKERRQ(ierr);
 
-            if(get_log_level==LOG_DEBUG) ierr = LOG_FIELD_MIN_MAX(coarse_user,"Coordinates");
+            if(get_log_level==LOG_DEBUG && is_function_allowed(__FUNCT__)==true) {
+                LOG_ALLOW(GLOBAL,LOG_DEBUG,"Coordinates restricted to block %d level %d.\n",bi,level);
+                ierr = LOG_FIELD_MIN_MAX(coarse_user,"Coordinates");
+            }
         }
     }
 
@@ -1181,7 +1184,6 @@ PetscErrorCode CalculateInletCenter(UserCtx *user)
     } else {
          LOG_ALLOW(GLOBAL, LOG_WARNING, "WARNING: Inlet face was identified but no grid points found on it. Center not calculated.\n");
     }
-
 
     PROFILE_FUNCTION_END;
 

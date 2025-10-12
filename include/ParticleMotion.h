@@ -1,5 +1,5 @@
 /**
- * @file ParticleSwarm.h
+ * @file ParticleMotion.h
  * @brief Header file for Particle Motion and migration related functions.
  *
  * This file contains declarations of functions responsible for moving and migrating particle swarms within a simulation using PETSc's DMSwarm.

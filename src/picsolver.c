@@ -107,6 +107,8 @@ int main(int argc, char **argv)
     LOG_ALLOW(GLOBAL,LOG_INFO,"SETUP ONLY MODE enabled. Skipping time loop.\n");
   }
 
+  // == V. REPORT FIELDS ===========================
+
   // === V. FINALIZE =========================================================
   // Cleanly destroy all objects and free all memory.
 

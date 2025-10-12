@@ -721,14 +721,15 @@ typedef struct UserCtx {
   // --- Particle System ---
   DM swarm;
   RankCellInfo *RankCellInfoMap;
-  Vec ParticleCount;
-  Vec Psi; //scalar dummy to demonstrate scatter.
+  Vec ParticleCount, lParticleCount;
+  Vec Psi, lPsi; //scalar dummy to demonstrate scatter.
   
   // --- Post-Processing ---
   DM  post_swarm;
   Vec P_nodal;
   Vec Ucat_nodal;
   Vec Qcrit;
+  Vec Psi_nodal;
   
 } UserCtx;
 

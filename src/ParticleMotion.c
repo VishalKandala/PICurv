@@ -529,17 +529,22 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateParticleCountPerCell (Rank %d): Processing %d local particles using GLOBAL CellIDs.\n",rank,nlocal);
     for (p = 0; p < nlocal; p++) {
         // Read the GLOBAL indices stored for this particle
-        PetscInt64 i = global_cell_id_arr[p * 3 + 0]; // Global i index
-        PetscInt64 j = global_cell_id_arr[p * 3 + 1]; // Global j index
-        PetscInt64 k = global_cell_id_arr[p * 3 + 2]; // Global k index
+        PetscInt64 i_geom = global_cell_id_arr[p * 3 + 0]; // Global i index
+        PetscInt64 j_geom = global_cell_id_arr[p * 3 + 1]; // Global j index
+        PetscInt64 k_geom = global_cell_id_arr[p * 3 + 2]; // Global k index
+
+        // Apply the shift to ensure ParticleCount follows the indexing convention for cell-centered data in this codebase.
+        PetscInt i = (PetscInt)i_geom + 1; // Shift for cell-centered
+        PetscInt j = (PetscInt)j_geom + 1; // Shift for cell-centered
+        PetscInt k = (PetscInt)k_geom + 1; // Shift for cell-centered
 
         // *** Bounds check is implicitly handled by DMDAVecGetArray for owned+ghost region ***
         // However, accessing outside this region using global indices WILL cause an error.
         // A preliminary check might still be wise if global IDs could be wild.
         // We rely on LocateAllParticles to provide valid global indices [0..IM-1] etc.
-    // *** ADD PRINTF HERE ***
-	LOG_LOOP_ALLOW(LOCAL,LOG_DEBUG,p,100,"[Rank %d CalcCount] Read CellID for p=%d, PID = %ld: (%ld, %ld, %ld)\n", rank, p,PID_arr[p],i, j, k);
-    // *** END PRINTF ***
+ 
+	    LOG_LOOP_ALLOW(LOCAL,LOG_DEBUG,p,100,"[Rank %d CalcCount] Read CellID for p=%d, PID = %ld: (%ld, %ld, %ld)\n", rank, p,PID_arr[p],i, j, k);
+    
         // *** Access the local array using GLOBAL indices ***
         // DMDAVecGetArray allows this, mapping global (I,J,K) to the correct
         // location within the local ghosted array segment.
@@ -552,6 +557,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
             j >= ys && j < ys + ym  && // Adjust based on actual ghost width
             k >= zs && k < zs + zm  )   // This check prevents definite crashes but doesn't guarantee ownership
         {
+
              // Increment count at the location corresponding to GLOBAL index (I,J,K)
 	  //  LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateParticleCountPerCell (Rank %d): Particle %d with global CellID (%d, %d, %d) incremented with a particle.\n",rank, p, i, j, k);
              count_arr_3d[k][j][i] += 1.0;
