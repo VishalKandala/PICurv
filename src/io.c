@@ -482,7 +482,7 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
 
                 *param_next_ptr = new_param;
                 param_next_ptr = &new_param->next;
-                LOG_ALLOW(GLOBAL, LOG_DEBUG, "    - Found param: [%s] = [%s] \n", new_param->key, new_param->value);
+                LOG_ALLOW(GLOBAL, LOG_TRACE, "    - Found param: [%s] = [%s] \n", new_param->key, new_param->value);
             }
         }
         fclose(file);
@@ -894,7 +894,7 @@ PetscErrorCode ReadFieldData(UserCtx *user,
       /* borrow array for later Bcast */
       ierr = VecGetArrayRead(seq_vec,&seqArray);CHKERRQ(ierr);
 
-      LOG_ALLOW(GLOBAL,LOG_DEBUG,
+      LOG_ALLOW(GLOBAL,LOG_TRACE,
                 "Rank 0 successfully loaded <%s>\n",filename);
    }
 

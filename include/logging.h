@@ -31,6 +31,8 @@ typedef enum {
     LOG_PROFILE,      /**< Exclusive log level for performance timing and profiling */
     LOG_INFO,        /**< Informational messages about program execution */
     LOG_DEBUG,       /**< Detailed debugging information */
+    LOG_TRACE,        /**< Very fine-grained tracing information for in-depth debugging */
+    LOG_VERBOSE      /**< Extremely detailed logs, typically for development use only */
 } LogLevel;
 
 // -------------------- Logging Scope Definitions ------------------

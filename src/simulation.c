@@ -345,7 +345,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // =================================================================
         //     2. EULERIAN SOLVER STEP
         // =================================================================
-        if(get_log_level() == LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
+        if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
             ierr = LOG_FIELD_ANATOMY(&user[0],"Coordinates","PreFlowSolver"); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
@@ -362,8 +362,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = FlowSolver(simCtx); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field Updated ...\n");
-        if(get_log_level() == LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
-            LOG_ALLOW(GLOBAL, LOG_DEBUG, "Post FlowSolver field states:\n");
+        if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
+            LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post FlowSolver field states:\n");
             ierr = LOG_FIELD_ANATOMY(&user[0],"Ucat","PostFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0],"P","PostFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0],"Ucont","PostFlowSolver"); CHKERRQ(ierr);
@@ -403,9 +403,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
             ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
 
-            if(get_log_level() == LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
-                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Post Lagrangian update field states:\n");
-                ierr = LOG_FIELD_ANATOMY(&user[0],"Psi","PostScatter"); CHKERRQ(ierr);
+            if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
+                LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post Lagrangian update field states:\n");
                 ierr = LOG_FIELD_MIN_MAX(&user[0],"Psi"); CHKERRQ(ierr);
             }
         }

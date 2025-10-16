@@ -245,10 +245,10 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
         for (PetscInt bi = 0; bi < block_number; bi++) {
             for (istage = 0; istage < 4; istage++) {
                 // Advance in time using RK scheme with adaptive step size `lambda`
-	      LOG_ALLOW(GLOBAL,LOG_INFO," Pseudo-Timestep Solver | RK-Stage : %d | Pseudo-Timestep :%d .\n",istage,pseudot);
+	      LOG_ALLOW(GLOBAL,LOG_TRACE," Pseudo-Timestep Solver | RK-Stage : %d | Pseudo-Timestep :%d .\n",istage,pseudot);
                 ierr = VecWAXPY(user[bi].Ucont, lambda[bi] * alfa[istage] * dt * st, user[bi].Rhs, user[bi].pUcont); CHKERRQ(ierr);
 
-		LOG_ALLOW(GLOBAL,LOG_INFO, " Ucont updated as Ucont = [lambda(%.4f)]x[alfa(%.4f)]x[dt(%.4f)]x[st(%.4f)]xRhs + pUcont.\n",lambda[bi],alfa[istage],dt,st);
+		LOG_ALLOW(GLOBAL,LOG_VERBOSE, " Ucont updated as Ucont = [lambda(%.4f)]x[alfa(%.4f)]x[dt(%.4f)]x[st(%.4f)]xRhs + pUcont.\n",lambda[bi],alfa[istage],dt,st);
 		
                 // Sync ghosts and re-apply BCs for the intermediate stage
                 ierr = DMGlobalToLocalBegin(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
@@ -257,12 +257,12 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
                 ierr = OutflowFlux(&user[bi]); CHKERRQ(ierr);
                 ierr = FormBCS(&user[bi]); CHKERRQ(ierr);
 
-		LOG_ALLOW(GLOBAL,LOG_INFO, " Ghosts synced and BCs reapplied.\n");
+		LOG_ALLOW(GLOBAL,LOG_TRACE, " Ghosts synced and BCs reapplied.\n");
 
                 // --- Re-calculate the full RHS for the next RK stage ---
                 ierr = ComputeRHS(&user[bi], user[bi].Rhs); CHKERRQ(ierr);
 
-		LOG_ALLOW(GLOBAL,LOG_INFO, " RHS calculated for the next RK stage.\n");
+		LOG_ALLOW(GLOBAL,LOG_TRACE, " RHS calculated for the next RK stage.\n");
 		
                 if (COEF_TIME_ACCURACY > 1.1 && ti != tistart && ti != 1) {
                     ierr = VecAXPY(user[bi].Rhs, -COEF_TIME_ACCURACY/dt, user[bi].Ucont); CHKERRQ(ierr);
@@ -273,8 +273,8 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
                     ierr = VecAXPY(user[bi].Rhs, +1.0/dt, user[bi].Ucont_o); CHKERRQ(ierr);
                 }
 
-		if(istage <3) LOG_ALLOW(GLOBAL,LOG_INFO," Time derivative part updated for next RK stage .\n");
-		else LOG_ALLOW(GLOBAL,LOG_INFO," All RK stages complete.\n");
+		if(istage <3) LOG_ALLOW(GLOBAL,LOG_TRACE," Time derivative part updated for next RK stage .\n");
+		else LOG_ALLOW(GLOBAL,LOG_DEBUG," All RK stages complete.\n");
             } // End RK stages
 
             /*
@@ -289,14 +289,14 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 	    
             ierr = VecWAXPY(user[bi].dUcont, -1.0, user[bi].Ucont, user[bi].pUcont); CHKERRQ(ierr);
 
-	    LOG_ALLOW(GLOBAL,LOG_DEBUG," Block %d | dU calculated .\n",bi);
+	    LOG_ALLOW(GLOBAL,LOG_TRACE," Block %d | dU calculated .\n",bi);
             
             normdU1_bk[bi] = normdU_bk[bi];
 	    
             ierr = VecNorm(user[bi].dUcont, NORM_INFINITY, &normdU_bk[bi]); CHKERRQ(ierr);
             ierr = VecNorm(user[bi].Rhs, NORM_INFINITY, &normF_bk[bi]); CHKERRQ(ierr);
 	    
-	    LOG_ALLOW(GLOBAL,LOG_DEBUG," Block %d | |dU|  =  %le | |U| = %le.\n",bi,normdU_bk[bi],normF_bk[bi]);
+	    LOG_ALLOW(GLOBAL,LOG_TRACE," Block %d | |dU|  =  %le | |U| = %le.\n",bi,normdU_bk[bi],normF_bk[bi]);
 	    
             if (pseudot == 1) {
                 normdU0_bk[bi] = normdU_bk[bi];
@@ -318,9 +318,9 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 	    }
 	      
 
-	    LOG_ALLOW(GLOBAL,LOG_DEBUG, " Block %d | |dU|/|dU_0| = %le. \n",bi,reldU_bk[bi]);
+	    LOG_ALLOW(GLOBAL,LOG_TRACE, " Block %d | |dU|/|dU_0| = %le. \n",bi,reldU_bk[bi]);
 
-	    LOG_ALLOW(GLOBAL,LOG_DEBUG, " Block %d | |R|/|R_0| = %le. \n",bi,relF_bk[bi]);
+	    LOG_ALLOW(GLOBAL,LOG_TRACE, " Block %d | |R|/|R_0| = %le. \n",bi,relF_bk[bi]);
 	    
             // file logging
             if (!rank) {

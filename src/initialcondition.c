@@ -100,7 +100,7 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
     // Flow into a negative face (e.g., -Zeta at k=0) is in the positive physical direction (+z).
     // Flow into a positive face (e.g., +Zeta at k=mz-1) is in the negative physical direction (-z).
 
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"InitialConstantContra = (%.3f, %.3f, %.3f)\n",(double)uin.x, (double)uin.y, (double)uin.z);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Initial Constant Flux (Contravariant) = (%.3f, %.3f, %.3f)\n",(double)uin.x, (double)uin.y, (double)uin.z);
     
     const PetscReal flow_direction_sign = (user->identifiedInletBCFace % 2 == 0) ? 1.0 : -1.0;
         
@@ -205,21 +205,21 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
 			    
                             ucont_val.x = signed_normal_vel * area_i;
 
-			    LOG_LOOP_ALLOW(GLOBAL,LOG_DEBUG,k,50," ucont_val.x = %.6f (signed_normal_vel=%.3f × area=%.4f)\n",ucont_val.x, signed_normal_vel, area_i);
+			    LOG_LOOP_ALLOW(GLOBAL,LOG_VERBOSE,k,50," ucont_val.x = %.6f (signed_normal_vel=%.3f × area=%.4f)\n",ucont_val.x, signed_normal_vel, area_i);
                         } 
                         else if (user->identifiedInletBCFace == BC_FACE_NEG_Y || user->identifiedInletBCFace == BC_FACE_POS_Y) {
                             const PetscReal area_j = sqrt(eta_arr[k][j][i].x * eta_arr[k][j][i].x + eta_arr[k][j][i].y * eta_arr[k][j][i].y + eta_arr[k][j][i].z * eta_arr[k][j][i].z);
 			     
                             ucont_val.y = signed_normal_vel * area_j;
 
-			    LOG_LOOP_ALLOW(GLOBAL,LOG_DEBUG,k,50," ucont_val.y = %.6f (signed_normal_vel=%.3f × area=%.4f)\n",ucont_val.y, signed_normal_vel, area_j);
+			    LOG_LOOP_ALLOW(GLOBAL,LOG_VERBOSE,k,50," ucont_val.y = %.6f (signed_normal_vel=%.3f × area=%.4f)\n",ucont_val.y, signed_normal_vel, area_j);
                         } 
                         else { // Z-inlet
                             const PetscReal area_k = sqrt(zet_arr[k][j][i].x * zet_arr[k][j][i].x + zet_arr[k][j][i].y * zet_arr[k][j][i].y + zet_arr[k][j][i].z * zet_arr[k][j][i].z);
 
                             ucont_val.z = signed_normal_vel * area_k;
 
-			    LOG_LOOP_ALLOW(GLOBAL,LOG_DEBUG,k,50," i,j,k,ucont_val.z = %d, %d, %d, %.6f (signed_normal_vel=%.3f × area=%.4f)\n",i,j,k,ucont_val.z, signed_normal_vel, area_k);
+			    LOG_LOOP_ALLOW(GLOBAL,LOG_VERBOSE,k,50," i,j,k,ucont_val.z = %d, %d, %d, %.6f (signed_normal_vel=%.3f × area=%.4f)\n",i,j,k,ucont_val.z, signed_normal_vel, area_k);
                         }
                     }
                     ucont_arr[k][j][i] = ucont_val;
@@ -260,18 +260,18 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
     // This sequence ensures a fully consistent state for a single block.
     // 1. Apply BCs using the information from InflowFlux/OutflowFlux.
     ierr = FormBCS(user); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG," Boundary condition applied.\n");
+    LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition applied.\n");
     // 2. Sync contravariant velocity field.
     ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG," Ucont field ghosts updated.\n");
+    LOG_ALLOW(GLOBAL,LOG_TRACE," Ucont field ghosts updated.\n");
     
     // 3. Convert to Cartesian velocity.
     ierr = Contra2Cart(user); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG," Converted Ucont to Ucat.\n");
+    LOG_ALLOW(GLOBAL,LOG_TRACE," Converted Ucont to Ucat.\n");
 
     // 4. Sync the new Cartesian velocity field.
     ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG," Ucat field ghosts updated.\n"); 
+    LOG_ALLOW(GLOBAL,LOG_TRACE," Ucat field ghosts updated.\n"); 
 
     PROFILE_FUNCTION_END;
 
@@ -302,20 +302,20 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
         // 1. Set an initial guess for the INTERIOR of the domain.
         //    Replaces the legacy `if(InitialGuessOne)` block.
 
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Initializing Interior Ucont field.\n");
+	LOG_ALLOW(GLOBAL,LOG_TRACE," Initializing Interior Ucont field.\n");
         ierr = SetInitialInteriorField(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Interior Ucont field initialized.\n");
+	LOG_ALLOW(GLOBAL,LOG_TRACE," Interior Ucont field initialized.\n");
 	
         // 2. Establish the initial boundary flux values and set inlet profiles.
         //    This sequence is critical and comes directly from the legacy setup.
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Boundary condition Preparation steps initiated.\n");
+	LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition Preparation steps initiated.\n");
         ierr = InflowFlux(&user_finest[bi]); CHKERRQ(ierr);
         ierr = OutflowFlux(&user_finest[bi]); CHKERRQ(ierr);
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Boundary condition Preparation steps completed.\n");
+	LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition Preparation steps completed.\n");
         // 3. Apply all boundary conditions, convert to Cartesian, and sync ghosts.
-        LOG_ALLOW(GLOBAL,LOG_DEBUG," Boundary condition application and state finalization initiated.\n");
+        LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition application and state finalization initiated.\n");
         ierr = FinalizeBlockState(&user_finest[bi]); CHKERRQ(ierr);
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Boundary condition application and state finalization complete.\n");
+	LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition application and state finalization complete.\n");
     }
 
     // If using multiple grid blocks, handle the interface conditions between them.
