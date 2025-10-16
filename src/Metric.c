@@ -34,7 +34,7 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
     PetscInt ii = i + ((c & 1) ? 1 : 0);
     PetscInt jj = j + ((c & 2) ? 1 : 0);
     PetscInt kk = k + ((c & 4) ? 1 : 0);
-    LOG_LOOP_ALLOW(GLOBAL, LOG_DEBUG,i+j+k,10," ii: %d,jj:%d,kk:%d - Retrieved.\n",ii,jj,kk);
+    LOG_LOOP_ALLOW(GLOBAL, LOG_VERBOSE,i+j+k,10," ii: %d,jj:%d,kk:%d - Retrieved.\n",ii,jj,kk);
     V[c] = X[kk][jj][ii];
   }
   PetscFunctionReturn(0);

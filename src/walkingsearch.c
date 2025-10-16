@@ -122,13 +122,13 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output pointer 'd_signed' must not be NULL.");
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Target point: (%.6e, %.6e, %.6e)\n", p_target.x, p_target.y, p_target.z);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Cell Centroid: (%.6e, %.6e, %.6e)\n", cell_centroid.x, cell_centroid.y, cell_centroid.z);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Face Vertices:\n");
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "    v1: (%.6e, %.6e, %.6e)\n", v1.x, v1.y, v1.z);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "    v2: (%.6e, %.6e, %.6e)\n", v2.x, v2.y, v2.z);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "    v3: (%.6e, %.6e, %.6e)\n", v3.x, v3.y, v3.z);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "    v4: (%.6e, %.6e, %.6e)\n", v4.x, v4.y, v4.z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Target point: (%.6e, %.6e, %.6e)\n", p_target.x, p_target.y, p_target.z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Cell Centroid: (%.6e, %.6e, %.6e)\n", cell_centroid.x, cell_centroid.y, cell_centroid.z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Face Vertices:\n");
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "    v1: (%.6e, %.6e, %.6e)\n", v1.x, v1.y, v1.z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "    v2: (%.6e, %.6e, %.6e)\n", v2.x, v2.y, v2.z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "    v3: (%.6e, %.6e, %.6e)\n", v3.x, v3.y, v3.z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "    v4: (%.6e, %.6e, %.6e)\n", v4.x, v4.y, v4.z);
 
     // --- Calculate Edge Vectors for Initial Normal Computation ---
     PetscReal edge1_x = v2.x - v1.x;
@@ -138,19 +138,19 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
     PetscReal edge2_x = v4.x - v1.x;
     PetscReal edge2_y = v4.y - v1.y;
     PetscReal edge2_z = v4.z - v1.z;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Edge1 (v2-v1): (%.6e, %.6e, %.6e)\n", edge1_x, edge1_y, edge1_z);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Edge2 (v4-v1): (%.6e, %.6e, %.6e)\n", edge2_x, edge2_y, edge2_z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Edge1 (v2-v1): (%.6e, %.6e, %.6e)\n", edge1_x, edge1_y, edge1_z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Edge2 (v4-v1): (%.6e, %.6e, %.6e)\n", edge2_x, edge2_y, edge2_z);
 
     // --- Compute Initial Normal Vector (Cross Product: edge1 x edge2) ---
     PetscReal normal_x_initial = edge1_y * edge2_z - edge1_z * edge2_y;  
     PetscReal normal_y_initial = edge1_z * edge2_x - edge1_x * edge2_z;
     PetscReal normal_z_initial = edge1_x * edge2_y - edge1_y * edge2_x;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Initial Raw Normal (edge1 x edge2): (%.6e, %.6e, %.6e)\n", normal_x_initial, normal_y_initial, normal_z_initial);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Initial Raw Normal (edge1 x edge2): (%.6e, %.6e, %.6e)\n", normal_x_initial, normal_y_initial, normal_z_initial);
 
     PetscReal normal_magnitude = sqrt(normal_x_initial * normal_x_initial +
                                    normal_y_initial * normal_y_initial +
                                    normal_z_initial * normal_z_initial);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Initial Normal Magnitude: %.6e\n", normal_magnitude);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Initial Normal Magnitude: %.6e\n", normal_magnitude);
 
     if (normal_magnitude < 1.0e-12) {
         ierr = MPI_Comm_rank(MPI_COMM_WORLD, &rank); CHKERRQ(ierr);
@@ -166,20 +166,20 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
     PetscReal face_centroid_x = 0.25 * (v1.x + v2.x + v3.x + v4.x);
     PetscReal face_centroid_y = 0.25 * (v1.y + v2.y + v3.y + v4.y);
     PetscReal face_centroid_z = 0.25 * (v1.z + v2.z + v3.z + v4.z);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Face Centroid: (%.6e, %.6e, %.6e)\n", face_centroid_x, face_centroid_y, face_centroid_z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Face Centroid: (%.6e, %.6e, %.6e)\n", face_centroid_x, face_centroid_y, face_centroid_z);
 
     // --- Orient the Normal to Point Outward from the Cell ---
     // Vector from face centroid to cell centroid
     PetscReal vec_fc_to_cc_x = cell_centroid.x - face_centroid_x;
     PetscReal vec_fc_to_cc_y = cell_centroid.y - face_centroid_y;
     PetscReal vec_fc_to_cc_z = cell_centroid.z - face_centroid_z;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Vec (FaceCentroid -> CellCentroid): (%.6e, %.6e, %.6e)\n", vec_fc_to_cc_x, vec_fc_to_cc_y, vec_fc_to_cc_z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Vec (FaceCentroid -> CellCentroid): (%.6e, %.6e, %.6e)\n", vec_fc_to_cc_x, vec_fc_to_cc_y, vec_fc_to_cc_z);
 
     // Dot product of initial normal with vector from face centroid to cell centroid
     PetscReal dot_prod_orientation = normal_x_initial * vec_fc_to_cc_x +
                                      normal_y_initial * vec_fc_to_cc_y +
                                      normal_z_initial * vec_fc_to_cc_z;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Dot Product for Orientation (N_initial . Vec_FC_to_CC): %.6e\n", dot_prod_orientation);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Dot Product for Orientation (N_initial . Vec_FC_to_CC): %.6e\n", dot_prod_orientation);
 
     PetscReal normal_x = normal_x_initial;
     PetscReal normal_y = normal_y_initial;
@@ -190,7 +190,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
         normal_x = -normal_x_initial;
         normal_y = -normal_y_initial;
         normal_z = -normal_z_initial;
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Initial normal was inward (dot_prod > 0). Flipped normal.\n");
+        LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Initial normal was inward (dot_prod > 0). Flipped normal.\n");
     } else if (dot_prod_orientation == 0.0 && normal_magnitude > 1e-12) {
         // This case is ambiguous or face plane contains cell centroid.
         // This might happen for highly symmetric cells or if face_centroid IS cell_centroid (e.g. 2D cell).
@@ -199,7 +199,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
         ierr = MPI_Comm_rank(MPI_COMM_WORLD, &rank); CHKERRQ(ierr);
          LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: Dot product for normal orientation is zero. Normal direction might be ambiguous. Keeping initial normal direction from (v2-v1)x(v4-v1).\n", rank);
     }
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Oriented Raw Normal: (%.6e, %.6e, %.6e)\n", normal_x, normal_y, normal_z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Oriented Raw Normal: (%.6e, %.6e, %.6e)\n", normal_x, normal_y, normal_z);
 
 
     // --- Normalize the (Now Outward-Pointing) Normal Vector ---
@@ -208,7 +208,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
     normal_x /= normal_magnitude;
     normal_y /= normal_magnitude;
     normal_z /= normal_magnitude;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Normalized Outward Normal: (%.6f, %.6f, %.6f)\n", normal_x, normal_y, normal_z);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Normalized Outward Normal: (%.6f, %.6f, %.6f)\n", normal_x, normal_y, normal_z);
 
 
     // --- Compute Vector from Target Point to Face Centroid ---
@@ -221,15 +221,15 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
                 vec_p_to_fc_y * normal_y +
                 vec_p_to_fc_z * normal_z;
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Raw Signed Distance (using outward normal): %.15e\n", *d_signed);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Raw Signed Distance (using outward normal): %.15e\n", *d_signed);
 
     // --- Apply Threshold ---
     if (fabs(*d_signed) < threshold) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Distance %.15e is less than threshold %.1e. Setting to 0.0.\n", *d_signed, threshold);
+        LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Distance %.15e is less than threshold %.1e. Setting to 0.0.\n", *d_signed, threshold);
         *d_signed = 0.0;
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Final Signed Distance: %.15e\n", *d_signed);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Final Signed Distance: %.15e\n", *d_signed);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -455,25 +455,25 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
     // Set the result based on flags
     if(isInside) {
         *result = 0; // Inside the cell
-        LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is inside the cell.\n");
+        LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is inside the cell.\n");
     }
     else if(isOnBoundary) {
       if(IntersectionCount == 1){ 
           *result = 1; // on face
-          LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is on a face of the cell.\n");
+          LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is on a face of the cell.\n");
       }
       else if(IntersectionCount == 2){ 
           *result = 2; // on edge
-          LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is on an edge of the cell.\n");
+          LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is on an edge of the cell.\n");
       }
       else if(IntersectionCount >= 3){ 
           *result = 3; // on corner
-          LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is on a corner of the cell.\n");
+          LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is on a corner of the cell.\n");
       }
     }
     else {
         *result = -1; // Outside the cell
-        LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle is outside the cell.\n");
+        LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is outside the cell.\n");
     }
 
     PROFILE_FUNCTION_END;
@@ -566,7 +566,7 @@ PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt id
     cell->vertices[6] = coor[idz+1][idy][idx+1];     // Vertex 6: (i+1, j,   k+1)
     cell->vertices[7] = coor[idz+1][idy][idx];       // Vertex 7: (i,   j,   k+1)
 
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Retrieved vertices for cell (%d, %d, %d).\n", idx, idy, idz);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "Retrieved vertices for cell (%d, %d, %d).\n", idx, idy, idz);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0); // Indicate successful execution
@@ -783,7 +783,7 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     PetscInt  idy_local = idy; // - info_nodes.gys;
     PetscInt  idz_local = idz; // - info_nodes.gzs;
     
-    LOG_ALLOW(LOCAL,LOG_DEBUG," [Rank %d] Getting vertex coordinates for cell: %d,%d,%d whose local coordinates are %d,%d,%d.\n",rank,idx,idy,idz,idx_local,idy_local,idz_local);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE," [Rank %d] Getting vertex coordinates for cell: %d,%d,%d whose local coordinates are %d,%d,%d.\n",rank,idx,idy,idz,idx_local,idy_local,idz_local);
     
     // Get the current cell's vertices
     ierr = GetCellVerticesFromGrid(coor_array, idx_local, idy_local, idz_local, cell); CHKERRQ(ierr);
@@ -795,7 +795,7 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     // Debug: Print cell vertices
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Cell (%d, %d, %d) vertices \n", idx, idy, idz);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "Cell (%d, %d, %d) vertices \n", idx, idy, idz);
     ierr = LOG_CELL_VERTICES(cell, rank); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
@@ -965,31 +965,31 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
 
     // Update k-direction based on FRONT and BACK distances
     if (d[FRONT] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[FRONT] < 0.0, incrementing idz.\n");
+      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[FRONT] < 0.0, incrementing idz.\n");
         (*idz) += 1;
     }
     else if(d[BACK] < 0.0){
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[BACK] < 0.0, decrementing idz.\n");
+      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[BACK] < 0.0, decrementing idz.\n");
         (*idz) -= 1;
     }
 
     // Update i-direction based on LEFT and RIGHT distances
     if (d[LEFT] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[LEFT] < 0.0, decrementing idx.\n");
+      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[LEFT] < 0.0, decrementing idx.\n");
         (*idx) -= 1;
     }
     else if (d[RIGHT] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[RIGHT] < 0.0, incrementing idx.\n");
+      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[RIGHT] < 0.0, incrementing idx.\n");
         (*idx) += 1;
     }
 
     // Update j-direction based on BOTTOM and TOP distances
     if (d[BOTTOM] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[BOTTOM] < 0.0, decrementing idy.\n");
+      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[BOTTOM] < 0.0, decrementing idy.\n");
         (*idy) -= 1;
     }
     else if (d[TOP] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "Condition met: d[TOP] < 0.0, incrementing idy.\n");
+      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[TOP] < 0.0, incrementing idy.\n");
         (*idy) += 1;
     }
 
@@ -1176,9 +1176,9 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     // --- 1. Initialize the Search ---
     ierr = InitializeTraversalParameters(user, particle, &idx, &idy, &idz, &traversal_steps); CHKERRQ(ierr);
 
-    LOG_ALLOW(LOCAL,LOG_INFO, " The Threshold for considering a particle to be at a face is %.16f.\n",DISTANCE_THRESHOLD);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, " The Threshold for considering a particle to be at a face is %.16f.\n",DISTANCE_THRESHOLD);
     
-    LOG_ALLOW(LOCAL,LOG_DEBUG," [PID %lld]Traversal Initiated at : i = %d, j = %d, k = %d.\n",(long long)particle->PID,idx,idy,idz); 
+    LOG_ALLOW(LOCAL,LOG_TRACE," [PID %lld]Traversal Initiated at : i = %d, j = %d, k = %d.\n",(long long)particle->PID,idx,idy,idz); 
     
     // --- 2. Main Walking Search Loop ---
     while (!search_concluded && traversal_steps < MAX_TRAVERSAL) {
@@ -1276,7 +1276,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         PetscMPIInt owner_rank;
         ierr = FindOwnerOfCell(user, idx, idy, idz, &owner_rank); CHKERRQ(ierr);
 
-	LOG_ALLOW(LOCAL,LOG_DEBUG," [PID %ld] Owner rank : %d.\n",particle->PID,owner_rank);
+	LOG_ALLOW(LOCAL,LOG_TRACE," [PID %ld] Owner rank : %d.\n",particle->PID,owner_rank);
 	
         // Always update the particle's cell index. It's a good guess for the receiving rank.
         particle->cell[0] = idx; particle->cell[1] = idy; particle->cell[2] = idz;

@@ -543,7 +543,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
         // A preliminary check might still be wise if global IDs could be wild.
         // We rely on LocateAllParticles to provide valid global indices [0..IM-1] etc.
  
-	    LOG_LOOP_ALLOW(LOCAL,LOG_DEBUG,p,100,"[Rank %d CalcCount] Read CellID for p=%d, PID = %ld: (%ld, %ld, %ld)\n", rank, p,PID_arr[p],i, j, k);
+	    LOG_LOOP_ALLOW(LOCAL,LOG_VERBOSE,p,100,"[Rank %d] Read CellID for p=%d, PID = %ld: (%ld, %ld, %ld)\n", rank, p,PID_arr[p],i, j, k);
     
         // *** Access the local array using GLOBAL indices ***
         // DMDAVecGetArray allows this, mapping global (I,J,K) to the correct
@@ -980,7 +980,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
         cell_ID_field[3*p+1] = -1;
         cell_ID_field[3*p+2] = -1;
 
-        LOG_LOOP_ALLOW(LOCAL, LOG_DEBUG, p, (nlocal_current > 20 ? nlocal_current/10 : 1), // Sampled logging
+        LOG_LOOP_ALLOW(LOCAL, LOG_VERBOSE, p, (nlocal_current > 20 ? nlocal_current/10 : 1), // Sampled logging
             "Rank %d: PID %ld (idx %ld) RE-PLACED. CellOriginNode(locDAIdx):(%d,%d,%d). LogicCoords: (%.2e,%.2f,%.2f). PhysCoords: (%.6f,%.6f,%.6f).\n",
             rank, particleIDs[p], (long)p, 
             ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
@@ -1263,7 +1263,7 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
 	  // cell_field_after[3*p_idx+2] = -1; 
             newcomer_count++;
             
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d]: Flagged newcomer PID %ld at local index %d as NEEDS_LOCATION.\n",
+            LOG_ALLOW(LOCAL, LOG_VERBOSE, "[Rank %d]: Flagged newcomer PID %ld at local index %d as NEEDS_LOCATION.\n",
                       rank, current_pid, p_idx);
         }
     }
@@ -1393,7 +1393,7 @@ PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
         if (IsParticleInBox(&bboxlist[r], &particle->loc)) {
           PetscBool is_in = PETSC_TRUE;
 	  // This detailed, synchronized print will solve the mystery
-	  LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d] Checking PID %lld at (%.4f, %.4f, %.4f) against Rank %d's box: [(%.4f, %.4f, %.4f) to (%.4f, %.4f, %.4f)]. Result: %s\n",
+	  LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d] Checking PID %lld at (%.4f, %.4f, %.4f) against Rank %d's box: [(%.4f, %.4f, %.4f) to (%.4f, %.4f, %.4f)]. Result: %s\n",
 				  (int)rank, (long long)particle->PID,
 				  particle->loc.x, particle->loc.y, particle->loc.z,
 				  (int)r,
@@ -1505,8 +1505,8 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 
                 // OPTIMIZATION: Skip particles already settled in a previous pass of this do-while loop.
 
-	      LOG_ALLOW(LOCAL,LOG_DEBUG,
-			"p_idx=%d, PID=%ld, status=%d, cell=(%d, %d, %d)\n",
+	      LOG_ALLOW(LOCAL,LOG_VERBOSE,
+			"Local Particle idx=%d, PID=%ld, status=%d, cell=(%d, %d, %d)\n",
 			p_idx,
 			(long)pid_p[p_idx],
 			status_p[p_idx],
@@ -1515,7 +1515,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 			cell_p[3*p_idx+2]);
 
                 if (status_p[p_idx] == ACTIVE_AND_LOCATED) {
-		  LOG_ALLOW(LOCAL,LOG_DEBUG," [rank %d][PID %ld] skipped in pass %d as it is already located at (%d,%d,%d).\n",rank,pid_p[p_idx],passes,cell_p[3*p_idx],cell_p[3*p_idx + 1],cell_p[3*p_idx + 2]);
+		  LOG_ALLOW(LOCAL,LOG_VERBOSE," [rank %d][PID %ld] skipped in pass %d as it is already located at (%d,%d,%d).\n",rank,pid_p[p_idx],passes,cell_p[3*p_idx],cell_p[3*p_idx + 1],cell_p[3*p_idx + 2]);
                     continue;
                 }
 
@@ -1534,7 +1534,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 		// CASE 1: Particle has a valid prior cell index.
                 // It has moved, so we only need to run the robust walk from its last known location.
                 if (current_particle.cell[0] >= 0) {
-		  LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] has valid prior cell. Strategy: Robust Walk from previous cell.\n", current_particle.PID);
+		  LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] has valid prior cell. Strategy: Robust Walk from previous cell.\n", current_particle.PID);
 		  ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
                 } 
 
@@ -1574,14 +1574,14 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 		*/
                 // CASE 2: Particle is "lost" (cell = -1). Strategy: Guess -> Verify.
                 else {
-		  LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] has invalid cell. Strategy: Guess Owner -> Find Cell.\n",current_particle.PID);
+		  LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] has invalid cell. Strategy: Guess Owner -> Find Cell.\n",current_particle.PID);
                     
 		  PetscMPIInt guessed_owner_rank = MPI_PROC_NULL;
 		  ierr = GuessParticleOwnerWithBBox(user, &current_particle, bboxlist, &guessed_owner_rank); CHKERRQ(ierr);
 
 		  // If the guess finds a DIFFERENT rank, we can mark for migration and skip the walk.
 		  if (guessed_owner_rank != MPI_PROC_NULL && guessed_owner_rank != rank) {
-		    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] Guess SUCCESS: Found migration target Rank %d. Finalizing.\n", current_particle.PID, guessed_owner_rank);
+		    LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] Guess SUCCESS: Found migration target Rank %d. Finalizing.\n", current_particle.PID, guessed_owner_rank);
 		    final_status = MIGRATING_OUT;
 		    current_particle.destination_rank = guessed_owner_rank;
 		  } 

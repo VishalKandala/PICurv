@@ -185,9 +185,9 @@ PetscErrorCode LOG_CELL_VERTICES(const Cell *cell, PetscMPIInt rank)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "LOG_CELL_VERTICES - Input parameter 'cell' is NULL.");
     }
 
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "Rank %d, Cell Vertices:\n", rank);
+      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Rank %d, Cell Vertices:\n", rank);
         for(int i = 0; i < 8; i++){ 
-	  LOG_ALLOW(LOCAL,LOG_DEBUG, "  Vertex[%d]: (%.2f, %.2f, %.2f)\n", 
+	  LOG_ALLOW(LOCAL,LOG_VERBOSE, "  Vertex[%d]: (%.2f, %.2f, %.2f)\n", 
                        i, cell->vertices[i].x, cell->vertices[i].y, cell->vertices[i].z);
         }
 

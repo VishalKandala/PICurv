@@ -106,18 +106,21 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
     }
 
 
-      LOG_ALLOW(LOCAL, LOG_DEBUG,
+      LOG_ALLOW(LOCAL, LOG_TRACE,
       "[Rank %d] Check Service for Inlet %s:\n"
       "    - Local Domain: starts at cell (%d,%d,%d), has (%d,%d,%d) cells.\n"
-      "    - Global Domain: has (%d,%d,%d) nodes, so last cell is (%d,%d,%d).\n"
-      "    - Decision: %s\n",
+      "    - Global Domain: has (%d,%d,%d) nodes, so last cell is (%d,%d,%d).\n",
       rank_for_logging,
       BCFaceToString((BCFace)user->identifiedInletBCFace),
       owned_start_cell_i, owned_start_cell_j, owned_start_cell_k,
       num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k,
       IM_nodes_global, JM_nodes_global, KM_nodes_global,
-      last_global_cell_idx_i, last_global_cell_idx_j, last_global_cell_idx_k,
-      (*can_service_inlet_out) ? "CAN SERVICE" : "CANNOT SERVICE");
+      last_global_cell_idx_i, last_global_cell_idx_j, last_global_cell_idx_k);
+
+      LOG_ALLOW(LOCAL, LOG_DEBUG,"[Rank %d] Inlet Face %s Service Check Result: %s\n",
+                rank_for_logging,
+                BCFaceToString((BCFace)user->identifiedInletBCFace),
+                (*can_service_inlet_out) ? "CAN SERVICE" : "CANNOT SERVICE");
 
     PROFILE_FUNCTION_END;
 
@@ -215,8 +218,8 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
             break;
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d check for face %d: Result=%s. \n",
-        rank_for_logging, face_id, (*can_service_out ? "TRUE" : "FALSE"));
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d check for face %s: Result=%s. \n",
+        rank_for_logging, BCFaceToString((BCFace)face_id), (*can_service_out ? "TRUE" : "FALSE"));
 
     PROFILE_FUNCTION_END;
         
@@ -321,7 +324,7 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     // --- Step 2: Map global particle ID to a line and a point on that line ---
     if (simCtx->np == 0) PetscFunctionReturn(0); // Nothing to do
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Distributing %lld particles over %d lines on face %s.\n",
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Distributing %lld particles over %d lines on face %s.\n",
         rank_for_logging, (long long)simCtx->np, num_lines_total, face_name);
 
     const PetscInt points_per_line = PetscMax(1, simCtx->np / num_lines_total);
@@ -393,7 +396,7 @@ PetscErrorCode GetDeterministicFaceGridLocation(
             break;
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG,
+    LOG_ALLOW(LOCAL, LOG_TRACE,
         "[Rank %d] Particle %lld assigned to line %d (edge group %d, layer %d) with variable_coord=%.4f.\n"
         "    -> Global logical coords: (i,j,k) = (%.6f, %.6f, %.6f)\n",
         rank_for_logging, (long long)particle_global_id, line_index, edge_group, layer_index, variable_coord,
@@ -424,7 +427,7 @@ PetscErrorCode GetDeterministicFaceGridLocation(
         *placement_successful_out = PETSC_TRUE;
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG,
+    LOG_ALLOW(LOCAL, LOG_VERBOSE,
         "[Rank %d] Particle %lld placement %s. Local cell origin node: (I,J,K) = (%d,%d,%d), intra-cell logicals: (xi,eta,zta)=(%.6f,%.6f,%.6f)\n",
         rank_for_logging, (long long)particle_global_id,
         (*placement_successful_out ? "SUCCESSFUL" : "NOT ON THIS RANK"),
@@ -492,7 +495,7 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
     PetscInt last_global_cell_idx_j = (JM_nodes_global > 1) ? (JM_nodes_global - 2) : -1;
     PetscInt last_global_cell_idx_k = (KM_nodes_global > 1) ? (KM_nodes_global - 2) : -1;
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Inlet face %s. Owned cells(i,j,k):(%d,%d,%d). GlobNodes(I,J,K):(%d,%d,%d). Rank's DA node starts at (%d,%d,%d).\n",
+    LOG_ALLOW(LOCAL, LOG_TRACE, "Rank %d: Inlet face %s. Owned cells(i,j,k):(%d,%d,%d). GlobNodes(I,J,K):(%d,%d,%d). Rank's DA node starts at (%d,%d,%d).\n",
         rank_for_logging, user->identifiedInletBCFace, num_owned_cells_on_rank_i,num_owned_cells_on_rank_j,num_owned_cells_on_rank_k,
         IM_nodes_global,JM_nodes_global,KM_nodes_global, xs_gnode_rank,ys_gnode_rank,zs_gnode_rank);
 
@@ -615,7 +618,7 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
         *eta_metric_logic_out = PetscMin(PetscMax(0.0, *eta_metric_logic_out), 1.0 - eps);
     }
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Target Cell Node =(%d,%d,%d). (xi,et,zt)=(%.2e,%.2f,%.2f). \n",
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Rank %d: Target Cell Node =(%d,%d,%d). (xi,et,zt)=(%.2e,%.2f,%.2f). \n",
         rank_for_logging, *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
         *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
 
@@ -643,7 +646,7 @@ PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user)
       BCFace current_face = (BCFace)i;
       const char* face_str  = BCFaceToString(current_face);
       const char* bc_type_str = BCTypeToString(modern_type);
-      LOG_ALLOW(GLOBAL,LOG_DEBUG," for face %s(%d), legacy type = %d & modern type = %s .\n",face_str,i,user->bctype[i],bc_type_str);
+      LOG_ALLOW(GLOBAL,LOG_TRACE," for face %s(%d), legacy type = %d & modern type = %s .\n",face_str,i,user->bctype[i],bc_type_str);
     }
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"    -> Translation complete.\n");
     PROFILE_FUNCTION_END;
@@ -1622,8 +1625,8 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
   
   if (user->bctype[5]==OUTLET || user->bctype[5]==14 || user->bctype[5]==20) {
     lArea=0.;
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"+Zeta Outlet \n");
-     LOG_ALLOW(GLOBAL,LOG_DEBUG,"FluxOutSum before FormBCS applied = %.6f \n",simCtx->FluxOutSum);
+    LOG_ALLOW(GLOBAL,LOG_VERBOSE,"+Zeta Outlet \n");
+     LOG_ALLOW(GLOBAL,LOG_VERBOSE,"FluxOutSum before FormBCS applied = %.6f \n",simCtx->FluxOutSum);
     if (ze == mz) {
       //    k = ze-3;
       k=ze-1;
@@ -1653,7 +1656,7 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
    
     user->simCtx->AreaOutSum = AreaSum;
 
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"AreaOutSum = %.6f | FluxOutSum = %.6f \n",AreaSum,simCtx->FluxOutSum);
+    LOG_ALLOW(GLOBAL,LOG_VERBOSE,"AreaOutSum = %.6f | FluxOutSum = %.6f \n",AreaSum,simCtx->FluxOutSum);
     
     if (simCtx->block_number>1 && user->bctype[5]==14) {
       simCtx->FluxOutSum += user->FluxIntfcSum;
@@ -1666,7 +1669,7 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
     else
       ratio = (FluxIn - simCtx->FluxOutSum) / AreaSum;
    
-     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Ratio for momentum correction = %.6f \n",ratio);
+     LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Ratio for momentum correction = %.6f \n",ratio);
     
   /*   user->FluxOutSum += ratio*user->simCtx->AreaOutSum; */
     simCtx->FluxOutSum =0.0;
@@ -1703,7 +1706,7 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
     }
     
     MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Timestep = %d | FluxInSum = %.6f | FlucOutSum = %.6f | FluxIntfcSum = %.6f | FluxIntpSum = %.6f \n", simCtx->step, simCtx->FluxInSum, simCtx->FluxOutSum, user->FluxIntfcSum,user->FluxIntpSum);
+    LOG_ALLOW(GLOBAL,LOG_TRACE, "Timestep = %d | FluxInSum = %.6f | FlucOutSum = %.6f | FluxIntfcSum = %.6f | FluxIntpSum = %.6f \n", simCtx->step, simCtx->FluxInSum, simCtx->FluxOutSum, user->FluxIntfcSum,user->FluxIntpSum);
 
   } else if (user->bctype[5]==2) {
   /* Designed for driven cavity problem (top(k=kmax) wall moving)
@@ -1757,13 +1760,12 @@ if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
     if (zs==0) {
       k = 0;
       for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	 
-	  ubcs[k][j][i].x = ucat[k+1][j][i].x;
-	  ubcs[k][j][i].y = ucat[k+1][j][i].y;
-	  ubcs[k][j][i].z = ucat[k+1][j][i].z;
-	  ucont[k][j][i].z = (ubcs[k][j][i].z+ratio) * zet[k][j][i].z;
-	}
+	      for (i=lxs; i<lxe; i++) {
+          ubcs[k][j][i].x = ucat[k+1][j][i].x;
+          ubcs[k][j][i].y = ucat[k+1][j][i].y;
+          ubcs[k][j][i].z = ucat[k+1][j][i].z;
+          ucont[k][j][i].z = (ubcs[k][j][i].z+ratio) * zet[k][j][i].z;
+	      }
       }
     }
   }

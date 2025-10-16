@@ -155,6 +155,12 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
             char *in_field = strtok(args_str, ">");
             char *out_field = strtok(NULL, ">");
             if (!in_field || !out_field) SETERRQ(PETSC_COMM_SELF, 1, "CellToNodeAverage requires 'in>out' syntax (e.g., P>P_nodal).");
+            if(strcmp(in_field,out_field)==0) SETERRQ(PETSC_COMM_SELF, 1, "CellToNodeAverage input and output fields must be different.");
+            if(user->simCtx->np == 0 && (strcmp(out_field,"Psi_nodal")==0 || strcmp(in_field,"Psi_nodal")==0)){
+                LOG(GLOBAL,LOG_WARNING,"CellToNodeAverage cannot process 'Psi_nodal' when no particles are present in the simulation.\n");
+                step_token = strtok_r(NULL, ";", &step_saveptr);
+                continue;
+            }
             TrimWhitespace(in_field); TrimWhitespace(out_field);
             ierr = ComputeNodalAverage(user, in_field, out_field); CHKERRQ(ierr);
         }
@@ -183,6 +189,31 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
 
 #undef __FUNCT__
 #define __FUNCT__ "WriteEulerianFile"
+/**
+ * @brief Writes Eulerian field data to a VTK structured grid file (.vts) for visualization.
+ *
+ * This function exports instantaneous Eulerian field data (such as pressure, velocity, 
+ * Q-criterion, and particle concentration) to a VTK structured grid file for the specified 
+ * time step. The output includes subsampled interior grid coordinates and point data fields 
+ * as specified in the PostProcessParams configuration.
+ *
+ * The function performs the following steps:
+ * 1. Initializes VTK metadata structure
+ * 2. Prepares output coordinates (subsampled interior grid)
+ * 3. Gathers and prepares requested field data on rank 0
+ * 4. Writes the VTK structured grid file with the naming convention: {prefix}_{ti:05d}.vts
+ *
+ * Only fields listed in pps->output_fields_instantaneous are written. If the field list is 
+ * empty, the function returns immediately without creating a file.
+ *
+ * @note Fields containing particle data (e.g., Psi_nodal) are automatically skipped when 
+ *       no particles are present in the simulation (simCtx->np == 0).
+ *
+ * @param user  The UserCtx containing simulation data and field vectors to be output.
+ * @param pps   The PostProcessParams struct containing output configuration (field list, prefix).
+ * @param ti    The time index/step number used for file naming.
+ * @return PetscErrorCode indicating success or failure.
+ */
 PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt ti)
 {
     PetscErrorCode ierr;
@@ -230,6 +261,11 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
             } else if (!strcasecmp(field_name, "Qcrit")) {
                 field_vec = user->Qcrit;    num_components = 1;
             } else if (!strcasecmp(field_name, "Psi_nodal")){
+                if(user->simCtx->np==0){
+                    LOG_ALLOW(LOCAL, LOG_WARNING, "Field 'Psi_nodal' requested but no particles are present. Skipping.\n");
+                    field_name = strtok(NULL, ",");
+                    continue;
+                }
                 field_vec = user->Psi_nodal; num_components = 1;
             } else {
                 LOG_ALLOW(LOCAL, LOG_WARNING, "Field '%s' not recognized. Skipping.\n", field_name);

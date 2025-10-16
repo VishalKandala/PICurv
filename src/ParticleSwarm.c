@@ -421,7 +421,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
 
         // --- 5.d. Logging for this particle ---
         if (particle_placed_by_this_rank) {
-            LOG_LOOP_ALLOW(LOCAL, LOG_DEBUG, idx, user->simCtx->LoggingFrequency,//(particlesPerProcess > 20 ? particlesPerProcess/10 : 1), 
+            LOG_LOOP_ALLOW(LOCAL, LOG_VERBOSE, idx, user->simCtx->LoggingFrequency,//(particlesPerProcess > 20 ? particlesPerProcess/10 : 1), 
                 "Rank %d: PID %lld (idx %ld) PLACED. Mode %s. Embedded Cell:(%d,%d,%d). Logical Coords: (%.2e,%.2f,%.2f).\n Final Coords: (%.6f,%.6f,%.6f).\n",
                 rank, (long long)particleIDs[p], (long)p, ParticleInitializationToString(simCtx->ParticleInitialization), 
                 ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
@@ -541,7 +541,7 @@ static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, const char *field
         for (PetscInt d = 0; d < fieldDim; d++) {
     disp_data[d] = fieldData[fieldDim* p + d];
         }
-        LOG_LOOP_ALLOW(LOCAL,LOG_DEBUG,p, 100," Particle %d: %s[%d] = [%.6f, ...,%.6f].\n", p,fieldName,fieldDim,disp_data[0],disp_data[fieldDim-1]);
+        LOG_LOOP_ALLOW(LOCAL,LOG_VERBOSE,p, 100," Particle %d: %s[%d] = [%.6f, ...,%.6f].\n", p,fieldName,fieldDim,disp_data[0],disp_data[fieldDim-1]);
     }
     
     // Restore the swarm field pointer
@@ -850,47 +850,47 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     }
     
     // logging the start of particle initialization
-    LOG_ALLOW(LOCAL,LOG_INFO, "[Rank %d]Unpacking Particle [%d] with PID: %ld.\n",rank, i, PIDs[i]);
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d]Unpacking Particle [%d] with PID: %ld.\n",rank, i, PIDs[i]);
     
     // Initialize PID
     particle->PID = PIDs[i];
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d]Particle [%d] PID set to: %ld.\n", rank,i, particle->PID);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] PID set to: %ld.\n", rank,i, particle->PID);
     
     // Initialize weights
     particle->weights.x = weights[3 * i];
     particle->weights.y = weights[3 * i + 1];
     particle->weights.z = weights[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d]Particle [%d] weights set to: (%.6f, %.6f, %.6f).\n", 
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] weights set to: (%.6f, %.6f, %.6f).\n", 
         rank,i, particle->weights.x, particle->weights.y, particle->weights.z);
     
     // Initialize locations
     particle->loc.x = positions[3 * i];
     particle->loc.y = positions[3 * i + 1];
     particle->loc.z = positions[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d]Particle [%d] location set to: (%.6f, %.6f, %.6f).\n", 
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] location set to: (%.6f, %.6f, %.6f).\n", 
         rank,i, particle->loc.x, particle->loc.y, particle->loc.z);
     
     // Initialize velocities (assuming default zero; modify if necessary)
     particle->vel.x = velocities[3 * i];
     particle->vel.y = velocities[3 * i + 1];
     particle->vel.z = velocities[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d]Particle [%d] velocities unpacked to: [%.6f,%.6f,%.6f].\n",rank, i,particle->vel.x,particle->vel.y,particle->vel.z);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] velocities unpacked to: [%.6f,%.6f,%.6f].\n",rank, i,particle->vel.x,particle->vel.y,particle->vel.z);
     
     // Initialize cell indices
     particle->cell[0] = cellIndices[3 * i];
     particle->cell[1] = cellIndices[3 * i + 1];
     particle->cell[2] = cellIndices[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d]Particle [%d] cell indices set to: [%d, %d, %d].\n",rank,i, particle->cell[0], particle->cell[1], particle->cell[2]);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] cell indices set to: [%d, %d, %d].\n",rank,i, particle->cell[0], particle->cell[1], particle->cell[2]);
 
     particle->location_status = (ParticleLocationStatus)LocStatus[i];
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d]Particle [%d] Status set to: %d.\n",rank, i, particle->location_status);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] Status set to: %d.\n",rank, i, particle->location_status);
 
     // The destination_rank is only set by the location search, not read from the swarm,
     // so we initialize it to a known invalid state.
     particle->destination_rank = MPI_PROC_NULL;
     
     // logging the completion of particle initialization
-    LOG_ALLOW(LOCAL,LOG_INFO,"[Rank %d]Completed initialization of Particle [%d]. \n", rank,i);
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d]Completed initialization of Particle [%d]. \n", rank,i);
     
 
     PROFILE_FUNCTION_END;
@@ -925,28 +925,28 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
     }
     
     // logging the start of swarm fields update
-    LOG_ALLOW(LOCAL,LOG_INFO,"Updating DMSwarm fields for Particle [%d].\n", i);
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"Updating DMSwarm fields for Particle [%d].\n", i);
     
     // Update weights
     weights[3 * i]     = particle->weights.x;
     weights[3 * i + 1] = particle->weights.y;
     weights[3 * i + 2] = particle->weights.z;
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Updated weights for Particle [%d]: (%.6f, %.6f, %.6f).\n", 
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"Updated weights for Particle [%d]: (%.6f, %.6f, %.6f).\n", 
         i, weights[3 * i], weights[3 * i + 1], weights[3 * i + 2]);
     
     // Update cell indices
     cellIndices[3 * i]     = particle->cell[0];
     cellIndices[3 * i + 1] = particle->cell[1];
     cellIndices[3 * i + 2] = particle->cell[2];
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Updated cell indices for Particle [%d]: [%d, %d, %d].\n", 
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "Updated cell indices for Particle [%d]: [%d, %d, %d].\n", 
         i, cellIndices[3 * i], cellIndices[3 * i + 1], cellIndices[3 * i + 2]);
 
     status_field[i] = particle->location_status;
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Updated location status for Particle [%d]: [%d].\n", 
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "Updated location status for Particle [%d]: [%d].\n", 
         i, status_field[i]);
     
     // logging the completion of swarm fields update
-    LOG_ALLOW(LOCAL,LOG_INFO,"Completed updating DMSwarm fields for Particle [%d].\n", i);
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"Completed updating DMSwarm fields for Particle [%d].\n", i);
     
 
     PROFILE_FUNCTION_END;
@@ -1000,8 +1000,8 @@ PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *p
     const Cmpnts max_coords = bbox->max_coords;
 
     // LOG_ALLOW the particle location and bounding box coordinates for debugging
-    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Particle PID %ld location: (%.6f, %.6f, %.6f).\n",particle->PID, loc.x, loc.y, loc.z);
-    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "BoundingBox min_coords: (%.6f, %.6f, %.6f), max_coords: (%.6f, %.6f, %.6f).\n", 
+    LOG_ALLOW_SYNC(LOCAL, LOG_VERBOSE, "Particle PID %ld location: (%.6f, %.6f, %.6f).\n",particle->PID, loc.x, loc.y, loc.z);
+    LOG_ALLOW_SYNC(LOCAL, LOG_VERBOSE, "BoundingBox min_coords: (%.6f, %.6f, %.6f), max_coords: (%.6f, %.6f, %.6f).\n", 
     min_coords.x, min_coords.y, min_coords.z, max_coords.x, max_coords.y, max_coords.z);
 
     // Check if the particle's location is within the bounding box
@@ -1009,13 +1009,13 @@ PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *p
         (loc.y >= min_coords.y && loc.y <= max_coords.y) &&
         (loc.z >= min_coords.z && loc.z <= max_coords.z)) {
         // Particle is inside the bounding box
-        LOG_ALLOW_SYNC(LOCAL,LOG_DEBUG, "Particle PID %ld is inside the bounding box.\n",particle->PID);
+        LOG_ALLOW_SYNC(LOCAL,LOG_VERBOSE, "Particle PID %ld is inside the bounding box.\n",particle->PID);
         PROFILE_FUNCTION_END;
         return PETSC_TRUE;
     }
 
     // Particle is outside the bounding box
-    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG,"Particle PID %ld is outside the bounding box.\n",particle->PID);
+    LOG_ALLOW_SYNC(LOCAL, LOG_VERBOSE,"Particle PID %ld is outside the bounding box.\n",particle->PID);
     PROFILE_FUNCTION_END;
     return PETSC_FALSE;
 }
@@ -1058,7 +1058,7 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
     }
 
     // LOG_ALLOW the input distances
-    LOG_ALLOW(LOCAL, LOG_DEBUG,
+    LOG_ALLOW(LOCAL, LOG_VERBOSE,
         "Calculating weights with distances: "
         "[LEFT=%f, RIGHT=%f, BOTTOM=%f, TOP=%f, FRONT=%f, BACK=%f].\n",
         d[LEFT], d[RIGHT], d[BOTTOM], d[TOP], d[FRONT], d[BACK]);
@@ -1069,7 +1069,7 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
     particle->weights.z = d[BACK] / (d[FRONT] + d[BACK]);
 
     // LOG_ALLOW the updated weights
-    LOG_ALLOW(LOCAL,LOG_DEBUG,
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,
         "Updated particle weights: x=%f, y=%f, z=%f.\n",
         particle->weights.x, particle->weights.y, particle->weights.z);
 

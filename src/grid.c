@@ -139,7 +139,7 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
         LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: [Aligning DM] for block %d level %d (size %dx%dx%d) with level %d\n", simCtx->rank, user->_this, user->thislevel, user->IM, user->JM, user->KM, coarse_user->thislevel);
 
         DMDAGetInfo(coarse_user->da, NULL, NULL, NULL, NULL, &m, &n, &p, NULL, NULL, NULL, NULL, NULL, NULL);
-        LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   Coarse grid processor decomposition is %d x %d x %d\n", simCtx->rank, m, n, p);
+        LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d:   Coarse grid processor decomposition is %d x %d x %d\n", simCtx->rank, m, n, p);
 
         // This is the core logic from MGDACreate to ensure processor alignment.
         PetscInt *lx_contrib, *ly_contrib, *lz_contrib;
@@ -186,7 +186,7 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
             else if (ze == mz) lz_contrib[proc_k] = user->KM + 1 - (2 * zs - 1);
             else lz_contrib[proc_k] = (ze - zs) * 2;
         }
-        LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   Calculated this rank's node contribution to fine grid: lx=%d, ly=%d, lz=%d\n", simCtx->rank, lx_contrib[proc_i], ly_contrib[proc_j], lz_contrib[proc_k]);
+        LOG_ALLOW_SYNC(LOCAL, LOG_VERBOSE, "Rank %d:   Calculated this rank's node contribution to fine grid: lx=%d, ly=%d, lz=%d\n", simCtx->rank, lx_contrib[proc_i], ly_contrib[proc_j], lz_contrib[proc_k]);
 
         // Allocate the final distribution arrays and Allreduce to get the global distribution
         ierr = PetscMalloc3(m, &lx, n, &ly, p, &lz); CHKERRQ(ierr);
@@ -268,7 +268,7 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
             user_coarse->JM = user_fine->jsc ? user_fine->JM : (user_fine->JM + 1) / 2;
             user_coarse->KM = user_fine->ksc ? user_fine->KM : (user_fine->KM + 1) / 2;
 
-            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Block %d, Level %d dims calculated: %d x %d x %d\n",
+            LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Block %d, Level %d dims calculated: %d x %d x %d\n",
                       simCtx->rank, bi, level, user_coarse->IM, user_coarse->JM, user_coarse->KM);
 
             // Validation check from legacy MGDACreate to ensure coarsening is possible
@@ -354,8 +354,8 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
     for (PetscInt bi = 0; bi < nblk; bi++) {
         UserCtx *fine_user = &usermg->mgctx[usermg->mglevels - 1].user[bi];
         ierr = SetFinestLevelCoordinates(fine_user); CHKERRQ(ierr);
-        if(get_log_level()==LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
-            LOG_ALLOW(GLOBAL,LOG_DEBUG,"The Finest level coordinates for block %d have been set.\n",bi);
+        LOG_ALLOW(GLOBAL,LOG_TRACE,"The Finest level coordinates for block %d have been set.\n",bi);
+        if(get_log_level()==LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
             ierr = LOG_FIELD_MIN_MAX(fine_user,"Coordinates");
         }
     }
@@ -369,8 +369,8 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
             UserCtx *fine_user   = &usermg->mgctx[level + 1].user[bi];
             ierr = RestrictCoordinates(coarse_user, fine_user); CHKERRQ(ierr);
 
-            if(get_log_level==LOG_DEBUG && is_function_allowed(__FUNCT__)==true) {
-                LOG_ALLOW(GLOBAL,LOG_DEBUG,"Coordinates restricted to block %d level %d.\n",bi,level);
+            LOG_ALLOW(GLOBAL,LOG_TRACE,"Coordinates restricted to block %d level %d.\n",bi,level);
+            if(get_log_level==LOG_VERBOSE && is_function_allowed(__FUNCT__)==true) {
                 ierr = LOG_FIELD_MIN_MAX(coarse_user,"Coordinates");
             }
         }
@@ -534,7 +534,7 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     PetscInt ys = info.ys, ye = info.ys + info.ym;
     PetscInt zs = info.zs, ze = info.zs + info.zm;
 
-    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Local Info for block %d - X range - [%d,%d], Y range - [%d,%d], Z range - [%d,%d]\n",
+    LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Local Info for block %d - X range - [%d,%d], Y range - [%d,%d], Z range - [%d,%d]\n",
               user->simCtx->rank, user->_this, xs, xe, ys, ye, zs, ze);
     ierr = VecSet(lCoor, 0.0); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
@@ -849,7 +849,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     minCoords.x = minCoords.y = minCoords.z = PETSC_MAX_REAL;
     maxCoords.x = maxCoords.y = maxCoords.z = PETSC_MIN_REAL;
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Grid indices (Including Ghosts): xs=%d, xe=%d, ys=%d, ye=%d, zs=%d, ze=%d.\n",rank, xs, xe, ys, ye, zs, ze);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Grid indices (Including Ghosts): xs=%d, xe=%d, ys=%d, ye=%d, zs=%d, ze=%d.\n",rank, xs, xe, ys, ye, zs, ze);
 
     // Iterate over the local grid to find min and max coordinates
     for (k = zs; k < ze; k++) {
@@ -882,7 +882,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     maxCoords.y =  maxCoords.y + BBOX_TOLERANCE;
     maxCoords.z =  maxCoords.z + BBOX_TOLERANCE;
 
-    LOG_ALLOW(LOCAL,LOG_INFO," Tolerance added to the limits: %.8e .\n",(PetscReal)BBOX_TOLERANCE);
+    LOG_ALLOW(LOCAL,LOG_DEBUG," Tolerance added to the limits: %.8e .\n",(PetscReal)BBOX_TOLERANCE);
        
     // Log the computed min and max coordinates
      LOG_ALLOW(LOCAL, LOG_INFO,"[Rank %d] Bounding Box Ranges = X[%.6f, %.6f], Y[%.6f,%.6f], Z[%.6f, %.6f].\n",rank,minCoords.x, maxCoords.x,minCoords.y, maxCoords.y, minCoords.z, maxCoords.z);
@@ -948,7 +948,7 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
 
   /* Ensure everyone is synchronized before the gather */
   MPI_Barrier(PETSC_COMM_WORLD);
-  LOG_ALLOW_SYNC(GLOBAL, LOG_INFO,
+  LOG_ALLOW_SYNC(GLOBAL, LOG_VERBOSE,
     "Rank %d: about to MPI_Gather(localBBox)\n", rank);
 
   /* Allocate on root */
@@ -965,7 +965,7 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
   CHKERRMPI(ierr);
 
   MPI_Barrier(PETSC_COMM_WORLD);
-  LOG_ALLOW_SYNC(GLOBAL, LOG_INFO,
+  LOG_ALLOW_SYNC(GLOBAL, LOG_VERBOSE,
     "Rank %d: completed MPI_Gather(localBBox)\n", rank);
 
   /* Return result */
@@ -1016,7 +1016,7 @@ PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
   }
 
   MPI_Barrier(PETSC_COMM_WORLD);
-  LOG_ALLOW_SYNC(GLOBAL, LOG_INFO,
+  LOG_ALLOW_SYNC(GLOBAL, LOG_VERBOSE,
     "Rank %d: about to MPI_Bcast(%d boxes)\n", rank, size);
 
   /* Collective: every rank must call */
@@ -1025,7 +1025,7 @@ PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
   CHKERRMPI(ierr);
 
   MPI_Barrier(PETSC_COMM_WORLD);
-  LOG_ALLOW_SYNC(GLOBAL, LOG_INFO,
+  LOG_ALLOW_SYNC(GLOBAL, LOG_VERBOSE,
     "Rank %d: completed MPI_Bcast(%d boxes)\n", rank, size);
 
 
@@ -1179,8 +1179,8 @@ PetscErrorCode CalculateInletCenter(UserCtx *user)
         user->simCtx->CMx_c = global_sum[0] / global_n_points;
         user->simCtx->CMy_c = global_sum[1] / global_n_points;
         user->simCtx->CMz_c = global_sum[2] / global_n_points;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Calculated inlet center for Face %d: (x=%.4f, y=%.4f, z=%.4f)\n", 
-                  inlet_face_id, user->simCtx->CMx_c, user->simCtx->CMy_c, user->simCtx->CMz_c);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Calculated inlet center for Face %s: (x=%.4f, y=%.4f, z=%.4f)\n", 
+        BCFaceToString((BCFace)inlet_face_id), user->simCtx->CMx_c, user->simCtx->CMy_c, user->simCtx->CMz_c);
     } else {
          LOG_ALLOW(GLOBAL, LOG_WARNING, "WARNING: Inlet face was identified but no grid points found on it. Center not calculated.\n");
     }

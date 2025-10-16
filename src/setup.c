@@ -788,7 +788,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Uch); CHKERRQ(ierr);
 	    ierr = VecSet(user->Bcs.Uch, 0.0); CHKERRQ(ierr);
 	    
-      if(level == usermg->mglevels -1){
+      if(level == usermg->mglevels - 1){
         if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
                 LOG_ALLOW(LOCAL, LOG_DEBUG, "Post-processor mode detected. Allocating derived field vectors.\n");
 
@@ -800,9 +800,16 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 
                 ierr = VecDuplicate(user->P, &user->Qcrit); CHKERRQ(ierr);
                 ierr = VecSet(user->Qcrit, 0.0); CHKERRQ(ierr);
-                
+
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "Derived field vectors P_nodal, Ucat_nodal, and Qcrit created.\n");
+
+                if(simCtx->np>0){
                 ierr = VecDuplicate(user->Psi, &user->Psi_nodal); CHKERRQ(ierr);
                 ierr = VecSet(user->Psi_nodal, 0.0); CHKERRQ(ierr);
+
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "Derived field vector Psi_nodal created for particle scalar property.\n");
+
+                }
         }else{
                 user->P_nodal = NULL;
                 user->Ucat_nodal = NULL;
@@ -2308,7 +2315,7 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
     ierr = PetscRandomSetInterval(*randx, user->bbox.min_coords.x, user->bbox.max_coords.x); CHKERRQ(ierr);
     ierr = PetscRandomSetSeed(*randx, rank + 12345); CHKERRQ(ierr);  // Unique seed per rank
     ierr = PetscRandomSeed(*randx); CHKERRQ(ierr);
-    LOG_ALLOW_SYNC(LOCAL,LOG_DEBUG, "[Rank %d]Initialized RNG for X-axis.\n",rank);
+    LOG_ALLOW_SYNC(LOCAL,LOG_VERBOSE, "[Rank %d]Initialized RNG for X-axis.\n",rank);
 
     // Initialize RNG for y-coordinate
     ierr = PetscRandomCreate(PETSC_COMM_SELF, randy); CHKERRQ(ierr);
@@ -2316,7 +2323,7 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
     ierr = PetscRandomSetInterval(*randy, user->bbox.min_coords.y, user->bbox.max_coords.y); CHKERRQ(ierr);
     ierr = PetscRandomSetSeed(*randy, rank + 67890); CHKERRQ(ierr);  // Unique seed per rank
     ierr = PetscRandomSeed(*randy); CHKERRQ(ierr);
-    LOG_ALLOW_SYNC(LOCAL,LOG_DEBUG, "[Rank %d]Initialized RNG for Y-axis.\n",rank);
+    LOG_ALLOW_SYNC(LOCAL,LOG_VERBOSE, "[Rank %d]Initialized RNG for Y-axis.\n",rank);
 
     // Initialize RNG for z-coordinate
     ierr = PetscRandomCreate(PETSC_COMM_SELF, randz); CHKERRQ(ierr);
@@ -2324,7 +2331,7 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
     ierr = PetscRandomSetInterval(*randz, user->bbox.min_coords.z, user->bbox.max_coords.z); CHKERRQ(ierr);
     ierr = PetscRandomSetSeed(*randz, rank + 54321); CHKERRQ(ierr);  // Unique seed per rank
     ierr = PetscRandomSeed(*randz); CHKERRQ(ierr);
-    LOG_ALLOW_SYNC(LOCAL,LOG_DEBUG, "[Rank %d]Initialized RNG for Z-axis.\n",rank);
+    LOG_ALLOW_SYNC(LOCAL,LOG_VERBOSE, "[Rank %d]Initialized RNG for Z-axis.\n",rank);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -2361,7 +2368,7 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
     ierr = PetscRandomSetInterval(*rand_logic_i, 0.0, 1.0); CHKERRQ(ierr); // Key change: [0,1)
     ierr = PetscRandomSetSeed(*rand_logic_i, rank + 202401); CHKERRQ(ierr); // Unique seed
     ierr = PetscRandomSeed(*rand_logic_i); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d] Initialized RNG for i-logical dimension [0,1).\n",rank);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d] Initialized RNG for i-logical dimension [0,1).\n",rank);
 
     // --- RNG for j-logical dimension ---
     ierr = PetscRandomCreate(PETSC_COMM_SELF, rand_logic_j); CHKERRQ(ierr);
@@ -2369,7 +2376,7 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
     ierr = PetscRandomSetInterval(*rand_logic_j, 0.0, 1.0); CHKERRQ(ierr); // Key change: [0,1)
     ierr = PetscRandomSetSeed(*rand_logic_j, rank + 202402); CHKERRQ(ierr);
     ierr = PetscRandomSeed(*rand_logic_j); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d] Initialized RNG for j-logical dimension [0,1).\n",rank);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d] Initialized RNG for j-logical dimension [0,1).\n",rank);
 
     // --- RNG for k-logical dimension ---
     ierr = PetscRandomCreate(PETSC_COMM_SELF, rand_logic_k); CHKERRQ(ierr);
@@ -2377,7 +2384,7 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
     ierr = PetscRandomSetInterval(*rand_logic_k, 0.0, 1.0); CHKERRQ(ierr); // Key change: [0,1)
     ierr = PetscRandomSetSeed(*rand_logic_k, rank + 202403); CHKERRQ(ierr);
     ierr = PetscRandomSeed(*rand_logic_k); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d] Initialized RNG for k-logical dimension [0,1).\n",rank);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d] Initialized RNG for k-logical dimension [0,1).\n",rank);
 
 
     PROFILE_FUNCTION_END;
