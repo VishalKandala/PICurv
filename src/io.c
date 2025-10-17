@@ -1051,15 +1051,17 @@ PetscErrorCode ReadStatisticalFields(UserCtx *user,PetscInt ti)
 PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
 {
     PetscErrorCode ierr;
-    Vec Cs;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read LES fields.\n");
 
-    VecDuplicate(user->P, &Cs);
-    ierr = ReadOptionalField(user, "cs", "Smagorinsky Constant (Cs)", Cs, ti, "dat"); CHKERRQ(ierr);
-    DMGlobalToLocalBegin(user->da, Cs, INSERT_VALUES, user->lCs);
-    DMGlobalToLocalEnd(user->da, Cs, INSERT_VALUES, user->lCs);
-    VecDestroy(&Cs);
+    ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "cs", "Smagorinsky Constant (Cs)", user->CS, ti, "dat"); CHKERRQ(ierr);
+
+    DMGlobalToLocalBegin(user->da, user->CS, INSERT_VALUES, user->lCs);
+    DMGlobalToLocalEnd(user->da, user->CS, INSERT_VALUES, user->lCs);
+    
+    DMGlobalToLocalBegin(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t);
+    DMGlobalToLocalEnd(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading LES fields.\n");
 
@@ -1084,11 +1086,15 @@ PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read RANS fields.\n");
 
     ierr = ReadOptionalField(user, "kfield", "K-Omega RANS", user->K_Omega, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, "dat"); CHKERRQ(ierr);
 
     VecCopy(user->K_Omega, user->K_Omega_o);
 
     DMGlobalToLocalBegin(user->fda2, user->K_Omega, INSERT_VALUES, user->lK_Omega);
     DMGlobalToLocalEnd(user->fda2, user->K_Omega, INSERT_VALUES, user->lK_Omega);
+
+    DMGlobalToLocalBegin(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t);
+    DMGlobalToLocalEnd(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t);
 
     DMGlobalToLocalBegin(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o);
     DMGlobalToLocalEnd(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o);
@@ -1510,17 +1516,21 @@ PetscErrorCode WriteStatisticalFields(UserCtx *user)
 PetscErrorCode WriteLESFields(UserCtx *user)
 {
     PetscErrorCode ierr;
-    Vec Cs;
 
     SimCtx *simCtx = user->simCtx;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write LES fields.\n");
 
-    VecDuplicate(user->P, &Cs);
-    DMLocalToGlobalBegin(user->da, user->lCs, INSERT_VALUES, Cs);
-    DMLocalToGlobalEnd(user->da, user->lCs, INSERT_VALUES, Cs);
-    ierr = WriteFieldData(user, "cs", Cs, simCtx->step, "dat"); CHKERRQ(ierr);
-    VecDestroy(&Cs);
+
+    DMLocalToGlobalBegin(user->da, user->lCs, INSERT_VALUES, user->CS);
+    DMLocalToGlobalEnd(user->da, user->lCs, INSERT_VALUES, user->CS);
+
+    DMLocalToGlobalBegin(user->da, user->lNu_t, INSERT_VALUES, user->Nu_t);
+    DMLocalToGlobalEnd(user->da, user->lNu_t, INSERT_VALUES, user->Nu_t);
+
+    ierr = WriteFieldData(user, "Nu_t", user->Nu_t, simCtx->step, "dat"); CHKERRQ(ierr);
+    ierr = WriteFieldData(user, "cs", user->CS, simCtx->step, "dat"); CHKERRQ(ierr);
+   
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing LES fields.\n");
 
@@ -2033,6 +2043,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
 	    ierr = PetscPrintf(PETSC_COMM_WORLD," CFL Number                  : %le\n", simCtx->cfl); CHKERRQ(ierr);
 	    ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESFlagToString(simCtx->les)); CHKERRQ(ierr);
         if (simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) {
             if (user->inletFaceDefined) {
                 ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : %s (Enum Val: %d)\n", BCFaceToString(user->identifiedInletBCFace), user->identifiedInletBCFace); CHKERRQ(ierr);

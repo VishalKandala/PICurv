@@ -3,6 +3,7 @@
         "variables.h": "c",
         "postprocessing_kernels.h": "c",
         "solvers.h": "c",
-        "implicitsolvers.h": "c"
+        "implicitsolvers.h": "c",
+        "rhs.h": "c"
     }
 }

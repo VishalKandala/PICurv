@@ -604,7 +604,7 @@ typedef struct SimCtx {
     //================ Group 8: Turbulence Modeling (LES/RANS) ================
     PetscInt  les, rans;
     PetscInt  wallfunction, mixed, clark, dynamic_freq;
-    PetscReal max_cs;
+    PetscReal max_cs,Const_CS;
     PetscInt  testfilter_ik, testfilter_1d, i_homo_filter, j_homo_filter, k_homo_filter;
     PetscBool  averaging;
   

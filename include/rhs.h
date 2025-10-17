@@ -2,15 +2,8 @@
 #define RHS_H
 
 #include "variables.h" // Provides definitions for UserCtx, SimCtx, IBMNodes, etc.
-#include "logging.h" 
-/*================================================================================*
- *                       CORE NUMERICAL KERNELS                                   *
- *================================================================================*/
-PetscErrorCode CalculateCovariantMetrics(double g[3][3], double G[3][3]);
-
-PetscErrorCode CalculateNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak); 
-
-PetscErrorCode Calculatedxdydz(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz);
+#include "logging.h"
+#include "Metric.h" 
 
 PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc);
 

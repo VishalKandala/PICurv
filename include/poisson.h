@@ -2,7 +2,7 @@
 #define POISSON_H
 
 #include "variables.h" // Provides definitions for UserCtx, UserMG, Vec, Mat, etc.
-#include "rhs.h"       // Provides some primitives necessary.
+#include "Metric.h"       // Provides some primitives necessary.
 
 /*================================================================================*
  *                     HIGH-LEVEL POISSON SOLVER                                  *

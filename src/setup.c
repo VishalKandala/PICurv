@@ -127,6 +127,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->averaging = PETSC_FALSE; simCtx->les = 0; simCtx->rans = 0;
     simCtx->wallfunction = 0; simCtx->mixed = 0; simCtx->clark = 0;
     simCtx->dynamic_freq = 1; simCtx->max_cs = 0.5;
+    simCtx->Const_CS = 0.03;
     simCtx->testfilter_ik = 0; simCtx->testfilter_1d = 0;
     simCtx->i_homo_filter = 0; simCtx->j_homo_filter = 0; simCtx->k_homo_filter = 0;
 
@@ -400,6 +401,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-clark", &simCtx->clark, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-dynamic_freq", &simCtx->dynamic_freq, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-max_cs", &simCtx->max_cs, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-const_cs", &simCtx->Const_CS, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-testfilter_ik", &simCtx->testfilter_ik, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-testfilter_1d", &simCtx->testfilter_1d, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-i_homo_filter", &simCtx->i_homo_filter, NULL); CHKERRQ(ierr);
@@ -765,11 +767,16 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             if (simCtx->les || simCtx->rans) {
                 ierr = DMCreateGlobalVector(user->da, &user->Nu_t); CHKERRQ(ierr); ierr = VecSet(user->Nu_t, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lNu_t); CHKERRQ(ierr); ierr = VecSet(user->lNu_t, 0.0); CHKERRQ(ierr);
-		
-	    // Add K_Omega, CS, etc. here as needed
+                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Turbulence viscosity (Nu_t) vectors created for LES/RANS model.\n");
+                if(simCtx->les){ 
+                ierr = DMCreateGlobalVector(user->da,&user->CS); CHKERRQ(ierr); ierr = VecSet(user->CS,0.0); CHKERRQ(ierr);
+                ierr = DMCreateLocalVector(user->da,&user->lCs); CHKERRQ(ierr); ierr = VecSet(user->lCs,0.0); CHKERRQ(ierr);
+                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Smagorinsky constant (CS) vectors created for LES model.\n");
+                }
+	              // Add K_Omega etc. here as needed
 
-            // Note: Add any other vectors from the legacy MG_Initial here as needed.
-            // For example: Rhs, Forcing, turbulence Vecs (K_Omega, Nu_t)...
+                // Note: Add any other vectors from the legacy MG_Initial here as needed.
+                // For example: Rhs, Forcing, turbulence Vecs (K_Omega, Nu_t)...
 		
 	        }
 	    // --- Group H: Particle Methods 	
@@ -2388,5 +2395,87 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
 
 
     PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/////////////// DERIVATIVE CALCULATION HELPERS ///////////////
+
+/**
+ * @brief Transforms derivatives from computational space to physical space using the chain rule.
+ */
+static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metrics, Cmpnts eta_metrics, Cmpnts zet_metrics,
+                                           Cmpnts deriv_csi, Cmpnts deriv_eta, Cmpnts deriv_zet,
+                                           Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx)
+{
+    // Derivatives of the first component (u)
+    dudx->x = jacobian * (deriv_csi.x * csi_metrics.x + deriv_eta.x * eta_metrics.x + deriv_zet.x * zet_metrics.x);
+    dudx->y = jacobian * (deriv_csi.x * csi_metrics.y + deriv_eta.x * eta_metrics.y + deriv_zet.x * zet_metrics.y);
+    dudx->z = jacobian * (deriv_csi.x * csi_metrics.z + deriv_eta.x * eta_metrics.z + deriv_zet.x * zet_metrics.z);
+    // Derivatives of the second component (v)
+    dvdx->x = jacobian * (deriv_csi.y * csi_metrics.x + deriv_eta.y * eta_metrics.x + deriv_zet.y * zet_metrics.x);
+    dvdx->y = jacobian * (deriv_csi.y * csi_metrics.y + deriv_eta.y * eta_metrics.y + deriv_zet.y * zet_metrics.y);
+    dvdx->z = jacobian * (deriv_csi.y * csi_metrics.z + deriv_eta.y * eta_metrics.z + deriv_zet.y * zet_metrics.z);
+    // Derivatives of the third component (w)
+    dwdx->x = jacobian * (deriv_csi.z * csi_metrics.x + deriv_eta.z * eta_metrics.x + deriv_zet.z * zet_metrics.x);
+    dwdx->y = jacobian * (deriv_csi.z * csi_metrics.y + deriv_eta.z * eta_metrics.y + deriv_zet.z * zet_metrics.y);
+    dwdx->z = jacobian * (deriv_csi.z * csi_metrics.z + deriv_eta.z * eta_metrics.z + deriv_zet.z * zet_metrics.z);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeVectorFieldDerivatives"
+/**
+ * @brief Computes the derivatives of a cell-centered vector field at a specific grid point.
+ *
+ * This function orchestrates the calculation of spatial derivatives. It first computes
+ * the derivatives in computational space (d/dcsi, d/deta, d/dzet) using a central
+ * difference scheme and then transforms them into physical space (d/dx, d/dy, d/dz).
+ *
+ * @param user      The user context for the current computational block.
+ * @param i, j, k   The grid indices of the cell center where derivatives are required.
+ * @param field_data A 3D array pointer to the raw local data of the vector field (e.g., from lUcat).
+ * @param dudx      Output: A Cmpnts struct storing [du/dx, du/dy, du/dz].
+ * @param dvdx      Output: A Cmpnts struct storing [dv/dx, dv/dy, dv/dz].
+ * @param dwdx      Output: A Cmpnts struct storing [dw/dx, dw/dy, dw/dz].
+ * @return          PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, Cmpnts ***field_data,
+                                             Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx)
+{
+    PetscErrorCode ierr;
+    Cmpnts ***csi, ***eta, ***zet;
+    PetscReal ***jac;
+    PetscFunctionBeginUser;
+
+    // 1. Get read-only access to the necessary metric data arrays
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
+
+    // 2. Calculate derivatives in computational space using central differencing
+    Cmpnts deriv_csi, deriv_eta, deriv_zet;
+    deriv_csi.x = (field_data[k][j][i+1].x - field_data[k][j][i-1].x) * 0.5;
+    deriv_csi.y = (field_data[k][j][i+1].y - field_data[k][j][i-1].y) * 0.5;
+    deriv_csi.z = (field_data[k][j][i+1].z - field_data[k][j][i-1].z) * 0.5;
+
+    deriv_eta.x = (field_data[k][j+1][i].x - field_data[k][j-1][i].x) * 0.5;
+    deriv_eta.y = (field_data[k][j+1][i].y - field_data[k][j-1][i].y) * 0.5;
+    deriv_eta.z = (field_data[k][j+1][i].z - field_data[k][j-1][i].z) * 0.5;
+
+    deriv_zet.x = (field_data[k+1][j][i].x - field_data[k-1][j][i].x) * 0.5;
+    deriv_zet.y = (field_data[k+1][j][i].y - field_data[k-1][j][i].y) * 0.5;
+    deriv_zet.z = (field_data[k+1][j][i].z - field_data[k-1][j][i].z) * 0.5;
+
+    // 3. Transform derivatives to physical space
+    TransformDerivativesToPhysical(jac[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i],
+                                   deriv_csi, deriv_eta, deriv_zet,
+                                   dudx, dvdx, dwdx);
+
+    // 4. Restore access to the PETSc data arrays
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
+
     PetscFunctionReturn(0);
 }

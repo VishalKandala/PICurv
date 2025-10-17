@@ -681,6 +681,21 @@ const char* ParticleInitializationToString(PetscInt ParticleInitialization)
 }
 
 /**
+ * @brief Helper function to convert LES Flag to a string representation.
+ * @param[in] PetscInt The LES flag value.
+ * @return Pointer to a constant string representing the FieldInitialization.
+ */
+const char* LESFlagToString(PetscInt LESFlag)
+{
+    switch(LESFlag){
+        case 0: return "No LES";
+        case 1: return "Constant Smagorinsky";
+        case 2: return "Dynamic Smagorinsky";
+        default: return "Unknown LES Flag";
+    }
+}
+
+/**
  * @brief Helper function to convert BCType enum to a string representation.
  * @param[in] type The BCType enum value.
  * @return Pointer to a constant string representing the BC type.

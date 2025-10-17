@@ -378,5 +378,23 @@ PetscErrorCode InitializeRandomGenerators(UserCtx *user, PetscRandom *randx, Pet
  */
 PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k);
 
+/**
+ * @brief Computes the derivatives of a cell-centered vector field at a specific grid point.
+ *
+ * This function orchestrates the calculation of spatial derivatives. It first computes
+ * the derivatives in computational space (d/dcsi, d/deta, d/dzet) using a central
+ * difference scheme and then transforms them into physical space (d/dx, d/dy, d/dz).
+ *
+ * @param user      The user context for the current computational block.
+ * @param i, j, k   The grid indices of the cell center where derivatives are required.
+ * @param field_data A 3D array pointer to the raw local data of the vector field (e.g., from lUcat).
+ * @param dudx      Output: A Cmpnts struct storing [du/dx, du/dy, du/dz].
+ * @param dvdx      Output: A Cmpnts struct storing [dv/dx, dv/dy, dv/dz].
+ * @param dwdx      Output: A Cmpnts struct storing [dw/dx, dw/dy, dw/dz].
+ * @return          PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, Cmpnts ***field_data,
+                                             Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx);
+
 
  #endif // SETUP_H

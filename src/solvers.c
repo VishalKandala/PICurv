@@ -46,13 +46,14 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     */
 
 
-    /*
+    
     // ========================================================================
     //   SECTION: Turbulence Models (RANS/LES)
     // ========================================================================
     // These models compute the turbulent eddy viscosity (Nu_t) which is then
     // used by the momentum solver in the diffusion term.
-    
+
+    /*
     if (simCtx->rans) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating RANS (k-omega) model...\n");
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
@@ -65,20 +66,24 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
             // Solve_K_Omega(&user[bi]);
         }
     }
+    */
 
     if (simCtx->les) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating LES (Smagorinsky) model...\n");
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             // LES models require Cartesian velocity to compute strain rates
+            UpdateLocalGhosts(&user[bi], "Ucont");
             ierr = Contra2Cart(&user[bi]); CHKERRQ(ierr);
+            UpdateLocalGhosts(&user[bi], "Ucat");
             if (simCtx->step % simCtx->dynamic_freq == 0) {
-                Compute_Smagorinsky_Constant_1(&user[bi], user[bi].lUcont, user[bi].lUcat);
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Computing Smagorinsky constant for block %d.\n", bi);
+                ComputeSmagorinskyConstant(&user[bi]);
             }
-            Compute_eddy_viscosity_LES(&user[bi]);
+          //  LOG_ALLOW(LOCAL, LOG_DEBUG, "  Computing eddy viscosity for block %d.\n", bi);
+          ComputeEddyViscosityLES(&user[bi]);
         }
     }
-    */
-
+    
 
     // ========================================================================
     //   SECTION: Momentum Equation Solver
