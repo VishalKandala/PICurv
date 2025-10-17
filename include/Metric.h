@@ -28,6 +28,54 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3],
                                            const PetscReal u[3],PetscReal uc[3]);
 
 /**
+ * @brief Computes the unit normal vectors and areas of the three faces of a computational cell.
+ *
+ * Given the metric vectors (csi, eta, zet), this function calculates the geometric
+ * properties of the cell faces aligned with the i, j, and k directions.
+ *
+ * @param csi, eta, zet  The metric vectors at the cell center.
+ * @param ni  Output: A 3-element array for the unit normal vector of the i-face.
+ * @param nj  Output: A 3-element array for the unit normal vector of the j-face.
+ * @param nk  Output: A 3-element array for the unit normal vector of the k-face.
+ * @param Ai  Output: Pointer to store the area of the i-face.
+ * @param Aj  Output: Pointer to store the area of the j-face.
+ * @param Ak  Output: Pointer to store the area of the k-face.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak);
+
+/**
+ * @brief Inverts the 3x3 covariant metric tensor to obtain the contravariant metric tensor.
+ *
+ * In curvilinear coordinates, the input matrix `g` contains the dot products of the
+ * covariant basis vectors (e.g., g_ij = e_i . e_j). Its inverse, `G`, is the
+ * contravariant metric tensor, which is essential for transforming vectors and tensors
+ * between coordinate systems.
+ *
+ * @param covariantTensor   Input: A 3x3 matrix representing the covariant metric tensor.
+ * @param contravariantTensor Output: A 3x3 matrix where the inverted result is stored.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double contravariantTensor[3][3]);
+
+/**
+ * @brief Computes characteristic length scales (dx, dy, dz) for a curvilinear cell.
+ *
+ * For a non-uniform, non-orthogonal cell, there is no single "dx". This function
+ * computes an effective length scale in each Cartesian direction based on the cell
+ * volume and the areas of its faces.
+ *
+ * @param ajc       The Jacobian of the grid transformation (1 / cell volume).
+ * @param csi, eta, zet  The metric vectors at the cell center.
+ * @param dx             Output: Pointer to store the characteristic length in the x-direction.
+ * @param dy             Output: Pointer to store the characteristic length in the y-direction.
+ * @param dz             Output: Pointer to store the characteristic length in the z-direction.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz);
+
+
+/**
  * @brief Computes the primary face metric components (Csi, Eta, Zet), including
  *        boundary extrapolation, and stores them in the corresponding global Vec
  *        members of the UserCtx structure (user->Csi, user->Eta, user->Zet).

@@ -95,7 +95,7 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
 	    Uc = ucat[k][j][i-1];
 	  }
 	  
-	  CalculateNormalAndArea(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk,NULL,NULL,NULL); // Passing Null pointers for area calculation.
+	  CalculateFaceNormalAndArea(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk,NULL,NULL,NULL); // Passing Null pointers for area calculation.
 	  if(i==mx-2) ni[0]*=-1, ni[1]*=-1, ni[2]*=-1;
 	  
 	  //if(i==1) printf("%f %f, %f %f %f, %e %e %e, %e\n", sc, sb, Ua.x, Ua.y, Ua.z, Uc.x, Uc.y, Uc.z, ucat[k][j][i+2].z);
@@ -122,7 +122,7 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
 	    Uc = ucat[k][j-1][i];
 	  }
 	  
-	  CalculateNormalAndArea(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk,NULL,NULL,NULL); // Passing Null pointers for Area.
+	  CalculateFaceNormalAndArea(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk,NULL,NULL,NULL); // Passing Null pointers for Area.
 	  //if(j==my-2) nj[0]*=-1, nj[1]*=-1, nj[2]*=-1;
 	  
 	  wall_function (user, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], nj[0], nj[1], nj[2]);

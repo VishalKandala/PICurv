@@ -109,7 +109,8 @@ PICSOLVER_OBJS := $(addprefix $(OBJDIR)/, \
                  picsolver.o setup.o logging.o grid.o io.o Metric.o \
                  Boundaries.o wallfunction.o simulation.o walkingsearch.o \
                  ParticleSwarm.o ParticleMotion.o ParticlePhysics.o interpolation.o \
-                 initialcondition.o rhs.o solvers.o implicitsolvers.o poisson.o)
+                 initialcondition.o rhs.o solvers.o implicitsolvers.o poisson.o\
+				 les.o  Filter.o)
 
 POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
                      postprocessor.o setup.o logging.o grid.o io.o Metric.o \

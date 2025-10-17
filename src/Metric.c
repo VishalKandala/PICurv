@@ -194,6 +194,146 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3], PetscReal de
   PetscFunctionReturn(0);
 }
 
+/////////////////////////////////////////////////////////////////////////////////
+#undef __FUNCT__
+#define __FUNCT__ "InvertCovariantMetricTensor"
+/**
+ * @brief Inverts the 3x3 covariant metric tensor to obtain the contravariant metric tensor.
+ *
+ * In curvilinear coordinates, the input matrix `g` contains the dot products of the
+ * covariant basis vectors (e.g., g_ij = e_i . e_j). Its inverse, `G`, is the
+ * contravariant metric tensor, which is essential for transforming vectors and tensors
+ * between coordinate systems.
+ *
+ * @param covariantTensor   Input: A 3x3 matrix representing the covariant metric tensor.
+ * @param contravariantTensor Output: A 3x3 matrix where the inverted result is stored.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double contravariantTensor[3][3])
+{
+	PetscFunctionBeginUser;
+
+	const double a11=covariantTensor[0][0], a12=covariantTensor[0][1], a13=covariantTensor[0][2];
+	const double a21=covariantTensor[1][0], a22=covariantTensor[1][1], a23=covariantTensor[1][2];
+	const double a31=covariantTensor[2][0], a32=covariantTensor[2][1], a33=covariantTensor[2][2];
+
+	double det = a11*(a33*a22-a32*a23) - a21*(a33*a12-a32*a13) + a31*(a23*a12-a22*a13);
+
+    if (fabs(det) < 1.0e-12) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_MAT_LU_ZRPVT, "Matrix is singular, determinant is near zero.");
+    }
+
+	contravariantTensor[0][0] = (a33*a22-a32*a23)/det;
+    contravariantTensor[0][1] = -(a33*a12-a32*a13)/det;
+    contravariantTensor[0][2] = (a23*a12-a22*a13)/det;
+	contravariantTensor[1][0] = -(a33*a21-a31*a23)/det;
+    contravariantTensor[1][1] = (a33*a11-a31*a13)/det;
+    contravariantTensor[1][2] = -(a23*a11-a21*a13)/det;
+	contravariantTensor[2][0] = (a32*a21-a31*a22)/det;
+    contravariantTensor[2][1] = -(a32*a11-a31*a12)/det;
+    contravariantTensor[2][2] = (a22*a11-a21*a12)/det;
+
+	PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "CalculateFaceNormalAndArea"
+/**
+ * @brief Computes the unit normal vectors and areas of the three faces of a computational cell.
+ *
+ * Given the metric vectors (csi, eta, zet), this function calculates the geometric
+ * properties of the cell faces aligned with the i, j, and k directions.
+ *
+ * @param csi, eta, zet  The metric vectors at the cell center.
+ * @param ni  Output: A 3-element array for the unit normal vector of the i-face.
+ * @param nj  Output: A 3-element array for the unit normal vector of the j-face.
+ * @param nk  Output: A 3-element array for the unit normal vector of the k-face.
+ * @param Ai  Output: Pointer to store the area of the i-face.
+ * @param Aj  Output: Pointer to store the area of the j-face.
+ * @param Ak  Output: Pointer to store the area of the k-face.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak)
+{
+	PetscFunctionBeginUser;
+	PROFILE_FUNCTION_BEGIN;
+	double g[3][3];
+	double G[3][3];
+	
+	g[0][0]=csi.x, g[0][1]=csi.y, g[0][2]=csi.z;
+	g[1][0]=eta.x, g[1][1]=eta.y, g[1][2]=eta.z;
+	g[2][0]=zet.x, g[2][1]=zet.y, g[2][2]=zet.z;
+	
+	InvertCovariantMetricTensor(g, G);
+	double xcsi=G[0][0], ycsi=G[1][0], zcsi=G[2][0];
+	double xeta=G[0][1], yeta=G[1][1], zeta=G[2][1];
+	double xzet=G[0][2], yzet=G[1][2], zzet=G[2][2];
+	      
+	double nx_i = xcsi, ny_i = ycsi, nz_i = zcsi;
+	double nx_j = xeta, ny_j = yeta, nz_j = zeta;
+	double nx_k = xzet, ny_k = yzet, nz_k = zzet;
+	      
+	double sum_i=sqrt(nx_i*nx_i+ny_i*ny_i+nz_i*nz_i);
+	double sum_j=sqrt(nx_j*nx_j+ny_j*ny_j+nz_j*nz_j);
+	double sum_k=sqrt(nx_k*nx_k+ny_k*ny_k+nz_k*nz_k);
+
+	*Ai = sqrt( g[0][0]*g[0][0] + g[0][1]*g[0][1] + g[0][2]*g[0][2] );	// area
+	*Aj = sqrt( g[1][0]*g[1][0] + g[1][1]*g[1][1] + g[1][2]*g[1][2] );
+	*Ak =sqrt( g[2][0]*g[2][0] + g[2][1]*g[2][1] + g[2][2]*g[2][2] );
+		
+	nx_i /= sum_i, ny_i /= sum_i, nz_i /= sum_i;
+	nx_j /= sum_j, ny_j /= sum_j, nz_j /= sum_j;
+	nx_k /= sum_k, ny_k /= sum_k, nz_k /= sum_k;
+
+	ni[0] = nx_i, ni[1] = ny_i, ni[2] = nz_i;
+	nj[0] = nx_j, nj[1] = ny_j, nj[2] = nz_j;
+	nk[0] = nx_k, nk[1] = ny_k, nk[2] = nz_k;
+
+	PROFILE_FUNCTION_END;
+	PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeCellCharacteristicLengthScale"
+/**
+ * @brief Computes characteristic length scales (dx, dy, dz) for a curvilinear cell.
+ *
+ * For a non-uniform, non-orthogonal cell, there is no single "dx". This function
+ * computes an effective length scale in each Cartesian direction based on the cell
+ * volume and the areas of its faces.
+ *
+ * @param ajc       The Jacobian of the grid transformation (1 / cell volume).
+ * @param csi, eta, zet  The metric vectors at the cell center.
+ * @param dx             Output: Pointer to store the characteristic length in the x-direction.
+ * @param dy             Output: Pointer to store the characteristic length in the y-direction.
+ * @param dz             Output: Pointer to store the characteristic length in the z-direction.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz)
+{
+		PetscFunctionBeginUser;
+		PROFILE_FUNCTION_BEGIN;
+        double ni[3], nj[3], nk[3];
+        double Li, Lj, Lk;
+        double Ai, Aj, Ak;
+        double vol = 1./ajc;
+
+        CalculateFaceNormalAndArea(csi, eta, zet, ni, nj, nk, &Ai, &Aj, &Ak);
+        Li = vol / Ai;
+        Lj = vol / Aj;
+        Lk = vol / Ak;
+
+        // Length scale vector = di * ni_vector + dj * nj_vector + dk * nk_vector
+        *dx = fabs( Li * ni[0] + Lj * nj[0] + Lk * nk[0] );
+        *dy = fabs( Li * ni[1] + Lj * nj[1] + Lk * nk[1] );
+        *dz = fabs( Li * ni[2] + Lj * nj[2] + Lk * nk[2] );
+
+		PROFILE_FUNCTION_END;
+		PetscFunctionReturn(0);
+}
+
+
 #undef __FUNCT__
 #define __FUNCT__ "CheckAndFixGridOrientation"
 /* -------------------------------------------------------------------------- */

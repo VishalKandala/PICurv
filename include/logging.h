@@ -583,6 +583,13 @@ const char* FieldInitializationToString(PetscInt FieldInitialization);
 const char* ParticleInitializationToString(PetscInt ParticleInitialization);
 
 /**
+ * @brief Helper function to convert LES Flag to a string representation.
+ * @param[in] PetscInt The LES flag value.
+ * @return Pointer to a constant string representing the FieldInitialization.
+ */
+const char* LESFlagToString(PetscInt LESFlag);
+
+/**
  * @brief Helper function to convert BCType enum to a string representation.
  * @param[in] type The BCType enum value.
  * @return Pointer to a constant string representing the BC type.
