@@ -54,6 +54,12 @@ LogLevel get_log_level() {
         else if (strcmp(env, "PROFILE") == 0) {  // <-- New profile level
             current_log_level = LOG_PROFILE;
         }
+        else if (strcmp(env, "VERBOSE") == 0) {
+            current_log_level = LOG_VERBOSE;
+        }
+        else if (strcmp(env, "TRACE") == 0) {
+            current_log_level = LOG_TRACE;
+        }
         else {
             current_log_level = LOG_ERROR; // Default if unrecognized
         }
