@@ -571,33 +571,98 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
 }
 
 /**
+ * @brief A parallel-safe helper to verify the existence of a generic file or directory path.
+ *
+ * This function centralizes the logic for checking arbitrary paths. Only Rank 0 performs the
+ * filesystem check, and the result is broadcast to all other processes. This ensures
+ * collective and synchronized decision-making across all ranks. It is intended for
+ * configuration files, source directories, etc., where the path is known completely.
+ *
+ * @param[in]  path         The full path to the file or directory to check.
+ * @param[in]  is_dir       PETSC_TRUE if checking for a directory, PETSC_FALSE for a file.
+ * @param[in]  is_optional  PETSC_TRUE if the path is optional (results in a warning),
+ *                          PETSC_FALSE if mandatory (results in an error).
+ * @param[in]  description  A user-friendly description of the path for logging (e.g., "Grid file").
+ * @param[out] exists       The result of the check (identical on all ranks).
+ *
+ * @return PetscErrorCode
+ */
+PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool is_optional, const char *description, PetscBool *exists)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank;
+    MPI_Comm       comm = PETSC_COMM_WORLD;
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
+
+    if (rank == 0) {
+        if (is_dir) {
+            ierr = PetscTestDirectory(path, 'r', exists); CHKERRQ(ierr);
+        } else {
+            ierr = PetscTestFile(path, 'r', exists); CHKERRQ(ierr);
+        }
+
+        if (!(*exists)) {
+            if (is_optional) {
+                LOG_ALLOW(GLOBAL, LOG_WARNING, "Optional %s not found at: %s (using defaults/ignoring).\n", description, path);
+            } else {
+                LOG_ALLOW(GLOBAL, LOG_ERROR, "Mandatory %s not found at: %s\n", description, path);
+            }
+        } else {
+            LOG_ALLOW(GLOBAL, LOG_DEBUG, "Found %s: %s\n", description, path);
+        }
+    }
+
+    // Broadcast the result from Rank 0
+    PetscMPIInt exists_int = (rank == 0) ? (PetscMPIInt)(*exists) : 0;
+    ierr = MPI_Bcast(&exists_int, 1, MPI_INT, 0, comm); CHKERRMPI(ierr);
+    *exists = (PetscBool)exists_int;
+
+    // Collective error for mandatory files
+    if (!(*exists) && !is_optional) {
+        SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Mandatory %s not found. Rank 0 expected it at '%s'. Check path and permissions.", description, path);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Checks for a data file's existence in a parallel-safe manner.
+ * 
+ * This function's signature and behavior have been updated to use the
+ * "Directory Context Pointer" pattern. The high-level calling function (e.g.,
+ * ReadSimulationFields) must set the `simCtx->current_io_directory` context
+ * before this function is called.
  *
- * Only Rank 0 checks for the file on disk. The result (true or false) is
- * then broadcast to all other processes in the communicator. This ensures all
- * processes make a collective, synchronized decision.
- *
+ * @param[in]  user Pointer to the UserCtx structure to access SimCtx.
  * @param ti The time index of the file.
  * @param fieldName The name of the field.
  * @param ext The file extension.
  * @param fileExists [out] The result, which will be identical on all ranks.
  * @return PetscErrorCode
  */
-static PetscErrorCode CheckDataFile(PetscInt ti, const char *fieldName, const char *ext, PetscBool *fileExists)
+static PetscErrorCode CheckDataFile(UserCtx *user, PetscInt ti, const char *fieldName, const char *ext, PetscBool *fileExists)
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank;
     MPI_Comm       comm = PETSC_COMM_WORLD;
     PetscInt       placeholder_int = 0;
+    SimCtx         *simCtx = user->simCtx;
 
     PetscFunctionBeginUser;
+
+    if(!simCtx->current_io_directory) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "I/O context directory is NULL. Ensure it is set before calling CheckDataFile().");
+    }
+
     ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
 
     if (rank == 0) {
         char filename[PETSC_MAX_PATH_LEN];
         // Use the same standardized, rank-independent filename format
 
-        ierr =  PetscSNPrintf(filename, sizeof(filename), "results/%s%05"PetscInt_FMT"_%d.%s", fieldName, ti, placeholder_int, ext); 
+        ierr =  PetscSNPrintf(filename, sizeof(filename), "%s/%s%05"PetscInt_FMT"_%d.%s",simCtx->current_io_directory,fieldName, ti, placeholder_int, ext); 
         ierr = PetscTestFile(filename, 'r', fileExists); CHKERRQ(ierr);
         if (!(*fileExists)) {
             LOG_ALLOW(GLOBAL, LOG_WARNING, "(Rank 0) - Optional data file '%s' not found.\n", filename);
@@ -643,7 +708,7 @@ static PetscErrorCode ReadOptionalField(UserCtx *user, const char *field_name, c
   PetscFunctionBeginUser;
 
   /* Check if the data file for this optional field exists. */
-  ierr = CheckDataFile(ti, field_name, ext, &fileExists); CHKERRQ(ierr);
+  ierr = CheckDataFile(user,ti, field_name, ext, &fileExists); CHKERRQ(ierr);
 
   if (fileExists) {
     /* File exists, so we MUST be able to read it. */
@@ -693,7 +758,7 @@ static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_na
   PetscFunctionBeginUser;
 
   /* Check if the data file for this optional field exists. */
-  ierr = CheckDataFile(ti, field_name, ext, &fileExists); CHKERRQ(ierr);
+  ierr = CheckDataFile(user,ti, field_name, ext, &fileExists); CHKERRQ(ierr);
 
   if (fileExists) {
     /* File exists, so we MUST be able to read it. */
@@ -729,7 +794,7 @@ static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_na
 *          – works in both serial and MPI executions.
 *
 *  The restart files are always written as **one** sequential Vec per field
-*  ( `<results>/<field_name><step>_0.<ext>` ).  In parallel we therefore
+*  ( `<path-to-file>/<field_name><step>_0.<ext>` ).  In parallel we therefore
 *  have to:
 *
 *     • let rank-0 read that sequential file into a temporary Vec,
@@ -771,23 +836,23 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    PetscFunctionBeginUser;
    PROFILE_FUNCTION_BEGIN;
 
+    if(!simCtx->current_io_directory){
+        SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE, "I/O context directory was not set before calling ReadFieldData().");
+    }
+
+
    ierr = PetscObjectGetComm((PetscObject)field_vec,&comm);CHKERRQ(ierr);
    ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
    ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
+
    const char *source_path = NULL;
-   if(simCtx->exec_mode == EXEC_MODE_SOLVER) {
-        source_path = simCtx->restart_dir;
-      //  LOG_ALLOW(GLOBAL,LOG_DEBUG,"restart_dir:%s | source_path:%s \n",simCtx->restart_dir,source_path);
-   }else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
-        source_path = simCtx->pps->source_dir;
-      //  LOG_ALLOW(GLOBAL,LOG_DEBUG,"source_dir:%s | source_path:%s \n",simCtx->pps->source_dir,source_path);
-   }
+   source_path = simCtx->current_io_directory;
 
    if(!source_path){
     SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE, "source_path was not set for the current execution mode.");
    }
    /* ---------------------------------------------------------------------
-    * Compose <results>/<field_name><step with 5 digits>_0.<ext>
+    * Compose <path-to-file>/<field_name><step with 5 digits>_0.<ext>
     * (all restart files are written by rank-0 with that naming scheme).
     * ------------------------------------------------------------------ */
    ierr = PetscSNPrintf(filename,sizeof(filename),
@@ -961,8 +1026,21 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     PetscErrorCode ierr;
 
     SimCtx *simCtx = user->simCtx;
+    const char *source_path = NULL;
+
+    if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
+        source_path = simCtx->pps->source_dir;
+    } else if(simCtx->exec_mode == EXEC_MODE_SOLVER){
+        source_path = simCtx->restart_dir;
+    } else{
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Invalid execution mode for reading simulation fields.");
+    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read simulation fields.\n");
+
+    // Set the current I/O directory context
+    ierr  = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer), "%s/%s",source_path,simCtx->euler_subdir); CHKERRQ(ierr);
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
 
     // Read Cartesian velocity field
     ierr = ReadFieldData(user, "ufield", user->Ucat, ti, "dat"); CHKERRQ(ierr);
@@ -1004,6 +1082,8 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     if (simCtx->averaging) {
       ierr = ReadStatisticalFields(user,ti); CHKERRQ(ierr);
     }
+
+    simCtx->current_io_directory = NULL; // Clear the I/O context after reading
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading simulation fields.\n");
 
@@ -1248,6 +1328,8 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 {
   PetscErrorCode ierr;
   PetscInt nGlobal;
+  SimCtx *simCtx = user->simCtx;
+  const char *source_path = NULL;
 
   PetscFunctionBeginUser;
   ierr = DMSwarmGetSize(user->swarm, &nGlobal); CHKERRQ(ierr);
@@ -1257,6 +1339,21 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
       LOG_ALLOW(GLOBAL, LOG_INFO, "Swarm is empty for timestep %d. Nothing to read.\n", ti);
       PetscFunctionReturn(0);
   }
+
+    // First, determine the top-level source directory based on the execution mode.
+    if (simCtx->exec_mode == EXEC_MODE_SOLVER) {
+        source_path = simCtx->restart_dir;
+    } else if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) {
+        source_path = simCtx->pps->source_dir;
+    } else {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "Invalid execution mode for reading simulation fields.");
+    }
+
+    // Set the current I/O directory context
+    ierr = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
+                         "%s/%s", source_path, simCtx->particle_subdir); CHKERRQ(ierr);
+
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
 
   /* 1) Read positions (REQUIRED) */
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading mandatory position field...\n");
@@ -1274,6 +1371,8 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
   ierr = ReadOptionalSwarmField(user, "weight",                  "Particle Weight",            ti, "dat"); CHKERRQ(ierr);
   ierr = ReadOptionalSwarmField(user, "Psi",                     "Scalar Psi",                 ti, "dat"); CHKERRQ(ierr);
   ierr = ReadOptionalSwarmField(user, "DMSwarm_location_status", "Migration Status",   ti, "dat"); CHKERRQ(ierr);
+
+  simCtx->current_io_directory = NULL; // Clear the I/O context after reading
 
   LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading DMSwarm fields for timestep %d.\n", ti);
   PetscFunctionReturn(0);
@@ -1343,6 +1442,11 @@ PetscErrorCode WriteFieldData(UserCtx *user,
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+
+    if(!simCtx->output_dir){
+        SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE, "Output directory was not set before calling WriteFieldData().");
+    }
+
     /* ------------------------------------------------------------ */
     /*                  Basic communicator information              */
     /* ------------------------------------------------------------ */
@@ -1352,7 +1456,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
 
     ierr = PetscSNPrintf(filename,sizeof(filename),
                          "%s/%s%05" PetscInt_FMT "_%d.%s",
-                         simCtx->output_dir,field_name,ti,placeholder_int,ext);CHKERRQ(ierr);
+                         simCtx->current_io_directory,field_name,ti,placeholder_int,ext);CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL,LOG_DEBUG,
               " Preparing to write <%s> on rank %d/%d\n",
@@ -1437,6 +1541,11 @@ PetscErrorCode WriteSimulationFields(UserCtx *user)
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write simulation fields.\n");
 
+    // Set the current IO directory
+    ierr = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
+                         "%s/%s", simCtx->output_dir, simCtx->euler_subdir);CHKERRQ(ierr);
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
+
     // Write contravariant velocity field
     ierr = WriteFieldData(user, "vfield", user->Ucont, simCtx->step, "dat"); CHKERRQ(ierr);
 
@@ -1469,6 +1578,8 @@ PetscErrorCode WriteSimulationFields(UserCtx *user)
     if (simCtx->averaging) {
         ierr = WriteStatisticalFields(user); CHKERRQ(ierr);
     }
+
+    simCtx->current_io_directory = NULL;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing simulation fields.\n");
 
@@ -1736,6 +1847,11 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write swarm fields.\n");
 
+    // Ensure the current IO directory is set
+    ierr = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
+                         "%s/%s", simCtx->output_dir, simCtx->particle_subdir);CHKERRQ(ierr);
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
+
     // Write particle position field
     ierr = WriteSwarmField(user, "position", simCtx->step, "dat"); CHKERRQ(ierr);
 
@@ -1758,6 +1874,8 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user)
 
     // Write the unique particle ID
     ierr = WriteSwarmIntField(user, "DMSwarm_pid", simCtx->step, "dat"); CHKERRQ(ierr);
+
+    simCtx->current_io_directory = NULL;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing swarm fields.\n");
 
@@ -2253,7 +2371,7 @@ PetscErrorCode ParseScalingInformation(SimCtx *simCtx)
 
 
 //  ---------------------------------------------------------------------
-//  UTILITY FUNCTIONS NOT USED IN THE MAIN CODE BUT MAY BE USEFUL
+//  UTILITY FUNCTIONS NOT USED IN THE MAIN CODE ( NOT  SUPPORTED  ANYMORE,INCLUDED FOR BACKWARD COMPATIBILITY)
 //  ---------------------------------------------------------------------
 
 //=====================================================================

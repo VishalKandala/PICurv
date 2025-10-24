@@ -96,6 +96,8 @@ PetscErrorCode print_log_level(void)
                (level == LOG_WARNING) ? "WARNING" :
                (level == LOG_INFO)    ? "INFO"    :
                (level == LOG_DEBUG)   ? "DEBUG"   :
+               (level == LOG_VERBOSE) ? "VERBOSE" :
+               (level == LOG_TRACE)   ? "TRACE"   :
                (level == LOG_PROFILE) ? "PROFILE" : "UNKNOWN";
 
   /* print it out */
@@ -1456,6 +1458,8 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
     } else if (strcasecmp(field_name, "Coordinates") == 0) {
         ierr = DMGetCoordinatesLocal(user->da, &vec_local); CHKERRQ(ierr);
         dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
+    } else if  (strcasecmp(field_name, "CornerField")== 0){
+        vec_local = user->lCellFieldAtCorner; dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
     } else {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Unknown field name for LOG_FIELD_ANATOMY: %s", field_name);
     }
@@ -1467,11 +1471,15 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
     ierr = PetscBarrier(NULL);
     PetscPrintf(PETSC_COMM_WORLD, "\n--- Field Anatomy Log: [%s] | Stage: [%s] | Layout: [%s] ---\n", field_name, stage_name, data_layout);
 
-    // We will check a slice at the center of the other two dimensions
-    PetscInt im_phys = user->IM, jm_phys = user->JM, km_phys = user->KM; // Number of physical nodes
-    PetscInt i_mid = im_phys / 2;
-    PetscInt j_mid = jm_phys / 2;
-    PetscInt k_mid = km_phys / 2;
+    // We will check a slice at the center of the other two dimensions (in the rank's local domain)
+
+    PetscInt im_phys = user->IM; // Physical size in I-direction
+    PetscInt jm_phys = user->JM; // Physical size in J-direction
+    PetscInt km_phys = user->KM; // Physical size in K-direction
+
+    PetscInt i_mid = (PetscInt)(info.xs + 0.5*info.xm);
+    PetscInt j_mid = (PetscInt)(info.ys + 0.5*info.ym);
+    PetscInt k_mid = (PetscInt)(info.zs + 0.5*info.zm);
 
     // --- 3. Print Boundary Information based on Data Layout ---
 

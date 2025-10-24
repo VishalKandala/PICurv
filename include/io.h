@@ -41,6 +41,24 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user);
  */
 PetscErrorCode ReadGridFile(UserCtx *user);
 
+/**
+ * @brief A parallel-safe helper to verify the existence of a generic file or directory path.
+ *
+ * This function centralizes the logic for checking arbitrary paths. Only Rank 0 performs the
+ * filesystem check, and the result is broadcast to all other processes. This ensures
+ * collective and synchronized decision-making across all ranks. It is intended for
+ * configuration files, source directories, etc., where the path is known completely.
+ *
+ * @param[in]  path         The full path to the file or directory to check.
+ * @param[in]  is_dir       PETSC_TRUE if checking for a directory, PETSC_FALSE for a file.
+ * @param[in]  is_optional  PETSC_TRUE if the path is optional (results in a warning),
+ *                          PETSC_FALSE if mandatory (results in an error).
+ * @param[in]  description  A user-friendly description of the path for logging (e.g., "Grid file").
+ * @param[out] exists       The result of the check (identical on all ranks).
+ *
+ * @return PetscErrorCode
+ */
+PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool is_optional, const char *description, PetscBool *exists);
 
 /**
  * @brief Reads binary field data for velocity, pressure, and other required vectors.

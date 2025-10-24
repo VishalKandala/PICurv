@@ -746,6 +746,8 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
     PetscMPIInt    rank;
     const char    *refFieldName = "position";
     const PetscInt bs = 3;
+    SimCtx        *simCtx = user->simCtx;
+    char          *source_path;
     
     // NOTE: Your filename format has a hardcoded "_0" which is typical for
     // PETSc when writing a parallel object from a single rank.
@@ -753,16 +755,32 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
     // The current logic assumes a single file written by one process.
     const int      placeholder_int = 0;
 
+    // Setup the I/O environment
+
+
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     ierr = PetscObjectGetComm((PetscObject)user->swarm, &comm); CHKERRQ(ierr);
     ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
 
+    // First, determine the top-level source directory based on the execution mode.
+    if (simCtx->exec_mode == EXEC_MODE_SOLVER) {
+        source_path = simCtx->restart_dir;
+    } else if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) {
+        source_path = simCtx->pps->source_dir;
+    } else {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "Invalid execution mode for reading simulation fields.");
+    }
+
+    // Set the current I/O directory context
+    ierr = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
+                         "%s/%s", source_path, simCtx->particle_subdir); CHKERRQ(ierr);
+
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
+
         // --- Construct filename using the specified format ---
-    // results/%s%05<PetscInt_FMT>_%d.%s
-    ierr = PetscSNPrintf(filename, sizeof(filename), "results/%s%05" PetscInt_FMT "_%d.%s",
-                         refFieldName, ti, placeholder_int, ext); CHKERRQ(ierr);
-    // Note: Make sure the "results" directory exists or handle directory creation elsewhere.
+    ierr = PetscSNPrintf(filename, sizeof(filename), "%s/%s%05" PetscInt_FMT "_%d.%s",
+                         simCtx->current_io_directory,refFieldName, ti, placeholder_int, ext); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Checking particle count for timestep %d using ref file '%s'.\n", ti, filename);
 
@@ -1506,10 +1524,10 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
                 // OPTIMIZATION: Skip particles already settled in a previous pass of this do-while loop.
 
 	      LOG_ALLOW(LOCAL,LOG_VERBOSE,
-			"Local Particle idx=%d, PID=%ld, status=%d, cell=(%d, %d, %d)\n",
+			"Local Particle idx=%d, PID=%ld, status=%s, cell=(%d, %d, %d)\n",
 			p_idx,
 			(long)pid_p[p_idx],
-			status_p[p_idx],
+			ParticleLocationStatusToString((ParticleLocationStatus)status_p[p_idx]),
 			cell_p[3*p_idx],
 			cell_p[3*p_idx+1],
 			cell_p[3*p_idx+2]);
@@ -1526,7 +1544,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 		
                 ierr = UnpackSwarmFields(p_idx, pid_p, weights_p, pos_p, cell_p, vel_p, status_p, &current_particle); CHKERRQ(ierr);
 
-		//		LOG_ALLOW(LOCAL,LOG_DEBUG,"unpacked p_idx=%d → cell[0]=%d, status=%d\n",p_idx, current_particle.cell[0], current_particle.location_status);
+		//		LOG_ALLOW(LOCAL,LOG_DEBUG,"unpacked p_idx=%d → cell[0]=%d, status=%s\n",p_idx, current_particle.cell[0], ParticleLocationStatusToString((ParticleLocationStatus)current_particle.location_status));
 
 		ParticleLocationStatus final_status = (ParticleLocationStatus)status_p[p_idx];
 
@@ -1645,7 +1663,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
         ierr = PetscFree(pids_before_snapshot);
         ierr = PetscFree(migrationList);
 
-        LOG_ALLOW(GLOBAL, LOG_INFO, "End of LocateAllParticlesInGrid pass %d. Total particles migrated globally: %d.\n", passes, global_migrations_this_pass);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "End of pass %d. Total particles migrated globally: %d.\n", passes, global_migrations_this_pass);
 
     } while (global_migrations_this_pass > 0 && passes < MAX_MIGRATION_PASSES);
 

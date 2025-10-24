@@ -557,7 +557,11 @@ typedef struct SimCtx {
     char eulerianSource[64];
     char restart_dir[PETSC_MAX_PATH_LEN];
     char output_dir[PETSC_MAX_PATH_LEN];
+    char euler_subdir[PETSC_MAX_PATH_LEN];
+    char particle_subdir[PETSC_MAX_PATH_LEN];
     char log_dir[PETSC_MAX_PATH_LEN];
+    char _io_context_buffer[PETSC_MAX_PATH_LEN]; // Persistent store for I/O context strings.
+    char *current_io_directory; // Pointer into the above buffer.
 
     //================ Group 3: High-Level Physics & Model Selection Flags ================
     PetscInt  immersed, movefsi, rotatefsi, sediment, rheology;
@@ -685,7 +689,8 @@ typedef struct UserCtx {
 
     // --- Time-Stepping & Solver Workspace Fields ---
     Vec Ucont_o, lUcont_o, Ucat_o, P_o, Nvert_o, lNvert_o;
-  Vec Ucont_rm1, lUcont_rm1, Rhs, dUcont, pUcont;
+    Vec Ucont_rm1, lUcont_rm1, Rhs, dUcont, pUcont;
+    Vec CellFieldAtCorner, lCellFieldAtCorner;
 
     // --- Pressure-Poisson System ---
     Mat A, C; KSP ksp; MatNullSpace nullsp;
