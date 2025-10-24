@@ -34,6 +34,8 @@ int main(int argc, char **argv)
   ierr = CreateSimulationContext(argc, argv, &simCtx); CHKERRQ(ierr);
   // == IIB. SET EXECUTION MODE (SOLVER vs POST-PROCESSOR) =====
   simCtx->exec_mode = EXEC_MODE_SOLVER;
+  // == IIC. CONFIGURE SIMULATION ENVIRONMENT & DIRECTORIES =====
+  ierr = SetupSimulationEnvironment(simCtx); CHKERRQ(ierr);
   
   // === III. SETUP ==========================================================
   // Build the simulation environment step-by-step.

@@ -73,6 +73,26 @@
  */
 PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx);
 
+/**
+ * @brief Verifies and prepares the complete I/O environment for a simulation run.
+ *
+ * This function performs a comprehensive series of checks and setup actions to
+ * ensure a valid and clean environment. It is parallel-safe; all filesystem
+ * operations and checks are performed by Rank 0, with collective error handling.
+ *
+ * The function's responsibilities include:
+ * 1.  **Checking Mandatory Inputs:** Verifies existence of grid and BCs files.
+ * 2.  **Checking Optional Inputs:** Warns if optional config files (whitelist, profile) are missing.
+ * 3.  **Validating Run Mode Paths:** Ensures `restart_dir` or post-processing source directories exist when needed.
+ * 4.  **Preparing Log Directory:** Creates the log directory and cleans it of previous logs.
+ * 5.  **Preparing Output Directories:** Creates the main output directory and its required subdirectories.
+ *
+ * @param[in] simCtx The fully configured SimulationContext object.
+ *
+ * @return PetscErrorCode Returns 0 on success, or a non-zero error code if a
+ *         mandatory file/directory is missing or a critical operation fails.
+ */
+PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx);
 
 /**
  * @brief The main orchestrator for setting up all grid-related components.

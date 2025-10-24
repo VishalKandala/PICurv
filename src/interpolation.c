@@ -53,8 +53,8 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
     // Get local info based on the NODE-based DMDA (user->fda)
     // This DM defines the ownership of the nodes from which we interpolate,
     // and thus defines the cells whose centers we will compute.
-    DMDALocalInfo info_nodes_fda;
-    ierr = DMDAGetLocalInfo(user->fda, &info_nodes_fda); CHKERRQ(ierr);
+    DMDALocalInfo info_fda;
+    ierr = DMDAGetLocalInfo(user->fda, &info_fda); CHKERRQ(ierr);
 
     // Determine owned CELL ranges based on owning their origin NODES (from user->fda)
     PetscInt xs_cell_global_i, xm_cell_local_i; // Global start cell index, local count of owned cells
@@ -62,9 +62,9 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
     PetscInt zs_cell_global_k, zm_cell_local_k;
 
     
-    ierr = GetOwnedCellRange(&info_nodes_fda, 0, &xs_cell_global_i, &xm_cell_local_i); CHKERRQ(ierr);
-    ierr = GetOwnedCellRange(&info_nodes_fda, 1, &ys_cell_global_j, &ym_cell_local_j); CHKERRQ(ierr);
-    ierr = GetOwnedCellRange(&info_nodes_fda, 2, &zs_cell_global_k, &zm_cell_local_k); CHKERRQ(ierr);
+    ierr = GetOwnedCellRange(&info_fda, 0, &xs_cell_global_i, &xm_cell_local_i); CHKERRQ(ierr);
+    ierr = GetOwnedCellRange(&info_fda, 1, &ys_cell_global_j, &ym_cell_local_j); CHKERRQ(ierr);
+    ierr = GetOwnedCellRange(&info_fda, 2, &zs_cell_global_k, &zm_cell_local_k); CHKERRQ(ierr);
 
     // Exclusive end global cell indices
     PetscInt xe_cell_global_i_excl = xs_cell_global_i + xm_cell_local_i;
@@ -259,11 +259,9 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
 /**
  * @brief Interpolates a vector field from cell centers to corner nodes.
  *
- * This version is adapted to write directly into a ghosted local array obtained from DMDAVecGetArray(),
- * which allows using GLOBAL indices for writing to the OWNED portion of the array.
  *
  * @param[in]  centfield_arr  Input: 3D array (ghosted) of cell-centered data, accessed via GLOBAL indices.
- * @param[out] corner_arr     Output: 3D array (ghosted) where interpolated node values are stored,
+ * @param[out] corner_arr     Output: 3D array where interpolated node values are stored,
  *                            also accessed via GLOBAL indices for the owned part.
  * @param[in]  user           User context containing DMDA information.
  *
@@ -271,30 +269,43 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
  */
 PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
     Cmpnts ***centfield_arr, /* Input: Ghosted local array from Vec (read) */
-    Cmpnts ***corner_arr,    /* Output: Ghosted local array from Vec (write) */
+    Cmpnts ***corner_arr,    /* Output: global array from Vec (write) */
     UserCtx *user)
 {
     PetscErrorCode ierr;
-    DMDALocalInfo  info_nodes;
+    DMDALocalInfo  info;
     PetscMPIInt    rank;
     PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
-    ierr = DMDAGetLocalInfo(user->fda, &info_nodes); CHKERRQ(ierr);
+    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
 
     // Node ownership range (GLOBAL indices)
-    PetscInt xs_node = info_nodes.xs, xm_node = info_nodes.xm, xe_node = xs_node + xm_node;
-    PetscInt ys_node = info_nodes.ys, ym_node = info_nodes.ym, ye_node = ys_node + ym_node;
-    PetscInt zs_node = info_nodes.zs, zm_node = info_nodes.zm, ze_node = zs_node + zm_node;
+    PetscInt xs_node = info.xs, xm_node = info.xm, xe_node = xs_node + xm_node;
+    PetscInt ys_node = info.ys, ym_node = info.ym, ye_node = ys_node + ym_node;
+    PetscInt zs_node = info.zs, zm_node = info.zm, ze_node = zs_node + zm_node;
+
+    PetscInt nCellsX = info.mx - 2; // Number of cells in x-direction
+    PetscInt nCellsY = info.my - 2; // Number of cells in y-direction
+    PetscInt nCellsZ = info.mz - 2; // Number of cells in z-direction
+
 
     // Global grid dimensions (used for valid cell check)
-    PetscInt IM = info_nodes.mx - 1; // Total nodes in i-direction
-    PetscInt JM = info_nodes.my - 1; // Total nodes in j-direction
-    PetscInt KM = info_nodes.mz - 1; // Total nodes in k-direction
+    PetscInt IM = info.mx - 1; // Total nodes in i-direction
+    PetscInt JM = info.my - 1; // Total nodes in j-direction
+    PetscInt KM = info.mz - 1; // Total nodes in k-direction
 
     // Ghosted array starting indices (from the same info struct)
-    PetscInt gxs = info_nodes.gxs;
-    PetscInt gys = info_nodes.gys;
-    PetscInt gzs = info_nodes.gzs;
+    PetscInt gxs = info.gxs;
+    PetscInt gys = info.gys;
+    PetscInt gzs = info.gzs;
+
+    PetscInt xs = info.xs;
+    PetscInt ys = info.ys;
+    PetscInt zs = info.zs;
+
+    LOG_ALLOW_SYNC(GLOBAL,LOG_VERBOSE,
+        "[Rank %d] Starting InterpolateFieldFromCenterToCorner_Vector_Petsc: Node ownership k=%d..%d, j=%d..%d, i=%d..%d\n",
+        rank, zs_node, ze_node-1, ys_node, ye_node-1, xs_node, xe_node-1);
 
     // Loop over the GLOBAL indices of the NODES owned by this processor
     for (PetscInt k = zs_node; k < ze_node; k++) {
@@ -302,10 +313,10 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
             for (PetscInt i = xs_node; i < xe_node; i++) {
                 Cmpnts sum = {0.0, 0.0, 0.0};
                 PetscInt count = 0;
-		
+
                 // DEBUG 1 TEST
                 /*
-                if(rank == 0 && i == 24 && j == 12 && k == 0){
+                if(rank == 1 && i == 24 && j == 12 && k == 49){
                     PetscInt i_cell_A = i - 1; 
                     PetscInt i_cell_B = i;
 
@@ -318,8 +329,14 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
                              k, j, i_cell_B, ucat_B.x, ucat_B.y, ucat_B.z);
 
                 }
-                */             
-                // Loop over the 8 potential cells surrounding node N(k,j,i)
+                */
+                
+                // Skip processing the unused last node in each dimension.
+                if(i >= IM || j >= JM || k >= KM){
+                    continue;
+                }
+                // Loop over the 8 potential cells surrounding node N(k,j,i) and accumulate values.
+                // The index offsets correspond to the relative position of the indices(shifted) that represent cell-centered field values of cells that share the node N(k,j,i) as a corner
                 for (PetscInt dk_offset = -1; dk_offset <= 0; dk_offset++) {
                     for (PetscInt dj_offset = -1; dj_offset <= 0; dj_offset++) {
                         for (PetscInt di_offset = -1; di_offset <= 0; di_offset++) {
@@ -330,40 +347,49 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
                             PetscInt global_cell_i = i + di_offset;
 
                             // Check if this corresponds to a valid GLOBAL cell index
-                            if (global_cell_i >= 0 && global_cell_i < IM - 1 &&
-                                global_cell_j >= 0 && global_cell_j < JM - 1 &&
-                                global_cell_k >= 0 && global_cell_k < KM - 1)
+                            if (global_cell_i >= 0 && global_cell_i < nCellsX &&
+                                global_cell_j >= 0 && global_cell_j < nCellsY &&
+                                global_cell_k >= 0 && global_cell_k < nCellsZ)
                             {
-			      
-                                // Now, read from the local array using the local index
-                                Cmpnts cell_val = centfield_arr[global_cell_k + 1][global_cell_j + 1][global_cell_i + 1];
+                                    Cmpnts cell_val = centfield_arr[global_cell_k + 1][global_cell_j + 1][global_cell_i + 1];
 
-				                LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_VERBOSE,k,6,"[Rank %d] successful read from [%d][%d][%d] -> (%.2f, %.2f, %.2f)\n",
-						            rank,global_cell_k,global_cell_j,global_cell_i,cell_val.x, cell_val.y, cell_val.z);
-				
-                                sum.x += cell_val.x;
-                                sum.y += cell_val.y;
-                                sum.z += cell_val.z;
-                                count++;
+                                    LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_VERBOSE,k,49,"[Rank %d] successful read from [%d][%d][%d] -> (%.2f, %.2f, %.2f)\n",
+                                        rank,global_cell_k,global_cell_j,global_cell_i,cell_val.x, cell_val.y, cell_val.z);
+                    
+                                    sum.x += cell_val.x;
+                                    sum.y += cell_val.y;
+                                    sum.z += cell_val.z;
+                                    count++;                                  
                             }
                         }
                     }
                 }
 
-                // --- MODIFICATION: Write using GLOBAL indices ---
-                // The calculation of i_local, j_local, k_local is removed.
+                PetscInt i_global_write = i; // Global index in GLOBAL array.
+                PetscInt j_global_write = j;
+                PetscInt k_global_write = k;
+                
                 // We write directly into the array using the global loop indices.
                 if (count > 0) {
-                    corner_arr[k][j][i].x = sum.x / (PetscReal)count;
-                    corner_arr[k][j][i].y = sum.y / (PetscReal)count;
-                    corner_arr[k][j][i].z = sum.z / (PetscReal)count;
+                    corner_arr[k_global_write][j_global_write][i_global_write].x = sum.x / (PetscReal)count;
+                    corner_arr[k_global_write][j_global_write][i_global_write].y = sum.y / (PetscReal)count;
+                    corner_arr[k_global_write][j_global_write][i_global_write].z = sum.z / (PetscReal)count;
                 } else {
                     // This case should ideally not happen for a valid owned node, but as a failsafe:
-                    corner_arr[k][j][i] = (Cmpnts){0.0, 0.0, 0.0};
+                    corner_arr[k_global_write][j_global_write][i_global_write] = (Cmpnts){0.0, 0.0, 0.0};
                 }
-
+               
                 // DEBUG 2
                 /*
+                if(rank == 1){
+                    if(i == 11 && j == 11 && k == 49){
+                        Cmpnts ucat_node = corner_arr[k][j][i];
+                        PetscPrintf(PETSC_COMM_WORLD,"[Rank %d] DEBUG TEST at Node(k,j,i)=%d,%d,%d: Wrote CornerUcat[%d][%d][%d]=(%.2f,%.2f,%.2f)\n",
+                                 rank, k, j, i,
+                                 k, j, i, ucat_node.x, ucat_node.y, ucat_node.z);
+                    }
+                }
+
                 if(rank == 0 && i == 24 && j == 12 && k == 0){
                     Cmpnts ucat_node = corner_arr[k][j][i];
                     PetscPrintf(PETSC_COMM_WORLD,"[Rank %d] DEBUG TEST at Node(k,j,i)=%d,%d,%d: Wrote CornerUcat[%d][%d][%d]=(%.2f,%.2f,%.2f)\n",
@@ -371,7 +397,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
                              k, j, i, ucat_node.x, ucat_node.y, ucat_node.z);
                 }
                 */
-		        LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_VERBOSE,k,6,"[Rank %d] Node(k,j,i)=%d,%d,%d finished loops and write.\n", rank, k, j, i);
+		      //  LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_VERBOSE,k,48,"[Rank %d] Node(k,j,i)=%d,%d,%d finished loops and write.\n", rank, k, j, i);
             }
         }
     }
@@ -401,19 +427,19 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar_Petsc(
     UserCtx *user)
 {
     PetscErrorCode ierr;
-    DMDALocalInfo  info_nodes;
+    DMDALocalInfo  info;
     PROFILE_FUNCTION_BEGIN;
-    ierr = DMDAGetLocalInfo(user->fda, &info_nodes); CHKERRQ(ierr);
+    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
 
     // Node ownership range (GLOBAL indices)
-    PetscInt xs_node = info_nodes.xs, xe_node = info_nodes.xs + info_nodes.xm;
-    PetscInt ys_node = info_nodes.ys, ye_node = info_nodes.ys + info_nodes.ym;
-    PetscInt zs_node = info_nodes.zs, ze_node = info_nodes.zs + info_nodes.zm;
+    PetscInt xs_node = info.xs, xe_node = info.xs + info.xm;
+    PetscInt ys_node = info.ys, ye_node = info.ys + info.ym;
+    PetscInt zs_node = info.zs, ze_node = info.zs + info.zm;
 
     // Global grid dimensions (number of nodes)
-    PetscInt IM = info_nodes.mx-1;
-    PetscInt JM = info_nodes.my-1;
-    PetscInt KM = info_nodes.mz-1;
+    PetscInt IM = info.mx-1;
+    PetscInt JM = info.my-1;
+    PetscInt KM = info.mz-1;
 
     // Loop over the GLOBAL indices of the NODES owned by this processor
     for (PetscInt k = zs_node; k < ze_node; k++) {
@@ -942,9 +968,6 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     DMDALocalInfo  info;
     PetscMPIInt    rank;
 
-    // Intermediate vectors to manage corner data and its ghosts
-    Vec cornerGlobal, cornerLocal;
-
     // Generic pointers to the raw data arrays
     void *cellCenterPtr_read;
     void *cornerPtr_read_with_ghosts;
@@ -967,16 +990,61 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
 
     /* STAGE 1: Center-to-Corner Calculation with Communication */
 
-    // (A) Get temporary Vecs from the DMDA pool to manage corner data
-    ierr = DMGetGlobalVector(fda, &cornerGlobal); CHKERRQ(ierr);
-    ierr = DMGetLocalVector(fda, &cornerLocal); CHKERRQ(ierr);
+    // (A) Create the corner vectors.
+    if(user->CellFieldAtCorner == NULL){
+        LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Creating new global corner vector for field '%s'.\n", rank, fieldName);
+        ierr = DMCreateGlobalVector(fda, &user->CellFieldAtCorner); CHKERRQ(ierr);
+    }else{
+        LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Reusing existing global corner vector for field '%s'.\n", rank, fieldName);
+    }
 
-    ierr = VecSet(cornerGlobal,0.0); CHKERRQ(ierr);
-    ierr = VecSet(cornerLocal,0.0); CHKERRQ(ierr);
+    ierr = VecSet(user->CellFieldAtCorner,0.0); CHKERRQ(ierr);
+    Vec cornerGlobal = user->CellFieldAtCorner;
+
+    if(user->lCellFieldAtCorner == NULL){
+        LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Creating new local corner vector for field '%s'.\n", rank, fieldName);
+        ierr = DMCreateLocalVector(fda, &user->lCellFieldAtCorner); CHKERRQ(ierr);
+    }else{
+        LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Reusing existing local corner vector for field '%s'.\n", rank, fieldName);
+    }
+
+    ierr = VecSet(user->lCellFieldAtCorner,0.0); CHKERRQ(ierr);
+    Vec cornerLocal = user->lCellFieldAtCorner;
 
     // (B) Get a read-only array from the input cell-centered vector
     ierr = DMDAVecGetArrayRead(fda, fieldLocal_cellCentered, &cellCenterPtr_read); CHKERRQ(ierr);
 
+    PetscInt size; 
+    ierr = VecGetSize(cornerGlobal, &size); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Corner global vector size for field '%s': %d.\n", rank, fieldName, (PetscInt)size);
+    
+    size = 0;
+    
+    ierr = VecGetSize(fieldLocal_cellCentered, &size); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Cell-centered local vector size for field '%s': %d.\n", rank, fieldName, (PetscInt)size);
+    
+    size = 0;
+
+    ierr = VecGetLocalSize(cornerGlobal, &size); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Corner global vector LOCAL size for field '%s': %d.\n", rank, fieldName, (PetscInt)size);
+    
+    size = 0;
+
+    ierr = VecGetLocalSize(fieldLocal_cellCentered, &size); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Cell-centered local vector LOCAL size for field '%s': %d.\n", rank, fieldName, (PetscInt)size);
+
+    size = 0;
+
+    ierr = VecGetSize(cornerLocal, &size); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Corner local vector size for field '%s': %d.\n", rank, fieldName, (PetscInt)size);
+
+    PetscInt xs,ys,zs,gxs,gys,gzs;
+    ierr  = DMDAGetCorners(fda,&xs,&ys,&zs,NULL,NULL,NULL); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] DMDAGetCorners for field '%s': xs=%d, ys=%d, zs=%d.\n", rank, fieldName, (PetscInt)xs, (PetscInt)ys, (PetscInt)zs);
+
+    ierr  = DMDAGetGhostCorners(fda,&gxs,&gys,&gzs,NULL,NULL,NULL); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] DMDAGetGhostCorners for field '%s': gxs=%d, gys=%d, gzs=%d.\n", rank, fieldName, (PetscInt)gxs, (PetscInt)gys, (PetscInt)gzs);
+    
     // DEBUG: Inspect Ucat ghost cells before interpolation
     /*
     if (bs == 3) {
@@ -1035,7 +1103,7 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
 
     // (C) Perform the center-to-corner interpolation directly into the global corner vector
     void *cornerPtr_write = NULL;
-    ierr = DMDAVecGetArray(fda, cornerLocal, &cornerPtr_write); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(fda, cornerGlobal, &cornerPtr_write); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Starting center-to-corner interpolation for '%s'.\n", rank, fieldName);
         
@@ -1043,9 +1111,11 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     ierr = InterpolateFieldFromCenterToCorner(bs, cellCenterPtr_read, cornerPtr_write, user); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Finished center-to-corner interpolation for '%s'.\n", rank, fieldName);
-    ierr = DMDAVecRestoreArray(fda, cornerLocal, &cornerPtr_write); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(fda, cornerGlobal, &cornerPtr_write); CHKERRQ(ierr);
     
     ierr = DMDAVecRestoreArrayRead(fda, fieldLocal_cellCentered, &cellCenterPtr_read); CHKERRQ(ierr);
+
+    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
 
     //////////// DEBUG
     /*
@@ -1067,8 +1137,6 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     
     // (D) CRITICAL STEP: Communicate the newly computed corner data to fill ghost regions
     LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Beginning ghost exchange for corner data...\n", rank);
-    ierr = DMLocalToGlobalBegin(fda, cornerLocal, INSERT_VALUES, cornerGlobal); CHKERRQ(ierr);
-    ierr = DMLocalToGlobalEnd(fda, cornerLocal, INSERT_VALUES, cornerGlobal); CHKERRQ(ierr);
 
     ierr = DMGlobalToLocalBegin(fda, cornerGlobal, INSERT_VALUES, cornerLocal); CHKERRQ(ierr);
     ierr = DMGlobalToLocalEnd(fda, cornerGlobal, INSERT_VALUES, cornerLocal); CHKERRQ(ierr);
@@ -1078,48 +1146,11 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     LOG_ALLOW_SYNC(GLOBAL, LOG_VERBOSE, "getting array from FDA on all ranks.\n");
        if (is_function_allowed(__func__) && (int)(LOG_VERBOSE) <= (int)get_log_level()) {
             // DEBUG: Inspect cornerLocal after ghost exchange
-            /*
-            if (bs == 3) {
-                Cmpnts ***corner_array;
-                DMDALocalInfo info_debug;
-                ierr = DMDAGetLocalInfo(fda, &info_debug); CHKERRQ(ierr);
-                ierr = DMDAVecGetArrayRead(fda, cornerLocal, &corner_array); CHKERRQ(ierr);
+            
+            ierr = LOG_FIELD_ANATOMY(user,"CornerField", "After Corner Velocity Interpolated"); CHKERRQ(ierr);
 
-                // Only print on rank 0 to avoid clutter
-                if (rank == 0) {
-                    PetscPrintf(PETSC_COMM_SELF, "\nDEBUG: Inspecting Nodal (Corner) Velocities...\n");
-                    PetscPrintf(PETSC_COMM_SELF, "--------------------------------------------------\n");
-
-                    PetscInt j_mid = info_debug.ys + info_debug.ym / 2;
-                    PetscInt k_mid = info_debug.zs + info_debug.zm / 2;
-                    
-                    // --- Check the MINIMUM-SIDE (-Xi) Node ---
-                    // The first node is at global index 0. Its local index is info.xs.
-                    PetscInt i_first_node = info_debug.xs;
-                    PetscPrintf(PETSC_COMM_SELF, "MIN-SIDE (-Xi) Node:\n");
-                    PetscPrintf(PETSC_COMM_SELF, "  Corner Vel[%d][%d][%d] = (% .6f, % .6f, % .6f)\n",
-                                k_mid, j_mid, i_first_node,
-                                corner_array[k_mid][j_mid][i_first_node].x,
-                                corner_array[k_mid][j_mid][i_first_node].y,
-                                corner_array[k_mid][j_mid][i_first_node].z);
-
-                    // --- Check the MAXIMUM-SIDE (+Xi) Node ---
-                    // The last node is at global index IM. Its local index is info.xs + info.xm -1.
-                    PetscInt i_last_node = info_debug.xs + info_debug.xm - 1;
-                    PetscPrintf(PETSC_COMM_SELF, "MAX-SIDE (+Xi) Node:\n");
-                    PetscPrintf(PETSC_COMM_SELF, "  Corner Vel[%d][%d][%d] = (% .6f, % .6f, % .6f)\n",
-                                k_mid, j_mid, i_last_node,
-                                corner_array[k_mid][j_mid][i_last_node].x,
-                                corner_array[k_mid][j_mid][i_last_node].y,
-                                corner_array[k_mid][j_mid][i_last_node].z);
-                    PetscPrintf(PETSC_COMM_SELF, "--------------------------------------------------\n\n");
-                }
-                ierr = DMDAVecRestoreArrayRead(fda, cornerLocal, &corner_array); CHKERRQ(ierr);
-            }
             // DEBUG
-            */ 
-
-	    ierr = DMView(user->fda, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
+	        //ierr = DMView(user->fda, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
        }
     
     /////// DEBUG
@@ -1162,25 +1193,25 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     ierr = DMSwarmGetField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut); CHKERRQ(ierr);
 
+    LOG_ALLOW(LOCAL,LOG_TRACE," Rank %d holds data upto & including %d,%d,%d.\n",rank,info.gxs + info.gxm,info.gys+info.gym,info.gzs+info.gzm);
+
     // (G) Loop over each local particle
     for (PetscInt p = 0; p < nLocal; p++) {
         PetscInt iCell_global = cellIDs[3 * p + 0];
         PetscInt jCell_global = cellIDs[3 * p + 1];
         PetscInt kCell_global = cellIDs[3 * p + 2];
 
-        // Convert GLOBAL cell index to LOCAL GHOSTED index for the corner array
-        PetscInt iCell_local = iCell_global;//- info.gxs;
-        PetscInt jCell_local = jCell_global;//- info.gys;
-        PetscInt kCell_local = kCell_global;//- info.gzs;
 
+        LOG_ALLOW(LOCAL, LOG_VERBOSE,
+          "[Rank %d] Particle PID %lld: global cell=(%d,%d,%d), weights=(%.4f,%.4f,%.4f)\n",
+          rank, (long long)pids[p], iCell_global, jCell_global, kCell_global,
+          weights[3 * p + 0], weights[3 * p + 1], weights[3 * p + 2]);
         // Safety check: Ensure the entire 8-node stencil is within the valid memory
         // region (owned + ghosts) of the local array.
 
-	LOG_ALLOW(LOCAL,LOG_TRACE," The ghosted max of current rank %d are: %d,%d,%d.\n",rank,info.gxs + info.gxm,info.gys+info.gym,info.gzs+info.gzm);
-	
-        if (iCell_local < 0 || iCell_local >= info.gxs + info.gxm - 1 ||
-            jCell_local < 0 || jCell_local >= info.gys + info.gym - 1 ||
-            kCell_local < 0 || kCell_local >= info.gzs + info.gzm - 1)
+        if (iCell_global < info.gxs || iCell_global >= info.gxs + info.gxm - 1 ||
+            jCell_global < info.gxs || jCell_global >= info.gys + info.gym - 1 ||
+            kCell_global < info.gxs || kCell_global >= info.gzs + info.gzm - 1)
         {
             LOG_ALLOW(LOCAL, LOG_WARNING,
                       "[Rank %d] Particle PID %lld in global cell (%d,%d,%d) is in an un-interpolatable region (requires ghosts of ghosts or is out of bounds). Zeroing field '%s'.\n",
@@ -1203,7 +1234,7 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
         ierr = InterpolateEulerFieldToSwarmForParticle(
                   fieldName,
                   cornerPtr_read_with_ghosts,
-                  iCell_local, jCell_local, kCell_local,
+                  iCell_global, jCell_global, kCell_global,
                   a1, a2, a3,
                   swarmOut, p, bs);
         CHKERRQ(ierr);
@@ -1215,9 +1246,6 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     ierr = DMSwarmRestoreField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pids); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
-
-    ierr = DMRestoreLocalVector(fda, &cornerLocal); CHKERRQ(ierr);
-    ierr = DMRestoreGlobalVector(fda, &cornerGlobal); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished for field '%s'.\n", fieldName);
     PROFILE_FUNCTION_END;
@@ -1245,7 +1273,7 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode InterpolateAllFieldsToSwarm(UserCtx *user)
+PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
 {
   PetscErrorCode ierr;
   PetscMPIInt rank;

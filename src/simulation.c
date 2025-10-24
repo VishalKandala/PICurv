@@ -128,7 +128,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     // --- 3. Finalize State for t=0 ---
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
-    ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+    //ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
 
     // --- 4. Initial History and Output ---
     // Update solver history vectors with the t=0 state before the first real step
@@ -179,6 +179,9 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     PetscFunctionBeginUser;
     UserCtx     *user     = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
 
+    // 0. Reset all particle statuses to ensure proper location checks.
+    ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
+
     // 1. Rebuild grid-to-particle links based on loaded coordinates.
     ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
 
@@ -193,7 +196,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
 
     // 3. Update Eulerian source terms from the loaded particle data.
-    ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+    //ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
 
     // --- 4. Initial History and Output ---
     // Update solver history vectors with the t=0 state before the first real step
@@ -351,7 +354,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
         if(strcmp(simCtx->eulerianSource,"load")==0){
             //LOAD mode: Read pre-computed fields for the current step.
-            LOG_ALLOW(GLOBAL,LOG_INFO,"Eulerian Source 'load': Reading fields (t=%.4f,step=%d)...",simCtx->ti,simCtx->step);
+            LOG_ALLOW(GLOBAL,LOG_INFO,"Eulerian Source 'load': Reading fields (t=%.4f,step=%d)...\n",simCtx->ti,simCtx->step);
             for(PetscInt bi = 0; bi < simCtx->block_number;bi++){
                 ierr = ReadSimulationFields(&user[bi],simCtx->step); CHKERRQ(ierr);
             }
@@ -400,8 +403,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = UpdateAllParticleFields(user); CHKERRQ(ierr);
             
             // f. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
-            ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
-            ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+           // ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
+           // ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
 
             if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post Lagrangian update field states:\n");

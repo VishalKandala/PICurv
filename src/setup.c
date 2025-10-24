@@ -68,6 +68,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     strcpy(simCtx->restart_dir,"results");
     strcpy(simCtx->output_dir,"results");
     strcpy(simCtx->log_dir,"logs");
+    strcpy(simCtx->euler_subdir,"eulerian");
+    strcpy(simCtx->particle_subdir,"particles");
+    simCtx->_io_context_buffer[0] = '\0';
+    simCtx->current_io_directory = NULL;
 
     // --- Group 3: High-Level Physics & Model Selection Flags ---
     simCtx->immersed = 0; simCtx->movefsi = 0; simCtx->rotatefsi = 0;
@@ -252,6 +256,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",&simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",&simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",&simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-euler_subdir",&simCtx->euler_subdir,sizeof(simCtx->euler_subdir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-particle_subdir",&simCtx->particle_subdir,sizeof(simCtx->particle_subdir),NULL);CHKERRQ(ierr);
 
     simCtx->OutputFreq = simCtx->tiout; // backward compatibility related redundancy.
     if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0){
@@ -467,6 +473,237 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finished CreateSimulationContext successfully on rank %d.\n", simCtx->rank);
 
     PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "PetscMkdirRecursive"
+/**
+ * @brief Creates a directory path recursively, similar to `mkdir -p`.
+ *
+ * This function is designed to be called by Rank 0 only. It takes a full path,
+ * parses it, and creates each directory component in sequence.
+ *
+ * @param[in] path The full directory path to create.
+ *
+ * @return PetscErrorCode
+ */
+static PetscErrorCode PetscMkdirRecursive(const char *path)
+{
+    PetscErrorCode ierr;
+    char           tmp_path[PETSC_MAX_PATH_LEN];
+    char           *p = NULL;
+    size_t         len;
+    PetscBool      exists;
+
+    PetscFunctionBeginUser;
+
+    // Create a mutable copy of the path
+    len = strlen(path);
+    if (len >= sizeof(tmp_path)) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ, "Path is too long to process: %s", path);
+    }
+    strcpy(tmp_path, path);
+
+    // If the path ends with a separator, remove it
+    if (tmp_path[len - 1] == '/') {
+        tmp_path[len - 1] = 0;
+    }
+
+    // Iterate through the path, creating each directory level
+    for (p = tmp_path + 1; *p; p++) {
+        if (*p == '/') {
+            *p = 0; // Temporarily terminate the string
+
+            // Check if this directory level exists
+            ierr = PetscTestDirectory(tmp_path, 'r', &exists); CHKERRQ(ierr);
+            if (!exists) {
+                ierr = PetscMkdir(tmp_path); CHKERRQ(ierr);
+            }
+            
+            *p = '/'; // Restore the separator
+        }
+    }
+    
+    // Create the final, full directory path
+    ierr = PetscTestDirectory(tmp_path, 'r', &exists); CHKERRQ(ierr);
+    if (!exists) {
+        ierr = PetscMkdir(tmp_path); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "SetupSimulationEnvironment"
+/**
+ * @brief Verifies and prepares the complete I/O environment for a simulation run.
+ *
+ * This function performs a comprehensive series of checks and setup actions to
+ * ensure a valid and clean environment. It is parallel-safe; all filesystem
+ * operations and checks are performed by Rank 0, with collective error handling.
+ *
+ * The function's responsibilities include:
+ * 1.  **Checking Mandatory Inputs:** Verifies existence of grid and BCs files.
+ * 2.  **Checking Optional Inputs:** Warns if optional config files (whitelist, profile) are missing.
+ * 3.  **Validating Run Mode Paths:** Ensures `restart_dir` or post-processing source directories exist when needed.
+ * 4.  **Preparing Log Directory:** Creates the log directory and cleans it of previous logs.
+ * 5.  **Preparing Output Directories:** Creates the main output directory and its required subdirectories.
+ *
+ * @param[in] simCtx The fully configured SimulationContext object.
+ *
+ * @return PetscErrorCode Returns 0 on success, or a non-zero error code if a
+ *         mandatory file/directory is missing or a critical operation fails.
+ */
+PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank;
+    PetscBool      exists;
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Setting up simulation environment ---\n");
+
+    /* =====================================================================
+     *  Phase 1: Check for all required and optional INPUT files.
+     * ===================================================================== */
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Phase 1: Verifying input files...\n");
+
+    // --- Mandatory Inputs ---
+    if (!simCtx->generate_grid) {
+        ierr = VerifyPathExistence(simCtx->grid_file, PETSC_FALSE, PETSC_FALSE, "Grid file", &exists); CHKERRQ(ierr);
+    }
+    for (PetscInt i = 0; i < simCtx->num_bcs_files; i++) {
+        char desc[128];
+        ierr = PetscSNPrintf(desc, sizeof(desc), "BCS file #%d", i + 1); CHKERRQ(ierr);
+        ierr = VerifyPathExistence(simCtx->bcs_files[i], PETSC_FALSE, PETSC_FALSE, desc, &exists); CHKERRQ(ierr);
+    }
+
+    // --- Optional Inputs (these produce warnings if missing) ---
+    if (simCtx->useCfg) {
+        ierr = VerifyPathExistence(simCtx->allowedFile, PETSC_FALSE, PETSC_TRUE, "Whitelist config file", &exists); CHKERRQ(ierr);
+    }
+    if (simCtx->useCriticalFuncsCfg) {
+        ierr = VerifyPathExistence(simCtx->criticalFuncsFile, PETSC_FALSE, PETSC_TRUE, "Profiling config file", &exists); CHKERRQ(ierr);
+    }
+    if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) {
+        ierr = VerifyPathExistence(simCtx->PostprocessingControlFile, PETSC_FALSE, PETSC_TRUE, "Post-processing control file", &exists); CHKERRQ(ierr);
+    }
+
+
+    /* =====================================================================
+     *  Phase 2: Validate directories specific to the execution mode.
+     * ===================================================================== */
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Phase 2: Verifying execution mode directories...\n");
+    // The data source directory must exist if we intend to load any data from it.
+    // This is true if:
+    //  1. We are restarting from a previous time step (StartStep > 0), which implies
+    //     loading Eulerian fields and/or particle fields.
+    //  2. We are starting from t=0 but are explicitly told to load the initial
+    //     Eulerian fields from a file (eulerianSource == "load").
+    if (simCtx->StartStep > 0 || strcmp(simCtx->eulerianSource,"load")== 0){ // If this is a restart run
+        ierr = VerifyPathExistence(simCtx->restart_dir, PETSC_TRUE, PETSC_FALSE, "Restart source directory", &exists); CHKERRQ(ierr);
+    }
+    if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) {
+        ierr = VerifyPathExistence(simCtx->pps->source_dir, PETSC_TRUE, PETSC_FALSE, "Post-processing source directory", &exists); CHKERRQ(ierr);
+    }
+
+    /* =====================================================================
+     *  Phase 3: Create and prepare all OUTPUT directories.
+     * ===================================================================== */
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Phase 3: Preparing output directories...\n");
+
+    if (rank == 0){
+      if(simCtx->exec_mode == EXEC_MODE_SOLVER){
+        // --- Prepare Log Directory ---
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating/cleaning log directory: %s\n", simCtx->log_dir);
+        ierr = PetscRMTree(simCtx->log_dir); // Wipes the directory and its contents
+        if (ierr) { /* Ignore file-not-found error, but fail on others */
+            PetscError(PETSC_COMM_SELF, __LINE__, __FUNCT__, __FILE__, ierr, PETSC_ERROR_INITIAL, "Could not remove existing log directory '%s'. Check permissions.", simCtx->log_dir);
+        }
+        ierr = PetscMkdir(simCtx->log_dir); CHKERRQ(ierr);
+
+        // --- Prepare Output Directories ---
+        char path_buffer[PETSC_MAX_PATH_LEN];
+
+        // 1. Check/Create the main output directory
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Verifying main output directory: %s\n", simCtx->output_dir);
+        ierr = PetscTestDirectory(simCtx->output_dir, 'r', &exists); CHKERRQ(ierr);
+        if (!exists) {
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Output directory not found. Creating: %s\n", simCtx->output_dir);
+            ierr = PetscMkdir(simCtx->output_dir); CHKERRQ(ierr);
+        }
+
+        // 2. Check/Create the Eulerian subdirectory
+        ierr = PetscSNPrintf(path_buffer, sizeof(path_buffer), "%s/%s", simCtx->output_dir, simCtx->euler_subdir); CHKERRQ(ierr);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Verifying Eulerian subdirectory: %s\n", path_buffer);
+        ierr = PetscTestDirectory(path_buffer, 'r', &exists); CHKERRQ(ierr);
+        if (!exists) {
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian subdirectory not found. Creating: %s\n", path_buffer);
+            ierr = PetscMkdir(path_buffer); CHKERRQ(ierr);
+        }
+
+        // 3. Check/Create the Particle subdirectory if needed
+        if (simCtx->np > 0) {
+          ierr = PetscSNPrintf(path_buffer, sizeof(path_buffer), "%s/%s", simCtx->output_dir, simCtx->particle_subdir); CHKERRQ(ierr);
+          LOG_ALLOW(GLOBAL, LOG_DEBUG, "Verifying Particle subdirectory: %s\n", path_buffer);
+          ierr = PetscTestDirectory(path_buffer, 'r', &exists); CHKERRQ(ierr);
+          if (!exists) {
+              LOG_ALLOW(GLOBAL, LOG_INFO, "Particle subdirectory not found. Creating: %s\n", path_buffer);
+              ierr = PetscMkdir(path_buffer); CHKERRQ(ierr);
+          }
+        }
+      } else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Preparing post-processing output directories ...\n");
+
+        PostProcessParams *pps = simCtx->pps;
+        char path_buffer[PETSC_MAX_PATH_LEN];
+
+        const char *last_slash_euler = strrchr(pps->output_prefix, '/');
+        if(last_slash_euler){
+          size_t dir_len = last_slash_euler - pps->output_prefix;
+          if(dir_len > 0){
+            if(dir_len >= sizeof(path_buffer)) SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Post-processing output prefix path is too long.");
+            strncpy(path_buffer, pps->output_prefix, dir_len);
+            path_buffer[dir_len] = '\0';
+
+            ierr = PetscTestDirectory(path_buffer, 'r', &exists); CHKERRQ(ierr);
+            if (!exists){
+              LOG_ALLOW(GLOBAL, LOG_INFO, "Creating post-processing Eulerian output directory: %s\n", path_buffer);
+              ierr = PetscMkdirRecursive(path_buffer); CHKERRQ(ierr);
+            }
+          }
+        }
+
+        // Particle output directory
+        if(pps->outputParticles){
+          const char  *last_slash_particle = strrchr(pps->particle_output_prefix, '/');
+          if(last_slash_particle){
+            size_t dir_len = last_slash_particle - pps->particle_output_prefix;
+            if(dir_len >  0){
+              if(dir_len > sizeof(path_buffer)) SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Post-processing particle output prefix path is too long.");
+              strncpy(path_buffer, pps->particle_output_prefix, dir_len);
+              path_buffer[dir_len] = '\0';
+              
+              ierr = PetscTestDirectory(path_buffer, 'r', &exists); CHKERRQ(ierr);
+
+              if (!exists){
+                LOG_ALLOW(GLOBAL, LOG_INFO, "Creating post-processing Particle output directory: %s\n", path_buffer);
+                ierr = PetscMkdirRecursive(path_buffer); CHKERRQ(ierr);
+              }  
+            }
+          } 
+        }  
+      } 
+    }
+    
+    // Synchronize all processes before proceeding
+    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRMPI(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Environment setup complete ---\n");
+
     PetscFunctionReturn(0);
 }
 
