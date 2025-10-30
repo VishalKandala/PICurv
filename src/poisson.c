@@ -66,9 +66,9 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
 /*   WALL FUNCTION */
 /* ==================================================================================             */
   if (wallfunction) {
-    PetscReal ***ustar, ***aj, ***nvert;
+    PetscReal ***friction_Velocity, ***aj, ***nvert;
   DMDAVecGetArray(fda, user->Ucat, &ucat);
-  DMDAVecGetArray(da, user->lUstar, &ustar);
+  DMDAVecGetArray(da, user->lFriction_Velocity, &friction_Velocity);
   DMDAVecGetArray(da, user->lAj,  &aj);
   DMDAVecGetArray(da, user->lNvert,  &nvert);
 
@@ -99,7 +99,7 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
 	  if(i==mx-2) ni[0]*=-1, ni[1]*=-1, ni[2]*=-1;
 	  
 	  //if(i==1) printf("%f %f, %f %f %f, %e %e %e, %e\n", sc, sb, Ua.x, Ua.y, Ua.z, Uc.x, Uc.y, Uc.z, ucat[k][j][i+2].z);
-	  wall_function (user, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], ni[0], ni[1], ni[2]);
+	  wall_function (user, sc, sb, Ua, Uc, &ucat[k][j][i], &friction_Velocity[k][j][i], ni[0], ni[1], ni[2]);
 	  nvert[k][j][i]=1;	/* set nvert to 1 to exclude from rhs */
 	  //	  ucat[k][j][i] = lucat[k][j][i];	  
 	}
@@ -125,7 +125,7 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
 	  CalculateFaceNormalAndArea(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk,NULL,NULL,NULL); // Passing Null pointers for Area.
 	  //if(j==my-2) nj[0]*=-1, nj[1]*=-1, nj[2]*=-1;
 	  
-	  wall_function (user, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], nj[0], nj[1], nj[2]);
+	  wall_function (user, sc, sb, Ua, Uc, &ucat[k][j][i], &friction_Velocity[k][j][i], nj[0], nj[1], nj[2]);
 	  nvert[k][j][i]=1;	/* set nvert to 1 to exclude from rhs */
 	  //	  ucat[k][j][i] = lucat[k][j][i];
 	}
@@ -133,7 +133,7 @@ static PetscErrorCode GhostNodeVelocity(UserCtx *user)
       }
   DMDAVecRestoreArray(da, user->lAj,  &aj);
   DMDAVecRestoreArray(da, user->lNvert,  &nvert);
-  DMDAVecRestoreArray(da, user->lUstar, &ustar);   
+  DMDAVecRestoreArray(da, user->lFriction_Velocity, &friction_Velocity);   
   DMDAVecRestoreArray(fda, user->Ucat, &ucat);
 
   DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
@@ -1463,6 +1463,7 @@ PetscErrorCode Projection(UserCtx *user)
   // --- Convert velocity to Cartesian and update ghost nodes ---
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Converting velocity to Cartesian and finalizing ghost nodes.\n");
   Contra2Cart(user);
+  UpdateLocalGhosts(user,"Ucat");
   GhostNodeVelocity(user);
 
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting Projection step.\n");

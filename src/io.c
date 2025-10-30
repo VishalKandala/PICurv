@@ -299,7 +299,6 @@ PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
     else if (strcasecmp(str, "SYMMETRY")  == 0) *type_out = SYMMETRY;
     else if (strcasecmp(str, "INLET")     == 0) *type_out = INLET;
     else if (strcasecmp(str, "OUTLET")    == 0) *type_out = OUTLET;
-    else if (strcasecmp(str, "NOGRAD")    == 0) *type_out = NOGRAD;
     // ... add other BCTypes here ...
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown BC Type string: %s", str);
     return 0;
@@ -315,7 +314,6 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
     if      (strcasecmp(str, "noslip")              == 0) *handler_out = BC_HANDLER_WALL_NOSLIP;
     else if (strcasecmp(str, "constant_velocity")   == 0) *handler_out = BC_HANDLER_INLET_CONSTANT_VELOCITY;
     else if (strcasecmp(str, "conservation")        == 0) *handler_out = BC_HANDLER_OUTLET_CONSERVATION;
-    else if (strcasecmp(str, "allcopy")             == 0) *handler_out = BC_HANDLER_NOGRAD_COPY_GHOST;
     else if (strcasecmp(str, "parabolic")           == 0) *handler_out = BC_HANDLER_INLET_PARABOLIC;
     // ... add other BCHandlerTypes here ...
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown BC Handler string: %s", str);
@@ -330,8 +328,8 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
  */
 PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
     switch (type) {
-        case NOGRAD:
-	    if(handler != BC_HANDLER_NOGRAD_COPY_GHOST) return PETSC_ERR_ARG_WRONG;
+        case OUTLET:
+	    if(handler != BC_HANDLER_OUTLET_CONSERVATION) return PETSC_ERR_ARG_WRONG;
 	    break;
         case WALL:
             if (handler != BC_HANDLER_WALL_NOSLIP && handler != BC_HANDLER_WALL_MOVING) return PETSC_ERR_ARG_WRONG;

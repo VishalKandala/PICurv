@@ -258,8 +258,7 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
     PROFILE_FUNCTION_BEGIN;
 
     // This sequence ensures a fully consistent state for a single block.
-    // 1. Apply BCs using the information from InflowFlux/OutflowFlux.
-    ierr = FormBCS(user); CHKERRQ(ierr);
+    ierr = ApplyBoundaryConditions(user); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition applied.\n");
     // 2. Sync contravariant velocity field.
     ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
@@ -305,16 +304,10 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
 	LOG_ALLOW(GLOBAL,LOG_TRACE," Initializing Interior Ucont field.\n");
         ierr = SetInitialInteriorField(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
 	LOG_ALLOW(GLOBAL,LOG_TRACE," Interior Ucont field initialized.\n");
-	
-        // 2. Establish the initial boundary flux values and set inlet profiles.
-        //    This sequence is critical and comes directly from the legacy setup.
-	LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition Preparation steps initiated.\n");
-        ierr = InflowFlux(&user_finest[bi]); CHKERRQ(ierr);
-        ierr = OutflowFlux(&user_finest[bi]); CHKERRQ(ierr);
-	LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition Preparation steps completed.\n");
-        // 3. Apply all boundary conditions, convert to Cartesian, and sync ghosts.
-        LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition application and state finalization initiated.\n");
-        ierr = FinalizeBlockState(&user_finest[bi]); CHKERRQ(ierr);
+
+    // 2. Apply all boundary conditions, convert to Cartesian, and sync ghosts.
+    LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition application and state finalization initiated.\n");
+    ierr = FinalizeBlockState(&user_finest[bi]); CHKERRQ(ierr);
 	LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition application and state finalization complete.\n");
     }
 
@@ -416,6 +409,5 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Eulerian State Initialized and History Vectors Populated ---\n");
 
     PROFILE_FUNCTION_END;
-
     PetscFunctionReturn(0);
 }
