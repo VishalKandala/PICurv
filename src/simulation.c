@@ -350,6 +350,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // =================================================================
         if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
             ierr = LOG_FIELD_ANATOMY(&user[0],"Coordinates","PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Csi","PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Eta","PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Zet","PreFlowSolver"); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
         if(strcmp(simCtx->eulerianSource,"load")==0){

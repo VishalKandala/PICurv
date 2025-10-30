@@ -195,20 +195,4 @@ PetscErrorCode OutflowFlux(UserCtx *user);
 // TO BE FIXED
 PetscErrorCode FormBCS(UserCtx *user);
 
-/**
- * @brief Acts as a temporary bridge to the legacy boundary condition implementation.
- *
- * This function is the key to our integration strategy. It matches the signature
- * of the modern `BoundarySystem_ExecuteStep` function that SetEulerianFields
- * expects to call.
- *
- * However, instead of containing new handler-based logic, it simply calls the
- * monolithic legacy `FormBCS` function. This allows the modern orchestrator to
- * drive the old solver logic without modification.
- *
- * @param user The UserCtx for a single block.
- * @return PetscErrorCode
- */
-PetscErrorCode BoundarySystem_ExecuteStep_Legacy(UserCtx *user);
-
 #endif // BOUNDARIES_H

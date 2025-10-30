@@ -1375,8 +1375,11 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
         // Call the adapter to translate into the legacy format
         ierr = TranslateModernBCsToLegacy(&user_finest[bi]); CHKERRQ(ierr);
 
-        // Call the function to calculate the center of the inlet face, which may be used to calculate Boundary values.
-        ierr = CalculateInletCenter(&user_finest[bi]); CHKERRQ(ierr); 
+        // Call the function to calculate the center of the inlet face & the inlet area, which may be used to calculate Boundary values.
+        ierr = CalculateInletProperties(&user_finest[bi]); CHKERRQ(ierr);
+        
+        // Call the function to calculate the center of the outlet face & the outlet area, which may be used to calculate Boundary values.
+        ierr = CalculateOutletProperties(&user_finest[bi]); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Boundary Conditions setup complete ---\n");   

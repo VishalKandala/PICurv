@@ -1455,6 +1455,12 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
         vec_local = user->lPsi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(field_name, "Ucont") == 0) {
         vec_local = user->lUcont; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
+    } else if (strcasecmp(field_name, "Csi") == 0) {
+        vec_local = user->lCsi; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
+    } else if (strcasecmp(field_name, "Eta") == 0) {
+        vec_local = user->lEta; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
+    } else if (strcasecmp(field_name, "Zet") == 0) {
+        vec_local = user->lZet; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
     } else if (strcasecmp(field_name, "Coordinates") == 0) {
         ierr = DMGetCoordinatesLocal(user->da, &vec_local); CHKERRQ(ierr);
         dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
