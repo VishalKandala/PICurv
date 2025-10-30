@@ -203,7 +203,7 @@ typedef enum {
     BC_FACE_NEG_Z = 4, BC_FACE_POS_Z = 5
 } BCFace;
 
-/** @brief Defines the general mathematical/physical category of a boundary. */
+/** @brief Defines the general mathematical/physical Category of a boundary. */
 typedef enum {
     WALLFUNCTION       = -1,
     INTERFACE          = 0,
@@ -221,21 +221,34 @@ typedef enum {
     OGRID              = 12,
     RHEOLOGY           = 13,
     // Note:  Legacy 14 can be a JUNCTION with a specific handler.
-    NOGRAD             = 15
 } BCType;
 
 /** @brief Defines the specific computational "strategy" for a boundary handler. */
 typedef enum {
-    BC_HANDLER_UNDEFINED = 0,BC_HANDLER_NOGRAD_COPY_GHOST,
-    BC_HANDLER_WALL_NOSLIP, BC_HANDLER_WALL_MOVING,
-    BC_HANDLER_SYMMETRY_PLANE,BC_HANDLER_INLET_PARABOLIC,
-    BC_HANDLER_INLET_CONSTANT_VELOCITY, BC_HANDLER_INLET_PULSATILE_FLUX, BC_HANDLER_INLET_DEVELOPED_PROFILE,
-    BC_HANDLER_INLET_INTERP_FROM_FILE,
-    BC_HANDLER_OUTLET_CONSERVATION, BC_HANDLER_OUTLET_PRESSURE,
-    BC_HANDLER_FARFIELD_NONREFLECTING,
-    BC_HANDLER_PERIODIC, BC_HANDLER_INTERFACE_OVERSET
-} BCHandlerType;
+    BC_HANDLER_UNDEFINED = 0,
+    BC_HANDLER_WALL_NOSLIP = 1, 
+    BC_HANDLER_WALL_MOVING = 2,
+    BC_HANDLER_SYMMETRY_PLANE = 3,
+    BC_HANDLER_INLET_CONSTANT_VELOCITY = 4,
+    BC_HANDLER_INLET_PARABOLIC = 5,
+    BC_HANDLER_INLET_PROFILE_FROM_FILE = 6,
+    BC_HANDLER_INLET_INTERP_FROM_FILE = 7,
+    BC_HANDLER_INLET_PULSATILE_FLUX = 8,
+    BC_HANDLER_FARFIELD_NONREFLECTING = 9,
+    BC_HANDLER_OUTLET_CONSERVATION = 10, 
+    BC_HANDLER_OUTLET_PRESSURE = 11,
+    BC_HANDLER_PERIODIC = 12, 
+    BC_HANDLER_INTERFACE_OVERSET = 13
+  } BCHandlerType;
 
+  
+typedef enum{
+    BC_PRIORITY_UNDEFINED = -1,
+    BC_PRIORITY_INLET = 0,
+    BC_PRIORITY_FARFIELD = 1,
+    BC_PRIORITY_WALL = 2,
+    BC_PRIORITY_OUTLET =3
+} BCPriorityType;
 
 //--------------------------------------------------------------------------------
 //               5. BOUNDARY CONDITION SYSTEM STRUCTS
@@ -253,17 +266,20 @@ typedef struct BCContext {
     UserCtx  *user;
     BCFace    face_id;
     const PetscReal *global_inflow_sum;
+    const PetscReal *global_farfield_inflow_sum;
+    const PetscReal *global_farfield_outflow_sum;
     const PetscReal *global_outflow_sum;
 } BCContext;
 
 /** @brief The "virtual table" struct for a boundary condition handler object. */
 typedef struct BoundaryCondition {
     BCHandlerType type;
+    BCPriorityType priority;
     void         *data;
     PetscErrorCode (*Initialize)(BoundaryCondition *self, BCContext *ctx);
     PetscErrorCode (*PreStep)(BoundaryCondition *self, BCContext *ctx, PetscReal *local_inflow, PetscReal *local_outflow);
     PetscErrorCode (*Apply)(BoundaryCondition *self, BCContext *ctx);
-    PetscErrorCode (*PlaceSource)(BoundaryCondition *self, BCContext *ctx, ...);
+    PetscErrorCode (*PostStep)(BoundaryCondition *self, BCContext *ctx, ...);
     PetscErrorCode (*Destroy)(BoundaryCondition *self);
 } BoundaryCondition;
 
@@ -588,6 +604,7 @@ typedef struct SimCtx {
     PetscReal Flux_in, angle,max_angle;
     PetscReal CMx_c, CMy_c, CMz_c;
     ScalingCtx scaling;
+    PetscReal  wall_roughness_height;
 
     //================ Group 7: Grid, Domain, and Boundary Condition Settings ================
     PetscInt  block_number, inletprofile, grid1d, Ogrid, channelz;
@@ -599,7 +616,7 @@ typedef struct SimCtx {
     PetscInt da_procs_x, da_procs_y, da_procs_z;
     PetscInt num_bcs_files;
     char **bcs_files;
-    PetscReal  FluxInSum, FluxOutSum,Fluxsum;
+    PetscReal  FluxInSum, FluxOutSum,Fluxsum,FarFluxInSum,FarFluxOutSum;
     PetscReal  AreaInSum, AreaOutSum;
     PetscReal  U_bc;
     PetscInt   ccc;
@@ -680,7 +697,7 @@ typedef struct UserCtx {
     PetscBool inletFaceDefined;
     BCFace    identifiedInletBCFace;
     BCS       Bcs;
-    Vec       lUstar; 
+    Vec       lFriction_Velocity; 
     PetscInt  bctype[6]; // Legacy BC setup
     PetscReal FluxIntpSum,FluxIntfcSum;
 

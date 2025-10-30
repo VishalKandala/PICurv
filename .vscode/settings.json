@@ -4,6 +4,8 @@
         "postprocessing_kernels.h": "c",
         "solvers.h": "c",
         "implicitsolvers.h": "c",
-        "rhs.h": "c"
+        "rhs.h": "c",
+        "wallfunction.h": "c",
+        "boundaries.h": "c"
     }
 }

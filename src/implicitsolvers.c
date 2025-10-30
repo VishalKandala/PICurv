@@ -42,9 +42,8 @@ PetscErrorCode RungeKutta(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
     // before the main RK loop begins. This logic is preserved from the original code.
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Preparing all blocks for Runge-Kutta solve...\n");
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        ierr = InflowFlux(&user[bi]); CHKERRQ(ierr);
-        ierr = OutflowFlux(&user[bi]); CHKERRQ(ierr);
-        ierr = FormBCS(&user[bi]); CHKERRQ(ierr);
+
+        ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
 
         /*
         // Immersed boundary interpolation (if enabled)
@@ -83,9 +82,7 @@ PetscErrorCode RungeKutta(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 
                 // d. Re-apply boundary conditions for the new intermediate velocity.
                 //    This is crucial for the stability and accuracy of the multi-stage scheme.
-                ierr = InflowFlux(&user[bi]); CHKERRQ(ierr);
-                ierr = OutflowFlux(&user[bi]); CHKERRQ(ierr);
-                ierr = FormBCS(&user[bi]); CHKERRQ(ierr);
+                ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
                 
             } // End of RK stages for one block
 
@@ -193,9 +190,8 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 
     for (PetscInt bi = 0; bi < block_number; bi++) {
         // Prepare BCs and workspace vectors
-        ierr = InflowFlux(&user[bi]); CHKERRQ(ierr);
-        ierr = OutflowFlux(&user[bi]); CHKERRQ(ierr);
-        ierr = FormBCS(&user[bi]); CHKERRQ(ierr);
+
+        ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
         
         /*
         if (immersed) {
@@ -253,9 +249,8 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
                 // Sync ghosts and re-apply BCs for the intermediate stage
                 ierr = DMGlobalToLocalBegin(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
                 ierr = DMGlobalToLocalEnd(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
-                ierr = InflowFlux(&user[bi]); CHKERRQ(ierr);
-                ierr = OutflowFlux(&user[bi]); CHKERRQ(ierr);
-                ierr = FormBCS(&user[bi]); CHKERRQ(ierr);
+
+                ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
 
 		LOG_ALLOW(GLOBAL,LOG_TRACE, " Ghosts synced and BCs reapplied.\n");
 

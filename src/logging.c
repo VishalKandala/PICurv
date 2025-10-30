@@ -712,7 +712,6 @@ const char* BCTypeToString(BCType type) {
         case FARFIELD:  return "FARFIELD";
         case PERIODIC:  return "PERIODIC";
         case INTERFACE: return "INTERFACE";
-        case NOGRAD:    return "NOGRAD";
 
 	// case CUSTOM:    return "CUSTOM";
         default:        return "Unknown BC Type";
@@ -747,7 +746,6 @@ const char* BCHandlerTypeToString(BCHandlerType handler_type) {
 
         // Other Physical Handlers
         case BC_HANDLER_FARFIELD_NONREFLECTING:  return "nonreflecting";
-        case BC_HANDLER_NOGRAD_COPY_GHOST: return "no_gradient";
 
         // Multi-Block / Interface Handlers
         case BC_HANDLER_PERIODIC:                return "periodic";

@@ -2,7 +2,6 @@
 #define BC_HANDLERS_H
 
 #include "variables.h"
-#include "Boundaries.h" // This gives us access to the BoundaryCondition struct definition
 #include "logging.h"
 
 
@@ -28,8 +27,6 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc);
 PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc);
 
 PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc);
-
-PetscErrorCode Create_NogradCopyGhost(BoundaryCondition *bc);
 
 PetscErrorCode Create_OutletConservation(BoundaryCondition *bc);
 

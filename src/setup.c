@@ -105,6 +105,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->NumberOfBodies = 1; simCtx->Flux_in = 1.0; simCtx->angle = 0.0;
     simCtx->max_angle = -54. * 3.1415926 / 180.;
     simCtx->CMx_c=0.0; simCtx->CMy_c=0.0; simCtx->CMz_c=0.0;
+    simCtx->wall_roughness_height = 1e-16;
 
     // --- Group 7: Grid, Domain, and Boundary Condition Settings ---
     simCtx->block_number = 1; simCtx->inletprofile = 1;
@@ -332,6 +333,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
      //  --- Group 6
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 6: Physical & Geometric Parameters \n");   
     ierr = PetscOptionsGetInt(NULL, NULL, "-no_of_bodies", &simCtx->NumberOfBodies, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-wall_roughness",&simCtx->wall_roughness_height,NULL);CHKERRQ(ierr);
     // NOTE: angle is not parsed in the original code, it set programmatically. We will follow that.
     // NOTE: max_angle is calculated based on other flags (like MHV) in the legacy code.
     // We will defer that logic to a later setup stage and not parse them directly.
@@ -1010,6 +1012,10 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 ierr = DMCreateLocalVector(user->da,&user->lCs); CHKERRQ(ierr); ierr = VecSet(user->lCs,0.0); CHKERRQ(ierr);
                 LOG_ALLOW(GLOBAL, LOG_DEBUG, "Smagorinsky constant (CS) vectors created for LES model.\n");
                 }
+
+                if(simCtx->wallfunction){
+                  ierr = DMCreateLocalVector(user->fda,&user->lFriction_Velocity); CHKERRQ(ierr); ierr = VecSet(user->lFriction_Velocity,0.0);
+                }
 	              // Add K_Omega etc. here as needed
 
                 // Note: Add any other vectors from the legacy MG_Initial here as needed.
@@ -1026,7 +1032,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	      LOG_ALLOW(GLOBAL,LOG_DEBUG,"ParticleCount & Scalar(Psi) created for %d particles.\n",simCtx->np);
 	      }
 	    }
-	    // --- Group I: Boundary Condition vectors needed by the legacy FormBCS ---
+	    // --- Group I: Boundary Condition vectors ---
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Ubcs); CHKERRQ(ierr);
 	    ierr = VecSet(user->Bcs.Ubcs, 0.0); CHKERRQ(ierr);
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Uch); CHKERRQ(ierr);
@@ -1370,8 +1376,10 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
 	const char *current_bc_filename = simCtx->bcs_files[bi];
 	LOG_ALLOW(GLOBAL,LOG_DEBUG,"  -> Processing Block %d using config file '%s'\n", bi, current_bc_filename);
        // This will populate user_finest[bi].boundary_faces
-        ierr = ParseAllBoundaryConditions(&user_finest[bi],current_bc_filename); CHKERRQ(ierr);
 
+        //ierr = ParseAllBoundaryConditions(&user_finest[bi],current_bc_filename); CHKERRQ(ierr);
+       
+        ierr = BoundarySystem_Initialize(&user_finest[bi], current_bc_filename); CHKERRQ(ierr);
         // Call the adapter to translate into the legacy format
         ierr = TranslateModernBCsToLegacy(&user_finest[bi]); CHKERRQ(ierr);
 
