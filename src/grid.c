@@ -1035,45 +1035,24 @@ PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "CalculateInletCenter"
-
+#define __FUNCT__ "CalculateInletProperties"
 /**
- * @brief Calculates the geometric center of the primary inlet face.
+ * @brief Calculates the center and area of the primary INLET face.
  *
- * This function identifies the first face designated as an INLET in the boundary
- * condition configuration. It then iterates over all grid nodes on that physical
- * face across all MPI processes, calculates the average of their coordinates,
- * and stores the result in the user's SimCtx (CMx_c, CMy_c, CMz_c).
+ * This function identifies the primary INLET face from the boundary face
+ * configurations, computes its geometric center and total area using a
+ * generic utility function, and stores these results in the simulation context.
  *
- * This provides an automatic, robust way to determine the center for profiles
- * like parabolic flow, removing the need for manual user input.
- *
- * @param user The main UserCtx struct, containing BC config and the grid coordinate vector.
- * @return PetscErrorCode 0 on success.
+ * @param user Pointer to the UserCtx containing boundary face information.
+ * @return PetscErrorCode
  */
-PetscErrorCode CalculateInletCenter(UserCtx *user)
+PetscErrorCode CalculateInletProperties(UserCtx *user)
 {
     PetscErrorCode ierr;
     BCFace         inlet_face_id = -1;
     PetscBool      inlet_found = PETSC_FALSE;
 
-    PetscReal      local_sum[3] = {0.0, 0.0, 0.0};
-    PetscReal      global_sum[3] = {0.0, 0.0, 0.0};
-    PetscCount     local_n_points = 0;
-    PetscCount     global_n_points = 0;
-    
-    DM             da = user->da;
-    DMDALocalInfo  info = user->info;
-    PetscInt       xs = info.xs, xe = info.xs + info.xm;
-    PetscInt       ys = info.ys, ye = info.ys + info.ym;
-    PetscInt       zs = info.zs, ze = info.zs + info.zm;
-    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
-    Vec            lCoor;
-    Cmpnts         ***coor;
-
-
     PetscFunctionBeginUser;
-
     PROFILE_FUNCTION_BEGIN;
 
     // 1. Identify the primary inlet face from the configuration
@@ -1087,105 +1066,547 @@ PetscErrorCode CalculateInletCenter(UserCtx *user)
 
     if (!inlet_found) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "No INLET face found. Skipping inlet center calculation.\n");
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     
-    // 2. Get the nodal coordinates
-    ierr = DMGetCoordinatesLocal(user->da,&lCoor);
-    ierr = DMDAVecGetArrayRead(user->fda, lCoor, &coor); CHKERRQ(ierr);
+    Cmpnts inlet_center;
+    PetscReal inlet_area;
 
-    // 3. Loop over the identified inlet face and sum local coordinates
-    switch (inlet_face_id) {
-        case BC_FACE_NEG_X:
-            if (xs == 0) {
-                for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
-                    if(j < user->JM && k < user->KM){ // Ensure within physical domain
-                        local_sum[0] += coor[k][j][0].x;
-                        local_sum[1] += coor[k][j][0].y;
-                        local_sum[2] += coor[k][j][0].z;
-                        local_n_points++;
-                    }
-                }
-            }
-            break;
-        case BC_FACE_POS_X:
-            if (xe == mx) { // another check could be if (xe > user->IM - 1)
-                for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
-                    if(j < user->JM && k < user->KM){ // Ensure within physical domain
-                        local_sum[0] += coor[k][j][mx-2].x; // mx-1 is the ghost layer 
-                        local_sum[1] += coor[k][j][mx-2].y; // mx-2 = IM - 1.
-                        local_sum[2] += coor[k][j][mx-2].z;
-                        local_n_points++;
-                    }
-                }
-            }
-            break;
-        case BC_FACE_NEG_Y:
-            if (ys == 0) {
-                for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) {
-                    if(i < user->IM && k < user->KM){ // Ensure within physical domain
-                        local_sum[0] += coor[k][0][i].x;
-                        local_sum[1] += coor[k][0][i].y;
-                        local_sum[2] += coor[k][0][i].z;
-                        local_n_points++;
-                    }
-                }
-            }
-            break;
-        case BC_FACE_POS_Y:
-            if (ye == my) { // another check could be if (ye > user->JM - 1)
-                for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) {
-                    local_sum[0] += coor[k][my-2][i].x; // my-1 is the ghost layer
-                    local_sum[1] += coor[k][my-2][i].y; // my-2 = JM - 1.
-                    local_sum[2] += coor[k][my-2][i].z;
-                    local_n_points++;
-                }
-            }
-            break;
-        case BC_FACE_NEG_Z:
-            if (zs == 0) {
-                for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) {
-                    if(i < user->IM && j < user->JM){ // Ensure within physical domain
-                        local_sum[0] += coor[0][j][i].x;
-                        local_sum[1] += coor[0][j][i].y;
-                        local_sum[2] += coor[0][j][i].z;
-                        local_n_points++;
-                    }
-                }
-            }
-            break;
-        case BC_FACE_POS_Z:
-            if (ze == mz) { // another check could be if (ze > user->KM - 1)
-                for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) {
-                    if(i < user->IM && j < user->JM){ // Ensure within physical domain
-                        local_sum[0] += coor[mz-2][j][i].x; // mz-1 is the ghost layer
-                        local_sum[1] += coor[mz-2][j][i].y; // mz-2 = KM - 1.
-                        local_sum[2] += coor[mz-2][j][i].z;
-                        local_n_points++;
-                    }
-                }
-            }
-            break;
-    }
-    
-    ierr = DMDAVecRestoreArrayRead(user->fda, lCoor, &coor); CHKERRQ(ierr);
+    // 2. Call the generic utility to compute  the center and area of any face.
+    ierr = CalculateFaceCenterAndArea(user,inlet_face_id,&inlet_center,&inlet_area); CHKERRQ(ierr);
 
-    // 4. Perform MPI Allreduce to get global sums
-    ierr = MPI_Allreduce(local_sum, global_sum, 3, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
-    ierr = MPI_Allreduce(&local_n_points, &global_n_points, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    // 3. Store results in the SimCtx
+    user->simCtx->CMx_c = inlet_center.x;
+    user->simCtx->CMy_c = inlet_center.y;
+    user->simCtx->CMz_c = inlet_center.z;
+    user->simCtx->AreaInSum = inlet_area;
 
-    // 5. Calculate average and store in SimCtx
-    if (global_n_points > 0) {
-        user->simCtx->CMx_c = global_sum[0] / global_n_points;
-        user->simCtx->CMy_c = global_sum[1] / global_n_points;
-        user->simCtx->CMz_c = global_sum[2] / global_n_points;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Calculated inlet center for Face %s: (x=%.4f, y=%.4f, z=%.4f)\n", 
-        BCFaceToString((BCFace)inlet_face_id), user->simCtx->CMx_c, user->simCtx->CMy_c, user->simCtx->CMz_c);
-    } else {
-         LOG_ALLOW(GLOBAL, LOG_WARNING, "WARNING: Inlet face was identified but no grid points found on it. Center not calculated.\n");
-    }
+    LOG_ALLOW(GLOBAL, LOG_INFO,
+              "Rank[%d] Inlet Center: (%.6f, %.6f, %.6f), Area: %.6f\n",
+              inlet_center.x, inlet_center.y, inlet_center.z, inlet_area);
 
     PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "CalculateOutletProperties"
+/**
+ * @brief Calculates the center and area of the primary OUTLET face.
+ *
+ * This function identifies the primary OUTLET face from the boundary face
+ * configurations, computes its geometric center and total area using a
+ * generic utility function, and stores these results in the simulation context.
+ * @param user Pointer to the UserCtx containing boundary face information.
+ * @return PetscErrorCode
+ */
+PetscErrorCode CalculateOutletProperties(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    BCFace         outlet_face_id = -1;
+    PetscBool      outlet_found = PETSC_FALSE;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    // 1. Identify the primary outlet face from the configuration
+    for (int i = 0; i < 6; i++) {
+        if (user->boundary_faces[i].mathematical_type == OUTLET) {
+            outlet_face_id = user->boundary_faces[i].face_id;
+            outlet_found = PETSC_TRUE;
+            break; // Use the first outlet found
+        }
+    }
+    if (!outlet_found) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "No OUTLET face found. Skipping outlet center calculation.\n");
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+    PetscReal outlet_area;
+    Cmpnts outlet_center;
+    // 2. Call the generic utility to compute  the center and area of any face
+    ierr = CalculateFaceCenterAndArea(user,outlet_face_id,&outlet_center,&outlet_area); CHKERRQ(ierr);
+    // 3. Store results in the SimCtx
+    user->simCtx->AreaOutSum = outlet_area;
+
+    LOG_ALLOW(GLOBAL, LOG_INFO,
+              "Outlet Center: (%.6f, %.6f, %.6f), Area: %.6f\n",
+              outlet_center.x, outlet_center.y, outlet_center.z, outlet_area);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "CalculateFaceCenterAndArea"
+/**
+ * @brief Calculates the geometric center and total area of a specified boundary face.
+ *
+ * This function computes two key properties of a boundary face in the computational domain:
+ * 1. **Geometric Center**: The average (x,y,z) position of all physical nodes on the face
+ * 2. **Total Area**: The sum of face area vector magnitudes from all non-solid cells adjacent to the face
+ *
+ * @section architecture Indexing Architecture
+ * 
+ * The solver uses different indexing conventions for different field types:
+ * 
+ * **Node-Centered Fields (Coordinates):**
+ * - Direct indexing: Node n stored at coor[n]
+ * - For mx=26: Physical nodes [0-24], Dummy at [25]
+ * - For mz=98: Physical nodes [0-96], Dummy at [97]
+ * 
+ * **Face-Centered Fields (Metrics: csi, eta, zet):**
+ * - Direct indexing: Face n stored at csi/eta/zet[n]
+ * - For mx=26: Physical faces [0-24], Dummy at [25]
+ * - For mz=98: Physical faces [0-96], Dummy at [97]
+ * - Face at index k bounds cells k-1 and k
+ * 
+ * **Cell-Centered Fields (nvert):**
+ * - Shifted indexing: Physical cell c stored at nvert[c+1]
+ * - For mx=26 (25 cells): Cell 0→nvert[1], Cell 23→nvert[24]
+ * - For mz=98 (96 cells): Cell 0→nvert[1], Cell 95→nvert[96]
+ * - nvert[0] and nvert[mx-1] are ghost values
+ *
+ * @section face_geometry Face-to-Index Mapping
+ * 
+ * Example for a domain with mx=26, my=26, mz=98:
+ * 
+ * | Face ID       | Node Index | Face Metric      | Adjacent Cell (shifted) | Physical Extent |
+ * |---------------|------------|------------------|-------------------------|-----------------|
+ * | BC_FACE_NEG_X | i=0        | csi[k][j][0]     | nvert[k][j][1] (Cell 0) | j∈[0,24], k∈[0,96] |
+ * | BC_FACE_POS_X | i=24       | csi[k][j][24]    | nvert[k][j][24] (Cell 23)| j∈[0,24], k∈[0,96] |
+ * | BC_FACE_NEG_Y | j=0        | eta[k][0][i]     | nvert[k][1][i] (Cell 0) | i∈[0,24], k∈[0,96] |
+ * | BC_FACE_POS_Y | j=24       | eta[k][24][i]    | nvert[k][24][i] (Cell 23)| i∈[0,24], k∈[0,96] |
+ * | BC_FACE_NEG_Z | k=0        | zet[0][j][i]     | nvert[1][j][i] (Cell 0) | i∈[0,24], j∈[0,24] |
+ * | BC_FACE_POS_Z | k=96       | zet[96][j][i]    | nvert[96][j][i] (Cell 95)| i∈[0,24], j∈[0,24] |
+ *
+ * @section algorithm Algorithm
+ * 
+ * The function performs two separate computations with different loop bounds:
+ * 
+ * **1. Center Calculation (uses ALL physical nodes):**
+ * - Loop over all physical nodes on the face (excluding dummy indices)
+ * - Accumulate coordinate sums: Σx, Σy, Σz
+ * - Count number of nodes
+ * - Average: center = (Σx/n, Σy/n, Σz/n)
+ * 
+ * **2. Area Calculation (uses INTERIOR cells only):**
+ * - Loop over interior cell range to avoid accessing ghost values in nvert
+ * - For each face adjacent to a fluid cell (nvert < 0.1):
+ *   - Compute area magnitude: |csi/eta/zet| = √(x² + y² + z²)
+ *   - Accumulate to total area
+ * 
+ * @section loop_bounds Loop Bound Details
+ * 
+ * **Why different bounds for center vs. area?**
+ * 
+ * For BC_FACE_NEG_X at i=0 with my=26, mz=98:
+ * 
+ * *Center calculation (coordinates):*
+ * - j ∈ [ys, j_max): Includes j=[0,24] (25 nodes), excludes dummy at j=25
+ * - k ∈ [zs, k_max): Includes k=[0,96] (97 nodes), excludes dummy at k=97
+ * - Total: 25 × 97 = 2,425 nodes
+ * 
+ * *Area calculation (nvert checks):*
+ * - j ∈ [lys, lye): j=[1,24] (24 values), excludes boundaries
+ * - k ∈ [lzs, lze): k=[1,96] (96 values), excludes boundaries
+ * - Why restricted?
+ *   - At j=0: nvert[k][0][1] is ghost (no cell at j=-1)
+ *   - At j=25: nvert[k][25][1] is ghost (no cell at j=24, index 25 is dummy)
+ *   - At k=0: nvert[0][j][1] is ghost (no cell at k=-1)
+ *   - At k=97: nvert[97][j][1] is ghost (no cell at k=96, index 97 is dummy)
+ * - Total: 24 × 96 = 2,304 interior cells adjacent to face
+ *
+ * @section area_formulas Area Calculation Formulas
+ * 
+ * Face area contributions are computed from metric tensor magnitudes:
+ * - **i-faces (±Xi)**: Area = |csi| = √(csi_x² + csi_y² + csi_z²)
+ * - **j-faces (±Eta)**: Area = |eta| = √(eta_x² + eta_y² + eta_z²)
+ * - **k-faces (±Zeta)**: Area = |zet| = √(zet_x² + zet_y² + zet_z²)
+ *
+ * @param[in]  user        Pointer to UserCtx containing grid info, DMs, and field vectors
+ * @param[in]  face_id     Enum identifying which boundary face to analyze (BC_FACE_NEG_X, etc.)
+ * @param[out] face_center Pointer to Cmpnts structure to store computed geometric center (x,y,z)
+ * @param[out] face_area   Pointer to PetscReal to store computed total face area
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero PETSc error code on failure
+ *
+ * @note This function uses MPI_Allreduce, so it must be called collectively by all ranks
+ * @note Only ranks that own the specified boundary face contribute to the calculation
+ * @note Center calculation includes ALL physical nodes on the face
+ * @note Area calculation ONLY includes faces adjacent to fluid cells (nvert < 0.1)
+ * @note Dummy/unused indices (e.g., k=97, j=25 for standard test case) are excluded
+ *
+ * @warning Assumes grid and field arrays have been properly initialized
+ * @warning Incorrect face_id values will result in zero contribution from all ranks
+ *
+ * @see CanRankServiceFace() for determining rank ownership of boundary faces
+ * @see BCFace enum for valid face_id values
+ * @see LOG_FIELD_ANATOMY() for debugging field indexing
+ *
+ * @par Example Usage:
+ * @code
+ * Cmpnts inlet_center;
+ * PetscReal inlet_area;
+ * ierr = CalculateFaceCenterAndArea(user, BC_FACE_NEG_Z, &inlet_center, &inlet_area);
+ * PetscPrintf(PETSC_COMM_WORLD, "Inlet center: (%.4f, %.4f, %.4f), Area: %.6f\n",
+ *             inlet_center.x, inlet_center.y, inlet_center.z, inlet_area);
+ * @endcode
+ */
+PetscErrorCode CalculateFaceCenterAndArea(UserCtx *user, BCFace face_id, 
+                                          Cmpnts *face_center, PetscReal *face_area)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info;
+    
+    // ========================================================================
+    // Local accumulators for this rank's contribution
+    // ========================================================================
+    PetscReal      local_sum[3] = {0.0, 0.0, 0.0};  ///< Local sum of (x,y,z) coordinates
+    PetscReal      localAreaSum = 0.0;               ///< Local sum of face area magnitudes
+    PetscCount     local_n_points = 0;               ///< Local count of nodes
+    
+    // ========================================================================
+    // Global accumulators after MPI reduction
+    // ========================================================================
+    PetscReal      global_sum[3] = {0.0, 0.0, 0.0};  ///< Global sum of coordinates
+    PetscReal      globalAreaSum = 0.0;              ///< Global sum of areas
+    PetscCount     global_n_points = 0;              ///< Global count of nodes
+    
+    // ========================================================================
+    // Grid information and array pointers
+    // ========================================================================
+    DM             da = user->da;
+    info = user->info;
+    
+    // Rank's owned range in global indices
+    PetscInt       xs = info.xs, xe = info.xs + info.xm;  ///< i-range: [xs, xe)
+    PetscInt       ys = info.ys, ye = info.ys + info.ym;  ///< j-range: [ys, ye)
+    PetscInt       zs = info.zs, ze = info.zs + info.zm;  ///< k-range: [zs, ze)
+    
+    // Global domain dimensions (total allocated, includes dummy at end)
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
+    PetscInt       IM = user->IM;  ///< Physical domain size in i (exclude dummy)
+    PetscInt       JM = user->JM;  ///< Physical domain size in j (exclude dummy)
+    PetscInt       KM = user->KM;  ///< Physical domain size in k (exclude dummy)
+
+    // ========================================================================
+    // Interior loop bounds (adjusted to avoid ghost/boundary cells)
+    // These are used for nvert checks where we need valid cell indices
+    // ========================================================================
+    PetscInt lxs = xs; if(xs == 0)  lxs = xs + 1;   ///< Start at 1 if on -Xi boundary
+    PetscInt lxe = xe; if(xe == mx) lxe = xe - 1;   ///< End at mx-1 if on +Xi boundary
+    PetscInt lys = ys; if(ys == 0)  lys = ys + 1;   ///< Start at 1 if on -Eta boundary
+    PetscInt lye = ye; if(ye == my) lye = ye - 1;   ///< End at my-1 if on +Eta boundary
+    PetscInt lzs = zs; if(zs == 0)  lzs = zs + 1;   ///< Start at 1 if on -Zeta boundary
+    PetscInt lze = ze; if(ze == mz) lze = ze - 1;   ///< End at mz-1 if on +Zeta boundary
+
+    // ========================================================================
+    // Physical node bounds (exclude dummy indices at mx-1, my-1, mz-1)
+    // These are used for coordinate loops where we want ALL physical nodes
+    // ========================================================================
+    PetscInt i_max = (xe == mx) ? mx - 1 : xe;  ///< Exclude dummy at i=mx-1 (e.g., i=25)
+    PetscInt j_max = (ye == my) ? my - 1 : ye;  ///< Exclude dummy at j=my-1 (e.g., j=25)
+    PetscInt k_max = (ze == mz) ? mz - 1 : ze;  ///< Exclude dummy at k=mz-1 (e.g., k=97)
+
+    // ========================================================================
+    // Array pointers for field access
+    // ========================================================================
+    Vec            lCoor;                       ///< Local ghosted coordinate vector
+    Cmpnts         ***coor;                    ///< Nodal coordinates [k][j][i]
+    Cmpnts         ***csi, ***eta, ***zet;    ///< Face metric tensors [k][j][i]
+    PetscReal      ***nvert;                   ///< Cell blanking field [k][j][i] (shifted +1)
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // ========================================================================
+    // Step 1: Check if this rank owns the specified boundary face
+    // ========================================================================
+    PetscBool owns_face = PETSC_FALSE;
+    ierr = CanRankServiceFace(&info,IM,JM,KM,face_id,&owns_face); CHKERRQ(ierr);
+    if(owns_face){    
+        // ========================================================================
+        // Step 2: Get read-only array access for all required fields
+        // ========================================================================
+        ierr = DMGetCoordinatesLocal(user->da, &lCoor); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, lCoor, &coor); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->da, user->lNvert, &nvert); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
+
+        // ========================================================================
+        // Step 3: Loop over the specified face and accumulate center and area
+        // ========================================================================
+        switch (face_id) {
+            
+            // ====================================================================
+            // BC_FACE_NEG_X: Face at i=0 (bottom boundary in i-direction)
+            // ====================================================================
+            case BC_FACE_NEG_X:
+                if (xs == 0) {
+                    PetscInt i = 0;  // Face is at node index i=0
+                    
+                    // ---- Part 1: Center calculation (ALL physical nodes) ----
+                    // Loop over ALL physical nodes on this face
+                    // For my=26, mz=98: j∈[0,24], k∈[0,96] → 25×97 = 2,425 nodes
+                    for (PetscInt k = zs; k < k_max; k++) {
+                        for (PetscInt j = ys; j < j_max; j++) {
+                            // Accumulate coordinates at node [k][j][0]
+                            local_sum[0] += coor[k][j][i].x;
+                            local_sum[1] += coor[k][j][i].y;
+                            local_sum[2] += coor[k][j][i].z;
+                            local_n_points++;
+                        }
+                    }
+                    
+                    // ---- Part 2: Area calculation (INTERIOR cells only) ----
+                    // Loop over interior range where nvert checks are valid
+                    // For my=26, mz=98: j∈[1,24], k∈[1,96] → 24×96 = 2,304 cells
+                    for (PetscInt k = lzs; k < lze; k++) {
+                        for (PetscInt j = lys; j < lye; j++) {
+                            // Check if adjacent cell is fluid
+                            // nvert[k][j][i+1] = nvert[k][j][1] checks Cell 0
+                            // (Physical Cell 0 in j-k plane, stored at shifted index [1])
+                            if (nvert[k][j][i+1] < 0.1) {
+                                // Cell is fluid - add face area contribution
+                                // Face area = magnitude of csi metric at [k][j][0]
+                                localAreaSum += sqrt(csi[k][j][i].x * csi[k][j][i].x +
+                                                csi[k][j][i].y * csi[k][j][i].y +
+                                                csi[k][j][i].z * csi[k][j][i].z);
+                            }
+                        }
+                    }
+                }
+                break;
+                
+            // ====================================================================
+            // BC_FACE_POS_X: Face at i=IM-1 (top boundary in i-direction)
+            // ====================================================================
+            case BC_FACE_POS_X:
+                if (xe == mx) {
+                    PetscInt i = mx - 2;  // Last physical node (e.g., i=24 for mx=26)
+                    
+                    // ---- Part 1: Center calculation (ALL physical nodes) ----
+                    for (PetscInt k = zs; k < k_max; k++) {
+                        for (PetscInt j = ys; j < j_max; j++) {
+                            local_sum[0] += coor[k][j][i].x;
+                            local_sum[1] += coor[k][j][i].y;
+                            local_sum[2] += coor[k][j][i].z;
+                            local_n_points++;
+                        }
+                    }
+                    
+                    // ---- Part 2: Area calculation (INTERIOR cells only) ----
+                    for (PetscInt k = lzs; k < lze; k++) {
+                        for (PetscInt j = lys; j < lye; j++) {
+                            // Check if adjacent cell is fluid
+                            // nvert[k][j][i] = nvert[k][j][24] checks last cell (Cell 23)
+                            // (Physical Cell 23, stored at shifted index [24])
+                            if (nvert[k][j][i] < 0.1) {
+                                // Face area = magnitude of csi metric at [k][j][24]
+                                localAreaSum += sqrt(csi[k][j][i].x * csi[k][j][i].x +
+                                                csi[k][j][i].y * csi[k][j][i].y +
+                                                csi[k][j][i].z * csi[k][j][i].z);
+                            }
+                        }
+                    }
+                }
+                break;
+                
+            // ====================================================================
+            // BC_FACE_NEG_Y: Face at j=0 (bottom boundary in j-direction)
+            // ====================================================================
+            case BC_FACE_NEG_Y:
+                if (ys == 0) {
+                    PetscInt j = 0;  // Face is at node index j=0
+                    
+                    // ---- Part 1: Center calculation (ALL physical nodes) ----
+                    // For mx=26, mz=98: i∈[0,24], k∈[0,96] → 25×97 = 2,425 nodes
+                    for (PetscInt k = zs; k < k_max; k++) {
+                        for (PetscInt i = xs; i < i_max; i++) {
+                            local_sum[0] += coor[k][j][i].x;
+                            local_sum[1] += coor[k][j][i].y;
+                            local_sum[2] += coor[k][j][i].z;
+                            local_n_points++;
+                        }
+                    }
+                    
+                    // ---- Part 2: Area calculation (INTERIOR cells only) ----
+                    // For mx=26, mz=98: i∈[1,24], k∈[1,96] → 24×96 = 2,304 cells
+                    for (PetscInt k = lzs; k < lze; k++) {
+                        for (PetscInt i = lxs; i < lxe; i++) {
+                            // nvert[k][j+1][i] = nvert[k][1][i] checks Cell 0
+                            if (nvert[k][j+1][i] < 0.1) {
+                                // Face area = magnitude of eta metric at [k][0][i]
+                                localAreaSum += sqrt(eta[k][j][i].x * eta[k][j][i].x +
+                                                eta[k][j][i].y * eta[k][j][i].y +
+                                                eta[k][j][i].z * eta[k][j][i].z);
+                            }
+                        }
+                    }
+                }
+                break;
+                
+            // ====================================================================
+            // BC_FACE_POS_Y: Face at j=JM-1 (top boundary in j-direction)
+            // ====================================================================
+            case BC_FACE_POS_Y:
+                if (ye == my) {
+                    PetscInt j = my - 2;  // Last physical node (e.g., j=24 for my=26)
+                    
+                    // ---- Part 1: Center calculation (ALL physical nodes) ----
+                    for (PetscInt k = zs; k < k_max; k++) {
+                        for (PetscInt i = xs; i < i_max; i++) {
+                            local_sum[0] += coor[k][j][i].x;
+                            local_sum[1] += coor[k][j][i].y;
+                            local_sum[2] += coor[k][j][i].z;
+                            local_n_points++;
+                        }
+                    }
+                    
+                    // ---- Part 2: Area calculation (INTERIOR cells only) ----
+                    for (PetscInt k = lzs; k < lze; k++) {
+                        for (PetscInt i = lxs; i < lxe; i++) {
+                            // nvert[k][j][i] = nvert[k][24][i] checks last cell (Cell 23)
+                            if (nvert[k][j][i] < 0.1) {
+                                // Face area = magnitude of eta metric at [k][24][i]
+                                localAreaSum += sqrt(eta[k][j][i].x * eta[k][j][i].x +
+                                                eta[k][j][i].y * eta[k][j][i].y +
+                                                eta[k][j][i].z * eta[k][j][i].z);
+                            }
+                        }
+                    }
+                }
+                break;
+                
+            // ====================================================================
+            // BC_FACE_NEG_Z: Face at k=0 (inlet, bottom boundary in k-direction)
+            // ====================================================================
+            case BC_FACE_NEG_Z:
+                if (zs == 0) {
+                    PetscInt k = 0;  // Face is at node index k=0
+                    
+                    // ---- Part 1: Center calculation (ALL physical nodes) ----
+                    // For mx=26, my=26: i∈[0,24], j∈[0,24] → 25×25 = 625 nodes
+                    for (PetscInt j = ys; j < j_max; j++) {
+                        for (PetscInt i = xs; i < i_max; i++) {
+                            local_sum[0] += coor[k][j][i].x;
+                            local_sum[1] += coor[k][j][i].y;
+                            local_sum[2] += coor[k][j][i].z;
+                            local_n_points++;
+                        }
+                    }
+                    
+                    // ---- Part 2: Area calculation (INTERIOR cells only) ----
+                    // For mx=26, my=26: i∈[1,24], j∈[1,24] → 24×24 = 576 cells
+                    for (PetscInt j = lys; j < lye; j++) {
+                        for (PetscInt i = lxs; i < lxe; i++) {
+                            // nvert[k+1][j][i] = nvert[1][j][i] checks Cell 0
+                            // (Physical Cell 0 in i-j plane, stored at shifted index [1])
+                            if (nvert[k+1][j][i] < 0.1) {
+                                // Face area = magnitude of zet metric at [0][j][i]
+                                localAreaSum += sqrt(zet[k][j][i].x * zet[k][j][i].x +
+                                                zet[k][j][i].y * zet[k][j][i].y +
+                                                zet[k][j][i].z * zet[k][j][i].z);
+                            }
+                        }
+                    }
+                }
+                break;
+                
+            // ====================================================================
+            // BC_FACE_POS_Z: Face at k=KM-1 (outlet, top boundary in k-direction)
+            // ====================================================================
+            case BC_FACE_POS_Z:
+                if (ze == mz) {
+                    PetscInt k = mz - 2;  // Last physical node (e.g., k=96 for mz=98)
+                    
+                    // ---- Part 1: Center calculation (ALL physical nodes) ----
+                    // For mx=26, my=26: i∈[0,24], j∈[0,24] → 25×25 = 625 nodes
+                    for (PetscInt j = ys; j < j_max; j++) {
+                        for (PetscInt i = xs; i < i_max; i++) {
+                            local_sum[0] += coor[k][j][i].x;
+                            local_sum[1] += coor[k][j][i].y;
+                            local_sum[2] += coor[k][j][i].z;
+                            local_n_points++;
+                        }
+                    }
+                    
+                    // ---- Part 2: Area calculation (INTERIOR cells only) ----
+                    // For mx=26, my=26: i∈[1,24], j∈[1,24] → 24×24 = 576 cells
+                    for (PetscInt j = lys; j < lye; j++) {
+                        for (PetscInt i = lxs; i < lxe; i++) {
+                            // nvert[k][j][i] = nvert[96][j][i] checks last cell (Cell 95)
+                            // (Physical Cell 95, stored at shifted index [96])
+                            if (nvert[k][j][i] < 0.1) {
+                                // Face area = magnitude of zet metric at [96][j][i]
+                                localAreaSum += sqrt(zet[k][j][i].x * zet[k][j][i].x +
+                                                zet[k][j][i].y * zet[k][j][i].y +
+                                                zet[k][j][i].z * zet[k][j][i].z);
+                            }
+                        }
+                    }
+                }
+                break;
+                
+            default:
+                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, 
+                        "Unknown face_id %d in CalculateFaceCenterAndArea", face_id);
+        }
+        
+        // ========================================================================
+        // Step 4: Restore array access (release pointers)
+        // ========================================================================
+        ierr = DMDAVecRestoreArrayRead(user->fda, lCoor, &coor); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, &nvert); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
+    }    
+    // ========================================================================
+    // Step 5: Perform MPI reductions to get global sums
+    // ========================================================================
+    // Sum coordinate contributions from all ranks
+    ierr = MPI_Allreduce(local_sum, global_sum, 3, MPI_DOUBLE, MPI_SUM, 
+                         PETSC_COMM_WORLD); CHKERRQ(ierr);
+    
+    // Sum node counts from all ranks
+    ierr = MPI_Allreduce(&local_n_points, &global_n_points, 1, MPI_COUNT, MPI_SUM, 
+                         PETSC_COMM_WORLD); CHKERRQ(ierr);
+    
+    // Sum area contributions from all ranks
+    ierr = MPI_Allreduce(&localAreaSum, &globalAreaSum, 1, MPI_DOUBLE, MPI_SUM, 
+                         PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    // ========================================================================
+    // Step 6: Calculate geometric center by averaging coordinates
+    // ========================================================================
+    if (global_n_points > 0) {
+        face_center->x = global_sum[0] / global_n_points;
+        face_center->y = global_sum[1] / global_n_points;
+        face_center->z = global_sum[2] / global_n_points;
+        LOG_ALLOW(GLOBAL, LOG_INFO, 
+                  "Calculated center for Face %s: (x=%.4f, y=%.4f, z=%.4f) from %lld nodes\n", 
+                  BCFaceToString(face_id), 
+                  face_center->x, face_center->y, face_center->z,
+                  (long long)global_n_points);
+    } else {
+        // No nodes found - this should not happen for a valid face
+        LOG_ALLOW(GLOBAL, LOG_WARNING, 
+                  "WARNING: Face %s identified but no grid points found. Center not calculated.\n",
+                  BCFaceToString(face_id));
+        face_center->x = face_center->y = face_center->z = 0.0;
+    }
+    
+    // ========================================================================
+    // Step 7: Return computed total area
+    // ========================================================================
+    *face_area = globalAreaSum;
+    LOG_ALLOW(GLOBAL, LOG_INFO, 
+              "Calculated area for Face %s: Area=%.6f\n", 
+              BCFaceToString(face_id), *face_area);
 
     PetscFunctionReturn(0);
 }

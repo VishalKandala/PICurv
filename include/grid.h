@@ -113,19 +113,143 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes);
 PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist);
 
 /**
- * @brief Calculates the geometric center of the primary inlet face.
+ * @brief Calculates the center and area of the primary INLET face.
  *
- * This function identifies the first face designated as an INLET in the boundary
- * condition configuration. It then iterates over all grid nodes on that physical
- * face across all MPI processes, calculates the average of their coordinates,
- * and stores the result in the user's SimCtx (CMx_c, CMy_c, CMz_c).
+ * This function identifies the primary INLET face from the boundary face
+ * configurations, computes its geometric center and total area using a
+ * generic utility function, and stores these results in the simulation context.
  *
- * This provides an automatic, robust way to determine the center for profiles
- * like parabolic flow, removing the need for manual user input.
- *
- * @param user The main UserCtx struct, containing BC config and the grid coordinate vector.
- * @return PetscErrorCode 0 on success.
+ * @param user Pointer to the UserCtx containing boundary face information.
+ * @return PetscErrorCode
  */
-PetscErrorCode CalculateInletCenter(UserCtx *user);
+PetscErrorCode CalculateInletProperties(UserCtx *user);
 
+/**
+ * @brief Calculates the center and area of the primary OUTLET face.
+ *
+ * This function identifies the primary OUTLET face from the boundary face
+ * configurations, computes its geometric center and total area using a
+ * generic utility function, and stores these results in the simulation context.
+ * @param user Pointer to the UserCtx containing boundary face information.
+ * @return PetscErrorCode
+ */
+PetscErrorCode CalculateOutletProperties(UserCtx *user);
+
+/**
+ * @brief Calculates the geometric center and total area of a specified boundary face.
+ *
+ * This function computes two key properties of a boundary face in the computational domain:
+ * 1. **Geometric Center**: The average (x,y,z) position of all physical nodes on the face
+ * 2. **Total Area**: The sum of face area vector magnitudes from all non-solid cells adjacent to the face
+ *
+ * @section architecture Indexing Architecture
+ * 
+ * The solver uses different indexing conventions for different field types:
+ * 
+ * **Node-Centered Fields (Coordinates):**
+ * - Direct indexing: Node n stored at coor[n]
+ * - For mx=26: Physical nodes [0-24], Dummy at [25]
+ * - For mz=98: Physical nodes [0-96], Dummy at [97]
+ * 
+ * **Face-Centered Fields (Metrics: csi, eta, zet):**
+ * - Direct indexing: Face n stored at csi/eta/zet[n]
+ * - For mx=26: Physical faces [0-24], Dummy at [25]
+ * - For mz=98: Physical faces [0-96], Dummy at [97]
+ * - Face at index k bounds cells k-1 and k
+ * 
+ * **Cell-Centered Fields (nvert):**
+ * - Shifted indexing: Physical cell c stored at nvert[c+1]
+ * - For mx=26 (25 cells): Cell 0→nvert[1], Cell 23→nvert[24]
+ * - For mz=98 (96 cells): Cell 0→nvert[1], Cell 95→nvert[96]
+ * - nvert[0] and nvert[mx-1] are ghost values
+ *
+ * @section face_geometry Face-to-Index Mapping
+ * 
+ * Example for a domain with mx=26, my=26, mz=98:
+ * 
+ * | Face ID       | Node Index | Face Metric      | Adjacent Cell (shifted) | Physical Extent |
+ * |---------------|------------|------------------|-------------------------|-----------------|
+ * | BC_FACE_NEG_X | i=0        | csi[k][j][0]     | nvert[k][j][1] (Cell 0) | j∈[0,24], k∈[0,96] |
+ * | BC_FACE_POS_X | i=24       | csi[k][j][24]    | nvert[k][j][24] (Cell 23)| j∈[0,24], k∈[0,96] |
+ * | BC_FACE_NEG_Y | j=0        | eta[k][0][i]     | nvert[k][1][i] (Cell 0) | i∈[0,24], k∈[0,96] |
+ * | BC_FACE_POS_Y | j=24       | eta[k][24][i]    | nvert[k][24][i] (Cell 23)| i∈[0,24], k∈[0,96] |
+ * | BC_FACE_NEG_Z | k=0        | zet[0][j][i]     | nvert[1][j][i] (Cell 0) | i∈[0,24], j∈[0,24] |
+ * | BC_FACE_POS_Z | k=96       | zet[96][j][i]    | nvert[96][j][i] (Cell 95)| i∈[0,24], j∈[0,24] |
+ *
+ * @section algorithm Algorithm
+ * 
+ * The function performs two separate computations with different loop bounds:
+ * 
+ * **1. Center Calculation (uses ALL physical nodes):**
+ * - Loop over all physical nodes on the face (excluding dummy indices)
+ * - Accumulate coordinate sums: Σx, Σy, Σz
+ * - Count number of nodes
+ * - Average: center = (Σx/n, Σy/n, Σz/n)
+ * 
+ * **2. Area Calculation (uses INTERIOR cells only):**
+ * - Loop over interior cell range to avoid accessing ghost values in nvert
+ * - For each face adjacent to a fluid cell (nvert < 0.1):
+ *   - Compute area magnitude: |csi/eta/zet| = √(x² + y² + z²)
+ *   - Accumulate to total area
+ * 
+ * @section loop_bounds Loop Bound Details
+ * 
+ * **Why different bounds for center vs. area?**
+ * 
+ * For BC_FACE_NEG_X at i=0 with my=26, mz=98:
+ * 
+ * *Center calculation (coordinates):*
+ * - j ∈ [ys, j_max): Includes j=[0,24] (25 nodes), excludes dummy at j=25
+ * - k ∈ [zs, k_max): Includes k=[0,96] (97 nodes), excludes dummy at k=97
+ * - Total: 25 × 97 = 2,425 nodes
+ * 
+ * *Area calculation (nvert checks):*
+ * - j ∈ [lys, lye): j=[1,24] (24 values), excludes boundaries
+ * - k ∈ [lzs, lze): k=[1,96] (96 values), excludes boundaries
+ * - Why restricted?
+ *   - At j=0: nvert[k][0][1] is ghost (no cell at j=-1)
+ *   - At j=25: nvert[k][25][1] is ghost (no cell at j=24, index 25 is dummy)
+ *   - At k=0: nvert[0][j][1] is ghost (no cell at k=-1)
+ *   - At k=97: nvert[97][j][1] is ghost (no cell at k=96, index 97 is dummy)
+ * - Total: 24 × 96 = 2,304 interior cells adjacent to face
+ *
+ * @section area_formulas Area Calculation Formulas
+ * 
+ * Face area contributions are computed from metric tensor magnitudes:
+ * - **i-faces (±Xi)**: Area = |csi| = √(csi_x² + csi_y² + csi_z²)
+ * - **j-faces (±Eta)**: Area = |eta| = √(eta_x² + eta_y² + eta_z²)
+ * - **k-faces (±Zeta)**: Area = |zet| = √(zet_x² + zet_y² + zet_z²)
+ *
+ * @param[in]  user        Pointer to UserCtx containing grid info, DMs, and field vectors
+ * @param[in]  face_id     Enum identifying which boundary face to analyze (BC_FACE_NEG_X, etc.)
+ * @param[out] face_center Pointer to Cmpnts structure to store computed geometric center (x,y,z)
+ * @param[out] face_area   Pointer to PetscReal to store computed total face area
+ *
+ * @return PetscErrorCode Returns 0 on success, non-zero PETSc error code on failure
+ *
+ * @note This function uses MPI_Allreduce, so it must be called collectively by all ranks
+ * @note Only ranks that own the specified boundary face contribute to the calculation
+ * @note Center calculation includes ALL physical nodes on the face
+ * @note Area calculation ONLY includes faces adjacent to fluid cells (nvert < 0.1)
+ * @note Dummy/unused indices (e.g., k=97, j=25 for standard test case) are excluded
+ *
+ * @warning Assumes grid and field arrays have been properly initialized
+ * @warning Incorrect face_id values will result in zero contribution from all ranks
+ *
+ * @see CanRankServiceFace() for determining rank ownership of boundary faces
+ * @see BCFace enum for valid face_id values
+ * @see LOG_FIELD_ANATOMY() for debugging field indexing
+ *
+ * @par Example Usage:
+ * @code
+ * Cmpnts inlet_center;
+ * PetscReal inlet_area;
+ * ierr = CalculateFaceCenterAndArea(user, BC_FACE_NEG_Z, &inlet_center, &inlet_area);
+ * PetscPrintf(PETSC_COMM_WORLD, "Inlet center: (%.4f, %.4f, %.4f), Area: %.6f\n",
+ *             inlet_center.x, inlet_center.y, inlet_center.z, inlet_area);
+ * @endcode
+ */
+PetscErrorCode CalculateFaceCenterAndArea(UserCtx *user, BCFace face_id, 
+                                          Cmpnts *face_center, PetscReal *face_area);
+                                          
 #endif // GRID_H

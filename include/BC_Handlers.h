@@ -31,7 +31,7 @@ PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc);
 
 PetscErrorCode Create_NogradCopyGhost(BoundaryCondition *bc);
 
-//PetscErrorCode Create_OutletConservation(BoundaryCondition *bc);
+PetscErrorCode Create_OutletConservation(BoundaryCondition *bc);
 
 
 

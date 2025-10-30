@@ -451,6 +451,35 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
  *           from the nearest computed interior face.
  *        4. Assembles the global `user->Csi`, `user->Eta`, `user->Zet` Vecs.
  *        5. Updates the local ghosted `user->lCsi`, `user->lEta`, `user->lZet` Vecs.
+ * * @details
+ * This function calculates the face area vectors, which are fundamental to the finite volume
+ * method on a curvilinear grid. The process is performed in two main stages to ensure
+ * robustness and correctness across the entire domain, including physical boundaries.
+ *
+ * **Stage 1: Interior Face Calculation**
+ * The core of the function uses centered finite-difference stencils on the nodal coordinates (`coor`)
+ * to compute the metric terms. For example, `csi` at a node `(k,j,i)` is calculated using a
+ * 2x2 stencil of nodes in the J-K plane.
+ *
+ * Crucially, these stencils are only valid for **interior nodes/faces** where all required neighboring
+ * nodes exist. The loops are intentionally constructed (e.g., `i_loop_start = 1`) to skip the
+ * calculation directly on the domain's physical boundaries (e.g., at i=0, j=0, etc.), as the
+ * stencil would require out-of-bounds data.
+ *
+ * **Stage 2: Boundary Face Extrapolation**
+ * After the interior metrics are computed, the values for the faces lying on the physical
+ * boundaries of the domain are populated. This is done via zero-order extrapolation, which
+ * simply means **copying the values from the nearest valid interior face layer.**
+ *
+ * For example, on a rank owning the global `i=0` boundary, `zet_arr[k][j][0]` is explicitly set to
+ * be equal to `zet_arr[k][j][1]`. Similarly, on a rank owning the `i=mx-1` boundary,
+ * `zet_arr[k][j][mx-1]` is set to `zet_arr[k][j][mx-2]`.
+ *
+ * This two-stage approach ensures that every node in the physical domain, including the
+ * boundaries, has a valid metric value associated with it.
+ *
+ * The function concludes by assembling the global PETSc vectors and updating the local ghosted
+ * versions, making the computed metrics ready for use by the solver.
  *
  * @param[in,out] user             Pointer to the UserCtx structure.
  *
