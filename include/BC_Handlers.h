@@ -30,6 +30,6 @@ PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc);
 
 PetscErrorCode Create_OutletConservation(BoundaryCondition *bc);
 
-
+PetscErrorCode Create_Periodic(BoundaryCondition *bc);
 
 #endif // BC_HANDLERS_H

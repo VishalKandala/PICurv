@@ -452,8 +452,8 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
     ierr = DMGetCoordinatesLocal(user->da, &lCoor); CHKERRQ(ierr);
     
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Scattering coordinates to update ghost nodes for block %d...\n", simCtx->rank, user->_this);
-    ierr = DMLocalToGlobalBegin(user->fda, lCoor, INSERT_VALUES, gCoor); CHKERRQ(ierr);
-    ierr = DMLocalToGlobalEnd(user->fda, lCoor, INSERT_VALUES, gCoor); CHKERRQ(ierr);
+    //ierr = DMLocalToGlobalBegin(user->fda, lCoor, INSERT_VALUES, gCoor); CHKERRQ(ierr);
+    //ierr = DMLocalToGlobalEnd(user->fda, lCoor, INSERT_VALUES, gCoor); CHKERRQ(ierr);
     
     ierr = DMGlobalToLocalBegin(user->fda, gCoor, INSERT_VALUES, lCoor); CHKERRQ(ierr);
     ierr = DMGlobalToLocalEnd(user->fda, gCoor, INSERT_VALUES, lCoor); CHKERRQ(ierr);
@@ -746,8 +746,8 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
     // After populating the local portion, scatter to update ghost regions.
     Vec c_gCoor;
     ierr = DMGetCoordinates(coarse_user->da, &c_gCoor); CHKERRQ(ierr);
-    ierr = DMLocalToGlobalBegin(coarse_user->fda, c_lCoor, INSERT_VALUES, c_gCoor); CHKERRQ(ierr);
-    ierr = DMLocalToGlobalEnd(coarse_user->fda, c_lCoor, INSERT_VALUES, c_gCoor); CHKERRQ(ierr);
+    //ierr = DMLocalToGlobalBegin(coarse_user->fda, c_lCoor, INSERT_VALUES, c_gCoor); CHKERRQ(ierr);
+    //ierr = DMLocalToGlobalEnd(coarse_user->fda, c_lCoor, INSERT_VALUES, c_gCoor); CHKERRQ(ierr);
     ierr = DMGlobalToLocalBegin(coarse_user->fda, c_gCoor, INSERT_VALUES, c_lCoor); CHKERRQ(ierr);
     ierr = DMGlobalToLocalEnd(coarse_user->fda, c_gCoor, INSERT_VALUES, c_lCoor); CHKERRQ(ierr);
 

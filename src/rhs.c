@@ -1276,6 +1276,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 
     DMDAVecGetArray(fda, Rct, &rct);
 
+	
     if (user->bctype[0]==7 || user->bctype[1]==7){
       if (xs==0){
 	i=xs;

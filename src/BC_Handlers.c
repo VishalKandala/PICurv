@@ -1156,3 +1156,27 @@ static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCCon
 
     PetscFunctionReturn(0);
 }
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+///////// Periodic BC Handler
+/////////////////////////////////////////////////////////////////////////////////////////////////
+PetscErrorCode Create_Periodic(BoundaryCondition *bc){
+    PetscFunctionBeginUser;
+    
+    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition is NULL");
+    bc->priority = BC_PRIORITY_WALL;
+
+    // Assign function pointers
+    bc->Initialize = NULL; // No initialization needed
+    bc->PreStep    = NULL;
+    bc->Apply      = NULL;
+    bc->PostStep   = NULL;
+    bc->UpdateUbcs = NULL;
+    bc->Destroy    = NULL; // No private data to destroy
+
+    bc->data = NULL;
+
+    PetscFunctionReturn(0);
+
+
+}

@@ -299,6 +299,7 @@ PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
     else if (strcasecmp(str, "SYMMETRY")  == 0) *type_out = SYMMETRY;
     else if (strcasecmp(str, "INLET")     == 0) *type_out = INLET;
     else if (strcasecmp(str, "OUTLET")    == 0) *type_out = OUTLET;
+    else if (strcasecmp(str, "PERIODIC")  == 0) *type_out = PERIODIC;
     // ... add other BCTypes here ...
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown BC Type string: %s", str);
     return 0;
@@ -315,6 +316,7 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
     else if (strcasecmp(str, "constant_velocity")   == 0) *handler_out = BC_HANDLER_INLET_CONSTANT_VELOCITY;
     else if (strcasecmp(str, "conservation")        == 0) *handler_out = BC_HANDLER_OUTLET_CONSERVATION;
     else if (strcasecmp(str, "parabolic")           == 0) *handler_out = BC_HANDLER_INLET_PARABOLIC;
+    else if (strcasecmp(str,"periodic")             == 0) *handler_out = BC_HANDLER_PERIODIC;
     // ... add other BCHandlerTypes here ...
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown BC Handler string: %s", str);
     return 0;
