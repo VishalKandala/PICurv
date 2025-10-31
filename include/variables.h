@@ -280,6 +280,7 @@ typedef struct BoundaryCondition {
     PetscErrorCode (*PreStep)(BoundaryCondition *self, BCContext *ctx, PetscReal *local_inflow, PetscReal *local_outflow);
     PetscErrorCode (*Apply)(BoundaryCondition *self, BCContext *ctx);
     PetscErrorCode (*PostStep)(BoundaryCondition *self, BCContext *ctx, ...);
+    PetscErrorCode (*UpdateUbcs)(BoundaryCondition *self,BCContext *ctx);
     PetscErrorCode (*Destroy)(BoundaryCondition *self);
 } BoundaryCondition;
 

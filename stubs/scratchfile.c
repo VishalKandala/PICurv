@@ -7410,3 +7410,797 @@ PetscErrorCode OutflowFlux(UserCtx *user);
 s
 // TO BE FIXED
 PetscErrorCode FormBCS(UserCtx *user);
+
+
+#undef __FUNCT__
+#define __FUNCT__ "GhostNodeVelocity"
+
+static PetscErrorCode GhostNodeVelocity(UserCtx *user)
+{
+
+  // --- CONTEXT ACQUISITION BLOCK ---
+  // Get the master simulation context from the UserCtx.
+  SimCtx *simCtx = user->simCtx;
+
+  // Create local variables to mirror the legacy globals for minimal code changes.
+  PetscInt wallfunction = simCtx->wallfunction;
+  const PetscInt les = simCtx->les;
+  const PetscInt rans = simCtx->rans;
+  const PetscInt ti = simCtx->step;
+  const PetscReal U_bc = simCtx->U_bc;
+  // --- END CONTEXT ACQUISITION BLOCK ---
+  
+  DM            da = user->da, fda = user->fda;
+  DMDALocalInfo	info = user->info;
+  PetscInt	xs = info.xs, xe = info.xs + info.xm;
+  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
+  PetscInt	zs = info.zs, ze = info.zs + info.zm;
+  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
+
+  PetscInt	i, j, k;
+  PetscInt	lxs, lxe, lys, lye, lzs, lze;
+
+  Cmpnts        ***ubcs, ***ucat,***lucat, ***csi, ***eta, ***zet,***cent;
+
+
+  PetscReal Un, nx,ny,nz,A;
+
+  lxs = xs; lxe = xe;
+  lys = ys; lye = ye;
+  lzs = zs; lze = ze;
+
+  PetscInt	gxs, gxe, gys, gye, gzs, gze;
+
+  gxs = info.gxs; gxe = gxs + info.gxm;
+  gys = info.gys; gye = gys + info.gym;
+  gzs = info.gzs; gze = gzs + info.gzm;
+
+  if (xs==0) lxs = xs+1;
+  if (ys==0) lys = ys+1;
+  if (zs==0) lzs = zs+1;
+
+  if (xe==mx) lxe = xe-1;
+  if (ye==my) lye = ye-1;
+  if (ze==mz) lze = ze-1;
+
+  PetscFunctionBeginUser;
+
+  PROFILE_FUNCTION_BEGIN;
+
+  DMDAVecGetArray(fda, user->lCsi,  &csi);
+  DMDAVecGetArray(fda, user->lEta,  &eta);
+  DMDAVecGetArray(fda, user->lZet,  &zet);
+ 
+  
+/* ==================================================================================             */
+/*   WALL FUNCTION */
+/* ==================================================================================             */
+  if (wallfunction) {
+    PetscReal ***friction_Velocity, ***aj, ***nvert;
+  DMDAVecGetArray(fda, user->Ucat, &ucat);
+  DMDAVecGetArray(da, user->lFriction_Velocity, &friction_Velocity);
+  DMDAVecGetArray(da, user->lAj,  &aj);
+  DMDAVecGetArray(da, user->lNvert,  &nvert);
+
+  // wall function for boundary
+  //Dec 2015
+  for (k=lzs; k<lze; k++)
+    for (j=lys; j<lye; j++)
+      for (i=lxs; i<lxe; i++) {
+	if( nvert[k][j][i]<1.1 && ( (user->bctype[0]==-1 && i==1) || (user->bctype[1]==-1 &&  i==mx-2) ) ) {
+	  double area = sqrt( csi[k][j][i].x*csi[k][j][i].x + csi[k][j][i].y*csi[k][j][i].y + csi[k][j][i].z*csi[k][j][i].z );
+	  double sb, sc; 
+	  double ni[3], nj[3], nk[3];
+	  Cmpnts Uc, Ua;
+	  
+	  Ua.x = Ua.y = Ua.z = 0;
+	  sb = 0.5/aj[k][j][i]/area;
+	  
+	  if(i==1) {
+	    sc = 2*sb + 0.5/aj[k][j][i+1]/area;
+	    Uc = ucat[k][j][i+1];
+	  }
+	  else {
+	    sc = 2*sb + 0.5/aj[k][j][i-1]/area;
+	    Uc = ucat[k][j][i-1];
+	  }
+	  
+	  CalculateFaceNormalAndArea(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk,NULL,NULL,NULL); // Passing Null pointers for area calculation.
+	  if(i==mx-2) ni[0]*=-1, ni[1]*=-1, ni[2]*=-1;
+	  
+	  //if(i==1) printf("%f %f, %f %f %f, %e %e %e, %e\n", sc, sb, Ua.x, Ua.y, Ua.z, Uc.x, Uc.y, Uc.z, ucat[k][j][i+2].z);
+	  wall_function (user, sc, sb, Ua, Uc, &ucat[k][j][i], &friction_Velocity[k][j][i], ni[0], ni[1], ni[2]);
+	  nvert[k][j][i]=1;	/* set nvert to 1 to exclude from rhs */
+	  //	  ucat[k][j][i] = lucat[k][j][i];	  
+	}
+	
+	if( nvert[k][j][i]<1.1 && ( (user->bctype[2]==-1 && j==1) || (user->bctype[3]==-1 &&  j==my-2) ) ) {
+	  double area = sqrt( eta[k][j][i].x*eta[k][j][i].x + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].z*eta[k][j][i].z );
+	  double sb, sc; 
+	  double ni[3], nj[3], nk[3];
+	  Cmpnts Uc, Ua;
+	  
+	  Ua.x = Ua.y = Ua.z = 0;
+	  sb = 0.5/aj[k][j][i]/area;
+	  
+	  if(j==1) {
+	    sc = 2*sb + 0.5/aj[k][j+1][i]/area;
+	    Uc = ucat[k][j+1][i];
+	  }
+	  else {
+	    sc = 2*sb + 0.5/aj[k][j-1][i]/area;
+	    Uc = ucat[k][j-1][i];
+	  }
+	  
+	  CalculateFaceNormalAndArea(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk,NULL,NULL,NULL); // Passing Null pointers for Area.
+	  //if(j==my-2) nj[0]*=-1, nj[1]*=-1, nj[2]*=-1;
+	  
+	  wall_function (user, sc, sb, Ua, Uc, &ucat[k][j][i], &friction_Velocity[k][j][i], nj[0], nj[1], nj[2]);
+	  nvert[k][j][i]=1;	/* set nvert to 1 to exclude from rhs */
+	  //	  ucat[k][j][i] = lucat[k][j][i];
+	}
+	
+      }
+  DMDAVecRestoreArray(da, user->lAj,  &aj);
+  DMDAVecRestoreArray(da, user->lNvert,  &nvert);
+  DMDAVecRestoreArray(da, user->lFriction_Velocity, &friction_Velocity);   
+  DMDAVecRestoreArray(fda, user->Ucat, &ucat);
+
+  DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+  DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+ /*  DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+/*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+
+  } // if wallfunction
+
+/* ==================================================================================             */
+/*   Driven Cavity  */
+/* ==================================================================================             */
+
+  DMDAVecGetArray(fda, user->Bcs.Ubcs, &ubcs);
+  DMDAVecGetArray(fda, user->Ucat,  &ucat);
+
+  /* Designed for driven cavity problem (top(k=kmax) wall moving)
+   u_x = 1 at k==kmax */
+  if (user->bctype[5]==2) {
+    if (ze==mz) {
+      k = ze-1;
+      for (j=lys; j<lye; j++) {
+	for (i=lxs; i<lxe; i++) {
+	  ubcs[k][j][i].x = 0.;// - ucat[k-1][j][i].x;
+	  ubcs[k][j][i].y = 1.;//- ucat[k-1][j][i].y;
+	  ubcs[k][j][i].z = 0.;//- ucat[k-1][j][i].z;
+	}
+      }
+    }
+  }
+  /*  ==================================================================================== */
+  /*     Cylinder O-grid */
+  /*  ==================================================================================== */
+  if (user->bctype[3]==12) {
+  /* Designed to test O-grid for flow over a cylinder at jmax velocity is 1 (horizontal) 
+   u_x = 1 at k==kmax */
+    if (ye==my) {
+      j = ye-1;
+      for (k=lzs; k<lze; k++) {
+	for (i=lxs; i<lxe; i++) {
+	  ubcs[k][j][i].x = 0.;
+	  ubcs[k][j][i].y = 0.;
+	  ubcs[k][j][i].z = 1.;
+	}
+      }
+    }
+  }
+/*  ==================================================================================== */
+/*     Annulus */
+/*  ==================================================================================== */
+/* designed to test periodic boundary condition for c grid j=0 rotates */
+ 
+  if (user->bctype[2]==11) {
+    DMDAVecGetArray(fda, user->Cent, &cent); 
+   if (ys==0){
+      j=0;
+      for (k=lzs; k<lze; k++) {
+	for (i=lxs; i<lxe; i++) {
+	  ubcs[k][j][i].x =cent[k][j+1][i].y/sqrt(cent[k][j+1][i].x*cent[k][j+1][i].x+cent[k][j+1][i].y*cent[k][j+1][i].y);;
+	  // ubcs[k][j][i].x=0.0;
+	  ubcs[k][j][i].y =-cent[k][j+1][i].x/sqrt(cent[k][j+1][i].x*cent[k][j+1][i].x+cent[k][j+1][i].y*cent[k][j+1][i].y);
+	  // ubcs[k][j][i].y = -cent[k][j+1][i].z/sqrt(cent[k][j+1][i].z*cent[k][j+1][i].z+cent[k][j+1][i].y*cent[k][j+1][i].y);
+	  ubcs[k][j][i].z = 0.0;
+	  // ubcs[k][j][i].z =cent[k][j+1][i].y/sqrt(cent[k][j+1][i].z*cent[k][j+1][i].z+cent[k][j+1][i].y*cent[k][j+1][i].y);
+	}
+      }
+    }
+   DMDAVecRestoreArray(fda, user->Cent,  &cent);
+  }
+
+/* ==================================================================================             */
+/*   SYMMETRY BC */
+/* ==================================================================================             */
+
+  if (user->bctype[0]==3) {
+    if (xs==0) {
+    i= xs;
+
+    for (k=lzs; k<lze; k++) {
+      for (j=lys; j<lye; j++) {
+	A=sqrt(csi[k][j][i].z*csi[k][j][i].z +
+	       csi[k][j][i].y*csi[k][j][i].y +
+	       csi[k][j][i].x*csi[k][j][i].x);
+	nx=csi[k][j][i].x/A;
+	ny=csi[k][j][i].y/A;
+	nz=csi[k][j][i].z/A;
+	Un=ucat[k][j][i+1].x*nx+ucat[k][j][i+1].y*ny+ucat[k][j][i+1].z*nz;
+	ubcs[k][j][i].x = ucat[k][j][i+1].x-Un*nx;//-V_frame.x;
+	ubcs[k][j][i].y = ucat[k][j][i+1].y-Un*ny;
+	ubcs[k][j][i].z = ucat[k][j][i+1].z-Un*nz;
+      }
+    }
+    }
+  }
+
+  if (user->bctype[1]==3) {
+    if (xe==mx) {
+    i= xe-1;
+
+    for (k=lzs; k<lze; k++) {
+      for (j=lys; j<lye; j++) {
+	A=sqrt(csi[k][j][i-1].z*csi[k][j][i-1].z +
+	       csi[k][j][i-1].y*csi[k][j][i-1].y +
+	       csi[k][j][i-1].x*csi[k][j][i-1].x);
+	nx=csi[k][j][i-1].x/A;
+	ny=csi[k][j][i-1].y/A;
+	nz=csi[k][j][i-1].z/A;
+	Un=ucat[k][j][i-1].x*nx+ucat[k][j][i-1].y*ny+ucat[k][j][i-1].z*nz;
+	ubcs[k][j][i].x = ucat[k][j][i-1].x-Un*nx;
+	ubcs[k][j][i].y = ucat[k][j][i-1].y-Un*ny;
+	ubcs[k][j][i].z = ucat[k][j][i-1].z-Un*nz;
+      }
+    }
+    }
+  }
+
+  if (user->bctype[2]==3) {
+    if (ys==0) {
+    j= ys;
+
+    for (k=lzs; k<lze; k++) {
+      for (i=lxs; i<lxe; i++) {
+	A=sqrt(eta[k][j][i].z*eta[k][j][i].z +
+	       eta[k][j][i].y*eta[k][j][i].y +
+	       eta[k][j][i].x*eta[k][j][i].x);
+	nx=eta[k][j][i].x/A;
+	ny=eta[k][j][i].y/A;
+	nz=eta[k][j][i].z/A;
+	Un=ucat[k][j+1][i].x*nx+ucat[k][j+1][i].y*ny+ucat[k][j+1][i].z*nz;
+	ubcs[k][j][i].x = ucat[k][j+1][i].x-Un*nx;
+	ubcs[k][j][i].y = ucat[k][j+1][i].y-Un*ny;
+	ubcs[k][j][i].z = ucat[k][j+1][i].z-Un*nz;
+      }
+    }
+    }
+  }
+
+  if (user->bctype[3]==3) {
+    if (ye==my) {
+    j=ye-1;
+
+    for (k=lzs; k<lze; k++) {
+      for (i=lxs; i<lxe; i++) {
+	A=sqrt(eta[k][j-1][i].z*eta[k][j-1][i].z +
+	       eta[k][j-1][i].y*eta[k][j-1][i].y +
+	       eta[k][j-1][i].x*eta[k][j-1][i].x);
+	nx=eta[k][j-1][i].x/A;
+	ny=eta[k][j-1][i].y/A;
+	nz=eta[k][j-1][i].z/A;
+	Un=ucat[k][j-1][i].x*nx+ucat[k][j-1][i].y*ny+ucat[k][j-1][i].z*nz;
+	ubcs[k][j][i].x = ucat[k][j-1][i].x-Un*nx;
+	ubcs[k][j][i].y = ucat[k][j-1][i].y-Un*ny;
+	ubcs[k][j][i].z = ucat[k][j-1][i].z-Un*nz;
+      }
+    }
+    }
+  }
+
+
+  if (user->bctype[4]==3) {
+    if (zs==0) {
+      k = 0;
+      for (j=lys; j<lye; j++) {
+	for (i=lxs; i<lxe; i++) {  
+	A=sqrt(zet[k][j][i].z*zet[k][j][i].z +
+	       zet[k][j][i].y*zet[k][j][i].y +
+	       zet[k][j][i].x*zet[k][j][i].x);
+	nx=zet[k][j][i].x/A;
+	ny=zet[k][j][i].y/A;
+	nz=zet[k][j][i].z/A;
+	Un=ucat[k][j][i].x*nx+ucat[k][j][i].y*ny+ucat[k][j][i].z*nz;
+	ubcs[k][j][i].x = ucat[k][j][i].x-Un*nx;
+	ubcs[k][j][i].y = ucat[k][j][i].y-Un*ny;
+	ubcs[k][j][i].z = ucat[k][j][i].z-Un*nz;
+	}
+      }
+    }
+  }
+
+  if (user->bctype[5]==3) {
+    if (ze==mz) {
+      k = ze-1;
+      for (j=lys; j<lye; j++) {
+	for (i=lxs; i<lxe; i++) {  
+	A=sqrt(zet[k-1][j][i].z*zet[k-1][j][i].z +
+	       zet[k-1][j][i].y*zet[k-1][j][i].y +
+	       zet[k-1][j][i].x*zet[k-1][j][i].x);
+	nx=zet[k-1][j][i].x/A;
+	ny=zet[k-1][j][i].y/A;
+	nz=zet[k-1][j][i].z/A;
+	Un=ucat[k-1][j][i].x*nx+ucat[k-1][j][i].y*ny+ucat[k-1][j][i].z*nz;
+	ubcs[k][j][i].x = ucat[k-1][j][i].x-Un*nx;
+	ubcs[k][j][i].y = ucat[k-1][j][i].y-Un*ny;
+	ubcs[k][j][i].z = ucat[k-1][j][i].z-Un*nz;
+	}
+      }
+    }
+  }
+/*  ==================================================================================== */
+  /*     Rheology */
+  /*  ==================================================================================== */
+ 
+  // PetscPrintf(PETSC_COMM_WORLD, "moving plate velocity for rheology setup is %le \n",U_bc);
+
+  if (user->bctype[2]==13){
+    if (ys==0){
+      j=0;
+      for (k=lzs; k<lze; k++) {
+	for (i=lxs; i<lxe; i++) {
+	  ubcs[k][j][i].x = 0.;
+	  //ubcs[k][j][i].x = -U_bc;
+	  ubcs[k][j][i].y = 0.;
+	  ubcs[k][j][i].z =-U_bc;
+	   //ubcs[k][j][i].z =0.0;
+	}
+      }
+    }
+  }
+  if (user->bctype[3]==13){
+    if (ye==my){
+      j=ye-1;
+      for (k=lzs; k<lze; k++) {
+	for (i=lxs; i<lxe; i++) {
+	  ubcs[k][j][i].x = 0.;
+	  //ubcs[k][j][i].x = U_bc;
+	  ubcs[k][j][i].y = 0.;
+	  ubcs[k][j][i].z = U_bc;
+	  //ubcs[k][j][i].z =0.0;
+	}
+      }
+    }
+  }
+  if (user->bctype[4]==13){
+    if (zs==0){
+      k=0;
+      for (j=lys; j<lye; j++) {
+	for (i=lxs; i<lxe; i++) {
+	  ubcs[k][j][i].x =-U_bc;
+	  ubcs[k][j][i].y = 0.;
+	  ubcs[k][j][i].z = 0.;
+	}
+      }
+    }
+  }
+  if (user->bctype[5]==13){
+    if (ze==mz){
+      k=ze-1;
+      for (j=lys; j<lye; j++) {
+	for (i=lxs; i<lxe; i++) {
+	  ubcs[k][j][i].x = U_bc;
+	  ubcs[k][j][i].y = 0.;
+	  ubcs[k][j][i].z = 0.;
+	}
+      }
+    }
+  }
+/* ==================================================================================             */
+  // boundary conditions on ghost nodes
+/* ==================================================================================             */
+//Mohsen Aug 2012
+  if (xs==0 && user->bctype[0]!=7) {
+    i = xs;
+    for (k=zs; k<ze; k++) {
+      for (j=ys; j<ye; j++) {
+	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k][j][i+1].x;
+	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k][j][i+1].y;
+	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k][j][i+1].z;
+      }
+    }
+  }
+
+  if (xe==mx && user->bctype[0]!=7) {
+    i = xe-1;
+    for (k=zs; k<ze; k++) {
+      for (j=ys; j<ye; j++) {
+	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k][j][i-1].x;
+	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k][j][i-1].y;
+	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k][j][i-1].z;
+      }
+    }
+  }
+
+  if (ys==0 && user->bctype[2]!=7) {
+    j = ys;
+    for (k=zs; k<ze; k++) {
+      for (i=xs; i<xe; i++) {
+	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k][j+1][i].x;
+	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k][j+1][i].y;
+	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k][j+1][i].z;
+      }
+    }
+  }
+
+  if (ye==my && user->bctype[2]!=7) {
+    j = ye-1;
+    for (k=zs; k<ze; k++) {
+      for (i=xs; i<xe; i++) {
+	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k][j-1][i].x;
+	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k][j-1][i].y;
+	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k][j-1][i].z;
+      }
+    }
+  }
+
+  if (zs==0 && user->bctype[4]!=7) {
+    k = zs;
+    for (j=ys; j<ye; j++) {
+      for (i=xs; i<xe; i++) {
+	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k+1][j][i].x;
+	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k+1][j][i].y;
+	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k+1][j][i].z;
+      }
+    }
+  }
+
+  if (ze==mz && user->bctype[4]!=7) {
+    k = ze-1;
+    for (j=ys; j<ye; j++) {
+      for (i=xs; i<xe; i++) {
+	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k-1][j][i].x;
+	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k-1][j][i].y;
+	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k-1][j][i].z;
+      }
+    }
+  }
+  DMDAVecRestoreArray(fda, user->Bcs.Ubcs, &ubcs);
+  DMDAVecRestoreArray(fda, user->Ucat,&ucat);
+/* ==================================================================================             */
+/*   Periodic BC Mohsen Aug 2012
+/* ==================================================================================             */
+
+  if (user->bctype[0]==7 || user->bctype[2]==7 ||  user->bctype[4]==7 ){
+
+    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+ 
+    DMDAVecGetArray(fda, user->lUcat, &lucat);
+    DMDAVecGetArray(fda, user->Ucat, &ucat);
+   
+    if (user->bctype[0]==7 || user->bctype[1]==7){
+      if (xs==0){
+	i=xs;
+	for (k=zs; k<ze; k++) {
+	  for (j=ys; j<ye; j++) {
+	    if(k>0 && k<user->KM && j>0 && j<user->JM){
+	      ucat[k][j][i]=lucat[k][j][i-2];
+	    }
+	  }
+	}
+      }
+    }
+    if (user->bctype[2]==7 || user->bctype[3]==7){
+      if (ys==0){
+	j=ys;
+	for (k=zs; k<ze; k++) {
+	  for (i=xs; i<xe; i++) {
+	    if(k>0 && k<user->KM && i>0 && i<user->IM){
+	      ucat[k][j][i]=lucat[k][j-2][i];
+	    }
+	  }
+	}
+      }
+    }
+    if (user->bctype[4]==7 || user->bctype[5]==7){
+      if (zs==0){
+	k=zs;
+	for (j=ys; j<ye; j++) {
+	  for (i=xs; i<xe; i++) {
+	    if(j>0 && j<user->JM && i>0 && i<user->IM){
+	      ucat[k][j][i]=lucat[k-2][j][i];
+	    }
+	  }
+	}
+      }
+    }
+    if (user->bctype[0]==7 || user->bctype[1]==7){
+      if (xe==mx){
+	i=mx-1;
+	for (k=zs; k<ze; k++) {
+	  for (j=ys; j<ye; j++) {
+	    if(k>0 && k<user->KM && j>0 && j<user->JM){
+	      ucat[k][j][i]=lucat[k][j][i+2];
+	    }
+	  }
+	}
+      }
+    }
+    if (user->bctype[2]==7 || user->bctype[3]==7){
+      if (ye==my){
+	j=my-1;
+	for (k=zs; k<ze; k++) {
+	  for (i=xs; i<xe; i++) {
+	    if(k>0 && k<user->KM && i>0 && i<user->IM){
+	    ucat[k][j][i]=lucat[k][j+2][i];
+	    }
+	  }
+	}
+      }
+    }
+    if (user->bctype[4]==7 || user->bctype[5]==7){
+      if (ze==mz){
+	k=mz-1;
+	for (j=ys; j<ye; j++) {
+	  for (i=xs; i<xe; i++) {
+	    if(j>0 && j<user->JM && i>0 && i<user->IM){
+	      ucat[k][j][i].x=lucat[k+2][j][i].x;
+	    }
+	  }
+	}
+      }
+    }
+    
+    DMDAVecRestoreArray(fda, user->lUcat, &lucat);
+    DMDAVecRestoreArray(fda, user->Ucat, &ucat);
+
+    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+ /*  DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+/*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+  }
+
+  // velocity on the corner point
+  DMDAVecGetArray(fda, user->Ucat,  &ucat);
+
+  if (zs==0 ) {
+    k=0;
+    if (xs==0) {
+      i=0;
+      for (j=ys; j<ye; j++) {
+	ucat[k][j][i].x = 0.5*(ucat[k+1][j][i].x+ucat[k][j][i+1].x);
+	ucat[k][j][i].y = 0.5*(ucat[k+1][j][i].y+ucat[k][j][i+1].y);
+	ucat[k][j][i].z = 0.5*(ucat[k+1][j][i].z+ucat[k][j][i+1].z);
+      }
+    }
+    if (xe == mx) {
+      i=mx-1;
+      for (j=ys; j<ye; j++) {
+	ucat[k][j][i].x = 0.5*(ucat[k+1][j][i].x+ucat[k][j][i-1].x);
+	ucat[k][j][i].y = 0.5*(ucat[k+1][j][i].y+ucat[k][j][i-1].y);
+	ucat[k][j][i].z = 0.5*(ucat[k+1][j][i].z+ucat[k][j][i-1].z);
+      }
+    }
+
+    if (ys==0) {
+      j=0;
+      for (i=xs; i<xe; i++) {
+	ucat[k][j][i].x = 0.5*(ucat[k+1][j][i].x+ucat[k][j+1][i].x);
+	ucat[k][j][i].y = 0.5*(ucat[k+1][j][i].y+ucat[k][j+1][i].y);
+	ucat[k][j][i].z = 0.5*(ucat[k+1][j][i].z+ucat[k][j+1][i].z);
+      }
+    }
+
+    if (ye==my) {
+      j=my-1;
+      for (i=xs; i<xe; i++) {
+	ucat[k][j][i].x = 0.5*(ucat[k+1][j][i].x+ucat[k][j-1][i].x);
+	ucat[k][j][i].y = 0.5*(ucat[k+1][j][i].y+ucat[k][j-1][i].y);
+	ucat[k][j][i].z = 0.5*(ucat[k+1][j][i].z+ucat[k][j-1][i].z);
+      }
+    }
+  }
+
+  if (ze==mz) {
+    k=mz-1;
+    if (xs==0) {
+      i=0;
+      for (j=ys; j<ye; j++) {
+	ucat[k][j][i].x = 0.5*(ucat[k-1][j][i].x+ucat[k][j][i+1].x);
+	ucat[k][j][i].y = 0.5*(ucat[k-1][j][i].y+ucat[k][j][i+1].y);
+	ucat[k][j][i].z = 0.5*(ucat[k-1][j][i].z+ucat[k][j][i+1].z);
+      }
+    }
+    if (xe == mx) {
+      i=mx-1;
+      for (j=ys; j<ye; j++) {
+	ucat[k][j][i].x = 0.5*(ucat[k-1][j][i].x+ucat[k][j][i-1].x);
+	ucat[k][j][i].y = 0.5*(ucat[k-1][j][i].y+ucat[k][j][i-1].y);
+	ucat[k][j][i].z = 0.5*(ucat[k-1][j][i].z+ucat[k][j][i-1].z);
+      }
+    }
+    if (ys==0) {
+      j=0;
+      for (i=xs; i<xe; i++) {
+	ucat[k][j][i].x = 0.5*(ucat[k-1][j][i].x+ucat[k][j+1][i].x);
+	ucat[k][j][i].y = 0.5*(ucat[k-1][j][i].y+ucat[k][j+1][i].y);
+	ucat[k][j][i].z = 0.5*(ucat[k-1][j][i].z+ucat[k][j+1][i].z);
+      }
+    }
+
+    if (ye==my) {
+      j=my-1;
+      for (i=xs; i<xe; i++) {
+	ucat[k][j][i].x = 0.5*(ucat[k-1][j][i].x+ucat[k][j-1][i].x);
+	ucat[k][j][i].y = 0.5*(ucat[k-1][j][i].y+ucat[k][j-1][i].y);
+	ucat[k][j][i].z = 0.5*(ucat[k-1][j][i].z+ucat[k][j-1][i].z);
+      }
+    }
+  }
+
+  if (ys==0) {
+    j=0;
+    if (xs==0) {
+      i=0;
+      for (k=zs; k<ze; k++) {
+	ucat[k][j][i].x = 0.5*(ucat[k][j+1][i].x+ucat[k][j][i+1].x);
+	ucat[k][j][i].y = 0.5*(ucat[k][j+1][i].y+ucat[k][j][i+1].y);
+	ucat[k][j][i].z = 0.5*(ucat[k][j+1][i].z+ucat[k][j][i+1].z);
+      }
+    }
+
+    if (xe==mx) {
+      i=mx-1;
+      for (k=zs; k<ze; k++) {
+	ucat[k][j][i].x = 0.5*(ucat[k][j+1][i].x+ucat[k][j][i-1].x);
+	ucat[k][j][i].y = 0.5*(ucat[k][j+1][i].y+ucat[k][j][i-1].y);
+	ucat[k][j][i].z = 0.5*(ucat[k][j+1][i].z+ucat[k][j][i-1].z);
+      }
+    }
+  }
+
+  if (ye==my) {
+    j=my-1;
+    if (xs==0) {
+      i=0;
+      for (k=zs; k<ze; k++) {
+	ucat[k][j][i].x = 0.5*(ucat[k][j-1][i].x+ucat[k][j][i+1].x);
+	ucat[k][j][i].y = 0.5*(ucat[k][j-1][i].y+ucat[k][j][i+1].y);
+	ucat[k][j][i].z = 0.5*(ucat[k][j-1][i].z+ucat[k][j][i+1].z);
+      }
+    }
+
+    if (xe==mx) {
+      i=mx-1;
+      for (k=zs; k<ze; k++) {
+	ucat[k][j][i].x = 0.5*(ucat[k][j-1][i].x+ucat[k][j][i-1].x);
+	ucat[k][j][i].y = 0.5*(ucat[k][j-1][i].y+ucat[k][j][i-1].y);
+	ucat[k][j][i].z = 0.5*(ucat[k][j-1][i].z+ucat[k][j][i-1].z);
+      }
+    }
+  }
+
+  DMDAVecRestoreArray(fda, user->Ucat,  &ucat);
+
+  DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+  DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+
+  if (user->bctype[0]==7 || user->bctype[2]==7 ||  user->bctype[4]==7 ){
+    //i-direction
+    DMDAVecGetArray(fda, user->lUcat, &lucat);
+    DMDAVecGetArray(fda, user->Ucat, &ucat);
+ 
+    if (user->bctype[0]==7){
+      if (xs==0){
+	i=xs;
+	for (k=zs; k<ze; k++) {
+	  for (j=ys; j<ye; j++) {
+	    ucat[k][j][i]=lucat[k][j][i-2];
+	  }
+	}
+      }
+    }
+    if (user->bctype[1]==7){
+      if (xe==mx){
+	i=xe-1;
+	for (k=zs; k<ze; k++) {
+	  for (j=ys; j<ye; j++) {
+	    ucat[k][j][i]=lucat[k][j][i+2];
+	  }
+	}
+      }
+    }
+    DMDAVecRestoreArray(fda, user->lUcat, &lucat);
+    DMDAVecRestoreArray(fda, user->Ucat, &ucat);
+
+ /*  DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+/*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+
+    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+
+  //j-direction
+  
+    DMDAVecGetArray(fda, user->lUcat, &lucat);
+    DMDAVecGetArray(fda, user->Ucat, &ucat);
+ 
+    if (user->bctype[2]==7){
+      if (ys==0){
+	j=ys;
+	for (k=zs; k<ze; k++) {
+	  for (i=xs; i<xe; i++) {
+	    ucat[k][j][i]=lucat[k][j-2][i];
+	  }
+	}
+      }
+    }
+  
+    if (user->bctype[3]==7){
+      if (ye==my){
+	j=my-1;
+	for (k=zs; k<ze; k++) {
+	  for (i=xs; i<xe; i++) {
+	  ucat[k][j][i]=lucat[k][j+2][i];
+	  }
+	}
+      }
+    }
+
+    DMDAVecRestoreArray(fda, user->lUcat, &lucat);
+    DMDAVecRestoreArray(fda, user->Ucat, &ucat);
+  
+ /*  DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+/*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+
+    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+
+  //k-direction
+  
+    DMDAVecGetArray(fda, user->lUcat, &lucat);
+    DMDAVecGetArray(fda, user->Ucat, &ucat);
+ 
+    if (user->bctype[4]==7){
+      if (zs==0){
+	k=zs;
+	for (j=ys; j<ye; j++) {
+	  for (i=xs; i<xe; i++) {
+	  ucat[k][j][i]=lucat[k-2][j][i];
+	  }
+	}
+      }
+    }
+    if (user->bctype[5]==7){
+      if (ze==mz){
+	k=mz-1;
+	for (j=ys; j<ye; j++) {
+	  for (i=xs; i<xe; i++) {
+	    ucat[k][j][i].x=lucat[k+2][j][i].x;
+	  }
+	}
+      }
+    }
+   
+    DMDAVecRestoreArray(fda, user->lUcat, &lucat);
+    DMDAVecRestoreArray(fda, user->Ucat, &ucat);
+
+ /*  DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+/*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+
+    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+  }
+ 
+  DMDAVecRestoreArray(fda, user->lCsi,  &csi);
+  DMDAVecRestoreArray(fda, user->lEta,  &eta);
+  DMDAVecRestoreArray(fda, user->lZet,  &zet);
+
+  PROFILE_FUNCTION_END;
+  PetscFunctionReturn(0);
+  
+}

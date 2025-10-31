@@ -685,6 +685,7 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
     bc->PreStep     = NULL;
     bc->Apply       = NULL;
     bc->PostStep    = NULL;
+    bc->UpdateUbcs  = NULL;
     bc->Destroy     = NULL;
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Allocated generic handler object at address %p.\n", (void*)bc);
@@ -1272,6 +1273,70 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
     LOG_ALLOW(LOCAL, LOG_VERBOSE, "Complete.\n");
     
     PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+// =============================================================================
+//
+//                   PRIVATE "LIGHT" EXECUTION ENGINE
+//
+// =============================================================================
+
+#undef __FUNCT__
+#define __FUNCT__ "BoundarySystem_RefreshUbcs"
+/**
+ * @brief (Private) A lightweight execution engine that calls the UpdateUbcs() method on all relevant handlers.
+ *
+ * This function's sole purpose is to re-evaluate the target boundary values (`ubcs`) for
+ * flow-dependent boundary conditions (e.g., Symmetry, Outlets) after the interior
+ * velocity field has changed, such as after the projection step.
+ *
+ * It operates based on a "pull" model: it iterates through all boundary handlers and
+ * executes their `UpdateUbcs` method only if the handler has provided one. This makes the
+ * system extensible, as new flow-dependent handlers can be added without changing this
+ * engine. Handlers for fixed boundary conditions (e.g., a wall with a constant velocity)
+ * will have their `UpdateUbcs` pointer set to `NULL` and will be skipped automatically.
+ *
+ * @note This function is a critical part of the post-projection refresh. It intentionally
+ *       does NOT modify `ucont` and does NOT perform flux balancing.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    LOG_ALLOW(GLOBAL, LOG_TRACE, "Refreshing `ubcs` targets for flow-dependent boundaries...\n");
+
+    // Loop through all 6 faces of the domain
+    for (int i = 0; i < 6; i++) {
+        BoundaryCondition *handler = user->boundary_faces[i].handler;
+        
+        // THE FILTER:
+        // This is the core logic. We only act if a handler exists for the face
+        // AND that handler has explicitly implemented the `UpdateUbcs` method.
+        if (handler && handler->UpdateUbcs) {
+            
+            const char *face_name = BCFaceToString((BCFace)i);
+            LOG_ALLOW(LOCAL, LOG_TRACE, "  Calling UpdateUbcs() for handler on Face %s.\n", face_name);
+
+            // Prepare the context. For this refresh step, we don't need to pass flux sums.
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = NULL,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = NULL,
+                .global_farfield_outflow_sum = NULL
+            };
+            
+            // Call the handler's specific UpdateUbcs function pointer.
+            ierr = handler->UpdateUbcs(handler, &ctx); CHKERRQ(ierr);
+        }
+    }
+
     PetscFunctionReturn(0);
 }
 
@@ -2252,6 +2317,92 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
     
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Complete.\n");
     
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "RefreshBoundaryGhostCells"
+/**
+ * @brief (Public) Orchestrates the "light" refresh of all boundary ghost cells after the projection step.
+ *
+ * This function is the correct and complete replacement for the role that `GhostNodeVelocity`
+ * played when called from within the `Projection` function. Its purpose is to ensure that
+ * all ghost cells for `ucat` and `p` are made consistent with the final, divergence-free
+ * interior velocity field computed by the projection step.
+ *
+ * This function is fundamentally different from `ApplyBoundaryConditions` because it does
+ * NOT modify the physical flux field (`ucont`) and does NOT apply physical models like
+ * the wall function. It is a purely geometric and data-consistency operation.
+ *
+ * WORKFLOW:
+ * 1.  Calls the lightweight `BoundarySystem_RefreshUbcs()` engine. This re-calculates the
+ *     `ubcs` target values ONLY for flow-dependent boundary conditions (like Symmetry or Outlets)
+ *     using the newly updated interior `ucat` field.
+ *
+ * 2.  Calls the geometric updaters (`ApplyPeriodicBCs`, `UpdateDummyCells`, `UpdateCornerNodes`)
+ *     in the correct, dependency-aware order to fill in all ghost cell values based on the now
+ *     fully-refreshed `ubcs` targets.
+ *
+ * 3.  Performs a final synchronization of local PETSc vectors to ensure all MPI ranks are
+ *     consistent before proceeding to the next time step.
+ *
+ * @param user The main UserCtx struct, containing all simulation state.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode RefreshBoundaryGhostCells(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Starting post-projection refresh of boundary ghost cells.\n");
+
+    // -------------------------------------------------------------------------
+    // STEP 1: Refresh Flow-Dependent Boundary Value Targets (`ubcs`)
+    // -------------------------------------------------------------------------
+    // This is the "physics" part of the refresh. It calls the lightweight engine
+    // to update `ubcs` for any BCs (like Symmetry) that depend on the now-corrected
+    // interior velocity field. This step does NOT touch `ucont`.
+    ierr = BoundarySystem_RefreshUbcs(user); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  `ubcs` targets refreshed.\n");
+
+    ierr = UpdateLocalGhosts(user,"Ucat");
+
+    // STEP 1.5: Apply Wall function if applicable.
+    if(user->simCtx->wallfunction){
+
+        ierr = ApplyWallFunction(user); CHKERRQ(ierr);
+    
+    }
+    // -------------------------------------------------------------------------
+    // STEP 2: Apply Geometric Ghost Cell Updates
+    // -------------------------------------------------------------------------
+    // With `ubcs` now fully up-to-date, we execute the purely geometric
+    // operations to fill the entire ghost cell layer. The order is important.
+    
+    // (a) Handle periodic boundaries first. This is a direct data copy.
+    ierr = ApplyPeriodicBCs(user); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Periodic boundaries synchronized.\n");
+
+    // (b) Update the ghost cells on the faces of non-periodic boundaries.
+    ierr = UpdateDummyCells(user); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Face ghost cells (dummy cells) updated.\n");
+    
+    // (c) Update the ghost cells at the edges and corners by averaging.
+    ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Edge and corner ghost cells updated.\n");
+
+    // -------------------------------------------------------------------------
+    // STEP 3: Final Synchronization
+    // -------------------------------------------------------------------------
+    // Ensure all changes made to global vectors are reflected in the local
+    // ghost regions of all processors, making the state fully consistent.
+    ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Final ghost cell synchronization complete.\n");
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Boundary ghost cell refresh complete.\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
