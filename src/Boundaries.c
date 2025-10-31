@@ -706,6 +706,10 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
             LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletConstantVelocity().\n");
 	          ierr = Create_InletConstantVelocity(bc); CHKERRQ(ierr);
             break;
+        case BC_HANDLER_PERIODIC:
+            LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_Periodic().\n");
+            ierr = Create_Periodic(bc);
+            break;
 
         //case BC_HANDLER_INLET_PARABOLIC:
         //    LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletParabolicProfile().\n");
@@ -891,12 +895,12 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "BoundarySystem_ExecuteStep: Starting.\n");
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Starting.\n");
     
     // =========================================================================
     // PRIORITY 0: INLETS
     // =========================================================================
-    {
+    
         PetscReal local_inflow_pre = 0.0;
         PetscReal local_inflow_post = 0.0;
         PetscReal global_inflow_pre = 0.0;
@@ -936,6 +940,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         for (int i = 0; i < 6; i++) {
             BoundaryCondition *handler = user->boundary_faces[i].handler;
             if (!handler || handler->priority != BC_PRIORITY_INLET) continue;
+            if(!handler->Apply) continue; // For example Periodic BCs  
             
             BCContext ctx = {
                 .user = user,
@@ -979,12 +984,11 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         LOG_ALLOW(GLOBAL, LOG_INFO, 
                   "  Priority 0 (INLETS): %d handler(s), FluxInSum = %.6e\n",
                   num_handlers, global_inflow_post);
-    }
     
     // =========================================================================
     // PRIORITY 1: FARFIELD
     // =========================================================================
-    {
+    
         PetscReal local_farfield_in_pre = 0.0;
         PetscReal local_farfield_out_pre = 0.0;
         PetscReal local_farfield_in_post = 0.0;
@@ -993,7 +997,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         PetscReal global_farfield_out_pre = 0.0;
         PetscReal global_farfield_in_post = 0.0;
         PetscReal global_farfield_out_post = 0.0;
-        PetscInt  num_handlers = 0;
+        num_handlers = 0;
         
         LOG_ALLOW(LOCAL, LOG_TRACE, "  Priority 1 (FARFIELD): Begin.\n");
         
@@ -1034,7 +1038,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         for (int i = 0; i < 6; i++) {
             BoundaryCondition *handler = user->boundary_faces[i].handler;
             if (!handler || handler->priority != BC_PRIORITY_FARFIELD) continue;
-            
+            if(!handler->Apply) continue; // For example Periodic BCs            
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1087,13 +1091,13 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             user->simCtx->FarFluxInSum = 0.0;
             user->simCtx->FarFluxOutSum = 0.0;
         }
-    }
+    
     
     // =========================================================================
     // PRIORITY 2: WALLS
     // =========================================================================
-    {
-        PetscInt num_handlers = 0;
+    
+        num_handlers = 0;
         
         LOG_ALLOW(LOCAL, LOG_TRACE, "  Priority 2 (WALLS): Begin.\n");
         
@@ -1123,6 +1127,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         for (int i = 0; i < 6; i++) {
             BoundaryCondition *handler = user->boundary_faces[i].handler;
             if (!handler || handler->priority != BC_PRIORITY_WALL) continue;
+            if(!handler->Apply) continue; // For example Periodic BCs  
             
             BCContext ctx = {
                 .user = user,
@@ -1160,17 +1165,17 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         
         LOG_ALLOW(GLOBAL, LOG_INFO, "  Priority 2 (WALLS): %d handler(s) applied.\n",
                   num_handlers);
-    }
+    
     
     // =========================================================================
     // PRIORITY 3: OUTLETS
     // =========================================================================
-    {
+    
         PetscReal local_outflow_pre = 0.0;
         PetscReal local_outflow_post = 0.0;
         PetscReal global_outflow_pre = 0.0;
         PetscReal global_outflow_post = 0.0;
-        PetscInt  num_handlers = 0;
+        num_handlers = 0;
         
         LOG_ALLOW(LOCAL, LOG_TRACE, "  Priority 3 (OUTLETS): Begin.\n");
         
@@ -1210,6 +1215,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         for (int i = 0; i < 6; i++) {
             BoundaryCondition *handler = user->boundary_faces[i].handler;
             if (!handler || handler->priority != BC_PRIORITY_OUTLET) continue;
+            if(!handler->Apply) continue; // For example Periodic BCs  
             
             BCContext ctx = {
                 .user = user,
@@ -1268,7 +1274,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
                      "    WARNING: Large mass conservation error (%.2e%%)!\n",
                      relative_error * 100.0);
         }
-    }
+    
     
     LOG_ALLOW(LOCAL, LOG_VERBOSE, "Complete.\n");
     
@@ -1449,7 +1455,7 @@ PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
         global_vec = user->Nvert;
         local_vec  = user->lNvert;
         dof        = 1;
-    } 
+    }
     /*
     // Example for future extension:
     else if (strcmp(field_name, "Temperature") == 0) {
@@ -1463,6 +1469,7 @@ PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s' in TransferPeriodicFieldByName.", field_name);
     }
 
+    LOG_ALLOW(GLOBAL,LOG_TRACE,"Periodic Transform being performed for field: %s with %d DoF.\n",field_name,dof);
     // --- STEP 2: Execute the copy logic using the dispatched variables ---
     if (dof == 1) { // --- Handle SCALAR fields (PetscReal) ---
         PetscReal ***g_array, ***l_array;
@@ -1479,10 +1486,12 @@ PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
         ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArray(dm, local_vec, &l_array); CHKERRQ(ierr);
 
-    } else { // --- Handle VECTOR fields (Cmpnts) ---
+    } else if (dof == 3) { // --- Handle VECTOR fields (Cmpnts) ---
         Cmpnts ***g_array, ***l_array;
         ierr = DMDAVecGetArray(dm, global_vec, &g_array); CHKERRQ(ierr);
         ierr = DMDAVecGetArray(dm, local_vec, &l_array); CHKERRQ(ierr);
+
+        LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Array %s read successfully (Global and Local).\n",field_name);
 
         if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xs] = l_array[k][j][xs-2];
         if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xe-1] = l_array[k][j][xe+1];
@@ -1493,6 +1502,9 @@ PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
         
         ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArray(dm, local_vec, &l_array); CHKERRQ(ierr);
+    }
+    else{
+         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "This function only accepts Fields with 1 or 3 DoF.");
     }
 
     PROFILE_FUNCTION_END;
