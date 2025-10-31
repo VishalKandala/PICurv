@@ -60,6 +60,27 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
 PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user);
 
 /**
+ * @brief (Private) A lightweight execution engine that calls the UpdateUbcs() method on all relevant handlers.
+ *
+ * This function's sole purpose is to re-evaluate the target boundary values (`ubcs`) for
+ * flow-dependent boundary conditions (e.g., Symmetry, Outlets) after the interior
+ * velocity field has changed, such as after the projection step.
+ *
+ * It operates based on a "pull" model: it iterates through all boundary handlers and
+ * executes their `UpdateUbcs` method only if the handler has provided one. This makes the
+ * system extensible, as new flow-dependent handlers can be added without changing this
+ * engine. Handlers for fixed boundary conditions (e.g., a wall with a constant velocity)
+ * will have their `UpdateUbcs` pointer set to `NULL` and will be skipped automatically.
+ *
+ * @note This function is a critical part of the post-projection refresh. It intentionally
+ *       does NOT modify `ucont` and does NOT perform flux balancing.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user);
+
+/**
  * @brief Cleans up and destroys all boundary system resources.
  * @param user The main UserCtx struct.
  */
@@ -290,6 +311,35 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user);
  * @see noslip() in wallfunction.c for the initial linear interpolation
  */
 PetscErrorCode ApplyWallFunction(UserCtx *user);
+
+/**
+ * @brief (Public) Orchestrates the "light" refresh of all boundary ghost cells after the projection step.
+ *
+ * This function is the correct and complete replacement for the role that `GhostNodeVelocity`
+ * played when called from within the `Projection` function. Its purpose is to ensure that
+ * all ghost cells for `ucat` and `p` are made consistent with the final, divergence-free
+ * interior velocity field computed by the projection step.
+ *
+ * This function is fundamentally different from `ApplyBoundaryConditions` because it does
+ * NOT modify the physical flux field (`ucont`) and does NOT apply physical models like
+ * the wall function. It is a purely geometric and data-consistency operation.
+ *
+ * WORKFLOW:
+ * 1.  Calls the lightweight `BoundarySystem_RefreshUbcs()` engine. This re-calculates the
+ *     `ubcs` target values ONLY for flow-dependent boundary conditions (like Symmetry or Outlets)
+ *     using the newly updated interior `ucat` field.
+ *
+ * 2.  Calls the geometric updaters (`ApplyPeriodicBCs`, `UpdateDummyCells`, `UpdateCornerNodes`)
+ *     in the correct, dependency-aware order to fill in all ghost cell values based on the now
+ *     fully-refreshed `ubcs` targets.
+ *
+ * 3.  Performs a final synchronization of local PETSc vectors to ensure all MPI ranks are
+ *     consistent before proceeding to the next time step.
+ *
+ * @param user The main UserCtx struct, containing all simulation state.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode RefreshBoundaryGhostCells(UserCtx *user);
 
 /*
 * @brief Main master function to apply boundary conditions for a time step.

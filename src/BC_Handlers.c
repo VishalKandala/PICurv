@@ -43,6 +43,7 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc)
     bc->PreStep    = NULL;
     bc->Apply      = Apply_WallNoSlip;
     bc->PostStep   = NULL;
+    bc->UpdateUbcs = NULL;
     bc->Destroy    = NULL;
     
     // No private data needed for this simple handler
@@ -255,6 +256,7 @@ PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc)
     bc->PreStep    = PreStep_InletConstantVelocity;
     bc->Apply      = Apply_InletConstantVelocity;
     bc->PostStep   = PostStep_InletConstantVelocity;
+    bc->UpdateUbcs = NULL;
     bc->Destroy    = Destroy_InletConstantVelocity;
     
     PetscFunctionReturn(0);
@@ -636,6 +638,7 @@ PetscErrorCode Create_OutletConservation(BoundaryCondition *bc)
     bc->PreStep    = PreStep_OutletConservation;
     bc->Apply      = Apply_OutletConservation;
     bc->PostStep   = PostStep_OutletConservation;
+    bc->UpdateUbcs = NULL;
     bc->Destroy    = NULL; // No private data to destroy
     
     bc->data = NULL;
