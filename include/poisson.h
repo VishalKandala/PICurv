@@ -1,4 +1,4 @@
-#ifndef POISSON_Hs
+#ifndef POISSON_H
 #define POISSON_H
 
 #include "variables.h" // Provides definitions for UserCtx, UserMG, Vec, Mat, etc.
