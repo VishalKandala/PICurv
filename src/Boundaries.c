@@ -905,9 +905,9 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         PetscReal local_inflow_post = 0.0;
         PetscReal global_inflow_pre = 0.0;
         PetscReal global_inflow_post = 0.0;
-        PetscInt  num_handlers = 0;
+        PetscInt  num_handlers[3] = {0,0,0};
         
-        LOG_ALLOW(LOCAL, LOG_TRACE, "  Priority 0 (INLETS): Begin.\n");
+        LOG_ALLOW(LOCAL, LOG_TRACE, " (INLETS): Begin.\n");
         
         // Phase 1: PreStep - Preparation (e.g., calculate profiles, read files)
         for (int i = 0; i < 6; i++) {
@@ -915,7 +915,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_INLET) continue;
             if (!handler->PreStep) continue;
             
-            num_handlers++;
+            num_handlers[0]++;
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -942,6 +942,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_INLET) continue;
             if(!handler->Apply) continue; // For example Periodic BCs  
             
+            num_handlers[1]++;
+
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -961,6 +963,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_INLET) continue;
             if (!handler->PostStep) continue;
             
+            num_handlers[2]++;
+
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -982,8 +986,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         user->simCtx->FluxInSum = global_inflow_post;
         
         LOG_ALLOW(GLOBAL, LOG_INFO, 
-                  "  Priority 0 (INLETS): %d handler(s), FluxInSum = %.6e\n",
-                  num_handlers, global_inflow_post);
+                  "  (INLETS): %d Prestep(s), %d Application(s), %d Poststep(s), FluxInSum = %.6e\n",
+                  num_handlers[0],num_handlers[1],num_handlers[2], global_inflow_post);
     
     // =========================================================================
     // PRIORITY 1: FARFIELD
@@ -997,9 +1001,9 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         PetscReal global_farfield_out_pre = 0.0;
         PetscReal global_farfield_in_post = 0.0;
         PetscReal global_farfield_out_post = 0.0;
-        num_handlers = 0;
+        memset(num_handlers,0,sizeof(num_handlers));
         
-        LOG_ALLOW(LOCAL, LOG_TRACE, "  Priority 1 (FARFIELD): Begin.\n");
+        LOG_ALLOW(LOCAL, LOG_TRACE, "  (FARFIELD): Begin.\n");
         
         // Phase 1: PreStep - Analyze flow direction, measure initial flux
         for (int i = 0; i < 6; i++) {
@@ -1007,7 +1011,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_FARFIELD) continue;
             if (!handler->PreStep) continue;
             
-            num_handlers++;
+            num_handlers[0]++;
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1039,6 +1043,9 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             BoundaryCondition *handler = user->boundary_faces[i].handler;
             if (!handler || handler->priority != BC_PRIORITY_FARFIELD) continue;
             if(!handler->Apply) continue; // For example Periodic BCs            
+            
+            num_handlers[1]++;
+
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1058,6 +1065,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_FARFIELD) continue;
             if (!handler->PostStep) continue;
             
+            num_handlers[2]++;
+
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1084,8 +1093,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             user->simCtx->FarFluxOutSum = global_farfield_out_post;
             
             LOG_ALLOW(GLOBAL, LOG_INFO, 
-                      "  Priority 1 (FARFIELD): %d handler(s), In=%.6e, Out=%.6e\n",
-                      num_handlers, global_farfield_in_post, global_farfield_out_post);
+                      "  (FARFIELD): %d Prestep(s), %d Application(s), %d Poststep(s) , InFlux=%.6e, OutFlux=%.6e\n",
+                      num_handlers[0],num_handlers[1],num_handlers[2], global_farfield_in_post, global_farfield_out_post);
         } else {
             // No farfield handlers - zero out the fluxes
             user->simCtx->FarFluxInSum = 0.0;
@@ -1097,9 +1106,9 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
     // PRIORITY 2: WALLS
     // =========================================================================
     
-        num_handlers = 0;
+        memset(num_handlers,0,sizeof(num_handlers));
         
-        LOG_ALLOW(LOCAL, LOG_TRACE, "  Priority 2 (WALLS): Begin.\n");
+        LOG_ALLOW(LOCAL, LOG_TRACE, "  (WALLS): Begin.\n");
         
         // Phase 1: PreStep - Preparation (usually no-op for walls)
         for (int i = 0; i < 6; i++) {
@@ -1107,7 +1116,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_WALL) continue;
             if (!handler->PreStep) continue;
             
-            num_handlers++;
+            num_handlers[0]++;
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1129,6 +1138,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_WALL) continue;
             if(!handler->Apply) continue; // For example Periodic BCs  
             
+            num_handlers[1]++;
+
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1148,6 +1159,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_WALL) continue;
             if (!handler->PostStep) continue;
             
+            num_handlers[2]++;
+
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1163,8 +1176,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         
         // No global communication needed for walls
         
-        LOG_ALLOW(GLOBAL, LOG_INFO, "  Priority 2 (WALLS): %d handler(s) applied.\n",
-                  num_handlers);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  (WALLS): %d Prestep(s), %d Application(s), %d Poststep(s) applied.\n",
+                  num_handlers[0],num_handlers[1],num_handlers[2]);
     
     
     // =========================================================================
@@ -1175,9 +1188,9 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         PetscReal local_outflow_post = 0.0;
         PetscReal global_outflow_pre = 0.0;
         PetscReal global_outflow_post = 0.0;
-        num_handlers = 0;
+        memset(num_handlers,0,sizeof(num_handlers));
         
-        LOG_ALLOW(LOCAL, LOG_TRACE, "  Priority 3 (OUTLETS): Begin.\n");
+        LOG_ALLOW(LOCAL, LOG_TRACE, "  (OUTLETS): Begin.\n");
         
         // Phase 1: PreStep - Measure uncorrected outflow (from ucat)
         for (int i = 0; i < 6; i++) {
@@ -1185,7 +1198,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_OUTLET) continue;
             if (!handler->PreStep) continue;
             
-            num_handlers++;
+            num_handlers[0]++;
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1217,6 +1230,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_OUTLET) continue;
             if(!handler->Apply) continue; // For example Periodic BCs  
             
+            num_handlers[1]++;
+
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1236,6 +1251,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             if (!handler || handler->priority != BC_PRIORITY_OUTLET) continue;
             if (!handler->PostStep) continue;
             
+            num_handlers[2]++;
+
             BCContext ctx = {
                 .user = user,
                 .face_id = (BCFace)i,
@@ -1263,8 +1280,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
                                    flux_error / total_inflow : flux_error;
         
         LOG_ALLOW(GLOBAL, LOG_INFO, 
-                  "  Priority 3 (OUTLETS): %d handler(s), FluxOutSum = %.6e\n",
-                  num_handlers, global_outflow_post);
+                  "  (OUTLETS): %d Prestep(s), %d Application(s), %d Poststep(s), FluxOutSum = %.6e\n",
+                  num_handlers[0],num_handlers[1],num_handlers[2], global_outflow_post);
         LOG_ALLOW(GLOBAL, LOG_INFO, 
                   "    Conservation: Total In=%.6e, Total Out=%.6e, Error=%.3e (%.2e)%%)\n",
                   total_inflow, total_outflow, flux_error, relative_error * 100.0);
