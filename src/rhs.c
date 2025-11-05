@@ -1914,7 +1914,6 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: RHS computation complete.\n",
               simCtx->rank, user->_this);
 
-
 	PROFILE_FUNCTION_END;		  
     PetscFunctionReturn(0);
-}
+} 

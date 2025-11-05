@@ -2511,7 +2511,12 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 
         LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Dummy Cells/Ghost Cells Updated.\n");
 
-        // (g) Synchronize the updated dummy cells across all processors to ensure
+        // (g) Update the corner and edge ghost nodes. This routine calculates
+        // values for corners/edges by averaging their neighbors, which have been
+        // finalized in the steps above (both periodic and non-periodic).
+        ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
+        
+        // (h) Synchronize the updated dummy cells across all processors to ensure
         //     consistency before the next iteration or finalization.
         ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
@@ -2523,13 +2528,7 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
     // that sets the absolute constraints for the rest of the solve.
     ierr = ApplyPeriodicBCs(user); CHKERRQ(ierr);
 
-
-    // STEP 3: Update the corner and edge ghost nodes. This routine calculates
-    // values for corners/edges by averaging their neighbors, which have been
-    // finalized in the steps above (both periodic and non-periodic).
-    ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
-
-    // STEP 4: Final ghost node synchronization. This ensures all changes made
+    // STEP 3: Final ghost node synchronization. This ensures all changes made
     // to the global vectors are reflected in the local ghost regions of all
     // processors, making the state fully consistent before the next solver stage.
     ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);

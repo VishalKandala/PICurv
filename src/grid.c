@@ -125,7 +125,7 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
     DMBoundaryType xperiod = (simCtx->i_periodic) ? DM_BOUNDARY_PERIODIC : DM_BOUNDARY_NONE;
     DMBoundaryType yperiod = (simCtx->j_periodic) ? DM_BOUNDARY_PERIODIC : DM_BOUNDARY_NONE;
     DMBoundaryType zperiod = (simCtx->k_periodic) ? DM_BOUNDARY_PERIODIC : DM_BOUNDARY_NONE;
-    PetscInt stencil_width = 2; // Stencil width is 2 in the legacy code
+    PetscInt stencil_width = (simCtx->i_periodic || simCtx->j_periodic || simCtx->k_periodic) ? 3:2; // Stencil width is 2 in the legacy code
 
     PetscInt *lx = NULL, *ly = NULL, *lz = NULL;
     PetscInt m, n, p;
