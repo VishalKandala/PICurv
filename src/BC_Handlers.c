@@ -114,7 +114,7 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
 
     switch (face_id) {
         case BC_FACE_NEG_X: {
-            if (xs= 0){  
+            if (xs == 0){  
                 PetscInt i = xs;
                 for (PetscInt k = lzs; k < lze; k++) {
                     for (PetscInt j = lys; j < lye; j++) {
@@ -147,7 +147,7 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
         break;
         }    
         case BC_FACE_NEG_Y: {
-            if (ys == 0) break;
+            if (ys == 0){
             PetscInt j = ys;
             for (PetscInt k = lzs; k < lze; k++) {
                 for (PetscInt i = lxs; i < lxe; i++) {
@@ -156,12 +156,13 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
                     ubcs[k][j][i].x = 0.0;
                     ubcs[k][j][i].y = 0.0;
                     ubcs[k][j][i].z = 0.0;
+                    }
                 }
             }
         } break;
 
         case BC_FACE_POS_Y: {
-            if (ye != my) break;
+            if (ye == my){
             PetscInt j = ye - 1;
             for (PetscInt k = lzs; k < lze; k++) {
                 for (PetscInt i = lxs; i < lxe; i++) {
@@ -170,12 +171,13 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
                     ubcs[k][j][i].x = 0.0;
                     ubcs[k][j][i].y = 0.0;
                     ubcs[k][j][i].z = 0.0;
+                    }
                 }
             }
         } break;
             
         case BC_FACE_NEG_Z: {
-            if (zs != 0) break;
+            if (zs == 0){
             PetscInt k = zs;
             for (PetscInt j = lys; j < lye; j++) {
                 for (PetscInt i = lxs; i < lxe; i++) {
@@ -184,12 +186,13 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
                     ubcs[k][j][i].x = 0.0;
                     ubcs[k][j][i].y = 0.0;
                     ubcs[k][j][i].z = 0.0;
+                    }
                 }
             }
         } break;
 
         case BC_FACE_POS_Z: {
-            if (ze != mz) break;
+            if (ze == mz) {
             PetscInt k = ze - 1;
             for (PetscInt j = lys; j < lye; j++) {
                 for (PetscInt i = lxs; i < lxe; i++) {
@@ -198,8 +201,9 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
                     ubcs[k][j][i].x = 0.0;
                     ubcs[k][j][i].y = 0.0;
                     ubcs[k][j][i].z = 0.0;
+                    }
                 }
-            }
+            }    
         } break;
     }
 
