@@ -20,6 +20,7 @@
 #include "io.h"             // Data Input and Output functions
 #include "interpolation.h"  // Interpolation routines
 #include "initialcondition.h" // Analytical Solution for testing
+#include "AnalyticalSolutions.h"
 #include "ParticleMotion.h" // Functions related to motion of particles
 #include "Boundaries.h"     //  Functions related to Boundary conditions
 #include "setup.h"          // Functions  related to setup

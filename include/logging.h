@@ -16,7 +16,6 @@
 #include <petscsys.h>
 #include <ctype.h>
 #include "variables.h"
-#include "AnalyticalSolution.h"
 #include "Boundaries.h"
 // --------------------- Logging Levels Definition ---------------------
 

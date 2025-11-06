@@ -571,7 +571,7 @@ typedef struct SimCtx {
     PetscViewer logviewer;
     PetscInt    OutputFreq;
     ExecutionMode exec_mode;
-    char eulerianSource[64];
+    char eulerianSource[PETSC_MAX_PATH_LEN];
     char restart_dir[PETSC_MAX_PATH_LEN];
     char output_dir[PETSC_MAX_PATH_LEN];
     char euler_subdir[PETSC_MAX_PATH_LEN];
@@ -584,6 +584,7 @@ typedef struct SimCtx {
     PetscInt  immersed, movefsi, rotatefsi, sediment, rheology;
     PetscInt  invicid, TwoD, thin, moveframe, rotateframe, blank;
     PetscInt  dgf_x, dgf_y, dgf_z, dgf_ax, dgf_ay, dgf_az;
+    char AnalyticalSolutionType[PETSC_MAX_PATH_LEN];
   
     //================ Group 4: Specific Simulation Case Flags ================
     PetscInt  cop, fish, fish_c, fishcyl, eel, pizza, turbine, Pipe, wing, hydro, MHV, LV;

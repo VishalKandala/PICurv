@@ -19,7 +19,6 @@
 #include "logging.h"        // Logging macros
 #include "io.h"             // Data Input and Output functions
 #include "interpolation.h"  // Interpolation routines
-#include "AnalyticalSolution.h" // Analytical Solution for testing
 #include "ParticleMotion.h" // Functions related to motion of particles
 #include "BC_Handlers.h"    // Boundary Handlers 
 #include "wallfunction.h"   //  wall functions for LES

@@ -862,7 +862,8 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
     Vec            lCoords;
     const Cmpnts ***coor;
     Cmpnts       ***cent, ***gs;
-    PetscReal      xcp, ycp, zcp, xcm, ycm, zcm;
+    PetscReal    xcp, ycp, zcp, xcm, ycm, zcm;
+    PetscInt     xs,ys,zs,xe,ye,ze,mx,my,mz;
 
     PetscFunctionBeginUser;
 
@@ -876,11 +877,24 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
 
     ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->GridSpace, &gs); CHKERRQ(ierr);
+
+    xs = info.xs; xe = info.xs + info.xm;
+    ys = info.ys; ye = info.ys + info.ym;
+    zs = info.zs; ze = info.zs + info.zm;
+    mx = info.mx; my =  info.my; mz = info.mz;
+
+    PetscInt k_start_node = (zs == 0) ? zs + 1 : zs;
+    PetscInt j_start_node = (ys == 0) ? ys + 1 : ys;
+    PetscInt i_start_node = (xs == 0) ? xs + 1 : xs;
+
+    PetscInt k_end_node = (ze == mz) ? ze - 1 : ze;
+    PetscInt j_end_node = (ye == my) ? ye - 1 : ye;
+    PetscInt i_end_node = (xe == mx) ? xe - 1 : xe;    
     
     // Loop over the interior OWNED cells (stencil requires i-1, j-1, k-1)
-    for (PetscInt k=info.zs+1; k<info.zs+info.zm; k++) {
-        for (PetscInt j=info.ys+1; j<info.ys+info.ym; j++) {
-            for (PetscInt i=info.xs+1; i<info.xs+info.xm; i++) {
+    for (PetscInt k=k_start_node; k<k_end_node; k++) {
+        for (PetscInt j=j_start_node; j<j_end_node; j++) {
+            for (PetscInt i=i_start_node; i<i_end_node; i++) {
                 // Calculate cell center as the average of its 8 corner nodes
                 cent[k][j][i].x = 0.125 * (coor[k][j][i].x + coor[k][j-1][i].x + coor[k-1][j][i].x + coor[k-1][j-1][i].x + coor[k][j][i-1].x + coor[k][j-1][i-1].x + coor[k-1][j][i-1].x + coor[k-1][j-1][i-1].x);
                 cent[k][j][i].y = 0.125 * (coor[k][j][i].y + coor[k][j-1][i].y + coor[k-1][j][i].y + coor[k-1][j-1][i].y + coor[k][j][i-1].y + coor[k][j-1][i-1].y + coor[k-1][j][i-1].y + coor[k-1][j-1][i-1].y);
