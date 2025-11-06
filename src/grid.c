@@ -27,13 +27,16 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
-
-    if (simCtx->generate_grid) {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
-        ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
-    } else {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is file-based. Calling file parser.\n", simCtx->rank, user->_this);
-        ierr = ReadGridFile(user); CHKERRQ(ierr);
+    if(strcmp(simCtx->eulerianSource,"analytical")==0){
+        ierr = SetAnalyticalGridInfo(user); CHKERRQ(ierr);
+    }else{ // eulerianSource is "solve" or "load"
+        if (simCtx->generate_grid) {
+            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
+            ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
+        } else {
+            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is file-based. Calling file parser.\n", simCtx->rank, user->_this);
+            ierr = ReadGridFile(user); CHKERRQ(ierr);
+        }
     }
 
     PROFILE_FUNCTION_END;

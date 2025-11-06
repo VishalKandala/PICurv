@@ -353,6 +353,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = LOG_FIELD_ANATOMY(&user[0],"Csi","PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0],"Eta","PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0],"Zet","PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Center-Coordinates","PreFlowSolver"); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
         if(strcmp(simCtx->eulerianSource,"load")==0){
@@ -361,6 +362,10 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             for(PetscInt bi = 0; bi < simCtx->block_number;bi++){
                 ierr = ReadSimulationFields(&user[bi],simCtx->step); CHKERRQ(ierr);
             }
+        }else if(strcmp(simCtx->eulerianSource,"analytical")==0){
+            // ANALYTICAL mode:Call the Analytical Solution Prescription Engine to enable a variety of analytical functions
+            LOG_ALLOW(GLOBAL,LOG_INFO,"Eulerian Source 'analytical'. Updating Eulerian field via the Analytical Solution Engine ...\n");
+            ierr = AnalyticalSolutionEngine(simCtx); CHKERRQ(ierr);
         }else if(strcmp(simCtx->eulerianSource,"solve")==0){
             // SOLVE mode:Call the refactored, high-level legacy solver. This single function
             // advances the entire multi-block fluid field from t_n to t_{n+1}.

@@ -6,6 +6,7 @@
         "implicitsolvers.h": "c",
         "rhs.h": "c",
         "wallfunction.h": "c",
-        "boundaries.h": "c"
+        "boundaries.h": "c",
+        "analyticalsolutions.h": "c"
     }
 }

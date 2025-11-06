@@ -18,7 +18,7 @@
 #include "logging.h"        // Logging macros
 #include "io.h"             // Data Input and Output functions
 #include "interpolation.h"  // Interpolation routines
-#include "AnalyticalSolution.h" // Analytical Solution for testing
+#include "AnalyticalSolutions.h" // Analytical Solution for testing
 #include "ParticleMotion.h" // Functions related to motion of particles
 #include "Boundaries.h"     //  Functions related to Boundary condition
 #include "simulation.h"

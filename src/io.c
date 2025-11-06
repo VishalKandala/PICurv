@@ -2122,11 +2122,10 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             // user->global_domain_bbox.max_coords = global_max_coords;
         } else {
             // Fallback or warning if bboxlist is not available for global calculation
-            LOG_ALLOW(PETSC_COMM_SELF, LOG_WARNING, "(Rank 0) - bboxlist not provided or num_mpi_procs <=0; using user->bbox for domain bounds.\n");
+            LOG_ALLOW(LOCAL, LOG_WARNING, "(Rank 0) - bboxlist not provided or num_mpi_procs <=0; using user->bbox for domain bounds.\n");
 	    // global_min_coords = user->bbox.min_coords; // Use local bbox of rank 0 as fallback
 	    // global_max_coords = user->bbox.max_coords;
         }
-
 
         ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
@@ -2137,17 +2136,17 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (X)    : %.6f to %.6f\n", (double)global_min_coords.x, (double)global_max_coords.x); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (Y)    : %.6f to %.6f\n", (double)global_min_coords.y, (double)global_max_coords.y); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (Z)    : %.6f to %.6f\n", (double)global_min_coords.z, (double)global_max_coords.z); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------- Boundary Conditions --------------------\n"); CHKERRQ(ierr);
-	    const int face_name_width = 17; // Adjusted for longer names (Zeta,Eta,Xi)
-        const char* field_init_str = FieldInitializationToString(simCtx->FieldInitialization);
-        const char* particle_init_str = ParticleInitializationToString(simCtx->ParticleInitialization);
-        for (PetscInt i_face = 0; i_face < 6; ++i_face) {
-	    BCFace current_face = (BCFace)i_face;
-	    // The BCFaceToString will now return the Xi, Eta, Zeta versions
-	    const char* face_str = BCFaceToString(current_face); 
-	    const char* bc_type_str = BCTypeToString(user->boundary_faces[current_face].mathematical_type);    
-	    ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s\n", 
-			     face_name_width, face_str, bc_type_str); CHKERRQ(ierr);
+        if(strcmp(simCtx->eulerianSource,"load")==0 || strcmp(simCtx->eulerianSource,"solve")==0){
+            ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------- Boundary Conditions --------------------\n"); CHKERRQ(ierr);
+            const int face_name_width = 17; // Adjusted for longer names (Zeta,Eta,Xi)
+            for (PetscInt i_face = 0; i_face < 6; ++i_face) {
+            BCFace current_face = (BCFace)i_face;
+            // The BCFaceToString will now return the Xi, Eta, Zeta versions
+            const char* face_str = BCFaceToString(current_face); 
+            const char* bc_type_str = BCTypeToString(user->boundary_faces[current_face].mathematical_type);    
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s\n", 
+                    face_name_width, face_str, bc_type_str); CHKERRQ(ierr);
+            }
         }
         ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------------------------------------------------\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Start Time                  : %.4f\n", (double)StartTime); CHKERRQ(ierr);
@@ -2156,25 +2155,30 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, " Total Steps to Run          : %d\n", StepsToRun); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Number of MPI Processes     : %d\n", num_mpi_procs); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %d\n", total_num_particles); CHKERRQ(ierr);
-	    ierr = PetscPrintf(PETSC_COMM_WORLD," Reynolds Number             : %le\n", simCtx->ren); CHKERRQ(ierr);
-	    ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
-	    ierr = PetscPrintf(PETSC_COMM_WORLD," CFL Number                  : %le\n", simCtx->cfl); CHKERRQ(ierr);
-	    ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESFlagToString(simCtx->les)); CHKERRQ(ierr);
-        if (simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) {
-            if (user->inletFaceDefined) {
-                ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : %s (Enum Val: %d)\n", BCFaceToString(user->identifiedInletBCFace), user->identifiedInletBCFace); CHKERRQ(ierr);
-            } else {
-                ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : --- (No INLET face identified)\n"); CHKERRQ(ierr);
+        if(strcmp(simCtx->eulerianSource,"solve")==0 || strcmp(simCtx->eulerianSource,"load")==0){
+            const char* field_init_str = FieldInitializationToString(simCtx->FieldInitialization);
+            const char* particle_init_str = ParticleInitializationToString(simCtx->ParticleInitialization);
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Reynolds Number             : %le\n", simCtx->ren); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_WORLD," CFL Number                  : %le\n", simCtx->cfl); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESFlagToString(simCtx->les)); CHKERRQ(ierr);
+            if (simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) {
+                if (user->inletFaceDefined) {
+                    ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : %s (Enum Val: %d)\n", BCFaceToString(user->identifiedInletBCFace), user->identifiedInletBCFace); CHKERRQ(ierr);
+                } else {
+                    ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : --- (No INLET face identified)\n"); CHKERRQ(ierr);
+                }
             }
-        }
 
-        ierr = PetscPrintf(PETSC_COMM_SELF, " Field Initialization Mode   : %s\n", field_init_str); CHKERRQ(ierr);
-        if (simCtx->FieldInitialization == 1) {
-	  ierr = PetscPrintf(PETSC_COMM_SELF, " Constant Velocity           : x - %.4f, y - %.4f, z - %.4f \n", (double)simCtx->InitialConstantContra.x,(double)simCtx->InitialConstantContra.y,(double)simCtx->InitialConstantContra.z ); CHKERRQ(ierr);
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Field Initialization Mode   : %s\n", field_init_str); CHKERRQ(ierr);
+            if (simCtx->FieldInitialization == 1) {
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Constant Velocity           : x - %.4f, y - %.4f, z - %.4f \n", (double)simCtx->InitialConstantContra.x,(double)simCtx->InitialConstantContra.y,(double)simCtx->InitialConstantContra.z ); CHKERRQ(ierr);
+            }
+        } else if(strcmp(simCtx->eulerianSource,"analytical")==0){
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Analytical Solution Type : %s\n", simCtx->AnalyticalSolutionType); CHKERRQ(ierr);
         }
-	
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);
     }
