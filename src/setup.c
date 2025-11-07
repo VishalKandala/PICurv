@@ -1390,6 +1390,9 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
         ierr = CalculateOutletProperties(&user_finest[bi]); CHKERRQ(ierr);
     }
 
+    // Propogate BC Configuration to coarser levels.
+    ierr = PropagateBoundaryConfigToCoarserLevels(simCtx);
+
     // NOTE: This was originally called in SetupGridAndSolvers, but for periodic BCs, Metrics calculation must change,
     // BC data needs to be read before setting up all metrics, that's why this function has been moved here.
     ierr = CalculateAllGridMetrics(simCtx); CHKERRQ(ierr);

@@ -446,6 +446,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
                 if(get_log_level() >= LOG_INFO){
                 LOG(GLOBAL, LOG_INFO, "Particle states at step %d:\n", simCtx->step);
                 LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency);
+                if(strcmp(simCtx->eulerianSource,"analytical") == 0){
+                    LOG_INTERPOLATION_ERROR(user);
+                }
                 }
             }
         }

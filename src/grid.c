@@ -542,6 +542,10 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 
     LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Local Info for block %d - X range - [%d,%d], Y range - [%d,%d], Z range - [%d,%d]\n",
               user->simCtx->rank, user->_this, xs, xe, ys, ye, zs, ze);
+    
+    LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Local Info for block %d - X domain - [%.4f,%.4f], Y range - [%.4f,%.4f], Z range - [%.4f,%.4f]\n",
+              user->simCtx->rank, user->_this, user->Min_X,user->Max_X,user->Min_Y,user->Max_Y,user->Min_Z,user->Max_Z);          
+              
     ierr = VecSet(lCoor, 0.0); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
     

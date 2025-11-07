@@ -80,7 +80,7 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
             }
             user->Min_X = 0.0; user->Max_X = 2.0 * PETSC_PI;
             user->Min_Y = 0.0; user->Max_Y = 2.0 * PETSC_PI;
-            user->Min_Z = 0.0; user->Max_Z = 1.5; //2.0 * PETSC_PI;
+            user->Min_Z = 0.0; user->Max_Z = 0.2 * PETSC_PI; //2.0 * PETSC_PI;
 
         } else { // --- Multi-Block Case ---
             PetscReal s = sqrt((PetscReal)nblk);
@@ -380,5 +380,89 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
 
     }
 
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "SetAnalyticalSolutionForParticles_TGV3D"
+/**
+@brief Sets the TGV3D analytical velocity solution for particles.
+
+@details Computes the 3D Taylor-Green Vortex velocity field at each particle position.
+         Assumes the vector contains interleaved xyz components [x0,y0,z0, x1,y1,z1, ...].
+
+@param tempVec The PETSc Vec containing particle positions, will be overwritten with velocities.
+@param simCtx The simulation context containing time and Reynolds number.
+@return PetscErrorCode Returns 0 on success.
+*/
+static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscInt nLocal;
+    PetscReal *data;
+    
+    PetscFunctionBeginUser;
+
+    // TGV3D parameters (matching your Eulerian implementation)
+    const PetscReal V0  = 1.0;
+    const PetscReal k   = 1.0;
+    const PetscReal nu  = (simCtx->ren > 0) ? (1.0 / simCtx->ren) : 0.0;
+    const PetscReal t   = simCtx->ti;
+    const PetscReal vel_decay = exp(-2.0 * nu * k * k * t);
+    
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "TGV3D Particles: t=%.4f, V0=%.4f, k=%.4f, nu=%.6f\n", t, V0, k, nu);
+    
+    ierr = VecGetLocalSize(tempVec, &nLocal); CHKERRQ(ierr);
+    ierr = VecGetArray(tempVec, &data); CHKERRQ(ierr);
+    
+    // Process particles: data is interleaved [x0,y0,z0, x1,y1,z1, ...]
+    for (PetscInt i = 0; i < nLocal; i += 3) {
+        const PetscReal x = data[i];
+        const PetscReal y = data[i+1];
+        const PetscReal z = data[i+2];
+        
+        // TGV3D velocity field
+        data[i]   =  V0 * sin(k*x) * cos(k*y) * cos(k*z) * vel_decay;  // u
+        data[i+1] = -V0 * cos(k*x) * sin(k*y) * cos(k*z) * vel_decay;  // v
+        data[i+2] =  0.0;                                                // w
+    }
+    
+    ierr = VecRestoreArray(tempVec, &data); CHKERRQ(ierr);
+    
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "SetAnalyticalSolutionForParticles"
+/**
+@brief Applies the analytical solution to particle velocity vector.
+
+@details Dispatcher function that calls the appropriate analytical solution based on 
+         simCtx->AnalyticalSolutionType. Supports multiple solution types.
+
+@param tempVec The PETSc Vec containing particle positions which will be used to store velocities.
+@param simCtx The simulation context.
+@return PetscErrorCode Returns 0 on success.
+*/
+PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscInt nLocal;
+    PetscReal *vels;
+
+    PetscFunctionBeginUser;
+    
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Type: %s\n", 
+              simCtx->AnalyticalSolutionType ? simCtx->AnalyticalSolutionType : "default");
+    
+    // Check for specific analytical solution types
+    if (simCtx->AnalyticalSolutionType && strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using TGV3D solution.\n");
+        ierr = SetAnalyticalSolutionForParticles_TGV3D(tempVec, simCtx); CHKERRQ(ierr);
+        return 0;
+    }
+        
+    ierr = VecRestoreArray(tempVec, &vels); CHKERRQ(ierr);
+    
     PetscFunctionReturn(0);
 }
