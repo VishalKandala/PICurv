@@ -354,6 +354,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = LOG_FIELD_ANATOMY(&user[0],"Eta","PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0],"Zet","PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0],"Center-Coordinates","PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"X-Face-Centers","PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Y-Face-Centers","PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Z-Face-Centers","PreFlowSolver"); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
         if(strcmp(simCtx->eulerianSource,"load")==0){
