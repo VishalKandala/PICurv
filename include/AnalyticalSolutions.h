@@ -60,4 +60,16 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user);
  */
 PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx);
 
+/**
+@brief Applies the analytical solution to particle velocity vector.
+
+@details Dispatcher function that calls the appropriate analytical solution based on 
+         simCtx->AnalyticalSolutionType. Supports multiple solution types.
+
+@param tempVec The PETSc Vec containing particle positions which will be used to store velocities.
+@param simCtx The simulation context.
+@return PetscErrorCode Returns 0 on success.
+*/
+PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx);
+
 #endif // ANALYTICALSOLUTIONS_H

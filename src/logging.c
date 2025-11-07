@@ -1935,3 +1935,54 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
     ierr = PetscBarrier(NULL);
     PetscFunctionReturn(0);
 }
+
+/**
+@brief Logs the interpolation error between the analytical and computed solutions.
+*/
+PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
+{
+    SimCtx *simCtx = user->simCtx;
+    PetscErrorCode ierr;
+    DM swarm = user->swarm;
+    Vec positionVec, analyticalvelocityVec, velocityVec, errorVec;
+    PetscReal Interpolation_error = 0.0;
+    PetscReal Maximum_Interpolation_error = 0.0;
+    PetscReal AnalyticalSolution_magnitude = 0.0;
+    PetscReal ErrorPercentage = 0.0;
+    
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating global vectors.\n");
+    ierr = DMSwarmCreateGlobalVectorFromField(swarm, "position", &positionVec); CHKERRQ(ierr);
+    ierr = DMSwarmCreateGlobalVectorFromField(swarm, "velocity", &velocityVec); CHKERRQ(ierr);
+    
+    ierr = VecDuplicate(positionVec, &analyticalvelocityVec); CHKERRQ(ierr);
+    ierr = VecCopy(positionVec, analyticalvelocityVec); CHKERRQ(ierr);
+    
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Computing analytical solution.\n");
+    ierr = SetAnalyticalSolutionForParticles(analyticalvelocityVec, simCtx); CHKERRQ(ierr);
+    
+    ierr = VecDuplicate(analyticalvelocityVec, &errorVec); CHKERRQ(ierr);
+    ierr = VecCopy(analyticalvelocityVec, errorVec); CHKERRQ(ierr);
+    
+    ierr = VecNorm(analyticalvelocityVec, NORM_2, &AnalyticalSolution_magnitude); CHKERRQ(ierr);
+    
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Computing error.\n");
+    ierr = VecAXPY(errorVec, -1.0, velocityVec); CHKERRQ(ierr);
+    ierr = VecNorm(errorVec, NORM_2, &Interpolation_error); CHKERRQ(ierr);
+    ierr = VecNorm(errorVec,NORM_INFINITY,&Maximum_Interpolation_error); CHKERRQ(ierr);
+    
+    ErrorPercentage = (AnalyticalSolution_magnitude > 0) ? 
+                      (Interpolation_error / AnalyticalSolution_magnitude * 100.0) : 0.0;
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Interpolation error (%%): %g\n", ErrorPercentage);
+    PetscPrintf(PETSC_COMM_WORLD, "Interpolation error (%%): %g\n", ErrorPercentage);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Maximum Interpolation error: %g\n", Maximum_Interpolation_error);
+    PetscPrintf(PETSC_COMM_WORLD, "Maximum Interpolation error: %g\n", Maximum_Interpolation_error);
+
+    
+    ierr = VecDestroy(&analyticalvelocityVec); CHKERRQ(ierr);
+    ierr = VecDestroy(&errorVec); CHKERRQ(ierr);
+    ierr = DMSwarmDestroyGlobalVectorFromField(swarm, "position", &positionVec); CHKERRQ(ierr);
+    ierr = DMSwarmDestroyGlobalVectorFromField(swarm, "velocity", &velocityVec); CHKERRQ(ierr);
+    
+    return 0;
+}

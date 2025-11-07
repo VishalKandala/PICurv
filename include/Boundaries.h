@@ -53,6 +53,18 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
 PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename);
 
 /**
+ * @brief Propagates boundary condition configuration from finest to all coarser multigrid levels.
+ *
+ * Coarser levels need BC type information for geometric operations (e.g., periodic corrections)
+ * but do NOT need full handler objects since timestepping only occurs at the finest level.
+ * This function copies the boundary_faces configuration down the hierarchy.
+ *
+ * @param simCtx The master SimCtx containing the multigrid hierarchy
+ * @return PetscErrorCode 0 on success
+ */
+PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx);
+
+/**
  * @brief Executes one full boundary condition update cycle for a time step.
  * @param user The main UserCtx struct.
  */

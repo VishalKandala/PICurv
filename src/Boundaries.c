@@ -857,6 +857,75 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
 }
 
 
+#undef __FUNCT__
+#define __FUNCT__ "PropagateBoundaryConfigToCoarserLevels"
+/**
+ * @brief Propagates boundary condition configuration from finest to all coarser multigrid levels.
+ *
+ * Coarser levels need BC type information for geometric operations (e.g., periodic corrections)
+ * but do NOT need full handler objects since timestepping only occurs at the finest level.
+ * This function copies the boundary_faces configuration down the hierarchy.
+ *
+ * @param simCtx The master SimCtx containing the multigrid hierarchy
+ * @return PetscErrorCode 0 on success
+ */
+PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    UserMG *usermg = &simCtx->usermg;
+    
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Propagating BC configuration from finest to coarser multigrid levels...\n");
+    
+    // Loop from second-finest down to coarsest
+    for (PetscInt level = usermg->mglevels - 2; level >= 0; level--) {
+        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+            UserCtx *user_coarse = &usermg->mgctx[level].user[bi];
+            UserCtx *user_fine   = &usermg->mgctx[level + 1].user[bi];
+            
+            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Copying BC config from level %d to level %d, block %d\n",
+                          simCtx->rank, level + 1, level, bi);
+            
+            // Copy the 6 boundary face configurations
+            for (int face_i = 0; face_i < 6; face_i++) {
+                user_coarse->boundary_faces[face_i].face_id = user_fine->boundary_faces[face_i].face_id;
+                user_coarse->boundary_faces[face_i].mathematical_type = user_fine->boundary_faces[face_i].mathematical_type;
+                user_coarse->boundary_faces[face_i].handler_type = user_fine->boundary_faces[face_i].handler_type;
+                
+                // Copy parameter list (deep copy)
+                FreeBC_ParamList(user_coarse->boundary_faces[face_i].params); // Clear any existing
+                user_coarse->boundary_faces[face_i].params = NULL;
+                
+                BC_Param **dst_next = &user_coarse->boundary_faces[face_i].params;
+                for (BC_Param *src = user_fine->boundary_faces[face_i].params; src; src = src->next) {
+                    BC_Param *new_param;
+                    ierr = PetscMalloc1(1, &new_param); CHKERRQ(ierr);
+                    ierr = PetscStrallocpy(src->key, &new_param->key); CHKERRQ(ierr);
+                    ierr = PetscStrallocpy(src->value, &new_param->value); CHKERRQ(ierr);
+                    new_param->next = NULL;
+                    *dst_next = new_param;
+                    dst_next = &new_param->next;
+                }
+                
+                // IMPORTANT: Do NOT create handler objects for coarser levels
+                // Handlers are only needed at finest level for timestepping Apply() calls
+                user_coarse->boundary_faces[face_i].handler = NULL;
+            }
+            
+            // Also propagate legacy compatibility fields if needed
+            user_coarse->inletFaceDefined = user_fine->inletFaceDefined;
+            user_coarse->identifiedInletBCFace = user_fine->identifiedInletBCFace;
+        }
+    }
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "BC configuration propagation complete.\n");
+    
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
 //================================================================================
 //
 //                      PUBLIC MASTER TIME-STEP FUNCTION

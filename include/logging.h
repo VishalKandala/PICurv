@@ -785,4 +785,9 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName);
  */
 PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const char *stage_name);
 
+/**
+@brief Logs the interpolation error between the analytical and computed solutions.
+*/
+PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user);
+
 #endif // LOGGING_H
