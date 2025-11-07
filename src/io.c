@@ -570,6 +570,138 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
     PetscFunctionReturn(0);
 }
 
+//================================================================================
+//
+//                        PRIVATE HELPER FUNCTIONS
+//
+//================================================================================
+
+// ... (existing helper functions like FreeBC_ParamList, StringToBCFace, etc.) ...
+#undef __FUNCT__
+#define __FUNCT__ "DeterminePeriodicity"
+/**
+ * @brief Scans all block-specific boundary condition files to determine a globally
+ *        consistent periodicity for each dimension.
+ *
+ * This is a lightweight pre-parser intended to be called before DMDA creation.
+ * It ensures that the periodicity setting is consistent across all blocks, which is a
+ * physical requirement for the domain.
+ *
+ * 1. It collectively verifies that the mandatory BCS file for each block exists.
+ * 2. On MPI rank 0, it then iterates through the files.
+ * 3. It parses each line to extract the first (face) and second (type) tokens,
+ *    mimicking the main BC parser's tokenization logic.
+ * 4. It performs a direct, case-insensitive string comparison on the "type" token
+ *    to check if it is "PERIODIC". Other types are silently ignored.
+ * 5. It validates consistency (e.g., -Xi and +Xi match) and ensures all block files
+ *    specify the same global periodicity.
+ * 6. It broadcasts the final three flags (as integers 0 or 1) to all MPI ranks.
+ * 7. All ranks update the i_periodic, j_periodic, and k_periodic fields in their SimCtx.
+ *
+ * @param[in,out] simCtx The master SimCtx struct, containing the bcs_files list and
+ *                       where the final periodicity flags will be stored.
+ * @return PetscErrorCode 0 on success, error code on failure.
+ */
+PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank;
+    PetscInt       periodic_flags[3] = {0, 0, 0}; // Index 0:I, 1:J, 2:K
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    // --- Part 1: Collectively verify all BCS files exist before proceeding ---
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        const char *bcs_filename = simCtx->bcs_files[bi];
+        if (!bcs_filename) SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "BCS filename for block %d is not set in SimCtx.", bi);
+        char desc_buf[256];
+        PetscBool file_exists;
+        snprintf(desc_buf, sizeof(desc_buf), "BCS file for block %d", bi);
+        ierr = VerifyPathExistence(bcs_filename, PETSC_FALSE, PETSC_FALSE, desc_buf, &file_exists); CHKERRQ(ierr);
+    }
+
+    // --- Part 2: Rank 0 does the parsing, since we know all files exist ---
+    if (rank == 0) {
+        PetscBool global_is_periodic[3] = {PETSC_FALSE, PETSC_FALSE, PETSC_FALSE};
+        PetscBool is_set = PETSC_FALSE;
+
+        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+            const char *bcs_filename = simCtx->bcs_files[bi];
+            FILE *file = fopen(bcs_filename, "r");
+
+            PetscBool face_is_periodic[6] = {PETSC_FALSE};
+            char line_buffer[1024];
+
+            while (fgets(line_buffer, sizeof(line_buffer), file)) {
+                char *current_pos = line_buffer;
+                while (isspace((unsigned char)*current_pos)) current_pos++;
+                if (*current_pos == '#' || *current_pos == '\0' || *current_pos == '\n') continue;
+
+                // --- Tokenize the line exactly like the main parser ---
+                char *face_str = strtok(current_pos, " \t\n\r");
+                char *type_str = strtok(NULL, " \t\n\r");
+
+                // If the line doesn't have at least two tokens, we can't determine the type.
+                if (!face_str || !type_str) continue;
+
+                // --- Perform a direct, non-erroring check on the mathematical type string ---
+                if (strcasecmp(type_str, "PERIODIC") == 0) {
+                    BCFace face_enum;
+                    // A malformed face string on a periodic line IS a fatal error.
+                    ierr = StringToBCFace(face_str, &face_enum); CHKERRQ(ierr);
+                    face_is_periodic[face_enum] = PETSC_TRUE;
+                }
+                // Any other type_str (e.g., "WALL", "INLET") is correctly and silently ignored.
+            }
+            fclose(file);
+
+            // --- Validate consistency within this file ---
+            if (face_is_periodic[BC_FACE_NEG_X] != face_is_periodic[BC_FACE_POS_X])
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent X-periodicity in file '%s' for block %d. Both -Xi and +Xi must be periodic or neither.", bcs_filename, bi);
+            if (face_is_periodic[BC_FACE_NEG_Y] != face_is_periodic[BC_FACE_POS_Y])
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent Y-periodicity in file '%s' for block %d. Both -Eta and +Eta must be periodic or neither.", bcs_filename, bi);
+            if (face_is_periodic[BC_FACE_NEG_Z] != face_is_periodic[BC_FACE_POS_Z])
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent Z-periodicity in file '%s' for block %d. Both -Zeta and +Zeta must be periodic or neither.", bcs_filename, bi);
+
+            PetscBool local_is_periodic[3] = {face_is_periodic[BC_FACE_NEG_X], face_is_periodic[BC_FACE_NEG_Y], face_is_periodic[BC_FACE_NEG_Z]};
+
+            // --- Validate consistency across block files ---
+            if (!is_set) {
+                global_is_periodic[0] = local_is_periodic[0];
+                global_is_periodic[1] = local_is_periodic[1];
+                global_is_periodic[2] = local_is_periodic[2];
+                is_set = PETSC_TRUE;
+            } else {
+                if (global_is_periodic[0] != local_is_periodic[0] || global_is_periodic[1] != local_is_periodic[1] || global_is_periodic[2] != local_is_periodic[2]) {
+                    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
+                            "Periodicity mismatch between blocks. Block 0 requires (I:%d, J:%d, K:%d), but block %d (file '%s') has (I:%d, J:%d, K:%d).",
+                            (int)global_is_periodic[0], (int)global_is_periodic[1], (int)global_is_periodic[2],
+                            bi, bcs_filename,
+                            (int)local_is_periodic[0], (int)local_is_periodic[1], (int)local_is_periodic[2]);
+                }
+            }
+        } // end loop over blocks
+
+        periodic_flags[0] = (global_is_periodic[0]) ? 1 : 0;
+        periodic_flags[1] = (global_is_periodic[1]) ? 1 : 0;
+        periodic_flags[2] = (global_is_periodic[2]) ? 1 : 0;
+
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Global periodicity determined: I-periodic=%d, J-periodic=%d, K-periodic=%d\n",
+                  periodic_flags[0], periodic_flags[1], periodic_flags[2]);
+    }
+
+    // --- Part 3: Broadcast the final flags from rank 0 to all other ranks ---
+    ierr = MPI_Bcast(periodic_flags, 3, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    // --- All ranks now update their SimCtx ---
+    simCtx->i_periodic = periodic_flags[0];
+    simCtx->j_periodic = periodic_flags[1];
+    simCtx->k_periodic = periodic_flags[2];
+
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief A parallel-safe helper to verify the existence of a generic file or directory path.
  *

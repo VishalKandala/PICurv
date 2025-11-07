@@ -870,14 +870,12 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
     // Phase 1: Allocate the UserMG and UserCtx hierarchy
     ierr = AllocateContextHierarchy(simCtx); CHKERRQ(ierr);
 
-    // [ The next phases will be added here ]
     ierr = DefineAllGridDimensions(simCtx); CHKERRQ(ierr);
     ierr = InitializeAllGridDMs(simCtx); CHKERRQ(ierr);
     ierr = AssignAllGridCoordinates(simCtx);
     ierr = CreateAndInitializeAllVectors(simCtx); CHKERRQ(ierr);
     ierr = SetupSolverParameters(simCtx); CHKERRQ(ierr);
-    ierr = CalculateAllGridMetrics(simCtx); CHKERRQ(ierr);
-
+ 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Grid and Solvers Setup Complete ---\n");
     
     PROFILE_FUNCTION_END;
@@ -1391,6 +1389,10 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
         // Call the function to calculate the center of the outlet face & the outlet area, which may be used to calculate Boundary values.
         ierr = CalculateOutletProperties(&user_finest[bi]); CHKERRQ(ierr);
     }
+
+    // NOTE: This was originally called in SetupGridAndSolvers, but for periodic BCs, Metrics calculation must change,
+    // BC data needs to be read before setting up all metrics, that's why this function has been moved here.
+    ierr = CalculateAllGridMetrics(simCtx); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Boundary Conditions setup complete ---\n");   
 

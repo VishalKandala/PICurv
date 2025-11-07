@@ -258,6 +258,9 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
 
     PROFILE_FUNCTION_BEGIN;
 
+    LOG_ALLOW(GLOBAL,LOG_INFO, "Pre-scanning BCs to identify domain periodicity.\n");
+    ierr = DeterminePeriodicity(simCtx); CHKERRQ(ierr);
+
     LOG_ALLOW(GLOBAL, LOG_INFO, "Creating DMDA objects for all levels and blocks...\n");
 
     // --- Part 1: Calculate Coarse Grid Dimensions & VALIDATE ---

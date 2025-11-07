@@ -74,6 +74,50 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
  */
 PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz);
 
+/**
+ * @brief Applies periodic boundary corrections to cell centers (Cent) and grid spacing (GridSpace).
+ *
+ * This function handles the special logic needed when periodic boundaries are present.
+ * For coarse grids (cgrid), it directly copies from ghost regions. For fine grids,
+ * it calculates the boundary values using the GridSpace information.
+ *
+ * @param user The UserCtx containing grid and field data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user);
+
+/**
+ * @brief Applies periodic boundary corrections to i-face centers (Centx).
+ *
+ * Only X-direction periodicity affects Centx. This function must be called
+ * after Centx has been initially computed but before it's used for metric calculations.
+ *
+ * @param user The UserCtx containing grid and field data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user);
+
+/**
+ * @brief Applies periodic boundary corrections to j-face centers (Centy).
+ *
+ * Only Y-direction periodicity affects Centy. This function must be called
+ * after Centy has been initially computed but before it's used for metric calculations.
+ *
+ * @param user The UserCtx containing grid and field data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user);
+
+/**
+ * @brief Applies periodic boundary corrections to k-face centers (Centz).
+ *
+ * Only Z-direction periodicity affects Centz. This function must be called
+ * after Centz has been initially computed but before it's used for metric calculations.
+ *
+ * @param user The UserCtx containing grid and field data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user);
 
 /**
  * @brief Computes the primary face metric components (Csi, Eta, Zet), including
