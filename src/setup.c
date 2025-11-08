@@ -875,7 +875,12 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
     ierr = AssignAllGridCoordinates(simCtx);
     ierr = CreateAndInitializeAllVectors(simCtx); CHKERRQ(ierr);
     ierr = SetupSolverParameters(simCtx); CHKERRQ(ierr);
- 
+
+    // NOTE: CalculateAllGridMetrics is now called inside SetupBoundaryConditions (not here) to ensure:
+    // 1. Boundary condition configuration data (boundary_faces) is available for periodic BC corrections
+    // 2. Computed metrics are available for inlet/outlet area calculations
+    // This resolves the circular dependency between BC setup and metric calculations.
+
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Grid and Solvers Setup Complete ---\n");
     
     PROFILE_FUNCTION_END;
@@ -1365,9 +1370,8 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
     PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Setting up Boundary Conditions ---\n");
-    
-    // --- Parse and Adapt for each block on the finest level ---
-    LOG_ALLOW(GLOBAL,LOG_INFO,"Parsing BC configuration file and adapting to legacy system for finest grid.\n");
+    // --- Phase 1: Parse and initialize BC configuration for all blocks ---
+    LOG_ALLOW(GLOBAL,LOG_INFO,"Parsing BC configuration files and initializing boundary condition data structures.\n");
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         LOG_ALLOW(GLOBAL,LOG_DEBUG, "  -> Processing Block %d:\n", bi);
@@ -1378,24 +1382,32 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
        // This will populate user_finest[bi].boundary_faces
 
         //ierr = ParseAllBoundaryConditions(&user_finest[bi],current_bc_filename); CHKERRQ(ierr);
-       
+
         ierr = BoundarySystem_Initialize(&user_finest[bi], current_bc_filename); CHKERRQ(ierr);
         // Call the adapter to translate into the legacy format
         ierr = TranslateModernBCsToLegacy(&user_finest[bi]); CHKERRQ(ierr);
-
-        // Call the function to calculate the center of the inlet face & the inlet area, which may be used to calculate Boundary values.
-        ierr = CalculateInletProperties(&user_finest[bi]); CHKERRQ(ierr);
-        
-        // Call the function to calculate the center of the outlet face & the outlet area, which may be used to calculate Boundary values.
-        ierr = CalculateOutletProperties(&user_finest[bi]); CHKERRQ(ierr);
     }
 
     // Propogate BC Configuration to coarser levels.
-    ierr = PropagateBoundaryConfigToCoarserLevels(simCtx);
+    ierr = PropagateBoundaryConfigToCoarserLevels(simCtx); CHKERRQ(ierr);
 
-    // NOTE: This was originally called in SetupGridAndSolvers, but for periodic BCs, Metrics calculation must change,
-    // BC data needs to be read before setting up all metrics, that's why this function has been moved here.
+    // --- Calculate Grid Metrics (requires BC configuration) ---
+    // NOTE: This MUST be called here (after BC initialization but before inlet/outlet calculations) because:
+    // 1. Periodic BC corrections in metric calculations need boundary_faces data to be populated
+    // 2. Inlet/Outlet area calculations (below) require computed metrics (Csi, Eta, Zet) to be available
+    // Previously this was in SetupGridAndSolvers, but that caused metrics to be computed without BC info.
+    LOG_ALLOW(GLOBAL,LOG_INFO,"Computing grid metrics with boundary condition information.\n");
     ierr = CalculateAllGridMetrics(simCtx); CHKERRQ(ierr);
+
+    // --- Phase 2: Calculate inlet/outlet properties (requires computed metrics) ---
+    LOG_ALLOW(GLOBAL,LOG_INFO,"Calculating inlet and outlet face properties.\n");
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        // Call the function to calculate the center of the inlet face & the inlet area, which may be used to calculate Boundary values.
+        ierr = CalculateInletProperties(&user_finest[bi]); CHKERRQ(ierr);
+
+        // Call the function to calculate the center of the outlet face & the outlet area, which may be used to calculate Boundary values.
+        ierr = CalculateOutletProperties(&user_finest[bi]); CHKERRQ(ierr);
+    }
 
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Boundary Conditions setup complete ---\n");   
 
