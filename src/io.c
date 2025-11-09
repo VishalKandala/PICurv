@@ -1058,6 +1058,10 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    PetscInt globalSize;
    ierr = VecGetSize(field_vec,&globalSize);CHKERRQ(ierr);
 
+   DM         dm = NULL;
+   const char *dmtype = NULL;
+   Vec        nat = NULL;                 /* Natural-ordered vector for DMDA */
+
    /* -------------------- rank-0 : read the sequential file -------------- */
    Vec            seq_vec = NULL;      /* only valid on rank-0            */
    const PetscScalar *seqArray = NULL; /* borrowed pointer on rank-0 only */
@@ -1095,42 +1099,73 @@ PetscErrorCode ReadFieldData(UserCtx *user,
                 "Rank 0 successfully loaded <%s>\n",filename);
    }
 
-   /* -------------------- everybody : broadcast raw data ----------------- */
-   PetscScalar *buffer = NULL;               /* receives the full field    */
-   if(rank==0)
-   {
-      /* shallow-copy: const-cast is safe, we do not modify the data        */
-      buffer = (PetscScalar *)seqArray;
+   /* -------------------- Check if this is a DMDA vector ----------------- */
+   ierr = VecGetDM(field_vec, &dm); CHKERRQ(ierr);
+   if (dm) { ierr = DMGetType(dm, &dmtype); CHKERRQ(ierr); }
+
+   if (dmtype && !strcmp(dmtype, DMDA)) {
+      /* ==================================================================
+       * DMDA PATH: File is in natural ordering, need to convert to global
+       * ================================================================== */
+
+      /* Create natural vector */
+      ierr = DMDACreateNaturalVector(dm, &nat); CHKERRQ(ierr);
+
+      /* Scatter from rank 0's seq_vec to all ranks' natural vector */
+      VecScatter scatter;
+      Vec nat_seq = NULL;  /* Sequential natural vector on rank 0 */
+
+      ierr = VecScatterCreateToZero(nat, &scatter, &nat_seq); CHKERRQ(ierr);
+
+      /* Reverse scatter: from rank 0 to all ranks */
+      ierr = VecScatterBegin(scatter, (rank == 0 ? seq_vec : nat_seq), nat,
+                             INSERT_VALUES, SCATTER_REVERSE); CHKERRQ(ierr);
+      ierr = VecScatterEnd(scatter, (rank == 0 ? seq_vec : nat_seq), nat,
+                           INSERT_VALUES, SCATTER_REVERSE); CHKERRQ(ierr);
+
+      /* Convert natural → global ordering */
+      ierr = DMDANaturalToGlobalBegin(dm, nat, INSERT_VALUES, field_vec); CHKERRQ(ierr);
+      ierr = DMDANaturalToGlobalEnd(dm, nat, INSERT_VALUES, field_vec); CHKERRQ(ierr);
+
+      /* Cleanup */
+      ierr = VecScatterDestroy(&scatter); CHKERRQ(ierr);
+      ierr = VecDestroy(&nat_seq); CHKERRQ(ierr);
+      ierr = VecDestroy(&nat); CHKERRQ(ierr);
+
+   } else {
+      /* ==================================================================
+       * NON-DMDA PATH: Use broadcast and direct copy (assumes global ordering)
+       * ================================================================== */
+
+      PetscScalar *buffer = NULL;
+      if (rank == 0) {
+         buffer = (PetscScalar *)seqArray;
+      } else {
+         ierr = PetscMalloc1(globalSize, &buffer); CHKERRQ(ierr);
+      }
+
+      ierr = MPI_Bcast(buffer, (int)globalSize, MPIU_SCALAR, 0, comm); CHKERRQ(ierr);
+
+      /* Copy slice based on ownership range */
+      PetscInt rstart, rend, loc;
+      PetscScalar *locArray;
+
+      ierr = VecGetOwnershipRange(field_vec, &rstart, &rend); CHKERRQ(ierr);
+      loc = rend - rstart;
+
+      ierr = VecGetArray(field_vec, &locArray); CHKERRQ(ierr);
+      ierr = PetscMemcpy(locArray, buffer + rstart, loc * sizeof(PetscScalar)); CHKERRQ(ierr);
+      ierr = VecRestoreArray(field_vec, &locArray); CHKERRQ(ierr);
+
+      if (rank != 0) {
+         ierr = PetscFree(buffer); CHKERRQ(ierr);
+      }
    }
-   else
-   { /* non-root ranks allocate a receive buffer                           */
-      ierr = PetscMalloc1(globalSize,&buffer);CHKERRQ(ierr);
-   }
-
-   ierr = MPI_Bcast(buffer, (int)globalSize, MPIU_SCALAR, 0, comm);CHKERRQ(ierr);
-
-   /* -------------------- copy my slice into field_vec ------------------- */
-   PetscInt  rstart,rend,loc;
-   PetscScalar *locArray;
-
-   ierr = VecGetOwnershipRange(field_vec,&rstart,&rend);CHKERRQ(ierr);
-   loc  = rend - rstart;                    /* local length               */
-
-   ierr = VecGetArray(field_vec,&locArray);CHKERRQ(ierr);
-   ierr = PetscMemcpy(locArray,
-                      buffer + rstart,
-                      loc*sizeof(PetscScalar));CHKERRQ(ierr);
-   ierr = VecRestoreArray(field_vec,&locArray);CHKERRQ(ierr);
 
    /* -------------------- tidy up ---------------------------------------- */
-   if(rank==0)
-   {
-      ierr = VecRestoreArrayRead(seq_vec,&seqArray);CHKERRQ(ierr);
-      ierr = VecDestroy(&seq_vec);CHKERRQ(ierr);
-   }
-   else
-   {
-      ierr = PetscFree(buffer);CHKERRQ(ierr);
+   if (rank == 0) {
+      ierr = VecRestoreArrayRead(seq_vec, &seqArray); CHKERRQ(ierr);
+      ierr = VecDestroy(&seq_vec); CHKERRQ(ierr);
    }
 
    LOG_ALLOW(GLOBAL,LOG_INFO,

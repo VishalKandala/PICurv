@@ -414,8 +414,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = UpdateAllParticleFields(user); CHKERRQ(ierr);
             
             // f. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
-           // ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
-           // ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+            //ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
+            //ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
 
             if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post Lagrangian update field states:\n");
