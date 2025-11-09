@@ -347,11 +347,13 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
         // ReadSimulationFields handles all file I/O for one block.
         ierr = ReadSimulationFields(&user_finest[bi], simCtx->StartStep); CHKERRQ(ierr);
         
+        // Apply Boundary Conditions on Read fields
+        ierr = ApplyBoundaryConditions(&user_finest[bi]); CHKERRQ(ierr);
         // After reading from a file, the local ghost regions MUST be updated
         // to ensure consistency across process boundaries for the first time step.
-        ierr = UpdateLocalGhosts(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(&user_finest[bi], "Ucat"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(&user_finest[bi], "P"); CHKERRQ(ierr);
+        //ierr = UpdateLocalGhosts(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
+        //ierr = UpdateLocalGhosts(&user_finest[bi], "Ucat"); CHKERRQ(ierr);
+        //ierr = UpdateLocalGhosts(&user_finest[bi], "P"); CHKERRQ(ierr);
         // ... add ghost updates for any other fields read from file ...
     }
     

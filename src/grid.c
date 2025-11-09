@@ -201,10 +201,20 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
 
     } else {
         // --- CASE 2: This is the COARSEST grid; use default or user-specified decomposition ---
-        LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Creating coarsest DM for block %d level %d (size %dx%dx%d)\n", simCtx->rank, user->_this, user->thislevel, user->IM, user->JM, user->KM);
-        m = simCtx->da_procs_x;
-        n = simCtx->da_procs_y;
-        p = simCtx->da_procs_z;
+        if(simCtx->exec_mode == EXEC_MODE_SOLVER){
+
+            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Creating coarsest DM for block %d level %d (size %dx%dx%d)\n", simCtx->rank, user->_this, user->thislevel, user->IM, user->JM, user->KM);
+            m = simCtx->da_procs_x;
+            n = simCtx->da_procs_y;
+            p = simCtx->da_procs_z;
+        
+        } else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
+
+          LOG_ALLOW(GLOBAL,LOG_DEBUG,"Currently Only Single Rank is supported. \n");
+          
+          m = n = p = 1;
+            
+        } 
         // lx, ly, lz are NULL, so DMDACreate3d will use the m,n,p values.
     }
 

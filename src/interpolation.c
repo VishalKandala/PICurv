@@ -1178,8 +1178,8 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
         // region (owned + ghosts) of the local array.
 
         if (iCell_global < info.gxs || iCell_global >= info.gxs + info.gxm - 1 ||
-            jCell_global < info.gxs || jCell_global >= info.gys + info.gym - 1 ||
-            kCell_global < info.gxs || kCell_global >= info.gzs + info.gzm - 1)
+            jCell_global < info.gys || jCell_global >= info.gys + info.gym - 1 ||
+            kCell_global < info.gzs || kCell_global >= info.gzs + info.gzm - 1)
         {
             LOG_ALLOW(LOCAL, LOG_WARNING,
                       "[Rank %d] Particle PID %lld in global cell (%d,%d,%d) is in an un-interpolatable region (requires ghosts of ghosts or is out of bounds). Zeroing field '%s'.\n",
