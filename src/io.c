@@ -1615,15 +1615,32 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     /* ------------------------------------------------------------ */
     VecScatter scatter;
     Vec        seq_vec=NULL;               /* created by PETSc, lives only on rank 0 */
+    DM         dm = NULL;
+    const char *dmtype = NULL;
+    Vec        nat = NULL;                 /* Natural-ordered vector for DMDA */
 
-    /* 2.1  Create gather context and buffer                        */
-    ierr = VecScatterCreateToZero(field_vec,&scatter,&seq_vec);CHKERRQ(ierr);
+    /* 2.1  Check if vector has DMDA and convert to natural ordering if needed */
+    ierr = VecGetDM(field_vec, &dm); CHKERRQ(ierr);
+    if (dm) { ierr = DMGetType(dm, &dmtype); CHKERRQ(ierr); }
+
+    if (dmtype && !strcmp(dmtype, DMDA)) {
+        /* DMDA path: convert to natural ordering first */
+        ierr = DMDACreateNaturalVector(dm, &nat); CHKERRQ(ierr);
+        ierr = DMDAGlobalToNaturalBegin(dm, field_vec, INSERT_VALUES, nat); CHKERRQ(ierr);
+        ierr = DMDAGlobalToNaturalEnd(dm, field_vec, INSERT_VALUES, nat); CHKERRQ(ierr);
+
+        /* Gather the natural-ordered vector */
+        ierr = VecScatterCreateToZero(nat, &scatter, &seq_vec); CHKERRQ(ierr);
+    } else {
+        /* Non-DMDA path: direct gather in global ordering */
+        ierr = VecScatterCreateToZero(field_vec, &scatter, &seq_vec); CHKERRQ(ierr);
+    }
 
     /* 2.2  Gather distributed → sequential (on rank 0)             */
-    ierr = VecScatterBegin(scatter,field_vec,seq_vec,
-                           INSERT_VALUES,SCATTER_FORWARD);CHKERRQ(ierr);
-    ierr = VecScatterEnd  (scatter,field_vec,seq_vec,
-                           INSERT_VALUES,SCATTER_FORWARD);CHKERRQ(ierr);
+    ierr = VecScatterBegin(scatter, (nat ? nat : field_vec), seq_vec,
+                           INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
+    ierr = VecScatterEnd(scatter, (nat ? nat : field_vec), seq_vec,
+                         INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
 
     /* 2.3  Rank 0 writes the file                                  */
     if (rank == 0) {
@@ -1649,6 +1666,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     /* 2.4  Cleanup                                                 */
     ierr = VecScatterDestroy(&scatter);CHKERRQ(ierr);
     ierr = VecDestroy(&seq_vec);CHKERRQ(ierr);
+    if (nat) { ierr = VecDestroy(&nat); CHKERRQ(ierr); }
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
