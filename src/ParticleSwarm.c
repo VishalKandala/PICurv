@@ -170,11 +170,12 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
     *ci_metric_lnode_out = xs_gnode; *cj_metric_lnode_out = ys_gnode; *ck_metric_lnode_out = zs_gnode;
 
     // Calculate number of owned cells in each direction from node counts in info
-    // Assumes info->mx, info->my, info->mz are node counts on this process for each dimension.
+    // Assumes info->mx, info->my, info->mz are no.of elements(in dmda) in each direction.
+    // Number of nodes = mx-1.
     // Number of cells = Number of nodes - 1 (if > 0 nodes).
-    PetscInt num_owned_cells_i = (info->mx > 1) ? info->mx - 1 : 0;
-    PetscInt num_owned_cells_j = (info->my > 1) ? info->my - 1 : 0;
-    PetscInt num_owned_cells_k = (info->mz > 1) ? info->mz - 1 : 0;
+    PetscInt num_owned_cells_i = (info->mx > 1) ? info->mx - 2 : 0;
+    PetscInt num_owned_cells_j = (info->my > 1) ? info->my - 2 : 0;
+    PetscInt num_owned_cells_k = (info->mz > 1) ? info->mz - 2 : 0;
 
     if (num_owned_cells_i > 0 && num_owned_cells_j > 0 && num_owned_cells_k > 0) { // If rank owns any 3D cells
         *can_place_in_volume_out = PETSC_TRUE;
@@ -304,7 +305,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     if (!Coor_local) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_PLIB, "DMGetCoordinatesLocal for user->da returned NULL Coor_local.");
     ierr = DMDAVecGetArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
-    ierr = DMDAGetGhostCorners(user->da, &xs_gnode_rank, &ys_gnode_rank, &zs_gnode_rank, NULL, NULL, NULL); CHKERRQ(ierr);
+    ierr = DMDAGetCorners(user->da, &xs_gnode_rank, &ys_gnode_rank, &zs_gnode_rank, NULL, NULL, NULL); CHKERRQ(ierr);
     ierr = DMDAGetInfo(user->da, NULL, &IM_nodes_global, &JM_nodes_global, &KM_nodes_global, NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL); CHKERRQ(ierr);
 
     // Modification to IM_nodes_global etc. to account for 1-cell halo in each direction.

@@ -107,7 +107,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Initial Settlement: Locating and migrating all particles...\n", simCtx->ti, simCtx->step);
     ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
 
-    if(get_log_level() == LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
+    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Particle field states after Initial settlement...\n", simCtx->ti, simCtx->step);
         ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
     }
@@ -317,7 +317,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     const PetscReal dt = simCtx->dt;
     
     // Variables for particle removal statistics
-    PetscInt removed_local_ob, removed_global_ob;
+    //PetscInt removed_local_ob, removed_global_ob;
     PetscInt removed_local_lost, removed_global_lost;
 
     PetscFunctionBeginUser;
@@ -357,6 +357,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = LOG_FIELD_ANATOMY(&user[0],"X-Face-Centers","PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0],"Y-Face-Centers","PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0],"Z-Face-Centers","PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0],"Ucat","PreFlowSolver"); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
         if(strcmp(simCtx->eulerianSource,"load")==0){
@@ -400,9 +401,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
  
             // c. Remove any particles that are now lost or out of the global domain.
             ierr = CheckAndRemoveLostParticles(user, &removed_local_lost, &removed_global_lost); CHKERRQ(ierr);
-            ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, simCtx->bboxlist); CHKERRQ(ierr);
-            if (removed_global_lost + removed_global_ob > 0) {
-                LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %d particles globally this step.\n", removed_global_lost + removed_global_ob);
+            //ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, simCtx->bboxlist); CHKERRQ(ierr);
+            if (removed_global_lost> 0) { // if(removed_global_lost + removed_global_ob > 0){
+                LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %d particles globally this step.\n", removed_global_lost); // removed_global_lost + removed_global_ob;
             }
 
             // d. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the

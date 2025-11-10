@@ -116,10 +116,12 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
       IM_nodes_global, JM_nodes_global, KM_nodes_global,
       last_global_cell_idx_i, last_global_cell_idx_j, last_global_cell_idx_k);
 
-      LOG_ALLOW(LOCAL, LOG_DEBUG,"[Rank %d] Inlet Face %s Service Check Result: %s\n",
+      LOG_ALLOW(LOCAL, LOG_INFO,"[Rank %d] Inlet Face %s Service Check Result: %s | Owned Cells (I,J,K): (%d,%d,%d) | Starts at Cell (%d,%d,%d)\n",
                 rank_for_logging,
                 BCFaceToString((BCFace)user->identifiedInletBCFace),
-                (*can_service_inlet_out) ? "CAN SERVICE" : "CANNOT SERVICE");
+                (*can_service_inlet_out) ? "CAN SERVICE" : "CANNOT SERVICE",
+                num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k,
+                owned_start_cell_i, owned_start_cell_j, owned_start_cell_k);
 
     PROFILE_FUNCTION_END;
 
@@ -473,12 +475,7 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr); 
-
-    // Defaults for cell origin node (local index for the rank's DA patch, including ghosts)
-    *ci_metric_lnode_out = xs_gnode_rank; *cj_metric_lnode_out = ys_gnode_rank; *ck_metric_lnode_out = zs_gnode_rank;
-    // Defaults for logical coordinates
-    *xi_metric_logic_out = 0.5; *eta_metric_logic_out = 0.5; *zta_metric_logic_out = 0.5;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
 
     // Get number of cells this rank owns in each dimension (tangential to the face mainly)
     PetscInt owned_start_cell_i, num_owned_cells_on_rank_i;
@@ -489,14 +486,32 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
     ierr = GetOwnedCellRange(info, 1, &owned_start_cell_j, &num_owned_cells_on_rank_j); CHKERRQ(ierr);
     ierr = GetOwnedCellRange(info, 2, &owned_start_cell_k, &num_owned_cells_on_rank_k); CHKERRQ(ierr);
 
+    // Defaults for cell origin node (local index for the rank's DA patch, including ghosts)
+    *ci_metric_lnode_out = xs_gnode_rank; *cj_metric_lnode_out = ys_gnode_rank; *ck_metric_lnode_out = zs_gnode_rank;
+    // Defaults for logical coordinates
+    *xi_metric_logic_out = 0.5; *eta_metric_logic_out = 0.5; *zta_metric_logic_out = 0.5;
+
     // Index of the last cell (0-indexed) in each global direction
     PetscInt last_global_cell_idx_i = (IM_nodes_global > 1) ? (IM_nodes_global - 2) : -1;
     PetscInt last_global_cell_idx_j = (JM_nodes_global > 1) ? (JM_nodes_global - 2) : -1;
     PetscInt last_global_cell_idx_k = (KM_nodes_global > 1) ? (KM_nodes_global - 2) : -1;
     
-    LOG_ALLOW(LOCAL, LOG_TRACE, "Rank %d: Inlet face %s. Owned cells(i,j,k):(%d,%d,%d). GlobNodes(I,J,K):(%d,%d,%d). Rank's DA node starts at (%d,%d,%d).\n",
-        rank_for_logging, user->identifiedInletBCFace, num_owned_cells_on_rank_i,num_owned_cells_on_rank_j,num_owned_cells_on_rank_k,
-        IM_nodes_global,JM_nodes_global,KM_nodes_global, xs_gnode_rank,ys_gnode_rank,zs_gnode_rank);
+    LOG_ALLOW(LOCAL, LOG_INFO, "PARTICLE_INIT_DEBUG Rank %d: Inlet face %s.\n"
+        "  Owned cells (i,j,k): (%d,%d,%d)\n"
+        "  Global nodes (I,J,K): (%d,%d,%d)\n"
+        "  info->xs,ys,zs (first owned node GLOBAL): (%d,%d,%d)\n"
+        "  info->xm,ym,zm (num owned nodes GLOBAL): (%d,%d,%d)\n"
+        "  xs_gnode_rank,ys_gnode_rank,zs_gnode_rank (DMDAGetGhostCorners): (%d,%d,%d)\n"
+        "  owned_start_cell (i,j,k) GLOBAL: (%d,%d,%d)\n"
+        "  last_global_cell_idx (i,j,k): (%d,%d,%d)\n",
+        rank_for_logging, BCFaceToString((BCFace)user->identifiedInletBCFace),
+        num_owned_cells_on_rank_i,num_owned_cells_on_rank_j,num_owned_cells_on_rank_k,
+        IM_nodes_global,JM_nodes_global,KM_nodes_global,
+        info->xs, info->ys, info->zs,
+        info->xm, info->ym, info->zm,
+        xs_gnode_rank,ys_gnode_rank,zs_gnode_rank,
+        owned_start_cell_i, owned_start_cell_j, owned_start_cell_k,
+        last_global_cell_idx_i, last_global_cell_idx_j, last_global_cell_idx_k);
 
 
     switch (user->identifiedInletBCFace) {
