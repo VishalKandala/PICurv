@@ -376,12 +376,17 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                                                         &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
                                                         &xi_metric_logic, &eta_metric_logic, &zta_metric_logic,
                                                         &particle_placed_by_this_rank); CHKERRQ(ierr);
-                
+                if(particle_placed_by_this_rank){
                 ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
                                         ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
                                         xi_metric_logic, eta_metric_logic, zta_metric_logic,
                                         &phys_coords); CHKERRQ(ierr);
-                                        
+                }else{
+                    // Even if rank can service face, it may not own the portion of the face that a particle is placed in.
+                    phys_coords.x = user->simCtx->CMx_c;
+                    phys_coords.y = user->simCtx->CMy_c;
+                    phys_coords.z = user->simCtx->CMz_c;
+                }                                               
             }else{
                 // Rank cannot service inlet - place at inlet center to be migrated later
                 phys_coords.x = user->simCtx->CMx_c;

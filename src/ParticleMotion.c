@@ -962,36 +962,80 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     for (PetscInt p = 0; p < nlocal_current; p++) {
         PetscInt  ci_metric_lnode, cj_metric_lnode, ck_metric_lnode; // Local node indices (of rank's DA patch) for cell origin
         PetscReal xi_metric_logic, eta_metric_logic, zta_metric_logic; // Intra-cell logical coordinates
-        Cmpnts    phys_coords; // To store newly calculated physical coordinates
+        Cmpnts    phys_coords = {0.0,0.0,0.0}; // To store newly calculated physical coordinates
+        PetscBool particle_was_placed = PETSC_FALSE;
 
         if(user->simCtx->ParticleInitialization == 0){ 
         // Get random cell on this rank's portion of the inlet and random logical coords within it
-        ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
-                                                IM_nodes_global, JM_nodes_global, KM_nodes_global,
-                                                &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k,
-                                                &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
-                                                &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
+            ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
+                                                    IM_nodes_global, JM_nodes_global, KM_nodes_global,
+                                                    &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k,
+                                                    &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
+                                                    &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
+            
+                    // Convert these logical coordinates to physical coordinates
+
+            ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
+                                        ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
+                                        xi_metric_logic, eta_metric_logic, zta_metric_logic,
+                                        &phys_coords); CHKERRQ(ierr);
+                                        
+            // Update the particle's position in the swarm fields
+            positions_field[3*p+0] = phys_coords.x; 
+            positions_field[3*p+1] = phys_coords.y; 
+            positions_field[3*p+2] = phys_coords.z;
+            particle_was_placed = PETSC_TRUE;                            
+
         }else if(user->simCtx->ParticleInitialization == 3){
-            PetscBool garbage_flag = PETSC_FALSE;
+            PetscBool placement_flag = PETSC_FALSE;
             ierr = GetDeterministicFaceGridLocation(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
                                                 IM_cells_global, JM_cells_global, KM_cells_global,
                                                 particleIDs[p],
                                                 &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
-                                                &xi_metric_logic, &eta_metric_logic, &zta_metric_logic,&garbage_flag); CHKERRQ(ierr);
-        }else{
+                                                &xi_metric_logic, &eta_metric_logic, &zta_metric_logic,&placement_flag); CHKERRQ(ierr);
+        
+
+            if(placement_flag){
+                // Convert these logical coordinates to physical coordinates
+                ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
+                                        ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
+                                        xi_metric_logic, eta_metric_logic, zta_metric_logic,
+                                        &phys_coords); CHKERRQ(ierr);
+
+                // Update the particle's position in the swarm fields
+                positions_field[3*p+0] = phys_coords.x;
+                positions_field[3*p+1] = phys_coords.y;
+                positions_field[3*p+2] = phys_coords.z;
+                particle_was_placed =  PETSC_TRUE;
+            } else{
+                // Deterministic placement failed (particle migrated to rank where formula says it doesn't belong)
+                // Fall back to random placement on this rank's portion of inlet surface
+                LOG_ALLOW(GLOBAL, LOG_WARNING, "Rank %d: Particle PID %ld deterministic placement failed (belongs to different rank). Falling back to random placement.\n", rank, particleIDs[p]);
+
+                ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
+                                                        IM_nodes_global, JM_nodes_global, KM_nodes_global,
+                                                        &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k,
+                                                        &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
+                                                        &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
+
+                // Convert to physical coordinates
+                ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
+                                            ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
+                                            xi_metric_logic, eta_metric_logic, zta_metric_logic,
+                                            &phys_coords); CHKERRQ(ierr);
+
+                // Update particle position
+                positions_field[3*p+0] = phys_coords.x;
+                positions_field[3*p+1] = phys_coords.y;
+                positions_field[3*p+2] = phys_coords.z;
+                particle_was_placed = PETSC_TRUE;
+            }                                    
+
+        } else{
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "ReinitializeParticlesOnInletSurface only supports ParticleInitialization modes 0 and 3.");
         }
-        // Convert these logical coordinates to physical coordinates
-        ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
-                                       ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
-                                       xi_metric_logic, eta_metric_logic, zta_metric_logic,
-                                       &phys_coords); CHKERRQ(ierr);
 
-        // Update the particle's position in the swarm fields
-        positions_field[3*p+0] = phys_coords.x; 
-        positions_field[3*p+1] = phys_coords.y; 
-        positions_field[3*p+2] = phys_coords.z;
-
+        if(particle_was_placed){
         particles_actually_reinitialized_count++;
 
         cell_ID_field[3*p+0] = -1;
@@ -1004,6 +1048,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
             ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
             xi_metric_logic, eta_metric_logic, zta_metric_logic, 
             phys_coords.x, phys_coords.y, phys_coords.z);
+        }
     }
 
     // Logging summary of re-initialization

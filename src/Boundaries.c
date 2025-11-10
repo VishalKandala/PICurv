@@ -338,10 +338,13 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     const PetscInt layer_index = line_index % grid_layers;
 
     // --- Step 3: Calculate placement coordinates based on the decoded indices ---
-    const PetscReal epsilon = 1.0e-6; // Small offset to keep particles off exact cell boundaries
     const PetscReal layer_spacing_norm_i = (IM_cells_global > 0) ? 1.0 / (PetscReal)IM_cells_global : 0.0;
     const PetscReal layer_spacing_norm_j = (JM_cells_global > 0) ? 1.0 / (PetscReal)JM_cells_global : 0.0;
     const PetscReal layer_spacing_norm_k = (KM_cells_global > 0) ? 1.0 / (PetscReal)KM_cells_global : 0.0;
+
+    // Grid-aware epsilon: scale with minimum cell size to keep particles away from rank boundaries
+    const PetscReal min_layer_spacing = PetscMin(layer_spacing_norm_i, PetscMin(layer_spacing_norm_j, layer_spacing_norm_k));
+    const PetscReal epsilon = 0.5 * min_layer_spacing;  // Keep particles 10% of cell width from boundaries
 
     PetscReal variable_coord; // The coordinate that varies along a line
     if (points_per_line <= 1) {
@@ -429,12 +432,16 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     }
 
     LOG_ALLOW(LOCAL, LOG_VERBOSE,
-        "[Rank %d] Particle %lld placement %s. Local cell origin node: (I,J,K) = (%d,%d,%d), intra-cell logicals: (xi,eta,zta)=(%.6f,%.6f,%.6f)\n",
+        "[Rank %d] Particle %lld placement %s.\n",
         rank_for_logging, (long long)particle_global_id,
-        (*placement_successful_out ? "SUCCESSFUL" : "NOT ON THIS RANK"),
-        *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
-        *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
+        (*placement_successful_out ? "SUCCESSFUL" : "NOT ON THIS RANK"));
 
+    if(*placement_successful_out){    
+        LOG_ALLOW(LOCAL,LOG_TRACE,"Local cell origin node: (I,J,K) = (%d,%d,%d), intra-cell logicals: (xi,eta,zta)=(%.6f,%.6f,%.6f)\n",
+                    *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
+                    *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
+        }
+        
     PetscFunctionReturn(0);
 }
 
