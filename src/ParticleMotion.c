@@ -905,7 +905,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     // Get DMDA information for the node-centered coordinate grid (user->da)
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
     ierr = DMDAGetInfo(user->da, NULL, &IM_nodes_global, &JM_nodes_global, &KM_nodes_global, NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL); CHKERRQ(ierr);
-    ierr = DMDAGetGhostCorners(user->da, &xs_gnode_rank, &ys_gnode_rank, &zs_gnode_rank, NULL, NULL, NULL); CHKERRQ(ierr);
+    ierr = DMDAGetCorners(user->da, &xs_gnode_rank, &ys_gnode_rank, &zs_gnode_rank, NULL, NULL, NULL); CHKERRQ(ierr);
 
     // Modification to IM_nodes_global etc. to account for 1-cell halo in each direction.
     IM_nodes_global -= 1; JM_nodes_global -= 1; KM_nodes_global -= 1; 

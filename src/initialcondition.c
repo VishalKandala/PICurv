@@ -107,11 +107,21 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
     for (k = zs; k < ze; k++) {
         for (j = ys; j < ye; j++) {
             for (i = xs; i < xe; i++) {
-                
-                // The crucial check to ensure we only modify interior nodes.
-                const PetscBool is_interior = (i > 0 && i < im_phys - 1 &&
-                                               j > 0 && j < jm_phys - 1 &&
-                                               k > 0 && k < km_phys - 1);
+
+                // Check to ensure we only set initial conditions for PHYSICAL cells, not ghost cells.
+                // Ghost cells (at indices 0 and n) will be set later by ApplyBoundaryConditions.
+                //
+                // Grid structure: For n physical grid points, DMDA has size n+1
+                //   - im_phys = mx - 1 = n (number of coordinate points, also equals number of cells + 1)
+                //   - Physical cell indices: [1, im_phys-1] = [1, n-1] (gives n-1 physical cells)
+                //   - Ghost cells at boundaries: index 0 and index im_phys (= n)
+                //
+                // Example: n=25 physical points → im_phys=25
+                //   - Physical cells: indices 1..24 (24 cells)
+                //   - Ghost cells: indices 0 and 25
+                const PetscBool is_interior = (i > 0 && i < im_phys &&
+                                               j > 0 && j < jm_phys &&
+                                               k > 0 && k < km_phys);
 
                 if (is_interior) {
                     Cmpnts ucont_val = {0.0, 0.0, 0.0}; // Default to zero velocity
