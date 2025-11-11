@@ -508,7 +508,7 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
         "  Global nodes (I,J,K): (%d,%d,%d)\n"
         "  info->xs,ys,zs (first owned node GLOBAL): (%d,%d,%d)\n"
         "  info->xm,ym,zm (num owned nodes GLOBAL): (%d,%d,%d)\n"
-        "  xs_gnode_rank,ys_gnode_rank,zs_gnode_rank (DMDAGetGhostCorners): (%d,%d,%d)\n"
+        "  xs_gnode_rank,ys_gnode_rank,zs_gnode_rank (DMDAGetCorners): (%d,%d,%d)\n"
         "  owned_start_cell (i,j,k) GLOBAL: (%d,%d,%d)\n"
         "  last_global_cell_idx (i,j,k): (%d,%d,%d)\n",
         rank_for_logging, BCFaceToString((BCFace)user->identifiedInletBCFace),

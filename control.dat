@@ -19,8 +19,8 @@
 # ==========================================================================
 
 # --- General Run Settings ---
--start_step 100         # The Timestep to start at (0 default, change if restarting)        
--totalsteps 2        # Total number of time steps to execute
+-start_step 150         # The Timestep to start at (0 default, change if restarting)        
+-totalsteps 1     # Total number of time steps to execute
 #-setup_only          # Uncomment to run only the setup phase and then exit
 
 # --- File Paths ---
@@ -29,11 +29,11 @@
 -bcs_files        "config/cpipe.bcs"      # Path to the boundary condition specifications
 -profile_config_file "config/profile.cfg"
 -postprocessing_config_file "config/postprocess.cfg"  
--output_dir "discard2"
--restart_dir "discard2"
+-output_dir "temp"
+-restart_dir "temp"
 # --- I/O Control ---
 -tio 1                # Time-step interval for output
--logfreq 1            # Frequency for logging particles 
+-logfreq 1000            # Frequency for logging particles 
 
 # ==========================================================================
 # 2. Grid Generation & Geometry
@@ -43,7 +43,7 @@
 # ==========================================================================
 
 # --- Grid Generation ---
--grid                  # Enable programmatic grid generation
+#-grid                  # Enable programmatic grid generation
 
 # --- Multigrid & Block Hierarchy ---
 -mg_level 3            # Number of multigrid levels
@@ -104,9 +104,9 @@
 # ==========================================================================
 
 # --- Particle Initialization ---
--numParticles 24     # Number of particles to simulate
--pinit 3               # Particle Initialization flag (0 is particles initialized at inlet, 1 is throughout domain etc)
--particle_restart_mode "init" # Particle Restart mode ("load" to load initial state from data, "init" to initialize freshly [ex: induce particles into a fully developed flow]) - "load" is default. 
+-numParticles 100     # Number of particles to simulate
+-pinit 0               # Particle Initialization flag (0 is particles initialized at inlet, 1 is throughout domain etc)
+#-particle_restart_mode "init" # Particle Restart mode ("load" to load initial state from data, "init" to initialize freshly [ex: induce particles into a fully developed flow]) - "load" is default. 
 # ==========================================================================
 # 5. Numerical Solvers
 # --------------------------------------------------------------------------
@@ -114,7 +114,7 @@
 # numerical solvers.
 # ==========================================================================
 
-#-euler_field_source "analytical" # Eulerian field source ("load" to load the eulerian field for every timestep from data, "solve" to solve for the eulerian field every timestep, "analytical" to prescribe a particular analytical solution at every point at every timestep.) - "solve" is default.
+#-euler_field_source "load" # Eulerian field source ("load" to load the eulerian field for every timestep from data, "solve" to solve for the eulerian field every timestep, "analytical" to prescribe a particular analytical solution at every point at every timestep.) - "solve" is default.
 #-analytical_type "TGV3D"         # Analytical Solution Type ("TGV3D"- 3D Taylor Green Vortex Implementation, others can be added as implemented). 
 # ==========================================================================
 # --- Turbulence Model Settings ---
@@ -144,7 +144,7 @@
 # --- Processor Distribution
 -da_processors_x 2
 -da_processors_y 2
--da_processors_z 1
+-da_processors_z 2
 
 # --- Pressure Poisson Solver (Pre-conditioners)
 #-ps_pc_type                svd            # Use SVD as a preconditioner (for debugging)

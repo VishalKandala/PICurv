@@ -170,14 +170,16 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
     *ci_metric_lnode_out = xs_gnode; *cj_metric_lnode_out = ys_gnode; *ck_metric_lnode_out = zs_gnode;
 
     // Calculate number of owned cells in each direction from node counts in info
-    // Assumes info->mx, info->my, info->mz are no.of elements(in dmda) in each direction.
-    // Number of nodes = mx-1.
-    // Number of cells = Number of nodes - 1 (if > 0 nodes).
-    PetscInt num_owned_cells_i = (info->mx > 1) ? info->mx - 2 : 0;
-    PetscInt num_owned_cells_j = (info->my > 1) ? info->my - 2 : 0;
-    PetscInt num_owned_cells_k = (info->mz > 1) ? info->mz - 2 : 0;
+        // Get number of cells this rank owns in each dimension (tangential to the face mainly)
+    PetscInt owned_start_cell_i, num_owned_cells_on_rank_i;
+    PetscInt owned_start_cell_j, num_owned_cells_on_rank_j;
+    PetscInt owned_start_cell_k, num_owned_cells_on_rank_k;
 
-    if (num_owned_cells_i > 0 && num_owned_cells_j > 0 && num_owned_cells_k > 0) { // If rank owns any 3D cells
+    ierr = GetOwnedCellRange(info, 0, &owned_start_cell_i, &num_owned_cells_on_rank_i); CHKERRQ(ierr);
+    ierr = GetOwnedCellRange(info, 1, &owned_start_cell_j, &num_owned_cells_on_rank_j); CHKERRQ(ierr);
+    ierr = GetOwnedCellRange(info, 2, &owned_start_cell_k, &num_owned_cells_on_rank_k); CHKERRQ(ierr);
+
+    if (num_owned_cells_on_rank_i > 0 && num_owned_cells_on_rank_j > 0 && num_owned_cells_on_rank_k > 0) { // If rank owns any 3D cells
         *can_place_in_volume_out = PETSC_TRUE;
 
         // --- 1. Select a Random Owned Cell ---
@@ -185,27 +187,27 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
 
         // Select random local owned cell index in I-direction
         ierr = PetscRandomGetValueReal(*rand_logic_i_ptr, &r_val); CHKERRQ(ierr); // Dereference RNG pointer
-        local_owned_cell_idx_i = (PetscInt)(r_val * num_owned_cells_i);
-        // Clamp to be safe: local_owned_cell_idx_i should be in [0, num_owned_cells_i - 1]
-        local_owned_cell_idx_i = PetscMin(PetscMax(0, local_owned_cell_idx_i), num_owned_cells_i - 1);
+        local_owned_cell_idx_i = (PetscInt)(r_val * num_owned_cells_on_rank_i);
+        // Clamp to be safe: local_owned_cell_idx_i should be in [0, num_owned_cells_on_rank_i - 1]
+        local_owned_cell_idx_i = PetscMin(PetscMax(0, local_owned_cell_idx_i), num_owned_cells_on_rank_i - 1);
         *ci_metric_lnode_out = xs_gnode + local_owned_cell_idx_i; // Convert to local node index for cell origin
 
         // Select random local owned cell index in J-direction
         ierr = PetscRandomGetValueReal(*rand_logic_j_ptr, &r_val); CHKERRQ(ierr); // Dereference RNG pointer
-        local_owned_cell_idx_j = (PetscInt)(r_val * num_owned_cells_j);
-        local_owned_cell_idx_j = PetscMin(PetscMax(0, local_owned_cell_idx_j), num_owned_cells_j - 1);
+        local_owned_cell_idx_j = (PetscInt)(r_val * num_owned_cells_on_rank_j);
+        local_owned_cell_idx_j = PetscMin(PetscMax(0, local_owned_cell_idx_j), num_owned_cells_on_rank_j - 1);
         *cj_metric_lnode_out = ys_gnode + local_owned_cell_idx_j;
 
         // Select random local owned cell index in K-direction
         ierr = PetscRandomGetValueReal(*rand_logic_k_ptr, &r_val); CHKERRQ(ierr); // Dereference RNG pointer
-        local_owned_cell_idx_k = (PetscInt)(r_val * num_owned_cells_k);
-        local_owned_cell_idx_k = PetscMin(PetscMax(0, local_owned_cell_idx_k), num_owned_cells_k - 1);
+        local_owned_cell_idx_k = (PetscInt)(r_val * num_owned_cells_on_rank_k);
+        local_owned_cell_idx_k = PetscMin(PetscMax(0, local_owned_cell_idx_k), num_owned_cells_on_rank_k - 1);
         *ck_metric_lnode_out = zs_gnode + local_owned_cell_idx_k;
 
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "DVP - Rank %d: Selected Cell (Owned Idx: %d,%d,%d -> LNodeStart: %d,%d,%d). OwnedCells(i,j,k): (%d,%d,%d). GhostNodeStarts(xs,ys,zs): (%d,%d,%d) \n",
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Selected Cell (Owned Idx: %d,%d,%d -> LNodeStart: %d,%d,%d). OwnedCells(i,j,k): (%d,%d,%d). GhostNodeStarts(xs,ys,zs): (%d,%d,%d) \n",
                 rank_for_logging, local_owned_cell_idx_i, local_owned_cell_idx_j, local_owned_cell_idx_k,
                 *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
-                num_owned_cells_i, num_owned_cells_j, num_owned_cells_k,
+                num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k,
                 xs_gnode, ys_gnode, zs_gnode);
 
 
@@ -227,8 +229,8 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
         // This rank does not own any 3D cells (e.g., in a 1D or 2D decomposition,
         // or if the global domain itself is not 3D in terms of cells).
         // *can_place_in_volume_out remains PETSC_FALSE.
-        LOG_ALLOW(LOCAL, LOG_WARNING, "DVP - Rank %d: Cannot place particle volumetrically. Rank has zero owned cells in at least one dimension (owned cells i,j,k: %d,%d,%d).\n",
-                rank_for_logging, num_owned_cells_i, num_owned_cells_j, num_owned_cells_k);
+        LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: Cannot place particle volumetrically. Rank has zero owned cells in at least one dimension (owned cells i,j,k: %d,%d,%d).\n",
+                rank_for_logging, num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k);
     }
 
     PROFILE_FUNCTION_END;

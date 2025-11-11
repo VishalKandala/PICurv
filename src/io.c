@@ -2325,12 +2325,25 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------- Boundary Conditions --------------------\n"); CHKERRQ(ierr);
             const int face_name_width = 17; // Adjusted for longer names (Zeta,Eta,Xi)
             for (PetscInt i_face = 0; i_face < 6; ++i_face) {
-            BCFace current_face = (BCFace)i_face;
-            // The BCFaceToString will now return the Xi, Eta, Zeta versions
-            const char* face_str = BCFaceToString(current_face); 
-            const char* bc_type_str = BCTypeToString(user->boundary_faces[current_face].mathematical_type);    
-            ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s\n", 
-                    face_name_width, face_str, bc_type_str); CHKERRQ(ierr);
+                BCFace current_face = (BCFace)i_face;
+                // The BCFaceToString will now return the Xi, Eta, Zeta versions
+                const char* face_str = BCFaceToString(current_face); 
+                const char* bc_type_str = BCTypeToString(user->boundary_faces[current_face].mathematical_type);
+                const char* bc_handler_type_str = BCHandlerTypeToString(user->boundary_faces[current_face].handler_type);
+                if(user->boundary_faces[current_face].mathematical_type == INLET){
+                    if(user->boundary_faces[current_face].handler_type == BC_HANDLER_INLET_CONSTANT_VELOCITY){
+                        Cmpnts inlet_velocity = {0.0,0.0,0.0};
+                        PetscBool found;
+                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vx",&inlet_velocity.x,&found);
+                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vy",&inlet_velocity.y,&found);
+                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vz",&inlet_velocity.z,&found);
+                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - [%.4f,%.4f,%.4f]\n", 
+                        face_name_width, face_str, bc_type_str, bc_handler_type_str,inlet_velocity.x,inlet_velocity.y,inlet_velocity.z); CHKERRQ(ierr);
+                        } // Support for Other Inlet handlers can be added later
+                    }else{    
+                    ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s\n", 
+                            face_name_width, face_str, bc_type_str,bc_handler_type_str); CHKERRQ(ierr);
+                    }
             }
         }
         ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------------------------------------------------\n"); CHKERRQ(ierr);
