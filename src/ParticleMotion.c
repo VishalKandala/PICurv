@@ -313,7 +313,7 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Checking for and removing LOST particles...", rank);
+    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Checking for and removing LOST particles...\n", rank);
 
     // Initialize output parameters to ensure clean state
     *removedCountLocal = 0;
@@ -1520,7 +1520,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 {
     PetscErrorCode ierr;
     PetscInt       passes = 0;
-    const PetscInt MAX_MIGRATION_PASSES = 10; // Safety break for runaway loops
+    const PetscInt MAX_MIGRATION_PASSES = 50; // Safety break for runaway loops
     PetscInt       global_migrations_this_pass;
     PetscMPIInt    rank;
 
