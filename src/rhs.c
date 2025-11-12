@@ -1139,6 +1139,127 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "ComputeBodyForce"
+/**
+ * @brief Applies a body force term to drive flow in channel simulations.
+ *
+ * This function calculates and adds a source term to the z-component of the
+ * momentum equation's right-hand side (RHS). This term acts as a constant
+ * pressure gradient to drive the flow, which is necessary for periodic channel
+ * flow setups (controlled by the `channelz` flag in SimCtx).
+ *
+ * The force is only applied in fluid cells (where `nvert` is low). The function
+ * modifies the input vector `Rct` in-place and updates the time-smoothed state
+ * variable.
+ *
+ * @param user The UserCtx containing block-specific data and state variables.
+ * @param Rct  The PETSc Vec for the contravariant RHS, which will be modified.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeBodyForce(UserCtx *user, Vec Rct)
+{
+    PetscErrorCode ierr;
+    SimCtx *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+
+    // --- 1. Early Exit if Feature is Disabled ---
+    // If channelz is not enabled in the simulation context, skip this entire calculation.
+    if (!simCtx->channelz) {
+        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d, Block %d: Channel flow body force is disabled (channelz=0), skipping.\n",
+                  simCtx->rank, user->_this);
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Applying channel flow body force...\n",
+              simCtx->rank, user->_this);
+
+    // --- 2. Setup and Variable Declarations ---
+    DM da = user->da, fda = user->fda;
+    DMDALocalInfo info = user->info;
+    PetscInt i, j, k;
+
+    // Define local loop boundaries, excluding ghost cells
+    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
+    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
+    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
+    PetscInt lxe = (info.xs + info.xm == info.mx) ? info.mx - 1 : info.xs + info.xm;
+    PetscInt lye = (info.ys + info.ym == info.my) ? info.my - 1 : info.ys + info.ym;
+    PetscInt lze = (info.zs + info.zm == info.mz) ? info.mz - 1 : info.zs + info.zm;
+
+    // Array pointers
+    Cmpnts ***rct;
+    Cmpnts ***zet;
+    PetscReal ***nvert;
+
+    // --- 3. Get PETSc Array Pointers ---
+    // Get write access to the RHS vector we are modifying.
+    ierr = DMDAVecGetArray(fda, Rct, &rct); CHKERRQ(ierr);
+    // Get read-only access to the required grid metrics and immersed boundary data.
+    ierr = DMDAVecGetArrayRead(fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(da, user->lNvert, &nvert); CHKERRQ(ierr);
+
+    // --- 4. Body Force Calculation ---
+    PetscReal drivingForceMagnitude;
+	PetscReal forceScalingFactor = simCtx->forceScalingFactor;
+
+    // Calculate the driving force magnitude for the current timestep, smoothed
+    // with the value from the previous step for stability.
+    // Parameters are pulled from the global simulation context.
+    drivingForceMagnitude = (simCtx->ratio / simCtx->dt / simCtx->st * COEF_TIME_ACCURACY);
+    drivingForceMagnitude = (simCtx->drivingForceMagnitude) * 0.5 + 0.5 * drivingForceMagnitude;
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "  - Previous driving force:            %le\n", simCtx->drivingForceMagnitude);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "  - New smoothed driving force:        %le\n", drivingForceMagnitude);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "  - Force scaling factor:              %f\n",  simCtx->forceScalingFactor);
+
+    PetscBool hasLoggedApplication = PETSC_FALSE; // Flag to log details only once per rank.
+
+    for (k = lzs; k < lze; k++) {
+        for (j = lys; j < lye; j++) {
+            for (i = lxs; i < lxe; i++) {
+                // Apply force only if the cell and its vertical neighbors are in the fluid domain.
+                // This prevents applying force inside an immersed boundary.
+                if (nvert[k][j][i] < 0.1 && nvert[k][j + 1][i] < 0.1 && nvert[k][j - 1][i] < 0.1 && nvert[k][j - 2][i] < 0.1) {
+                    
+                    // The force is proportional to the local grid spacing in the z-direction,
+                    // captured by the magnitude of the zeta metric vector.
+                    PetscReal Cell_Face_Area = sqrt(
+                        (zet[k - 1][j][i].x) * (zet[k - 1][j][i].x) +
+                        (zet[k - 1][j][i].y) * (zet[k - 1][j][i].y) +
+                        (zet[k - 1][j][i].z) * (zet[k - 1][j][i].z)
+                    );
+                    
+                    PetscReal force_z = drivingForceMagnitude * forceScalingFactor * Cell_Face_Area;
+                    
+                    // Add the force to the z-component of the contravariant RHS.
+                    rct[k][j][i].z += force_z;
+                    
+                    // Log details for the very first point where force is applied on this rank.
+                    if (!hasLoggedApplication) {
+                        LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",force_z, k, j, i);
+                        hasLoggedApplication = PETSC_TRUE;
+                    }
+                }
+            }
+        }
+    }
+
+	// Update simCtx with latest Driving Force
+	simCtx->drivingForceMagnitude = drivingForceMagnitude;
+
+    // --- 5. Restore PETSc Array Pointers ---
+    ierr = DMDAVecRestoreArray(fda, Rct, &rct); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(da, user->lNvert, &nvert); CHKERRQ(ierr);
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Channel flow body force applied successfully.\n",
+              simCtx->rank, user->_this);
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "ComputeRHS"
 /**
  * @brief Computes the Right-Hand-Side (RHS) of the momentum equations.
@@ -1273,6 +1394,9 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
  
     DMLocalToLocalBegin(fda, Rct, INSERT_VALUES, Rct);
     DMLocalToLocalEnd(fda, Rct, INSERT_VALUES, Rct);
+
+	// Compute and Add Body Force term if applicable.
+	ierr = ComputeBodyForce(user,Rct);
 
     DMDAVecGetArray(fda, Rct, &rct);
 
@@ -1446,7 +1570,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 	else if ((i == 1 || i==mx-2) && user->bctype[0]==7 && nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
 	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
 	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		    p[k][j][i  ] - p[k][j+1][i  ]) * 0.5;
+		    p[k][j][i] - p[k][j+1][i]) * 0.5;
 	  }
 	}
 	else {

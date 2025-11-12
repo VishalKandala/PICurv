@@ -588,6 +588,9 @@ typedef struct SimCtx {
   
     //================ Group 4: Specific Simulation Case Flags ================
     PetscInt  cop, fish, fish_c, fishcyl, eel, pizza, turbine, Pipe, wing, hydro, MHV, LV;
+    PetscInt channelz;
+    // Turbulent Flat Channel with Forcing term in Z direction (channel z) ** TEMPORARY CASE **
+    PetscReal drivingForceMagnitude,forceScalingFactor;
 
     //================ Group 5: Solver & Numerics Parameters ================
     PetscInt  implicit, implicit_type, imp_MAX_IT;
@@ -609,7 +612,7 @@ typedef struct SimCtx {
     PetscReal  wall_roughness_height;
 
     //================ Group 7: Grid, Domain, and Boundary Condition Settings ================
-    PetscInt  block_number, inletprofile, grid1d, Ogrid, channelz;
+    PetscInt  block_number, inletprofile, grid1d, Ogrid;
     PetscInt  i_periodic, j_periodic, k_periodic, blkpbc, pseudo_periodic;
     PetscBool generate_grid;        
     PetscReal grid_rotation_angle; 

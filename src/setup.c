@@ -87,6 +87,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->cop=0; simCtx->fish=0; simCtx->fish_c=0; simCtx->fishcyl=0;
     simCtx->eel=0; simCtx->pizza=0; simCtx->turbine=0; simCtx->Pipe=0;
     simCtx->wing=0; simCtx->hydro=0; simCtx->MHV=0; simCtx->LV=0;
+    simCtx->channelz = 0;
+    simCtx->drivingForceMagnitude = 0.0;
+    simCtx->forceScalingFactor = 1.8;
 
     // --- Group 5: Solver & Numerics Parameters ---
     simCtx->implicit = 0; simCtx->implicit_type = 0; simCtx->imp_MAX_IT = 50;
@@ -110,7 +113,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Group 7: Grid, Domain, and Boundary Condition Settings ---
     simCtx->block_number = 1; simCtx->inletprofile = 1;
-    simCtx->grid1d = 0; simCtx->Ogrid = 0; simCtx->channelz = 0;
+    simCtx->grid1d = 0; simCtx->Ogrid = 0;
     simCtx->i_periodic = 0; simCtx->j_periodic = 0; simCtx->k_periodic = 0;
     simCtx->blkpbc = 10; simCtx->pseudo_periodic = 0;
     strcpy(simCtx->grid_file, "config/grid.run");
@@ -301,7 +304,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-hydro", &simCtx->hydro, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-lv", &simCtx->LV, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-Pipe", &simCtx->Pipe, NULL); CHKERRQ(ierr);
-
+    ierr = PetscOptionsGetInt(NULL, NULL, "-Turbulent_Channel_z", &simCtx->channelz, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-Turbulent_Channel_z_Driving_Force",&simCtx->drivingForceMagnitude,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-Turbulent_Channel_z_Scaling_Factor",&simCtx->forceScalingFactor,NULL);CHKERRQ(ierr);
     //  --- Group 5
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 5: Solver & Numerics Parameters \n");
     ierr = PetscOptionsGetInt(NULL, NULL, "-imp", &simCtx->implicit, NULL); CHKERRQ(ierr);

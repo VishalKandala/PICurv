@@ -672,8 +672,8 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
         for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
             for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
 	      if(k< KM && j < JM && i < IM){
-		PetscInt base_idx = 3 * ((k * (JM) + j) * (IM) + i);
-		coor[k][j][i].x = gc[base_idx];
+		        PetscInt base_idx = 3 * ((k * (JM) + j) * (IM) + i);
+		        coor[k][j][i].x = gc[base_idx];
                 coor[k][j][i].y = gc[base_idx + 1];
                 coor[k][j][i].z = gc[base_idx + 2];
 	      }
