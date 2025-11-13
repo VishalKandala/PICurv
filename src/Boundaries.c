@@ -2175,6 +2175,90 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "ApplyUcontPeriodicBCs"
+/**
+ * @brief (Orchestrator) Updates the contravariant velocity field in the local ghost cell regions for periodic boundaries.
+ *
+ * This function calls the TransferPeriodicFaceField primitive for the Ucont field.
+ * This is a direct replacement for the legacy Update_U_Cont_PBC function.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyUcontPeriodicBCs(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    ierr = TransferPeriodicFaceField(user, "Ucont"); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "EnforceUcontPeriodicity"
+/**
+ * @brief Enforces strict periodicity on the interior contravariant velocity field.
+ *
+ * This function is a "fix-up" routine for staggered grids. After a solver step,
+ * numerical inaccuracies can lead to small discrepancies between fluxes on opposing
+ * periodic boundaries. This function manually corrects this by copying the flux value
+ * from the first boundary face (retrieved from a ghost cell) to the last interior face.
+ *
+ * This routine involves MPI communication to synchronize the grid before and after the copy.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode EnforceUcontPeriodicity(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
+    PetscInt       gys = info.gys, gye = info.gys + info.gym;
+    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
+    Cmpnts         ***ucont;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // STEP 1: Ensure local ghost cells are up-to-date with current global state.
+    ierr = DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont); CHKERRQ(ierr);
+    ierr = DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont); CHKERRQ(ierr);
+
+    ierr = DMDAVecGetArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
+
+    // STEP 2: Perform the component-wise copy from ghost cells to the last interior faces.
+    if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt j=gys; j<gye; j++) {
+            ucont[k][j][mx-2].x = ucont[k][j][mx].x; // Note: ucont[mx] is ghost, gets value from ucont[0]
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt i=gxs; i<gxe; i++) {
+            ucont[k][my-2][i].y = ucont[k][my][i].y; // Note: ucont[my] is ghost, gets value from ucont[0]
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
+        for (PetscInt j=gys; j<gye; j++) for (PetscInt i=gxs; i<gxe; i++) {
+            ucont[mz-2][j][i].z = ucont[mz][j][i].z; // Note: ucont[mz] is ghost, gets value from ucont[0]
+        }
+    }
+
+    ierr = DMDAVecRestoreArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
+
+    // STEP 3: Communicate the changes made to the interior back to the global vector.
+    ierr = DMLocalToGlobalBegin(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); CHKERRQ(ierr);
+    ierr = DMLocalToGlobalEnd(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); CHKERRQ(ierr);
+    
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "UpdateDummyCells"
 /**
  * @brief Updates the dummy cells (ghost nodes) on the faces of the local domain for NON-PERIODIC boundaries.
