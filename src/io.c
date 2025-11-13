@@ -316,7 +316,9 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
     else if (strcasecmp(str, "constant_velocity")   == 0) *handler_out = BC_HANDLER_INLET_CONSTANT_VELOCITY;
     else if (strcasecmp(str, "conservation")        == 0) *handler_out = BC_HANDLER_OUTLET_CONSERVATION;
     else if (strcasecmp(str, "parabolic")           == 0) *handler_out = BC_HANDLER_INLET_PARABOLIC;
-    else if (strcasecmp(str,"periodic")             == 0) *handler_out = BC_HANDLER_PERIODIC;
+    else if (strcasecmp(str,"geometric")            == 0) *handler_out = BC_HANDLER_PERIODIC_GEOMETRIC;
+    else if (strcasecmp(str,"constant_flux")        == 0) *handler_out = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
+    else if (strcasecmp(str,"initial_flux")         == 0) *handler_out = BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX;
     // ... add other BCHandlerTypes here ...
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown BC Handler string: %s", str);
     return 0;
@@ -339,6 +341,8 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
         case INLET:
             if (handler != BC_HANDLER_INLET_CONSTANT_VELOCITY && handler != BC_HANDLER_INLET_PARABOLIC) return PETSC_ERR_ARG_WRONG;
             break;
+        case PERIODIC:
+            if(handler != BC_HANDLER_PERIODIC_GEOMETRIC && handler != BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX && !handler != BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) return PETSC_ERR_ARG_WRONG;
         // ... add other validation cases here ...
         default: break;
     }
@@ -362,6 +366,31 @@ PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *valu
     while (current) {
         if (strcasecmp(current->key, key) == 0) {
             *value_out = atof(current->value);
+            *found = PETSC_TRUE;
+            return 0; // Found it, we're done
+        }
+        current = current->next;
+    }
+    return 0; // It's not an error to not find the key.
+}
+
+/**
+ * @brief Searches a BC_Param linked list for a key and returns its value as a bool.
+ * @param params The head of the BC_Param linked list.
+ * @param key The key to search for (case-insensitive).
+ * @param[out] value_out The found value, converted to a PetscBool.
+ * @param[out] found Set to PETSC_TRUE if the key was found, PETSC_FALSE otherwise.
+ * @return 0 on success.
+ */
+PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found) {
+    *found = PETSC_FALSE;
+    *value_out = PETSC_FALSE;
+    if (!key) return 0; // No key to search for
+
+    BC_Param *current = params;
+    while (current) {
+        if (strcasecmp(current->key, key) == 0) {
+            *value_out = atob(current->value);
             *found = PETSC_TRUE;
             return 0; // Found it, we're done
         }

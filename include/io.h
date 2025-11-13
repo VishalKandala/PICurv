@@ -469,6 +469,16 @@ void FreeBC_ParamList(BC_Param *head);
 PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *value_out, PetscBool *found);
 
 /**
+ * @brief Searches a BC_Param linked list for a key and returns its value as a bool.
+ * @param params The head of the BC_Param linked list.
+ * @param key The key to search for (case-insensitive).
+ * @param[out] value_out The found value, converted to a PetscBool.
+ * @param[out] found Set to PETSC_TRUE if the key was found, PETSC_FALSE otherwise.
+ * @return 0 on success.
+ */
+PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found);
+
+/**
  * @brief Parses the boundary conditions file to configure the type, handler, and
  *        any associated parameters for all 6 global faces of the domain.
  *

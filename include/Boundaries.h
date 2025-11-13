@@ -31,6 +31,23 @@
 //================================================================================
 
 /**
+ * @brief (Public) Validates the consistency and compatibility of the parsed boundary condition system.
+ *
+ * This function is the main entry point for all boundary condition validation. It should be
+ * called from the main setup sequence AFTER the configuration file has been parsed by
+ * `ParseAllBoundaryConditions` but BEFORE any `BoundaryCondition` handler objects are created.
+ *
+ * It acts as a dispatcher, calling specialized private sub-validators for different complex
+ * BC setups (like driven flow) to ensure the combination of `mathematical_type` and `handler_type`
+ * across all six faces is physically and numerically valid. This provides a "fail-fast"
+ * mechanism to prevent users from running improperly configured simulations.
+ *
+ * @param user The UserCtx for a single block, containing the populated `boundary_faces` configuration.
+ * @return PetscErrorCode 0 on success, non-zero PETSc error code on failure.
+ */
+PetscErrorCode BoundarySystem_Validate(UserCtx *user);
+
+/**
  * @brief (Private) Creates and configures a specific BoundaryCondition handler object.
  *
  * This function acts as a factory. Based on the requested handler_type, it allocates

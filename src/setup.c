@@ -88,8 +88,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->eel=0; simCtx->pizza=0; simCtx->turbine=0; simCtx->Pipe=0;
     simCtx->wing=0; simCtx->hydro=0; simCtx->MHV=0; simCtx->LV=0;
     simCtx->channelz = 0;
-    simCtx->drivingForceMagnitude = 0.0;
-    simCtx->forceScalingFactor = 1.8;
 
     // --- Group 5: Solver & Numerics Parameters ---
     simCtx->implicit = 0; simCtx->implicit_type = 0; simCtx->imp_MAX_IT = 50;
@@ -127,6 +125,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscMalloc1(1, &simCtx->bcs_files); CHKERRQ(ierr);
     ierr = PetscStrallocpy("config/bcs.run", &simCtx->bcs_files[0]); CHKERRQ(ierr);
     simCtx->FluxInSum = 0.0; simCtx->FluxOutSum = 0.0; simCtx->Fluxsum = 0.0;
+    simCtx->drivingForceMagnitude = 0.0, simCtx->forceScalingFactor = 1.8;
+    simCtx->targetVolumetricFlux  = 0.0;
     simCtx->AreaInSum = 0.0; simCtx->AreaOutSum = 0.0;
     simCtx->U_bc = 0.0; simCtx->ccc = 0;
     simCtx->ratio = 0.0;

@@ -748,7 +748,9 @@ const char* BCHandlerTypeToString(BCHandlerType handler_type) {
         case BC_HANDLER_FARFIELD_NONREFLECTING:  return "nonreflecting";
 
         // Multi-Block / Interface Handlers
-        case BC_HANDLER_PERIODIC:                return "periodic";
+        case BC_HANDLER_PERIODIC_GEOMETRIC:      return "geometric";
+        case BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX:   return "constant flux";
+        case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:    return "initial flux";
         case BC_HANDLER_INTERFACE_OVERSET:       return "overset";
 
         // Default case
