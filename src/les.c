@@ -382,6 +382,8 @@ PetscErrorCode ComputeEddyViscosityLES(UserCtx *user)
 	ierr = DMGlobalToLocalBegin(da, user->Nu_t, INSERT_VALUES, user->lNu_t); CHKERRQ(ierr);
 	ierr = DMGlobalToLocalEnd(da, user->Nu_t, INSERT_VALUES, user->lNu_t); CHKERRQ(ierr);
 
+    ierr = TransferPeriodicField(user,"Eddy Viscosity");CHKERRQ(ierr);
+
     PetscReal max_norm;
     ierr = VecMax(user->Nu_t, NULL, &max_norm); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  Max eddy viscosity (Nu_t) computed: %e\n", max_norm);
