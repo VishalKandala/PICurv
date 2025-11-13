@@ -1734,7 +1734,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
 
             for (PetscInt k = lzs; k < lze; k++) for (PetscInt j = lys; j < lye; j++) {
                 if (nvert[k][j][i_nvert] < 0.1) {
-                    PetscReal faceArea = sqrt(csi[k][j][i_face].x*csi[k][j][i_face].x + csi[k][j][i_face].y*csi[k][j][i_face].y + csi[k][j][i_face].z*csi[k][j][i_face].z);
+                    PetscReal faceArea = sqrt(csi[k][j][i_face].x*csi[k][j][i_nvert].x + csi[k][j][i_nvert].y*csi[k][j][i_nvert].y + csi[k][j][i_face].z*csi[k][j][i_face].z);
                     PetscReal fluxTrim = data->boundaryVelocityCorrection * faceArea;
                     if(data->applyBoundaryTrim) ucont[k][j][i_face].x += fluxTrim;
                     uch[k][j][i_face].x = fluxTrim; // Store correction for diagnostics
