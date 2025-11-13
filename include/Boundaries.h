@@ -106,7 +106,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user);
  * @param user The main UserCtx struct.
  * @return PetscErrorCode 0 on success.
  */
-static PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user);
+PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user);
 
 /**
  * @brief Cleans up and destroys all boundary system resources.
@@ -240,6 +240,45 @@ PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user);
  * @param field_name A string identifier for the field to transfer.
  * @return PetscErrorCode 0 on success.
  */
+
+/**
+ * @brief Enforces boundary conditions on the momentum equation's Right-Hand-Side (RHS) vector.
+ *
+ * This function performs two critical roles based on the legacy implementation:
+ *
+ * 1.  **Strong BC Enforcement for Physical Boundaries:** For non-periodic boundaries (e.g., walls, inlets),
+ *     it zeroes the normal component of the RHS in a "buffer" layer of cells just inside the
+ *     domain (e.g., at i=mx-2). This strongly enforces Dirichlet conditions on velocity by preventing
+ *     the time-stepping scheme from altering the boundary values set by `ApplyBoundaryConditions`.
+ *
+ * 2.  **Ghost Cell Sanitization:** For all boundary faces (`i=0`, `i=mx-1`, etc.), it zeroes out all
+ *     components of the RHS. Since the RHS is a cell-centered quantity in this architecture, these
+ *     locations correspond to ghost cells. This step sanitizes these unused locations, ensuring they
+ *     do not contain garbage data that could affect diagnostics or other routines. This sanitization
+ *     is performed for ALL boundary types, including periodic ones.
+ *
+ * This function should be called immediately after the RHS vector is fully assembled
+ * (spatial + temporal terms) and before it is used in a time-stepping update.
+ *
+ * @param user The UserCtx for the specific block being computed.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user); 
+
+/**
+ * @brief (Private Worker) Copies periodic data for a SINGLE field in a SINGLE direction.
+ *
+ * This is a low-level helper that performs the memory copy from the local ghost
+ * array to the global array for a specified field and direction ('i', 'j', or 'k').
+ * It contains NO communication logic; that is handled by the orchestrator.
+ *
+ * @param user The main UserCtx struct.
+ * @param field_name The string identifier for the field to transfer (e.g., "Ucat").
+ * @param direction The character 'i', 'j', or 'k' specifying the direction.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field_name, char direction);
+
 PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name);
 
 /**
@@ -291,6 +330,21 @@ PetscErrorCode UpdateDummyCells(UserCtx *user);
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode UpdateCornerNodes(UserCtx *user);
+
+/**
+ * @brief (Orchestrator) Performs a sequential, deterministic periodic update for a list of fields.
+ *
+ * This function orchestrates the resolution of ambiguous periodic corners and edges.
+ * It takes an array of field names and updates them in a strict i-sync-j-sync-k order
+ * by calling the low-level worker `TransferPeriodicFieldByDirection` and the
+ * communication routine `UpdateLocalGhosts`.
+ *
+ * @param user The main UserCtx struct.
+ * @param num_fields The number of fields in the field_names array.
+ * @param field_names An array of strings with the names of fields to update (e.g., ["Ucat", "P"]).
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode UpdatePeriodicCornerNodes(UserCtx *user, PetscInt num_fields, const char* field_names[]);
 
 /**
  * @brief Applies wall function modeling to near-wall velocities for all wall-type boundaries.

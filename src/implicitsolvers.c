@@ -224,6 +224,10 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
             ierr = VecAXPY(user[bi].Rhs, +1.0/dt, user[bi].Ucont_o); CHKERRQ(ierr);
         }
 
+
+    // Enforce RHS Boundary Condition (Set to Zero)
+    ierr = EnforceRHSBoundaryConditions(&user[bi]); CHKERRQ(ierr);    
+
 	LOG_ALLOW(GLOBAL,LOG_DEBUG," Time derivative part added to RHS.\n");
         ierr = VecNorm(user[bi].Rhs, NORM_INFINITY, &normF0_bk[bi]); CHKERRQ(ierr);
         normF1_bk[bi] = 1000.0; // Initialize for line search logic
@@ -267,6 +271,10 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
                     ierr = VecAXPY(user[bi].Rhs, -1.0/dt, user[bi].Ucont); CHKERRQ(ierr);
                     ierr = VecAXPY(user[bi].Rhs, +1.0/dt, user[bi].Ucont_o); CHKERRQ(ierr);
                 }
+
+
+        // Enforce RHS Boundary Condition (Set to Zero)
+        ierr = EnforceRHSBoundaryConditions(&user[bi]); CHKERRQ(ierr);        
 
 		if(istage <3) LOG_ALLOW(GLOBAL,LOG_TRACE," Time derivative part updated for next RK stage .\n");
 		else LOG_ALLOW(GLOBAL,LOG_DEBUG," All RK stages complete.\n");

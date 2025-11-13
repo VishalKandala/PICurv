@@ -104,7 +104,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 /*       } */
 /*     } */
 /*   } */
-  if (user->bctype[0]==7 || user->bctype[1]==7){
+  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC){
     if (xs==0){
       i=xs-1;
       for (k=gzs; k<gze; k++) {
@@ -128,7 +128,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
       }
     }
   }  
-  if (user->bctype[2]==7 || user->bctype[3]==7){
+  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC){
     if (ys==0){
       j=ys-1;
       for (k=gzs; k<gze; k++) {
@@ -152,7 +152,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
       }
     }
   }
-  if (user->bctype[4]==7 || user->bctype[5]==7){
+  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC){
     if (zs==0){
       k=zs-1;
       for (j=gys; j<gye; j++) {
@@ -222,7 +222,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 	    fp1[k][j][i].z =  ucon * ( ucat[k][j][i].z + ucat[k][j][i+1].z );
 	  }
 	else if (i==0 ||(nvert[k][j][i-1] > 0.1) ) {
-	  if (user->bctype[0]==7 && i==0 && (nvert[k][j][i-1]<0.1 && nvert[k][j][i+1]<0.1)){//Mohsen Feb 12 
+	  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==0 && (nvert[k][j][i-1]<0.1 && nvert[k][j][i+1]<0.1)){//Mohsen Feb 12 
 	    fp1[k][j][i].x =  
 	      um * (coef * (-ucat[k][j][i+2].x -2.* ucat[k][j][i+1].x +3.* ucat[k][j][i  ].x) +ucat[k][j][i+1].x) +
 	      up * (coef * (-ucat[k][j][i-1].x -2.* ucat[k][j][i  ].x +3.* ucat[k][j][i+1].x) +ucat[k][j][i  ].x);
@@ -245,7 +245,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 	  }
 	}
 	else if (i==mx-2 ||(nvert[k][j][i+1]) > 0.1) {
-	  if (user->bctype[0]==7 && i==mx-2 &&(nvert[k][j][i-1]<0.1 && nvert[k][j][i+1]<0.1)){//Mohsen Feb 12 
+	  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==mx-2 &&(nvert[k][j][i-1]<0.1 && nvert[k][j][i+1]<0.1)){//Mohsen Feb 12 
 	    fp1[k][j][i].x =  
 	    um * (coef * (-ucat[k][j][i+2].x -2.* ucat[k][j][i+1].x +3.* ucat[k][j][i  ].x) +ucat[k][j][i+1].x) +
 	    up * (coef * (-ucat[k][j][i-1].x -2.* ucat[k][j][i  ].x +3.* ucat[k][j][i+1].x) +ucat[k][j][i  ].x);
@@ -309,7 +309,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 	    fp2[k][j][i].z =  ucon * ( ucat[k][j][i].z + ucat[k][j+1][i].z );
 	  }
 	else if (j==0 || (nvert[k][j-1][i]) > 0.1) {
-	  if (user->bctype[2]==7 && j==0 && (nvert[k][j-1][i]<0.1 && nvert[k][j+1][i]<0.1 )){//Mohsen Feb 12 //
+	  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==0 && (nvert[k][j-1][i]<0.1 && nvert[k][j+1][i]<0.1 )){//Mohsen Feb 12 //
 	    fp2[k][j][i].x = 
 	    um * (coef * (-ucat[k][j+2][i].x -2. * ucat[k][j+1][i].x +3. * ucat[k][j  ][i].x) +ucat[k][j+1][i].x) +		     
 	    up * (coef * (-ucat[k][j-1][i].x -2. * ucat[k][j  ][i].x +3. * ucat[k][j+1][i].x) +ucat[k][j  ][i].x);		     
@@ -332,7 +332,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 	}
 	}
 	else if (j==my-2 ||(nvert[k][j+1][i]) > 0.1) {
-	  if (user->bctype[2]==7 && j==my-2 && (nvert[k][j-1][i]<0.1 && nvert[k][j+1][i]<0.1 )){//Mohsen Feb 12// 
+	  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==my-2 && (nvert[k][j-1][i]<0.1 && nvert[k][j+1][i]<0.1 )){//Mohsen Feb 12// 
 	    fp2[k][j][i].x = 
 	    um * (coef * (-ucat[k][j+2][i].x -2. * ucat[k][j+1][i].x +3. * ucat[k][j  ][i].x) +ucat[k][j+1][i].x) +		     
 	    up * (coef * (-ucat[k][j-1][i].x -2. * ucat[k][j  ][i].x +3. * ucat[k][j+1][i].x) +ucat[k][j  ][i].x);		     
@@ -397,7 +397,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 	    fp3[k][j][i].z =  ucon * ( ucat[k][j][i].z + ucat[k+1][j][i].z );
 	  }
 	else if (k<mz-2 && (k==0 ||(nvert[k-1][j][i]) > 0.1)) {
-	  if(user->bctype[4]==7 && k==0 && (nvert[k-1][j][i]<0.1 && nvert[k+1][j][i]<0.1)){//Mohsen Feb 12//
+	  if(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==0 && (nvert[k-1][j][i]<0.1 && nvert[k+1][j][i]<0.1)){//Mohsen Feb 12//
 	    fp3[k][j][i].x = 
 	    um * (coef * (-ucat[k+2][j][i].x -2. * ucat[k+1][j][i].x +3. * ucat[k  ][j][i].x) +ucat[k+1][j][i].x)   +		     
 	    up * (coef * (-ucat[k-1][j][i].x -2. * ucat[k  ][j][i].x +3. * ucat[k+1][j][i].x) +ucat[k  ][j][i].x);  		     
@@ -420,7 +420,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 	  }
 	}
 	else if (k>0 && (k==mz-2 ||(nvert[k+1][j][i]) > 0.1)) {
-	  if (user->bctype[4]==7 && k==mz-2 && (nvert[k-1][j][i]<0.1 && nvert[k+1][j][i]<0.1)){//Mohsen Feb 12//
+	  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==mz-2 && (nvert[k-1][j][i]<0.1 && nvert[k+1][j][i]<0.1)){//Mohsen Feb 12//
 	    fp3[k][j][i].x = 
 	    um * (coef * (-ucat[k+2][j][i].x -2. * ucat[k+1][j][i].x +3. * ucat[k  ][j][i].x) +ucat[k+1][j][i].x)   +		     
 	    up * (coef * (-ucat[k-1][j][i].x -2. * ucat[k  ][j][i].x +3. * ucat[k+1][j][i].x) +ucat[k  ][j][i].x);  		     
@@ -726,7 +726,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	if( les || (rans && ti>0) ) {
 	  //nu_t = pow( 0.5 * ( sqrt(lnu_t[k][j][i]) + sqrt(lnu_t[k][j][i+1]) ), 2.0) * Sabs;
 	  nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k][j][i+1]);
-	  if ( (user->bctype[0]==1 && i==0) || (user->bctype[1]==1 && i==mx-2) ) nu_t=0;    
+	  if ( (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == WALL && i==0) || (user->boundary_faces[BC_FACE_POS_X].mathematical_type == WALL && i==mx-2) ) nu_t=0;    
 	  fp1[k][j][i].x = (g11 * dudc + g21 * dude + g31 * dudz + r11 * csi0 + r21 * csi1 + r31 * csi2) * ajc * (nu_t); 
 	  fp1[k][j][i].y = (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * csi0 + r22 * csi1 + r32 * csi2) * ajc * (nu_t);
 	  fp1[k][j][i].z = (g11 * dwdc + g21 * dwde + g31 * dwdz + r13 * csi0 + r23 * csi1 + r33 * csi2) * ajc * (nu_t);
@@ -875,7 +875,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	if( les || (rans && ti>0) ) {
 	  //nu_t = pow( 0.5 * ( sqrt(lnu_t[k][j][i]) + sqrt(lnu_t[k][j+1][i]) ), 2.0) * Sabs;
 	  nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k][j+1][i]);
-	  if ( (user->bctype[2]==1 && j==0) || (user->bctype[3]==1 && j==my-2) ) nu_t=0;
+	  if ( (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == WALL && j==0) || (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == WALL && j==my-2) ) nu_t=0;
 		
 	  fp2[k][j][i].x = (g11 * dudc + g21 * dude + g31 * dudz + r11 * eta0 + r21 * eta1 + r31 * eta2) * ajc * (nu_t);
 	  fp2[k][j][i].y = (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * eta0 + r22 * eta1 + r32 * eta2) * ajc * (nu_t);
@@ -1016,7 +1016,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	if( les || (rans && ti>0) ) {
 	  //nu_t = pow( 0.5 * ( sqrt(lnu_t[k][j][i]) + sqrt(lnu_t[k+1][j][i]) ), 2.0) * Sabs;
 	  nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k+1][j][i]);
-	  if ( (user->bctype[4]==1 && k==0) || (user->bctype[5]==1 && k==mz-2) ) nu_t=0;
+	  if ( (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == WALL && k==0) || (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == WALL && k==mz-2) ) nu_t=0;
 		
 	  fp3[k][j][i].x = (g11 * dudc + g21 * dude + g31 * dudz + r11 * zet0 + r21 * zet1 + r31 * zet2) * ajc * (nu_t);
 	  fp3[k][j][i].y = (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * zet0 + r22 * zet1 + r32 * zet2) * ajc * (nu_t);
@@ -1161,7 +1161,7 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
 
     // --- 1. Apply momentum source for driven channel/pipe flows ---
     // This function will internally check if a driven flow BC is active.
-    ierr = ApplyDrivenChannelFlowSource(user, Rct); CHKERRQ(ierr);
+    ierr = ComputeDrivenChannelFlowSource(user, Rct); CHKERRQ(ierr);
 
     // --- 2. (Future Extension) Apply gravitational force ---
     // if (user->simCtx->gravityEnabled) {
@@ -1207,7 +1207,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     PetscInt lxe = (xe==mx) ? xe-1 : xe;
     PetscInt lye = (ye==my) ? ye-1 : ye;
     PetscInt lze = (ze==mz) ? ze-1 : ze;
-    PetscInt mz_end = (user->bctype[5] == 8) ? mz - 2 : mz - 3;
+    PetscInt mz_end = (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == CHARACTERISTIC_BC) ? mz - 2 : mz - 3;
 
     // --- Array Pointers ---
     Cmpnts ***csi, ***eta, ***zet, ***icsi, ***ieta, ***izet, ***jcsi, ***jeta, ***jzet, ***kcsi, ***keta, ***kzet;
@@ -1313,7 +1313,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     DMDAVecGetArray(fda, Rct, &rct);
 
 	
-    if (user->bctype[0]==7 || user->bctype[1]==7){
+    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC){
       if (xs==0){
 	i=xs;
 	for (k=lzs; k<lze; k++) {
@@ -1333,7 +1333,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
       }
     }
 
-    if (user->bctype[2]==7 || user->bctype[3]==7){
+    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC){
       if (ys==0){
 	j=ys;
 	for (k=lzs; k<lze; k++) {
@@ -1352,7 +1352,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 	}
       }
     }
-    if (user->bctype[4]==7 || user->bctype[5]==7){
+    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC){
       if (zs==0){
 	k=zs;
 	for (j=lys; j<lye; j++) {
@@ -1389,25 +1389,25 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
                 PetscReal dpdc, dpde, dpdz;
 	dpdc = p[k][j][i+1] - p[k][j][i];
 
-	if ((j==my-2 && user->bctype[2]!=7)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->bctype[2]==7))) {
+	if ((j==my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
+	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
 	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
 		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
 	  }
 	}
-	else if ((j==my-2 || j==1) && user->bctype[2]==7 && nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
+	else if ((j==my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
 	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1) {
 	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
 		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
 	  }
 	}
-	else if ((j == 1 && user->bctype[2]!=7) || nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
+	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) || nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
 	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
 	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
 		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
 	  }
 	}
-	else if ((j == 1 || j==my-2) && user->bctype[2]==7 && nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
+	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
 	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
 	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
 		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
@@ -1418,25 +1418,25 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 		  p[k][j-1][i] - p[k][j-1][i+1]) * 0.25;
 	}
 
-	if ((k == mz-2 && user->bctype[4]!=7) || nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1 && (k!=1 || (k==1 && user->bctype[4]==7))) {
+	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
+	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
 	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
 		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
 	  }
 	}
-	else  if ((k == mz-2 || k==1) &&  user->bctype[4]==7 && nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
+	else  if ((k == mz-2 || k==1) &&  user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
 	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1) {
 	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
 		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
 	  }
 	}
-	else if ((k == 1 && user->bctype[4]!=7)|| nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
+	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
 	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
 	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
 		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
 	  }
 	}
-	else if ((k == 1 || k==mz-2) && user->bctype[4]==7 && nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
+	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
 	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
 	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
 		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
@@ -1461,25 +1461,25 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 		   izet[k][j][i].y * icsi[k][j][i].y +
 		   izet[k][j][i].z * icsi[k][j][i].z)) * iaj[k][j][i];
 
-	if ((i == mx-2 && user->bctype[0]!=7) || nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->bctype[0]==7))) {
+	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) || nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
+	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
 	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
 		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
 	  }
 	}
-	else if ((i == mx-2 || i==1) && user->bctype[0]==7 && nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
+	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
 	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1) {
 	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
 		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
 	  }
 	}
-	else if ((i == 1 && user->bctype[0]!=7)|| nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
+	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
 	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
 	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
 		    p[k][j][i  ] - p[k][j+1][i  ]) * 0.5;
 	  }
 	}
-	else if ((i == 1 || i==mx-2) && user->bctype[0]==7 && nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
+	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
 	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
 	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
 		    p[k][j][i] - p[k][j+1][i]) * 0.5;
@@ -1492,25 +1492,25 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 	
 	dpde = p[k][j+1][i] - p[k][j][i];
 	
-	if ((k == mz-2 && user->bctype[4]!=7)|| nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1 && (k!=1 || (k==1 && user->bctype[4]==7))) {
+	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
+	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
 	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
 		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
 	  }
 	}
-	else if ((k == mz-2 || k==1) && user->bctype[4]==7 && nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
+	else if ((k == mz-2 || k==1) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
 	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1) {
 	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
 		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
 	  }
 	}
-	else if ((k == 1 && user->bctype[4]!=7)|| nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
+	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
 	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
 	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
 		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
 	  }
 	}
-	else if ((k == 1 || k==mz-2) && user->bctype[4]==7 && nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
+	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
 	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
 	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
 		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
@@ -1535,25 +1535,25 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 		   jzet[k][j][i].y * jeta[k][j][i].y +
 		   jzet[k][j][i].z * jeta[k][j][i].z)) * jaj[k][j][i];
 
-	if ((i == mx-2 && user->bctype[0]!=7)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->bctype[0]==7))) {
+	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
+	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
 	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
 		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
 	  }
 	}
-	else if ((i == mx-2 || i==1) && user->bctype[0]==7 && nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
+	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
 	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1) {
 	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
 		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
 	  }
 	}
-	else if ((i == 1 && user->bctype[0]!=7)|| nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
+	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
 	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
 	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
 		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
 	  }
 	}
-	else if ((i == 1 || i==mx-2) && user->bctype[0]==7 && nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
+	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
 	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
 	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
 		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
@@ -1564,25 +1564,25 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 		  p[k][j][i-1] - p[k+1][j][i-1]) * 0.25;
 	}
 
-	if ((j == my-2 && user->bctype[2]!=7)|| nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->bctype[2]==7))) {
+	if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
+	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
 	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
 		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
 	  }
 	}
-	else  if ((j == my-2 || j==1) && user->bctype[2]==7 && nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
+	else  if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
 	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1) {
 	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
 		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
 	  }
 	}
-	else if ((j == 1 && user->bctype[2]!=7)|| nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
+	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
 	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
 	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
 		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;
 	  }
 	}
-	else if ((j == 1 || j==my-2) && user->bctype[2]==7 && nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
+	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
 	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
 	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
 		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;
@@ -1616,32 +1616,32 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
   //Mohsen March 2012//
   
   // rhs.x at boundaries for periodic bc at i direction//
-  if (user->bctype[0]==7 && xs==0){
+  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs==0){
     for (k=lzs; k<lze; k++) {
       for (j=lys; j<lye; j++) {	  
 	i=xs;
 
 	dpdc = p[k][j][i+1] - p[k][j][i];
 	
-	if ((j==my-2 && user->bctype[2]!=7)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->bctype[2]==7))) {
+	if ((j==my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
+	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
 	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
 		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
 	  }
 	}
-	else if ((j==my-2 || j==1) && user->bctype[2]==7 && nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
+	else if ((j==my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
 	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1) {
 	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
 		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
 	  }
 	}
-	else if ((j == 1 && user->bctype[2]!=7) || nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
+	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) || nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
 	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
 	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
 		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
 	  }
 	}
-	else if ((j == 1 || j==my-2) && user->bctype[2]==7 && nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
+	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
 	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
 	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
 		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
@@ -1652,25 +1652,25 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 		  p[k][j-1][i] - p[k][j-1][i+1]) * 0.25;
 	}
 
-	if ((k == mz-2 && user->bctype[4]!=7) || nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1 && (k!=1 || (k==1 && user->bctype[4]==7))) {
+	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
+	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
 	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
 		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
 	  }
 	}
-	else  if ((k == mz-2 || k==1) && user->bctype[4]==7 && nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
+	else  if ((k == mz-2 || k==1) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
 	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1) {
 	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
 		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
 	  }
 	}
-	else if ((k == 1 && user->bctype[4]!=7)|| nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
+	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
 	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
 	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
 		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
 	  }
 	}
-	else if ((k == 1 || k==mz-2) && user->bctype[4]==7 && nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
+	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
 	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
 	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
 		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
@@ -1697,31 +1697,31 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
   }
   
 // rhs.y at boundaries for periodic bc at j direction//
-  if (user->bctype[2]==7 && ys==0){
+  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys==0){
     for (k=lzs; k<lze; k++) {
       for (i=lxs; i<lxe; i++) {	  
 
 	j=ys;
 
-	if ((i == mx-2 && user->bctype[0]!=7) || nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->bctype[0]==7))) {
+	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) || nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
+	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
 	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
 		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
 	  }
 	}
-	else if ((i == mx-2 || i==1) && user->bctype[0]==7 && nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
+	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
 	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1) {
 	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
 		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
 	  }
 	}
-	else if ((i == 1 && user->bctype[0]!=7)|| nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
+	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
 	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
 	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
 		    p[k][j][i  ] - p[k][j+1][i  ]) * 0.5;
 	  }
 	}
-	else if ((i == 1 || i==mx-2) && user->bctype[0]==7 && nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
+	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
 	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
 	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
 		    p[k][j][i  ] - p[k][j+1][i  ]) * 0.5;
@@ -1734,25 +1734,25 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 
 	dpde = p[k][j+1][i] - p[k][j][i];
 
-	if ((k == mz-2 && user->bctype[4]!=7)|| nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1 && (k!=1 || (k==1 && user->bctype[4]==7))) {
+	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
+	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
 	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
 		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
 	  }
 	}
-	else if ((k == mz-2 || k==1 ) && user->bctype[4]==7 && nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
+	else if ((k == mz-2 || k==1 ) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
 	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1) {
 	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
 		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
 	  }
 	}
-	else if ((k == 1 && user->bctype[4]!=7)|| nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
+	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
 	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
 	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
 		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
 	  }
 	}
-	else if ((k == 1 || k==mz-2) && user->bctype[4]==7 && nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
+	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
 	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
 	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
 		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
@@ -1781,31 +1781,31 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
   }
   
   // rhs.z at boundaries for periodic bc at k direction//
-  if (user->bctype[4]==7&& zs==0){
+  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC&& zs==0){
     for (j=lys; j<lye; j++) {
       for (i=lxs; i<lxe; i++) {
 
 	k=zs; 
 
-	if ((i == mx-2 && user->bctype[0]!=7)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->bctype[0]==7))) {
+	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
+	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
 	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
 		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
 	  }
 	}
-	else if ((i == mx-2 || i==1) && user->bctype[0]==7 && nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
+	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
 	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1) {
 	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
 		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
 	  }
 	}
-	else if ((i == 1 && user->bctype[0]!=7)|| nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
+	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
 	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
 	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
 		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
 	  }
 	}
-	else if ((i == 1 || i==mx-2) && user->bctype[0]==7 && nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
+	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
 	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
 	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
 		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
@@ -1816,25 +1816,25 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 		  p[k][j][i-1] - p[k+1][j][i-1]) * 0.25;
 	}
 
-	if ((j == my-2 && user->bctype[2]!=7)|| nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->bctype[2]==7))) {
+	if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
+	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
 	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
 		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
 	  }
 	}
-	else  if ((j == my-2 || j==1) && user->bctype[2]==7 && nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
+	else  if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
 	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1) {
 	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
 		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
 	  }
 	}
-	else if ((j == 1 && user->bctype[2]!=7)|| nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
+	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
 	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
 	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
 		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;
 	  }
 	}
-	else if ((j == 1 || j==my-2) && user->bctype[2]==7 && nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
+	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
 	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
 	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
 		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;

@@ -24,7 +24,7 @@
  * @param user The UserCtx for a single block.
  * @return PetscErrorCode 0 on success, non-zero PETSc error code on failure.
  */
-static PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user)
+PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user)
 {
     PetscFunctionBeginUser;
 
@@ -1448,12 +1448,12 @@ static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self,
         user->simCtx->targetVolumetricFlux = data->targetVolumetricFlux;
     }
 
-    PetsBool trimfound;
+    PetscBool trimfound;
     // Attempt  to read Trim flag.
     ierr = GetBCParamBool(user->boundary_faces[face_id].params, "apply_trim",
                         &data->applyBoundaryTrim, &trimfound); CHKERRQ(ierr);
     
-    if(!found) LOG_ALLOW(GLOBAL,LOG_DEBUG,"Trim Application not found,defaults to %s.\n",data->applyBoundaryTrim? "True":"False");
+    if(!trimfound) LOG_ALLOW(GLOBAL,LOG_DEBUG,"Trim Application not found,defaults to %s.\n",data->applyBoundaryTrim? "True":"False");
 
     PetscFunctionReturn(0);
 }
@@ -1762,7 +1762,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
             
             for (PetscInt j = lys; j < lye; j++) for (PetscInt i = lxs; i < lxe; i++) {
                 if (nvert[k_nvert][j][i] < 0.1) {
-                    PetscReal faceArea = sqrt(zet[k_nvert][j][i].x*zet[k_nvert][j][i].x + zet[k_nvert][j][i].y*zet[k_nvert][j][i].y + zet[k][j][i].z*zet[k][j][i].z);
+                    PetscReal faceArea = sqrt(zet[k_nvert][j][i].x*zet[k_nvert][j][i].x + zet[k_nvert][j][i].y*zet[k_nvert][j][i].y + zet[k_nvert][j][i].z*zet[k_nvert][j][i].z);
                     PetscReal fluxTrim = data->boundaryVelocityCorrection * faceArea;
                     if(data->applyBoundaryTrim) ucont[k_face][j][i].z += fluxTrim;
                     uch[k_face][j][i].z = fluxTrim;

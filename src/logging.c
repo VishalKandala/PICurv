@@ -1108,11 +1108,14 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
     PetscInt rank = simCtx->rank;
     PetscFunctionBeginUser;
     if (!rank) {
-
+        
+        const char[MAX_FILENAME_LENGTH] exec_mode_modifier;
+        if(simCtx->exec_mode == EXEC_MODE_SOLVER) exec_mode_modifier = "Solver";
+        else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) exec_mode_modifier = "PostProcessor";
         //--- Step 0: Create a file viewer for log file
         FILE *f;
         char filen[128];
-        sprintf(filen, "%s/ProfilingSummary.log",simCtx->log_dir);
+        sprintf(filen, "%s/ProfilingSummary_%s.log",simCtx->log_dir,exec_mode_modifier);
 
         // Open the log file in write mode.
         f = fopen(filen,"w");
