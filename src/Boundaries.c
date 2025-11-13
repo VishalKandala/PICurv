@@ -2110,6 +2110,7 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
 
     for (PetscInt i = 0; i < num_fields; i++) {
         ierr = TransferPeriodicFaceField(user, metric_fields[i]); CHKERRQ(ierr);
+        LOG_ALLOW(GLOBAL,LOG_TRACE,"Periodic Transfer complete for %s.\n",metric_fields[i]);
     }
 
     PROFILE_FUNCTION_END;
