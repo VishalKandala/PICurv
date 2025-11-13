@@ -323,6 +323,32 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user);
 PetscErrorCode ApplyPeriodicBCs(UserCtx *user);
 
 /**
+ * @brief (Orchestrator) Updates the contravariant velocity field in the local ghost cell regions for periodic boundaries.
+ *
+ * This function calls the TransferPeriodicFaceField primitive for the Ucont field.
+ * This is a direct replacement for the legacy Update_U_Cont_PBC function.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyUcontPeriodicBCs(UserCtx *user);
+
+/**
+ * @brief Enforces strict periodicity on the interior contravariant velocity field.
+ *
+ * This function is a "fix-up" routine for staggered grids. After a solver step,
+ * numerical inaccuracies can lead to small discrepancies between fluxes on opposing
+ * periodic boundaries. This function manually corrects this by copying the flux value
+ * from the first boundary face (retrieved from a ghost cell) to the last interior face.
+ *
+ * This routine involves MPI communication to synchronize the grid before and after the copy.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode EnforceUcontPeriodicity(UserCtx *user);
+
+/**
  * @brief Updates the dummy cells (ghost nodes) on the faces of the local domain for NON-PERIODIC boundaries.
  *
  * This function's role is to apply a second-order extrapolation to set the ghost
