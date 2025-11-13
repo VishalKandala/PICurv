@@ -1109,9 +1109,9 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
     PetscFunctionBeginUser;
     if (!rank) {
         
-        const char[MAX_FILENAME_LENGTH] exec_mode_modifier;
-        if(simCtx->exec_mode == EXEC_MODE_SOLVER) exec_mode_modifier = "Solver";
-        else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) exec_mode_modifier = "PostProcessor";
+        const char exec_mode_modifier[MAX_FILENAME_LENGTH]; 
+        if(simCtx->exec_mode == EXEC_MODE_SOLVER) strcpy(exec_mode_modifier,"Solver");
+        else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) strcpy(exec_mode_modifier,"PostProcessor");
         //--- Step 0: Create a file viewer for log file
         FILE *f;
         char filen[128];
