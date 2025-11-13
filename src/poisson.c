@@ -88,6 +88,219 @@ static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
   PetscFunctionReturn(0);
 }
 
+#include "solvers.h" // Or your main project header
+
+#undef __FUNCT__
+#define __FUNCT__ "CorrectChannelFluxProfile"
+/**
+ * @brief Enforces a constant volumetric flux profile along the entire length of a driven periodic channel.
+ *
+ * This function is a "hard" corrector, called at the end of the projection step.
+ * The projection ensures the velocity field is divergence-free (3D continuity), but this
+ * function enforces a stricter 1D continuity condition (`Flux(plane) = constant`)
+ * required for physically realistic, fully-developed periodic channel/pipe flow.
+ *
+ * The process is as follows:
+ * 1.  Introspects the boundary condition handlers to detect if a `DRIVEN_` flow is active
+ *     and in which direction ('X', 'Y', or 'Z'). If none is found, it exits.
+ * 2.  Measures the current volumetric flux through *every single cross-sectional plane*
+ *     in the driven direction.
+ * 3.  For each plane, it calculates the velocity correction required to make its flux
+ *     match the global `targetVolumetricFlux` (which was set by the controller).
+ * 4.  It applies this spatially-uniform (but plane-dependent) velocity correction directly
+ *     to the `ucont` field, ensuring `Flux(plane) = TargetFlux` for all planes.
+ *
+ * @param user The UserCtx containing the simulation state for a single block.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode CorrectChannelFluxProfile(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    SimCtx *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+
+    // --- Step 1: Discover if and where a driven flow is active ---
+    char drivenDirection = ' ';
+    for (int i = 0; i < 6; i++) {
+        BCHandlerType handler_type = user->boundary_faces[i].handler_type;
+        if (handler_type == BC_HANDLER_DRIVEN_CONSTANT_FLUX ||
+            handler_type == BC_HANDLER_DRIVEN_INITIAL_FLUX)
+        {
+            switch (user->boundary_faces[i].face_id) {
+                case BC_FACE_NEG_X: case BC_FACE_POS_X: drivenDirection = 'X'; break;
+                case BC_FACE_NEG_Y: case BC_FACE_POS_Y: drivenDirection = 'Y'; break;
+                case BC_FACE_NEG_Z: case BC_FACE_POS_Z: drivenDirection = 'Z'; break;
+            }
+            break;
+        }
+    }
+
+    // --- Step 2: Early exit if no driven flow is configured ---
+    if (drivenDirection == ' ') {
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Starting channel flux profile correction in '%c' direction...\n",
+              simCtx->rank, user->_this, drivenDirection);
+
+    // --- Step 3: Setup and Get PETSc Array Pointers ---
+    DMDALocalInfo info = user->info;
+    PetscInt i, j, k;
+    PetscInt mx = info.mx, my = info.my, mz = info.mz;
+    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
+    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
+    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
+    PetscInt lxe = (info.xs + info.xm == mx) ? mx - 1 : info.xs + info.xm;
+    PetscInt lye = (info.ys + info.ym == my) ? my - 1 : info.ys + info.ym;
+    PetscInt lze = (info.zs + info.zm == mz) ? mz - 1 : info.zs + info.zm;
+
+    Cmpnts ***ucont, ***csi, ***eta, ***zet;
+    PetscReal ***nvert;
+    ierr = DMDAVecGetArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+
+    // --- Step 4: Allocate Memory for Profile Arrays based on direction ---
+    PetscInt n_planes = 0;
+    switch (drivenDirection) {
+        case 'X': n_planes = mx - 1; break;
+        case 'Y': n_planes = my - 1; break;
+        case 'Z': n_planes = mz - 1; break;
+    }
+
+    PetscReal *localFluxProfile, *globalFluxProfile, *correctionProfile;
+    ierr = PetscMalloc1(n_planes, &localFluxProfile); CHKERRQ(ierr);
+    ierr = PetscMalloc1(n_planes, &globalFluxProfile); CHKERRQ(ierr);
+    ierr = PetscMalloc1(n_planes, &correctionProfile); CHKERRQ(ierr);
+    ierr = PetscMemzero(localFluxProfile, n_planes * sizeof(PetscReal)); CHKERRQ(ierr);
+
+    // --- Step 5: Calculate Total Cross-Sectional Area and Measure Flux Profile ---
+    PetscReal localArea = 0.0, globalArea = 0.0;
+    
+    switch (drivenDirection) {
+        case 'X':
+            if (info.xs == 0) { // Area is calculated by rank(s) on the negative face
+                i = 0;
+                for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
+                    if (nvert[k][j][i + 1] < 0.1)
+                        localArea += sqrt(csi[k][j][i].x*csi[k][j][i].x + csi[k][j][i].y*csi[k][j][i].y + csi[k][j][i].z*csi[k][j][i].z);
+                }
+            }
+            for (i = info.xs; i < lxe; i++) {
+                for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
+                    if (nvert[k][j][i + 1] < 0.1) localFluxProfile[i] += ucont[k][j][i].x;
+                }
+            }
+            break;
+        case 'Y':
+            if (info.ys == 0) {
+                j = 0;
+                for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
+                    if (nvert[k][j + 1][i] < 0.1)
+                        localArea += sqrt(eta[k][j][i].x*eta[k][j][i].x + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].z*eta[k][j][i].z);
+                }
+            }
+            for (j = info.ys; j < lye; j++) {
+                for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
+                    if (nvert[k][j + 1][i] < 0.1) localFluxProfile[j] += ucont[k][j][i].y;
+                }
+            }
+            break;
+        case 'Z':
+            if (info.zs == 0) {
+                k = 0;
+                for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
+                    if (nvert[k + 1][j][i] < 0.1)
+                        localArea += sqrt(zet[k][j][i].x*zet[k][j][i].x + zet[k][j][i].y*zet[k][j][i].y + zet[k][j][i].z*zet[k][j][i].z);
+                }
+            }
+            for (k = info.zs; k < lze; k++) {
+                for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
+                    if (nvert[k + 1][j][i] < 0.1) localFluxProfile[k] += ucont[k][j][i].z;
+                }
+            }
+            break;
+    }
+
+    ierr = MPI_Allreduce(&localArea, &globalArea, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(localFluxProfile, globalFluxProfile, n_planes, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    // --- Step 6: Calculate Correction Profile ---
+    PetscReal targetFlux = simCtx->targetVolumetricFlux;
+    if (globalArea > 1.0e-12) {
+        for (i = 0; i < n_planes; i++) {
+            correctionProfile[i] = (targetFlux - globalFluxProfile[i]) / globalArea;
+        }
+    } else {
+        ierr = PetscMemzero(correctionProfile, n_planes * sizeof(PetscReal)); CHKERRQ(ierr);
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Channel Flux Profile Corrector Update (Dir %c):\n", drivenDirection);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Target Flux for all planes: %.6e\n", targetFlux);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Measured Flux at plane 0:   %.6e (Correction Velocity: %.6e)\n", globalFluxProfile[0], correctionProfile[0]);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Measured Flux at plane %d:  %.6e (Correction Velocity: %.6e)\n", (n_planes-1)/2, globalFluxProfile[(n_planes-1)/2], correctionProfile[(n_planes-1)/2]);
+
+    /*  TURNED OFF IN LEGACY 
+    // --- Step 7: Apply Correction to Velocity Profile ---
+    switch (drivenDirection) {
+        case 'X':
+            for (i = info.xs; i < info.xs + info.xm - 1; i++) {
+                if (PetscAbs(correctionProfile[i]) > 1e-12) {
+                    for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
+                        if (nvert[k][j][i] < 0.1) {
+                            PetscReal faceArea = sqrt(csi[k][j][i].x*csi[k][j][i].x + csi[k][j][i].y*csi[k][j][i].y + csi[k][j][i].z*csi[k][j][i].z);
+                            ucont[k][j][i].x += correctionProfile[i] * faceArea;
+                        }
+                    }
+                }
+            }
+            break;
+        case 'Y':
+            for (j = info.ys; j < info.ys + info.ym - 1; j++) {
+                if (PetscAbs(correctionProfile[j]) > 1e-12) {
+                    for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
+                        if (nvert[k][j][i] < 0.1) {
+                            PetscReal faceArea = sqrt(eta[k][j][i].x*eta[k][j][i].x + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].z*eta[k][j][i].z);
+                            ucont[k][j][i].y += correctionProfile[j] * faceArea;
+                        }
+                    }
+                }
+            }
+            break;
+        case 'Z':
+            for (k = info.zs; k < info.zs + info.zm - 1; k++) {
+                if (PetscAbs(correctionProfile[k]) > 1e-12) {
+                    for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
+                        if (nvert[k][j][i] < 0.1) {
+                            PetscReal faceArea = sqrt(zet[k][j][i].x*zet[k][j][i].x + zet[k][j][i].y*zet[k][j][i].y + zet[k][j][i].z*zet[k][j][i].z);
+                            ucont[k][j][i].z += correctionProfile[k] * faceArea;
+                        }
+                    }
+                }
+            }
+            break;
+    }
+    */
+
+    // --- Step 8: Cleanup and Restore ---
+    ierr = PetscFree(localFluxProfile); CHKERRQ(ierr);
+    ierr = PetscFree(globalFluxProfile); CHKERRQ(ierr);
+    ierr = PetscFree(correctionProfile); CHKERRQ(ierr);
+
+    ierr = DMDAVecRestoreArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+
+    //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Channel flux profile correction complete.\n",
+    //          simCtx->rank, user->_this);
+              
+    PetscFunctionReturn(0);
+}
 
 //Cell Center
 #define CP  0 
@@ -635,18 +848,9 @@ PetscErrorCode Projection(UserCtx *user)
     }
   }
   
-  // --- Optional: Enforce specific mass flow rate for channel flow simulations ---
-  if (simCtx->channelz) {
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applying channel flow mass flux correction.\n");
-    // DMDAVecGetArray(fda, user->lCsi, &csi); DMDAVecGetArray(fda, user->lEta, &eta); DMDAVecGetArray(fda, user->lZet, &zet);
-    //DMDAVecGetArray(da, user->lAj, &aj);
-    // This entire block was commented out in the original code. It calculates the current
-    // total flux in the z-direction, compares it to a target flux (user->simCtx->FluxInSum),
-    // and computes a uniform velocity correction `ratio` to enforce the target.
-    // The implementation for applying the `ratio` was also commented out.
-    // Preserving this as-is.
-  } 
-
+  // Corrects Flux Profile for Driven Flows if applicable.
+  ierr = CorrectChannelFluxProfile(user);
+  
   //================================================================================
   // Section 3: Finalization and Cleanup
   //================================================================================

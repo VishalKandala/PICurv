@@ -237,8 +237,10 @@ typedef enum {
     BC_HANDLER_FARFIELD_NONREFLECTING = 9,
     BC_HANDLER_OUTLET_CONSERVATION = 10, 
     BC_HANDLER_OUTLET_PRESSURE = 11,
-    BC_HANDLER_PERIODIC = 12, 
-    BC_HANDLER_INTERFACE_OVERSET = 13
+    BC_HANDLER_PERIODIC_GEOMETRIC = 12, 
+    BC_HANDLER_INTERFACE_OVERSET = 13,
+    BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX =  14,
+    BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX = 15
   } BCHandlerType;
 
   
@@ -589,8 +591,6 @@ typedef struct SimCtx {
     //================ Group 4: Specific Simulation Case Flags ================
     PetscInt  cop, fish, fish_c, fishcyl, eel, pizza, turbine, Pipe, wing, hydro, MHV, LV;
     PetscInt channelz;
-    // Turbulent Flat Channel with Forcing term in Z direction (channel z) ** TEMPORARY CASE **
-    PetscReal drivingForceMagnitude,forceScalingFactor;
 
     //================ Group 5: Solver & Numerics Parameters ================
     PetscInt  implicit, implicit_type, imp_MAX_IT;
@@ -622,6 +622,9 @@ typedef struct SimCtx {
     PetscInt num_bcs_files;
     char **bcs_files;
     PetscReal  FluxInSum, FluxOutSum,Fluxsum,FarFluxInSum,FarFluxOutSum;
+    // Turbulent Flat Channel with Forcing term
+    PetscReal drivingForceMagnitude,forceScalingFactor;
+    PetscReal targetVolumetricFlux; // for DRIVEN flow.
     PetscReal  AreaInSum, AreaOutSum;
     PetscReal  U_bc;
     PetscInt   ccc;

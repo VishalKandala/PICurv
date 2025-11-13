@@ -728,11 +728,22 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
             LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletConstantVelocity().\n");
 	          ierr = Create_InletConstantVelocity(bc); CHKERRQ(ierr);
             break;
-        case BC_HANDLER_PERIODIC:
-            LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_Periodic().\n");
-            ierr = Create_Periodic(bc);
-            break;
 
+        case BC_HANDLER_PERIODIC_GEOMETRIC:
+            LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicGeometric().\n");
+            ierr = Create_PeriodicGeometric(bc);
+            break;
+        
+        case BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX:
+            LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicDrivenConstant().\n");
+            ierr = Create_PeriodicDrivenConstant(bc);
+            break;
+        
+        case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:
+            LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicDrivenInitial().\n");
+            ierr = Create_PeriodicDrivenInitial(bc);
+            break;
+                
         //case BC_HANDLER_INLET_PARABOLIC:
         //    LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletParabolicProfile().\n");
 	      //    ierr = Create_InletParabolicProfile(bc); CHKERRQ(ierr);
@@ -750,6 +761,42 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
     }
     
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Successfully created and configured handler for %s.\n", handler_name);
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "BoundarySystem_Validate"
+/**
+ * @brief (Public) Validates the consistency and compatibility of the parsed boundary condition system.
+ *
+ * This function is the main entry point for all boundary condition validation. It should be
+ * called from the main setup sequence AFTER the configuration file has been parsed by
+ * `ParseAllBoundaryConditions` but BEFORE any `BoundaryCondition` handler objects are created.
+ *
+ * It acts as a dispatcher, calling specialized private sub-validators for different complex
+ * BC setups (like driven flow) to ensure the combination of `mathematical_type` and `handler_type`
+ * across all six faces is physically and numerically valid. This provides a "fail-fast"
+ * mechanism to prevent users from running improperly configured simulations.
+ *
+ * @param user The UserCtx for a single block, containing the populated `boundary_faces` configuration.
+ * @return PetscErrorCode 0 on success, non-zero PETSc error code on failure.
+ */
+PetscErrorCode BoundarySystem_Validate(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Validating parsed boundary condition configuration...\n");
+
+    // --- Rule Set 1: Driven Flow Handler Consistency ---
+    // This specialized validator will check all rules related to driven flow handlers.
+    ierr = Validate_DrivenFlowConfiguration(user); CHKERRQ(ierr);
+
+    // --- Rule Set 2: (Future Extension) Overset Interface Consistency ---
+    // ierr = Validate_OversetConfiguration(user); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Boundary configuration is valid.\n");
+
     PetscFunctionReturn(0);
 }
 
@@ -799,6 +846,9 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
     // lists within the user->boundary_faces array on all MPI ranks.
     ierr = ParseAllBoundaryConditions(user, bcs_filename); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Configuration file '%s' parsed successfully.\n", bcs_filename);
+
+    // Step 1.1: Validate the parsed configuration to ensure there are no Boundary Condition conflicts
+    ierr = BoundarySystem_Validate(user);
 
     // Step 2: Create and Initialize the handler object for each of the 6 faces.
     for (int i = 0; i < 6; i++) {
@@ -2629,4 +2679,3 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
-
