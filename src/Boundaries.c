@@ -1878,6 +1878,11 @@ PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
         global_vec = user->Nvert;
         local_vec  = user->lNvert;
         dof        = 1;
+    } else if (strcmp(field_name, "Eddy Viscosity") == 0) {
+        dm         = user->da;
+        global_vec = user->Nu_t;
+        local_vec  = user->lNu_t;
+        dof        = 1;
     }
     /*
     // Example for future extension:
@@ -1928,6 +1933,183 @@ PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
     }
     else{
          SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "This function only accepts Fields with 1 or 3 DoF.");
+    }
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "TransferPeriodicFaceField"
+/**
+ * @brief (Primitive) Copies periodic data from the interior to the local ghost cell region for a single field.
+ *
+ * This primitive function performs a direct memory copy for a specified field, updating
+ * all periodic ghost faces (i, j, and k). It reads data from just inside the periodic boundary
+ * and writes it to the corresponding local ghost cells.
+ *
+ * The copy is "two-cells deep" to support wider computational stencils.
+ *
+ * This function does NOT involve any MPI communication; it operates entirely on local PETSc vectors.
+ *
+ * @param user The main UserCtx struct.
+ * @param field_name The string identifier for the field to update (e.g., "Csi", "Ucont").
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode TransferPeriodicFaceField(UserCtx *user, const char *field_name)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
+    PetscInt       gys = info.gys, gye = info.gys + info.gym;
+    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
+
+    // --- Dispatcher to get the correct DM, Vec, and DoF for the specified field ---
+    DM          dm;
+    Vec         local_vec;
+    PetscInt    dof;
+    // (This dispatcher contains all 17 potential fields)
+    if      (strcmp(field_name, "Ucont") == 0) { dm = user->fda; local_vec = user->lUcont; dof = 3; }
+    else if (strcmp(field_name, "Csi")   == 0) { dm = user->fda; local_vec = user->lCsi;   dof = 3; }
+    else if (strcmp(field_name, "Eta")   == 0) { dm = user->fda; local_vec = user->lEta;   dof = 3; }
+    else if (strcmp(field_name, "Zet")   == 0) { dm = user->fda; local_vec = user->lZet;   dof = 3; }
+    else if (strcmp(field_name, "ICsi")   == 0) { dm = user->fda; local_vec = user->lICsi;   dof = 3; }
+    else if (strcmp(field_name, "IEta")   == 0) { dm = user->fda; local_vec = user->lIEta;   dof = 3; }
+    else if (strcmp(field_name, "IZet")   == 0) { dm = user->fda; local_vec = user->lIZet;   dof = 3; }
+    else if (strcmp(field_name, "JCsi")   == 0) { dm = user->fda; local_vec = user->lJCsi;   dof = 3; }
+    else if (strcmp(field_name, "JEta")   == 0) { dm = user->fda; local_vec = user->lJEta;   dof = 3; }
+    else if (strcmp(field_name, "JZet")   == 0) { dm = user->fda; local_vec = user->lJZet;   dof = 3; }
+    else if (strcmp(field_name, "KCsi")   == 0) { dm = user->fda; local_vec = user->lKCsi;   dof = 3; }
+    else if (strcmp(field_name, "KEta")   == 0) { dm = user->fda; local_vec = user->lKEta;   dof = 3; }
+    else if (strcmp(field_name, "KZet")   == 0) { dm = user->fda; local_vec = user->lKZet;   dof = 3; }
+    else if (strcmp(field_name, "Aj")     == 0) { dm = user->da;  local_vec = user->lAj;   dof = 1; }
+    else if (strcmp(field_name, "IAj")   == 0) { dm = user->da;  local_vec = user->lIAj;   dof = 1; }
+    else if (strcmp(field_name, "JAj")   == 0) { dm = user->da;  local_vec = user->lJAj;   dof = 1; }
+    else if (strcmp(field_name, "KAj")   == 0) { dm = user->da;  local_vec = user->lKAj;   dof = 1; }
+    else {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s' in TransferPeriodicFaceField.", field_name);
+    }
+
+    PetscFunctionBeginUser;
+
+    void *l_array_ptr;
+    ierr = DMDAVecGetArray(dm, local_vec, &l_array_ptr); CHKERRQ(ierr);
+
+    // --- I-DIRECTION ---
+    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt j=gys; j<gye; j++) {
+            if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[k][j][0]   = arr[k][j][mx-2];
+                arr[k][j][-1]  = arr[k][j][mx-3];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[k][j][0]   = arr[k][j][mx-2];
+                arr[k][j][-1]  = arr[k][j][mx-3];
+            }
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt j=gys; j<gye; j++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[k][j][mx-1] = arr[k][j][1];
+                arr[k][j][mx]   = arr[k][j][2];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[k][j][mx-1] = arr[k][j][1];
+                arr[k][j][mx]   = arr[k][j][2];
+            }
+        }
+    }
+
+    // --- J-DIRECTION ---
+    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt i=gxs; i<gxe; i++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[k][0][i]   = arr[k][my-2][i];
+                arr[k][-1][i]  = arr[k][my-3][i];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[k][0][i]   = arr[k][my-2][i];
+                arr[k][-1][i]  = arr[k][my-3][i];
+            }
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt i=gxs; i<gxe; i++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[k][my-1][i] = arr[k][1][i];
+                arr[k][my][i]   = arr[k][2][i];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[k][my-1][i] = arr[k][1][i];
+                arr[k][my][i]   = arr[k][2][i];
+            }
+        }
+    }
+
+    // --- K-DIRECTION ---
+    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC) {
+        for (PetscInt j=gys; j<gye; j++) for (PetscInt i=gxs; i<gxe; i++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[0][j][i]   = arr[mz-2][j][i];
+                arr[-1][j][i]  = arr[mz-3][j][i];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[0][j][i]   = arr[mz-2][j][i];
+                arr[-1][j][i]  = arr[mz-3][j][i];
+            }
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
+        for (PetscInt j=gys; j<gye; j++) for (PetscInt i=gxs; i<gxe; i++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[mz-1][j][i] = arr[1][j][i];
+                arr[mz][j][i]   = arr[2][j][i];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[mz-1][j][i] = arr[1][j][i];
+                arr[mz][j][i]   = arr[2][j][i];
+            }
+        }
+    }
+
+    ierr = DMDAVecRestoreArray(dm, local_vec, &l_array_ptr); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyMetricsPeriodicBCs"
+/**
+ * @brief (Orchestrator) Updates all metric-related fields in the local ghost cell regions for periodic boundaries.
+ *
+ * This function calls the TransferPeriodicFaceField primitive for each of the 16
+ * metric fields that require a 2-cell deep periodic ghost cell update.
+ * This is a direct replacement for the legacy Update_Metrics_PBC function.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    const char* metric_fields[] = {
+        "Csi", "Eta", "Zet", "ICsi", "JCsi", "KCsi", "IEta", "JEta", "KEta",
+        "IZet", "JZet", "KZet", "Aj", "IAj", "JAj", "KAj"
+    };
+    PetscInt num_fields = sizeof(metric_fields) / sizeof(metric_fields[0]);
+
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = TransferPeriodicFaceField(user, metric_fields[i]); CHKERRQ(ierr);
     }
 
     PROFILE_FUNCTION_END;

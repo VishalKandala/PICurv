@@ -2414,6 +2414,8 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
             ierr = ComputeJFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeKFaceMetrics(user); CHKERRQ(ierr); 
 
+            // Apply Periodic Boundary Condition Adjustments if necessary
+            ierr = ApplyMetricsPeriodicBCs(user); CHKERRQ(ierr);
             // Diagnostics
 	    ierr = ComputeMetricNorms(user);
             if (level == usermg->mglevels - 1) {

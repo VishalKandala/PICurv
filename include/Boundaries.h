@@ -282,6 +282,35 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
 PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name);
 
 /**
+ * @brief (Primitive) Copies periodic data from the interior to the local ghost cell region for a single field.
+ *
+ * This primitive function performs a direct memory copy for a specified field, updating
+ * all periodic ghost faces (i, j, and k). It reads data from just inside the periodic boundary
+ * and writes it to the corresponding local ghost cells.
+ *
+ * The copy is "two-cells deep" to support wider computational stencils.
+ *
+ * This function does NOT involve any MPI communication; it operates entirely on local PETSc vectors.
+ *
+ * @param user The main UserCtx struct.
+ * @param field_name The string identifier for the field to update (e.g., "Csi", "Ucont").
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode TransferPeriodicFaceField(UserCtx *user, const char *field_name);
+
+/**
+ * @brief (Orchestrator) Updates all metric-related fields in the local ghost cell regions for periodic boundaries.
+ *
+ * This function calls the TransferPeriodicFaceField primitive for each of the 16
+ * metric fields that require a 2-cell deep periodic ghost cell update.
+ * This is a direct replacement for the legacy Update_Metrics_PBC function.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user);
+
+/**
  * @brief Applies periodic boundary conditions by copying data across domain boundaries for all relevant fields.
  *
  * This function orchestrates the periodic update. It first performs a single, collective
