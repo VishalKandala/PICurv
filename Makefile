@@ -107,7 +107,7 @@ $(info Building for system: $(SYSTEM_NAME))
 # Explicitly list the object files required for each final executable.
 PICSOLVER_OBJS := $(addprefix $(OBJDIR)/, \
                  picsolver.o setup.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
-                 Boundaries.o BC_Handlers.o wallfunction.o simulation.o walkingsearch.o \
+                 Boundaries.o BC_Handlers.o wallfunction.o simulation.o walkingsearch.o BodyForces.o\
                  ParticleSwarm.o ParticleMotion.o ParticlePhysics.o interpolation.o \
                  initialcondition.o rhs.o solvers.o implicitsolvers.o poisson.o\
 				 les.o  Filter.o)

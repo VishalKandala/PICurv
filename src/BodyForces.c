@@ -36,8 +36,8 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
     char drivenDirection = ' '; // Use space as a null/not-found indicator
     for (int i = 0; i < 6; i++) {
         BCHandlerType handler_type = user->boundary_faces[i].handler_type;
-        if (handler_type == BC_HANDLER_DRIVEN_CONSTANT_FLUX ||
-            handler_type == BC_HANDLER_DRIVEN_INITIAL_FLUX)
+        if (handler_type == BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX ||
+            handler_type == BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX)
         {
             switch (user->boundary_faces[i].face_id) {
                 case BC_FACE_NEG_X: case BC_FACE_POS_X: drivenDirection = 'X'; break;
@@ -108,7 +108,7 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
 
                             // Log details for the very first point where force is applied on this rank.
                             if (!hasLoggedApplication) {
-                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",force_z, k, j, i);
+                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",momentumSource, k, j, i);
                                 hasLoggedApplication = PETSC_TRUE;
                             }
                                 break;
@@ -119,7 +119,7 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
                             
                             // Log details for the very first point where force is applied on this rank.
                             if (!hasLoggedApplication) {
-                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",force_z, k, j, i);
+                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",momentumSource, k, j, i);
                                 hasLoggedApplication = PETSC_TRUE;
                             }
                             break;
@@ -130,7 +130,7 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
 
                             // Log details for the very first point where force is applied on this rank.
                             if (!hasLoggedApplication) {
-                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",force_z, k, j, i);
+                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",momentumSource, k, j, i);
                                 hasLoggedApplication = PETSC_TRUE;
                             }
                             break;

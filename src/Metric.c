@@ -951,6 +951,7 @@ PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
  *  - This function is a complete "compute and make ready" unit for Csi, Eta, and Zet.
  *  - It's recommended to call `VecZeroEntries` on user->Csi, Eta, Zet before this
  *    if they might contain old data.
+ * - Csi,Eta,Zeta are face centered quantities which represent the surface area in magnitude and the direction of positive computational coordinate increase in direction.
  */
 PetscErrorCode ComputeFaceMetrics(UserCtx *user)
 {
@@ -993,6 +994,9 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user)
     PetscInt k_loop_start = (zs == 0) ? zs + 1 : zs;
     PetscInt j_loop_start = (ys == 0) ? ys + 1 : ys;
     PetscInt i_loop_start = (xs == 0) ? xs + 1 : xs;
+
+   // These represent the surface area of the curvilinear cell face and the normal rotated such that the direction of increasing coordinate is maintained.
+   // The metric vectors (Csi, Eta, Zet) are defined to point in the direction of their corresponding increasing computational coordinate.
 
     // Calculate Csi
     for (PetscInt k_node = k_loop_start; k_node < ze; ++k_node) {
@@ -1316,6 +1320,8 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
  *
  * @param user The UserCtx for a specific grid level. The function populates `user->Cent` and `user->GridSpace`.
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * 
+ * @note Grid Spacing represents the vector connecting two adjacent grid cell faces. It is a vector whose magnitude gives the distance between two faces and direction is from one face center to the other.
  */
 PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
 {
@@ -1437,6 +1443,9 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
  * @param user The UserCtx for a specific grid level. This function populates
  *             the `user->ICsi`, `user->IEta`, `user->IZet`, and `user->IAj` vectors.
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * 
+ * @note Icsi,Ieta,Izet represent the computational coordinate gradients scaled by local volume inverse ((Iaj)
+ *       
  */
 PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 {
@@ -1678,6 +1687,7 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
  * @param user The UserCtx for a specific grid level. This function populates
  *             the `user->JCsi`, `user->JEta`, `user->JZet`, and `user->JAj` vectors.
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @note Jcsi,Jeta,Jzet represent the computational coordinate gradients scaled by local volume inverse ((Jaj)
  */
 PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
 {
@@ -1905,6 +1915,7 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
  * @param user The UserCtx for a specific grid level. This function populates
  *             the `user->KCsi`, `user->KEta`, `user->KZet`, and `user->KAj` vectors.
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @note Kcsi,Keta,Kzet represent the computational coordinate gradients scaled by local volume inverse ((Kaj)
  */
 PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
 {

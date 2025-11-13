@@ -25,3 +25,5 @@
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct);
+
+#endif // BODYFORCES_H

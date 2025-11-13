@@ -675,6 +675,180 @@ PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user)
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "EnforceRHSBoundaryConditions"
+/**
+ * @brief Enforces boundary conditions on the momentum equation's Right-Hand-Side (RHS) vector.
+ *
+ * This function is a faithful and structured replication of the boundary logic from the legacy
+ * `CalcRHS` routine. It accounts for the specific staggered grid architecture where a dimension of
+ * size `mx` has `mx-1` nodes (0 to mx-2) and `mx-2` cells. The face-centered RHS vector is
+ * allocated to size `mx`.
+ *
+ * This results in the following indexing for the x-component of the RHS:
+ *  - i = 0 to mx-3:         Internal physical faces.
+ *  - i = mx-2:              The final physical face, located at the boundary.
+ *  - i = mx-1:              A dummy/ghost location corresponding to the last element of the vector.
+ *
+ * This function performs two distinct roles based on this layout:
+ *
+ * 1.  **Strong BC Enforcement on Physical Boundary Faces:** For non-periodic boundaries, it zeroes
+ *     the RHS on the domain's outermost physical faces (e.g., i=0, i=mx-2). This enforces a
+ *     zero time-derivative (dU/dt = 0), ensuring that Dirichlet velocity conditions are maintained.
+ *
+ * 2.  **Dummy Location Sanitization:** On the positive-side dummy locations (i=mx-1, j=my-1, k=mz-1),
+ *     it unconditionally zeroes out all RHS components. This is a robust housekeeping step to
+ *     ensure these architecturally unused locations do not contain garbage data.
+ *
+ * @param user The UserCtx for the specific block being computed.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    Cmpnts         ***rhs;
+
+    // --- Grid extents for this MPI rank and global grid dimensions ---
+    const PetscInt xs = info.xs, xe = xs + info.xm;
+    const PetscInt ys = info.ys, ye = ys + info.ym;
+    const PetscInt zs = info.zs, ze = zs + info.zm;
+    const PetscInt mx = info.mx, my = info.my, mz = info.mz;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // Get a writable pointer to the local data of the global RHS vector.
+    ierr = DMDAVecGetArray(user->fda, user->Rhs, &rhs); CHKERRQ(ierr);
+
+    // ========================================================================
+    // --- I-DIRECTION (X-FACES) ---
+    // ========================================================================
+
+    // --- Negative X Face (i=0, the first physical face) ---
+    if (xs == 0) {
+        // This logic applies ONLY to physical (non-periodic) boundaries.
+        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) {
+            const PetscInt i = 0;
+            for (PetscInt k = zs; k < ze; k++) {
+                for (PetscInt j = ys; j < ye; j++) {
+                    rhs[k][j][i].x = 0.0;
+                    rhs[k][j][i].y = 0.0;
+                    rhs[k][j][i].z = 0.0;
+                }
+            }
+        }
+    }
+
+    // --- Positive X Face (physical face i=mx-2, dummy location i=mx-1) ---
+    if (xe == mx) {
+        // Step 1: Enforce strong BC on the LAST PHYSICAL face (i=mx-2) for non-periodic cases.
+        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC) {
+            const PetscInt i = mx - 2;
+            for (PetscInt k = zs; k < ze; k++) {
+                for (PetscInt j = ys; j < ye; j++) {
+                    rhs[k][j][i].x = 0.0;
+                }
+            }
+        }
+        // Step 2: Unconditionally sanitize the DUMMY location (i=mx-1).
+        const PetscInt i = mx - 1;
+        for (PetscInt k = zs; k < ze; k++) {
+            for (PetscInt j = ys; j < ye; j++) {
+                rhs[k][j][i].x = 0.0;
+                rhs[k][j][i].y = 0.0;
+                rhs[k][j][i].z = 0.0;
+            }
+        }
+    }
+
+    // ========================================================================
+    // --- J-DIRECTION (Y-FACES) ---
+    // ========================================================================
+
+    // --- Negative Y Face (j=0, the first physical face) ---
+    if (ys == 0) {
+        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) {
+            const PetscInt j = 0;
+            for (PetscInt k = zs; k < ze; k++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    rhs[k][j][i].x = 0.0;
+                    rhs[k][j][i].y = 0.0;
+                    rhs[k][j][i].z = 0.0;
+                }
+            }
+        }
+    }
+
+    // --- Positive Y Face (physical face j=my-2, dummy location j=my-1) ---
+    if (ye == my) {
+        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC) {
+            const PetscInt j = my - 2;
+            for (PetscInt k = zs; k < ze; k++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    rhs[k][j][i].y = 0.0;
+                }
+            }
+        }
+        const PetscInt j = my - 1;
+        for (PetscInt k = zs; k < ze; k++) {
+            for (PetscInt i = xs; i < xe; i++) {
+                rhs[k][j][i].x = 0.0;
+                rhs[k][j][i].y = 0.0;
+                rhs[k][j][i].z = 0.0;
+            }
+        }
+    }
+
+    // ========================================================================
+    // --- K-DIRECTION (Z-FACES) ---
+    // ========================================================================
+
+    // --- Negative Z Face (k=0, the first physical face) ---
+    if (zs == 0) {
+        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) {
+            const PetscInt k = 0;
+            for (PetscInt j = ys; j < ye; j++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    rhs[k][j][i].x = 0.0;
+                    rhs[k][j][i].y = 0.0;
+                    rhs[k][j][i].z = 0.0;
+                }
+            }
+        }
+    }
+
+    // --- Positive Z Face (physical face k=mz-2, dummy location k=mz-1) ---
+    if (ze == mz) {
+        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC) {
+            const PetscInt k = mz - 2;
+            for (PetscInt j = ys; j < ye; j++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    rhs[k][j][i].z = 0.0;
+                }
+            }
+        }
+        const PetscInt k = mz - 1;
+        for (PetscInt j = ys; j < ye; j++) {
+            for (PetscInt i = xs; i < xe; i++) {
+                rhs[k][j][i].x = 0.0;
+                rhs[k][j][i].y = 0.0;
+                rhs[k][j][i].z = 0.0;
+            }
+        }
+    }
+
+    // --- Release the pointer to the local data ---
+    ierr = DMDAVecRestoreArray(user->fda, user->Rhs, &rhs); CHKERRQ(ierr);
+
+    LOG_ALLOW(LOCAL, LOG_TRACE, "Rank %d, Block %d: Finished enforcing RHS boundary conditions.\n",
+              user->simCtx->rank, user->_this);
+    
+    PROFILE_FUNCTION_END;
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "BoundaryCondition_Create"
 /**
  * @brief (Private) Creates and configures a specific BoundaryCondition handler object.
@@ -739,10 +913,10 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
             ierr = Create_PeriodicDrivenConstant(bc);
             break;
         
-        case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:
-            LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicDrivenInitial().\n");
-            ierr = Create_PeriodicDrivenInitial(bc);
-            break;
+        //case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:
+        //    LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicDrivenInitial().\n");
+        //    ierr = Create_PeriodicDrivenInitial(bc);
+        //    break;
                 
         //case BC_HANDLER_INLET_PARABOLIC:
         //    LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletParabolicProfile().\n");
@@ -1563,6 +1737,97 @@ PetscErrorCode BoundarySystem_Destroy(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "TransferPeriodicFieldByDirection"
+/**
+ * @brief (Private Worker) Copies periodic data for a SINGLE field in a SINGLE direction.
+ *
+ * This is a low-level helper that performs the memory copy from the local ghost
+ * array to the global array for a specified field and direction ('i', 'j', or 'k').
+ * It contains NO communication logic; that is handled by the orchestrator.
+ *
+ * @param user The main UserCtx struct.
+ * @param field_name The string identifier for the field to transfer (e.g., "Ucat").
+ * @param direction The character 'i', 'j', or 'k' specifying the direction.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field_name, char direction)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       xs = info.xs, xe = info.xs + info.xm;
+    PetscInt       ys = info.ys, ye = info.ys + info.ym;
+    PetscInt       zs = info.zs, ze = info.zs + info.zm;
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
+
+    // --- Dispatcher to get DM, Vecs, and DoF for the specified field ---
+    DM        dm;
+    Vec       global_vec;
+    Vec       local_vec;
+    PetscInt  dof;
+    // (This dispatcher is identical to your TransferPeriodicField function)
+    if (strcmp(field_name, "Ucat") == 0) {
+        dm = user->fda; global_vec = user->Ucat; local_vec = user->lUcat; dof = 3;
+    } else if (strcmp(field_name, "P") == 0) {
+        dm = user->da; global_vec = user->P; local_vec = user->lP; dof = 1;
+    } else if (strcmp(field_name, "Nvert") == 0) {
+        dm = user->da; global_vec = user->Nvert; local_vec = user->lNvert; dof = 1;
+    } else {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s'", field_name);
+    }
+
+    PetscFunctionBeginUser;
+
+    // --- Execute the copy logic based on DoF and Direction ---
+    if (dof == 1) { // --- Handle SCALAR fields (PetscReal) ---
+        PetscReal ***g_array, ***l_array;
+        ierr = DMDAVecGetArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(dm, local_vec, (void*)&l_array); CHKERRQ(ierr); // Use Read for safety
+
+        switch (direction) {
+            case 'i':
+                if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xs] = l_array[k][j][xs-2];
+                if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xe-1] = l_array[k][j][xe+1];
+                break;
+            case 'j':
+                if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ys][i] = l_array[k][ys-2][i];
+                if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ye-1][i] = l_array[k][ye+1][i];
+                break;
+            case 'k':
+                if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[zs][j][i] = l_array[zs-2][j][i];
+                if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[ze-1][j][i] = l_array[ze+1][j][i];
+                break;
+            default: SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Invalid direction '%c'", direction);
+        }
+        ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(dm, local_vec, (void*)&l_array); CHKERRQ(ierr);
+
+    } else if (dof == 3) { // --- Handle VECTOR fields (Cmpnts) ---
+        Cmpnts ***g_array, ***l_array;
+        ierr = DMDAVecGetArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(dm, local_vec, (void*)&l_array); CHKERRQ(ierr);
+
+        switch (direction) {
+            case 'i':
+                if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xs] = l_array[k][j][xs-2];
+                if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xe-1] = l_array[k][j][xe+1];
+                break;
+            case 'j':
+                if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ys][i] = l_array[k][ys-2][i];
+                if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ye-1][i] = l_array[k][ye+1][i];
+                break;
+            case 'k':
+                if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[zs][j][i] = l_array[zs-2][j][i];
+                if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[ze-1][j][i] = l_array[ze+1][j][i];
+                break;
+            default: SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Invalid direction '%c'", direction);
+        }
+        ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(dm, local_vec, (void*)&l_array); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
 
 #undef __FUNCT__
 #define __FUNCT__ "TransferPeriodicField"
@@ -1985,6 +2250,58 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user)
 
     ierr = DMDAVecRestoreArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(da, user->P, &p); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "UpdatePeriodicCornerNodes"
+/**
+ * @brief (Orchestrator) Performs a sequential, deterministic periodic update for a list of fields.
+ *
+ * This function orchestrates the resolution of ambiguous periodic corners and edges.
+ * It takes an array of field names and updates them in a strict i-sync-j-sync-k order
+ * by calling the low-level worker `TransferPeriodicFieldByDirection` and the
+ * communication routine `UpdateLocalGhosts`.
+ *
+ * @param user The main UserCtx struct.
+ * @param num_fields The number of fields in the field_names array.
+ * @param field_names An array of strings with the names of fields to update (e.g., ["Ucat", "P"]).
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode UpdatePeriodicCornerNodes(UserCtx *user, PetscInt num_fields, const char* field_names[])
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    if (num_fields == 0) PetscFunctionReturn(0);
+
+    // --- I-DIRECTION ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = TransferPeriodicFieldByDirection(user, field_names[i], 'i'); CHKERRQ(ierr);
+    }
+    // --- SYNC ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = UpdateLocalGhosts(user, field_names[i]); CHKERRQ(ierr);
+    }
+
+    // --- J-DIRECTION ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = TransferPeriodicFieldByDirection(user, field_names[i], 'j'); CHKERRQ(ierr);
+    }
+    // --- SYNC ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = UpdateLocalGhosts(user, field_names[i]); CHKERRQ(ierr);
+    }
+
+    // --- K-DIRECTION ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = TransferPeriodicFieldByDirection(user, field_names[i], 'k'); CHKERRQ(ierr);
+    }
+    // --- FINAL SYNC ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = UpdateLocalGhosts(user, field_names[i]); CHKERRQ(ierr);
+    }
 
     PetscFunctionReturn(0);
 }
@@ -2549,27 +2866,27 @@ PetscErrorCode RefreshBoundaryGhostCells(UserCtx *user)
     // -------------------------------------------------------------------------
     // With `ubcs` now fully up-to-date, we execute the purely geometric
     // operations to fill the entire ghost cell layer. The order is important.
+
+    // (a) Update the ghost cells on the faces of non-periodic boundaries.
+    ierr = UpdateDummyCells(user); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Face ghost cells (dummy cells) updated.\n");    
     
-    // (a) Handle periodic boundaries first. This is a direct data copy.
+    // (b) Handle periodic boundaries first. This is a direct data copy.
+    // Ghost Update is done inside this function.s
     ierr = ApplyPeriodicBCs(user); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Periodic boundaries synchronized.\n");
-
-    // (b) Update the ghost cells on the faces of non-periodic boundaries.
-    ierr = UpdateDummyCells(user); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Face ghost cells (dummy cells) updated.\n");
     
     // (c) Update the ghost cells at the edges and corners by averaging.
     ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Edge and corner ghost cells updated.\n");
 
-    // -------------------------------------------------------------------------
-    // STEP 3: Final Synchronization
-    // -------------------------------------------------------------------------
-    // Ensure all changes made to global vectors are reflected in the local
-    // ghost regions of all processors, making the state fully consistent.
-    ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
+    // (d) Synchronize Ucat after setting corner nodes.
     ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Final ghost cell synchronization complete.\n");
+    
+    // (e) Update the corners for periodic conditions sequentially
+    //  ensuring no race conditions are raised. 
+    const char* ucat_only[] = {"Ucat"};
+    ierr = UpdatePeriodicCornerNodes(user,1,ucat_only);CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Boundary ghost cell refresh complete.\n");
     PROFILE_FUNCTION_END;
@@ -2652,22 +2969,28 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 
         LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Dummy Cells/Ghost Cells Updated.\n");
 
-        // (g) Update the corner and edge ghost nodes. This routine calculates
+        // (g) Handle all periodic boundaries. This is a parallel direct copy
+        // that sets the absolute constraints for the rest of the solve.
+        // There is a Ghost update happening inside this function.
+        ierr = ApplyPeriodicBCs(user); CHKERRQ(ierr);
+
+        // (h) Update the corner and edge ghost nodes. This routine calculates
         // values for corners/edges by averaging their neighbors, which have been
         // finalized in the steps above (both periodic and non-periodic).
         ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
         
-        // (h) Synchronize the updated dummy cells across all processors to ensure
+        // (i) Synchronize the updated edge and corner cells across all processors to ensure
         //     consistency before the next iteration or finalization.
         ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
 
-    }
+        // (j) Ensure All the corners are synchronized with  a well defined protocol  in case of Periodic boundary conditions
+        // To avoid race conditions.
+        const char* all_fields[] = {"Ucat", "P", "Nvert"};
+        ierr = UpdatePeriodicCornerNodes(user,3,all_fields); CHKERRQ(ierr);
 
-    // STEP 2: Handle all periodic boundaries. This is a one-time direct copy
-    // that sets the absolute constraints for the rest of the solve.
-    ierr = ApplyPeriodicBCs(user); CHKERRQ(ierr);
+    }
 
     // STEP 3: Final ghost node synchronization. This ensures all changes made
     // to the global vectors are reflected in the local ghost regions of all

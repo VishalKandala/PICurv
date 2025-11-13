@@ -24,7 +24,7 @@
  * @param user The UserCtx for a single block.
  * @return PetscErrorCode 0 on success, non-zero PETSc error code on failure.
  */
-static PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user);
+PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user);
 
 
 //================================================================================

@@ -625,6 +625,7 @@ typedef struct SimCtx {
     // Turbulent Flat Channel with Forcing term
     PetscReal drivingForceMagnitude,forceScalingFactor;
     PetscReal targetVolumetricFlux; // for DRIVEN flow.
+    PetscReal bulkVelocityCorrection;
     PetscReal  AreaInSum, AreaOutSum;
     PetscReal  U_bc;
     PetscInt   ccc;
