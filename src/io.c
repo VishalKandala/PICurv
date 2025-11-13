@@ -390,8 +390,19 @@ PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *valu
     BC_Param *current = params;
     while (current) {
         if (strcasecmp(current->key, key) == 0) {
-            *value_out = atob(current->value);
+                        // Key was found.
             *found = PETSC_TRUE;
+            
+            // Check the value string. Default to FALSE if the value is NULL or doesn't match a "true" string.
+            if (current->value && 
+               (strcasecmp(current->value, "true") == 0 ||
+                strcmp(current->value, "1") == 0         ||
+                strcasecmp(current->value, "yes") == 0))
+            {
+                *value_out = PETSC_TRUE;
+            } else {
+                *value_out = PETSC_FALSE;
+            }
             return 0; // Found it, we're done
         }
         current = current->next;
