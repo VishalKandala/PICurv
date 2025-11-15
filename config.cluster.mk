@@ -21,24 +21,29 @@ SYSTEM_NAME := HPC Cluster Environment
 ifndef PETSC_DIR
     $(error PETSC_DIR is not set. Did you forget to 'module load petsc'?)
 endif
-ifndef PETSC_ARCH
-    $(error PETSC_ARCH is not set. Did you forget to 'module load petsc'?)
-endif
+############# PETSC_ARCH not available on some clusters  (architecture is preset)
+#ifndef PETSC_ARCH
+#    $(error PETSC_ARCH is not set. Did you forget to 'module load petsc'?)
+#endif
+############
 include $(PETSC_DIR)/lib/petsc/conf/variables
 include $(PETSC_DIR)/lib/petsc/conf/rules
-$(info Using PETSC_ARCH: $(PETSC_ARCH))
+#$(info Using PETSC_ARCH: $(PETSC_ARCH))
+$(info Using PETSc from: $(PETSC_DIR))
 
+############# PETSC_ARCH not available on some clusters
 # --- 3. Automatic Build Type Detection ---
 # Set optimization flags based on the name of the PETSc architecture.
-ifeq (,$(findstring debug,$(PETSC_ARCH)))
-    # If "debug" is NOT in the name, use aggressive, architecture-specific optimizations.
-    $(info PETSc performance build detected. Using optimization flags: -O3 -march=native)
-    OPT_FLAGS := -O3 -march=native
-else
-    # If "debug" is in the name, use flags for debugging on the cluster.
-    $(info PETSc debug build detected. Using debug flags: -g -O0)
-    OPT_FLAGS := -g -O0
-endif
+#ifeq (,$(findstring debug,$(PETSC_ARCH)))
+#    # If "debug" is NOT in the name, use aggressive, architecture-specific optimizations.
+#    $(info PETSc performance build detected. Using optimization flags: -O3 -march=native)
+#    OPT_FLAGS := -O3 -march=native
+#else
+#    # If "debug" is in the name, use flags for debugging on the cluster.
+#    $(info PETSc debug build detected. Using debug flags: -g -O0)
+#    OPT_FLAGS := -g -O0
+#endif
+###########
 
 # --- 4. Generic Variable Definitions for the Main Makefile ---
 CC_TO_USE     := $(PCC)
