@@ -3417,6 +3417,8 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
         l = usermg->mglevels - 1;
         user = mgctx[l].user;
         
+        // We are solving the  linear system AX=B where A = Laplacian Operator Matrix; X = Unknown Phi (Pressure Correction) and B = RHS (Flux Divergence based)
+
         // --- 1. Compute RHS of the Poisson Equation ---
         LOG_ALLOW(LOCAL, LOG_DEBUG, "Block %d: Computing Poisson RHS...\n", bi);
         ierr = VecDuplicate(user[bi].P, &user[bi].B); CHKERRQ(ierr);
@@ -3430,7 +3432,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             flg = ((MHV > 1 || LV) && bi == 0) ? 1 : 0;
             VolumeFlux_rev(&user[bi], &ibm_Flux, &ibm_Area, flg);
         }
-        // Calculate the main divergence term
+        // Calculate the main flux divergence term B.
         PoissonRHS(&user[bi], user[bi].B);
         
         // --- 2. Assemble LHS Matrix (Laplacian) on all MG levels ---

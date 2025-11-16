@@ -50,13 +50,42 @@ import numpy as np
 # Type alias for grid coordinates for clarity
 GridCoords = Tuple[np.ndarray, np.ndarray, np.ndarray]
 
+# --- NEW: Helper function for hyperbolic stretching ---
+def create_stretched_linspace(
+    num_points: int, stretch_factor: float,
+    min_val: float, max_val: float
+) -> np.ndarray:
+    """!
+    @brief Generates a 1D array of points with hyperbolic tangent stretching.
+    @param num_points The number of points in the array.
+    @param stretch_factor Controls the intensity of clustering. A value of 0 means
+                          uniform spacing. Values > 1 create noticeable clustering
+                          at the boundaries.
+    @param min_val The minimum value of the output array.
+    @param max_val The maximum value of the output array.
+    @return A NumPy array with the stretched coordinates.
+    """
+    if stretch_factor < 1e-6:
+        return np.linspace(min_val, max_val, num_points)
+
+    # Create a uniform distribution from -1 to 1
+    uniform_dist = np.linspace(-1.0, 1.0, num_points)
+
+    # Apply the hyperbolic tangent stretching function
+    # The result is in the range [-1, 1]
+    stretched_dist = np.tanh(stretch_factor * uniform_dist) / np.tanh(stretch_factor)
+
+    # Scale and shift to the desired [min_val, max_val] range
+    return min_val + (max_val - min_val) * (stretched_dist + 1.0) / 2.0
+
 # --- Core Grid Generation Functions ---
 
 def cartesian_pipe_grid(
     ncells_i: int, ncells_j: int, ncells_k: int,
     side_lengths: List[float], Rc_factor: float,
     straight_factor: float, bend_angle_deg: float,
-    orientation: str, origin: List[float]
+    orientation: str, origin: List[float],
+    stretch_i: float, stretch_j: float  # --- MODIFIED ---
 ) -> GridCoords:
     """!
     @brief Generates a bent pipe grid by warping a Cartesian block.
@@ -72,8 +101,12 @@ def cartesian_pipe_grid(
     total_len = L_in + L_bend + L_out
 
     IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
-    xi_vals = np.linspace(-0.5, 0.5, IM)
-    eta_vals = np.linspace(-0.5, 0.5, JM)
+    
+    # --- MODIFIED: Use the stretching function for transverse coordinates ---
+    if stretch_i > 0: print(f"Applying hyperbolic stretching in i-direction (factor={stretch_i:.2f}).")
+    if stretch_j > 0: print(f"Applying hyperbolic stretching in j-direction (factor={stretch_j:.2f}).")
+    xi_vals = create_stretched_linspace(IM, stretch_i, -0.5, 0.5)
+    eta_vals = create_stretched_linspace(JM, stretch_j, -0.5, 0.5)
     zeta_vals = np.linspace(0, 1, KM)
 
     XI, ETA = np.meshgrid(xi_vals, eta_vals, indexing='ij')
@@ -112,7 +145,6 @@ def cartesian_pipe_grid(
         Y[:,:,k] = yc + d_xi*v_xi[1] + d_eta*v_eta[1]
         Z[:,:,k] = zc + d_xi*v_xi[2] + d_eta*v_eta[2]
     
-    # Shift grid to align its minimum bounding box corner with the specified origin
     shift_x = origin[0] - np.min(X)
     shift_y = origin[1] - np.min(Y)
     shift_z = origin[2] - np.min(Z)
@@ -123,7 +155,8 @@ def bent_pipe_grid(
     ncells_phi: int, ncells_r: int, ncells_path: int,
     D: float, Rc_factor: float, straight_factor: float,
     bend_angle_deg: float, pinhole_factor: float,
-    orientation: str, origin: List[float]
+    orientation: str, origin: List[float],
+    stretch_i: float, stretch_j: float  # --- MODIFIED ---
 ) -> GridCoords:
     """!
     @brief Generates a structured O-grid for a bent pipe.
@@ -133,9 +166,14 @@ def bent_pipe_grid(
     L_in = straight_factor*D; L_bend = Rc*bend_angle_rad; L_out = straight_factor*D
     total_len = L_in + L_bend + L_out
     IM, JM, KM = ncells_phi + 1, ncells_r + 1, ncells_path + 1
+    
+    # --- MODIFIED: Apply stretching to the radial direction (j) ---
+    if stretch_i > 0: print("Note: stretch-i (circumferential) is ignored for O-grid pipes.")
+    if stretch_j > 0: print(f"Applying hyperbolic stretching in j-direction (radial, factor={stretch_j:.2f}).")
     phi_vals = np.linspace(0, 2 * np.pi, IM)
-    r_vals_norm = np.linspace(0, 1, JM)
+    r_vals_norm = create_stretched_linspace(JM, stretch_j, 0, 1) # Radial direction
     zeta_vals = np.linspace(0, 1, KM)
+    
     if 0 < pinhole_factor < 1: print(f"Applying pinhole with radius factor: {pinhole_factor}")
     pinhole_radius = pinhole_factor * Rp
     physical_r = pinhole_radius + r_vals_norm * (Rp - pinhole_radius)
@@ -171,7 +209,6 @@ def bent_pipe_grid(
         Y[:,:,k] = yc + disp_xi*v_xi[1] + disp_eta*v_eta[1]
         Z[:,:,k] = zc + disp_xi*v_xi[2] + disp_eta*v_eta[2]
         
-    # Shift grid to align its minimum bounding box corner with the specified origin
     shift_x = origin[0] - np.min(X)
     shift_y = origin[1] - np.min(Y)
     shift_z = origin[2] - np.min(Z)
@@ -181,32 +218,38 @@ def bent_pipe_grid(
 def generate_curvilinear_grid(
     ncells_i: int, ncells_j: int, ncells_k: int,
     x_min: float, x_max: float, y_min: float, y_max: float, z_min: float, z_max: float,
-    A: float, B: float, C: float, origin: List[float]
+    A: float, B: float, C: float, origin: List[float],
+    stretch_i: float, stretch_j: float  # --- MODIFIED ---
 ) -> GridCoords:
     """!
     @brief Generates a 3D all-hexahedral grid by warping a Cartesian block.
     """
     print("Generating Warped Box Grid ---")
     IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
-    xi = np.linspace(0, 1, IM); eta = np.linspace(0, 1, JM); zeta = np.linspace(0, 1, KM)
+    
+    # --- MODIFIED: Use the stretching function for transverse coordinates ---
+    if stretch_i > 0: print(f"Applying hyperbolic stretching in i-direction (factor={stretch_i:.2f}).")
+    if stretch_j > 0: print(f"Applying hyperbolic stretching in j-direction (factor={stretch_j:.2f}).")
+    xi = create_stretched_linspace(IM, stretch_i, 0, 1)
+    eta = create_stretched_linspace(JM, stretch_j, 0, 1)
+    zeta = np.linspace(0, 1, KM)
+    
     XI, ETA, ZETA = np.meshgrid(xi, eta, zeta, indexing='ij')
     X_norm = (XI+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*ETA)+C*np.sin(2*np.pi*ZETA))
     Y_norm = (ETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ZETA))
     Z_norm = (ZETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ETA))
     
-    # Generate grid in local coordinates based on bounds
     X_local = x_min + (x_max-x_min)*X_norm
     Y_local = y_min + (y_max-y_min)*Y_norm
     Z_local = z_min + (z_max-z_min)*Z_norm
     
-    # Shift grid to align its minimum bounding box corner with the specified origin
     shift_x = origin[0] - np.min(X_local)
     shift_y = origin[1] - np.min(Y_local)
     shift_z = origin[2] - np.min(Z_local)
 
     return X_local + shift_x, Y_local + shift_y, Z_local + shift_z
 
-# --- Grid Analysis and Export Functions ---
+# --- Grid Analysis and Export Functions (UNCHANGED) ---
 def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
     """!
     @brief Performs a comprehensive quality analysis on the grid and returns a dictionary of metrics.
@@ -287,7 +330,7 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
     stats['std_non_ortho'] = np.std(all_ortho_angles)
 
     return stats
-
+# ... (print_stats_to_console, export_stats_to_file, etc. are unchanged)
 def print_stats_to_console(stats: dict) -> None:
     """!
     @brief Prints a formatted summary of the grid quality analysis to the console.
@@ -388,7 +431,6 @@ def export_grid_to_vts_manual(filename: str, X: np.ndarray, Y: np.ndarray, Z: np
     except IOError as e: print(f"Error: Could not write to file '{filename}'.\n{e}", file=sys.stderr)
 
 # --- Main Command-Line Interface ---
-# --- Main Command-Line Interface ---
 def main() -> None:
     """!
     @brief Parses arguments and config file, then runs the grid generator.
@@ -402,6 +444,7 @@ Order of Precedence:
 2. Configuration file settings
 3. Built-in script defaults (lowest priority)
 """
+    # --- MODIFIED: Added stretching example to epilog ---
     prog_epilog = """
 Usage Examples:
 -----------------
@@ -413,30 +456,36 @@ python3 grid.gen --config grid.cfg pipe --ncells-path 200
 
 # Run without a config file, using command-line args and built-in defaults
 python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
+
+# Generate a cpipe grid with hyperbolic clustering near the walls
+python3 grid.gen cpipe --ncells-i 32 --ncells-j 32 --stretch-i 2.5 --stretch-j 2.5
 """
     
-    # --- Step 1: Define the parsers. ---
     parser = argparse.ArgumentParser(description=prog_description, formatter_class=argparse.RawDescriptionHelpFormatter, epilog=prog_epilog)
     parser.add_argument("-c", "--config", help="Path to configuration file.", metavar="FILE")
     subparsers = parser.add_subparsers(dest='grid_type', title='Available Commands', metavar='COMMAND', help='Run "COMMAND -h" for more information.')
-
+    
+    # --- MODIFIED: Added stretch factors to defaults ---
     default_map = {
         'cpipe': {
             'ncells_i': 16, 'ncells_j': 16, 'ncells_k': 100, 'side_lengths': [1.0, 1.0],
             'rc_factor': 4.0, 'straight_factor': 5.0, 'bend_angle': 90.0, 'orientation': 'xy',
             'origin': [0.0, 0.0, 0.0], 'show_stats': True, 'write_vtk': True,
+            'stretch_i': 0.0, 'stretch_j': 0.0,
         },
         'pipe': {
             'ncells_phi': 24, 'ncells_r': 12, 'ncells_path': 100, 'diameter': 1.0,
             'rc_factor': 2.0, 'straight_factor': 5.0, 'bend_angle': 90.0,
             'pinhole_factor': 0.05, 'orientation': 'xy', 'origin': [0.0, 0.0, 0.0],
             'show_stats': True, 'write_vtk': True,
+            'stretch_i': 0.0, 'stretch_j': 0.0,
         },
         'warp': {
             'ncells_i': 20, 'ncells_j': 20, 'ncells_k': 20, 'bounds_x': [0.0, 1.0],
             'bounds_y': [0.0, 1.0], 'bounds_z': [0.0, 1.0], 'amp_A': 0.1,
             'amp_B': 0.05, 'amp_C': 0.05, 'origin': [0.0, 0.0, 0.0],
             'show_stats': True, 'write_vtk': True,
+            'stretch_i': 0.0, 'stretch_j': 0.0,
         }
     }
 
@@ -448,6 +497,11 @@ python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
     add_arg(parent, '--output', type=str, help="Output filename for PICGRID format.")
     add_arg(parent, '--origin', type=float, nargs=3, metavar=('X','Y','Z'), help="Set the [x,y,z] minimum corner of the grid's bounding box.")
     add_arg(parent, '--stats-file', type=str, help="Output filename for grid quality statistics report.")
+    
+    # --- NEW: Added stretch factor arguments to the parent parser ---
+    add_arg(parent, '--stretch-i', type=float, help="Hyperbolic stretching factor in i-dir. 0=uniform, >1=clustered. (Default: 0.0)")
+    add_arg(parent, '--stretch-j', type=float, help="Hyperbolic stretching factor in j-dir. 0=uniform, >1=clustered. (Default: 0.0)")
+
     stats_group = parent.add_mutually_exclusive_group()
     stats_group.add_argument('--show-stats', action='store_true', dest='show_stats', default=argparse.SUPPRESS, help="Print quality stats to console.")
     stats_group.add_argument('--no-show-stats', action='store_false', dest='show_stats', default=argparse.SUPPRESS, help="Suppress printing quality stats.")
@@ -487,13 +541,10 @@ python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
     add_arg(p_warp, '--amp-B',type=float)
     add_arg(p_warp, '--amp-C',type=float)
 
-    # --- Step 2: Manually build the final parameters with correct precedence ---
+    # --- Parameter precedence logic (UNCHANGED) ---
     cli_args = parser.parse_args()
-    
     grid_type = cli_args.grid_type
     config_params = {}
-    
-    # --- BUG FIX 1: Check if cli_args.config has a value, not just if it exists ---
     if cli_args.config:
         print(f"Reading settings from '{cli_args.config}' ---")
         config = configparser.ConfigParser(inline_comment_prefixes=('#', ';'))
@@ -501,17 +552,13 @@ python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
             config.read(cli_args.config)
             if not grid_type and config.sections():
                 grid_type = config.sections()[0]
-            
             if grid_type and config.has_section(grid_type):
                 config_params = dict(config.items(grid_type))
         else:
             print(f"Warning: Config file '{cli_args.config}' not found.", file=sys.stderr)
-
     if not grid_type:
         parser.error("A grid type must be specified on the command line or as the first section in a config file.")
-        
     params = default_map[grid_type].copy()
-
     active_subparser = subparsers.choices[grid_type]
     for key, value in config_params.items():
         for action in active_subparser._actions:
@@ -528,24 +575,19 @@ python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
                 except Exception:
                      parser.error(f"Invalid value for '{key}' from config file: '{value}'")
                 break
-    
-    # --- BUG FIX 2: Filter out None values from CLI args before updating ---
-    # This prevents `grid_type=None` from overwriting the value from the config file.
     cli_only_args = {k: v for k, v in vars(cli_args).items() if v is not None}
     params.update(cli_only_args)
-
     params['grid_type'] = grid_type
-    
     args = argparse.Namespace(**params)
     
-    # --- Step 3 & 4: Call generator and export ---
+    # --- MODIFIED: Pass new stretch arguments to generator functions ---
     X, Y, Z = None, None, None
     if args.grid_type == 'cpipe':
-        X, Y, Z = cartesian_pipe_grid(ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k, side_lengths=args.side_lengths, Rc_factor=args.rc_factor, straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle, orientation=args.orientation, origin=args.origin)
+        X, Y, Z = cartesian_pipe_grid(ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k, side_lengths=args.side_lengths, Rc_factor=args.rc_factor, straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle, orientation=args.orientation, origin=args.origin, stretch_i=args.stretch_i, stretch_j=args.stretch_j)
     elif args.grid_type == 'pipe':
-        X, Y, Z = bent_pipe_grid(ncells_phi=args.ncells_phi, ncells_r=args.ncells_r, ncells_path=args.ncells_path, D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor, orientation=args.orientation, origin=args.origin)
+        X, Y, Z = bent_pipe_grid(ncells_phi=args.ncells_phi, ncells_r=args.ncells_r, ncells_path=args.ncells_path, D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor, orientation=args.orientation, origin=args.origin, stretch_i=args.stretch_i, stretch_j=args.stretch_j)
     elif args.grid_type == 'warp':
-        X, Y, Z = generate_curvilinear_grid(ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k, x_min=args.bounds_x[0], x_max=args.bounds_x[1], y_min=args.bounds_y[0], y_max=args.bounds_y[1], z_min=args.bounds_z[0], z_max=args.bounds_z[1], A=args.amp_A, B=args.amp_B, C=args.amp_C, origin=args.origin)
+        X, Y, Z = generate_curvilinear_grid(ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k, x_min=args.bounds_x[0], x_max=args.bounds_x[1], y_min=args.bounds_y[0], y_max=args.bounds_y[1], z_min=args.bounds_z[0], z_max=args.bounds_z[1], A=args.amp_A, B=args.amp_B, C=args.amp_C, origin=args.origin, stretch_i=args.stretch_i, stretch_j=args.stretch_j)
 
     if X is None:
         print(f"Error: Grid generation failed for type '{args.grid_type}'.", file=sys.stderr)
