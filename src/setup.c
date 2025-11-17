@@ -753,6 +753,8 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
 
     // --- 1. Allocate the array of MGCtx structs ---
     ierr = PetscMalloc(usermg->mglevels * sizeof(MGCtx), &usermg->mgctx); CHKERRQ(ierr);
+    // Zero-initialize to ensure all pointers (especially packer) are NULL
+    ierr = PetscMemzero(usermg->mgctx, usermg->mglevels * sizeof(MGCtx)); CHKERRQ(ierr);
     mgctx = usermg->mgctx;
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Allocated MGCtx array of size %d.\n", simCtx->rank, usermg->mglevels);
     
@@ -957,7 +959,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 		            ierr = VecDuplicate(user->Nvert, &user->Nvert_o); CHKERRQ(ierr); ierr = VecSet(user->Nvert_o, 0.0); CHKERRQ(ierr);
               }
 
-	    // --- Group D: Grid Metrics (Cell-Centered) ---
+	    // --- Group D: Grid Metrics (Face-Centered) ---
             ierr = DMCreateGlobalVector(user->fda, &user->Csi); CHKERRQ(ierr); ierr = VecSet(user->Csi, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->Csi, &user->Eta);         CHKERRQ(ierr); ierr = VecSet(user->Eta, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->Csi, &user->Zet);         CHKERRQ(ierr); ierr = VecSet(user->Zet, 0.0); CHKERRQ(ierr);
@@ -2748,6 +2750,442 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+//================================================================================
+//
+//                         MEMORY CLEANUP FUNCTIONS
+//
+//================================================================================
+
+#undef __FUNCT__
+#define __FUNCT__ "DestroyUserVectors"
+/**
+ * @brief Destroys all Vec objects in a UserCtx structure.
+ *
+ * This function systematically destroys all PETSc Vec objects allocated in a UserCtx,
+ * with proper conditional checks for vectors that are only allocated under certain
+ * conditions (finest level, turbulence models, particles, postprocessor mode, etc.).
+ *
+ * @param user The UserCtx structure whose vectors should be destroyed.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode DestroyUserVectors(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    // --- Group A: Primary Flow Fields (Always allocated at all levels) ---
+    if (user->Ucont) { ierr = VecDestroy(&user->Ucont); CHKERRQ(ierr); }
+    if (user->lUcont) { ierr = VecDestroy(&user->lUcont); CHKERRQ(ierr); }
+    if (user->Ucat) { ierr = VecDestroy(&user->Ucat); CHKERRQ(ierr); }
+    if (user->lUcat) { ierr = VecDestroy(&user->lUcat); CHKERRQ(ierr); }
+    if (user->P) { ierr = VecDestroy(&user->P); CHKERRQ(ierr); }
+    if (user->lP) { ierr = VecDestroy(&user->lP); CHKERRQ(ierr); }
+    if (user->Nvert) { ierr = VecDestroy(&user->Nvert); CHKERRQ(ierr); }
+    if (user->lNvert) { ierr = VecDestroy(&user->lNvert); CHKERRQ(ierr); }
+
+    // --- Group B: Solver Work Vectors (All levels) ---
+    if (user->Phi) { ierr = VecDestroy(&user->Phi); CHKERRQ(ierr); }
+    if (user->lPhi) { ierr = VecDestroy(&user->lPhi); CHKERRQ(ierr); }
+
+    // --- Group C: Time-Stepping Vectors (Finest level only) ---
+    if (user->Ucont_o) { ierr = VecDestroy(&user->Ucont_o); CHKERRQ(ierr); }
+    if (user->Ucont_rm1) { ierr = VecDestroy(&user->Ucont_rm1); CHKERRQ(ierr); }
+    if (user->Ucat_o) { ierr = VecDestroy(&user->Ucat_o); CHKERRQ(ierr); }
+    if (user->P_o) { ierr = VecDestroy(&user->P_o); CHKERRQ(ierr); }
+    if (user->Nvert_o) { ierr = VecDestroy(&user->Nvert_o); CHKERRQ(ierr); }
+    if (user->lUcont_o) { ierr = VecDestroy(&user->lUcont_o); CHKERRQ(ierr); }
+    if (user->lUcont_rm1) { ierr = VecDestroy(&user->lUcont_rm1); CHKERRQ(ierr); }
+    if (user->lNvert_o) { ierr = VecDestroy(&user->lNvert_o); CHKERRQ(ierr); }
+
+    // --- Group D: Grid Metrics - Face Centered (All levels) ---
+    if (user->Csi) { ierr = VecDestroy(&user->Csi); CHKERRQ(ierr); }
+    if (user->Eta) { ierr = VecDestroy(&user->Eta); CHKERRQ(ierr); }
+    if (user->Zet) { ierr = VecDestroy(&user->Zet); CHKERRQ(ierr); }
+    if (user->Aj) { ierr = VecDestroy(&user->Aj); CHKERRQ(ierr); }
+    if (user->lCsi) { ierr = VecDestroy(&user->lCsi); CHKERRQ(ierr); }
+    if (user->lEta) { ierr = VecDestroy(&user->lEta); CHKERRQ(ierr); }
+    if (user->lZet) { ierr = VecDestroy(&user->lZet); CHKERRQ(ierr); }
+    if (user->lAj) { ierr = VecDestroy(&user->lAj); CHKERRQ(ierr); }
+
+    // --- Group E: Grid Metrics - Face Centered (All levels) ---
+    if (user->ICsi) { ierr = VecDestroy(&user->ICsi); CHKERRQ(ierr); }
+    if (user->IEta) { ierr = VecDestroy(&user->IEta); CHKERRQ(ierr); }
+    if (user->IZet) { ierr = VecDestroy(&user->IZet); CHKERRQ(ierr); }
+    if (user->JCsi) { ierr = VecDestroy(&user->JCsi); CHKERRQ(ierr); }
+    if (user->JEta) { ierr = VecDestroy(&user->JEta); CHKERRQ(ierr); }
+    if (user->JZet) { ierr = VecDestroy(&user->JZet); CHKERRQ(ierr); }
+    if (user->KCsi) { ierr = VecDestroy(&user->KCsi); CHKERRQ(ierr); }
+    if (user->KEta) { ierr = VecDestroy(&user->KEta); CHKERRQ(ierr); }
+    if (user->KZet) { ierr = VecDestroy(&user->KZet); CHKERRQ(ierr); }
+    if (user->IAj) { ierr = VecDestroy(&user->IAj); CHKERRQ(ierr); }
+    if (user->JAj) { ierr = VecDestroy(&user->JAj); CHKERRQ(ierr); }
+    if (user->KAj) { ierr = VecDestroy(&user->KAj); CHKERRQ(ierr); }
+    if (user->lICsi) { ierr = VecDestroy(&user->lICsi); CHKERRQ(ierr); }
+    if (user->lIEta) { ierr = VecDestroy(&user->lIEta); CHKERRQ(ierr); }
+    if (user->lIZet) { ierr = VecDestroy(&user->lIZet); CHKERRQ(ierr); }
+    if (user->lJCsi) { ierr = VecDestroy(&user->lJCsi); CHKERRQ(ierr); }
+    if (user->lJEta) { ierr = VecDestroy(&user->lJEta); CHKERRQ(ierr); }
+    if (user->lJZet) { ierr = VecDestroy(&user->lJZet); CHKERRQ(ierr); }
+    if (user->lKCsi) { ierr = VecDestroy(&user->lKCsi); CHKERRQ(ierr); }
+    if (user->lKEta) { ierr = VecDestroy(&user->lKEta); CHKERRQ(ierr); }
+    if (user->lKZet) { ierr = VecDestroy(&user->lKZet); CHKERRQ(ierr); }
+    if (user->lIAj) { ierr = VecDestroy(&user->lIAj); CHKERRQ(ierr); }
+    if (user->lJAj) { ierr = VecDestroy(&user->lJAj); CHKERRQ(ierr); }
+    if (user->lKAj) { ierr = VecDestroy(&user->lKAj); CHKERRQ(ierr); }
+
+    // --- Group F: Cell/Face Coordinates and Grid Spacing (All levels) ---
+    if (user->Cent) { ierr = VecDestroy(&user->Cent); CHKERRQ(ierr); }
+    if (user->lCent) { ierr = VecDestroy(&user->lCent); CHKERRQ(ierr); }
+    if (user->GridSpace) { ierr = VecDestroy(&user->GridSpace); CHKERRQ(ierr); }
+    if (user->lGridSpace) { ierr = VecDestroy(&user->lGridSpace); CHKERRQ(ierr); }
+    if (user->Centx) { ierr = VecDestroy(&user->Centx); CHKERRQ(ierr); }
+    if (user->Centy) { ierr = VecDestroy(&user->Centy); CHKERRQ(ierr); }
+    if (user->Centz) { ierr = VecDestroy(&user->Centz); CHKERRQ(ierr); }
+
+    // --- Group G: Turbulence Model Vectors (Finest level, conditional on les/rans) ---
+    if (user->Nu_t) { ierr = VecDestroy(&user->Nu_t); CHKERRQ(ierr); }
+    if (user->lNu_t) { ierr = VecDestroy(&user->lNu_t); CHKERRQ(ierr); }
+    if (user->CS) { ierr = VecDestroy(&user->CS); CHKERRQ(ierr); }
+    if (user->lCs) { ierr = VecDestroy(&user->lCs); CHKERRQ(ierr); }
+    if (user->lFriction_Velocity) { ierr = VecDestroy(&user->lFriction_Velocity); CHKERRQ(ierr); }
+    if (user->K_Omega) { ierr = VecDestroy(&user->K_Omega); CHKERRQ(ierr); }
+    if (user->lK_Omega) { ierr = VecDestroy(&user->lK_Omega); CHKERRQ(ierr); }
+    if (user->K_Omega_o) { ierr = VecDestroy(&user->K_Omega_o); CHKERRQ(ierr); }
+    if (user->lK_Omega_o) { ierr = VecDestroy(&user->lK_Omega_o); CHKERRQ(ierr); }
+
+    // --- Group H: Particle Vectors (Finest level, conditional on np > 0) ---
+    if (user->ParticleCount) { ierr = VecDestroy(&user->ParticleCount); CHKERRQ(ierr); }
+    if (user->lParticleCount) { ierr = VecDestroy(&user->lParticleCount); CHKERRQ(ierr); }
+    if (user->Psi) { ierr = VecDestroy(&user->Psi); CHKERRQ(ierr); }
+    if (user->lPsi) { ierr = VecDestroy(&user->lPsi); CHKERRQ(ierr); }
+
+    // --- Group I: Boundary Condition Vectors (All levels) ---
+    if (user->Bcs.Ubcs) { ierr = VecDestroy(&user->Bcs.Ubcs); CHKERRQ(ierr); }
+    if (user->Bcs.Uch) { ierr = VecDestroy(&user->Bcs.Uch); CHKERRQ(ierr); }
+
+    // --- Group J: Post-Processing Vectors (Finest level, postprocessor mode) ---
+    if (user->P_nodal) { ierr = VecDestroy(&user->P_nodal); CHKERRQ(ierr); }
+    if (user->Ucat_nodal) { ierr = VecDestroy(&user->Ucat_nodal); CHKERRQ(ierr); }
+    if (user->Qcrit) { ierr = VecDestroy(&user->Qcrit); CHKERRQ(ierr); }
+    if (user->Psi_nodal) { ierr = VecDestroy(&user->Psi_nodal); CHKERRQ(ierr); }
+
+    // --- Group K: Interpolation Vectors (Lazy allocation) ---
+    if (user->CellFieldAtCorner) { ierr = VecDestroy(&user->CellFieldAtCorner); CHKERRQ(ierr); }
+    if (user->lCellFieldAtCorner) { ierr = VecDestroy(&user->lCellFieldAtCorner); CHKERRQ(ierr); }
+
+    // --- Group L: Statistical Averaging Vectors (If allocated) ---
+    if (user->Ucat_sum) { ierr = VecDestroy(&user->Ucat_sum); CHKERRQ(ierr); }
+    if (user->Ucat_cross_sum) { ierr = VecDestroy(&user->Ucat_cross_sum); CHKERRQ(ierr); }
+    if (user->Ucat_square_sum) { ierr = VecDestroy(&user->Ucat_square_sum); CHKERRQ(ierr); }
+    if (user->P_sum) { ierr = VecDestroy(&user->P_sum); CHKERRQ(ierr); }
+
+    // --- Group M: Implicit Solver Temporary Vectors (Destroyed after use, but check anyway) ---
+    if (user->Rhs) { ierr = VecDestroy(&user->Rhs); CHKERRQ(ierr); }
+    if (user->dUcont) { ierr = VecDestroy(&user->dUcont); CHKERRQ(ierr); }
+    if (user->pUcont) { ierr = VecDestroy(&user->pUcont); CHKERRQ(ierr); }
+
+    // --- Group N: Poisson Solver Vectors (Destroyed after solve, but check anyway) ---
+    if (user->B) { ierr = VecDestroy(&user->B); CHKERRQ(ierr); }
+    if (user->R) { ierr = VecDestroy(&user->R); CHKERRQ(ierr); }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "All vectors destroyed for UserCtx.\n");
+    PetscFunctionReturn(0);
+}
+#undef __FUNCT__
+#define __FUNCT__ "DestroyUserContext"
+/**
+ * @brief Destroys all resources allocated within a single UserCtx structure.
+ *
+ * This function cleans up all memory and PETSc objects associated with a single
+ * UserCtx (grid level). It calls the helper functions and destroys remaining objects
+ * in the proper dependency order:
+ *   1. Boundary conditions (handlers and their data)
+ *   2. All PETSc vectors (via DestroyUserVectors)
+ *   3. Matrix and solver objects (A, C, MR, MP, ksp, nullsp)
+ *   4. Application ordering (AO)
+ *   5. Distributed mesh objects (DMs) - most derived first
+ *   6. Raw PetscMalloc'd arrays (RankCellInfoMap, KSKE)
+ *
+ * This function should be called for each UserCtx in the multigrid hierarchy.
+ *
+ * @param[in,out] user Pointer to the UserCtx to be destroyed.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode DestroyUserContext(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    if (!user) {
+        LOG_ALLOW(LOCAL, LOG_WARNING, "DestroyUserContext called with NULL user pointer.\n");
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(LOCAL, LOG_INFO, "Destroying UserCtx at level %d...\n", user->thislevel);
+
+    // --- Step 1: Destroy Boundary Condition System ---
+    // This handles all BC handlers and their private data.
+    ierr = BoundarySystem_Destroy(user); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Boundary system destroyed.\n");
+
+    // --- Step 2: Destroy All Vectors ---
+    // Handles ~74 Vec objects with proper NULL checking.
+    ierr = DestroyUserVectors(user); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "  All vectors destroyed.\n");
+
+    // --- Step 3: Destroy Matrix and Solver Objects ---
+    // Destroy pressure-Poisson matrices and solver.
+    if (user->A) {
+        ierr = MatDestroy(&user->A); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix A destroyed.\n");
+    }
+    if (user->C) {
+        ierr = MatDestroy(&user->C); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix C destroyed.\n");
+    }
+    if (user->MR) {
+        ierr = MatDestroy(&user->MR); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix MR destroyed.\n");
+    }
+    if (user->MP) {
+        ierr = MatDestroy(&user->MP); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix MP destroyed.\n");
+    }
+    if (user->ksp) {
+        ierr = KSPDestroy(&user->ksp); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  KSP solver destroyed.\n");
+    }
+    if (user->nullsp) {
+        ierr = MatNullSpaceDestroy(&user->nullsp); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  MatNullSpace destroyed.\n");
+    }
+
+    // --- Step 4: Destroy Application Ordering ---
+    if (user->ao) {
+        ierr = AODestroy(&user->ao); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  AO destroyed.\n");
+    }
+
+    // --- Step 5: Destroy DM Objects ---
+    // Destroy in reverse order of dependency: post_swarm, swarm, fda2, fda, da
+    if (user->post_swarm) {
+        ierr = DMDestroy(&user->post_swarm); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  post_swarm DM destroyed.\n");
+    }
+    if (user->swarm) {
+        ierr = DMDestroy(&user->swarm); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  swarm DM destroyed.\n");
+    }
+    if (user->fda2) {
+        ierr = DMDestroy(&user->fda2); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  fda2 DM destroyed.\n");
+    }
+    if (user->da) {
+        ierr = DMDestroy(&user->da); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  da DM destroyed.\n");
+    }
+
+    // --- Step 6: Free PetscMalloc'd Arrays ---
+    // Free arrays allocated with PetscMalloc1
+    if (user->RankCellInfoMap) {
+        ierr = PetscFree(user->RankCellInfoMap); CHKERRQ(ierr);
+        user->RankCellInfoMap = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  RankCellInfoMap freed.\n");
+    }
+    if (user->KSKE) {
+        ierr = PetscFree(user->KSKE); CHKERRQ(ierr);
+        user->KSKE = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  KSKE array freed.\n");
+    }
+
+    LOG_ALLOW(LOCAL, LOG_INFO, "UserCtx at level %d fully destroyed.\n", user->thislevel);
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "FinalizeSimulation"
+/**
+ * @brief Main cleanup function for the entire simulation context.
+ *
+ * This function is responsible for destroying ALL memory and PETSc objects allocated
+ * during the simulation, including:
+ *   - All UserCtx structures in the multigrid hierarchy (via DestroyUserContext)
+ *   - The multigrid management structures (UserMG, MGCtx array)
+ *   - All SimCtx-level objects (logviewer, dm_swarm, bboxlist, string arrays, etc.)
+ *
+ * This function should be called ONCE at the end of the simulation, after all
+ * computation is complete, but BEFORE PetscFinalize().
+ *
+ * Call order in main:
+ *   1. [Simulation runs]
+ *   2. ProfilingFinalize(simCtx);
+ *   3. FinalizeSimulation(simCtx);  <- This function
+ *   4. PetscFinalize();
+ *
+ * @param[in,out] simCtx Pointer to the master SimulationContext to be destroyed.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    if (!simCtx) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "FinalizeSimulation called with NULL SimCtx pointer.\n");
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Beginning simulation memory cleanup...\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
+
+    // ============================================================================
+    // PHASE 1: DESTROY MULTIGRID HIERARCHY (All UserCtx structures)
+    // ============================================================================
+
+    if (simCtx->usermg.mgctx) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying multigrid hierarchy (%d levels)...\n",
+                  simCtx->usermg.mglevels);
+
+        // Destroy each UserCtx from finest to coarsest (reverse order is safer)
+        for (PetscInt level = simCtx->usermg.mglevels - 1; level >= 0; level--) {
+            UserCtx *user = simCtx->usermg.mgctx[level].user;
+            if (user) {
+                LOG_ALLOW(LOCAL, LOG_INFO, "  Destroying level %d of %d...\n",
+                          level, simCtx->usermg.mglevels - 1);
+                ierr = DestroyUserContext(user); CHKERRQ(ierr);
+
+                // Free the UserCtx structure itself
+                ierr = PetscFree(user); CHKERRQ(ierr);
+                simCtx->usermg.mgctx[level].user = NULL;
+            }
+
+            // Destroy the MGCtx-level packer DM
+            if (simCtx->usermg.mgctx[level].packer) {
+                ierr = DMDestroy(&simCtx->usermg.mgctx[level].packer); CHKERRQ(ierr);
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "  MGCtx[%d].packer destroyed.\n", level);
+            }
+        }
+
+        // Free the MGCtx array itself
+        ierr = PetscFree(simCtx->usermg.mgctx); CHKERRQ(ierr);
+        simCtx->usermg.mgctx = NULL;
+        LOG_ALLOW(GLOBAL, LOG_INFO, "All multigrid levels destroyed.\n");
+    }
+
+    // ============================================================================
+    // PHASE 2: DESTROY USERMG-LEVEL OBJECTS
+    // ============================================================================
+
+    if (simCtx->usermg.packer) {
+        ierr = DMDestroy(&simCtx->usermg.packer); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "UserMG.packer DM destroyed.\n");
+    }
+
+    if (simCtx->usermg.snespacker) {
+        ierr = SNESDestroy(&simCtx->usermg.snespacker); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "UserMG.snespacker SNES destroyed.\n");
+    }
+
+    // ============================================================================
+    // PHASE 3: DESTROY SIMCTX-LEVEL OBJECTS
+    // ============================================================================
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying SimCtx-level objects...\n");
+
+    // --- PetscViewer for logging ---
+    if (simCtx->logviewer) {
+        ierr = PetscViewerDestroy(&simCtx->logviewer); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  logviewer destroyed.\n");
+    }
+
+    // --- Particle System DM ---
+    if (simCtx->dm_swarm) {
+        ierr = DMDestroy(&simCtx->dm_swarm); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  dm_swarm destroyed.\n");
+    }
+
+    // --- BoundingBox List (Array of BoundingBox structs) ---
+    if (simCtx->bboxlist) {
+        ierr = PetscFree(simCtx->bboxlist); CHKERRQ(ierr);
+        simCtx->bboxlist = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  bboxlist freed.\n");
+    }
+
+    // --- Boundary Condition Files (Array of strings) ---
+    if (simCtx->bcs_files) {
+        for (PetscInt i = 0; i < simCtx->num_bcs_files; i++) {
+            if (simCtx->bcs_files[i]) {
+                ierr = PetscFree(simCtx->bcs_files[i]); CHKERRQ(ierr);
+            }
+        }
+        ierr = PetscFree(simCtx->bcs_files); CHKERRQ(ierr);
+        simCtx->bcs_files = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  bcs_files array freed (%d files).\n", simCtx->num_bcs_files);
+    }
+
+    // --- Post-Processing Parameters ---
+    // pps is allocated with PetscNew and contains only static char arrays and basic types.
+    // No internal dynamic allocations need to be freed.
+    if (simCtx->pps) {
+        ierr = PetscFree(simCtx->pps); CHKERRQ(ierr);
+        simCtx->pps = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  PostProcessParams freed.\n");
+    }
+
+    // --- IBM/FSI Objects ---
+    // Note: These are initialized to NULL and currently have no dedicated destroy functions.
+    // If these modules are extended with cleanup routines, call them here.
+    if (simCtx->ibm != NULL) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "  WARNING: simCtx->ibm is non-NULL but no destroy function exists. Potential memory leak.\n");
+    }
+    if (simCtx->ibmv != NULL) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "  WARNING: simCtx->ibmv is non-NULL but no destroy function exists. Potential memory leak.\n");
+    }
+    if (simCtx->fsi != NULL) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "  WARNING: simCtx->fsi is non-NULL but no destroy function exists. Potential memory leak.\n");
+    }
+
+    // --- Logging Allowed Functions (Array of strings) ---
+    // Note: The logging system maintains its own copy via set_allowed_functions(),
+    // so freeing simCtx->allowedFuncs will NOT affect LOG_ALLOW functionality.
+    if (simCtx->allowedFuncs) {
+        for (PetscInt i = 0; i < simCtx->nAllowed; i++) {
+            if (simCtx->allowedFuncs[i]) {
+                ierr = PetscFree(simCtx->allowedFuncs[i]); CHKERRQ(ierr);
+            }
+        }
+        ierr = PetscFree(simCtx->allowedFuncs); CHKERRQ(ierr);
+        simCtx->allowedFuncs = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  allowedFuncs array freed (%d functions).\n", simCtx->nAllowed);
+    }
+
+    // --- Profiling Critical Functions (Array of strings) ---
+    if (simCtx->criticalFuncs) {
+        for (PetscInt i = 0; i < simCtx->nCriticalFuncs; i++) {
+            if (simCtx->criticalFuncs[i]) {
+                ierr = PetscFree(simCtx->criticalFuncs[i]); CHKERRQ(ierr);
+            }
+        }
+        ierr = PetscFree(simCtx->criticalFuncs); CHKERRQ(ierr);
+        simCtx->criticalFuncs = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  criticalFuncs array freed (%d functions).\n", simCtx->nCriticalFuncs);
+    }
+
+    // ============================================================================
+    // PHASE 4: FINAL SUMMARY
+    // ============================================================================
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Simulation cleanup completed successfully.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "All PETSc objects have been destroyed.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
 
     PetscFunctionReturn(0);
 }
