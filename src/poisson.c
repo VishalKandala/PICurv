@@ -3465,7 +3465,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
         if (!rank) {
 	  sprintf(filen, "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir,bi);
 	  // On the very first step of the entire simulation, TRUNCATE the file.
-	  if (simCtx->step == simCtx->StartStep) {
+	  if (simCtx->step == simCtx->StartStep + 1) {
 	    monctx->file_handle = fopen(filen, "w");
 	  } else { // For all subsequent steps, APPEND to the file.
 	    monctx->file_handle = fopen(filen, "a");

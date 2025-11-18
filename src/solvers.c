@@ -76,10 +76,10 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
             ierr = Contra2Cart(&user[bi]); CHKERRQ(ierr);
             ierr = UpdateLocalGhosts(&user[bi], "Ucat");
             if(simCtx->les == CONSTANT_SMAGORINSKY) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Using constant Smagorinsky model for block %d.\n", bi);
+                LOG_ALLOW(LOCAL, LOG_INFO, "  Using constant Smagorinsky model for block %d.\n", bi);
                 // Constant Smagorinsky does not require dynamic computation
-                if(simCtx->step == simCtx->StartStep){
-                    ierr = ComputeSmagorinskyConstant(&user[bi]);
+                if(simCtx->step == simCtx->StartStep + 1){ // since step is updated before flowsolver call.
+                    ierr = ComputeSmagorinskyConstant(&user[bi]); CHKERRQ(ierr);
                 }    
             } else if(simCtx->les == DYNAMIC_SMAGORINSKY) {
             if (simCtx->step % simCtx->dynamic_freq == 0) {
