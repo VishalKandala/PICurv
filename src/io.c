@@ -2408,7 +2408,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             ierr = PetscPrintf(PETSC_COMM_WORLD," CFL Number                  : %le\n", simCtx->cfl); CHKERRQ(ierr);
             ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
             ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
-            ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESFlagToString(simCtx->les)); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
             if (simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) {
                 if (user->inletFaceDefined) {
                     ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : %s (Enum Val: %d)\n", BCFaceToString(user->identifiedInletBCFace), user->identifiedInletBCFace); CHKERRQ(ierr);
