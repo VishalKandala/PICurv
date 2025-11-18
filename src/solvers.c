@@ -72,15 +72,23 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating LES (Smagorinsky) model...\n");
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             // LES models require Cartesian velocity to compute strain rates
-            UpdateLocalGhosts(&user[bi], "Ucont");
+            ierr = UpdateLocalGhosts(&user[bi], "Ucont");
             ierr = Contra2Cart(&user[bi]); CHKERRQ(ierr);
-            UpdateLocalGhosts(&user[bi], "Ucat");
+            ierr = UpdateLocalGhosts(&user[bi], "Ucat");
+            if(simCtx->les == CONSTANT_SMAGORINSKY) {
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Using constant Smagorinsky model for block %d.\n", bi);
+                // Constant Smagorinsky does not require dynamic computation
+                if(simCtx->step == simCtx->StartStep){
+                    ierr = ComputeSmagorinskyConstant(&user[bi]);
+                }    
+            } else if(simCtx->les == DYNAMIC_SMAGORINSKY) {
             if (simCtx->step % simCtx->dynamic_freq == 0) {
                 LOG_ALLOW(LOCAL, LOG_DEBUG, "  Computing Smagorinsky constant for block %d.\n", bi);
-                ComputeSmagorinskyConstant(&user[bi]);
+                ierr = ComputeSmagorinskyConstant(&user[bi]);
+                }
             }
           //  LOG_ALLOW(LOCAL, LOG_DEBUG, "  Computing eddy viscosity for block %d.\n", bi);
-          ComputeEddyViscosityLES(&user[bi]);
+          ierr = ComputeEddyViscosityLES(&user[bi]);
         }
     }
     

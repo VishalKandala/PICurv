@@ -10,7 +10,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
   SimCtx *simCtx = user->simCtx;
 
   // Create local variables to mirror the legacy globals for minimal code changes.
-  const PetscInt les = simCtx->les;
+  const LESModelType les = simCtx->les;
   const PetscInt central = simCtx->central; // Get this from SimCtx now
   // --- END CONTEXT ACQUISITION BLOCK ---
  
@@ -541,7 +541,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
   SimCtx *simCtx = user->simCtx;
 
   // Create local variables to mirror the legacy globals for minimal code changes.
-  const PetscInt les = simCtx->les;
+  const LESModelType les = simCtx->les;
   const PetscInt rans = simCtx->rans;
   const PetscInt ti = simCtx->step; // Assuming simCtx->step is the new integer time counter
   const	PetscReal ren = simCtx->ren;
