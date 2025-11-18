@@ -687,12 +687,12 @@ const char* ParticleInitializationToString(PetscInt ParticleInitialization)
  * @param[in] PetscInt The LES flag value.
  * @return Pointer to a constant string representing the FieldInitialization.
  */
-const char* LESFlagToString(PetscInt LESFlag)
+const char* LESModelToString(LESModelType LESFlag)
 {
     switch(LESFlag){
-        case 0: return "No LES";
-        case 1: return "Constant Smagorinsky";
-        case 2: return "Dynamic Smagorinsky";
+        case NO_LES_MODEL: return "No LES";
+        case CONSTANT_SMAGORINSKY: return "Constant Smagorinsky";
+        case DYNAMIC_SMAGORINSKY: return "Dynamic Smagorinsky";
         default: return "Unknown LES Flag";
     }
 }

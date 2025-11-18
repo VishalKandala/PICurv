@@ -41,7 +41,7 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
 
     // If the user requests the non-dynamic, constant-coefficient Smagorinsky model (les=1),
     // set a constant value and exit.
-    if (simCtx->les == 1) {
+    if (simCtx->les == CONSTANT_SMAGORINSKY) {
         LOG_ALLOW(GLOBAL,LOG_INFO,"Using constant-coefficient Smagorinsky model with Cs=%.4f \n", simCtx->Const_CS);
         ierr = VecSet(user->CS, simCtx->Const_CS); CHKERRQ(ierr); // A typical constant value
         PROFILE_FUNCTION_END;

@@ -438,6 +438,15 @@ typedef struct Cstart {
 } Cstart;
 
 //--------------------------------------------------------------------------------
+//               7. LES/RANS TURBULENCE MODEL STRUCTS & ENUMS
+//--------------------------------------------------------------------------------
+/** @brief Identifies the six logical faces of a structured computational block. */
+typedef enum {
+    NO_LES_MODEL = 0,
+    CONSTANT_SMAGORINSKY = 1,
+    DYNAMIC_SMAGORINSKY = 2
+} LESModelType;
+//--------------------------------------------------------------------------------
 //               7. MULTIGRID AND POST-PROCESSING STRUCTS
 //--------------------------------------------------------------------------------
 

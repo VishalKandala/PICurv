@@ -133,7 +133,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     
     
     // --- Group 8: Turbulence Modeling (LES/RANS) ---
-    simCtx->averaging = PETSC_FALSE; simCtx->les = 0; simCtx->rans = 0;
+    simCtx->averaging = PETSC_FALSE; simCtx->les = NO_LES_MODEL; simCtx->rans = 0;
     simCtx->wallfunction = 0; simCtx->mixed = 0; simCtx->clark = 0;
     simCtx->dynamic_freq = 1; simCtx->max_cs = 0.5;
     simCtx->Const_CS = 0.03;
@@ -409,7 +409,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
      //  --- Group 8
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 8: Turbulence Modeling (LES/RANS) \n");
-    ierr = PetscOptionsGetInt(NULL, NULL, "-les", &simCtx->les, NULL); CHKERRQ(ierr);
+    PetscInt temp_les_model;
+    ierr = PetscOptionsGetInt(NULL, NULL, "-les", &temp_les_model, NULL); CHKERRQ(ierr);
+    simCtx->les = (LESModelType)temp_les_model;
     ierr = PetscOptionsGetInt(NULL, NULL, "-rans", &simCtx->rans, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-wallfunction", &simCtx->wallfunction, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mixed", &simCtx->mixed, NULL); CHKERRQ(ierr);
