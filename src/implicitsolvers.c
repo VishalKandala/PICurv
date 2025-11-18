@@ -330,7 +330,11 @@ PetscErrorCode ImpRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
                 FILE *f;
                 char filen[80];
                 sprintf(filen, "%s/Momentum_Solver_Convergence_History_Block_%1d.log", simCtx->log_dir,bi);
+                if(simCtx->step == simCtx->StartStep + 1 && pseudot ==1) {
+                    f = fopen(filen, "w");
+                } else {
                 f = fopen(filen, "a");
+                }
                 PetscFPrintf(PETSC_COMM_WORLD, f, "Block %d | Step: %d | Pseudo-Timestep %d | |dU|  %le |  |dU|/|dU_0| %le | |U| = %le \n",bi,(int)ti, (int)pseudot, normdU_bk[bi], reldU_bk[bi], normF_bk[bi]);
                 fclose(f);
             }
