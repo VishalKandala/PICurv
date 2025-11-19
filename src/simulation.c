@@ -404,6 +404,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             //ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, simCtx->bboxlist); CHKERRQ(ierr);
             if (removed_global_lost> 0) { // if(removed_global_lost + removed_global_ob > 0){
                 LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %d particles globally this step.\n", removed_global_lost); // removed_global_lost + removed_global_ob;
+                simCtx->particlesLostLastStep = removed_global_lost;
             }
 
             // d. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the
@@ -417,6 +418,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             // f. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
             //ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
             //ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+            
 
             if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post Lagrangian update field states:\n");

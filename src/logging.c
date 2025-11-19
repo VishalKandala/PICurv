@@ -1739,3 +1739,65 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
     
     return 0;
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "CalculateAdvancedParticleMetrics"
+/**
+ * @brief Computes advanced particle statistics and stores them in SimCtx.
+ *
+ * This function calculates:
+ * - Particle load imbalance across MPI ranks.
+ * - The total number of grid cells occupied by at least one particle.
+ *
+ * It requires that CalculateParticleCountPerCell() has been called prior to its
+ * execution. It uses collective MPI operations and must be called by all ranks.
+ *
+ * @param user Pointer to the UserCtx.
+ * @return     PetscErrorCode 0 on success.
+ */
+PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    SimCtx         *simCtx = user->simCtx;
+    PetscMPIInt    size, rank;
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    // --- 1. Particle Load Imbalance ---
+    PetscInt nLocal, nGlobal, nLocalMax;
+    ierr = DMSwarmGetLocalSize(user->swarm, &nLocal); CHKERRQ(ierr);
+    ierr = DMSwarmGetSize(user->swarm, &nGlobal); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(&nLocal, &nLocalMax, 1, MPIU_INT, MPI_MAX, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    PetscReal avg_per_rank = (size > 0) ? ((PetscReal)nGlobal / size) : 0.0;
+    // Handle division by zero if there are no particles
+    simCtx->particleLoadImbalance = (avg_per_rank > 1e-9) ? (nLocalMax / avg_per_rank) : 1.0;
+
+
+    // --- 2. Number of Occupied Cells ---
+    // This part requires access to the user->ParticleCount vector.
+    PetscInt       local_occupied_cells = 0;
+    PetscInt       global_occupied_cells;
+    const PetscScalar *count_array;
+    PetscInt       vec_local_size;
+
+    ierr = VecGetLocalSize(user->ParticleCount, &vec_local_size); CHKERRQ(ierr);
+    ierr = VecGetArrayRead(user->ParticleCount, &count_array); CHKERRQ(ierr);
+
+    for (PetscInt i = 0; i < vec_local_size; ++i) {
+        if (count_array[i] > 0.5) { // Use 0.5 to be safe with floating point
+            local_occupied_cells++;
+        }
+    }
+    ierr = VecRestoreArrayRead(user->ParticleCount, &count_array); CHKERRQ(ierr);
+
+    ierr = MPI_Allreduce(&local_occupied_cells, &global_occupied_cells, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    simCtx->occupiedCellCount = global_occupied_cells;
+
+    LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Advanced Metrics: Imbalance=%.2f, OccupiedCells=%d\n", rank, simCtx->particleLoadImbalance, simCtx->occupiedCellCount);
+
+    PetscFunctionReturn(0);
+}
+

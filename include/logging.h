@@ -790,4 +790,19 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
 */
 PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user);
 
+/**
+ * @brief Computes advanced particle statistics and stores them in SimCtx.
+ *
+ * This function calculates:
+ * - Particle load imbalance across MPI ranks.
+ * - The total number of grid cells occupied by at least one particle.
+ *
+ * It requires that CalculateParticleCountPerCell() has been called prior to its
+ * execution. It uses collective MPI operations and must be called by all ranks.
+ *
+ * @param user Pointer to the UserCtx.
+ * @return     PetscErrorCode 0 on success.
+ */
+PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user);
+
 #endif // LOGGING_H
