@@ -1720,7 +1720,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_CONV_FAILED, "Particle migration failed to converge after %d passes. Check for particles oscillating between ranks.", MAX_MIGRATION_PASSES);
     }
 
-    user->simCtx->particelsMigratedLastStep = total_migrated_this_timestep;
+    user->simCtx->particlesMigratedLastStep = total_migrated_this_timestep;
     user->simCtx->migrationPassesLastStep = passes;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Location completed in %d passes.\n", passes);
