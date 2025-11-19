@@ -1801,3 +1801,52 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "LOG_PARTICLE_METRICS"
+/**
+ * @brief Logs particle swarm metrics, adapting its behavior based on a boolean flag in SimCtx.
+ *
+ * This function serves a dual purpose:
+ * 1. If simCtx->isInitializationPhase is PETSC_TRUE, it logs settlement
+ *    diagnostics to "Initialization_Metrics.log", using the provided stageName.
+ * 2. If simCtx->isInitializationPhase is PETSC_FALSE, it logs regular
+ *    timestep metrics to "Particle_Metrics.log".
+ *
+ * @param user      A pointer to the UserCtx.
+ * @param stageName A descriptive string for the initialization stage (ignored in timestep mode).
+ * @return          PetscErrorCode 0 on success.
+ */
+PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank, size;
+    SimCtx         *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+
+    PetscInt totalParticles;
+    ierr = DMSwarmGetSize(user->swarm, &totalParticles); CHKERRQ(ierr);
+
+    if (!rank) {
+        FILE *f;
+        char filen[PETSC_MAX_PATH_LEN];
+        sprintf(filen, "%s/Particle_Metrics.log", simCtx->log_dir);
+        f = fopen(filen, "a");
+        if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open particle log file: %s", filen);
+
+        if (simCtx->step == simCtx->StartStep + 1) {
+            PetscFPrintf(PETSC_COMM_SELF, f, "%-10s | %-12s | %-10s | %-10s | %-15s | %-10s | %-10s\n",
+                            "Timestep", "Total Ptls", "Lost", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes");
+            PetscFPrintf(PETSC_COMM_SELF, f, "----------------------------------------------------------------------------------------------------------\n");
+        }
+
+        PetscFPrintf(PETSC_COMM_SELF, f, "%-10d | %-12d | %-10d | %-10d | %-15d | %-10.2f | %-10d\n",
+                        (int)simCtx->step, (int)totalParticles, (int)simCtx->particlesLostLastStep,
+                        (int)simCtx->particlesMigratedLastStep, (int)simCtx->occupiedCellCount,
+                        (double)simCtx->particleLoadImbalance, (int)simCtx->migrationPassesLastStep);
+        fclose(f);
+    }
+    PetscFunctionReturn(0);
+}

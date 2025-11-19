@@ -805,4 +805,18 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user);
  */
 PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user);
 
+/**
+ * @brief Logs particle swarm metrics, adapting its behavior based on a boolean flag in SimCtx.
+ *
+ * This function serves a dual purpose:
+ * 1. If simCtx->isInitializationPhase is PETSC_TRUE, it logs settlement
+ *    diagnostics to "Initialization_Metrics.log", using the provided stageName.
+ * 2. If simCtx->isInitializationPhase is PETSC_FALSE, it logs regular
+ *    timestep metrics to "Particle_Metrics.log".
+ *
+ * @param user      A pointer to the UserCtx.
+ * @param stageName A descriptive string for the initialization stage (ignored in timestep mode).
+ * @return          PetscErrorCode 0 on success.
+ */
+PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName);
 #endif // LOGGING_H
