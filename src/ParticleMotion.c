@@ -1523,6 +1523,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
     const PetscInt MAX_MIGRATION_PASSES = 50; // Safety break for runaway loops
     PetscInt       global_migrations_this_pass;
     PetscMPIInt    rank;
+    PetscInt total_migrated_this_timestep = 0;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -1541,7 +1542,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
         PetscInt       migrationListCapacity = 0;
         PetscInt       nlocal_before;
         PetscInt64     *pids_before_snapshot = NULL;
-	PetscInt       local_lost_count = 0;
+	    PetscInt       local_lost_count = 0;
 
         ierr = DMSwarmGetLocalSize(user->swarm, &nlocal_before); CHKERRQ(ierr);
         LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Pass %d begins with %d local particles.\n", rank, passes, nlocal_before);
@@ -1585,20 +1586,20 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
                 // UNPACK: Create a temporary C struct for easier processing using our helper.
                 Particle current_particle;
 
-		//	LOG_ALLOW(LOCAL,LOG_DEBUG,"about to unpack p_idx=%d (PID=%ld)\n",p_idx, (long)pid_p[p_idx]);
+		    //	LOG_ALLOW(LOCAL,LOG_DEBUG,"about to unpack p_idx=%d (PID=%ld)\n",p_idx, (long)pid_p[p_idx]);
 		
                 ierr = UnpackSwarmFields(p_idx, pid_p, weights_p, pos_p, cell_p, vel_p, status_p, &current_particle); CHKERRQ(ierr);
 
-		//		LOG_ALLOW(LOCAL,LOG_DEBUG,"unpacked p_idx=%d → cell[0]=%d, status=%s\n",p_idx, current_particle.cell[0], ParticleLocationStatusToString((ParticleLocationStatus)current_particle.location_status));
+		    //		LOG_ALLOW(LOCAL,LOG_DEBUG,"unpacked p_idx=%d → cell[0]=%d, status=%s\n",p_idx, current_particle.cell[0], ParticleLocationStatusToString((ParticleLocationStatus)current_particle.location_status));
 
-		ParticleLocationStatus final_status = (ParticleLocationStatus)status_p[p_idx];
+		    ParticleLocationStatus final_status = (ParticleLocationStatus)status_p[p_idx];
 
 
-		// CASE 1: Particle has a valid prior cell index.
+		    // CASE 1: Particle has a valid prior cell index.
                 // It has moved, so we only need to run the robust walk from its last known location.
                 if (current_particle.cell[0] >= 0) {
-		  LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] has valid prior cell. Strategy: Robust Walk from previous cell.\n", current_particle.PID);
-		  ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
+		            LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] has valid prior cell. Strategy: Robust Walk from previous cell.\n", current_particle.PID);
+		            ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
                 } 
 
 		/*		
@@ -1686,23 +1687,25 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
         // --- STAGE 3: ACTION & MPI COMMUNICATION ---
         LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d] Pass %d: Identified %d particles to migrate out.\n", rank, passes, local_migration_count);
 
-	// --- STAGE 3: SYNCHRONIZE AND DECIDE ---
+	    // --- STAGE 3: SYNCHRONIZE AND DECIDE ---
         // FIRST, determine if any rank wants to migrate. This call is safe because
         // all ranks have finished their local work and can participate.
         ierr = MPI_Allreduce(&local_migration_count, &global_migrations_this_pass, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);	
 
-	if(global_migrations_this_pass > 0 ){
+	    total_migrated_this_timestep += global_migrations_this_pass;
 
-	LOG_ALLOW(GLOBAL, LOG_INFO, "Pass %d: Migrating %d particles globally.\n", passes, global_migrations_this_pass);
-        
-        ierr = SetMigrationRanks(user, migrationList, local_migration_count); CHKERRQ(ierr);
-        ierr = PerformMigration(user); CHKERRQ(ierr);
+        if(global_migrations_this_pass > 0 ){
 
-        // --- STAGE 4: POST-MIGRATION RESET ---
-        // Identify newly arrived particles and flag them with NEEDS_LOCATION so they are
-        // processed in the next pass. This uses the snapshot taken in STAGE 2.
-        ierr = FlagNewcomersForLocation(user->swarm, nlocal_before, pids_before_snapshot); CHKERRQ(ierr);
-	}
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Pass %d: Migrating %d particles globally.\n", passes, global_migrations_this_pass);
+                
+                ierr = SetMigrationRanks(user, migrationList, local_migration_count); CHKERRQ(ierr);
+                ierr = PerformMigration(user); CHKERRQ(ierr);
+
+                // --- STAGE 4: POST-MIGRATION RESET ---
+                // Identify newly arrived particles and flag them with NEEDS_LOCATION so they are
+                // processed in the next pass. This uses the snapshot taken in STAGE 2.
+                ierr = FlagNewcomersForLocation(user->swarm, nlocal_before, pids_before_snapshot); CHKERRQ(ierr);
+        }
         // --- STAGE 5: LOOP SYNCHRONIZATION AND CLEANUP ---
 
         ierr = PetscFree(pids_before_snapshot);
@@ -1716,6 +1719,9 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
     if (passes >= MAX_MIGRATION_PASSES) {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_CONV_FAILED, "Particle migration failed to converge after %d passes. Check for particles oscillating between ranks.", MAX_MIGRATION_PASSES);
     }
+
+    user->simCtx->particelsMigratedLastStep = total_migrated_this_timestep;
+    user->simCtx->migrationPassesLastStep = passes;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Location completed in %d passes.\n", passes);
 

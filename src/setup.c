@@ -145,6 +145,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->dm_swarm = NULL; simCtx->bboxlist = NULL;
     simCtx->ParticleInitialization = 0;
     strcpy(simCtx->particleRestartMode,"load");
+    particlesLostLastStep = 0;
+    particlesMigratedLastStep = 0;
+    occupiedCellCount = 0;
+    particleLoadImbalance = 0.0;
+    migrationPassesLastStep = 0;
 
     // --- Group 10: Immersed Boundary & FSI Data Object Pointers ---
     simCtx->ibm = NULL; simCtx->ibmv = NULL; simCtx->fsi = NULL;

@@ -654,6 +654,11 @@ typedef struct SimCtx {
     BoundingBox *bboxlist;
     PetscInt   ParticleInitialization;
     char particleRestartMode[16];
+    PetscInt particlesLostLastStep;
+    PetscInt migrationPassesLastStep;
+    PetscInt particlesMigratedLastStep;
+    PetscInt occupiedCellCount;
+    PetscReal particleLoadImbalance;
 
     //================ Group 10: Immersed Boundary & FSI Data Object Pointers ================
     IBMNodes  *ibm;
