@@ -1409,7 +1409,181 @@ PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "GetPersistentLocalVector"
+/**
+ * @brief Retrieves the persistent local vector (e.g., lPsi, lUcat) for a given field name.
+ * 
+ * @param user          User context containing the persistent vectors.
+ * @param fieldName     Name of the field ("Psi", "Ucat", etc.).
+ * @param localVec      Output pointer to the vector.
+ * @return PetscErrorCode 
+ */
+PetscErrorCode GetPersistentLocalVector(UserCtx *user, const char *fieldName, Vec *localVec)
+{
+    PetscFunctionBeginUser;
+    
+    if (!user || !fieldName || !localVec) 
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null input in GetPersistentLocalVector");
+
+    if (strcmp(fieldName, "Psi") == 0) {
+        if (!user->lPsi) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->lPsi is not initialized");
+        *localVec = user->lPsi;
+    }
+    else if (strcmp(fieldName, "Ucat") == 0) {
+        if (!user->lUcat) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->lUcat is not initialized");
+        *localVec = user->lUcat;
+    }
+    else if (strcmp(fieldName, "Ucont") == 0) {
+        if (!user->lUcont) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->lUcont is not initialized");
+        *localVec = user->lUcont;
+    }
+    else if (strcmp(fieldName, "Nvert") == 0) {
+        if (!user->lNvert) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->lNvert is not initialized");
+        *localVec = user->lNvert;
+    }
+    else {
+        char msg[ERROR_MSG_BUFFER_SIZE];
+        PetscSNPrintf(msg, sizeof(msg), "Field '%s' does not have a mapped persistent local vector.", fieldName);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "AccumulateParticleField"
+/**
+ * @brief Accumulates particle field values into a ghosted Local Vector.
+ *
+ * This function iterates over local particles and sums their specified field property
+ * into the provided grid vector. It supports both scalar (DOF=1) and vector (DOF=3) fields.
+ *
+ * **CRITICAL USAGE NOTES:**
+ * 1. `localAccumulatorVec` MUST be a Local Vector (obtained via DMGetLocalVector or DMCreateLocalVector).
+ *    It must have memory allocated for ghost slots. Passing a Global Vector will trigger an error.
+ * 2. The vector is NOT zeroed internally. The caller must zero it if fresh accumulation is desired.
+ * 3. This function performs pure accumulation. It does NOT communicate ghost values to owners.
+ *    The caller is responsible for calling DMLocalToGlobalBegin/End afterwards.
+ *
+ * @param[in] swarm               The DMSwarm object containing the particles.
+ * @param[in] particleFieldName   The name of the particle field to accumulate (e.g., "Psi", "Ucat").
+ * @param[in] gridSumDM           The DMDA defining the grid topology.
+ * @param[in,out] localAccumulatorVec The ghosted local vector to accumulate into.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
+                                       DM gridSumDM, Vec localAccumulatorVec)
+{
+    PetscErrorCode    ierr;
+    PetscInt          dof;
+    PetscInt          nlocal, p;
+    const PetscReal   *particle_arr = NULL;
+    const PetscInt    *cell_id_arr = NULL;
+    
+    // DMDA Accessors
+    PetscScalar       ***arr_1d = NULL;      // For scalar fields
+    PetscScalar       ****arr_3d = NULL;     // For vector fields
+    
+    // Ghosted dimension variables
+    PetscInt          gxs, gys, gzs, gxm, gym, gzm;
+    PetscMPIInt       rank;
+    char              msg[ERROR_MSG_BUFFER_SIZE];
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    // --- 1. Validation & Setup ---
+    if (!swarm || !gridSumDM || !localAccumulatorVec) 
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null input in AccumulateParticleField.");
+
+    // Get DMDA information
+    ierr = DMDAGetInfo(gridSumDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+    // Get Ghosted Corners (Global indices of the ghosted patch start, and its dimensions)
+    ierr = DMDAGetGhostCorners(gridSumDM, &gxs, &gys, &gzs, &gxm, &gym, &gzm); CHKERRQ(ierr);
+
+    // --- 2. Verify Vector Type (Global vs Local) ---
+    {
+        PetscInt vecSize;
+        PetscInt expectedLocalSize = gxm * gym * gzm * dof;
+        ierr = VecGetSize(localAccumulatorVec, &vecSize); CHKERRQ(ierr);
+        
+        if (vecSize != expectedLocalSize) {
+            PetscSNPrintf(msg, sizeof(msg), 
+                "Vector dimension mismatch! Expected Ghosted Local Vector size %d (gxm*gym*gzm*dof), got %d. "
+                "Did you pass a Global Vector instead of a Local Vector?", 
+                expectedLocalSize, vecSize);
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg);
+        }
+    }
+
+    // --- 3. Acquire Particle Data ---
+    ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
+    // These calls will fail nicely if the field doesn't exist
+    ierr = DMSwarmGetField(swarm, particleFieldName, NULL, NULL, (void **)&particle_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_id_arr); CHKERRQ(ierr);
+
+    // --- 4. Acquire Grid Accessors ---
+    // DMDAVecGetArray* handles the mapping from Global (i,j,k) to the underlying Local Array index
+    if (dof == 1) {
+        ierr = DMDAVecGetArray(gridSumDM, localAccumulatorVec, &arr_1d); CHKERRQ(ierr);
+    } else if (dof == 3) {
+        ierr = DMDAVecGetArrayDOF(gridSumDM, localAccumulatorVec, &arr_3d); CHKERRQ(ierr);
+    } else {
+         PetscSNPrintf(msg, sizeof(msg), "Unsupported DOF=%d. AccumulateParticleField supports DOF 1 or 3.", dof);
+         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP, msg);
+    }
+
+    // --- 5. Accumulate Loop ---
+    // Iterate through all local particles
+    for (p = 0; p < nlocal; ++p) {
+        // Retrieve Geometric Grid Index (0-based)
+        PetscInt i_geom = cell_id_arr[p * 3 + 0];
+        PetscInt j_geom = cell_id_arr[p * 3 + 1];
+        PetscInt k_geom = cell_id_arr[p * 3 + 2];
+
+        // Apply Shift (+1) to match Memory Layout (Index 0 is boundary/ghost)
+        PetscInt i = i_geom + 1;
+        PetscInt j = j_geom + 1;
+        PetscInt k = k_geom + 1;
+
+        // Bounds Check: Ensure (i,j,k) falls within the Local Ghosted Patch.
+        // This allows writing to ghost slots which will later be reduced to the owner rank.
+        if (i >= gxs && i < gxs + gxm && 
+            j >= gys && j < gys + gym && 
+            k >= gzs && k < gzs + gzm)
+        {
+            if (dof == 1) {
+                arr_1d[k][j][i] += particle_arr[p];
+            } else {
+                // For DOF=3, unroll the loop for slight optimization
+                arr_3d[k][j][i][0] += particle_arr[p * 3 + 0];
+                arr_3d[k][j][i][1] += particle_arr[p * 3 + 1];
+                arr_3d[k][j][i][2] += particle_arr[p * 3 + 2];
+            }
+        } 
+        // Note: Particles outside the ghost layer are skipped. This is expected behavior
+        // if particles have not yet been migrated or localized correctly.
+    }
+
+    // --- 6. Restore Arrays and Fields ---
+    if (dof == 1) {
+        ierr = DMDAVecRestoreArray(gridSumDM, localAccumulatorVec, &arr_1d); CHKERRQ(ierr);
+    } else {
+        ierr = DMDAVecRestoreArrayDOF(gridSumDM, localAccumulatorVec, &arr_3d); CHKERRQ(ierr);
+    }
+    
+    ierr = DMSwarmRestoreField(swarm, particleFieldName, NULL, NULL, (void **)&particle_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_id_arr); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+//#undef __FUNCT__
+//#define __FUNCT__ "AccumulateParticleField"
 
 /**
  * @brief Accumulates a particle field (scalar or vector) into a target grid sum vector.
@@ -1431,7 +1605,8 @@ PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName
  * @return PetscErrorCode 0 on success. Errors if fields don't exist, DMs are incompatible,
  *         or memory access fails.
  */
-PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
+/*
+ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
                                        DM gridSumDM, Vec gridSumVec)
 {
     PetscErrorCode    ierr;
@@ -1439,7 +1614,9 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     PetscInt          nlocal, p;             // Local particle count and loop index
     const PetscReal   *particle_arr = NULL;  // Pointer to particle field data array (assuming Real)
     const PetscInt  *cell_id_arr = NULL;   // Pointer to particle cell ID array ("DMSwarm_CellID", Int)
-    PetscScalar       *sum_arr_ptr = NULL;   // Pointer to grid sum vector data array (Scalar)
+    //PetscScalar       *sum_arr_ptr = NULL;   // Pointer to grid sum vector data array (Scalar)
+    PetscScalar       ***arr_1d = NULL;   // Pointer to grid sum vector data array (for DOF=1)
+    PetscScalar       ****arr_3d = NULL;  // Pointer to grid sum vector data array (for DOF=3)
     PetscInt          gxs, gys, gzs;         // Start indices of local ghosted patch (often 0)
     PetscInt          gxm, gym, gzm;         // Dimensions of local ghosted patch (including ghosts)
     PetscMPIInt       rank;                  // MPI rank for logging
@@ -1468,7 +1645,10 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
 
     // --- Get Grid Sum Vector Array & Dimensions ---
-    ierr = VecGetArray(gridSumVec, &sum_arr_ptr); CHKERRQ(ierr);
+    if(dof == 1){
+        ierr = DMDAVecGetArray(gridSumVec, &sum_arr_ptr); CHKERRQ(ierr);    
+    }
+    
     // Get dimensions needed for calculating flat index within the local ghosted array
     ierr = DMDAGetGhostCorners(gridSumDM, &gxs, &gys, &gzs, &gxm, &gym, &gzm); CHKERRQ(ierr);
 
@@ -1527,7 +1707,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
 
     PetscFunctionReturn(0);
 }
-
+*/
 
 #undef __FUNCT__
 #define __FUNCT__ "NormalizeGridVectorByCount"
@@ -1685,7 +1865,8 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
                                                          Vec eulerFieldAverageVec)
 {
     PetscErrorCode ierr;
-    Vec            sumVec = NULL;
+    Vec            globalsumVec = NULL;
+    Vec            localsumVec = NULL;
     char           msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
 
     PetscFunctionBeginUser;
@@ -1694,7 +1875,7 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
 
     if (!user || !user->swarm || !user->ParticleCount || !particleFieldName || !targetDM || !eulerFieldAverageVec)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "NULL input provided to ScatterParticleFieldToEulerField_Internal.");
-
+    
     // --- Check if Particle Field Exists ---
     // Attempt a GetField call; if it fails, the field doesn't exist.
     // We let CHKERRQ handle the error directly if the field doesn't exist OR
@@ -1712,25 +1893,37 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
     */
     
     // --- Setup Temporary Sum Vector ---
-    ierr = VecDuplicate(eulerFieldAverageVec, &sumVec); CHKERRQ(ierr);
-    ierr = VecSet(sumVec, 0.0); CHKERRQ(ierr);
+    ierr = VecDuplicate(eulerFieldAverageVec, &globalsumVec); CHKERRQ(ierr);
+    ierr = VecSet(globalsumVec, 0.0); CHKERRQ(ierr);
     ierr = PetscSNPrintf(msg, sizeof(msg), "TempSum_%s", particleFieldName); CHKERRQ(ierr);
-    ierr = PetscObjectSetName((PetscObject)sumVec, msg); CHKERRQ(ierr);
+    ierr = PetscObjectSetName((PetscObject)globalsumVec, msg); CHKERRQ(ierr);
+
+    // create local vector for accumulation
+    ierr = DMGetLocalVector(targetDM, &localsumVec); CHKERRQ(ierr);
+    ierr = VecSet(localsumVec, 0.0); CHKERRQ(ierr);  // Must be zeroed before accumulation
+    ierr = PetscSNPrintf(msg, sizeof(msg), "LocalTempSum_%s", particleFieldName); CHKERRQ(ierr);
+    ierr = PetscObjectSetName((PetscObject)localsumVec, msg); CHKERRQ(ierr);
 
     // --- Accumulate ---
     // This will call DMSwarmGetField again. If it failed above, it will likely fail here too,
     // unless the error was cleared somehow between the check and here (unlikely).
     // If the check above was skipped (Option 1), this is where the error for non-existent
     // field will be caught by CHKERRQ.
-    ierr = AccumulateParticleField(user->swarm, particleFieldName, targetDM, sumVec); CHKERRQ(ierr);
+    ierr = AccumulateParticleField(user->swarm, particleFieldName, targetDM, localsumVec); CHKERRQ(ierr);
+
+    // --- Local to Global Sum ---
+    ierr = DMLocalToGlobalBegin(targetDM, localsumVec, ADD_VALUES, globalsumVec); CHKERRQ(ierr);
+    ierr = DMLocalToGlobalEnd(targetDM, localsumVec, ADD_VALUES, globalsumVec); CHKERRQ(ierr);
+    // Return local vector to DM
+    ierr = DMRestoreLocalVector(targetDM, &localsumVec); CHKERRQ(ierr);
 
     // Calculate the number of particles per cell.
-    ierr = CalculateParticleCountPerCell(user);
+    ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
     // --- Normalize ---
-    ierr = NormalizeGridVectorByCount(user->da, user->ParticleCount, targetDM, sumVec, eulerFieldAverageVec); CHKERRQ(ierr);
+    ierr = NormalizeGridVectorByCount(user->da, user->ParticleCount, targetDM, globalsumVec, eulerFieldAverageVec); CHKERRQ(ierr);
 
     // --- Cleanup ---
-    ierr = VecDestroy(&sumVec); CHKERRQ(ierr);
+    ierr = VecDestroy(&globalsumVec); CHKERRQ(ierr);
 
 
     PROFILE_FUNCTION_END;

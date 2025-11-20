@@ -362,6 +362,15 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
 PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName,
                                     DM *targetDM, PetscInt *expected_dof);
 
+/**
+ * @brief Retrieves the persistent local vector (e.g., lPsi, lUcat) for a given field name.
+ * 
+ * @param user          User context containing the persistent vectors.
+ * @param fieldName     Name of the field ("Psi", "Ucat", etc.).
+ * @param localVec      Output pointer to the vector.
+ * @return PetscErrorCode 
+ */
+PetscErrorCode GetPersistentLocalVector(UserCtx *user, const char *fieldName, Vec *localVec);
 
 /**
  * @brief Accumulates a particle field (scalar or vector) into a target grid sum vector.
