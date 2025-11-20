@@ -487,6 +487,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     DM             da = user->da;
     DM             swarm = user->swarm;
     Vec            countVec = user->ParticleCount;
+    Vec            localcountVec = user->lParticleCount;
     PetscInt       nlocal, p;
     PetscInt       *global_cell_id_arr; // Read GLOBAL cell IDs
     PetscScalar    ***count_arr_3d;     // Use 3D accessor
@@ -508,8 +509,8 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     ierr = DMDAGetInfo(da, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &count_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
      if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %d.", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
 
-    // --- Zero the count vector ---
-    ierr = VecSet(countVec, 0.0); CHKERRQ(ierr);
+    // --- Zero the local count vector ---
+    ierr = VecSet(localcountVec, 0.0); CHKERRQ(ierr);
 
     // --- Get Particle Data ---
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Accessing particle data.\n");
@@ -519,11 +520,11 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
 
     // --- Get Grid Vector Array using DMDA accessor ---
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Accessing ParticleCount vector array (using DMDAVecGetArray).\n");
-    ierr = DMDAVecGetArray(da, countVec, &count_arr_3d); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(da, localcountVec, &count_arr_3d); CHKERRQ(ierr);
 
-    // Get local owned range for validation/logging if needed, but not for indexing with DMDAVecGetArray
-    PetscInt xs, ys, zs, xm, ym, zm;
-    ierr = DMDAGetCorners(da, &xs, &ys, &zs, &xm, &ym, &zm); CHKERRQ(ierr);
+    // Get local owned + ghosted range for writing into ghost slots.
+    PetscInt gxs, gys, gzs, gxm, gym, gzm;
+    ierr = DMDAGetGhostCorners(da, &gxs, &gys, &gzs, &gxm, &gym, &gzm); CHKERRQ(ierr);
 
     // --- Accumulate Counts Locally ---
     LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateParticleCountPerCell (Rank %d): Processing %d local particles using GLOBAL CellIDs.\n",rank,nlocal);
@@ -545,17 +546,10 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
  
 	    LOG_LOOP_ALLOW(LOCAL,LOG_VERBOSE,p,100,"[Rank %d] Read CellID for p=%d, PID = %ld: (%ld, %ld, %ld)\n", rank, p,PID_arr[p],i, j, k);
     
-        // *** Access the local array using GLOBAL indices ***
-        // DMDAVecGetArray allows this, mapping global (I,J,K) to the correct
-        // location within the local ghosted array segment.
-        // This assumes (I,J,K) corresponds to a cell within the local owned+ghost region.
-        // If (I,J,K) is for a cell owned by *another* rank (and not in the ghost region
-        // of this rank), accessing count_arr_3d[K][J][I] will likely lead to a crash
-        // or incorrect results. This highlights why storing LOCAL indices is preferred
-        // for parallel runs. But proceeding with GLOBAL as requested:
-        if (i >= xs && i < xs + xm  && 
-            j >= ys && j < ys + ym  && // Adjust based on actual ghost width
-            k >= zs && k < zs + zm  )   // This check prevents definite crashes but doesn't guarantee ownership
+        // Check if the global index (i,j,k) falls within the local + ghost range
+        if (i >= gxs && i < gxs + gxm  && 
+            j >= gys && j < gys + gym  && // Adjust based on actual ghost width
+            k >= gzs && k < gzs + gzm  )   // This check prevents definite crashes but doesn't guarantee ownership
         {
 
              // Increment count at the location corresponding to GLOBAL index (I,J,K)
@@ -564,20 +558,30 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
              particles_counted_locally++;
          } else {
               // This particle's global ID is likely outside the range this rank handles (even ghosts)
-              LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateParticleCountPerCell (Rank %d): Skipping particle %ld with global CellID (%ld, %ld, %ld) - likely outside local+ghost range.\n",rank, PID_arr[p] , i, j, k);
+              // note: this is not necessarily an error if the particle is legitimately outside the local+ghost region
+              LOG_ALLOW(LOCAL, LOG_VERBOSE, "(Rank %d): Skipping particle %ld with global CellID (%ld, %ld, %ld) - likely outside local+ghost range.\n",rank, PID_arr[p] , i, j, k);
 	}
     }
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateParticleCountPerCell (Rank %d): Local counting finished. Processed %d particles locally.\n", rank, particles_counted_locally);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "(Rank %d): Local counting finished. Processed %d particles locally.\n", rank, particles_counted_locally);
 
     // --- Restore Access ---
-    ierr = DMDAVecRestoreArray(da, countVec, &count_arr_3d); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(da, localcountVec, &count_arr_3d); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm,"DMSwarm_CellID", NULL, NULL, (void **)&global_cell_id_arr); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm,"DMSwarm_pid",NULL,NULL,(void **)&PID_arr);CHKERRQ(ierr);
 
     // --- Assemble Global Vector ---
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Assembling global ParticleCount vector.\n");
-    ierr = VecAssemblyBegin(countVec); CHKERRQ(ierr);
-    ierr = VecAssemblyEnd(countVec); CHKERRQ(ierr);
+    ierr = VecZeroEntries(countVec); CHKERRQ(ierr); // Ensure global vector is zeroed before accumulation
+    ierr = DMLocalToGlobalBegin(da, localcountVec, ADD_VALUES, countVec); CHKERRQ(ierr);
+    ierr = DMLocalToGlobalEnd(da, localcountVec, ADD_VALUES, countVec); CHKERRQ(ierr);
+    /* 
+     * OPTIONAL: Synchronize Ghosts for Stencil Operations
+     * If a future function needs to read ParticleCount from neighbor cells (e.g., density smoothing 
+     * or gradient calculations), uncomment the following lines to update the ghost slots 
+     * in user->lParticleCount with the final summed values.
+     * 
+     ierr = UpdateLocalGhosts(user,"ParticleCount"); CHKERRQ(ierr);
+     */
 
     // --- Verification Logging ---
     PetscReal total_counted_particles = 0.0, max_count_in_cell = 0.0;

@@ -196,7 +196,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
 
     // 3. Update Eulerian source terms from the loaded particle data.
-    //ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+    ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
 
     // --- 4. Initial History and Output ---
     // Update solver history vectors with the t=0 state before the first real step
@@ -416,8 +416,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = UpdateAllParticleFields(user); CHKERRQ(ierr);
             
             // f. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
-            //ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
-            //ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+            ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
+            ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
             
             // g. (Optional) Calculate advanced particle metrics for logging/debugging.
             ierr = CalculateAdvancedParticleMetrics(user); CHKERRQ(ierr);
