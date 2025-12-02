@@ -99,20 +99,18 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     // This is the core of the time step. It computes an intermediate velocity
     // field by solving the momentum equations.
     
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Beginning momentum solve (Implicit Flag = %d)...\n", simCtx->implicit);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Beginning momentum step solve (Solver = %s)...\n", MomentumSolverTypeToString(simCtx->mom_solver_type));
     
-    if (simCtx->implicit > 0) {
-        // --- Implicit Path ---
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Executing implicit momentum solver...\n");
-        // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
-        ierr = ImpRK(user, NULL, NULL); CHKERRQ(ierr);
+    // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
+    // ierr = ImpRK(user, NULL, NULL); CHKERRQ(ierr);
+    if(simCtx->mom_solver_type == MOMENTUM_SOLVER_DUALTIME_PICARD_RK4) {
+        ierr = MomentumSolver_DualTime_Picard_RK4(user,NULL,NULL); CHKERRQ(ierr);
+    } else if(simCtx->mom_solver_type == MOMENTUM_SOLVER_EXPLICIT_RK) {   
+    // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
+    ierr = MomentumSolver_Explicit_RungeKutta4(user, NULL, NULL); CHKERRQ(ierr);
     } else {
-        // --- Explicit Path (Default) ---
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Executing Iterative implicit momentum solver (Implicit Runge-Kutta)...\n");
-        // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
-	ierr = RungeKutta(user, NULL, NULL); CHKERRQ(ierr);
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "Momentum solver type %d is not currently enabled.\n", simCtx->mom_solver_type);
     }
-    
 // ========================================================================
 //   SECTION: Pressure-Poisson Solver
 // ========================================================================

@@ -584,9 +584,16 @@ const char* ParticleInitializationToString(PetscInt ParticleInitialization);
 /**
  * @brief Helper function to convert LES Flag to a string representation.
  * @param[in] LESModelType The LES flag value.
- * @return Pointer to a constant string representing the FieldInitialization.
+ * @return Pointer to a constant string representing the LES Flag.
  */
 const char* LESModelToString(LESModelType LESFlag);
+
+/**
+ * @brief Helper function to convert Momentum Solver flag to a string representation.
+ * @param[in] MomentumSolverType The Momentum Solver flag value.
+ * @return Pointer to a constant string representing the MomentumSolverType.
+ */
+const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag);
 
 /**
  * @brief Helper function to convert BCType enum to a string representation.

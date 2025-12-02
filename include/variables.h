@@ -53,7 +53,7 @@ extern "C" {
  *                       MACROS & GLOBAL VARIABLES                                *
  *================================================================================*/
 
-/// Coefficient controlling the temporal accuracy scheme (e.g., 1.5 for BDF2).
+/// Coefficient controlling the temporal accuracy scheme (e.g., 1.5 for 2nd Order Backward Difference).
 #define COEF_TIME_ACCURACY 1.5
 
 /* --- NOTE: All legacy global 'extern' variables have been removed. --- */
@@ -447,8 +447,16 @@ typedef enum {
     DYNAMIC_SMAGORINSKY = 2
 } LESModelType;
 //--------------------------------------------------------------------------------
-//               7. MULTIGRID AND POST-PROCESSING STRUCTS
+//               8. MULTIGRID, SOLVERS AND POST-PROCESSING STRUCTS AND ENUMS
 //--------------------------------------------------------------------------------
+
+/** @brief Enumerator to identify the various momentumsolvers */
+typedef enum{
+    MOMENTUM_SOLVER_EXPLICIT_RK = 0,
+    MOMENTUM_SOLVER_DUALTIME_PICARD_RK4 = 1,
+    MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI = 2,
+    MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN = 3
+} MomentumSolverType;
 
 /** @brief Context for Multigrid operations. */
 typedef struct MGCtx {
@@ -542,7 +550,7 @@ typedef enum {
 } ExecutionMode;
 
 //-------------------------------------------------------------------------------
-//             8. SCALING AND DIMENSIONAL ANALYSIS STRUCTS
+//             9. SCALING AND DIMENSIONAL ANALYSIS STRUCTS
 //-------------------------------------------------------------------------------
 typedef struct ScalingCtx{
   PetscReal L_ref;
@@ -602,13 +610,15 @@ typedef struct SimCtx {
     PetscInt channelz;
 
     //================ Group 5: Solver & Numerics Parameters ================
-    PetscInt  implicit, implicit_type, imp_MAX_IT;
-    PetscReal imp_atol, imp_rtol, imp_stol;
+    MomentumSolverType mom_solver_type;
+    PetscInt  mom_max_pseudo_steps;
+    PetscReal mom_atol, mom_rtol, imp_stol;
     PetscInt  mglevels,mg_MAX_IT, mg_idx, mg_preItr, mg_poItr;
     PetscInt  poisson;
     PetscReal poisson_tol;
     PetscInt  STRONG_COUPLING,central;
-    PetscReal ren, st,cfl, vnn, cdisx, cdisy, cdisz;
+
+    PetscReal ren, st, cfl, cdisx, cdisy, cdisz; // vnn
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
     
