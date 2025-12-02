@@ -684,8 +684,8 @@ const char* ParticleInitializationToString(PetscInt ParticleInitialization)
 
 /**
  * @brief Helper function to convert LES Flag to a string representation.
- * @param[in] PetscInt The LES flag value.
- * @return Pointer to a constant string representing the FieldInitialization.
+ * @param[in] LESModelType The LES flag value.
+ * @return Pointer to a constant string representing the LES Model Type.
  */
 const char* LESModelToString(LESModelType LESFlag)
 {
@@ -694,6 +694,22 @@ const char* LESModelToString(LESModelType LESFlag)
         case CONSTANT_SMAGORINSKY: return "Constant Smagorinsky";
         case DYNAMIC_SMAGORINSKY: return "Dynamic Smagorinsky";
         default: return "Unknown LES Flag";
+    }
+}
+
+/**
+ * @brief Helper function to convert Momentum Solver flag to a string representation.
+ * @param[in] MomentumSolverType The Momentum Solver flag value.
+ * @return Pointer to a constant string representing the MomentumSolverType.
+ */
+const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag)
+{
+    switch(SolverFlag){
+        case MOMENTUM_SOLVER_EXPLICIT_RK: return "Explicit 4 stage Runge-Kutta ";
+        case MOMENTUM_SOLVER_DUALTIME_PICARD_RK4: return "Dual Time Stepping with Picard Iterations and 4 stage Runge-Kutta Smoothing";
+        case MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN: return "Dual Time Stepping with Newton-Krylov Iterations and Analytic Jacobian";
+        case MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI: return "Dual Time Stepping with Newton-Krylov Arnoldi Iteration Method.";
+        default: return "Unknown Momentum Solver Type";
     }
 }
 

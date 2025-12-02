@@ -2,7 +2,7 @@
 #define SOLVERS_H
 
 #include "variables.h" // Provides definitions for UserCtx, SimCtx, IBMNodes, etc.
-#include "implicitsolvers.h"
+#include "momentumsolvers.h"
 #include "rhs.h"
 #include "logging.h"
 #include "poisson.h"

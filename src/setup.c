@@ -90,13 +90,13 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->channelz = 0;
 
     // --- Group 5: Solver & Numerics Parameters ---
-    simCtx->implicit = 0; simCtx->implicit_type = 0; simCtx->imp_MAX_IT = 50;
-    simCtx->imp_atol = 1e-7; simCtx->imp_rtol = 1e-4; simCtx->imp_stol = 1.e-8;
+    simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4; simCtx->mom_max_pseudo_steps = 50;
+    simCtx->mom_atol = 1e-7; simCtx->mom_rtol = 1e-4; simCtx->imp_stol = 1.e-8;
     simCtx->mglevels = 3; simCtx->mg_MAX_IT = 30; simCtx->mg_idx = 1;
     simCtx->mg_preItr = 1; simCtx->mg_poItr = 1;
     simCtx->poisson = 0; simCtx->poisson_tol = 5.e-9;
     simCtx->STRONG_COUPLING = 0;simCtx->central=0;
-    simCtx->ren = 100.0; simCtx->cfl = 0.1; simCtx->vnn = 0.1;
+    simCtx->ren = 100.0; simCtx->cfl = 0.1; //simCtx->vnn = 0.1;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
     simCtx->FieldInitialization = 0;
     simCtx->InitialConstantContra.x = 0.0;
@@ -314,14 +314,28 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL,NULL,"-Turbulent_Channel_z_Scaling_Factor",&simCtx->forceScalingFactor,NULL);CHKERRQ(ierr);
     //  --- Group 5
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 5: Solver & Numerics Parameters \n");
-    ierr = PetscOptionsGetInt(NULL, NULL, "-imp", &simCtx->implicit, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-imp_type", &simCtx->implicit_type, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-imp_MAX_IT", &simCtx->imp_MAX_IT, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-imp_atol", &simCtx->imp_atol, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-imp_rtol", &simCtx->imp_rtol, NULL); CHKERRQ(ierr);
+    char mom_solver_type_char[PETSC_MAX_PATH_LEN];
+    ierr = PetscOptionsGetString(NULL, NULL, "-mom_solver_type", &mom_solver_type_char,sizeof(mom_solver_type_char),NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-mom_max_pseudo_steps", &simCtx->mom_max_pseudo_steps, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-mom_atol", &simCtx->mom_atol, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-mom_rtol", &simCtx->mom_rtol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-imp_stol", &simCtx->imp_stol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-central", &simCtx->central, NULL); CHKERRQ(ierr);
 
+    // Map the string input to the enum type.
+    if(strcmp(mom_solver_type_char, "DUALTIME_PICARD_RK4") == 0) {
+        simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4;
+    } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ARNOLDI") == 0) {
+        simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI;
+    } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ANALYTICAL_JACOBIAN") == 0) {
+        simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN;
+    } else if (strcmp(mom_solver_type_char, "EXPLICIT_RK") == 0) {
+        simCtx->mom_solver_type = MOMENTUM_SOLVER_EXPLICIT_RK;
+    } else {
+        LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_RK4', 'DUALTIME_NK_ARNOLDI', 'DUALTIME_NK_ANALYTICAL_JACOBIAN', 'EXPLICIT_RK'.\n", mom_solver_type_char);
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -mom_solver_type: '%s'.", mom_solver_type_char);
+    }
+    
     // --- Multigrid Options ---
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_level", &simCtx->mglevels, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_max_it", &simCtx->mg_MAX_IT, NULL); CHKERRQ(ierr);
@@ -335,7 +349,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-str", &simCtx->STRONG_COUPLING, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ren", &simCtx->ren, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-cfl", &simCtx->cfl, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-vnn", &simCtx->vnn, NULL); CHKERRQ(ierr);
+    //ierr = PetscOptionsGetReal(NULL, NULL, "-vnn", &simCtx->vnn, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-finit", &simCtx->FieldInitialization, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_y", &simCtx->InitialConstantContra.y, NULL); CHKERRQ(ierr);
