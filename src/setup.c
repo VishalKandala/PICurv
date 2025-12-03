@@ -91,14 +91,16 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Group 5: Solver & Numerics Parameters ---
     simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4; simCtx->mom_max_pseudo_steps = 50;
-    simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor = 1.1; // New addition for divergence detection
+    simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor = 1.05; // New addition for divergence detection
     simCtx->mom_atol = 1e-7; simCtx->mom_rtol = 1e-4; simCtx->imp_stol = 1.e-8;
     simCtx->mglevels = 3; simCtx->mg_MAX_IT = 30; simCtx->mg_idx = 1;
     simCtx->mg_preItr = 1; simCtx->mg_poItr = 1;
     simCtx->poisson = 0; simCtx->poisson_tol = 5.e-9;
     simCtx->STRONG_COUPLING = 0;simCtx->central=0;
     simCtx->ren = 100.0; simCtx->pseudo_cfl = 0.1;
-    simCtx->pseudo_cfl_reduction_factor = 1.0; //simCtx->vnn = 0.1;
+    simCtx->max_pseudo_cfl = 1.0; simCtx->min_pseudo_cfl = 0.001;
+    simCtx->pseudo_cfl_reduction_factor = 1.0;
+    simCtx->pseudo_cfl_growth_factor = 1.0; //simCtx->vnn = 0.1;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
     simCtx->FieldInitialization = 0;
     simCtx->InitialConstantContra.x = 0.0;
@@ -351,7 +353,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-str", &simCtx->STRONG_COUPLING, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ren", &simCtx->ren, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl", &simCtx->pseudo_cfl, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-max_pseudo_cfl", &simCtx->max_pseudo_cfl, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-min_pseudo_cfl", &simCtx->min_pseudo_cfl, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl_reduction_factor", &simCtx->pseudo_cfl_reduction_factor, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl_growth_factor", &simCtx->pseudo_cfl_growth_factor, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_rk4_residual_norm_noise_allowance_factor",&simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-finit", &simCtx->FieldInitialization, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);
