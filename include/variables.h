@@ -618,7 +618,7 @@ typedef struct SimCtx {
     PetscReal poisson_tol;
     PetscInt  STRONG_COUPLING,central;
 
-    PetscReal ren, st, cfl, cdisx, cdisy, cdisz; // vnn
+    PetscReal ren, st, pseudo_cfl, cdisx, cdisy, cdisz; // vnn
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
     
