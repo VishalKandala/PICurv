@@ -2407,7 +2407,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             //ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
             ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
             if(strcmp(simCtx->eulerianSource,"solve")==0){
-                ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
+                //ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Momentum Equation Solver      : %s\n", MomentumSolverTypeToString(simCtx->mom_solver_type)); CHKERRQ(ierr);
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Initial Pseudo-CFL    : %le\n", simCtx->pseudo_cfl); CHKERRQ(ierr);
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
