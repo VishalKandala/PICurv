@@ -96,7 +96,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->mg_preItr = 1; simCtx->mg_poItr = 1;
     simCtx->poisson = 0; simCtx->poisson_tol = 5.e-9;
     simCtx->STRONG_COUPLING = 0;simCtx->central=0;
-    simCtx->ren = 100.0; simCtx->cfl = 0.1; //simCtx->vnn = 0.1;
+    simCtx->ren = 100.0; simCtx->pseudo_cfl = 0.1; //simCtx->vnn = 0.1;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
     simCtx->FieldInitialization = 0;
     simCtx->InitialConstantContra.x = 0.0;
@@ -348,7 +348,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL, NULL, "-poisson_tol", &simCtx->poisson_tol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-str", &simCtx->STRONG_COUPLING, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ren", &simCtx->ren, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-cfl", &simCtx->cfl, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl", &simCtx->pseudo_cfl, NULL); CHKERRQ(ierr);
     //ierr = PetscOptionsGetReal(NULL, NULL, "-vnn", &simCtx->vnn, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-finit", &simCtx->FieldInitialization, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);
