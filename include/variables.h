@@ -619,7 +619,8 @@ typedef struct SimCtx {
     PetscInt  STRONG_COUPLING,central;
 
     PetscReal ren, pseudo_cfl, cdisx, cdisy, cdisz;
-    PetscReal pseudo_cfl_reduction_factor; // st, vnn
+    PetscReal pseudo_cfl_reduction_factor, pseudo_cfl_growth_factor; // st, vnn
+    PetscReal max_pseudo_cfl, min_pseudo_cfl; // New addition for adaptive pseudo-CFL
     PetscReal mom_dt_rk4_residual_norm_noise_allowance_factor; // New addition for divergence detection
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;

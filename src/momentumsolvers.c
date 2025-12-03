@@ -369,8 +369,8 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
                 if(simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1) f = fopen(filen, "w");
                 else f = fopen(filen, "a");
                 
-                PetscFPrintf(PETSC_COMM_WORLD, f, "Step: %d | PseudoIter: %d | |dU|: %le | Rel_dU: %le | |Resid|: %le \n",
-                             (int)ti, (int)pseudo_iter, delta_sol_norm_curr[bi], delta_sol_rel_curr[bi], resid_norm_curr[bi]);
+                PetscFPrintf(PETSC_COMM_WORLD, f, "Step: %d | PseudoIter(k): %d | |dUk|: %le | |dUk|/|dUprev|: %le | |Rk|: %le | |Rk|/|Rprev|: %le \n",
+                             (int)ti, (int)pseudo_iter, delta_sol_norm_curr[bi], delta_sol_rel_curr[bi], resid_norm_curr[bi],resid_rel_curr[bi]);
                 fclose(f);
             }
         } // End loop over blocks
@@ -383,16 +383,19 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
         for (PetscInt bi = 0; bi < block_number; bi++) {
             global_norm_delta = PetscMax(delta_sol_norm_curr[bi], global_norm_delta);
             global_rel_delta  = PetscMax(delta_sol_rel_curr[bi],  global_rel_delta);
-            global_rel_resid  = PetscMax(resid_rel_curr[bi],      global_rel_resid);
+            global_rel_resid  = PetscMax(resid_rel_curr[bi],      global_rel_resid); 
         }
 
         ierr = PetscTime(&te); CHKERRQ(ierr);
         cput = te - ts;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "  Pseudo-Iter %d: |dU|=%e, Rel_dU=%e, |Resid|=%e, CPU=%.2fs\n",
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  Pseudo-Iter(k) %d: |dUk|=%e, |dUk|/|dUprev| = %e, |Rk|/|Rprev| = %e, CPU=%.2fs\n",
                   pseudo_iter, global_norm_delta, global_rel_delta, global_rel_resid, cput);
-
+         
         // === Backtracking Line Search ===
         for (PetscInt bi = 0; bi < block_number; bi++) {
+
+            PetscReal resid_ratio = resid_norm_curr[bi] / resid_norm_prev[bi];
+            
             PetscBool is_sol_nan, is_resid_nan, is_diverging;
             // Check for NaNs in Solution and Residual
             is_sol_nan = (PetscBool)PetscIsNanReal(delta_sol_norm_curr[bi]);
@@ -416,13 +419,13 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
                     LOG_ALLOW(LOCAL, LOG_WARNING, "  Block %d: Divergence detected (|R| and |dU| increasing).\n", bi);
                 }
 
-                if(pseudo_dt_scaling[bi] < 0.001){
+                if(pseudo_dt_scaling[bi] < simCtx->min_pseudo_cfl) {
                     SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_CONV_FAILED, 
                         "Block %d: Solver diverged (NaN or explosion) and min time-step reached. Simulation aborted.", bi);
                     }
 
                 // 1. Reduce Step Size
-                pseudo_dt_scaling[bi] *= simCtx->pseudo_cfl_reduction_factor;
+                pseudo_dt_scaling[bi] *= 0.5*simCtx->pseudo_cfl_reduction_factor; // Aggressive decceleration (1/2 x reduction factor).
                 // 2. Decrement iterator to retry
                 pseudo_iter--; 
                 
@@ -448,6 +451,17 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
                 ierr = VecCopy(user[bi].Ucont, user[bi].pUcont); CHKERRQ(ierr);
                 resid_norm_prev[bi]     = resid_norm_curr[bi];
                 delta_sol_norm_prev[bi] = delta_sol_norm_curr[bi];
+
+                // Adaptive Ramping of solution speed (Pseudo-CFL)
+
+                if(resid_ratio < 0.9){ // Residual is falling fast (good convergence)
+                    pseudo_dt_scaling[bi] *= simCtx->pseudo_cfl_growth_factor;
+                } else if(resid_ratio > 0.98){ // Residual is falling very slow (weak convergence.)
+                    pseudo_dt_scaling[bi] *= simCtx->pseudo_cfl_reduction_factor;
+                }
+                
+                // Clamp to max bound.
+                pseudo_dt_scaling[bi] = PetscMin(pseudo_dt_scaling[bi], simCtx->max_pseudo_cfl);
             }
         }
         
@@ -455,6 +469,8 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
              // ierr = Block_Interface_U(user); CHKERRQ(ierr);
         }
     } // End while loop
+
+
 
     // --- Final Cleanup ---
     for (PetscInt bi = 0; bi < block_number; bi++) {
