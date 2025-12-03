@@ -471,6 +471,39 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
     } // End while loop
 
 
+    // Smart CFL Carry Over
+
+    PetscReal local_min_cfl = 1.0e20;
+    PetscReal global_min_cfl;
+
+    // 1. Find the "Weakest Link" (lowest CFL) across local blocks
+    for (PetscInt bi = 0; bi < block_number; bi++) {
+        if (pseudo_dt_scaling[bi] < local_min_cfl) {
+            local_min_cfl = pseudo_dt_scaling[bi];
+        }
+    }
+
+    // 2. MPI Reduction (Crucial if blocks are distributed across ranks)
+    // We want the minimum CFL across the entire simulation, not just this processor.
+    ierr = MPI_Allreduce(&local_min_cfl, &global_min_cfl, 1, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    // 3. Apply Safety Factor & Update simCtx
+    // We use a factor (e.g., 0.85) to back off slightly for the start of the next timestep
+    // to accommodate the initial residual spike from the BDF term.
+    PetscReal cfl_carry_over_relaxation_factor = 0.85;
+    PetscReal next_start_cfl = global_min_cfl * cfl_carry_over_relaxation_factor;
+
+    next_start_cfl = PetscMin(next_start_cfl, simCtx->max_pseudo_cfl);
+    next_start_cfl = PetscMax(next_start_cfl, simCtx->min_pseudo_cfl);
+
+    // 5. Save for next Physical Time Step
+    if (!rank) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  CFL Adaptation: Step %d finished at CFL %.3f. Next step will start at CFL %.3f.\n", 
+                  simCtx->step, global_min_cfl, next_start_cfl);
+    }
+    
+    // Update the context so the next call to MomentumSolver reads this new value
+    simCtx->pseudo_cfl = next_start_cfl;    
 
     // --- Final Cleanup ---
     for (PetscInt bi = 0; bi < block_number; bi++) {
