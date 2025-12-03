@@ -618,11 +618,12 @@ typedef struct SimCtx {
     PetscReal poisson_tol;
     PetscInt  STRONG_COUPLING,central;
 
-    PetscReal ren, pseudo_cfl, cdisx, cdisy, cdisz; // st, vnn
+    PetscReal ren, pseudo_cfl, cdisx, cdisy, cdisz;
+    PetscReal pseudo_cfl_reduction_factor; // st, vnn
+    PetscReal mom_dt_rk4_residual_norm_noise_allowance_factor; // New addition for divergence detection
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
     
-
     //================ Group 6: Physical & Geometric Parameters ================
     PetscInt  NumberOfBodies;
     PetscReal Flux_in, angle,max_angle;
