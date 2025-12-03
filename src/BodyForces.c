@@ -84,7 +84,7 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
     // Calculate the driving force magnitude for the current timestep, smoothed
     // with the value from the previous step for stability.
     const PetscReal forceScalingFactor  = simCtx->forceScalingFactor;
-    PetscReal drivingForceMagnitude = (bulkVelocityCorrection / simCtx->dt / simCtx->st * COEF_TIME_ACCURACY);
+    PetscReal drivingForceMagnitude = (bulkVelocityCorrection / simCtx->dt / 1.0 * COEF_TIME_ACCURACY); // replaced simCtx->st with 1.0.
     drivingForceMagnitude = (simCtx->drivingForceMagnitude * 0.5) + (drivingForceMagnitude * 0.5); 
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "  - Previous driving force:            %le\n", simCtx->drivingForceMagnitude);

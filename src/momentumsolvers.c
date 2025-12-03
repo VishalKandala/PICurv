@@ -87,7 +87,7 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
     // This is the bridge to access all former global variables.
     SimCtx *simCtx = user[0].simCtx;
     PetscReal dt = simCtx->dt;
-    PetscReal st = simCtx->st;
+    //PetscReal st = simCtx->st;
     PetscInt  istage;
     PetscReal alfa[] = {0.25, 1.0/3.0, 0.5, 1.0};
 
@@ -134,7 +134,7 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
 
                 // b. Advance Ucont to the next intermediate stage using the RK coefficient.
                 //    Ucont_new = Ucont_old + alpha * dt * RHS
-                ierr = VecWAXPY(user[bi].Ucont, alfa[istage] * dt * st, user[bi].Rhs, user[bi].Ucont_o); CHKERRQ(ierr);
+                ierr = VecWAXPY(user[bi].Ucont, alfa[istage] * dt, user[bi].Rhs, user[bi].Ucont_o); CHKERRQ(ierr);
  
                 // c. Update local ghost values for the new intermediate Ucont.
                 ierr = DMGlobalToLocalBegin(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
@@ -230,7 +230,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
     // Legacy Names (Physics/Time) - Kept for brevity in formulas
     const PetscInt ti = simCtx->step;
     const PetscReal dt = simCtx->dt;       // Physical Time Step
-    const PetscReal st = simCtx->st;       // Pseudo Time Step
+    //const PetscReal st = simCtx->st;       // Pseudo Time Step
     const PetscReal cfl = simCtx->pseudo_cfl;     // Initial CFL Scaling
     const PetscReal alfa[] = {0.25, 1.0/3.0, 0.5, 1.0}; // RK4 Coefficients
 
@@ -314,9 +314,9 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
                 
                 LOG_ALLOW(GLOBAL,LOG_TRACE," Pseudo-Iter: %d | RK-Stage: %d\n", pseudo_iter, istage);
                 
-                // RK Update: U_new = U_old + (Scaler * Alpha * dt * st) * Total_Residual
+                // RK Update: U_new = U_old + (Scaler * Alpha * dt) * Total_Residual
                 ierr = VecWAXPY(user[bi].Ucont, 
-                                pseudo_dt_scaling[bi] * alfa[istage] * dt * st, 
+                                pseudo_dt_scaling[bi] * alfa[istage] * dt, 
                                 user[bi].Rhs, 
                                 user[bi].pUcont); CHKERRQ(ierr);
 

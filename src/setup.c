@@ -80,7 +80,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->rotateframe = 0; simCtx->blank = 0;
     simCtx->dgf_x = 0; simCtx->dgf_y = 1; simCtx->dgf_z = 0;
     simCtx->dgf_ax = 1; simCtx->dgf_ay = 0; simCtx->dgf_az = 0;
-    simCtx->st = 1.0;
+    //simCtx->st = 1.0;
     strcpy(simCtx->AnalyticalSolutionType,"TGV3D");
 
     // --- Group 4: Specific Simulation Case Flags --- (DEPRICATED)

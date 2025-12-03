@@ -409,7 +409,7 @@ PetscErrorCode Projection(UserCtx *user)
 
   // --- Constants for clarity ---
   const PetscReal IBM_FLUID_THRESHOLD = 0.1;
-  const PetscReal scale = simCtx->dt * simCtx->st / COEF_TIME_ACCURACY;
+  const PetscReal scale = simCtx->dt * 1.0 / COEF_TIME_ACCURACY; // simCtx->st replaced by 1.0.
 
   LOG_ALLOW(GLOBAL,LOG_DEBUG," Starting velocity correction: Scale = %le .\n",scale);
 
@@ -2262,7 +2262,7 @@ PetscErrorCode PoissonRHS(UserCtx *user, Vec B)
 	  rb[k][j][i] = -(ucont[k][j][i].x - ucont[k][j][i-1].x +
 			  ucont[k][j][i].y - ucont[k][j-1][i].y +
 			  ucont[k][j][i].z - ucont[k-1][j][i].z) / dt
- 	    * aj[k][j][i] / user->simCtx->st * COEF_TIME_ACCURACY;
+ 	    * aj[k][j][i] / 1.0 * COEF_TIME_ACCURACY;     // user->simCtx->st replaced by 1.0.
 	 
 	}
       }
