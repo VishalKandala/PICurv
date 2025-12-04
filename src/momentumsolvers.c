@@ -456,12 +456,16 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
 
                 if(resid_ratio < 0.9){ // Residual is falling fast (good convergence)
                     pseudo_dt_scaling[bi] *= simCtx->pseudo_cfl_growth_factor;
-                } else if(resid_ratio > 0.98){ // Residual is falling very slow (weak convergence.)
+                } else if(resid_ratio > 0.98 && resid_ratio < 1.0){ // Residual is falling very slow (weak convergence.) we accelerate.
+                    pseudo_dt_scaling[bi] *= simCtx->pseudo_cfl_growth_factor;
+                } else if(resid_ratio > 1.0 && resid_ratio < simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor){ 
+                    // Residual is rising slightly (within noise allowance). we decelerate mildly.
                     pseudo_dt_scaling[bi] *= simCtx->pseudo_cfl_reduction_factor;
-                }
+                } // Else Residual is rising strongly - handled by backtracking.
                 
                 // Clamp to max bound.
                 pseudo_dt_scaling[bi] = PetscMin(pseudo_dt_scaling[bi], simCtx->max_pseudo_cfl);
+                //pseudo_dt_scaling[bi] = PetscMax(pseudo_dt_scaling[bi], simCtx->min_pseudo_cfl);
             }
         }
         
