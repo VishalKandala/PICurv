@@ -7,6 +7,105 @@
 #define ERROR_MSG_BUFFER_SIZE 256 // Or use PETSC_MAX_PATH_LEN if appropriate
 #endif
 
+#undef __FUNCT__
+#define __FUNCT__ "GenerateGaussianNoise"
+/**
+ * @brief Generates two independent standard normal random variables N(0,1) 
+ *        using the Box-Muller transform.
+ * 
+ * @param[in]  rnd  The PETSc Random context (Uniform [0,1)).
+ * @param[out] n1   First Gaussian number.
+ * @param[out] n2   Second Gaussian number.
+ * 
+ * @return PetscErrorCode
+ */
+PetscErrorCode GenerateGaussianNoise(PetscRandom rnd, PetscReal *n1, PetscReal *n2)
+{
+    PetscErrorCode ierr;
+    PetscScalar    val1, val2;
+    PetscReal      u1, u2;
+    PetscReal      magnitude, theta;
+
+    PetscFunctionBeginUser;
+
+    // 1. Get two independent uniform random numbers from the generator
+    // PetscRandomGetValue returns a PetscScalar (which might be complex).
+    // We take the Real part to ensure this works in both Real and Complex builds.
+    ierr = PetscRandomGetValue(rnd, &val1); CHKERRQ(ierr);
+    ierr = PetscRandomGetValue(rnd, &val2); CHKERRQ(ierr);
+
+    u1 = PetscRealPart(val1);
+    u2 = PetscRealPart(val2);
+
+    // 2. Safety Check: log(0) is undefined (infinity).
+    // If the RNG returns exactly 0.0, bump it to a tiny epsilon.
+    if (u1 <= 0.0) u1 = 1.0e-14;
+
+    // 3. Box-Muller Transform
+    // Formula: R = sqrt(-2 * ln(u1)), Theta = 2 * PI * u2
+    magnitude = PetscSqrtReal(-2.0 * PetscLogReal(u1));
+    theta     = 2.0 * PETSC_PI * u2; 
+
+    // 4. Calculate independent Normal variables
+    *n1 = magnitude * PetscCosReal(theta);
+    *n2 = magnitude * PetscSinReal(theta);
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "CalculateBrownianDisplacement"
+/**
+ * @brief Calculates the stochastic displacement vector (Brownian motion) for a single particle.
+ *        Equation: dX_stoch = sqrt(2 * Gamma_eff * dt) * N(0,1)
+ *
+ * @param[in]  user          Pointer to UserCtx (access to dt and BrownianMotionRNG).
+ * @param[in]  diff_eff      The effective diffusivity (Gamma + Gamma_t) at the particle's location.
+ * @param[out] displacement  Pointer to a Cmpnts struct to store the resulting (dx, dy, dz).
+ *
+ * @return PetscErrorCode
+ */
+PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscReal diff_eff, Cmpnts *displacement)
+{
+    PetscErrorCode ierr;
+    PetscReal      dt = user->simCtx->dt;
+    PetscReal      sigma;
+    PetscReal      n_x, n_y, n_z, n_unused;
+
+    PetscFunctionBeginUser;
+
+    // 1. Initialize output to zero for safety
+    displacement->x = 0.0;
+    displacement->y = 0.0;
+    displacement->z = 0.0;
+
+    // 2. Physical check: Diffusivity cannot be negative. 
+    // If 0, there is no Brownian motion.
+    if (diff_eff <= 1.0e-12) {
+        PetscFunctionReturn(0);
+    }
+
+    // 3. Calculate the Scaling Factor (Standard Deviation)
+    // Formula: sigma = sqrt(2 * D * dt)
+    // Note: dt is inside the root because variance scales linearly with time.
+    sigma = PetscSqrtReal(2.0 * diff_eff * dt);
+
+    // 4. Generate 3 Independent Gaussian Random Numbers
+    // GenerateGaussianNoise produces 2 numbers at a time. We call it twice.
+    
+    // Get noise for X and Y
+    ierr = GenerateGaussianNoise(user->simCtx->BrownianMotionRNG, &n_x, &n_y); CHKERRQ(ierr);
+    
+    // Get noise for Z (n_unused is discarded, but cheap to generate)
+    ierr = GenerateGaussianNoise(user->simCtx->BrownianMotionRNG, &n_z, &n_unused); CHKERRQ(ierr);
+
+    // 5. Calculate final stochastic displacement
+    displacement->x = sigma * n_x;
+    displacement->y = sigma * n_y;
+    displacement->z = sigma * n_z;
+
+    PetscFunctionReturn(0);
+}
 
 #undef __FUNCT__ 
 #define __FUNCT__ "UpdateParticlePosition"
@@ -24,13 +123,29 @@ PetscErrorCode UpdateParticlePosition(UserCtx *user, Cmpnts *position, const Cmp
   PetscFunctionBeginUser; // PETSc macro for error/stack tracing
   PROFILE_FUNCTION_BEGIN;
 
+  PetscErrorCode ierr;
   PetscReal  dt = user->simCtx->dt;
+  Cmpnts brownian_disp;
+  PetscReal diff_eff;
 
-  /* Update the position with velocity * dt */
-  position->x += velocity->x * dt;
-  position->y += velocity->y * dt;
-  position->z += velocity->z * dt;
+  // 1. Calculate constant diffusivity (Laminar approximation)
+  // Gamma = nu / Sc. Assuming Sc=1.0, Gamma = 1/Re.
+  // TODO: In the future, pass this as an argument interpolated from grid fields (Gamma + Gamma_t).
+  if (user->simCtx->ren > 1.0e-12) {
+      diff_eff = 1.0 / user->simCtx->ren; 
+  } else {
+      diff_eff = 0.0; // Avoid division by zero if Re is not set
+  }
 
+  // 2. Calculate the stochastic kick
+  ierr = CalculateBrownianDisplacement(user, diff_eff, &brownian_disp); CHKERRQ(ierr);
+
+  // --- Update Position ---
+  // X_new = X_old + (U_convection * dt) + dX_brownian
+  
+  position->x += (velocity->x * dt) + brownian_disp.x;
+  position->y += (velocity->y * dt) + brownian_disp.y;
+  position->z += (velocity->z * dt) + brownian_disp.z;
 
   PROFILE_FUNCTION_END;
   PetscFunctionReturn(0);
@@ -1240,7 +1355,7 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
  * @ingroup ParticleMotion
  *
  * This function is a critical component of the iterative migration process managed by
- * the main particle settlement orchestrator (e.g., `SettleParticles`). After a
+ * the main particle settlement orchestrator (e.g., `LocateAllParticlesInGrid`). After a
  * `DMSwarmMigrate` call, each rank's local particle list is a new mix of resident
  * particles and newly received ones. This function's job is to efficiently identify
  * these "newcomers" and set their `DMSwarm_location_status` field to `NEEDS_LOCATION`.
@@ -1345,6 +1460,104 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
         LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d]: Identified and flagged %d newcomers.\n", rank, newcomer_count);
     }
 
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "MigrateRestartParticlesUsingCellID"
+/**
+ * @brief Fast-path migration for restart particles using preloaded Cell IDs.
+ *
+ * This function provides an optimized migration path specifically for particles
+ * loaded from restart files. Unlike the standard `LocateAllParticlesInGrid()`
+ * which performs expensive walking searches, this function leverages the fact that
+ * restart particles already have valid global Cell IDs loaded from disk.
+ *
+ * **How It Works:**
+ * 1. Iterates through all local particles.
+ * 2. For each particle with a valid Cell ID (ci, cj, ck):
+ *    - Calls `FindOwnerOfCell(ci, cj, ck)` to determine the correct rank.
+ *    - If owner differs from current rank, adds to migration list.
+ *    - If owner matches current rank, the existing `ACTIVE_AND_LOCATED` status is preserved.
+ * 3. Uses existing `SetMigrationRanks()` and `PerformMigration()` infrastructure.
+ * 4. Achieves **single-pass direct migration** (no multi-hop, no walking searches).
+ *
+ * @param[in,out] user Pointer to UserCtx containing the swarm and RankCellInfoMap.
+ *                     The function updates particle status fields and performs migration.
+ *
+ * @return PetscErrorCode 0 on success, non-zero on failure.
+ */
+PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DM             swarm = user->swarm;
+    PetscInt       nlocal;
+    PetscInt       *cell_p = NULL;
+    PetscInt64     *pid_p = NULL;
+    PetscMPIInt    rank;
+    
+    MigrationInfo  *migrationList = NULL;
+    PetscInt       local_migration_count = 0;
+    PetscInt       migrationListCapacity = 0;
+    PetscInt       global_migration_count = 0;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Checking %d restart particles for direct migration using CellIDs.\n", nlocal);
+
+    if (nlocal > 0) {
+        ierr = DMSwarmGetField(swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_p);   CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, "DMSwarm_pid",             NULL, NULL, (void**)&pid_p);    CHKERRQ(ierr);
+        
+        // Note: We do NOT need to modify the status field here. 
+        // We trust the loaded status (ACTIVE_AND_LOCATED) is correct for the destination rank.
+
+        for (PetscInt p_idx = 0; p_idx < nlocal; ++p_idx) {
+            PetscInt ci = cell_p[3*p_idx + 0];
+            PetscInt cj = cell_p[3*p_idx + 1];
+            PetscInt ck = cell_p[3*p_idx + 2];
+
+            /* Skip particles with invalid Cell IDs (will be handled by LocateAllParticles) */
+            if (ci < 0 || cj < 0 || ck < 0) {
+                continue;
+            }
+
+            PetscMPIInt owner_rank;
+            ierr = FindOwnerOfCell(user, ci, cj, ck, &owner_rank); CHKERRQ(ierr);
+
+            if (owner_rank != -1 && owner_rank != rank) {
+                /* Particle belongs to another rank - migrate it */
+                ierr = AddToMigrationList(&migrationList, &migrationListCapacity, &local_migration_count,
+                                          p_idx, owner_rank); CHKERRQ(ierr);
+                
+                LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] Direct migration: Cell (%d,%d,%d) belongs to Rank %d (Current: %d).\n",
+                          (long)pid_p[p_idx], ci, cj, ck, owner_rank, rank);
+            }
+        }
+
+        ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_p);   CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",             NULL, NULL, (void**)&pid_p);    CHKERRQ(ierr);
+    }
+
+    /* Check if any rank needs to migrate particles */
+    ierr = MPI_Allreduce(&local_migration_count, &global_migration_count, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    if (global_migration_count > 0) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Fast restart migration: Directly migrating %d particles using CellIDs.\n", global_migration_count);
+        ierr = SetMigrationRanks(user, migrationList, local_migration_count); CHKERRQ(ierr);
+        ierr = PerformMigration(user); CHKERRQ(ierr);
+        /* We do NOT flag newcomers here. We trust their loaded status (ACTIVE_AND_LOCATED) */
+        /* is valid for their destination rank. */
+    } else {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Fast restart migration: All particles are already on correct ranks.\n");
+    }
+
+    ierr = PetscFree(migrationList); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
