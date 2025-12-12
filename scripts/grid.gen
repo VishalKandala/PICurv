@@ -251,7 +251,7 @@ def cartesian_pipe_grid(
     first_cell_i_start: float = None, first_cell_i_end: float = None,
     first_cell_j_start: float = None, first_cell_j_end: float = None,
     first_cell_k_start: float = None, first_cell_k_end: float = None
-) -> GridCoords:
+) -> GridCoords: 
     """!
     @brief Generates a bent pipe grid by warping a Cartesian block.
     """

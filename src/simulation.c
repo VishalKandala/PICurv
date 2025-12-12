@@ -180,9 +180,15 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     UserCtx     *user     = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
 
     // 0. Reset all particle statuses to ensure proper location checks.
-    ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
+    //ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
 
-    // 1. Rebuild grid-to-particle links based on loaded coordinates.
+    // 0. This moves particles to their correct ranks immediately using the loaded Cell ID.
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Performing fast restart migration using preloaded Cell IDs...\n");
+    ierr = MigrateRestartParticlesUsingCellID(user); CHKERRQ(ierr);
+
+    // 1. To catch any edge cases (particles with invalid CellIDs or newcomers).
+    // Because we kept the statuses, this function will now SKIP all the particles 
+    // that are already on the correct rank,
     ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
 
     if(get_log_level() == LOG_DEBUG){

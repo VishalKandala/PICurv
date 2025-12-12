@@ -398,6 +398,15 @@ PetscErrorCode InitializeRandomGenerators(UserCtx *user, PetscRandom *randx, Pet
 PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k);
 
 /**
+ * @brief Initializes a single master RNG for time-stepping physics (Brownian motion).
+ *        Configures it for Uniform [0, 1) which is required for Box-Muller transformation.
+ *
+ * @param[in,out] simCtx  Pointer to the Simulation Context.
+ * @return PetscErrorCode
+ */
+PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx);
+
+/**
  * @brief Computes the derivatives of a cell-centered vector field at a specific grid point.
  *
  * This function orchestrates the calculation of spatial derivatives. It first computes

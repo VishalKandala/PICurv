@@ -17,6 +17,31 @@
 #include "variables.h"       // Common type definitions
 #include "logging.h"      // Logging macros and definitions
 #include "walkingsearch.h"  // Walking search function for particle migration   
+
+/**
+ * @brief Generates two independent standard normal random variables N(0,1) 
+ *        using the Box-Muller transform.
+ * 
+ * @param[in]  rnd  The PETSc Random context (Uniform [0,1)).
+ * @param[out] n1   First Gaussian number.
+ * @param[out] n2   Second Gaussian number.
+ * 
+ * @return PetscErrorCode
+ */
+PetscErrorCode GenerateGaussianNoise(PetscRandom rnd, PetscReal *n1, PetscReal *n2);
+
+/**
+ * @brief Calculates the stochastic displacement vector (Brownian motion) for a single particle.
+ *        Equation: dX_stoch = sqrt(2 * Gamma_eff * dt) * N(0,1)
+ *
+ * @param[in]  user          Pointer to UserCtx (access to dt and BrownianMotionRNG).
+ * @param[in]  diff_eff      The effective diffusivity (Gamma + Gamma_t) at the particle's location.
+ * @param[out] displacement  Pointer to a Cmpnts struct to store the resulting (dx, dy, dz).
+ *
+ * @return PetscErrorCode
+ */
+PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscReal diff_eff, Cmpnts *displacement);
+
 /**
  * @brief Updates a particle's position based on its velocity and the timestep dt (stored in user->dt).
  *
@@ -325,6 +350,30 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
                                         PetscInt n_local_before,
                                         const PetscInt64 pids_before[]);
 
+
+/**
+ * @brief Fast-path migration for restart particles using preloaded Cell IDs.
+ *
+ * This function provides an optimized migration path specifically for particles
+ * loaded from restart files. Unlike the standard `LocateAllParticlesInGrid()`
+ * which performs expensive walking searches, this function leverages the fact that
+ * restart particles already have valid global Cell IDs loaded from disk.
+ *
+ * **How It Works:**
+ * 1. Iterates through all local particles.
+ * 2. For each particle with a valid Cell ID (ci, cj, ck):
+ *    - Calls `FindOwnerOfCell(ci, cj, ck)` to determine the correct rank.
+ *    - If owner differs from current rank, adds to migration list.
+ *    - If owner matches current rank, the existing `ACTIVE_AND_LOCATED` status is preserved.
+ * 3. Uses existing `SetMigrationRanks()` and `PerformMigration()` infrastructure.
+ * 4. Achieves **single-pass direct migration** (no multi-hop, no walking searches).
+ *
+ * @param[in,out] user Pointer to UserCtx containing the swarm and RankCellInfoMap.
+ *                     The function updates particle status fields and performs migration.
+ *
+ * @return PetscErrorCode 0 on success, non-zero on failure.
+ */
+PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user);
 
 /**
  * @brief Orchestrates the complete particle location and migration process for one timestep.
