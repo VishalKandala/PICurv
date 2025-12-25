@@ -113,12 +113,11 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscReal diff_eff, 
  * @brief Updates a particle's position based on its velocity and the timestep dt (stored in user->dt).
  *
  * @param[in]     user     Pointer to your UserCtx (must contain user->dt).
- * @param[in,out] position Pointer to the particle's current position (Cmpnts).
- * @param[in]     velocity Pointer to the particle's velocity (Cmpnts).
+ * @param[in,out] particle Pointer to the particle struct (contains, pos,vel,diffusivity etc).
  *
  * @return PetscErrorCode  Returns 0 on success, or an error code on failure.
  */
-PetscErrorCode UpdateParticlePosition(UserCtx *user, Cmpnts *position, const Cmpnts *velocity)
+PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
 {
   PetscFunctionBeginUser; // PETSc macro for error/stack tracing
   PROFILE_FUNCTION_BEGIN;
@@ -126,26 +125,16 @@ PetscErrorCode UpdateParticlePosition(UserCtx *user, Cmpnts *position, const Cmp
   PetscErrorCode ierr;
   PetscReal  dt = user->simCtx->dt;
   Cmpnts brownian_disp;
-  PetscReal diff_eff;
-
-  // 1. Calculate constant diffusivity (Laminar approximation)
-  // Gamma = nu / Sc. Assuming Sc=1.0, Gamma = 1/Re.
-  // TODO: In the future, pass this as an argument interpolated from grid fields (Gamma + Gamma_t).
-  if (user->simCtx->ren > 1.0e-12) {
-      diff_eff = 1.0 / user->simCtx->ren; 
-  } else {
-      diff_eff = 0.0; // Avoid division by zero if Re is not set
-  }
 
   // 2. Calculate the stochastic kick
-  ierr = CalculateBrownianDisplacement(user, diff_eff, &brownian_disp); CHKERRQ(ierr);
+  ierr = CalculateBrownianDisplacement(user,particle->diffusivity, &brownian_disp); CHKERRQ(ierr);
 
   // --- Update Position ---
   // X_new = X_old + (U_convection * dt) + dX_brownian
   
-  position->x += (velocity->x * dt) + brownian_disp.x;
-  position->y += (velocity->y * dt) + brownian_disp.y;
-  position->z += (velocity->z * dt) + brownian_disp.z;
+  particle->loc.x += (particle->vel.x * dt) + brownian_disp.x;
+  particle->loc.y += (particle->vel.y * dt) + brownian_disp.y;
+  particle->loc.z += (particle->vel.z * dt) + brownian_disp.z;
 
   PROFILE_FUNCTION_END;
   PetscFunctionReturn(0);
@@ -167,9 +156,14 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
   PetscInt       nLocal, p;
   PetscReal        *pos = NULL;
   PetscReal        *vel = NULL;
+  PetscReal        *diffusivity = NULL;
+  PetscReal        *psi = NULL;
+  PetscReal        *weights = NULL;
+  PetscInt         *cell = NULL;
+  PetscInt         *status = NULL;
+  PetscInt         *pid = NULL;
   PetscMPIInt rank;
-  Cmpnts temp_pos, temp_vel; 
-
+ 
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
 
   PetscFunctionBeginUser;  // PETSc macro for error/stack tracing
@@ -185,36 +179,40 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
   // 2) Access the "position" and "velocity" fields
   ierr = DMSwarmGetField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
   ierr = DMSwarmGetField(swarm, "velocity", NULL, NULL, (void**)&vel); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, "Diffusivity", NULL, NULL, (void**)&diffusivity); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, "Psi", NULL, NULL, (void**)&psi); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pid); CHKERRQ(ierr);
 
   LOG_ALLOW(GLOBAL,LOG_DEBUG," [Rank %d] No.of Particles to update: %d.\n",rank,nLocal);
 
   // 3) Loop over all local particles, updating each position by velocity * dt
   for (p = 0; p < nLocal; p++) {
-    // update temporary position struct
-    temp_pos.x = pos[3*p];
-    temp_pos.y = pos[3*p + 1];
-    temp_pos.z = pos[3*p + 2];
+    // update temporary particle struct
+    Particle particle;
 
-    // update temporary velocity struct
-    temp_vel.x = vel[3*p];
-    temp_vel.y = vel[3*p + 1];
-    temp_vel.z = vel[3*p + 2];    
-    
-    ierr = UpdateParticlePosition(user, &temp_pos, &temp_vel); CHKERRQ(ierr);
-    
-    // update swarm from temporary position struct
-    pos[3*p] = temp_pos.x;
-    pos[3*p + 1] = temp_pos.y;
-    pos[3*p + 2] = temp_pos.z;
+    // Unpack: Use the helper to read from swarm arrays into the particle struct
+    ierr = UnpackSwarmFields(p, pid, weights, pos, cell, vel, status, diffusivity, psi, &particle); CHKERRQ(ierr);
 
-    vel[3*p] = temp_vel.x;
-    vel[3*p + 1] = temp_vel.y;
-    vel[3*p + 2] = temp_vel.z;
+    // Update position based on velocity and Brownian motion
+    ierr = UpdateParticlePosition(user, &particle); CHKERRQ(ierr);
+    
+    // Update swarm fields
+    ierr = UpdateSwarmFields(p, &particle, pos, vel, weights, cell, status, diffusivity, psi); CHKERRQ(ierr);
   }
 
   // 4) Restore the fields
   ierr = DMSwarmRestoreField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
   ierr = DMSwarmRestoreField(swarm, "velocity", NULL, NULL, (void**)&vel); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, "Diffusivity", NULL, NULL, (void**)&diffusivity); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, "Psi", NULL, NULL, (void**)&psi); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pid); CHKERRQ(ierr);
+
 
   LOG_ALLOW(LOCAL,LOG_DEBUG,"Particle moved/transported successfully on Rank %d.\n",rank);
   
@@ -645,9 +643,9 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateParticleCountPerCell (Rank %d): Processing %d local particles using GLOBAL CellIDs.\n",rank,nlocal);
     for (p = 0; p < nlocal; p++) {
         // Read the GLOBAL indices stored for this particle
-        PetscInt64 i_geom = global_cell_id_arr[p * 3 + 0]; // Global i index
-        PetscInt64 j_geom = global_cell_id_arr[p * 3 + 1]; // Global j index
-        PetscInt64 k_geom = global_cell_id_arr[p * 3 + 2]; // Global k index
+        PetscInt i_geom = global_cell_id_arr[p * 3 + 0]; // Global i index
+        PetscInt j_geom = global_cell_id_arr[p * 3 + 1]; // Global j index
+        PetscInt k_geom = global_cell_id_arr[p * 3 + 2]; // Global k index
 
         // Apply the shift to ensure ParticleCount follows the indexing convention for cell-centered data in this codebase.
         PetscInt i = (PetscInt)i_geom + 1; // Shift for cell-centered
@@ -1805,7 +1803,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 
 		    //	LOG_ALLOW(LOCAL,LOG_DEBUG,"about to unpack p_idx=%d (PID=%ld)\n",p_idx, (long)pid_p[p_idx]);
 		
-                ierr = UnpackSwarmFields(p_idx, pid_p, weights_p, pos_p, cell_p, vel_p, status_p, &current_particle); CHKERRQ(ierr);
+                ierr = UnpackSwarmFields(p_idx, pid_p, weights_p, pos_p, cell_p, vel_p, status_p,NULL,NULL,&current_particle); CHKERRQ(ierr);
 
 		    //		LOG_ALLOW(LOCAL,LOG_DEBUG,"unpacked p_idx=%d → cell[0]=%d, status=%s\n",p_idx, current_particle.cell[0], ParticleLocationStatusToString((ParticleLocationStatus)current_particle.location_status));
 
@@ -1850,7 +1848,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
                      // Particle's final status is either LOCATED or LOST; update its state in the swarm arrays.
                      current_particle.location_status = final_status;
                      // PACK: Use the helper to write results back to the swarm arrays.
-                     ierr = UpdateSwarmFields(p_idx, &current_particle, weights_p, cell_p, status_p); CHKERRQ(ierr);
+                     ierr = UpdateSwarmFields(p_idx, &current_particle, pos_p, vel_p, weights_p, cell_p, status_p,NULL,NULL); CHKERRQ(ierr);
                 }
 		*/
                 // CASE 2: Particle is "lost" (cell = -1). Strategy: Guess -> Verify.
@@ -1882,7 +1880,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 		
                 // --- PROCESS THE FINAL, DEFINITIVE STATUS ---
                 current_particle.location_status = final_status;
-                ierr = UpdateSwarmFields(p_idx, &current_particle, weights_p, cell_p, status_p); CHKERRQ(ierr);
+                ierr = UpdateSwarmFields(p_idx, &current_particle, pos_p, vel_p, weights_p, cell_p, status_p,NULL,NULL); CHKERRQ(ierr);
                 
                 if (final_status == MIGRATING_OUT) {
 		  ierr = AddToMigrationList(&migrationList, &migrationListCapacity, &local_migration_count, p_idx, current_particle.destination_rank); CHKERRQ(ierr);

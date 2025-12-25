@@ -170,6 +170,8 @@ typedef struct Particle {
     Cmpnts weights;
     ParticleLocationStatus location_status;
     PetscMPIInt destination_rank;
+    PetscReal diffusivity;
+    PetscReal psi;
 } Particle;
 
 /** @brief Stores the MPI ranks of neighboring subdomains. */
@@ -631,6 +633,7 @@ typedef struct SimCtx {
     PetscReal CMx_c, CMy_c, CMz_c;
     ScalingCtx scaling;
     PetscReal  wall_roughness_height;
+    PetscReal schmidt_number, Turbulent_schmidt_number;
 
     //================ Group 7: Grid, Domain, and Boundary Condition Settings ================
     PetscInt  block_number, inletprofile, grid1d, Ogrid;
@@ -739,6 +742,9 @@ typedef struct UserCtx {
 
     // --- Primary Flow Fields (Global & Local Views) ---
     Vec Ucont, lUcont, Ucat, lUcat, P, lP, Phi, lPhi, Nvert, lNvert;
+
+    // --- Secondary Flow & Derived Fields ---
+    Vec Diffusivity, lDiffusivity;
 
     // --- Time-Stepping & Solver Workspace Fields ---
     Vec Ucont_o, lUcont_o, Ucat_o, P_o, Nvert_o, lNvert_o;

@@ -1307,6 +1307,8 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
         fieldVec = user->Ucat; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(fieldName, "P") == 0) {
         fieldVec = user->P; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(fieldName, "Diffusivity") == 0) {
+        fieldVec = user->Diffusivity; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(fieldName, "Ucont") == 0) {
         fieldVec = user->lUcont; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
     } else if (strcasecmp(fieldName, "Coordinates") == 0) {
@@ -1472,6 +1474,8 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
         vec_local = user->lUcat; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(field_name, "P") == 0) {
         vec_local = user->lP; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(field_name, "Diffusivity") == 0) {
+        vec_local = user->lDiffusivity; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(field_name, "Psi") == 0) {
         vec_local = user->lPsi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(field_name, "Center-Coordinates") == 0) {
@@ -1491,7 +1495,12 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
         ierr = DMGetCoordinatesLocal(user->da, &vec_local); CHKERRQ(ierr);
         dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
     } else if  (strcasecmp(field_name, "CornerField")== 0){
-        vec_local = user->lCellFieldAtCorner; dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
+        vec_local = user->lCellFieldAtCorner; strcpy(data_layout, "Node-Centered");
+        PetscInt bs = 1;
+        ierr = VecGetBlockSize(user->CellFieldAtCorner, &bs); CHKERRQ(ierr);
+        dof = bs;
+        if(dof == 1) dm = user->da;
+        else         dm = user->fda;
     } else {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Unknown field name for LOG_FIELD_ANATOMY: %s", field_name);
     }
@@ -1576,7 +1585,7 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
             PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Value for Cell[%d][j][i]) = ", rank, km_phys - 1, km_phys - 2);
             if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f)\n", ((const PetscReal***)l_arr)[km_phys - 1][j_mid][i_mid]);
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[km_phys - 1][j_mid][i_mid].x, ((const Cmpnts***)l_arr)[km_phys - 1][j_mid][i_mid].y, ((const Cmpnts***)l_arr)[km_phys - 1][j_mid][i_mid].z);
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Ghost for Cell[%d][j][i]s) = ", rank, km_phys, km_phys - 2);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Ghost for Cell[%d][j][i]) = ", rank, km_phys, km_phys - 2);
             if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f)\n", ((const PetscReal***)l_arr)[km_phys][j_mid][i_mid]);
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[km_phys][j_mid][i_mid].x, ((const Cmpnts***)l_arr)[km_phys][j_mid][i_mid].y, ((const Cmpnts***)l_arr)[km_phys][j_mid][i_mid].z);
         }

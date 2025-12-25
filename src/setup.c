@@ -80,7 +80,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->rotateframe = 0; simCtx->blank = 0;
     simCtx->dgf_x = 0; simCtx->dgf_y = 1; simCtx->dgf_z = 0;
     simCtx->dgf_ax = 1; simCtx->dgf_ay = 0; simCtx->dgf_az = 0;
-    //simCtx->st = 1.0;
     strcpy(simCtx->AnalyticalSolutionType,"TGV3D");
 
     // --- Group 4: Specific Simulation Case Flags --- (DEPRICATED)
@@ -112,6 +111,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->max_angle = -54. * 3.1415926 / 180.;
     simCtx->CMx_c=0.0; simCtx->CMy_c=0.0; simCtx->CMz_c=0.0;
     simCtx->wall_roughness_height = 1e-16;
+    simCtx->schmidt_number = 1.0; simCtx->Turbulent_schmidt_number = 0.7;
 
     // --- Group 7: Grid, Domain, and Boundary Condition Settings ---
     simCtx->block_number = 1; simCtx->inletprofile = 1;
@@ -367,6 +367,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
      //  --- Group 6
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 6: Physical & Geometric Parameters \n");   
+    ierr = PetscOptionsGetReal(NULL,NULL,"-schmidt_number",&simCtx->schmidt_number,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-turb_schmidt_number",&simCtx->Turbulent_schmidt_number,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-no_of_bodies", &simCtx->NumberOfBodies, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL,"-wall_roughness",&simCtx->wall_roughness_height,NULL);CHKERRQ(ierr);
     // NOTE: angle is not parsed in the original code, it set programmatically. We will follow that.
@@ -974,6 +976,10 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             ierr = DMCreateLocalVector(user->da,  &user->lP);     CHKERRQ(ierr); ierr = VecSet(user->lP, 0.0); CHKERRQ(ierr);
             ierr = DMCreateLocalVector(user->da,  &user->lNvert); CHKERRQ(ierr); ierr = VecSet(user->lNvert, 0.0); CHKERRQ(ierr);
 
+            // -- Group A2: Derived Flow Fields (Global and Local) ---
+            ierr = VecDuplicate(user->P,&user->Diffusivity); CHKERRQ(ierr); ierr = VecSet(user->Diffusivity, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lP,&user->lDiffusivity); CHKERRQ(ierr); ierr = VecSet(user->lDiffusivity, 0.0); CHKERRQ(ierr);
+
             // -- Group B: Solver Work Vectors (Global and Local) ---
             ierr = VecDuplicate(user->P, &user->Phi);       CHKERRQ(ierr); ierr = VecSet(user->Phi, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->lP, &user->lPhi);       CHKERRQ(ierr); ierr = VecSet(user->lPhi, 0.0); CHKERRQ(ierr);
@@ -1162,6 +1168,10 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
     } else if (strcmp(fieldName, "P") == 0) {
         globalVec = user->P;
         localVec  = user->lP;
+        dm        = user->da;
+    } else if (strcmp(fieldName, "Diffusivity") == 0) {
+        globalVec = user->Diffusivity;
+        localVec  = user->lDiffusivity;
         dm        = user->da;
     } else if (strcmp(fieldName, "Csi") == 0) {
         globalVec = user->Csi;
@@ -2743,6 +2753,8 @@ PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx) {
 
 /////////////// DERIVATIVE CALCULATION HELPERS ///////////////
 
+#undef __FUNCT__
+#define __FUNCT__ "TransformDerivativesToPhysical"
 /**
  * @brief Transforms derivatives from computational space to physical space using the chain rule.
  */
@@ -2855,6 +2867,14 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->lP) { ierr = VecDestroy(&user->lP); CHKERRQ(ierr); }
     if (user->Nvert) { ierr = VecDestroy(&user->Nvert); CHKERRQ(ierr); }
     if (user->lNvert) { ierr = VecDestroy(&user->lNvert); CHKERRQ(ierr); }
+
+    // --- Group A2: Derived Flow Fields (Conditional) ---
+    if(user->Diffusivity) {
+        ierr = VecDestroy(&user->Diffusivity); CHKERRQ(ierr);
+    }
+    if(user->lDiffusivity) {
+        ierr = VecDestroy(&user->lDiffusivity); CHKERRQ(ierr);
+    }
 
     // --- Group B: Solver Work Vectors (All levels) ---
     if (user->Phi) { ierr = VecDestroy(&user->Phi); CHKERRQ(ierr); }

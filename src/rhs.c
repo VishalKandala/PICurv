@@ -1952,4 +1952,150 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 
 	PROFILE_FUNCTION_END;		  
     PetscFunctionReturn(0);
-} 
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeEulerianDiffusivity"
+/**
+ * @brief Computes the effective diffusivity scalar field ($\Gamma_{eff}$) on the Eulerian grid.
+ *
+ * This function calculates the total diffusivity used to drive the stochastic 
+ * motion of particles (Scalar FDF). It combines molecular diffusion and 
+ * turbulent diffusion.
+ *
+ * **Formula:**
+ * \f[
+ *    \Gamma_{eff} = \underbrace{\frac{\nu}{Sc}}_{\text{Molecular}} + \underbrace{\frac{\nu_t}{Sc_t}}_{\text{Turbulent}}
+ * \f]
+ *
+ * Where:
+ * - \f$ \nu = 1/Re \f$ (Kinematic Viscosity)
+ * - \f$ \nu_t \f$ (Eddy Viscosity from LES/RANS model)
+ * - \f$ Sc \f$ (Molecular Schmidt Number, user-defined)
+ * - \f$ Sc_t \f$ (Turbulent Schmidt Number, user-defined)
+ *
+ * @note If turbulence models are disabled, \f$ \nu_t \f$ is assumed to be 0.
+ * @note This function updates the local ghost values of lDiffusivity at the end 
+ *       to ensure gradients can be computed correctly at subdomain boundaries.
+ *
+ * @param[in,out] user  Pointer to the user context containing grid data and simulation parameters.
+ * 
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DM             da = user->da;
+    PetscInt       i, j, k, xs, ys, zs, xm, ym, zm, xe, ye, ze;
+	PetscInt       lxs, lys, lzs, lxe, lye, lze;
+
+    // Pointers for 3D grid access
+    PetscReal      ***diff_arr; // Output: Diffusivity field
+    PetscReal      ***nut_arr;  // Input:  Eddy Viscosity field (optional)
+
+    // Physics parameters
+    PetscReal      nu_molecular, gamma_molecular;
+    PetscReal      nu_turbulent, gamma_turbulent;
+    PetscReal      Sc, Sct;
+    PetscBool      use_turbulence_model;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // ------------------------------------------------------------------------
+    // 1. Parameter Setup & Safety Checks
+    // ------------------------------------------------------------------------
+    
+    // Determine Molecular Viscosity (nu = 1/Re)
+    // Guard against division by zero if Re is not set or infinite (inviscid)
+    if (user->simCtx->ren > 1.0e-12) {
+        nu_molecular = 1.0 / user->simCtx->ren;
+    } else {
+        nu_molecular = 0.0;
+    }
+
+    // Set Schmidt Numbers (Default to 1.0 if not provided to prevent NaN)
+    Sc  = (user->simCtx->schmidt_number > 1.0e-6) ? user->simCtx->schmidt_number : 1.0;
+    Sct = (user->simCtx->Turbulent_schmidt_number > 1.0e-6) ? user->simCtx->Turbulent_schmidt_number : 0.7;
+
+    // Pre-calculate molecular component
+    gamma_molecular = nu_molecular / Sc;
+
+    // Check if a turbulence model is active (LES or RANS)
+    use_turbulence_model = (user->simCtx->les || user->simCtx->rans) ? PETSC_TRUE : PETSC_FALSE;
+
+    // ------------------------------------------------------------------------
+    // 2. Data Access
+    // ------------------------------------------------------------------------
+    
+    // Get local grid boundaries
+	DMDALocalInfo info;
+    ierr = DMDAGetLocalInfo(da, &info); CHKERRQ(ierr);
+
+	xs = info.xs; ys = info.ys; zs = info.zs;
+	xm = info.xm; ym = info.ym; zm = info.zm;
+	xe = xs + xm; ye = ys + ym; ze = zs + zm;
+
+	lxs = (xs == 0)? xs + 1 : xs;
+	lys = (ys == 0)? ys + 1 : ys;
+	lzs = (zs == 0)? zs + 1 : zs;
+	lxe = (xe == info.mx)? xe - 1 : xe;
+	lye = (ye == info.my)? ye - 1 : ye;
+	lze = (ze == info.mz)? ze - 1 : ze;
+
+    // Get write access to the output Diffusivity array
+    ierr = DMDAVecGetArray(da, user->Diffusivity, &diff_arr); CHKERRQ(ierr);
+
+    // Get read access to Eddy Viscosity only if turbulence is active
+    if (use_turbulence_model) {
+        ierr = DMDAVecGetArrayRead(da, user->Nu_t, &nut_arr); CHKERRQ(ierr);
+    }
+
+    // ------------------------------------------------------------------------
+    // 3. Calculation Loop
+    // ------------------------------------------------------------------------
+
+    for (k = lzs; k < lze; k++) {
+        for (j = lys; j < lye; j++) {
+            for (i = lxs; i < lxe; i++) {
+                
+                gamma_turbulent = 0.0;
+
+                if (use_turbulence_model) {
+                    // Fetch local eddy viscosity
+                    nu_turbulent = nut_arr[k][j][i];
+
+                    // NUMERICAL SAFETY: 
+                    // Some turbulence models (dynamic SGS) can locally produce 
+                    // slightly negative viscosity. We clamp this to 0 to prevent
+                    // negative diffusivity, which crashes the Langevin sqrt().
+                    if (nu_turbulent < 0.0) {
+                        nu_turbulent = 0.0;
+                    }
+
+                    gamma_turbulent = nu_turbulent / Sct;
+                }
+
+                // Sum components
+                diff_arr[k][j][i] = gamma_molecular + gamma_turbulent;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // 4. Cleanup & Synchronization
+    // ------------------------------------------------------------------------
+
+    // Restore arrays
+    if (use_turbulence_model) {
+        ierr = DMDAVecRestoreArrayRead(da, user->Nu_t, &nut_arr); CHKERRQ(ierr);
+    }
+    ierr = DMDAVecRestoreArray(da, user->Diffusivity, &diff_arr); CHKERRQ(ierr);
+
+    // Update Ghost Points
+    // This is required because downstream operations (Drift Gradient Calculation 
+    // and Particle Interpolation) will need access to the halo regions of this field.
+	ierr = UpdateLocalGhosts(user,"Diffusivity"); CHKERRQ(ierr);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
