@@ -103,6 +103,11 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Performing initial particle setup procedures.\n", simCtx->ti, simCtx->step);
 
+    // --- 0. Loop over all blocks to compute Eulerian diffusivity.
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        ierr = ComputeEulerianDiffusivity(&user[bi]); CHKERRQ(ierr);
+    }
+
     // --- 1. Initial Particle Settlement (Location and Migration) ---
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Initial Settlement: Locating and migrating all particles...\n", simCtx->ti, simCtx->step);
     ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
@@ -179,10 +184,13 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     PetscFunctionBeginUser;
     UserCtx     *user     = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
 
-    // 0. Reset all particle statuses to ensure proper location checks.
-    //ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
+    // --- 0. Re-compute Eulerian Diffusivity from loaded fields.
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Re-computing Eulerian Diffusivity from loaded fields...\n");
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        ierr = ComputeEulerianDiffusivity(&user[bi]); CHKERRQ(ierr);
+    }
 
-    // 0. This moves particles to their correct ranks immediately using the loaded Cell ID.
+    // 0.1 This moves particles to their correct ranks immediately using the loaded Cell ID.
     LOG_ALLOW(GLOBAL, LOG_INFO, "Performing fast restart migration using preloaded Cell IDs...\n");
     ierr = MigrateRestartParticlesUsingCellID(user); CHKERRQ(ierr);
 
@@ -398,14 +406,30 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         if (simCtx->np > 0) {
             LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Lagrangian particle system...\n");
 
-            // a. Advect particles using the velocity interpolated from the *previous* step.
+            // a. Update Eulerian Transport Properties:
+            // Optimization: Only recalculate if turbulence is active (Nu_t changes).
+            // For Laminar flow, the value calculated at Setup is constant.
+            if (simCtx->les || simCtx->rans) {
+                for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+                    ierr = ComputeEulerianDiffusivity(&user[bi]); CHKERRQ(ierr);
+                }
+            }
+
+            // a.1 (Optional) Log Eulerian Diffusivity min/max and anatomy for debugging.
+            if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
+                LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Updated Diffusivity Min/Max:\n");
+                ierr = LOG_FIELD_MIN_MAX(&user[0],"Diffusivity"); CHKERRQ(ierr);
+                //LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Updated Diffusivity Anatomy:\n");
+                ierr = LOG_FIELD_ANATOMY(&user[0],"Diffusivity","PostDiffusivityUpdate"); CHKERRQ(ierr);
+            }
+            // b. Advect particles using the velocity interpolated from the *previous* step.
             //    P(t_{n+1}) = P(t_n) + V_p(t_n) * dt
             ierr = UpdateAllParticlePositions(user); CHKERRQ(ierr);
 
-            // b. Settle all particles: find their new host cells and migrate them across ranks.
+            // c. Settle all particles: find their new host cells and migrate them across ranks.
             ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
  
-            // c. Remove any particles that are now lost or out of the global domain.
+            // d. Remove any particles that are now lost or out of the global domain.
             ierr = CheckAndRemoveLostParticles(user, &removed_local_lost, &removed_global_lost); CHKERRQ(ierr);
             //ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, simCtx->bboxlist); CHKERRQ(ierr);
             if (removed_global_lost> 0) { // if(removed_global_lost + removed_global_ob > 0){
@@ -413,19 +437,19 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
                 simCtx->particlesLostLastStep = removed_global_lost;
             }
 
-            // d. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the
+            // e. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the
             //    particles' new positions. This gives them V_p(t_{n+1}) for the *next* advection step.
             ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
 
-            // e. Update the Particle Fields (e.g., temperature, concentration) if applicable.
+            // f. Update the Particle Fields (e.g., temperature, concentration) if applicable.
             //    This can be extended to include reactions, growth, etc.
             ierr = UpdateAllParticleFields(user); CHKERRQ(ierr);
             
-            // f. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
+            // g. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
             ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
             ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
             
-            // g. (Optional) Calculate advanced particle metrics for logging/debugging.
+            // h. (Optional) Calculate advanced particle metrics for logging/debugging.
             ierr = CalculateAdvancedParticleMetrics(user); CHKERRQ(ierr);
 
             ierr = LOG_PARTICLE_METRICS(user, "Timestep Metrics"); CHKERRQ(ierr);

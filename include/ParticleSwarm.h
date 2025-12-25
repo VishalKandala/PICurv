@@ -165,29 +165,43 @@ PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscR
  * @param[in]     cellIndices  Pointer to the array of particle cell indices.
  * @param[in]     velocities   Pointer to the array of particle velocities.
  * @param[in]     LocStatus    Pointer to the array of cell location status indicators.
+ * @param[in]     diffusivity  Pointer to the array of particle diffusivity values.
+ * @param[in]     psi          Pointer to the array of particle scalar Psi values.
  * @param[out]    particle     Pointer to the Particle struct to initialize.
  *
  * @return PetscErrorCode  Returns `0` on success, non-zero on failure.
  */
 PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const PetscReal *weights,
 				 const PetscReal *positions, const PetscInt *cellIndices,
-				 PetscReal *velocities,PetscInt *LocStatus,Particle *particle);
+				 PetscReal *velocities,PetscInt *LocStatus,PetscReal *diffusivity, PetscReal *psi, Particle *particle);
 
 /**
- * @brief Updates DMSwarm fields with data from a Particle struct.
+ * @brief Updates DMSwarm data arrays from a Particle struct.
  *
- * This helper function writes back the modified Particle data to the corresponding DMSwarm fields.
+ * This function writes data from the `Particle` struct back into the raw DMSwarm arrays.
+ * It is robust: if any array pointer is NULL, that specific field is skipped.
+ * This allows selective updating (e.g., update position but not velocity).
  *
- * @param[in] i            Index of the particle in the DMSwarm.
- * @param[in] particle     Pointer to the Particle struct containing updated data.
- * @param[in,out] weights  Pointer to the array of particle weights.
- * @param[in,out] cellIndices Pointer to the array of particle cell indices.
- * @param[in,out] LocStatus   Pointer to the array of cell location status indicators.
+ * @param[in]     i            Index of the particle in the local swarm arrays.
+ * @param[in]     particle     Pointer to the Particle struct containing updated data.
+ * @param[in,out] positions    (Optional) Array of particle positions (size 3*n).
+ * @param[in,out] velocities   (Optional) Array of particle velocities (size 3*n).
+ * @param[in,out] weights      (Optional) Array of particle weights (size 3*n).
+ * @param[in,out] cellIndices  (Optional) Array of particle cell indices (size 3*n).
+ * @param[in,out] status       (Optional) Array of location status (size 1*n).
+ * @param[in,out] diffusivity  (Optional) Array of diffusivity values (size 1*n).
+ * @param[in,out] psi          (Optional) Array of scalar Psi values (size 1*n).
  *
- * @return PetscErrorCode  Returns `0` on success, non-zero on failure.
+ * @return PetscErrorCode Returns 0 on success.
  */
 PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
-				 PetscReal *weights, PetscInt *cellIndices, PetscInt *status_field);
+                                 PetscReal *positions, 
+                                 PetscReal *velocities,
+                                 PetscReal *weights, 
+                                 PetscInt  *cellIndices, 
+                                 PetscInt  *status,
+                                 PetscReal *diffusivity,
+                                 PetscReal *psi);                 
 
 /**
  * @brief Checks if a particle's location is within a specified bounding box.

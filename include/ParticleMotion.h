@@ -46,12 +46,11 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscReal diff_eff, 
  * @brief Updates a particle's position based on its velocity and the timestep dt (stored in user->dt).
  *
  * @param[in]     user     Pointer to your UserCtx (must contain user->dt).
- * @param[in,out] position Pointer to the particle's current position (Cmpnts).
- * @param[in]     velocity Pointer to the particle's velocity (Cmpnts).
+ * @param[in,out] particle Pointer to the particle struct (contains, pos,vel,diffusivity etc).
  *
  * @return PetscErrorCode  Returns 0 on success, or an error code on failure.
  */
- PetscErrorCode UpdateParticlePosition(UserCtx *user, Cmpnts *position, const Cmpnts *velocity);
+PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle);
 
 /**
  * @brief Loops over all local particles in the DMSwarm, updating their positions

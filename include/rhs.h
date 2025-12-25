@@ -37,6 +37,32 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct);
  * @return PetscErrorCode 0 on success.
  */
 extern PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs);
-
+/**
+ * @brief Computes the effective diffusivity scalar field ($\Gamma_{eff}$) on the Eulerian grid.
+ *
+ * This function calculates the total diffusivity used to drive the stochastic 
+ * motion of particles (Scalar FDF). It combines molecular diffusion and 
+ * turbulent diffusion.
+ *
+ * **Formula:**
+ * \f[
+ *    \Gamma_{eff} = \underbrace{\frac{\nu}{Sc}}_{\text{Molecular}} + \underbrace{\frac{\nu_t}{Sc_t}}_{\text{Turbulent}}
+ * \f]
+ *
+ * Where:
+ * - \f$ \nu = 1/Re \f$ (Kinematic Viscosity)
+ * - \f$ \nu_t \f$ (Eddy Viscosity from LES/RANS model)
+ * - \f$ Sc \f$ (Molecular Schmidt Number, user-defined)
+ * - \f$ Sc_t \f$ (Turbulent Schmidt Number, user-defined)
+ *
+ * @note If turbulence models are disabled, \f$ \nu_t \f$ is assumed to be 0.
+ * @note This function updates the local ghost values of lDiffusivity at the end 
+ *       to ensure gradients can be computed correctly at subdomain boundaries.
+ *
+ * @param[in,out] user  Pointer to the user context containing grid data and simulation parameters.
+ * 
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user);
 
 #endif // RHS_H

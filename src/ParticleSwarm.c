@@ -91,6 +91,9 @@ PetscErrorCode RegisterParticleFields(DM swarm)
     ierr = RegisterSwarmField(swarm, "weight", 3,PETSC_REAL); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'weight'.\n");
 
+    ierr = RegisterSwarmField(swarm,"Diffusivity", 1,PETSC_REAL); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'Diffusivity' - Scalar.\n");
+
     ierr = RegisterSwarmField(swarm,"Psi", 1,PETSC_REAL); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'Psi' - Scalar.\n");
 
@@ -486,10 +489,10 @@ static PetscErrorCode InitializeSwarmFieldValue(const char *fieldName, PetscInt 
         for (PetscInt d = 0; d < fieldDim; d++) {
         fieldData[fieldDim * p + d] = 0.0;
         }
-    } else if (strcmp(fieldName, "temperature") == 0) {
-        // For temperature, for example, initialize to a default value (e.g., 300.0)
+    } else if (strcmp(fieldName, "Diffusivity") == 0) {
+        // For Diffusivity,initialize to a default value (e.g., 1.0)
         for (PetscInt d = 0; d < fieldDim; d++) {
-        fieldData[fieldDim * p + d] = 300.0;
+        fieldData[fieldDim * p + d] = 1.0;
         }
     } else if (strcmp(fieldName, "Psi") == 0) {
         for (PetscInt d = 0; d < fieldDim; d++) {
@@ -654,7 +657,11 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
     ierr = AssignInitialFieldToSwarm(user, "weight", 3); CHKERRQ(ierr); // Assuming weight is vec3
     LOG_ALLOW(LOCAL, LOG_INFO, "'weight' field initialization complete.\n");
 
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'P' (Pressure) field.\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'Diffusivity' field.\n");
+    ierr = AssignInitialFieldToSwarm(user, "Diffusivity", 1); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "'Diffusivity' field initialization complete.\n");
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'Psi' (Scalar) field.\n");
     ierr = AssignInitialFieldToSwarm(user, "Psi", 1); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "'P' field initialization complete.\n");
     
@@ -821,6 +828,10 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     PetscFunctionReturn(0);
 }
 
+// NOTE: The following two functions are helpers for unpacking and updating particle data
+// between DMSwarm fields and the Particle struct used in simulation logic.
+// While Swarm fields store data in arrays, the Particle struct provides a convenient
+// way to manipulate individual particle properties during simulation steps.
 
 #undef __FUNCT__
 #define __FUNCT__ "UnpackSwarmFields"
@@ -837,13 +848,15 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
  * @param[in]     cellIndices  Pointer to the array of particle cell indices.
  * @param[in]     velocities   Pointer to the array of particle velocities.
  * @param[in]     LocStatus    Pointer to the array of cell location status indicators.
+ * @param[in]     diffusivity  Pointer to the array of particle diffusivities.
+ * @param[in]     psi          Pointer to the array of particle psi values.
  * @param[out]    particle     Pointer to the Particle struct to initialize.
  *
  * @return PetscErrorCode  Returns `0` on success, non-zero on failure.
  */
 PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const PetscReal *weights,
                 const PetscReal *positions, const PetscInt *cellIndices,
-                PetscReal *velocities,PetscInt *LocStatus,Particle *particle) {
+                PetscReal *velocities,PetscInt *LocStatus,PetscReal *diffusivity,PetscReal *psi, Particle *particle) {
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
@@ -861,17 +874,29 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d]Unpacking Particle [%d] with PID: %ld.\n",rank, i, PIDs[i]);
     
     // Initialize PID
+    if(PIDs == NULL){
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input PIDs pointer is NULL.\n");
+    }
     particle->PID = PIDs[i];
     LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] PID set to: %ld.\n", rank,i, particle->PID);
     
     // Initialize weights
+    if(weights == NULL){
+        particle->weights.x = 1.0;
+        particle->weights.y = 1.0;
+        particle->weights.z = 1.0;
+        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%d] weights pointer is NULL. Defaulting weights to (1.0, 1.0, 1.0).\n", rank,i);
+    }else{
     particle->weights.x = weights[3 * i];
     particle->weights.y = weights[3 * i + 1];
     particle->weights.z = weights[3 * i + 2];
     LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] weights set to: (%.6f, %.6f, %.6f).\n", 
         rank,i, particle->weights.x, particle->weights.y, particle->weights.z);
-    
+    }
     // Initialize locations
+    if(positions == NULL){
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input positions pointer is NULL.\n");
+    }
     particle->loc.x = positions[3 * i];
     particle->loc.y = positions[3 * i + 1];
     particle->loc.z = positions[3 * i + 2];
@@ -879,17 +904,47 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
         rank,i, particle->loc.x, particle->loc.y, particle->loc.z);
     
     // Initialize velocities (assuming default zero; modify if necessary)
+    if(velocities == NULL){
+        particle->vel.x = 0.0;
+        particle->vel.y = 0.0;
+        particle->vel.z = 0.0;
+        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%d] velocities pointer is NULL. Defaulting velocities to (0.0, 0.0, 0.0).\n", rank,i);
+    }else{
     particle->vel.x = velocities[3 * i];
     particle->vel.y = velocities[3 * i + 1];
     particle->vel.z = velocities[3 * i + 2];
     LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] velocities unpacked to: [%.6f,%.6f,%.6f].\n",rank, i,particle->vel.x,particle->vel.y,particle->vel.z);
+    }
+    
+    // Initialize diffusivity
+    if(diffusivity == NULL){
+        particle->diffusivity = 1.0; // Default diffusivity
+    }else{
+        particle->diffusivity = diffusivity[i];
+    }
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] diffusivity set to: %.6f.\n",rank,i, particle->diffusivity);
+    
+    // Initialize psi
+    if(psi == NULL){
+        particle->psi = 0.0; // Default psi
+    }else{
+    particle->psi = psi[i];
+    }        
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] psi set to: %.6f.\n",rank,i, particle->psi);
     
     // Initialize cell indices
+    if(cellIndices == NULL){
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input cellIndices pointer is NULL.\n");
+    }
     particle->cell[0] = cellIndices[3 * i];
     particle->cell[1] = cellIndices[3 * i + 1];
     particle->cell[2] = cellIndices[3 * i + 2];
     LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] cell indices set to: [%d, %d, %d].\n",rank,i, particle->cell[0], particle->cell[1], particle->cell[2]);
 
+    if(LocStatus == NULL){
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input LocStatus pointer is NULL.\n");
+    }
+    // Initialize location status
     particle->location_status = (ParticleLocationStatus)LocStatus[i];
     LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] Status set to: %d.\n",rank, i, particle->location_status);
 
@@ -906,61 +961,91 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     PetscFunctionReturn(0);
 }
 
-
 #undef __FUNCT__
 #define __FUNCT__ "UpdateSwarmFields"
-
 /**
- * @brief Updates DMSwarm fields with data from a Particle struct.
+ * @brief Updates DMSwarm data arrays from a Particle struct.
  *
- * This helper function writes back the modified Particle data to the corresponding DMSwarm fields.
+ * This function writes data from the `Particle` struct back into the raw DMSwarm arrays.
+ * It is robust: if any array pointer is NULL, that specific field is skipped.
+ * This allows selective updating (e.g., update position but not velocity).
  *
- * @param[in] i            Index of the particle in the DMSwarm.
- * @param[in] particle     Pointer to the Particle struct containing updated data.
- * @param[in,out] weights  Pointer to the array of particle weights.
- * @param[in,out] cellIndices Pointer to the array of particle cell indices.
- * @param[in,out] LocStatus   Pointer to the array of cell location status indicators.
+ * @param[in]     i            Index of the particle in the local swarm arrays.
+ * @param[in]     particle     Pointer to the Particle struct containing updated data.
+ * @param[in,out] positions    (Optional) Array of particle positions (size 3*n).
+ * @param[in,out] velocities   (Optional) Array of particle velocities (size 3*n).
+ * @param[in,out] weights      (Optional) Array of particle weights (size 3*n).
+ * @param[in,out] cellIndices  (Optional) Array of particle cell indices (size 3*n).
+ * @param[in,out] status       (Optional) Array of location status (size 1*n).
+ * @param[in,out] diffusivity  (Optional) Array of diffusivity values (size 1*n).
+ * @param[in,out] psi          (Optional) Array of scalar Psi values (size 1*n).
  *
- * @return PetscErrorCode  Returns `0` on success, non-zero on failure.
+ * @return PetscErrorCode Returns 0 on success.
  */
 PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
-                PetscReal *weights, PetscInt *cellIndices, PetscInt *status_field) {
+                                 PetscReal *positions, 
+                                 PetscReal *velocities,
+                                 PetscReal *weights, 
+                                 PetscInt  *cellIndices, 
+                                 PetscInt  *status,
+                                 PetscReal *diffusivity,
+                                 PetscReal *psi) 
+{
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     
-    if (particle == NULL) {
+    if (!particle) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input Particle pointer is NULL.\n");
     }
     
-    // logging the start of swarm fields update
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Updating DMSwarm fields for Particle [%d].\n", i);
-    
-    // Update weights
-    weights[3 * i]     = particle->weights.x;
-    weights[3 * i + 1] = particle->weights.y;
-    weights[3 * i + 2] = particle->weights.z;
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"Updated weights for Particle [%d]: (%.6f, %.6f, %.6f).\n", 
-        i, weights[3 * i], weights[3 * i + 1], weights[3 * i + 2]);
-    
-    // Update cell indices
-    cellIndices[3 * i]     = particle->cell[0];
-    cellIndices[3 * i + 1] = particle->cell[1];
-    cellIndices[3 * i + 2] = particle->cell[2];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "Updated cell indices for Particle [%d]: [%d, %d, %d].\n", 
-        i, cellIndices[3 * i], cellIndices[3 * i + 1], cellIndices[3 * i + 2]);
+    // --- 1. Position (x, y, z) ---
+    if (positions) {
+        positions[3 * i + 0] = particle->loc.x;
+        positions[3 * i + 1] = particle->loc.y;
+        positions[3 * i + 2] = particle->loc.z;
+    }
 
-    status_field[i] = particle->location_status;
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "Updated location status for Particle [%d]: [%d].\n", 
-        i, status_field[i]);
+    // --- 2. Velocity (u, v, w) ---
+    if (velocities) {
+        velocities[3 * i + 0] = particle->vel.x;
+        velocities[3 * i + 1] = particle->vel.y;
+        velocities[3 * i + 2] = particle->vel.z;
+    }
+
+    // --- 3. Weights (i, j, k) ---
+    if (weights) {
+        weights[3 * i + 0] = particle->weights.x;
+        weights[3 * i + 1] = particle->weights.y;
+        weights[3 * i + 2] = particle->weights.z;
+    }
     
-    // logging the completion of swarm fields update
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Completed updating DMSwarm fields for Particle [%d].\n", i);
-    
+    // --- 4. Cell Indices (i, j, k) ---
+    if (cellIndices) {
+        cellIndices[3 * i + 0] = particle->cell[0];
+        cellIndices[3 * i + 1] = particle->cell[1];
+        cellIndices[3 * i + 2] = particle->cell[2];
+    }
+
+    // --- 5. Status ---
+    if (status) {
+        status[i] = (PetscInt)particle->location_status;
+    }
+
+    // --- 6. Diffusivity ---
+    if (diffusivity) {
+        diffusivity[i] = particle->diffusivity;
+    }
+
+    // --- 7. Psi ---
+    if (psi) {
+        psi[i] = particle->psi;
+    }
+
+    // LOG_LOOP_ALLOW(LOCAL, LOG_VERBOSE, i, 1000, "Updated fields for Particle [%d].\n", i);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
-
 
 #undef __FUNCT__
 #define __FUNCT__ "IsParticleInsideBoundingBox"
