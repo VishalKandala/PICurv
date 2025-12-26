@@ -2099,3 +2099,160 @@ PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeEulerianDiffusivityGradient"
+/**
+ * @brief Computes the gradient of the scalar Diffusivity field (Drift Vector).
+ * 
+ * Logic:
+ * 1. Iterates over the PHYSICAL cell centers [1 ... M-2].
+ * 2. Uses 2nd-Order Central Difference for interior cells.
+ * 3. Uses 2nd-Order One-Sided Differences at physical boundaries 
+ *    (Forward at start, Backward at end) unless the boundary is Periodic.
+ * 4. Transforms results to Cartesian coordinates using the Chain Rule.
+ */
+PetscErrorCode ComputeEulerianDiffusivityGradient(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DM             da = user->da, fda = user->fda;
+    DMDALocalInfo  info = user->info;
+
+    // 1. Determine Global Dimensions
+    PetscInt mx = info.mx, my = info.my, mz = info.mz;
+
+    // 2. Determine Local Loop Bounds (Skip Ghosts/Unused Indices)
+    //    Grid uses indices 1 to M-2 for physical cells.
+    //    Index 0 and M-1 are ghost/boundary holders.
+    
+    // Start: If we own the global start (0), skip it and start at 1.
+    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
+    // End:   If we own the global end (mx), stop before it (mx-1), so loop covers mx-2.
+    PetscInt lxe = (info.xs + info.xm == mx) ? mx - 1 : info.xs + info.xm;
+
+    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
+    PetscInt lye = (info.ys + info.ym == my) ? my - 1 : info.ys + info.ym;
+
+    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
+    PetscInt lze = (info.zs + info.zm == mz) ? mz - 1 : info.zs + info.zm;
+
+    PetscInt i, j, k;
+
+    // Pointers
+    PetscReal ***diff;      // Input (Scalar)
+    Cmpnts    ***grad_diff; // Output (Vector)
+    Cmpnts    ***csi, ***eta, ***zet;
+    PetscReal ***aj;
+
+    // Boundary Flags (Check if Periodic)
+    PetscBool p_x = (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC);
+    PetscBool p_y = (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC);
+    PetscBool p_z = (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC);
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // 3. Update Ghosts for Diffusivity 
+    //    Required so that Central Differences at i=2 can read i=1,
+    //    and Central Differences at Periodic Boundaries work correctly.
+    ierr = UpdateLocalGhosts(user, "Diffusivity"); CHKERRQ(ierr);
+
+    // 4. Get Arrays (Read Only)
+    ierr = DMDAVecGetArrayRead(da,  user->lDiffusivity, &diff); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(fda, user->lCsi, &csi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(fda, user->lEta, &eta); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(da,  user->lAj,  &aj);  CHKERRQ(ierr);
+    
+	LOG_ALLOW(GLOBAL,LOG_DEBUG,"Diffusivity and Metrics arrays accessed successfully! .\n");
+
+    // 5. Get Output Array (Read/Write)
+    ierr = DMDAVecGetArray(fda, user->DiffusivityGradient, &grad_diff); CHKERRQ(ierr);
+
+	LOG_ALLOW(GLOBAL,LOG_DEBUG,"Diffusivity Gradient array accessed successfully! .\n");
+
+    // 6. Loop over Physical Domain
+    for (k = lzs; k < lze; k++) {
+        for (j = lys; j < lye; j++) {
+            for (i = lxs; i < lxe; i++) {
+                
+                PetscReal dGdCsi, dGdEta, dGdZet;
+
+                // ---------------------------------------------------------
+                // I-Direction (Csi)
+                // ---------------------------------------------------------
+                if (!p_x && i == 1) {
+                    // Physical Start: 2nd Order Forward Difference
+                    // Stencil: [-3, 4, -1] / 2
+                    dGdCsi = (-3.0 * diff[k][j][i] + 4.0 * diff[k][j][i+1] - diff[k][j][i+2]) * 0.5;
+                } 
+                else if (!p_x && i == mx - 2) {
+                    // Physical End: 2nd Order Backward Difference
+                    // Stencil: [1, -4, 3] / 2
+                    dGdCsi = (3.0 * diff[k][j][i] - 4.0 * diff[k][j][i-1] + diff[k][j][i-2]) * 0.5;
+                } 
+                else {
+                    // Interior / Periodic: Central Difference
+                    // Stencil: [-1, 0, 1] / 2
+                    dGdCsi = (diff[k][j][i+1] - diff[k][j][i-1]) * 0.5;
+                }
+
+                // ---------------------------------------------------------
+                // J-Direction (Eta)
+                // ---------------------------------------------------------
+                if (!p_y && j == 1) {
+                    // Physical Start: Forward
+                    dGdEta = (-3.0 * diff[k][j][i] + 4.0 * diff[k][j+1][i] - diff[k][j+2][i]) * 0.5;
+                } 
+                else if (!p_y && j == my - 2) {
+                    // Physical End: Backward
+                    dGdEta = (3.0 * diff[k][j][i] - 4.0 * diff[k][j-1][i] + diff[k][j-2][i]) * 0.5;
+                } 
+                else {
+                    // Interior: Central
+                    dGdEta = (diff[k][j+1][i] - diff[k][j-1][i]) * 0.5;
+                }
+
+                // ---------------------------------------------------------
+                // K-Direction (Zet)
+                // ---------------------------------------------------------
+                if (!p_z && k == 1) {
+                    // Physical Start: Forward
+                    dGdZet = (-3.0 * diff[k][j][i] + 4.0 * diff[k+1][j][i] - diff[k+2][j][i]) * 0.5;
+                } 
+                else if (!p_z && k == mz - 2) {
+                    // Physical End: Backward
+                    dGdZet = (3.0 * diff[k][j][i] - 4.0 * diff[k-1][j][i] + diff[k-2][j][i]) * 0.5;
+                } 
+                else {
+                    // Interior: Central
+                    dGdZet = (diff[k+1][j][i] - diff[k-1][j][i]) * 0.5;
+                }
+
+                // ---------------------------------------------------------
+                // Transform to Physical Space (Cartesian Gradient)
+                // ---------------------------------------------------------
+                TransformScalarDerivativesToPhysical(aj[k][j][i],
+                                                     csi[k][j][i], eta[k][j][i], zet[k][j][i],
+                                                     dGdCsi, dGdEta, dGdZet,
+                                                     &grad_diff[k][j][i]);
+            }
+        }
+    }
+
+    // 7. Restore Arrays
+    ierr = DMDAVecRestoreArrayRead(da,  user->lDiffusivity, &diff); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lCsi, &csi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lEta, &eta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(da,  user->lAj,  &aj);  CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(fda, user->DiffusivityGradient, &grad_diff); CHKERRQ(ierr);
+
+    // 8. Update Ghosts for the Result
+    //    Important: Particles near subdomain boundaries will need to interpolate
+    //    this gradient vector, so the ghosts of the vector field must be filled.
+    ierr = UpdateLocalGhosts(user, "DiffusivityGradient"); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}

@@ -1309,6 +1309,8 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
         fieldVec = user->P; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(fieldName, "Diffusivity") == 0) {
         fieldVec = user->Diffusivity; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(fieldName, "DiffusivityGradient") == 0) {
+        fieldVec = user->DiffusivityGradient; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(fieldName, "Ucont") == 0) {
         fieldVec = user->lUcont; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
     } else if (strcasecmp(fieldName, "Coordinates") == 0) {
@@ -1476,6 +1478,8 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
         vec_local = user->lP; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(field_name, "Diffusivity") == 0) {
         vec_local = user->lDiffusivity; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(field_name, "DiffusivityGradient") == 0) {
+        vec_local = user->lDiffusivityGradient; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(field_name, "Psi") == 0) {
         vec_local = user->lPsi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(field_name, "Center-Coordinates") == 0) {
@@ -1714,6 +1718,8 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "LOG_INTERPOLATION_ERROR"
 /**
 @brief Logs the interpolation error between the analytical and computed solutions.
 */

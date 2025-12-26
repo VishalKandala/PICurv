@@ -106,6 +106,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     // --- 0. Loop over all blocks to compute Eulerian diffusivity.
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         ierr = ComputeEulerianDiffusivity(&user[bi]); CHKERRQ(ierr);
+        ierr = ComputeEulerianDiffusivityGradient(&user[bi]); CHKERRQ(ierr);
     }
 
     // --- 1. Initial Particle Settlement (Location and Migration) ---
@@ -188,6 +189,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Re-computing Eulerian Diffusivity from loaded fields...\n");
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         ierr = ComputeEulerianDiffusivity(&user[bi]); CHKERRQ(ierr);
+        ierr = ComputeEulerianDiffusivityGradient(&user[bi]); CHKERRQ(ierr);
     }
 
     // 0.1 This moves particles to their correct ranks immediately using the loaded Cell ID.
@@ -412,6 +414,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             if (simCtx->les || simCtx->rans) {
                 for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
                     ierr = ComputeEulerianDiffusivity(&user[bi]); CHKERRQ(ierr);
+                    ierr = ComputeEulerianDiffusivityGradient(&user[bi]); CHKERRQ(ierr);
                 }
             }
 
@@ -419,6 +422,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Updated Diffusivity Min/Max:\n");
                 ierr = LOG_FIELD_MIN_MAX(&user[0],"Diffusivity"); CHKERRQ(ierr);
+                ierr = LOG_FIELD_MIN_MAX(&user[0],"DiffusivityGradient"); CHKERRQ(ierr);
                 //LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Updated Diffusivity Anatomy:\n");
                 ierr = LOG_FIELD_ANATOMY(&user[0],"Diffusivity","PostDiffusivityUpdate"); CHKERRQ(ierr);
             }

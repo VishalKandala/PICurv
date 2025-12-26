@@ -407,6 +407,33 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
 PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx);
 
 /**
+ * @brief Transforms scalar derivatives from computational space to physical space 
+ *        using the chain rule.
+ * 
+ * Formula: dPhi/dx = J * ( dPhi/dCsi * dCsi/dx + dPhi/dEta * dEta/dx + ... )
+ */
+ void TransformScalarDerivativesToPhysical(PetscReal jacobian, 
+                                                 Cmpnts csi_metrics, 
+                                                 Cmpnts eta_metrics, 
+                                                 Cmpnts zet_metrics,
+                                                 PetscReal dPhi_dcsi, 
+                                                 PetscReal dPhi_deta, 
+                                                 PetscReal dPhi_dzet,
+                                                 Cmpnts *gradPhi);
+
+/**
+ * @brief Computes the gradient of a cell-centered SCALAR field at a specific grid point.
+ *
+ * @param user       The user context.
+ * @param i, j, k    The grid indices.
+ * @param field_data 3D array pointer to the scalar field (PetscReal***).
+ * @param grad       Output: A Cmpnts struct storing [dPhi/dx, dPhi/dy, dPhi/dz].
+ * @return           PetscErrorCode
+ */
+PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, 
+                                             PetscReal ***field_data, Cmpnts *grad);
+
+/**
  * @brief Computes the derivatives of a cell-centered vector field at a specific grid point.
  *
  * This function orchestrates the calculation of spatial derivatives. It first computes
