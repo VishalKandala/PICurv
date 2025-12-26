@@ -94,6 +94,9 @@ PetscErrorCode RegisterParticleFields(DM swarm)
     ierr = RegisterSwarmField(swarm,"Diffusivity", 1,PETSC_REAL); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'Diffusivity' - Scalar.\n");
 
+    ierr = RegisterSwarmField(swarm,"DiffusivityGradient", 3,PETSC_REAL); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'DiffusivityGradient' - Vector.\n");
+
     ierr = RegisterSwarmField(swarm,"Psi", 1,PETSC_REAL); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'Psi' - Scalar.\n");
 
@@ -494,6 +497,11 @@ static PetscErrorCode InitializeSwarmFieldValue(const char *fieldName, PetscInt 
         for (PetscInt d = 0; d < fieldDim; d++) {
         fieldData[fieldDim * p + d] = 1.0;
         }
+    } else if (strcmp(fieldName, "DiffusivityGradient") == 0) {
+        // For DiffusivityGradient,initialize to a default value (e.g., 1.0)
+        for (PetscInt d = 0; d < fieldDim; d++) {
+        fieldData[fieldDim * p + d] = 1.0;
+        }
     } else if (strcmp(fieldName, "Psi") == 0) {
         for (PetscInt d = 0; d < fieldDim; d++) {
         fieldData[fieldDim * p + d] = 0.0;
@@ -660,6 +668,10 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'Diffusivity' field.\n");
     ierr = AssignInitialFieldToSwarm(user, "Diffusivity", 1); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "'Diffusivity' field initialization complete.\n");
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'DiffusivityGradient' field.\n");
+    ierr = AssignInitialFieldToSwarm(user, "DiffusivityGradient", 3); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "'DiffusivityGradient' field initialization complete.\n");
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'Psi' (Scalar) field.\n");
     ierr = AssignInitialFieldToSwarm(user, "Psi", 1); CHKERRQ(ierr);
@@ -849,6 +861,7 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
  * @param[in]     velocities   Pointer to the array of particle velocities.
  * @param[in]     LocStatus    Pointer to the array of cell location status indicators.
  * @param[in]     diffusivity  Pointer to the array of particle diffusivities.
+ * @param[in]     diffusivitygradient Pointer to the array of particle diffusivity gradients.
  * @param[in]     psi          Pointer to the array of particle psi values.
  * @param[out]    particle     Pointer to the Particle struct to initialize.
  *
@@ -856,7 +869,7 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
  */
 PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const PetscReal *weights,
                 const PetscReal *positions, const PetscInt *cellIndices,
-                PetscReal *velocities,PetscInt *LocStatus,PetscReal *diffusivity,PetscReal *psi, Particle *particle) {
+                PetscReal *velocities,PetscInt *LocStatus,PetscReal *diffusivity, Cmpnts *diffusivitygradient, PetscReal *psi, Particle *particle) {
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
@@ -924,6 +937,19 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     }
     LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] diffusivity set to: %.6f.\n",rank,i, particle->diffusivity);
     
+    // Initialize diffusivity gradient
+    if(diffusivitygradient == NULL){
+        particle->diffusivitygradient.x = 0.0;
+        particle->diffusivitygradient.y = 0.0;
+        particle->diffusivitygradient.z = 0.0;
+        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%d] diffusivity gradient pointer is NULL. Defaulting to (0.0, 0.0, 0.0).\n", rank,i);
+    }else{
+        particle->diffusivitygradient.x = diffusivitygradient[i].x;
+        particle->diffusivitygradient.y = diffusivitygradient[i].y;
+        particle->diffusivitygradient.z = diffusivitygradient[i].z;
+    }
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] diffusivity gradient set to: (%.6f, %.6f, %.6f).\n", rank,i,particle->diffusivitygradient.x,particle->diffusivitygradient.y,particle->diffusivitygradient.z);
+
     // Initialize psi
     if(psi == NULL){
         particle->psi = 0.0; // Default psi
@@ -978,6 +1004,7 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
  * @param[in,out] cellIndices  (Optional) Array of particle cell indices (size 3*n).
  * @param[in,out] status       (Optional) Array of location status (size 1*n).
  * @param[in,out] diffusivity  (Optional) Array of diffusivity values (size 1*n).
+ * @param[in,out] diffusivitygradient (Optional) Array of diffusivity gradient values (size 3*n).
  * @param[in,out] psi          (Optional) Array of scalar Psi values (size 1*n).
  *
  * @return PetscErrorCode Returns 0 on success.
@@ -989,6 +1016,7 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
                                  PetscInt  *cellIndices, 
                                  PetscInt  *status,
                                  PetscReal *diffusivity,
+                                 Cmpnts *diffusivitygradient,
                                  PetscReal *psi) 
 {
     PetscFunctionBeginUser;
@@ -1036,6 +1064,11 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
         diffusivity[i] = particle->diffusivity;
     }
 
+    if(diffusivitygradient){
+        diffusivitygradient[i].x = particle->diffusivitygradient.x;
+        diffusivitygradient[i].y = particle->diffusivitygradient.y;
+        diffusivitygradient[i].z = particle->diffusivitygradient.z;
+    }
     // --- 7. Psi ---
     if (psi) {
         psi[i] = particle->psi;

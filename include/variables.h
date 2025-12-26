@@ -171,6 +171,7 @@ typedef struct Particle {
     ParticleLocationStatus location_status;
     PetscMPIInt destination_rank;
     PetscReal diffusivity;
+    Cmpnts diffusivitygradient;
     PetscReal psi;
 } Particle;
 
@@ -745,6 +746,7 @@ typedef struct UserCtx {
 
     // --- Secondary Flow & Derived Fields ---
     Vec Diffusivity, lDiffusivity;
+    Vec DiffusivityGradient, lDiffusivityGradient;
 
     // --- Time-Stepping & Solver Workspace Fields ---
     Vec Ucont_o, lUcont_o, Ucat_o, P_o, Nvert_o, lNvert_o;

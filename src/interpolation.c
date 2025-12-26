@@ -1248,7 +1248,7 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
         
         Particle particle;
 
-        ierr = UnpackSwarmFields(p,pids,weights,pos,cellIDs,NULL,status,NULL,NULL,&particle); CHKERRQ(ierr);
+        ierr = UnpackSwarmFields(p,pids,weights,pos,cellIDs,NULL,status,NULL,NULL,NULL,&particle); CHKERRQ(ierr);
         
         LOG_ALLOW(LOCAL, LOG_VERBOSE,
           "[Rank %d] Particle PID %lld: global cell=(%d,%d,%d), weights=(%.4f,%.4f,%.4f)\n",
@@ -1347,27 +1347,11 @@ PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
                                       "velocity"); CHKERRQ(ierr);
   ierr = InterpolateEulerFieldToSwarm(user,user->lDiffusivity,
                                       "Diffusivity", "Diffusivity"); CHKERRQ(ierr);
-                                      /* 
-     2) (OPTIONAL) If you have more fields, you can Interpolatete them similarly.
-
-     For example, if user->Tcat is a scalar Vec for "temperature" and the DMSwarm
-     has a field "Temperature" (with dof=1), you could do:
-
-         ierr = InterpolateOneFieldOverSwarm(user, user->Tcat,
-                                             "temperature",
-                                             "swarmTemperature"); CHKERRQ(ierr);
-
-     For pressure:
-         ierr = InterpolateOneFieldOverSwarm(user, user->Pcat,
-                                             "pressure",
-                                             "swarmPressure"); CHKERRQ(ierr);
-     
-     ...and so forth.
-   */
-
-  /* 
-     3) Optionally, synchronize or log that all fields are done 
-  */
+  
+  ierr = InterpolateEulerFieldToSwarm(user,user->lDiffusivityGradient,
+                                      "DiffusivityGradient", "DiffusivityGradient"); CHKERRQ(ierr);
+  /* Add fields as necessary here*/
+                                      
   ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
   LOG_ALLOW(LOCAL, LOG_INFO,
 	    "[rank %d]Completed Interpolateting all fields to the swarm.\n",rank);

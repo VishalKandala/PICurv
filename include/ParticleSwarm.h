@@ -165,15 +165,16 @@ PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscR
  * @param[in]     cellIndices  Pointer to the array of particle cell indices.
  * @param[in]     velocities   Pointer to the array of particle velocities.
  * @param[in]     LocStatus    Pointer to the array of cell location status indicators.
- * @param[in]     diffusivity  Pointer to the array of particle diffusivity values.
- * @param[in]     psi          Pointer to the array of particle scalar Psi values.
+ * @param[in]     diffusivity  Pointer to the array of particle diffusivities.
+ * @param[in]     diffusivitygradient Pointer to the array of particle diffusivity gradients.
+ * @param[in]     psi          Pointer to the array of particle psi values.
  * @param[out]    particle     Pointer to the Particle struct to initialize.
  *
  * @return PetscErrorCode  Returns `0` on success, non-zero on failure.
  */
 PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const PetscReal *weights,
-				 const PetscReal *positions, const PetscInt *cellIndices,
-				 PetscReal *velocities,PetscInt *LocStatus,PetscReal *diffusivity, PetscReal *psi, Particle *particle);
+                const PetscReal *positions, const PetscInt *cellIndices,
+                PetscReal *velocities,PetscInt *LocStatus,PetscReal *diffusivity, Cmpnts *diffusivitygradient, PetscReal *psi, Particle *particle);
 
 /**
  * @brief Updates DMSwarm data arrays from a Particle struct.
@@ -190,6 +191,7 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
  * @param[in,out] cellIndices  (Optional) Array of particle cell indices (size 3*n).
  * @param[in,out] status       (Optional) Array of location status (size 1*n).
  * @param[in,out] diffusivity  (Optional) Array of diffusivity values (size 1*n).
+ * @param[in,out] diffusivitygradient (Optional) Array of diffusivity gradient values (size 3*n).
  * @param[in,out] psi          (Optional) Array of scalar Psi values (size 1*n).
  *
  * @return PetscErrorCode Returns 0 on success.
@@ -201,8 +203,9 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
                                  PetscInt  *cellIndices, 
                                  PetscInt  *status,
                                  PetscReal *diffusivity,
-                                 PetscReal *psi);                 
-
+                                 Cmpnts *diffusivitygradient,
+                                 PetscReal *psi);                
+              
 /**
  * @brief Checks if a particle's location is within a specified bounding box.
  *

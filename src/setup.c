@@ -979,6 +979,8 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             // -- Group A2: Derived Flow Fields (Global and Local) ---
             ierr = VecDuplicate(user->P,&user->Diffusivity); CHKERRQ(ierr); ierr = VecSet(user->Diffusivity, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->lP,&user->lDiffusivity); CHKERRQ(ierr); ierr = VecSet(user->lDiffusivity, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->Ucat,&user->DiffusivityGradient); CHKERRQ(ierr); ierr = VecSet(user->DiffusivityGradient, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lUcat,&user->lDiffusivityGradient); CHKERRQ(ierr); ierr = VecSet(user->lDiffusivityGradient, 0.0); CHKERRQ(ierr);
 
             // -- Group B: Solver Work Vectors (Global and Local) ---
             ierr = VecDuplicate(user->P, &user->Phi);       CHKERRQ(ierr); ierr = VecSet(user->Phi, 0.0); CHKERRQ(ierr);
@@ -1173,6 +1175,10 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
         globalVec = user->Diffusivity;
         localVec  = user->lDiffusivity;
         dm        = user->da;
+    } else if (strcmp(fieldName, "DiffusivityGradient") == 0) {
+        globalVec = user->DiffusivityGradient;
+        localVec  = user->lDiffusivityGradient;
+        dm        = user->fda;
     } else if (strcmp(fieldName, "Csi") == 0) {
         globalVec = user->Csi;
         localVec  = user->lCsi;
@@ -2754,6 +2760,33 @@ PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx) {
 /////////////// DERIVATIVE CALCULATION HELPERS ///////////////
 
 #undef __FUNCT__
+#define __FUNCT__ "TransformScalarDerivativesToPhysical"
+/**
+ * @brief Transforms scalar derivatives from computational space to physical space 
+ *        using the chain rule.
+ * 
+ * Formula: dPhi/dx = J * ( dPhi/dCsi * dCsi/dx + dPhi/dEta * dEta/dx + ... )
+ */
+ void TransformScalarDerivativesToPhysical(PetscReal jacobian, 
+                                                 Cmpnts csi_metrics, 
+                                                 Cmpnts eta_metrics, 
+                                                 Cmpnts zet_metrics,
+                                                 PetscReal dPhi_dcsi, 
+                                                 PetscReal dPhi_deta, 
+                                                 PetscReal dPhi_dzet,
+                                                 Cmpnts *gradPhi)
+{
+    // Gradient X component
+    gradPhi->x = jacobian * (dPhi_dcsi * csi_metrics.x + dPhi_deta * eta_metrics.x + dPhi_dzet * zet_metrics.x);
+    
+    // Gradient Y component
+    gradPhi->y = jacobian * (dPhi_dcsi * csi_metrics.y + dPhi_deta * eta_metrics.y + dPhi_dzet * zet_metrics.y);
+    
+    // Gradient Z component
+    gradPhi->z = jacobian * (dPhi_dcsi * csi_metrics.z + dPhi_deta * eta_metrics.z + dPhi_dzet * zet_metrics.z);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "TransformDerivativesToPhysical"
 /**
  * @brief Transforms derivatives from computational space to physical space using the chain rule.
@@ -2774,6 +2807,54 @@ static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metric
     dwdx->x = jacobian * (deriv_csi.z * csi_metrics.x + deriv_eta.z * eta_metrics.x + deriv_zet.z * zet_metrics.x);
     dwdx->y = jacobian * (deriv_csi.z * csi_metrics.y + deriv_eta.z * eta_metrics.y + deriv_zet.z * zet_metrics.y);
     dwdx->z = jacobian * (deriv_csi.z * csi_metrics.z + deriv_eta.z * eta_metrics.z + deriv_zet.z * zet_metrics.z);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeScalarFieldDerivatives"
+/**
+ * @brief Computes the gradient of a cell-centered SCALAR field at a specific grid point.
+ *
+ * @param user       The user context.
+ * @param i, j, k    The grid indices.
+ * @param field_data 3D array pointer to the scalar field (PetscReal***).
+ * @param grad       Output: A Cmpnts struct storing [dPhi/dx, dPhi/dy, dPhi/dz].
+ * @return           PetscErrorCode
+ */
+PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, 
+                                             PetscReal ***field_data, Cmpnts *grad)
+{
+    PetscErrorCode ierr;
+    Cmpnts    ***csi, ***eta, ***zet;
+    PetscReal ***jac;
+    PetscReal d_csi, d_eta, d_zet;
+
+    PetscFunctionBeginUser;
+
+    // 1. Get read-only access to metrics
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
+
+    // 2. Compute derivatives in computational space (Central Difference)
+    //    Assumes ghosts are available at i+/-1
+    d_csi = 0.5 * (field_data[k][j][i+1] - field_data[k][j][i-1]);
+    d_eta = 0.5 * (field_data[k][j+1][i] - field_data[k][j-1][i]);
+    d_zet = 0.5 * (field_data[k+1][j][i] - field_data[k-1][j][i]);
+
+    // 3. Transform to physical space
+    TransformScalarDerivativesToPhysical(jac[k][j][i], 
+                                         csi[k][j][i], eta[k][j][i], zet[k][j][i],
+                                         d_csi, d_eta, d_zet,
+                                         grad);
+
+    // 4. Restore arrays
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
@@ -2869,13 +2950,11 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->lNvert) { ierr = VecDestroy(&user->lNvert); CHKERRQ(ierr); }
 
     // --- Group A2: Derived Flow Fields (Conditional) ---
-    if(user->Diffusivity) {
-        ierr = VecDestroy(&user->Diffusivity); CHKERRQ(ierr);
-    }
-    if(user->lDiffusivity) {
-        ierr = VecDestroy(&user->lDiffusivity); CHKERRQ(ierr);
-    }
-
+    if(user->Diffusivity) {ierr = VecDestroy(&user->Diffusivity); CHKERRQ(ierr);}
+    if(user->lDiffusivity){ierr = VecDestroy(&user->lDiffusivity); CHKERRQ(ierr);}
+    if(user->DiffusivityGradient){ierr = VecDestroy(&user->DiffusivityGradient); CHKERRQ(ierr);}
+    if(user->lDiffusivityGradient){ierr = VecDestroy(&user->lDiffusivityGradient); CHKERRQ(ierr);}
+    
     // --- Group B: Solver Work Vectors (All levels) ---
     if (user->Phi) { ierr = VecDestroy(&user->Phi); CHKERRQ(ierr); }
     if (user->lPhi) { ierr = VecDestroy(&user->lPhi); CHKERRQ(ierr); }
