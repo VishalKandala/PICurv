@@ -41,7 +41,7 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
 
     // If the user requests the non-dynamic, constant-coefficient Smagorinsky model (les=1),
     // set a constant value and exit.
-    if (simCtx->les == 1) {
+    if (simCtx->les == CONSTANT_SMAGORINSKY) {
         LOG_ALLOW(GLOBAL,LOG_INFO,"Using constant-coefficient Smagorinsky model with Cs=%.4f \n", simCtx->Const_CS);
         ierr = VecSet(user->CS, simCtx->Const_CS); CHKERRQ(ierr); // A typical constant value
         PROFILE_FUNCTION_END;
@@ -381,6 +381,8 @@ PetscErrorCode ComputeEddyViscosityLES(UserCtx *user)
     // Update ghost points for the newly computed eddy viscosity
 	ierr = DMGlobalToLocalBegin(da, user->Nu_t, INSERT_VALUES, user->lNu_t); CHKERRQ(ierr);
 	ierr = DMGlobalToLocalEnd(da, user->Nu_t, INSERT_VALUES, user->lNu_t); CHKERRQ(ierr);
+
+    ierr = TransferPeriodicField(user,"Eddy Viscosity");CHKERRQ(ierr);
 
     PetscReal max_norm;
     ierr = VecMax(user->Nu_t, NULL, &max_norm); CHKERRQ(ierr);

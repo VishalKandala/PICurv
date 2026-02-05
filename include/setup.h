@@ -19,7 +19,6 @@
 #include "logging.h"        // Logging macros
 #include "io.h"             // Data Input and Output functions
 #include "interpolation.h"  // Interpolation routines
-#include "AnalyticalSolution.h" // Analytical Solution for testing
 #include "ParticleMotion.h" // Functions related to motion of particles
 #include "Boundaries.h"     //  Functions related to Boundary conditions
 
@@ -399,6 +398,42 @@ PetscErrorCode InitializeRandomGenerators(UserCtx *user, PetscRandom *randx, Pet
 PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k);
 
 /**
+ * @brief Initializes a single master RNG for time-stepping physics (Brownian motion).
+ *        Configures it for Uniform [0, 1) which is required for Box-Muller transformation.
+ *
+ * @param[in,out] simCtx  Pointer to the Simulation Context.
+ * @return PetscErrorCode
+ */
+PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx);
+
+/**
+ * @brief Transforms scalar derivatives from computational space to physical space 
+ *        using the chain rule.
+ * 
+ * Formula: dPhi/dx = J * ( dPhi/dCsi * dCsi/dx + dPhi/dEta * dEta/dx + ... )
+ */
+ void TransformScalarDerivativesToPhysical(PetscReal jacobian, 
+                                                 Cmpnts csi_metrics, 
+                                                 Cmpnts eta_metrics, 
+                                                 Cmpnts zet_metrics,
+                                                 PetscReal dPhi_dcsi, 
+                                                 PetscReal dPhi_deta, 
+                                                 PetscReal dPhi_dzet,
+                                                 Cmpnts *gradPhi);
+
+/**
+ * @brief Computes the gradient of a cell-centered SCALAR field at a specific grid point.
+ *
+ * @param user       The user context.
+ * @param i, j, k    The grid indices.
+ * @param field_data 3D array pointer to the scalar field (PetscReal***).
+ * @param grad       Output: A Cmpnts struct storing [dPhi/dx, dPhi/dy, dPhi/dz].
+ * @return           PetscErrorCode
+ */
+PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, 
+                                             PetscReal ***field_data, Cmpnts *grad);
+
+/**
  * @brief Computes the derivatives of a cell-centered vector field at a specific grid point.
  *
  * This function orchestrates the calculation of spatial derivatives. It first computes
@@ -415,6 +450,75 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
  */
 PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, Cmpnts ***field_data,
                                              Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx);
+
+/**
+ * @brief Destroys all PETSc Vec objects within a single UserCtx structure.
+ *
+ * This helper function systematically destroys all ~74 Vec objects stored in a UserCtx.
+ * The vectors are organized into 14 groups (A-N) for clarity:
+ *   - Primary flow fields (Ucont, Ucat, P, Nvert)
+ *   - Solver work vectors (Phi)
+ *   - Time-stepping vectors (Ucont_o, Ucont_rm1, etc.)
+ *   - Grid metrics (cell-centered, face-centered, coordinates)
+ *   - Turbulence vectors (Nu_t, CS, lFriction_Velocity)
+ *   - Particle vectors (ParticleCount, Psi)
+ *   - Boundary condition vectors (Ubcs, Uch)
+ *   - Post-processing vectors (P_nodal, Qcrit)
+ *   - Statistical averaging vectors (Ucat_sum, etc.)
+ *   - And more...
+ *
+ * All destroys are protected with NULL checks to handle conditional allocations safely.
+ *
+ * @param[in,out] user Pointer to the UserCtx containing the vectors to destroy.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode DestroyUserVectors(UserCtx *user);
+
+/**
+ * @brief Destroys all resources allocated within a single UserCtx structure.
+ *
+ * This function cleans up all memory and PETSc objects associated with a single
+ * UserCtx (grid level). It calls the helper functions and destroys remaining objects
+ * in the proper dependency order:
+ *   1. Boundary conditions (handlers and their data)
+ *   2. All PETSc vectors (via DestroyUserVectors)
+ *   3. Matrix and solver objects (A, C, MR, MP, ksp, nullsp)
+ *   4. Application ordering (AO)
+ *   5. Distributed mesh objects (DMs) - most derived first
+ *   6. Raw PetscMalloc'd arrays (RankCellInfoMap, KSKE)
+ *
+ * This function should be called for each UserCtx in the multigrid hierarchy.
+ *
+ * @param[in,out] user Pointer to the UserCtx to be destroyed.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode DestroyUserContext(UserCtx *user);
+
+/**
+ * @brief Main cleanup function for the entire simulation context.
+ *
+ * This function is responsible for destroying ALL memory and PETSc objects allocated
+ * during the simulation, including:
+ *   - All UserCtx structures in the multigrid hierarchy (via DestroyUserContext)
+ *   - The multigrid management structures (UserMG, MGCtx array)
+ *   - All SimCtx-level objects (logviewer, dm_swarm, bboxlist, string arrays, etc.)
+ *
+ * This function should be called ONCE at the end of the simulation, after all
+ * computation is complete, but BEFORE PetscFinalize().
+ *
+ * Call order in main:
+ *   1. [Simulation runs]
+ *   2. ProfilingFinalize(simCtx);
+ *   3. FinalizeSimulation(simCtx);  <- This function
+ *   4. PetscFinalize();
+ *
+ * @param[in,out] simCtx Pointer to the master SimulationContext to be destroyed.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode FinalizeSimulation(SimCtx *simCtx);
 
 
  #endif // SETUP_H

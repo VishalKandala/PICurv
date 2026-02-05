@@ -469,6 +469,16 @@ void FreeBC_ParamList(BC_Param *head);
 PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *value_out, PetscBool *found);
 
 /**
+ * @brief Searches a BC_Param linked list for a key and returns its value as a bool.
+ * @param params The head of the BC_Param linked list.
+ * @param key The key to search for (case-insensitive).
+ * @param[out] value_out The found value, converted to a PetscBool.
+ * @param[out] found Set to PETSC_TRUE if the key was found, PETSC_FALSE otherwise.
+ * @return 0 on success.
+ */
+PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found);
+
+/**
  * @brief Parses the boundary conditions file to configure the type, handler, and
  *        any associated parameters for all 6 global faces of the domain.
  *
@@ -488,6 +498,32 @@ PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *valu
  * @return PetscErrorCode 0 on success, error code on failure.
  */
 PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_filename);
+
+/**
+ * @brief Scans all block-specific boundary condition files to determine a globally
+ *        consistent periodicity for each dimension, reusing the core type parser.
+ *
+ * This is a lightweight pre-parser intended to be called before DMDA creation.
+ * It ensures that the periodicity setting is consistent across all blocks, which is a
+ * physical requirement for the domain.
+ *
+ * 1. It collectively verifies that the mandatory BCS file for each block exists.
+ * 2. On MPI rank 0, it then iterates through the files.
+ * 3. For each line, it attempts to convert the type string to a BCType enum using the
+ *    standard `StringToBCType` helper.
+ * 4. If the conversion is successful AND the type is PERIODIC, it flags the corresponding face.
+ * 5. If the conversion fails (e.g., for "WALL", "INLET", etc.), the error is cleared
+ *    and the line is simply ignored, as it's not relevant to periodicity.
+ * 6. It validates consistency (e.g., -Xi and +Xi match) and ensures all block files
+ *    specify the same global periodicity.
+ * 7. It broadcasts the final three flags (as integers 0 or 1) to all MPI ranks.
+ * 8. All ranks update the i_periodic, j_periodic, and k_periodic fields in their SimCtx.
+ *
+ * @param[in,out] simCtx The master SimCtx struct, containing the bcs_files list and
+ *                       where the final periodicity flags will be stored.
+ * @return PetscErrorCode 0 on success, error code on failure.
+ */
+PetscErrorCode DeterminePeriodicity(SimCtx *simCtx);
 
 /**
  * @brief Helper function to trim leading/trailing whitespace from a string.

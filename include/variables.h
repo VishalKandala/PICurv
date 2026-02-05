@@ -53,7 +53,7 @@ extern "C" {
  *                       MACROS & GLOBAL VARIABLES                                *
  *================================================================================*/
 
-/// Coefficient controlling the temporal accuracy scheme (e.g., 1.5 for BDF2).
+/// Coefficient controlling the temporal accuracy scheme (e.g., 1.5 for 2nd Order Backward Difference).
 #define COEF_TIME_ACCURACY 1.5
 
 /* --- NOTE: All legacy global 'extern' variables have been removed. --- */
@@ -170,6 +170,9 @@ typedef struct Particle {
     Cmpnts weights;
     ParticleLocationStatus location_status;
     PetscMPIInt destination_rank;
+    PetscReal diffusivity;
+    Cmpnts diffusivitygradient;
+    PetscReal psi;
 } Particle;
 
 /** @brief Stores the MPI ranks of neighboring subdomains. */
@@ -203,7 +206,7 @@ typedef enum {
     BC_FACE_NEG_Z = 4, BC_FACE_POS_Z = 5
 } BCFace;
 
-/** @brief Defines the general mathematical/physical category of a boundary. */
+/** @brief Defines the general mathematical/physical Category of a boundary. */
 typedef enum {
     WALLFUNCTION       = -1,
     INTERFACE          = 0,
@@ -221,21 +224,36 @@ typedef enum {
     OGRID              = 12,
     RHEOLOGY           = 13,
     // Note:  Legacy 14 can be a JUNCTION with a specific handler.
-    NOGRAD             = 15
 } BCType;
 
 /** @brief Defines the specific computational "strategy" for a boundary handler. */
 typedef enum {
-    BC_HANDLER_UNDEFINED = 0,BC_HANDLER_NOGRAD_COPY_GHOST,
-    BC_HANDLER_WALL_NOSLIP, BC_HANDLER_WALL_MOVING,
-    BC_HANDLER_SYMMETRY_PLANE,BC_HANDLER_INLET_PARABOLIC,
-    BC_HANDLER_INLET_CONSTANT_VELOCITY, BC_HANDLER_INLET_PULSATILE_FLUX, BC_HANDLER_INLET_DEVELOPED_PROFILE,
-    BC_HANDLER_INLET_INTERP_FROM_FILE,
-    BC_HANDLER_OUTLET_CONSERVATION, BC_HANDLER_OUTLET_PRESSURE,
-    BC_HANDLER_FARFIELD_NONREFLECTING,
-    BC_HANDLER_PERIODIC, BC_HANDLER_INTERFACE_OVERSET
-} BCHandlerType;
+    BC_HANDLER_UNDEFINED = 0,
+    BC_HANDLER_WALL_NOSLIP = 1, 
+    BC_HANDLER_WALL_MOVING = 2,
+    BC_HANDLER_SYMMETRY_PLANE = 3,
+    BC_HANDLER_INLET_CONSTANT_VELOCITY = 4,
+    BC_HANDLER_INLET_PARABOLIC = 5,
+    BC_HANDLER_INLET_PROFILE_FROM_FILE = 6,
+    BC_HANDLER_INLET_INTERP_FROM_FILE = 7,
+    BC_HANDLER_INLET_PULSATILE_FLUX = 8,
+    BC_HANDLER_FARFIELD_NONREFLECTING = 9,
+    BC_HANDLER_OUTLET_CONSERVATION = 10, 
+    BC_HANDLER_OUTLET_PRESSURE = 11,
+    BC_HANDLER_PERIODIC_GEOMETRIC = 12, 
+    BC_HANDLER_INTERFACE_OVERSET = 13,
+    BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX =  14,
+    BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX = 15
+  } BCHandlerType;
 
+  
+typedef enum{
+    BC_PRIORITY_UNDEFINED = -1,
+    BC_PRIORITY_INLET = 0,
+    BC_PRIORITY_FARFIELD = 1,
+    BC_PRIORITY_WALL = 2,
+    BC_PRIORITY_OUTLET =3
+} BCPriorityType;
 
 //--------------------------------------------------------------------------------
 //               5. BOUNDARY CONDITION SYSTEM STRUCTS
@@ -253,17 +271,21 @@ typedef struct BCContext {
     UserCtx  *user;
     BCFace    face_id;
     const PetscReal *global_inflow_sum;
+    const PetscReal *global_farfield_inflow_sum;
+    const PetscReal *global_farfield_outflow_sum;
     const PetscReal *global_outflow_sum;
 } BCContext;
 
 /** @brief The "virtual table" struct for a boundary condition handler object. */
 typedef struct BoundaryCondition {
     BCHandlerType type;
+    BCPriorityType priority;
     void         *data;
     PetscErrorCode (*Initialize)(BoundaryCondition *self, BCContext *ctx);
     PetscErrorCode (*PreStep)(BoundaryCondition *self, BCContext *ctx, PetscReal *local_inflow, PetscReal *local_outflow);
     PetscErrorCode (*Apply)(BoundaryCondition *self, BCContext *ctx);
-    PetscErrorCode (*PlaceSource)(BoundaryCondition *self, BCContext *ctx, ...);
+    PetscErrorCode (*PostStep)(BoundaryCondition *self, BCContext *ctx, ...);
+    PetscErrorCode (*UpdateUbcs)(BoundaryCondition *self,BCContext *ctx);
     PetscErrorCode (*Destroy)(BoundaryCondition *self);
 } BoundaryCondition;
 
@@ -419,8 +441,25 @@ typedef struct Cstart {
 } Cstart;
 
 //--------------------------------------------------------------------------------
-//               7. MULTIGRID AND POST-PROCESSING STRUCTS
+//               7. LES/RANS TURBULENCE MODEL STRUCTS & ENUMS
 //--------------------------------------------------------------------------------
+/** @brief Identifies the six logical faces of a structured computational block. */
+typedef enum {
+    NO_LES_MODEL = 0,
+    CONSTANT_SMAGORINSKY = 1,
+    DYNAMIC_SMAGORINSKY = 2
+} LESModelType;
+//--------------------------------------------------------------------------------
+//               8. MULTIGRID, SOLVERS AND POST-PROCESSING STRUCTS AND ENUMS
+//--------------------------------------------------------------------------------
+
+/** @brief Enumerator to identify the various momentumsolvers */
+typedef enum{
+    MOMENTUM_SOLVER_EXPLICIT_RK = 0,
+    MOMENTUM_SOLVER_DUALTIME_PICARD_RK4 = 1,
+    MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI = 2,
+    MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN = 3
+} MomentumSolverType;
 
 /** @brief Context for Multigrid operations. */
 typedef struct MGCtx {
@@ -514,7 +553,7 @@ typedef enum {
 } ExecutionMode;
 
 //-------------------------------------------------------------------------------
-//             8. SCALING AND DIMENSIONAL ANALYSIS STRUCTS
+//             9. SCALING AND DIMENSIONAL ANALYSIS STRUCTS
 //-------------------------------------------------------------------------------
 typedef struct ScalingCtx{
   PetscReal L_ref;
@@ -554,7 +593,7 @@ typedef struct SimCtx {
     PetscViewer logviewer;
     PetscInt    OutputFreq;
     ExecutionMode exec_mode;
-    char eulerianSource[64];
+    char eulerianSource[PETSC_MAX_PATH_LEN];
     char restart_dir[PETSC_MAX_PATH_LEN];
     char output_dir[PETSC_MAX_PATH_LEN];
     char euler_subdir[PETSC_MAX_PATH_LEN];
@@ -567,30 +606,38 @@ typedef struct SimCtx {
     PetscInt  immersed, movefsi, rotatefsi, sediment, rheology;
     PetscInt  invicid, TwoD, thin, moveframe, rotateframe, blank;
     PetscInt  dgf_x, dgf_y, dgf_z, dgf_ax, dgf_ay, dgf_az;
+    char AnalyticalSolutionType[PETSC_MAX_PATH_LEN];
   
     //================ Group 4: Specific Simulation Case Flags ================
     PetscInt  cop, fish, fish_c, fishcyl, eel, pizza, turbine, Pipe, wing, hydro, MHV, LV;
+    PetscInt channelz;
 
     //================ Group 5: Solver & Numerics Parameters ================
-    PetscInt  implicit, implicit_type, imp_MAX_IT;
-    PetscReal imp_atol, imp_rtol, imp_stol;
+    MomentumSolverType mom_solver_type;
+    PetscInt  mom_max_pseudo_steps;
+    PetscReal mom_atol, mom_rtol, imp_stol;
     PetscInt  mglevels,mg_MAX_IT, mg_idx, mg_preItr, mg_poItr;
     PetscInt  poisson;
     PetscReal poisson_tol;
     PetscInt  STRONG_COUPLING,central;
-    PetscReal ren, st,cfl, vnn, cdisx, cdisy, cdisz;
+
+    PetscReal ren, pseudo_cfl, cdisx, cdisy, cdisz;
+    PetscReal pseudo_cfl_reduction_factor, pseudo_cfl_growth_factor; // st, vnn
+    PetscReal max_pseudo_cfl, min_pseudo_cfl; // New addition for adaptive pseudo-CFL
+    PetscReal mom_dt_rk4_residual_norm_noise_allowance_factor; // New addition for divergence detection
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
     
-
     //================ Group 6: Physical & Geometric Parameters ================
     PetscInt  NumberOfBodies;
     PetscReal Flux_in, angle,max_angle;
     PetscReal CMx_c, CMy_c, CMz_c;
     ScalingCtx scaling;
+    PetscReal  wall_roughness_height;
+    PetscReal schmidt_number, Turbulent_schmidt_number;
 
     //================ Group 7: Grid, Domain, and Boundary Condition Settings ================
-    PetscInt  block_number, inletprofile, grid1d, Ogrid, channelz;
+    PetscInt  block_number, inletprofile, grid1d, Ogrid;
     PetscInt  i_periodic, j_periodic, k_periodic, blkpbc, pseudo_periodic;
     PetscBool generate_grid;        
     PetscReal grid_rotation_angle; 
@@ -599,7 +646,11 @@ typedef struct SimCtx {
     PetscInt da_procs_x, da_procs_y, da_procs_z;
     PetscInt num_bcs_files;
     char **bcs_files;
-    PetscReal  FluxInSum, FluxOutSum,Fluxsum;
+    PetscReal  FluxInSum, FluxOutSum,Fluxsum,FarFluxInSum,FarFluxOutSum;
+    // Turbulent Flat Channel with Forcing term
+    PetscReal drivingForceMagnitude,forceScalingFactor;
+    PetscReal targetVolumetricFlux; // for DRIVEN flow.
+    PetscReal bulkVelocityCorrection;
     PetscReal  AreaInSum, AreaOutSum;
     PetscReal  U_bc;
     PetscInt   ccc;
@@ -619,6 +670,12 @@ typedef struct SimCtx {
     BoundingBox *bboxlist;
     PetscInt   ParticleInitialization;
     char particleRestartMode[16];
+    PetscInt particlesLostLastStep;
+    PetscInt migrationPassesLastStep;
+    PetscInt particlesMigratedLastStep;
+    PetscInt occupiedCellCount;
+    PetscReal particleLoadImbalance;
+    PetscRandom BrownianMotionRNG;
 
     //================ Group 10: Immersed Boundary & FSI Data Object Pointers ================
     IBMNodes  *ibm;
@@ -680,12 +737,16 @@ typedef struct UserCtx {
     PetscBool inletFaceDefined;
     BCFace    identifiedInletBCFace;
     BCS       Bcs;
-    Vec       lUstar; 
+    Vec       lFriction_Velocity; 
     PetscInt  bctype[6]; // Legacy BC setup
     PetscReal FluxIntpSum,FluxIntfcSum;
 
     // --- Primary Flow Fields (Global & Local Views) ---
     Vec Ucont, lUcont, Ucat, lUcat, P, lP, Phi, lPhi, Nvert, lNvert;
+
+    // --- Secondary Flow & Derived Fields ---
+    Vec Diffusivity, lDiffusivity;
+    Vec DiffusivityGradient, lDiffusivityGradient;
 
     // --- Time-Stepping & Solver Workspace Fields ---
     Vec Ucont_o, lUcont_o, Ucat_o, P_o, Nvert_o, lNvert_o;

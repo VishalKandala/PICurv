@@ -105,7 +105,6 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
             break;
     }
 
-
       LOG_ALLOW(LOCAL, LOG_TRACE,
       "[Rank %d] Check Service for Inlet %s:\n"
       "    - Local Domain: starts at cell (%d,%d,%d), has (%d,%d,%d) cells.\n"
@@ -117,10 +116,12 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
       IM_nodes_global, JM_nodes_global, KM_nodes_global,
       last_global_cell_idx_i, last_global_cell_idx_j, last_global_cell_idx_k);
 
-      LOG_ALLOW(LOCAL, LOG_DEBUG,"[Rank %d] Inlet Face %s Service Check Result: %s\n",
+      LOG_ALLOW(LOCAL, LOG_INFO,"[Rank %d] Inlet Face %s Service Check Result: %s | Owned Cells (I,J,K): (%d,%d,%d) | Starts at Cell (%d,%d,%d)\n",
                 rank_for_logging,
                 BCFaceToString((BCFace)user->identifiedInletBCFace),
-                (*can_service_inlet_out) ? "CAN SERVICE" : "CANNOT SERVICE");
+                (*can_service_inlet_out) ? "CAN SERVICE" : "CANNOT SERVICE",
+                num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k,
+                owned_start_cell_i, owned_start_cell_j, owned_start_cell_k);
 
     PROFILE_FUNCTION_END;
 
@@ -337,10 +338,13 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     const PetscInt layer_index = line_index % grid_layers;
 
     // --- Step 3: Calculate placement coordinates based on the decoded indices ---
-    const PetscReal epsilon = 1.0e-6; // Small offset to keep particles off exact cell boundaries
     const PetscReal layer_spacing_norm_i = (IM_cells_global > 0) ? 1.0 / (PetscReal)IM_cells_global : 0.0;
     const PetscReal layer_spacing_norm_j = (JM_cells_global > 0) ? 1.0 / (PetscReal)JM_cells_global : 0.0;
     const PetscReal layer_spacing_norm_k = (KM_cells_global > 0) ? 1.0 / (PetscReal)KM_cells_global : 0.0;
+
+    // Grid-aware epsilon: scale with minimum cell size to keep particles away from rank boundaries
+    const PetscReal min_layer_spacing = PetscMin(layer_spacing_norm_i, PetscMin(layer_spacing_norm_j, layer_spacing_norm_k));
+    const PetscReal epsilon = 0.5 * min_layer_spacing;  // Keep particles 10% of cell width from boundaries
 
     PetscReal variable_coord; // The coordinate that varies along a line
     if (points_per_line <= 1) {
@@ -428,12 +432,16 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     }
 
     LOG_ALLOW(LOCAL, LOG_VERBOSE,
-        "[Rank %d] Particle %lld placement %s. Local cell origin node: (I,J,K) = (%d,%d,%d), intra-cell logicals: (xi,eta,zta)=(%.6f,%.6f,%.6f)\n",
+        "[Rank %d] Particle %lld placement %s.\n",
         rank_for_logging, (long long)particle_global_id,
-        (*placement_successful_out ? "SUCCESSFUL" : "NOT ON THIS RANK"),
-        *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
-        *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
+        (*placement_successful_out ? "SUCCESSFUL" : "NOT ON THIS RANK"));
 
+    if(*placement_successful_out){    
+        LOG_ALLOW(LOCAL,LOG_TRACE,"Local cell origin node: (I,J,K) = (%d,%d,%d), intra-cell logicals: (xi,eta,zta)=(%.6f,%.6f,%.6f)\n",
+                    *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
+                    *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
+        }
+        
     PetscFunctionReturn(0);
 }
 
@@ -474,12 +482,7 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr); 
-
-    // Defaults for cell origin node (local index for the rank's DA patch, including ghosts)
-    *ci_metric_lnode_out = xs_gnode_rank; *cj_metric_lnode_out = ys_gnode_rank; *ck_metric_lnode_out = zs_gnode_rank;
-    // Defaults for logical coordinates
-    *xi_metric_logic_out = 0.5; *eta_metric_logic_out = 0.5; *zta_metric_logic_out = 0.5;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
 
     // Get number of cells this rank owns in each dimension (tangential to the face mainly)
     PetscInt owned_start_cell_i, num_owned_cells_on_rank_i;
@@ -490,14 +493,32 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
     ierr = GetOwnedCellRange(info, 1, &owned_start_cell_j, &num_owned_cells_on_rank_j); CHKERRQ(ierr);
     ierr = GetOwnedCellRange(info, 2, &owned_start_cell_k, &num_owned_cells_on_rank_k); CHKERRQ(ierr);
 
+    // Defaults for cell origin node (local index for the rank's DA patch, including ghosts)
+    *ci_metric_lnode_out = xs_gnode_rank; *cj_metric_lnode_out = ys_gnode_rank; *ck_metric_lnode_out = zs_gnode_rank;
+    // Defaults for logical coordinates
+    *xi_metric_logic_out = 0.5; *eta_metric_logic_out = 0.5; *zta_metric_logic_out = 0.5;
+
     // Index of the last cell (0-indexed) in each global direction
     PetscInt last_global_cell_idx_i = (IM_nodes_global > 1) ? (IM_nodes_global - 2) : -1;
     PetscInt last_global_cell_idx_j = (JM_nodes_global > 1) ? (JM_nodes_global - 2) : -1;
     PetscInt last_global_cell_idx_k = (KM_nodes_global > 1) ? (KM_nodes_global - 2) : -1;
     
-    LOG_ALLOW(LOCAL, LOG_TRACE, "Rank %d: Inlet face %s. Owned cells(i,j,k):(%d,%d,%d). GlobNodes(I,J,K):(%d,%d,%d). Rank's DA node starts at (%d,%d,%d).\n",
-        rank_for_logging, user->identifiedInletBCFace, num_owned_cells_on_rank_i,num_owned_cells_on_rank_j,num_owned_cells_on_rank_k,
-        IM_nodes_global,JM_nodes_global,KM_nodes_global, xs_gnode_rank,ys_gnode_rank,zs_gnode_rank);
+    LOG_ALLOW(LOCAL, LOG_INFO, "PARTICLE_INIT_DEBUG Rank %d: Inlet face %s.\n"
+        "  Owned cells (i,j,k): (%d,%d,%d)\n"
+        "  Global nodes (I,J,K): (%d,%d,%d)\n"
+        "  info->xs,ys,zs (first owned node GLOBAL): (%d,%d,%d)\n"
+        "  info->xm,ym,zm (num owned nodes GLOBAL): (%d,%d,%d)\n"
+        "  xs_gnode_rank,ys_gnode_rank,zs_gnode_rank (DMDAGetCorners): (%d,%d,%d)\n"
+        "  owned_start_cell (i,j,k) GLOBAL: (%d,%d,%d)\n"
+        "  last_global_cell_idx (i,j,k): (%d,%d,%d)\n",
+        rank_for_logging, BCFaceToString((BCFace)user->identifiedInletBCFace),
+        num_owned_cells_on_rank_i,num_owned_cells_on_rank_j,num_owned_cells_on_rank_k,
+        IM_nodes_global,JM_nodes_global,KM_nodes_global,
+        info->xs, info->ys, info->zs,
+        info->xm, info->ym, info->zm,
+        xs_gnode_rank,ys_gnode_rank,zs_gnode_rank,
+        owned_start_cell_i, owned_start_cell_j, owned_start_cell_k,
+        last_global_cell_idx_i, last_global_cell_idx_j, last_global_cell_idx_k);
 
 
     switch (user->identifiedInletBCFace) {
@@ -654,2215 +675,2597 @@ PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user)
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "BoundarySystem_ExecuteStep_Legacy"
-
+#define __FUNCT__ "EnforceRHSBoundaryConditions"
 /**
- * @brief Acts as a temporary bridge to the legacy boundary condition implementation.
+ * @brief Enforces boundary conditions on the momentum equation's Right-Hand-Side (RHS) vector.
  *
- * This function is the key to our integration strategy. It matches the signature
- * of the modern `BoundarySystem_ExecuteStep` function that SetEulerianFields
- * expects to call.
+ * This function is a faithful and structured replication of the boundary logic from the legacy
+ * `CalcRHS` routine. It accounts for the specific staggered grid architecture where a dimension of
+ * size `mx` has `mx-1` nodes (0 to mx-2) and `mx-2` cells. The face-centered RHS vector is
+ * allocated to size `mx`.
  *
- * However, instead of containing new handler-based logic, it simply calls the
- * monolithic legacy `FormBCS` function. This allows the modern orchestrator to
- * drive the old solver logic without modification.
+ * This results in the following indexing for the x-component of the RHS:
+ *  - i = 0 to mx-3:         Internal physical faces.
+ *  - i = mx-2:              The final physical face, located at the boundary.
+ *  - i = mx-1:              A dummy/ghost location corresponding to the last element of the vector.
  *
- * @param user The UserCtx for a single block.
- * @return PetscErrorCode
+ * This function performs two distinct roles based on this layout:
+ *
+ * 1.  **Strong BC Enforcement on Physical Boundary Faces:** For non-periodic boundaries, it zeroes
+ *     the RHS on the domain's outermost physical faces (e.g., i=0, i=mx-2). This enforces a
+ *     zero time-derivative (dU/dt = 0), ensuring that Dirichlet velocity conditions are maintained.
+ *
+ * 2.  **Dummy Location Sanitization:** On the positive-side dummy locations (i=mx-1, j=my-1, k=mz-1),
+ *     it unconditionally zeroes out all RHS components. This is a robust housekeeping step to
+ *     ensure these architecturally unused locations do not contain garbage data.
+ *
+ * @param user The UserCtx for the specific block being computed.
+ * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode BoundarySystem_ExecuteStep_Legacy(UserCtx *user)
+PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
 {
     PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    Cmpnts         ***rhs;
+
+    // --- Grid extents for this MPI rank and global grid dimensions ---
+    const PetscInt xs = info.xs, xe = xs + info.xm;
+    const PetscInt ys = info.ys, ye = ys + info.ym;
+    const PetscInt zs = info.zs, ze = zs + info.zm;
+    const PetscInt mx = info.mx, my = info.my, mz = info.mz;
+
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    // The sole purpose of this function is to call the old logic for the
-    // specific block context that was passed in.
-    ierr = FormBCS(user); CHKERRQ(ierr);
 
-    // NOTE: The legacy `main` called Block_Interface_U after the FormBCS loop.
-    // We will handle that at a higher level (in our AdvanceSimulation loop)
-    // after all blocks have had their BCs applied for the step.
+    // Get a writable pointer to the local data of the global RHS vector.
+    ierr = DMDAVecGetArray(user->fda, user->Rhs, &rhs); CHKERRQ(ierr);
+
+    // ========================================================================
+    // --- I-DIRECTION (X-FACES) ---
+    // ========================================================================
+
+    // --- Negative X Face (i=0, the first physical face) ---
+    if (xs == 0) {
+        // This logic applies ONLY to physical (non-periodic) boundaries.
+        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) {
+            const PetscInt i = 0;
+            for (PetscInt k = zs; k < ze; k++) {
+                for (PetscInt j = ys; j < ye; j++) {
+                    rhs[k][j][i].x = 0.0;
+                    rhs[k][j][i].y = 0.0;
+                    rhs[k][j][i].z = 0.0;
+                }
+            }
+        }
+    }
+
+    // --- Positive X Face (physical face i=mx-2, dummy location i=mx-1) ---
+    if (xe == mx) {
+        // Step 1: Enforce strong BC on the LAST PHYSICAL face (i=mx-2) for non-periodic cases.
+        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC) {
+            const PetscInt i = mx - 2;
+            for (PetscInt k = zs; k < ze; k++) {
+                for (PetscInt j = ys; j < ye; j++) {
+                    rhs[k][j][i].x = 0.0;
+                }
+            }
+        }
+        // Step 2: Unconditionally sanitize the DUMMY location (i=mx-1).
+        const PetscInt i = mx - 1;
+        for (PetscInt k = zs; k < ze; k++) {
+            for (PetscInt j = ys; j < ye; j++) {
+                rhs[k][j][i].x = 0.0;
+                rhs[k][j][i].y = 0.0;
+                rhs[k][j][i].z = 0.0;
+            }
+        }
+    }
+
+    // ========================================================================
+    // --- J-DIRECTION (Y-FACES) ---
+    // ========================================================================
+
+    // --- Negative Y Face (j=0, the first physical face) ---
+    if (ys == 0) {
+        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) {
+            const PetscInt j = 0;
+            for (PetscInt k = zs; k < ze; k++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    rhs[k][j][i].x = 0.0;
+                    rhs[k][j][i].y = 0.0;
+                    rhs[k][j][i].z = 0.0;
+                }
+            }
+        }
+    }
+
+    // --- Positive Y Face (physical face j=my-2, dummy location j=my-1) ---
+    if (ye == my) {
+        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC) {
+            const PetscInt j = my - 2;
+            for (PetscInt k = zs; k < ze; k++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    rhs[k][j][i].y = 0.0;
+                }
+            }
+        }
+        const PetscInt j = my - 1;
+        for (PetscInt k = zs; k < ze; k++) {
+            for (PetscInt i = xs; i < xe; i++) {
+                rhs[k][j][i].x = 0.0;
+                rhs[k][j][i].y = 0.0;
+                rhs[k][j][i].z = 0.0;
+            }
+        }
+    }
+
+    // ========================================================================
+    // --- K-DIRECTION (Z-FACES) ---
+    // ========================================================================
+
+    // --- Negative Z Face (k=0, the first physical face) ---
+    if (zs == 0) {
+        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) {
+            const PetscInt k = 0;
+            for (PetscInt j = ys; j < ye; j++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    rhs[k][j][i].x = 0.0;
+                    rhs[k][j][i].y = 0.0;
+                    rhs[k][j][i].z = 0.0;
+                }
+            }
+        }
+    }
+
+    // --- Positive Z Face (physical face k=mz-2, dummy location k=mz-1) ---
+    if (ze == mz) {
+        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC) {
+            const PetscInt k = mz - 2;
+            for (PetscInt j = ys; j < ye; j++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    rhs[k][j][i].z = 0.0;
+                }
+            }
+        }
+        const PetscInt k = mz - 1;
+        for (PetscInt j = ys; j < ye; j++) {
+            for (PetscInt i = xs; i < xe; i++) {
+                rhs[k][j][i].x = 0.0;
+                rhs[k][j][i].y = 0.0;
+                rhs[k][j][i].z = 0.0;
+            }
+        }
+    }
+
+    // --- Release the pointer to the local data ---
+    ierr = DMDAVecRestoreArray(user->fda, user->Rhs, &rhs); CHKERRQ(ierr);
+
+    LOG_ALLOW(LOCAL, LOG_TRACE, "Rank %d, Block %d: Finished enforcing RHS boundary conditions.\n",
+              user->simCtx->rank, user->_this);
+    
     PROFILE_FUNCTION_END;
+
     PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "InflowFlux"
-
+#define __FUNCT__ "BoundaryCondition_Create"
 /**
- * @brief Applies inlet boundary conditions based on the modern BC handling system.
+ * @brief (Private) Creates and configures a specific BoundaryCondition handler object.
  *
- * This function iterates through all 6 domain faces. For each face identified as an
- * INLET, it applies the velocity profile specified by its assigned handler and
- * parameters (e.g., 'constant_velocity' with vx,vy,vz or 'parabolic' with u_max).
+ * This function acts as a factory. Based on the requested handler_type, it allocates
+ * a BoundaryCondition object and populates it with the correct set of function
+ * pointers corresponding to that specific behavior.
  *
- * It calculates the contravariant flux (Ucont), Cartesian velocity on the face (Ubcs),
- * and the staggered Cartesian velocity (Ucat). It also computes the total incoming
- * flux and area across all MPI ranks.
- *
- * @param user The main UserCtx struct containing the BC configuration and PETSc objects.
+ * @param handler_type The specific handler to create (e.g., BC_HANDLER_WALL_NOSLIP).
+ * @param[out] new_bc_ptr  A pointer to where the newly created BoundaryCondition
+ *                         object's address will be stored.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode InflowFlux(UserCtx *user) 
+
+PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCondition **new_bc_ptr)
 {
-  PetscErrorCode ierr;
-  PetscReal    lFluxIn = 0.0, lAreaIn = 0.0, AreaSumIn;
-  Vec          lCoor;
-  Cmpnts       ***ucont, ***ubcs, ***ucat, ***coor, ***csi, ***eta, ***zet, ***cent;  
-  PetscReal    ***nvert;
-  
-  DM            da = user->da, fda = user->fda;
-  DMDALocalInfo	info = user->info;
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-  PetscInt	lxs, lxe, lys, lye, lzs, lze;
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
 
-  // Get context for coordinate transformation if needed by a handler
-  SimCtx      *simCtx = user->simCtx;
-  PetscReal   CMx_c = simCtx->CMx_c;
-  PetscReal   CMy_c = simCtx->CMy_c;
-  PetscReal   CMz_c = simCtx->CMz_c;
-  
-  PetscFunctionBeginUser;
+    const char* handler_name = BCHandlerTypeToString(handler_type);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Factory called for handler type %s. \n", handler_name);
 
-  PROFILE_FUNCTION_BEGIN;
+    ierr = PetscMalloc1(1, new_bc_ptr); CHKERRQ(ierr);
+    BoundaryCondition *bc = *new_bc_ptr;
 
-  lxs = xs; lxe = xe; lys = ys; lye = ye; lzs = zs; lze = ze;
-  if (xs==0) lxs = xs+1; if (ys==0) lys = ys+1; if (zs==0) lzs = zs+1;
-  if (xe==mx) lxe = xe-1; if (ye==my) lye = ye-1; if (ze==mz) lze = ze-1;
+    bc->type        = handler_type;
+    bc->priority    = -1;  // Default priority; can be overridden in specific handlers
+    bc->data        = NULL;
+    bc->Initialize  = NULL;
+    bc->PreStep     = NULL;
+    bc->Apply       = NULL;
+    bc->PostStep    = NULL;
+    bc->UpdateUbcs  = NULL;
+    bc->Destroy     = NULL;
 
-  // --- Get PETSc arrays ---
-  DMGetCoordinatesLocal(da,&lCoor);
-  DMDAVecGetArray(fda, lCoor, &coor); // Use local coordinates
-  DMDAVecGetArray(fda, user->Ucont, &ucont);
-  DMDAVecGetArray(fda, user->Bcs.Ubcs, &ubcs);
-  DMDAVecGetArray(fda, user->Ucat,  &ucat);
-  DMDAVecGetArray(da,  user->lNvert, &nvert);
-  DMDAVecGetArray(fda, user->Cent, &cent);
-  DMDAVecGetArray(fda, user->lCsi,  &csi);
-  DMDAVecGetArray(fda, user->lEta,  &eta);
-  DMDAVecGetArray(fda, user->lZet,  &zet);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Allocated generic handler object at address %p.\n", (void*)bc);
 
-  // --- Main Loop over all 6 faces ---
-  for (PetscInt fn=0; fn<6; fn++) {
-    BoundaryFaceConfig *face_config = &user->boundary_faces[fn];
+    switch (handler_type) {
 
-    if (face_config->mathematical_type != INLET) {
-        continue; // Skip non-inlet faces
+        case BC_HANDLER_OUTLET_CONSERVATION:
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_OutletConservation().\n");
+            ierr = Create_OutletConservation(bc); CHKERRQ(ierr);
+            break;
+
+        case BC_HANDLER_WALL_NOSLIP:
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_WallNoSlip().\n");
+            ierr = Create_WallNoSlip(bc); CHKERRQ(ierr);
+            break;
+
+        case BC_HANDLER_INLET_CONSTANT_VELOCITY:
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletConstantVelocity().\n");
+	          ierr = Create_InletConstantVelocity(bc); CHKERRQ(ierr);
+            break;
+
+        case BC_HANDLER_PERIODIC_GEOMETRIC:
+            LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicGeometric().\n");
+            ierr = Create_PeriodicGeometric(bc);
+            break;
+        
+        case BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX:
+            LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicDrivenConstant().\n");
+            ierr = Create_PeriodicDrivenConstant(bc);
+            break;
+        
+        //case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:
+        //    LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicDrivenInitial().\n");
+        //    ierr = Create_PeriodicDrivenInitial(bc);
+        //    break;
+                
+        //case BC_HANDLER_INLET_PARABOLIC:
+        //    LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletParabolicProfile().\n");
+	      //    ierr = Create_InletParabolicProfile(bc); CHKERRQ(ierr);
+        //    break;
+        //Add cases for other handlers here in future phases 
+        
+        default:
+            LOG_ALLOW(GLOBAL, LOG_ERROR, "Handler type (%s) is not recognized or implemented in the factory.\n", handler_name);
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Boundary handler type %d (%s) not recognized in factory.\n", handler_type, handler_name);
+    }
+
+    if(bc->priority < 0) {
+        LOG_ALLOW(GLOBAL, LOG_ERROR, "Handler type %d (%s) did not set a valid priority during creation.\n", handler_type, handler_name);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Boundary handler type %d (%s) did not set a valid priority during creation.\n", handler_type, handler_name);
     }
     
-    // This processor only acts if it is on the boundary of the global domain
-    PetscBool is_on_boundary = ( (fn==0 && xs==0) || (fn==1 && xe==mx) ||
-                                 (fn==2 && ys==0) || (fn==3 && ye==my) ||
-                                 (fn==4 && zs==0) || (fn==5 && ze==mz) );
-    if (!is_on_boundary) continue;
-
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Applying INLET handler for face: %s \n", BCFaceToString(face_config->face_id));
-
-    // --- Loop over the specific face geometry ---
-    switch(face_config->face_id) {
-      case BC_FACE_NEG_X: // -Xi
-      case BC_FACE_POS_X: // +Xi
-      {
-        PetscReal sign = (face_config->face_id == BC_FACE_NEG_X) ? 1.0 : -1.0;
-        PetscInt i = (face_config->face_id == BC_FACE_NEG_X) ? xs : mx - 2;
-        for (PetscInt k=lzs; k<lze; k++) {
-          for (PetscInt j=lys; j<lye; j++) {
-            if ( (sign > 0 && nvert[k][j][i+1] > 0.1) || (sign < 0 && nvert[k][j][i] > 0.1) ) continue;
-
-            PetscReal uin_this_point = 0.0;
-            // --- Determine velocity based on the handler for this point ---
-            if (face_config->handler_type == BC_HANDLER_INLET_CONSTANT_VELOCITY) {
-                PetscBool found;
-                ierr = GetBCParamReal(face_config->params, "vx", &uin_this_point, &found); CHKERRQ(ierr);
-            } else if(face_config->handler_type== BC_HANDLER_INLET_PARABOLIC){
-              PetscBool found;
-              PetscReal umax,diameter=1.0;
-              ierr = GetBCParamReal(face_config->params,"u_max",&umax,&found); CHKERRQ(ierr);
-              ierr = GetBCParamReal(face_config->params,"diameter",&diameter,&found); CHKERRQ(ierr);
-
-              // Radius is in the YZ-plane for an X-face inlet
-              PetscReal yc = cent[k][j][i + (sign>0)].y - CMy_c;
-              PetscReal zc = cent[k][j][i + (sign>0)].z - CMz_c;
-              PetscReal r = sqrt(yc*yc + zc*zc);
-              PetscReal r_norm = 2.0 * r / diameter;
-              uin_this_point = umax * (1.0 - r_norm * r_norm);
-              if (r_norm > 1.0) uin_this_point = 0.0; 
-            }
-            // Add other X-face handlers like 'else if (handler == ...)' here
-
-            // --- Apply the calculated velocity ---
-            PetscReal CellArea = sqrt(csi[k][j][i].z*csi[k][j][i].z + csi[k][j][i].y*csi[k][j][i].y + csi[k][j][i].x*csi[k][j][i].x);
-            lAreaIn += CellArea;
-            ucont[k][j][i].x  = sign * uin_this_point * CellArea;
-            lFluxIn          += ucont[k][j][i].x;
-            ubcs[k][j][i + (sign < 0)].x = sign * uin_this_point * csi[k][j][i].x / CellArea;
-            ubcs[k][j][i + (sign < 0)].y = sign * uin_this_point * csi[k][j][i].y / CellArea;
-            ubcs[k][j][i + (sign < 0)].z = sign * uin_this_point * csi[k][j][i].z / CellArea;
-            ucat[k][j][i + (sign > 0)] = ubcs[k][j][i + (sign < 0)];
-          }
-        }
-      } break;
-
-      case BC_FACE_NEG_Y: // -Eta
-      case BC_FACE_POS_Y: // +Eta
-      {
-        PetscReal sign = (face_config->face_id == BC_FACE_NEG_Y) ? 1.0 : -1.0;
-        PetscInt j = (face_config->face_id == BC_FACE_NEG_Y) ? ys : my - 2;
-        for (PetscInt k=lzs; k<lze; k++) {
-          for (PetscInt i=lxs; i<lxe; i++) {
-            if ( (sign > 0 && nvert[k][j+1][i] > 0.1) || (sign < 0 && nvert[k][j][i] > 0.1) ) continue;
-
-            PetscReal uin_this_point = 0.0;
-            if (face_config->handler_type == BC_HANDLER_INLET_CONSTANT_VELOCITY) {
-                PetscBool found;
-                ierr = GetBCParamReal(face_config->params, "vy", &uin_this_point, &found); CHKERRQ(ierr);
-            }else if(face_config->handler_type == BC_HANDLER_INLET_PARABOLIC){
-              PetscBool found;
-              PetscReal umax,diameter=1.0;
-              ierr = GetBCParamReal(face_config->params,"umax",&umax,&found); CHKERRQ(ierr);
-              ierr = GetBCParamReal(face_config->params,"diameter",&diameter,&found); CHKERRQ(ierr);
-              
-              // Radius is in the XZ-plane for a Y-face inlet
-              PetscReal xc = cent[k][j + (sign>0)][i].x - CMx_c;
-              PetscReal zc = cent[k][j + (sign>0)][i].z - CMz_c;
-              PetscReal r = sqrt(xc*xc + zc*zc);
-              PetscReal r_norm = 2.0 * r / diameter;
-              uin_this_point = umax * (1.0 - r_norm * r_norm);
-              if (r_norm > 1.0) uin_this_point = 0.0;
-
-            }
-
-            PetscReal CellArea = sqrt(eta[k][j][i].z*eta[k][j][i].z + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].x*eta[k][j][i].x);
-            lAreaIn += CellArea;
-            ucont[k][j][i].y  = sign * uin_this_point * CellArea;
-            lFluxIn          += ucont[k][j][i].y;
-            ubcs[k][j + (sign < 0)][i].x = sign * uin_this_point * eta[k][j][i].x / CellArea;
-            ubcs[k][j + (sign < 0)][i].y = sign * uin_this_point * eta[k][j][i].y / CellArea;
-            ubcs[k][j + (sign < 0)][i].z = sign * uin_this_point * eta[k][j][i].z / CellArea;
-            ucat[k][j + (sign > 0)][i] = ubcs[k][j + (sign < 0)][i];
-          }
-        }
-      } break;
-
-      case BC_FACE_NEG_Z: // -Zeta
-      case BC_FACE_POS_Z: // +Zeta
-      {
-        PetscReal sign = (face_config->face_id == BC_FACE_NEG_Z) ? 1.0 : -1.0;
-        PetscInt k = (face_config->face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
-        for (PetscInt j=lys; j<lye; j++) {
-          for (PetscInt i=lxs; i<lxe; i++) {
-            if ( (sign > 0 && nvert[k+1][j][i] > 0.1) || (sign < 0 && nvert[k][j][i] > 0.1) ) continue;
-
-            PetscReal uin_this_point = 0.0;
-            if (face_config->handler_type == BC_HANDLER_INLET_CONSTANT_VELOCITY) {
-                PetscBool found;
-                ierr = GetBCParamReal(face_config->params, "vz", &uin_this_point, &found); CHKERRQ(ierr);
-            } else if (face_config->handler_type == BC_HANDLER_INLET_PARABOLIC) {
-                PetscBool found;
-                PetscReal umax, diameter=1.0; // Default diameter for r_norm = 2*r
-                ierr = GetBCParamReal(face_config->params, "u_max", &umax, &found); CHKERRQ(ierr);
-                ierr = GetBCParamReal(face_config->params, "diameter", &diameter, &found); CHKERRQ(ierr); // Optional
-                
-                // Radius in the XY-plane for a Z-face inlet.
-                PetscReal xc = cent[k + (sign>0)][j][i].x - CMx_c;
-                PetscReal yc = cent[k + (sign>0)][j][i].y - CMy_c;
-                PetscReal r = sqrt(xc*xc + yc*yc);
-                PetscReal r_norm = 2.0 * r / diameter; // Normalized radius
-                uin_this_point = umax * (1.0 - r_norm * r_norm);
-                if (r_norm > 1.0) uin_this_point = 0.0;
-            }
-
-            PetscReal CellArea = sqrt(zet[k][j][i].z*zet[k][j][i].z + zet[k][j][i].y*zet[k][j][i].y + zet[k][j][i].x*zet[k][j][i].x);
-            lAreaIn += CellArea;
-            ucont[k][j][i].z  = sign * uin_this_point * CellArea;
-            lFluxIn          += ucont[k][j][i].z;
-            ubcs[k + (sign < 0)][j][i].x = sign * uin_this_point * zet[k][j][i].x / CellArea;
-            ubcs[k + (sign < 0)][j][i].y = sign * uin_this_point * zet[k][j][i].y / CellArea;
-            ubcs[k + (sign < 0)][j][i].z = sign * uin_this_point * zet[k][j][i].z / CellArea;
-            ucat[k + (sign > 0)][j][i] = ubcs[k + (sign < 0)][j][i];
-          }
-        }
-      } break;
-    } // end switch(face_id)
-  } // end for(fn)
-
-  // --- Finalize: Sum flux and area from all processes ---
-  ierr = MPI_Allreduce(&lFluxIn, &simCtx->FluxInSum, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
-  ierr = MPI_Allreduce(&lAreaIn, &AreaSumIn, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
-  
-  LOG_ALLOW(GLOBAL,LOG_DEBUG,"Inflow: Flux - Area:  %le - %le \n", simCtx->FluxInSum, AreaSumIn);    
-  
-  // --- Restore PETSc arrays ---
-  DMDAVecRestoreArray(fda, lCoor, &coor);
-  DMDAVecRestoreArray(fda, user->Ucont, &ucont);
-  DMDAVecRestoreArray(fda, user->Bcs.Ubcs, &ubcs);
-  DMDAVecRestoreArray(fda, user->Ucat,  &ucat);
-  DMDAVecRestoreArray(da,  user->lNvert, &nvert);
-  DMDAVecRestoreArray(fda, user->Cent, &cent);
-  DMDAVecRestoreArray(fda, user->lCsi,  &csi);
-  DMDAVecRestoreArray(fda, user->lEta,  &eta);
-  DMDAVecRestoreArray(fda, user->lZet,  &zet);
-
-  // --- Update local vectors for subsequent computations ---
-  DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  
-  PROFILE_FUNCTION_END;
-
-  PetscFunctionReturn(0); 
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Successfully created and configured handler for %s.\n", handler_name);
+    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "OutflowFlux"
-
+#define __FUNCT__ "BoundarySystem_Validate"
 /**
- * @brief Calculates the total outgoing flux through all OUTLET faces for reporting.
+ * @brief (Public) Validates the consistency and compatibility of the parsed boundary condition system.
  *
- * NOTE: In a mixed modern/legacy environment, this function is for DIAGNOSTICS ONLY.
- * It reads the contravariant velocities and calculates the total flux passing through
- * faces marked as OUTLET. It does NOT apply any boundary conditions itself, as that
- * is still the responsibility of the legacy FormBCS function.
+ * This function is the main entry point for all boundary condition validation. It should be
+ * called from the main setup sequence AFTER the configuration file has been parsed by
+ * `ParseAllBoundaryConditions` but BEFORE any `BoundaryCondition` handler objects are created.
  *
- * @param user The main UserCtx struct containing BC config and PETSc vectors.
+ * It acts as a dispatcher, calling specialized private sub-validators for different complex
+ * BC setups (like driven flow) to ensure the combination of `mathematical_type` and `handler_type`
+ * across all six faces is physically and numerically valid. This provides a "fail-fast"
+ * mechanism to prevent users from running improperly configured simulations.
+ *
+ * @param user The UserCtx for a single block, containing the populated `boundary_faces` configuration.
+ * @return PetscErrorCode 0 on success, non-zero PETSc error code on failure.
+ */
+PetscErrorCode BoundarySystem_Validate(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Validating parsed boundary condition configuration...\n");
+
+    // --- Rule Set 1: Driven Flow Handler Consistency ---
+    // This specialized validator will check all rules related to driven flow handlers.
+    ierr = Validate_DrivenFlowConfiguration(user); CHKERRQ(ierr);
+
+    // --- Rule Set 2: (Future Extension) Overset Interface Consistency ---
+    // ierr = Validate_OversetConfiguration(user); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Boundary configuration is valid.\n");
+
+    PetscFunctionReturn(0);
+}
+
+//================================================================================
+//
+//                       PUBLIC MASTER SETUP FUNCTION
+//
+//================================================================================
+#undef __FUNCT__
+#define __FUNCT__ "BoundarySystem_Initialize"
+/**
+ * @brief Initializes the entire boundary system based on a configuration file.
+ */
+PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting creation and initialization of all boundary handlers.\n");
+
+    // =========================================================================
+    // Step 0: Clear any existing boundary handlers (if re-initializing).
+    // This ensures no memory leaks if this function is called multiple times.
+    // =========================================================================
+    for (int i = 0; i < 6; i++) {
+        BoundaryFaceConfig *face_cfg = &user->boundary_faces[i];
+        if (face_cfg->handler) {
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Destroying existing handler on Face %s before re-initialization.\n", BCFaceToString((BCFace)i));
+            if (face_cfg->handler->Destroy) {
+                ierr = face_cfg->handler->Destroy(face_cfg->handler); CHKERRQ(ierr);
+            }
+            ierr = PetscFree(face_cfg->handler); CHKERRQ(ierr);
+            face_cfg->handler = NULL;
+        }
+    }
+    // =========================================================================
+
+    // Step 0.1: Initiate flux sums to zero
+    user->simCtx->FluxInSum = 0.0;
+    user->simCtx->FluxOutSum = 0.0;
+    user->simCtx->FarFluxInSum = 0.0;
+    user->simCtx->FarFluxOutSum = 0.0;
+    // =========================================================================
+
+    // Step 1: Parse the configuration file to determine user intent.
+    // This function, defined in io.c, populates the configuration enums and parameter
+    // lists within the user->boundary_faces array on all MPI ranks.
+    ierr = ParseAllBoundaryConditions(user, bcs_filename); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Configuration file '%s' parsed successfully.\n", bcs_filename);
+
+    // Step 1.1: Validate the parsed configuration to ensure there are no Boundary Condition conflicts
+    ierr = BoundarySystem_Validate(user);
+
+    // Step 2: Create and Initialize the handler object for each of the 6 faces.
+    for (int i = 0; i < 6; i++) {
+        BoundaryFaceConfig *face_cfg = &user->boundary_faces[i];
+        
+        const char *face_name = BCFaceToString(face_cfg->face_id);
+        const char *type_name = BCTypeToString(face_cfg->mathematical_type);
+        const char *handler_name = BCHandlerTypeToString(face_cfg->handler_type);
+
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "Creating handler for Face %s with Type %s and handler '%s'.\n", face_name, type_name,handler_name);
+
+        // Use the private factory to construct the correct handler object based on the parsed type.
+        // The factory returns a pointer to the new handler object, which we store in the config struct.
+        ierr = BoundaryCondition_Create(face_cfg->handler_type, &face_cfg->handler); CHKERRQ(ierr);
+
+        // Step 3: Call the specific Initialize() method for the newly created handler.
+        // This allows the handler to perform its own setup, like reading parameters from the
+        // face_cfg->params list and setting the initial field values on its face.
+        if (face_cfg->handler && face_cfg->handler->Initialize) {
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Calling Initialize() method for handler %s(%s) on Face %s.\n",type_name,handler_name,face_name);
+            
+            // Prepare the context needed by the Initialize() function.
+            BCContext ctx = {
+                .user = user,
+                .face_id = face_cfg->face_id,
+                .global_inflow_sum = &user->simCtx->FluxInSum,  // Global flux sums are not relevant during initialization.
+                .global_outflow_sum = &user->simCtx->FluxOutSum,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            ierr = face_cfg->handler->Initialize(face_cfg->handler, &ctx); CHKERRQ(ierr);
+        } else {
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Handler %s(%s) for Face %s has no Initialize() method, skipping.\n", type_name,handler_name,face_name);
+        }
+    }
+    // =========================================================================
+    // NO SYNCHRONIZATION NEEDED HERE
+    // =========================================================================
+    // Initialize() only reads parameters and allocates memory.
+    // It does NOT modify field values (Ucat, Ucont, Ubcs).
+    // Field values are set by:
+    //   1. Initial conditions (before this function)
+    //   2. Apply() during timestepping (after this function)
+    // The first call to ApplyBoundaryConditions() will handle synchronization.
+    // =========================================================================
+
+    // ====================================================================================
+    // --- NEW: Step 4: Synchronize Vectors After Initialization ---
+    // This is the CRITICAL fix. The Initialize() calls have modified local vector
+    // arrays on some ranks but not others. We must now update the global vector state
+    // and then update all local ghost regions to be consistent.
+    // ====================================================================================
+     
+    //LOG_ALLOW(GLOBAL, LOG_DEBUG, "Committing global boundary initializations to local vectors.\n");
+
+    // Commit changes from the global vectors (Ucat, Ucont) to the local vectors (lUcat, lUcont)
+    // NOTE: The Apply functions modified Ucat and Ucont via GetArray, which works on the global
+    // representation.
+    /*    
+    ierr = DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat); CHKERRQ(ierr);
+    ierr = DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat); CHKERRQ(ierr);
+    
+    ierr = DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont); CHKERRQ(ierr);
+    ierr = DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont); CHKERRQ(ierr);
+    
+     // Now, update all local vectors (including ghost cells) from the newly consistent global vectors
+
+    ierr = DMLocalToGlobalBegin(user->fda, user->lUcat, INSERT_VALUES, user->Ucat); CHKERRQ(ierr);
+    ierr = DMLocalToGlobalEnd(user->fda, user->lUcat, INSERT_VALUES, user->Ucat); CHKERRQ(ierr);
+    
+    ierr = DMLocalToGlobalBegin(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); CHKERRQ(ierr);
+    ierr = DMLocalToGlobalEnd(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); CHKERRQ(ierr);
+    */
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "All boundary handlers created and initialized successfully.\n");
+    PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "PropagateBoundaryConfigToCoarserLevels"
+/**
+ * @brief Propagates boundary condition configuration from finest to all coarser multigrid levels.
+ *
+ * Coarser levels need BC type information for geometric operations (e.g., periodic corrections)
+ * but do NOT need full handler objects since timestepping only occurs at the finest level.
+ * This function copies the boundary_faces configuration down the hierarchy.
+ *
+ * @param simCtx The master SimCtx containing the multigrid hierarchy
+ * @return PetscErrorCode 0 on success
+ */
+PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    UserMG *usermg = &simCtx->usermg;
+    
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Propagating BC configuration from finest to coarser multigrid levels...\n");
+    
+    // Loop from second-finest down to coarsest
+    for (PetscInt level = usermg->mglevels - 2; level >= 0; level--) {
+        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+            UserCtx *user_coarse = &usermg->mgctx[level].user[bi];
+            UserCtx *user_fine   = &usermg->mgctx[level + 1].user[bi];
+            
+            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Copying BC config from level %d to level %d, block %d\n",
+                          simCtx->rank, level + 1, level, bi);
+            
+            // Copy the 6 boundary face configurations
+            for (int face_i = 0; face_i < 6; face_i++) {
+                user_coarse->boundary_faces[face_i].face_id = user_fine->boundary_faces[face_i].face_id;
+                user_coarse->boundary_faces[face_i].mathematical_type = user_fine->boundary_faces[face_i].mathematical_type;
+                user_coarse->boundary_faces[face_i].handler_type = user_fine->boundary_faces[face_i].handler_type;
+                
+                // Copy parameter list (deep copy)
+                FreeBC_ParamList(user_coarse->boundary_faces[face_i].params); // Clear any existing
+                user_coarse->boundary_faces[face_i].params = NULL;
+                
+                BC_Param **dst_next = &user_coarse->boundary_faces[face_i].params;
+                for (BC_Param *src = user_fine->boundary_faces[face_i].params; src; src = src->next) {
+                    BC_Param *new_param;
+                    ierr = PetscMalloc1(1, &new_param); CHKERRQ(ierr);
+                    ierr = PetscStrallocpy(src->key, &new_param->key); CHKERRQ(ierr);
+                    ierr = PetscStrallocpy(src->value, &new_param->value); CHKERRQ(ierr);
+                    new_param->next = NULL;
+                    *dst_next = new_param;
+                    dst_next = &new_param->next;
+                }
+                
+                // IMPORTANT: Do NOT create handler objects for coarser levels
+                // Handlers are only needed at finest level for timestepping Apply() calls
+                user_coarse->boundary_faces[face_i].handler = NULL;
+            }
+            
+            // Also propagate legacy compatibility fields if needed
+            user_coarse->inletFaceDefined = user_fine->inletFaceDefined;
+            user_coarse->identifiedInletBCFace = user_fine->identifiedInletBCFace;
+        }
+    }
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "BC configuration propagation complete.\n");
+    
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+//================================================================================
+//
+//                      PUBLIC MASTER TIME-STEP FUNCTION
+//
+//================================================================================
+
+#undef __FUNCT__
+#define __FUNCT__ "BoundarySystem_ExecuteStep"
+/**
+ * @brief Executes all boundary condition handlers in priority order.
+ *
+ * This function orchestrates the application of boundary conditions across all
+ * faces using a priority-based system. Each priority group is executed atomically:
+ * handlers at a given priority complete their PreStep, Apply, and PostStep phases,
+ * with MPI communication between phases as needed. This ensures proper data flow
+ * for boundary conditions that depend on results from other boundaries.
+ *
+ * Priority execution order (matches legacy):
+ *   0 (BC_PRIORITY_INLET):    Inlets - Set inflow, measure flux
+ *   1 (BC_PRIORITY_FARFIELD): Farfield - Bidirectional flow, measure flux  
+ *   2 (BC_PRIORITY_WALL):     Walls/Symmetry - Set velocity/gradients
+ *   3 (BC_PRIORITY_OUTLET):   Outlets - Apply conservation correction
+ *
+ * NOTE: This function is called INSIDE the ApplyBoundaryConditions iteration loop.
+ * It does NOT handle:
+ *   - Contra2Cart (done by caller)
+ *   - UpdateDummyCells (done by caller)
+ *   - DMGlobalToLocal syncs (done by caller)
+ *
+ * @param user The UserCtx containing boundary configuration and state
+ * @return PetscErrorCode 0 on success
+ */
+PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Starting.\n");
+    
+    // =========================================================================
+    // PRIORITY 0: INLETS
+    // =========================================================================
+    
+        PetscReal local_inflow_pre = 0.0;
+        PetscReal local_inflow_post = 0.0;
+        PetscReal global_inflow_pre = 0.0;
+        PetscReal global_inflow_post = 0.0;
+        PetscInt  num_handlers[3] = {0,0,0};
+        
+        LOG_ALLOW(LOCAL, LOG_TRACE, " (INLETS): Begin.\n");
+        
+        // Phase 1: PreStep - Preparation (e.g., calculate profiles, read files)
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_INLET) continue;
+            if (!handler->PreStep) continue;
+            
+            num_handlers[0]++;
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = NULL,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    PreStep: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->PreStep(handler, &ctx, &local_inflow_pre, NULL); CHKERRQ(ierr);
+        }
+        
+        // Optional: Global communication for PreStep (for debugging)
+        if (local_inflow_pre != 0.0) {
+            ierr = MPI_Allreduce(&local_inflow_pre, &global_inflow_pre, 1, MPIU_REAL,
+                                MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+            LOG_ALLOW(GLOBAL, LOG_TRACE, "    PreStep predicted flux: %.6e\n", global_inflow_pre);
+        }
+        
+        // Phase 2: Apply - Set boundary conditions
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_INLET) continue;
+            if(!handler->Apply) continue; // For example Periodic BCs  
+            
+            num_handlers[1]++;
+
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = NULL,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    Apply: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->Apply(handler, &ctx); CHKERRQ(ierr);
+        }
+        
+        // Phase 3: PostStep - Measure actual flux
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_INLET) continue;
+            if (!handler->PostStep) continue;
+            
+            num_handlers[2]++;
+
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = NULL,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    PostStep: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->PostStep(handler, &ctx, &local_inflow_post, NULL); CHKERRQ(ierr);
+        }
+        
+        // Phase 4: Global communication - Sum flux for other priorities to use
+        ierr = MPI_Allreduce(&local_inflow_post, &global_inflow_post, 1, MPIU_REAL,
+                            MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        
+        // Store for next priority levels
+        user->simCtx->FluxInSum = global_inflow_post;
+        
+        LOG_ALLOW(GLOBAL, LOG_INFO, 
+                  "  (INLETS): %d Prestep(s), %d Application(s), %d Poststep(s), FluxInSum = %.6e\n",
+                  num_handlers[0],num_handlers[1],num_handlers[2], global_inflow_post);
+    
+    // =========================================================================
+    // PRIORITY 1: FARFIELD
+    // =========================================================================
+    
+        PetscReal local_farfield_in_pre = 0.0;
+        PetscReal local_farfield_out_pre = 0.0;
+        PetscReal local_farfield_in_post = 0.0;
+        PetscReal local_farfield_out_post = 0.0;
+        PetscReal global_farfield_in_pre = 0.0;
+        PetscReal global_farfield_out_pre = 0.0;
+        PetscReal global_farfield_in_post = 0.0;
+        PetscReal global_farfield_out_post = 0.0;
+        memset(num_handlers,0,sizeof(num_handlers));
+        
+        LOG_ALLOW(LOCAL, LOG_TRACE, "  (FARFIELD): Begin.\n");
+        
+        // Phase 1: PreStep - Analyze flow direction, measure initial flux
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_FARFIELD) continue;
+            if (!handler->PreStep) continue;
+            
+            num_handlers[0]++;
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = &user->simCtx->FluxInSum,  // Available from Priority 0
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    PreStep: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->PreStep(handler, &ctx, &local_farfield_in_pre, &local_farfield_out_pre);
+            CHKERRQ(ierr);
+        }
+        
+        // Phase 2: Global communication (optional, for debugging)
+        if (local_farfield_in_pre != 0.0 || local_farfield_out_pre != 0.0) {
+            ierr = MPI_Allreduce(&local_farfield_in_pre, &global_farfield_in_pre, 1, MPIU_REAL,
+                                MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+            ierr = MPI_Allreduce(&local_farfield_out_pre, &global_farfield_out_pre, 1, MPIU_REAL,
+                                MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+            
+            LOG_ALLOW(GLOBAL, LOG_DEBUG, 
+                      "    Farfield pre-analysis: In=%.6e, Out=%.6e\n",
+                      global_farfield_in_pre, global_farfield_out_pre);
+        }
+        
+        // Phase 3: Apply - Set farfield boundary conditions
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_FARFIELD) continue;
+            if(!handler->Apply) continue; // For example Periodic BCs            
+            
+            num_handlers[1]++;
+
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = &user->simCtx->FluxInSum,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    Apply: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->Apply(handler, &ctx); CHKERRQ(ierr);
+        }
+        
+        // Phase 4: PostStep - Measure actual farfield fluxes
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_FARFIELD) continue;
+            if (!handler->PostStep) continue;
+            
+            num_handlers[2]++;
+
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = &user->simCtx->FluxInSum,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    PostStep: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->PostStep(handler, &ctx, &local_farfield_in_post, &local_farfield_out_post);
+            CHKERRQ(ierr);
+        }
+        
+        // Phase 5: Global communication - Store for outlet priority
+        if (num_handlers > 0) {
+            ierr = MPI_Allreduce(&local_farfield_in_post, &global_farfield_in_post, 1, MPIU_REAL,
+                                MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+            ierr = MPI_Allreduce(&local_farfield_out_post, &global_farfield_out_post, 1, MPIU_REAL,
+                                MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+            
+            // Store for outlet handlers to use
+            user->simCtx->FarFluxInSum = global_farfield_in_post;
+            user->simCtx->FarFluxOutSum = global_farfield_out_post;
+            
+            LOG_ALLOW(GLOBAL, LOG_INFO, 
+                      "  (FARFIELD): %d Prestep(s), %d Application(s), %d Poststep(s) , InFlux=%.6e, OutFlux=%.6e\n",
+                      num_handlers[0],num_handlers[1],num_handlers[2], global_farfield_in_post, global_farfield_out_post);
+        } else {
+            // No farfield handlers - zero out the fluxes
+            user->simCtx->FarFluxInSum = 0.0;
+            user->simCtx->FarFluxOutSum = 0.0;
+        }
+    
+    
+    // =========================================================================
+    // PRIORITY 2: WALLS
+    // =========================================================================
+    
+        memset(num_handlers,0,sizeof(num_handlers));
+        
+        LOG_ALLOW(LOCAL, LOG_TRACE, "  (WALLS): Begin.\n");
+        
+        // Phase 1: PreStep - Preparation (usually no-op for walls)
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_WALL) continue;
+            if (!handler->PreStep) continue;
+            
+            num_handlers[0]++;
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = &user->simCtx->FluxInSum,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    PreStep: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->PreStep(handler, &ctx, NULL, NULL); CHKERRQ(ierr);
+        }
+        
+        // No global communication needed for walls
+        
+        // Phase 2: Apply - Set boundary conditions
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_WALL) continue;
+            if(!handler->Apply) continue; // For example Periodic BCs  
+            
+            num_handlers[1]++;
+
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = &user->simCtx->FluxInSum,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    Apply: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->Apply(handler, &ctx); CHKERRQ(ierr);
+        }
+        
+        // Phase 3: PostStep - Post-application processing (usually no-op for walls)
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_WALL) continue;
+            if (!handler->PostStep) continue;
+            
+            num_handlers[2]++;
+
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = &user->simCtx->FluxInSum,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    PostStep: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->PostStep(handler, &ctx, NULL, NULL); CHKERRQ(ierr);
+        }
+        
+        // No global communication needed for walls
+        
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  (WALLS): %d Prestep(s), %d Application(s), %d Poststep(s) applied.\n",
+                  num_handlers[0],num_handlers[1],num_handlers[2]);
+    
+    
+    // =========================================================================
+    // PRIORITY 3: OUTLETS
+    // =========================================================================
+    
+        PetscReal local_outflow_pre = 0.0;
+        PetscReal local_outflow_post = 0.0;
+        PetscReal global_outflow_pre = 0.0;
+        PetscReal global_outflow_post = 0.0;
+        memset(num_handlers,0,sizeof(num_handlers));
+        
+        LOG_ALLOW(LOCAL, LOG_TRACE, "  (OUTLETS): Begin.\n");
+        
+        // Phase 1: PreStep - Measure uncorrected outflow (from ucat)
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_OUTLET) continue;
+            if (!handler->PreStep) continue;
+            
+            num_handlers[0]++;
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = &user->simCtx->FluxInSum,      // From Priority 0
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    PreStep: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->PreStep(handler, &ctx, NULL, &local_outflow_pre); CHKERRQ(ierr);
+        }
+        
+        // Phase 2: Global communication - Get uncorrected outflow sum
+        ierr = MPI_Allreduce(&local_outflow_pre, &global_outflow_pre, 1, MPIU_REAL,
+                            MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        
+        // Calculate total inflow (inlet + farfield inflow)
+        PetscReal total_inflow = user->simCtx->FluxInSum + user->simCtx->FarFluxInSum;
+        
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, 
+                  "    Uncorrected outflow: %.6e, Total inflow: %.6e (Inlet: %.6e + Farfield: %.6e)\n",
+                  global_outflow_pre, total_inflow, user->simCtx->FluxInSum, 
+                  user->simCtx->FarFluxInSum);
+        
+        // Phase 3: Apply - Set corrected boundary conditions
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_OUTLET) continue;
+            if(!handler->Apply) continue; // For example Periodic BCs  
+            
+            num_handlers[1]++;
+
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = &user->simCtx->FluxInSum,      // From Priority 0
+                .global_outflow_sum = &global_outflow_pre, // From PreStep above
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum 
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    Apply: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->Apply(handler, &ctx); CHKERRQ(ierr);
+        }
+        
+        // Phase 4: PostStep - Measure corrected outflow (verification)
+        for (int i = 0; i < 6; i++) {
+            BoundaryCondition *handler = user->boundary_faces[i].handler;
+            if (!handler || handler->priority != BC_PRIORITY_OUTLET) continue;
+            if (!handler->PostStep) continue;
+            
+            num_handlers[2]++;
+
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = &user->simCtx->FluxInSum,
+                .global_outflow_sum = &global_outflow_pre,
+                .global_farfield_inflow_sum = &user->simCtx->FarFluxInSum,
+                .global_farfield_outflow_sum = &user->simCtx->FarFluxOutSum
+            };
+            
+            LOG_ALLOW(LOCAL, LOG_TRACE, "    PostStep: Face %d (%s)\n", i, BCFaceToString((BCFace)i));
+            ierr = handler->PostStep(handler, &ctx, NULL, &local_outflow_post); CHKERRQ(ierr);
+        }
+        
+        // Phase 5: Global communication - Verify conservation
+        ierr = MPI_Allreduce(&local_outflow_post, &global_outflow_post, 1, MPIU_REAL,
+                            MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        
+        // Store for legacy compatibility and reporting
+        user->simCtx->FluxOutSum = global_outflow_post;
+        
+        // Conservation check (compare total outflow vs total inflow)
+        PetscReal total_outflow = global_outflow_post + user->simCtx->FarFluxOutSum;
+        PetscReal flux_error = PetscAbsReal(total_outflow - total_inflow);
+        PetscReal relative_error = (total_inflow > 1e-16) ? 
+                                   flux_error / total_inflow : flux_error;
+        
+        LOG_ALLOW(GLOBAL, LOG_INFO, 
+                  "  (OUTLETS): %d Prestep(s), %d Application(s), %d Poststep(s), FluxOutSum = %.6e\n",
+                  num_handlers[0],num_handlers[1],num_handlers[2], global_outflow_post);
+        LOG_ALLOW(GLOBAL, LOG_INFO, 
+                  "    Conservation: Total In=%.6e, Total Out=%.6e, Error=%.3e (%.2e)%%)\n",
+                  total_inflow, total_outflow, flux_error, relative_error * 100.0);
+        
+        if (relative_error > 1e-6) {
+            LOG_ALLOW(GLOBAL, LOG_WARNING, 
+                     "    WARNING: Large mass conservation error (%.2e%%)!\n",
+                     relative_error * 100.0);
+        }
+    
+    
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Complete.\n");
+    
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+// =============================================================================
+//
+//                   PRIVATE "LIGHT" EXECUTION ENGINE
+//
+// =============================================================================
+
+#undef __FUNCT__
+#define __FUNCT__ "BoundarySystem_RefreshUbcs"
+/**
+ * @brief (Private) A lightweight execution engine that calls the UpdateUbcs() method on all relevant handlers.
+ *
+ * This function's sole purpose is to re-evaluate the target boundary values (`ubcs`) for
+ * flow-dependent boundary conditions (e.g., Symmetry, Outlets) after the interior
+ * velocity field has changed, such as after the projection step.
+ *
+ * It operates based on a "pull" model: it iterates through all boundary handlers and
+ * executes their `UpdateUbcs` method only if the handler has provided one. This makes the
+ * system extensible, as new flow-dependent handlers can be added without changing this
+ * engine. Handlers for fixed boundary conditions (e.g., a wall with a constant velocity)
+ * will have their `UpdateUbcs` pointer set to `NULL` and will be skipped automatically.
+ *
+ * @note This function is a critical part of the post-projection refresh. It intentionally
+ *       does NOT modify `ucont` and does NOT perform flux balancing.
+ *
+ * @param user The main UserCtx struct.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode OutflowFlux(UserCtx *user) {
-  
+PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user)
+{
     PetscErrorCode ierr;
-    PetscReal      lFluxOut = 0.0;
-    Cmpnts         ***ucont;
+    PetscFunctionBeginUser;
 
-    DM             fda = user->fda;
+    LOG_ALLOW(GLOBAL, LOG_TRACE, "Refreshing `ubcs` targets for flow-dependent boundaries...\n");
+
+    // Loop through all 6 faces of the domain
+    for (int i = 0; i < 6; i++) {
+        BoundaryCondition *handler = user->boundary_faces[i].handler;
+        
+        // THE FILTER:
+        // This is the core logic. We only act if a handler exists for the face
+        // AND that handler has explicitly implemented the `UpdateUbcs` method.
+        if (handler && handler->UpdateUbcs) {
+            
+            const char *face_name = BCFaceToString((BCFace)i);
+            LOG_ALLOW(LOCAL, LOG_TRACE, "  Calling UpdateUbcs() for handler on Face %s.\n", face_name);
+
+            // Prepare the context. For this refresh step, we don't need to pass flux sums.
+            BCContext ctx = {
+                .user = user,
+                .face_id = (BCFace)i,
+                .global_inflow_sum = NULL,
+                .global_outflow_sum = NULL,
+                .global_farfield_inflow_sum = NULL,
+                .global_farfield_outflow_sum = NULL
+            };
+            
+            // Call the handler's specific UpdateUbcs function pointer.
+            ierr = handler->UpdateUbcs(handler, &ctx); CHKERRQ(ierr);
+        }
+    }
+
+    PetscFunctionReturn(0);
+}
+
+//================================================================================
+//
+//                         PUBLIC MASTER CLEANUP FUNCTION
+//
+//================================================================================
+#undef __FUNCT__
+#define __FUNCT__ "BoundarySystem_Destroy"
+/**
+ * @brief Cleans up and destroys all resources allocated by the boundary system.
+ *
+ * This function should be called once at the end of the simulation. It iterates
+ * through all created handlers and calls their respective Destroy methods to free
+ * any privately allocated data (like parameter lists or handler-specific data),
+ * and then frees the handler object itself. This prevents memory leaks.
+ *
+ * @param user The main UserCtx struct containing the boundary system to be destroyed.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode BoundarySystem_Destroy(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting destruction of all boundary handlers. \n");
+
+    for (int i = 0; i < 6; i++) {
+        BoundaryFaceConfig *face_cfg = &user->boundary_faces[i];
+        const char *face_name = BCFaceToString(face_cfg->face_id);
+
+        // --- Step 1: Free the parameter linked list associated with this face ---
+        if (face_cfg->params) {
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "  Freeing parameter list for Face %d (%s). \n", i, face_name);
+            FreeBC_ParamList(face_cfg->params);
+            face_cfg->params = NULL; // Good practice to nullify dangling pointers
+        }
+
+        // --- Step 2: Destroy the handler object itself ---
+        if (face_cfg->handler) {
+            const char *handler_name = BCHandlerTypeToString(face_cfg->handler->type);
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "  Destroying handler '%s' on Face %d (%s).\n", handler_name, i, face_name);
+            
+            // Call the handler's specific cleanup function first, if it exists.
+            // This will free any memory stored in the handler's private `data` pointer.
+            if (face_cfg->handler->Destroy) {
+                ierr = face_cfg->handler->Destroy(face_cfg->handler); CHKERRQ(ierr);
+            }
+
+            // Finally, free the generic BoundaryCondition object itself.
+            ierr = PetscFree(face_cfg->handler); CHKERRQ(ierr);
+            face_cfg->handler = NULL;
+        }
+    }
+    
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Destruction complete.\n");
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "TransferPeriodicFieldByDirection"
+/**
+ * @brief (Private Worker) Copies periodic data for a SINGLE field in a SINGLE direction.
+ *
+ * This is a low-level helper that performs the memory copy from the local ghost
+ * array to the global array for a specified field and direction ('i', 'j', or 'k').
+ * It contains NO communication logic; that is handled by the orchestrator.
+ *
+ * @param user The main UserCtx struct.
+ * @param field_name The string identifier for the field to transfer (e.g., "Ucat").
+ * @param direction The character 'i', 'j', or 'k' specifying the direction.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field_name, char direction)
+{
+    PetscErrorCode ierr;
     DMDALocalInfo  info = user->info;
     PetscInt       xs = info.xs, xe = info.xs + info.xm;
     PetscInt       ys = info.ys, ye = info.ys + info.ym;
     PetscInt       zs = info.zs, ze = info.zs + info.zm;
     PetscInt       mx = info.mx, my = info.my, mz = info.mz;
 
+    // --- Dispatcher to get DM, Vecs, and DoF for the specified field ---
+    DM        dm;
+    Vec       global_vec;
+    Vec       local_vec;
+    PetscInt  dof;
+    // (This dispatcher is identical to your TransferPeriodicField function)
+    if (strcmp(field_name, "Ucat") == 0) {
+        dm = user->fda; global_vec = user->Ucat; local_vec = user->lUcat; dof = 3;
+    } else if (strcmp(field_name, "P") == 0) {
+        dm = user->da; global_vec = user->P; local_vec = user->lP; dof = 1;
+    } else if (strcmp(field_name, "Nvert") == 0) {
+        dm = user->da; global_vec = user->Nvert; local_vec = user->lNvert; dof = 1;
+    } else {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s'", field_name);
+    }
+
     PetscFunctionBeginUser;
-    
-    PROFILE_FUNCTION_BEGIN;
 
-    ierr = DMDAVecGetArrayRead(fda, user->Ucont, &ucont); CHKERRQ(ierr);
-  
-    // --- Loop over all 6 faces to find OUTLETS ---
-    for (PetscInt fn = 0; fn < 6; fn++) {
-        if (user->boundary_faces[fn].mathematical_type != OUTLET) {
-            continue; 
+    // --- Execute the copy logic based on DoF and Direction ---
+    if (dof == 1) { // --- Handle SCALAR fields (PetscReal) ---
+        PetscReal ***g_array, ***l_array;
+        ierr = DMDAVecGetArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(dm, local_vec, (void*)&l_array); CHKERRQ(ierr); // Use Read for safety
+
+        switch (direction) {
+            case 'i':
+                if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xs] = l_array[k][j][xs-2];
+                if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xe-1] = l_array[k][j][xe+1];
+                break;
+            case 'j':
+                if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ys][i] = l_array[k][ys-2][i];
+                if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ye-1][i] = l_array[k][ye+1][i];
+                break;
+            case 'k':
+                if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[zs][j][i] = l_array[zs-2][j][i];
+                if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[ze-1][j][i] = l_array[ze+1][j][i];
+                break;
+            default: SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Invalid direction '%c'", direction);
         }
+        ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(dm, local_vec, (void*)&l_array); CHKERRQ(ierr);
 
-        PetscBool is_on_boundary = ( (fn==0 && xs==0) || (fn==1 && xe==mx) ||
-                                     (fn==2 && ys==0) || (fn==3 && ye==my) ||
-                                     (fn==4 && zs==0) || (fn==5 && ze==mz) );
-        if (!is_on_boundary) continue;
+    } else if (dof == 3) { // --- Handle VECTOR fields (Cmpnts) ---
+        Cmpnts ***g_array, ***l_array;
+        ierr = DMDAVecGetArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(dm, local_vec, (void*)&l_array); CHKERRQ(ierr);
 
-        // --- Sum the flux for the appropriate face and component ---
-        switch ((BCFace)fn) {
-            case BC_FACE_NEG_X: case BC_FACE_POS_X: {
-                PetscInt i = (fn == 0) ? xs : mx - 2;
-                for (PetscInt k=info.zs; k<info.zs+info.zm; k++) for (PetscInt j=info.ys; j<info.ys+info.ym; j++) {
-                    lFluxOut += ucont[k][j][i].x;
-                }
-            } break;
-
-            case BC_FACE_NEG_Y: case BC_FACE_POS_Y: {
-                PetscInt j = (fn == 2) ? ys : my - 2;
-                for (PetscInt k=info.zs; k<info.zs+info.zm; k++) for (PetscInt i=info.xs; i<info.xs+info.xm; i++) {
-                    lFluxOut += ucont[k][j][i].y;
-                }
-            } break;
-
-            case BC_FACE_NEG_Z: case BC_FACE_POS_Z: {
-                PetscInt k = (fn == 4) ? zs : mz - 2;
-                for (PetscInt j=info.ys; j<info.ys+info.ym; j++) for (PetscInt i=info.xs; i<info.xs+info.xm; i++) {
-                    lFluxOut += ucont[k][j][i].z;
-                }
-            } break;
-        } // end switch
-    } // end for loop
-
-    ierr = DMDAVecRestoreArrayRead(fda, user->Ucont, &ucont); CHKERRQ(ierr);
-
-    // --- Finalize: Sum and store the global total flux ---
-    ierr = MPI_Allreduce(&lFluxOut, &user->simCtx->FluxOutSum, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reported Global FluxOutSum = %.6f\n", user->simCtx->FluxOutSum);
-
-    PROFILE_FUNCTION_END;
+        switch (direction) {
+            case 'i':
+                if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xs] = l_array[k][j][xs-2];
+                if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xe-1] = l_array[k][j][xe+1];
+                break;
+            case 'j':
+                if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ys][i] = l_array[k][ys-2][i];
+                if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ye-1][i] = l_array[k][ye+1][i];
+                break;
+            case 'k':
+                if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[zs][j][i] = l_array[zs-2][j][i];
+                if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[ze-1][j][i] = l_array[ze+1][j][i];
+                break;
+            default: SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Invalid direction '%c'", direction);
+        }
+        ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(dm, local_vec, (void*)&l_array); CHKERRQ(ierr);
+    }
 
     PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "FormBCS"
-
-/* Boundary condition defination (array user->bctype[0-5]):
-   0:	interpolation/interface
-   -1:  wallfunction
-   1:	solid wall (not moving)
-   2:	moving solid wall (U=1)
-   3:   slip wall/symmetry
-   5:	Inlet
-   4:	Outlet
-   6:   farfield
-   7:   periodic
-   8:   Characteristic BC
-   9:   Analytical Vortex
-   10:  Oulet Junction
-   11:  Annulus
-   12:  Ogrid
-   13:  Rheology
-   14:  Outlet with Interface
-   15:  No Gradient (Similar to Farfield)  
-*/
-
-PetscErrorCode FormBCS(UserCtx *user)
+#define __FUNCT__ "TransferPeriodicField"
+/**
+ * @brief (Private) A generic routine to copy data for a single, named field across periodic boundaries.
+ *
+ * This function encapsulates all logic for a periodic transfer. Given a field name (e.g., "P", "Ucat"),
+ * it determines the field's data type (scalar/vector), retrieves the correct DMDA and Vecs from the
+ * UserCtx, and then performs the memory copy from the local ghost array to the global array.
+ *
+ * This must be called AFTER the corresponding local ghost vector has been updated via DMGlobalToLocal.
+ *
+ * @param user The main UserCtx struct, containing all grid info and field data.
+ * @param field_name A string identifier for the field to transfer.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
 {
-  DM            da = user->da, fda = user->fda;
-  DMDALocalInfo	info = user->info;
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-  PetscInt	lxs, lxe, lys, lye, lzs, lze;
-  PetscInt	i, j, k;
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       xs = info.xs, xe = info.xs + info.xm;
+    PetscInt       ys = info.ys, ye = info.ys + info.ym;
+    PetscInt       zs = info.zs, ze = info.zs + info.zm;
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
 
-  PetscReal	***nvert,***lnvert; //local working array
+    // --- Local variables to hold the specific details of the chosen field ---
+    DM        dm;
+    Vec       global_vec;
+    Vec       local_vec;
+    PetscInt  dof;
 
-  PetscReal	***p,***lp;
-  Cmpnts	***ucont, ***ubcs, ***ucat,***lucat, ***csi, ***eta, ***zet;
-  Cmpnts	***cent,***centx,***centy,***centz,***coor;
-  PetscScalar	FluxIn, FluxOut,ratio;
-  PetscScalar   lArea, AreaSum;
- 
-  PetscScalar   FarFluxIn=0., FarFluxOut=0., FarFluxInSum, FarFluxOutSum;
-  PetscScalar   FarAreaIn=0., FarAreaOut=0., FarAreaInSum, FarAreaOutSum;
-  PetscScalar   FluxDiff, VelDiffIn, VelDiffOut;
-  Cmpnts        V_frame;
- 
-  PetscReal Un, nx,ny,nz,A;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
-  SimCtx *simCtx = user->simCtx;  
-
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-
-  PetscInt	gxs, gxe, gys, gye, gzs, gze;
-
-  gxs = info.gxs; gxe = gxs + info.gxm;
-  gys = info.gys; gye = gys + info.gym;
-  gzs = info.gzs; gze = gzs + info.gzm;
-
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-
-  if (xe==mx ) lxe = xe-1;
-  if (ye==my ) lye = ye-1;
-  if (ze==mz ) lze = ze-1;
-
-  PetscFunctionBeginUser;
-
-  PROFILE_FUNCTION_BEGIN;
-
-  DMDAVecGetArray(fda, user->Bcs.Ubcs, &ubcs);
-
-  DMDAVecGetArray(fda, user->lCsi,  &csi);
-  DMDAVecGetArray(fda, user->lEta,  &eta);
-  DMDAVecGetArray(fda, user->lZet,  &zet);
-
-  PetscInt ttemp;
-  for (ttemp=0; ttemp<3; ttemp++) {
-    DMDAVecGetArray(da, user->Nvert, &nvert); 
-    DMDAVecGetArray(fda, user->lUcat,  &ucat);
-    DMDAVecGetArray(fda, user->Ucont, &ucont);
-/* ==================================================================================             */
-/*   FAR-FIELD BC */
-/* ==================================================================================             */
- 
-
-  // reset FAR FLUXES
-  FarFluxIn = 0.; FarFluxOut=0.;
-  FarAreaIn = 0.; FarAreaOut=0.;
-
-  PetscReal lFlux_abs=0.0,FluxSum_abs=0.0,ratio=0.0;
-
-    V_frame.x=0.;
-    V_frame.y=0.;
-    V_frame.z=0.;
-
- 
-
-  if (user->bctype[0]==6) {
-    if (xs == 0) {
-      i= xs;
-      for (k=lzs; k<lze; k++) {
-	for (j=lys; j<lye; j++) {
-	  ubcs[k][j][i].x = ucat[k][j][i+1].x;
-	  ubcs[k][j][i].y = ucat[k][j][i+1].y;
-	  ubcs[k][j][i].z = ucat[k][j][i+1].z;
-	  ucont[k][j][i].x = ubcs[k][j][i].x * csi[k][j][i].x;
-	  FarFluxIn += ucont[k][j][i].x;
-	  lFlux_abs += fabs(ucont[k][j][i].x);
-	  FarAreaIn += csi[k][j][i].x;
-	}
-      }
+    // --- STEP 1: Dispatcher - Set the specific DM, Vecs, and dof based on field_name ---
+    if (strcmp(field_name, "Ucat") == 0) {
+        dm         = user->fda;
+        global_vec = user->Ucat;
+        local_vec  = user->lUcat;
+        dof        = 3;
+    } else if (strcmp(field_name, "P") == 0) {
+        dm         = user->da;
+        global_vec = user->P;
+        local_vec  = user->lP;
+        dof        = 1;
+    } else if (strcmp(field_name, "Nvert") == 0) {
+        dm         = user->da;
+        global_vec = user->Nvert;
+        local_vec  = user->lNvert;
+        dof        = 1;
+    } else if (strcmp(field_name, "Eddy Viscosity") == 0) {
+        dm         = user->da;
+        global_vec = user->Nu_t;
+        local_vec  = user->lNu_t;
+        dof        = 1;
     }
-  }
-    
-  if (user->bctype[1]==6) {
-    if (xe==mx) {
-      i= xe-1;
-      for (k=lzs; k<lze; k++) {
-	for (j=lys; j<lye; j++) {
-	  ubcs[k][j][i].x = ucat[k][j][i-1].x;
-	  ubcs[k][j][i].y = ucat[k][j][i-1].y;
-	  ubcs[k][j][i].z = ucat[k][j][i-1].z;
-	  ucont[k][j][i-1].x = ubcs[k][j][i].x * csi[k][j][i-1].x;
-	  FarFluxOut += ucont[k][j][i-1].x;
-	  lFlux_abs  += fabs(ucont[k][j][i-1].x);
-	  FarAreaOut += csi[k][j][i-1].x;
-	}
-      }
+    /*
+    // Example for future extension:
+    else if (strcmp(field_name, "Temperature") == 0) {
+        dm         = user->da; // Assuming Temperature is scalar
+        global_vec = user->T;
+        local_vec  = user->lT;
+        dof        = 1;
     }
-  }
-
-  if (user->bctype[2]==6) {
-    if (ys==0) {
-      j= ys;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x = ucat[k][j+1][i].x;
-	  ubcs[k][j][i].y = ucat[k][j+1][i].y;
-	  ubcs[k][j][i].z = ucat[k][j+1][i].z;
-	  ucont[k][j][i].y = ubcs[k][j][i].y * eta[k][j][i].y;
-	  FarFluxIn += ucont[k][j][i].y;
-	  lFlux_abs += fabs(ucont[k][j][i].y);
-	  FarAreaIn += eta[k][j][i].y;
-	}
-      }
-    }
-  }
-  
-  if (user->bctype[3]==6) {
-    if (ye==my) {
-      j=ye-1;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x = ucat[k][j-1][i].x;
-	  ubcs[k][j][i].y = ucat[k][j-1][i].y;
-	  ubcs[k][j][i].z = ucat[k][j-1][i].z;
-	  ucont[k][j-1][i].y = ubcs[k][j][i].y * eta[k][j-1][i].y;
-	  FarFluxOut += ucont[k][j-1][i].y;
-	  lFlux_abs  += fabs(ucont[k][j-1][i].y);
-	  FarAreaOut += eta[k][j-1][i].y;
-	}
-      }
-    }
-  }
-
-  if (user->bctype[4]==6 || user->bctype[4]==10) {
-    if (zs==0) {
-      k = 0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x = ucat[k+1][j][i].x;
-	  ubcs[k][j][i].y = ucat[k+1][j][i].y;
-	  ubcs[k][j][i].z = ucat[k+1][j][i].z;
-	  ucont[k][j][i].z = ubcs[k][j][i].z * zet[k][j][i].z;
-	  FarFluxIn += ucont[k][j][i].z;
-	  lFlux_abs += fabs(ucont[k][j][i].z);
-	  FarAreaIn += zet[k][j][i].z;
-	}
-      }
-    }
-  }
-
-  if (user->bctype[5]==6 || user->bctype[5]==10) {
-    if (ze==mz) {
-      k = ze-1;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x = ucat[k-1][j][i].x;
-	  ubcs[k][j][i].y = ucat[k-1][j][i].y;
-	  ubcs[k][j][i].z = ucat[k-1][j][i].z;
-	  ucont[k-1][j][i].z = ubcs[k][j][i].z * zet[k-1][j][i].z;
-	  FarFluxOut += ucont[k-1][j][i].z;
-	  lFlux_abs  += fabs(ucont[k-1][j][i].z); 
-	  FarAreaOut += zet[k-1][j][i].z;
-	}
-      }
-    }
-  }
-  
-  MPI_Allreduce(&FarFluxIn,&FarFluxInSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-  MPI_Allreduce(&FarFluxOut,&FarFluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-  MPI_Allreduce(&lFlux_abs,&FluxSum_abs,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); 
-  MPI_Allreduce(&FarAreaIn,&FarAreaInSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-  MPI_Allreduce(&FarAreaOut,&FarAreaOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
- 
-  if (user->bctype[5]==6 || user->bctype[3]==6 || user->bctype[1]==6) {
-  
-    ratio=(FarFluxInSum - FarFluxOutSum)/FluxSum_abs;
-    if (fabs(FluxSum_abs) <1.e-10) ratio = 0.;
-    
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "/FluxSum_abs %le ratio %le \n", FluxSum_abs,ratio);
-    
-    FluxDiff = 0.5*(FarFluxInSum - FarFluxOutSum) ;
-    VelDiffIn  = FluxDiff / FarAreaInSum ;
-    
-    if (fabs(FarAreaInSum) <1.e-6) VelDiffIn = 0.;
-
-    VelDiffOut  = FluxDiff / FarAreaOutSum ;
-  
-    if (fabs(FarAreaOutSum) <1.e-6) VelDiffOut = 0.;
-
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Far Flux Diff %d %le %le %le %le %le %le %le\n", simCtx->step, FarFluxInSum, FarFluxOutSum, FluxDiff, FarAreaInSum, FarAreaOutSum, VelDiffIn, VelDiffOut);
-           
-  }
-  
-  if (user->bctype[5]==10) {
-    FluxDiff = simCtx->FluxInSum -( FarFluxOutSum -FarFluxInSum) ;
-    VelDiffIn  = 1/3.*FluxDiff / (FarAreaInSum);// +  FarsimCtx->AreaOutSum);
-    if (fabs(FarAreaInSum) <1.e-6) VelDiffIn = 0.;
-
-    VelDiffOut  = 2./3.* FluxDiff / (FarAreaOutSum) ;//(FarAreaInSum +  FarsimCtx->AreaOutSum) ;
-   
-    if (fabs(FarAreaOutSum) <1.e-6) VelDiffOut = 0.;
-
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Far Flux Diff %d %le %le %le %le %le %le %le\n", simCtx->step, FarFluxInSum, FarFluxOutSum, FluxDiff, FarAreaInSum, FarAreaOutSum, VelDiffIn, VelDiffOut);
-           
-  }
-  
-  
-  // scale global mass conservation
-
-  if (user->bctype[5]==6 || user->bctype[5]==10) {
-    if (ze==mz) {
-      k = ze-1;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  ucont[k-1][j][i].z  += ratio*fabs(ucont[k-1][j][i].z);
-	  ubcs[k][j][i].z = ucont[k-1][j][i].z/zet[k-1][j][i].z;
-	  //  ubcs[k][j][i].z = ucat[k-1][j][i].z + VelDiffOut ;//+ V_frame.z;
-	  // ucont[k-1][j][i].z = ubcs[k][j][i].z * zet[k-1][j][i].z;
-	}
-      }
-    }
-  }
-
-  if (user->bctype[3]==6) {
-    if (ye==my) {
-      j=ye-1;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-
-	  ucont[k][j-1][i].y +=ratio*fabs(ucont[k][j-1][i].y);
-	  ubcs[k][j][i].y = ucont[k][j-1][i].y /eta[k][j-1][i].y;
-	  //	  ubcs[k][j][i].y = ucat[k][j-1][i].y + VelDiffOut;// + V_frame.y;
-	  // ucont[k][j-1][i].y = ubcs[k][j][i].y * eta[k][j-1][i].y;
-
-	}
-      }
-    }
-  }
-    
-  if (user->bctype[1]==6) {
-    if (xe==mx) {
-      i= xe-1;
-      for (k=lzs; k<lze; k++) {
-	for (j=lys; j<lye; j++) {
-	  ucont[k][j][i-1].x +=ratio*fabs(ucont[k][j][i-1].x);
-	  ubcs[k][j][i].x = ucont[k][j][i-1].x / csi[k][j][i-1].x ;
-	  //  ubcs[k][j][i].x = ucat[k][j][i-1].x + VelDiffOut;// + V_frame.x;
-	  // ucont[k][j][i-1].x = ubcs[k][j][i].x * csi[k][j][i-1].x;
-	}
-      }
-    }
-  }
-
-
-  if (user->bctype[0]==6) {
-    if (xs == 0) {
-      i= xs;
-      for (k=lzs; k<lze; k++) {
-	for (j=lys; j<lye; j++) {
-	  ucont[k][j][i].x  -=ratio*fabs(ucont[k][j][i].x);
-	  ubcs[k][j][i].x = ucont[k][j][i].x / csi[k][j][i].x;
-	  // ubcs[k][j][i].x = ucat[k][j][i+1].x - VelDiffIn;// + V_frame.x;
-	  // ucont[k][j][i].x = ubcs[k][j][i].x * csi[k][j][i].x;
-	}
-      }
-    }
-  }
-  
-
-  if (user->bctype[2]==6) {
-    if (ys==0) {
-      j= ys;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	  ucont[k][j][i].y -=ratio*fabs(ucont[k][j][i].y);
-	  ubcs[k][j][i].y = ucont[k][j][i].y / eta[k][j][i].y;
-	  //	  ubcs[k][j][i].y = ucat[k][j+1][i].y - VelDiffIn;// + V_frame.y;
-	  // ucont[k][j][i].y = ubcs[k][j][i].y * eta[k][j][i].y;
-	}
-      }
-    }
-  }
-  
-  
-  if (user->bctype[4]==6 || user->bctype[5]==10) {
-    if (zs==0) {
-      k = 0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  ucont[k][j][i].z -=ratio*fabs(ucont[k][j][i].z);
-	  ubcs[k][j][i].z =ucont[k][j][i].z / zet[k][j][i].z;
-	  // ubcs[k][j][i].z = ucat[k+1][j][i].z - VelDiffIn;// + V_frame.z;
-	  // ucont[k][j][i].z = ubcs[k][j][i].z * zet[k][j][i].z;
-
-	}
-      }
-    }
-  }
-
-//// Amir wall Ogrid
- 
-if (user->bctype[2]==1 || user->bctype[2]==-1)  {
-    if (ys==0) {
-    j= ys;
-    for (k=lzs; k<lze; k++) {
-      for (i=lxs; i<lxe; i++) {
-        A=sqrt(eta[k][j][i].z*eta[k][j][i].z +
-               eta[k][j][i].y*eta[k][j][i].y +
-               eta[k][j][i].x*eta[k][j][i].x);
-        nx=eta[k][j][i].x/A;
-        ny=eta[k][j][i].y/A;
-        nz=eta[k][j][i].z/A;
-        Un=ucat[k][j+1][i].x*nx+ucat[k][j+1][i].y*ny+ucat[k][j+1][i].z*nz;
-        ubcs[k][j][i].x = 0.0;
-        ubcs[k][j][i].y = 0.0;
-        ubcs[k][j][i].z = 0.0;
-        ucont[k][j][i].y = 0.;
-      }
-    }
-    }
- }
-
-/* ==================================================================================             */
-/*   SOLID WALL BC (NO-SLIP / NO-PENETRATION) */
-/* ==================================================================================             */
-
-// NOTE: This block is added to explicitly handle bctype=1 (solid wall) for all faces.
-// It ensures both no-slip (ubcs=0) and no-penetration (ucont_normal=0).
-// ubcs is handled by the implicit-zero assumption, but ucont must be set explicitly.
-
-// -X Face (i=0)
-if (user->bctype[0]==1 || user->bctype[0]==-1)  {
-    if (xs==0) {
-      i= xs;
-      for (k=lzs; k<lze; k++) {
-        for (j=lys; j<lye; j++) {
-          ubcs[k][j][i].x = 0.0;
-          ubcs[k][j][i].y = 0.0;
-          ubcs[k][j][i].z = 0.0;
-          ucont[k][j][i].x = 0.0; // Enforce no-penetration
-        }
-      }
-    }
-}
-
-// +X Face (i=mx-1)
-if (user->bctype[1]==1 || user->bctype[1]==-1)  {
-    if (xe==mx) {
-      i= xe-1;
-      for (k=lzs; k<lze; k++) {
-        for (j=lys; j<lye; j++) {
-          ubcs[k][j][i].x = 0.0;
-          ubcs[k][j][i].y = 0.0;
-          ubcs[k][j][i].z = 0.0;
-          // The relevant ucont is at the face, index i-1
-          ucont[k][j][i-1].x = 0.0; // Enforce no-penetration
-        }
-      }
-    }
-}
-
-// -Y Face (j=0)
-if (user->bctype[2]==1 || user->bctype[2]==-1)  {
-    if (ys==0) {
-      j= ys;
-      for (k=lzs; k<lze; k++) {
-        for (i=lxs; i<lxe; i++) {
-          ubcs[k][j][i].x = 0.0;
-          ubcs[k][j][i].y = 0.0;
-          ubcs[k][j][i].z = 0.0;
-          ucont[k][j][i].y = 0.0; // Enforce no-penetration
-        }
-      }
-    }
-}
-
-// +Y Face (j=my-1)
-if (user->bctype[3]==1 || user->bctype[3]==-1)  {
-    if (ye==my) {
-      j= ye-1;
-      for (k=lzs; k<lze; k++) {
-        for (i=lxs; i<lxe; i++) {
-          ubcs[k][j][i].x = 0.0;
-          ubcs[k][j][i].y = 0.0;
-          ubcs[k][j][i].z = 0.0;
-          // The relevant ucont is at the face, index j-1
-          ucont[k][j-1][i].y = 0.0; // Enforce no-penetration
-        }
-      }
-    }
-}
-
-/* Original "Amir wall Ogrid" block can now be removed or commented out
-   as its functionality is included above.
-if (user->bctype[2]==1 || user->bctype[2]==-1)  { ... }
-*/
- 
-/* ==================================================================================             */
-/*   SYMMETRY BC */
-/* ==================================================================================             */
-
-  if (user->bctype[0]==3) {
-    if (xs==0) {
-    i= xs;
-
-    for (k=lzs; k<lze; k++) {
-      for (j=lys; j<lye; j++) {
-	A=sqrt(csi[k][j][i].z*csi[k][j][i].z +
-	       csi[k][j][i].y*csi[k][j][i].y +
-	       csi[k][j][i].x*csi[k][j][i].x);
-	nx=csi[k][j][i].x/A;
-	ny=csi[k][j][i].y/A;
-	nz=csi[k][j][i].z/A;
-	Un=ucat[k][j][i+1].x*nx+ucat[k][j][i+1].y*ny+ucat[k][j][i+1].z*nz;
-	ubcs[k][j][i].x = ucat[k][j][i+1].x-Un*nx;//-V_frame.x;
-	ubcs[k][j][i].y = ucat[k][j][i+1].y-Un*ny;
-	ubcs[k][j][i].z = ucat[k][j][i+1].z-Un*nz;
-	ucont[k][j][i].x = 0.;
-      }
-    }
-    }
-  }
-
-  if (user->bctype[1]==3) {
-    if (xe==mx) {
-    i= xe-1;
-
-    for (k=lzs; k<lze; k++) {
-      for (j=lys; j<lye; j++) {
-	A=sqrt(csi[k][j][i-1].z*csi[k][j][i-1].z +
-	       csi[k][j][i-1].y*csi[k][j][i-1].y +
-	       csi[k][j][i-1].x*csi[k][j][i-1].x);
-	nx=csi[k][j][i-1].x/A;
-	ny=csi[k][j][i-1].y/A;
-	nz=csi[k][j][i-1].z/A;
-	Un=ucat[k][j][i-1].x*nx+ucat[k][j][i-1].y*ny+ucat[k][j][i-1].z*nz;
-	ubcs[k][j][i].x = ucat[k][j][i-1].x-Un*nx;
-	ubcs[k][j][i].y = ucat[k][j][i-1].y-Un*ny;
-	ubcs[k][j][i].z = ucat[k][j][i-1].z-Un*nz;
-	ucont[k][j][i-1].x = 0.;
-      }
-    }
-    }
-  }
-
-  if (user->bctype[2]==3) {
-    if (ys==0) {
-    j= ys;
-
-    for (k=lzs; k<lze; k++) {
-      for (i=lxs; i<lxe; i++) {
-	A=sqrt(eta[k][j][i].z*eta[k][j][i].z +
-	       eta[k][j][i].y*eta[k][j][i].y +
-	       eta[k][j][i].x*eta[k][j][i].x);
-	nx=eta[k][j][i].x/A;
-	ny=eta[k][j][i].y/A;
-	nz=eta[k][j][i].z/A;
-	Un=ucat[k][j+1][i].x*nx+ucat[k][j+1][i].y*ny+ucat[k][j+1][i].z*nz;
-	ubcs[k][j][i].x = ucat[k][j+1][i].x-Un*nx;
-	ubcs[k][j][i].y = ucat[k][j+1][i].y-Un*ny;
-	ubcs[k][j][i].z = ucat[k][j+1][i].z-Un*nz;
-	ucont[k][j][i].y = 0.;
-      }
-    }
-    }
-  }
-
-  if (user->bctype[3]==3) {
-    if (ye==my) {
-    j=ye-1;
-
-    for (k=lzs; k<lze; k++) {
-      for (i=lxs; i<lxe; i++) {
-	A=sqrt(eta[k][j-1][i].z*eta[k][j-1][i].z +
-	       eta[k][j-1][i].y*eta[k][j-1][i].y +
-	       eta[k][j-1][i].x*eta[k][j-1][i].x);
-	nx=eta[k][j-1][i].x/A;
-	ny=eta[k][j-1][i].y/A;
-	nz=eta[k][j-1][i].z/A;
-	Un=ucat[k][j-1][i].x*nx+ucat[k][j-1][i].y*ny+ucat[k][j-1][i].z*nz;
-	ubcs[k][j][i].x = ucat[k][j-1][i].x-Un*nx;
-	ubcs[k][j][i].y = ucat[k][j-1][i].y-Un*ny;
-	ubcs[k][j][i].z = ucat[k][j-1][i].z-Un*nz;
-	ucont[k][j-1][i].y = 0.;
-      }
-    }
-    }
-  }
-  
-
-  if (user->bctype[4]==3) {
-    if (zs==0) {
-      k = 0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	A=sqrt(zet[k][j][i].z*zet[k][j][i].z +
-	       zet[k][j][i].y*zet[k][j][i].y +
-	       zet[k][j][i].x*zet[k][j][i].x);
-	nx=zet[k][j][i].x/A;
-	ny=zet[k][j][i].y/A;
-	nz=zet[k][j][i].z/A;
-	Un=ucat[k+1][j][i].x*nx+ucat[k+1][j][i].y*ny+ucat[k+1][j][i].z*nz;
-	ubcs[k][j][i].x = ucat[k+1][j][i].x-Un*nx;
-	ubcs[k][j][i].y = ucat[k+1][j][i].y-Un*ny;
-	ubcs[k][j][i].z = ucat[k+1][j][i].z-Un*nz;
-	ucont[k][j][i].z = 0.;
-	}
-      }
-    }
-  }
-
-  if (user->bctype[5]==3) {
-    if (ze==mz) {
-      k = ze-1;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	A=sqrt(zet[k-1][j][i].z*zet[k-1][j][i].z +
-	       zet[k-1][j][i].y*zet[k-1][j][i].y +
-	       zet[k-1][j][i].x*zet[k-1][j][i].x);
-	nx=zet[k-1][j][i].x/A;
-	ny=zet[k-1][j][i].y/A;
-	nz=zet[k-1][j][i].z/A;
-	Un=ucat[k-1][j][i].x*nx+ucat[k-1][j][i].y*ny+ucat[k-1][j][i].z*nz;
-	ubcs[k][j][i].x = ucat[k-1][j][i].x-Un*nx;
-	ubcs[k][j][i].y = ucat[k-1][j][i].y-Un*ny;
-	ubcs[k][j][i].z = ucat[k-1][j][i].z-Un*nz;
-	ucont[k-1][j][i].z = 0.;
-	}
-      }
-    }
-  }
- 
-/* ==================================================================================             */
-/*     CHARACTERISTIC OUTLET BC :8 */
-/* ==================================================================================             */
-
-  if (user->bctype[5]==8) {
-    if (ze == mz) {
-      k = ze-2;
-      FluxOut = 0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  FluxOut += ucont[k][j][i].z;
-	}
-      }
-    }
+    */
     else {
-      FluxOut = 0.;
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s' in TransferPeriodicFieldByName.", field_name);
     }
-    
-    FluxIn = simCtx->FluxInSum + FarFluxInSum;
 
-    MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    // PetscGlobalSum(PETSC_COMM_WORLD,&FluxOut, &FluxOutSum);
+    LOG_ALLOW(GLOBAL,LOG_TRACE,"Periodic Transform being performed for field: %s with %d DoF.\n",field_name,dof);
+    // --- STEP 2: Execute the copy logic using the dispatched variables ---
+    if (dof == 1) { // --- Handle SCALAR fields (PetscReal) ---
+        PetscReal ***g_array, ***l_array;
+        ierr = DMDAVecGetArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(dm, local_vec, &l_array); CHKERRQ(ierr);
 
-    //ratio = FluxInSum / FluxOutSum;
-    ratio = FluxIn / simCtx->FluxOutSum;
-    if (fabs(simCtx->FluxOutSum) < 1.e-6) ratio = 1.;
-    //if (fabs(FluxInSum) <1.e-6) ratio = 0.;
-    if (fabs(FluxIn) <1.e-6) ratio = 0.;
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Char Ratio %d %le %le %le %le %d %d\n", simCtx->step, ratio, FluxIn, simCtx->FluxOutSum, FarFluxInSum,zs, ze);
+        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xs] = l_array[k][j][xs-2];
+        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xe-1] = l_array[k][j][xe+1];
+        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ys][i] = l_array[k][ys-2][i];
+        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ye-1][i] = l_array[k][ye+1][i];
+        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[zs][j][i] = l_array[zs-2][j][i];
+        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[ze-1][j][i] = l_array[ze+1][j][i];
+        
+        ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(dm, local_vec, &l_array); CHKERRQ(ierr);
 
-    if (ze==mz) {
-      k = ze-1;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x = ucat[k-1][j][i].x;
-	  ubcs[k][j][i].y = ucat[k-1][j][i].y;
-	  if (simCtx->step==0 || simCtx->step==1)
-	    if (simCtx->inletprofile<0)
-	      ubcs[k][j][i].z = -1.;
-	    else if (user->bctype[4]==6)
-	      ubcs[k][j][i].z = 0.;
-	    else
-	      ubcs[k][j][i].z = 1.;//ubcs[0][j][i].z;//-1.;//1.;
-	  
-	  else
-	    ucont[k-1][j][i].z = ucont[k-1][j][i].z*ratio;
-	  
-	  ubcs[k][j][i].z = ucont[k-1][j][i].z / zet[k-1][j][i].z;
-	}
-      }
+    } else if (dof == 3) { // --- Handle VECTOR fields (Cmpnts) ---
+        Cmpnts ***g_array, ***l_array;
+        ierr = DMDAVecGetArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(dm, local_vec, &l_array); CHKERRQ(ierr);
+
+        LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Array %s read successfully (Global and Local).\n",field_name);
+
+        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xs] = l_array[k][j][xs-2];
+        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xe-1] = l_array[k][j][xe+1];
+        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ys][i] = l_array[k][ys-2][i];
+        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ye-1][i] = l_array[k][ye+1][i];
+        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[zs][j][i] = l_array[zs-2][j][i];
+        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[ze-1][j][i] = l_array[ze+1][j][i];
+        
+        ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(dm, local_vec, &l_array); CHKERRQ(ierr);
     }
-  }
-
-  
-/* ==================================================================================             */
-/*     OUTLETBC :4 */
-/* ==================================================================================             */
-
-  
-  if (user->bctype[5]==OUTLET || user->bctype[5]==14 || user->bctype[5]==20) {
-    lArea=0.;
-    LOG_ALLOW(GLOBAL,LOG_VERBOSE,"+Zeta Outlet \n");
-     LOG_ALLOW(GLOBAL,LOG_VERBOSE,"FluxOutSum before FormBCS applied = %.6f \n",simCtx->FluxOutSum);
-    if (ze == mz) {
-      //    k = ze-3;
-      k=ze-1;
-      FluxOut = 0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-
-	  if ((nvert[k-1][j][i])<0.1) {
-	  FluxOut += (ucat[k-1][j][i].x * (zet[k-1][j][i].x) +
-		      ucat[k-1][j][i].y * (zet[k-1][j][i].y) +
-		      ucat[k-1][j][i].z * (zet[k-1][j][i].z));
-
-	  lArea += sqrt( (zet[k-1][j][i].x) * (zet[k-1][j][i].x) +
-			 (zet[k-1][j][i].y) * (zet[k-1][j][i].y) +
-			 (zet[k-1][j][i].z) * (zet[k-1][j][i].z));
-	 
-	  }
-	}
-      }
+    else{
+         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "This function only accepts Fields with 1 or 3 DoF.");
     }
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "TransferPeriodicFaceField"
+/**
+ * @brief (Primitive) Copies periodic data from the interior to the local ghost cell region for a single field.
+ *
+ * This primitive function performs a direct memory copy for a specified field, updating
+ * all periodic ghost faces (i, j, and k). It reads data from just inside the periodic boundary
+ * and writes it to the corresponding local ghost cells.
+ *
+ * The copy is "two-cells deep" to support wider computational stencils.
+ *
+ * This function does NOT involve any MPI communication; it operates entirely on local PETSc vectors.
+ *
+ * @param user The main UserCtx struct.
+ * @param field_name The string identifier for the field to update (e.g., "Csi", "Ucont").
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode TransferPeriodicFaceField(UserCtx *user, const char *field_name)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
+    PetscInt       gys = info.gys, gye = info.gys + info.gym;
+    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
+
+    // --- Dispatcher to get the correct DM, Vec, and DoF for the specified field ---
+    DM          dm;
+    Vec         local_vec;
+    PetscInt    dof;
+    // (This dispatcher contains all 17 potential fields)
+    if      (strcmp(field_name, "Ucont") == 0) { dm = user->fda; local_vec = user->lUcont; dof = 3; }
+    else if (strcmp(field_name, "Csi")   == 0) { dm = user->fda; local_vec = user->lCsi;   dof = 3; }
+    else if (strcmp(field_name, "Eta")   == 0) { dm = user->fda; local_vec = user->lEta;   dof = 3; }
+    else if (strcmp(field_name, "Zet")   == 0) { dm = user->fda; local_vec = user->lZet;   dof = 3; }
+    else if (strcmp(field_name, "ICsi")   == 0) { dm = user->fda; local_vec = user->lICsi;   dof = 3; }
+    else if (strcmp(field_name, "IEta")   == 0) { dm = user->fda; local_vec = user->lIEta;   dof = 3; }
+    else if (strcmp(field_name, "IZet")   == 0) { dm = user->fda; local_vec = user->lIZet;   dof = 3; }
+    else if (strcmp(field_name, "JCsi")   == 0) { dm = user->fda; local_vec = user->lJCsi;   dof = 3; }
+    else if (strcmp(field_name, "JEta")   == 0) { dm = user->fda; local_vec = user->lJEta;   dof = 3; }
+    else if (strcmp(field_name, "JZet")   == 0) { dm = user->fda; local_vec = user->lJZet;   dof = 3; }
+    else if (strcmp(field_name, "KCsi")   == 0) { dm = user->fda; local_vec = user->lKCsi;   dof = 3; }
+    else if (strcmp(field_name, "KEta")   == 0) { dm = user->fda; local_vec = user->lKEta;   dof = 3; }
+    else if (strcmp(field_name, "KZet")   == 0) { dm = user->fda; local_vec = user->lKZet;   dof = 3; }
+    else if (strcmp(field_name, "Aj")     == 0) { dm = user->da;  local_vec = user->lAj;   dof = 1; }
+    else if (strcmp(field_name, "IAj")   == 0) { dm = user->da;  local_vec = user->lIAj;   dof = 1; }
+    else if (strcmp(field_name, "JAj")   == 0) { dm = user->da;  local_vec = user->lJAj;   dof = 1; }
+    else if (strcmp(field_name, "KAj")   == 0) { dm = user->da;  local_vec = user->lKAj;   dof = 1; }
     else {
-      FluxOut = 0.;
-    }
-    
-    MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-   
-    user->simCtx->AreaOutSum = AreaSum;
-
-    LOG_ALLOW(GLOBAL,LOG_VERBOSE,"AreaOutSum = %.6f | FluxOutSum = %.6f \n",AreaSum,simCtx->FluxOutSum);
-    
-    if (simCtx->block_number>1 && user->bctype[5]==14) {
-      simCtx->FluxOutSum += user->FluxIntfcSum;
-      //      AreaSum    += user->AreaIntfcSum;
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s' in TransferPeriodicFaceField.", field_name);
     }
 
-    FluxIn = simCtx->FluxInSum + FarFluxInSum + user->FluxIntpSum;
-    if (user->bctype[5]==20)
-      ratio = (FluxIn / simCtx->FluxOutSum);
-    else
-      ratio = (FluxIn - simCtx->FluxOutSum) / AreaSum;
-   
-     LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Ratio for momentum correction = %.6f \n",ratio);
+    PetscFunctionBeginUser;
+
+    void *l_array_ptr;
+    ierr = DMDAVecGetArray(dm, local_vec, &l_array_ptr); CHKERRQ(ierr);
+
+    // --- I-DIRECTION ---
+    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt j=gys; j<gye; j++) {
+            if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[k][j][0]   = arr[k][j][mx-2];
+                arr[k][j][-1]  = arr[k][j][mx-3];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[k][j][0]   = arr[k][j][mx-2];
+                arr[k][j][-1]  = arr[k][j][mx-3];
+            }
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt j=gys; j<gye; j++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[k][j][mx-1] = arr[k][j][1];
+                arr[k][j][mx]   = arr[k][j][2];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[k][j][mx-1] = arr[k][j][1];
+                arr[k][j][mx]   = arr[k][j][2];
+            }
+        }
+    }
+
+    // --- J-DIRECTION ---
+    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt i=gxs; i<gxe; i++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[k][0][i]   = arr[k][my-2][i];
+                arr[k][-1][i]  = arr[k][my-3][i];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[k][0][i]   = arr[k][my-2][i];
+                arr[k][-1][i]  = arr[k][my-3][i];
+            }
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt i=gxs; i<gxe; i++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[k][my-1][i] = arr[k][1][i];
+                arr[k][my][i]   = arr[k][2][i];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[k][my-1][i] = arr[k][1][i];
+                arr[k][my][i]   = arr[k][2][i];
+            }
+        }
+    }
+
+    // --- K-DIRECTION ---
+    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC) {
+        for (PetscInt j=gys; j<gye; j++) for (PetscInt i=gxs; i<gxe; i++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[0][j][i]   = arr[mz-2][j][i];
+                arr[-1][j][i]  = arr[mz-3][j][i];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[0][j][i]   = arr[mz-2][j][i];
+                arr[-1][j][i]  = arr[mz-3][j][i];
+            }
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
+        for (PetscInt j=gys; j<gye; j++) for (PetscInt i=gxs; i<gxe; i++) {
+             if (dof == 1) {
+                PetscReal ***arr = (PetscReal***)l_array_ptr;
+                arr[mz-1][j][i] = arr[1][j][i];
+                arr[mz][j][i]   = arr[2][j][i];
+            } else {
+                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
+                arr[mz-1][j][i] = arr[1][j][i];
+                arr[mz][j][i]   = arr[2][j][i];
+            }
+        }
+    }
+
+    ierr = DMDAVecRestoreArray(dm, local_vec, &l_array_ptr); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyMetricsPeriodicBCs"
+/**
+ * @brief (Orchestrator) Updates all metric-related fields in the local ghost cell regions for periodic boundaries.
+ *
+ * This function calls the TransferPeriodicFaceField primitive for each of the 16
+ * metric fields that require a 2-cell deep periodic ghost cell update.
+ * This is a direct replacement for the legacy Update_Metrics_PBC function.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    const char* metric_fields[] = {
+        "Csi", "Eta", "Zet", "ICsi", "JCsi", "KCsi", "IEta", "JEta", "KEta",
+        "IZet", "JZet", "KZet", "Aj", "IAj", "JAj", "KAj"
+    };
+    PetscInt num_fields = sizeof(metric_fields) / sizeof(metric_fields[0]);
+
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = TransferPeriodicFaceField(user, metric_fields[i]); CHKERRQ(ierr);
+        LOG_ALLOW(GLOBAL,LOG_TRACE,"Periodic Transfer complete for %s.\n",metric_fields[i]);
+    }
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyPeriodicBCs"
+/**
+ * @brief Applies periodic boundary conditions by copying data across domain boundaries for all relevant fields.
+ *
+ * This function orchestrates the periodic update. It first performs a single, collective
+ * ghost-cell exchange for all fields. Then, it calls a generic helper routine to perform
+ * the memory copy for each individual field by name.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscBool is_any_periodic = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+
+    PROFILE_FUNCTION_BEGIN;
+
+    for (int i = 0; i < 6; i++) {
+        if (user->boundary_faces[i].mathematical_type == PERIODIC) {
+            is_any_periodic = PETSC_TRUE;
+            break;
+        }
+    }
+
+    if (!is_any_periodic) {
+        LOG_ALLOW(GLOBAL,LOG_TRACE, "No periodic boundaries defined; skipping ApplyPeriodicBCs.\n");
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_TRACE, "Applying periodic boundary conditions for all fields.\s");
+
+    // STEP 1: Perform the collective communication for all fields at once.
+    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Nvert"); CHKERRQ(ierr);
+    /* if (user->solve_temperature) { ierr = UpdateLocalGhosts(user, "Temperature"); CHKERRQ(ierr); } */
+
+    // STEP 2: Call the generic copy routine for each field by name.
+    ierr = TransferPeriodicField(user, "Ucat"); CHKERRQ(ierr);
+    ierr = TransferPeriodicField(user, "P"); CHKERRQ(ierr);
+    ierr = TransferPeriodicField(user, "Nvert"); CHKERRQ(ierr);
+
+    // FUTURE EXTENSION: Adding a new scalar field like Temperature is now trivial.
+    /*
+    if (user->solve_temperature) {
+        ierr = TransferPeriodicField(user, "Temperature"); CHKERRQ(ierr);
+    }
+    */
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyUcontPeriodicBCs"
+/**
+ * @brief (Orchestrator) Updates the contravariant velocity field in the local ghost cell regions for periodic boundaries.
+ *
+ * This function calls the TransferPeriodicFaceField primitive for the Ucont field.
+ * This is a direct replacement for the legacy Update_U_Cont_PBC function.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyUcontPeriodicBCs(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    ierr = TransferPeriodicFaceField(user, "Ucont"); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "EnforceUcontPeriodicity"
+/**
+ * @brief Enforces strict periodicity on the interior contravariant velocity field.
+ *
+ * This function is a "fix-up" routine for staggered grids. After a solver step,
+ * numerical inaccuracies can lead to small discrepancies between fluxes on opposing
+ * periodic boundaries. This function manually corrects this by copying the flux value
+ * from the first boundary face (retrieved from a ghost cell) to the last interior face.
+ *
+ * This routine involves MPI communication to synchronize the grid before and after the copy.
+ *
+ * @param user The main UserCtx struct.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode EnforceUcontPeriodicity(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
+    PetscInt       gys = info.gys, gye = info.gys + info.gym;
+    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
+    Cmpnts         ***ucont;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // STEP 1: Ensure local ghost cells are up-to-date with current global state.
+    ierr = DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont); CHKERRQ(ierr);
+    ierr = DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont); CHKERRQ(ierr);
+
+    ierr = DMDAVecGetArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
+
+    // STEP 2: Perform the component-wise copy from ghost cells to the last interior faces.
+    if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt j=gys; j<gye; j++) {
+            ucont[k][j][mx-2].x = ucont[k][j][mx].x; // Note: ucont[mx] is ghost, gets value from ucont[0]
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
+        for (PetscInt k=gzs; k<gze; k++) for (PetscInt i=gxs; i<gxe; i++) {
+            ucont[k][my-2][i].y = ucont[k][my][i].y; // Note: ucont[my] is ghost, gets value from ucont[0]
+        }
+    }
+    if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
+        for (PetscInt j=gys; j<gye; j++) for (PetscInt i=gxs; i<gxe; i++) {
+            ucont[mz-2][j][i].z = ucont[mz][j][i].z; // Note: ucont[mz] is ghost, gets value from ucont[0]
+        }
+    }
+
+    ierr = DMDAVecRestoreArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
+
+    // STEP 3: Communicate the changes made to the interior back to the global vector.
+    ierr = DMLocalToGlobalBegin(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); CHKERRQ(ierr);
+    ierr = DMLocalToGlobalEnd(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); CHKERRQ(ierr);
     
-  /*   user->FluxOutSum += ratio*user->simCtx->AreaOutSum; */
-    simCtx->FluxOutSum =0.0;
-    FluxOut=0.0;
-    if (ze==mz) {
-      k = ze-1;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if ((nvert[k-1][j][i])<0.1) {
-	 
-	    ubcs[k][j][i].x = ucat[k-1][j][i].x;//+ratio;
-	    ubcs[k][j][i].y = ucat[k-1][j][i].y;
-	    ubcs[k][j][i].z = ucat[k-1][j][i].z;// + ratio;//*n_z;
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
 
-	    //  ucont[k-1][j][i].z = ubcs[k][j][i].z * zet[k-1][j][i].z;
-	    if (user->bctype[5]==20)
-	      ucont[k-1][j][i].z = (ubcs[k][j][i].x * (zet[k-1][j][i].x ) +
-				    ubcs[k][j][i].y * (zet[k-1][j][i].y ) +
-				    ubcs[k][j][i].z * (zet[k-1][j][i].z ))*ratio;
-	    
-	    else{
-	      ucont[k-1][j][i].z = (ubcs[k][j][i].x * (zet[k-1][j][i].x ) +
-				    ubcs[k][j][i].y * (zet[k-1][j][i].y ) +
-				    ubcs[k][j][i].z * (zet[k-1][j][i].z ))
-		+ ratio * sqrt( (zet[k-1][j][i].x) * (zet[k-1][j][i].x) +
-				(zet[k-1][j][i].y) * (zet[k-1][j][i].y) +
-				(zet[k-1][j][i].z) * (zet[k-1][j][i].z)); 
+#undef __FUNCT__
+#define __FUNCT__ "UpdateDummyCells"
+/**
+ * @brief Updates the dummy cells (ghost nodes) on the faces of the local domain for NON-PERIODIC boundaries.
+ *
+ * This function's role is to apply a second-order extrapolation to set the ghost
+ * cell values based on the boundary condition value (stored in `ubcs`) and the
+ * first interior cell.
+ *
+ * NOTE: This function deliberately IGNORES periodic boundaries. It is part of a
+ * larger workflow where `ApplyPeriodicBCs` handles periodic faces first.
+ *
+ * CRITICAL DETAIL: This function uses shrunken loop ranges (lxs, lxe, etc.) to
+ * intentionally update only the flat part of the faces, avoiding the edges and
 
-	      FluxOut += ucont[k-1][j][i].z;
-	    }
-	  }//if
-	}
+ * corners. The edges and corners are then handled separately by `UpdateCornerNodes`.
+ * This precisely replicates the logic of the original function.
+ *
+ * @param user The main UserCtx struct containing all necessary data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode UpdateDummyCells(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DM            fda = user->fda;
+    DMDALocalInfo info = user->info;
+    PetscInt      xs = info.xs, xe = info.xs + info.xm;
+    PetscInt      ys = info.ys, ye = info.ys + info.ym;
+    PetscInt      zs = info.zs, ze = info.zs + info.zm;
+    PetscInt      mx = info.mx, my = info.my, mz = info.mz;
+
+    // --- Calculate shrunken loop ranges to avoid edges and corners ---
+    PetscInt lxs = xs, lxe = xe;
+    PetscInt lys = ys, lye = ye;
+    PetscInt lzs = zs, lze = ze;
+
+    if (xs == 0) lxs = xs + 1;
+    if (ys == 0) lys = ys + 1;
+    if (zs == 0) lzs = zs + 1;
+
+    if (xe == mx) lxe = xe - 1;
+    if (ye == my) lye = ye - 1;
+    if (ze == mz) lze = ze - 1;
+
+    Cmpnts        ***ucat, ***ubcs;
+    PetscFunctionBeginUser;
+
+    ierr = DMDAVecGetArray(fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
+
+    // -X Face
+    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC && xs == 0) {
+        for (PetscInt k = lzs; k < lze; k++) for (PetscInt j = lys; j < lye; j++) {
+            ucat[k][j][xs].x = 2.0 * ubcs[k][j][xs].x - ucat[k][j][xs + 1].x;
+            ucat[k][j][xs].y = 2.0 * ubcs[k][j][xs].y - ucat[k][j][xs + 1].y;
+            ucat[k][j][xs].z = 2.0 * ubcs[k][j][xs].z - ucat[k][j][xs + 1].z;
+        }
+    }
+    // +X Face
+    if (user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC && xe == mx) {
+        for (PetscInt k = lzs; k < lze; k++) for (PetscInt j = lys; j < lye; j++) {
+            ucat[k][j][xe-1].x = 2.0 * ubcs[k][j][xe-1].x - ucat[k][j][xe - 2].x;
+            ucat[k][j][xe-1].y = 2.0 * ubcs[k][j][xe-1].y - ucat[k][j][xe - 2].y;
+            ucat[k][j][xe-1].z = 2.0 * ubcs[k][j][xe-1].z - ucat[k][j][xe - 2].z;
+        }
+    }
+
+    // -Y Face
+    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC && ys == 0) {
+        for (PetscInt k = lzs; k < lze; k++) for (PetscInt i = lxs; i < lxe; i++) {
+            ucat[k][ys][i].x = 2.0 * ubcs[k][ys][i].x - ucat[k][ys + 1][i].x;
+            ucat[k][ys][i].y = 2.0 * ubcs[k][ys][i].y - ucat[k][ys + 1][i].y;
+            ucat[k][ys][i].z = 2.0 * ubcs[k][ys][i].z - ucat[k][ys + 1][i].z;
+        }
+    }
+    // +Y Face
+    if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC && ye == my) {
+        for (PetscInt k = lzs; k < lze; k++) for (PetscInt i = lxs; i < lxe; i++) {
+            ucat[k][ye-1][i].x = 2.0 * ubcs[k][ye-1][i].x - ucat[k][ye-2][i].x;
+            ucat[k][ye-1][i].y = 2.0 * ubcs[k][ye-1][i].y - ucat[k][ye-2][i].y;
+            ucat[k][ye-1][i].z = 2.0 * ubcs[k][ye-1][i].z - ucat[k][ye-2][i].z;
+        }
+    }
+
+    // -Z Face
+    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC && zs == 0) {
+        for (PetscInt j = lys; j < lye; j++) for (PetscInt i = lxs; i < lxe; i++) {
+            ucat[zs][j][i].x = 2.0 * ubcs[zs][j][i].x - ucat[zs + 1][j][i].x;
+            ucat[zs][j][i].y = 2.0 * ubcs[zs][j][i].y - ucat[zs + 1][j][i].y;
+            ucat[zs][j][i].z = 2.0 * ubcs[zs][j][i].z - ucat[zs + 1][j][i].z;
+        }
+    }
+    // +Z Face
+    if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC && ze == mz) {
+        for (PetscInt j = lys; j < lye; j++) for (PetscInt i = lxs; i < lxe; i++) {
+            ucat[ze-1][j][i].x = 2.0 * ubcs[ze-1][j][i].x - ucat[ze-2][j][i].x;
+            ucat[ze-1][j][i].y = 2.0 * ubcs[ze-1][j][i].y - ucat[ze-2][j][i].y;
+            ucat[ze-1][j][i].z = 2.0 * ubcs[ze-1][j][i].z - ucat[ze-2][j][i].z;
+        }
+    }
+
+    ierr = DMDAVecRestoreArray(fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "UpdateCornerNodes"
+/**
+ * @brief Updates the corner and edge ghost nodes of the local domain by averaging.
+ *
+ * This function should be called AFTER the face ghost nodes are finalized by both
+ * `ApplyPeriodicBCs` and `UpdateDummyCells`. It resolves the values at shared
+ * edges and corners by averaging the values of adjacent, previously-computed
+ * ghost nodes.
+ *
+ * The logic is generic and works correctly regardless of the boundary types on
+ * the adjacent faces (e.g., it will correctly average a periodic face neighbor
+ * with a wall face neighbor).
+ *
+ * @param user The main UserCtx struct containing all necessary data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode UpdateCornerNodes(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DM            da = user->da, fda = user->fda;
+    DMDALocalInfo info = user->info;
+    PetscInt      xs = info.xs, xe = info.xs + info.xm;
+    PetscInt      ys = info.ys, ye = info.ys + info.ym;
+    PetscInt      zs = info.zs, ze = info.zs + info.zm;
+    PetscInt      mx = info.mx, my = info.my, mz = info.mz;
+
+    Cmpnts        ***ucat;
+    PetscReal     ***p;
+
+    PetscFunctionBeginUser;
+
+    ierr = DMDAVecGetArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(da, user->P, &p); CHKERRQ(ierr);
+
+    // --- Update Edges and Corners by Averaging ---
+    // The order of these blocks ensures that corners (where 3 faces meet) are
+    // computed using data from edges (where 2 faces meet), which are computed first.
+// Edges connected to the -Z face (k=zs)
+  if (zs == 0) {
+      if (xs == 0) {
+          for (PetscInt j = ys; j < ye; j++) {
+              p[zs][j][xs] = 0.5 * (p[zs+1][j][xs] + p[zs][j][xs+1]);
+              ucat[zs][j][xs].x = 0.5 * (ucat[zs+1][j][xs].x + ucat[zs][j][xs+1].x);
+              ucat[zs][j][xs].y = 0.5 * (ucat[zs+1][j][xs].y + ucat[zs][j][xs+1].y);
+              ucat[zs][j][xs].z = 0.5 * (ucat[zs+1][j][xs].z + ucat[zs][j][xs+1].z);
+          }
       }
-    }
-    
-    MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    LOG_ALLOW(GLOBAL,LOG_TRACE, "Timestep = %d | FluxInSum = %.6f | FlucOutSum = %.6f | FluxIntfcSum = %.6f | FluxIntpSum = %.6f \n", simCtx->step, simCtx->FluxInSum, simCtx->FluxOutSum, user->FluxIntfcSum,user->FluxIntpSum);
-
-  } else if (user->bctype[5]==2) {
-  /* Designed for driven cavity problem (top(k=kmax) wall moving)
-   u_x = 1 at k==kmax */
-    if (ze==mz) {
-      k = ze-1;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x = 0.;// - ucat[k-1][j][i].x;
-	  ubcs[k][j][i].y = 1;//sin(2*3.14*simCtx->step*simCtx->dt);//1.;//- ucat[k-1][j][i].y;
-	  ubcs[k][j][i].z = 0.;//- ucat[k-1][j][i].z;
-	}
+      if (xe == mx) {
+          for (PetscInt j = ys; j < ye; j++) {
+              p[zs][j][mx-1] = 0.5 * (p[zs+1][j][mx-1] + p[zs][j][mx-2]);
+              ucat[zs][j][mx-1].x = 0.5 * (ucat[zs+1][j][mx-1].x + ucat[zs][j][mx-2].x);
+              ucat[zs][j][mx-1].y = 0.5 * (ucat[zs+1][j][mx-1].y + ucat[zs][j][mx-2].y);
+              ucat[zs][j][mx-1].z = 0.5 * (ucat[zs+1][j][mx-1].z + ucat[zs][j][mx-2].z);
+          }
       }
-    }
+      if (ys == 0) {
+          for (PetscInt i = xs; i < xe; i++) {
+              p[zs][ys][i] = 0.5 * (p[zs+1][ys][i] + p[zs][ys+1][i]);
+              ucat[zs][ys][i].x = 0.5 * (ucat[zs+1][ys][i].x + ucat[zs][ys+1][i].x);
+              ucat[zs][ys][i].y = 0.5 * (ucat[zs+1][ys][i].y + ucat[zs][ys+1][i].y);
+              ucat[zs][ys][i].z = 0.5 * (ucat[zs+1][ys][i].z + ucat[zs][ys+1][i].z);
+          }
+      }
+      if (ye == my) {
+          for (PetscInt i = xs; i < xe; i++) {
+              p[zs][my-1][i] = 0.5 * (p[zs+1][my-1][i] + p[zs][my-2][i]);
+              ucat[zs][my-1][i].x = 0.5 * (ucat[zs+1][my-1][i].x + ucat[zs][my-2][i].x);
+              ucat[zs][my-1][i].y = 0.5 * (ucat[zs+1][my-1][i].y + ucat[zs][my-2][i].y);
+              ucat[zs][my-1][i].z = 0.5 * (ucat[zs+1][my-1][i].z + ucat[zs][my-2][i].z);
+          }
+      }
   }
-  
 
-  /*   OUTLET at k==0 */
-  if (user->bctype[4]==OUTLET) {
-    lArea=0.;
-    if (zs == 0) {
-      k = zs;
-      //      k= zs + 1;
-      FluxOut = 0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-
-
-	  FluxOut += ucat[k+1][j][i].z * zet[k][j][i].z ;
-
-	  lArea += zet[k][j][i].z;
-
-
-
-	}
+  // Edges connected to the +Z face (k=ze-1)
+  if (ze == mz) {
+      if (xs == 0) {
+          for (PetscInt j = ys; j < ye; j++) {
+              p[mz-1][j][xs] = 0.5 * (p[mz-2][j][xs] + p[mz-1][j][xs+1]);
+              ucat[mz-1][j][xs].x = 0.5 * (ucat[mz-2][j][xs].x + ucat[mz-1][j][xs+1].x);
+              ucat[mz-1][j][xs].y = 0.5 * (ucat[mz-2][j][xs].y + ucat[mz-1][j][xs+1].y);
+              ucat[mz-1][j][xs].z = 0.5 * (ucat[mz-2][j][xs].z + ucat[mz-1][j][xs+1].z);
+          }
       }
-    }
-    else {
-      FluxOut = 0.;
-    }
-    
-    FluxIn = simCtx->FluxInSum + FarFluxInSum;
-
-    MPI_Allreduce(&FluxOut,&simCtx->FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-  
-
-    ratio = (simCtx->FluxInSum - simCtx->FluxOutSum) / AreaSum;
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Ratio b %d  %le %le %le %le %d %d\n", simCtx->step,ratio, simCtx->FluxInSum, simCtx->FluxOutSum, AreaSum,zs, ze);
-    
-    if (zs==0) {
-      k = 0;
-      for (j=lys; j<lye; j++) {
-	      for (i=lxs; i<lxe; i++) {
-          ubcs[k][j][i].x = ucat[k+1][j][i].x;
-          ubcs[k][j][i].y = ucat[k+1][j][i].y;
-          ubcs[k][j][i].z = ucat[k+1][j][i].z;
-          ucont[k][j][i].z = (ubcs[k][j][i].z+ratio) * zet[k][j][i].z;
-	      }
+      if (xe == mx) {
+          for (PetscInt j = ys; j < ye; j++) {
+              p[mz-1][j][mx-1] = 0.5 * (p[mz-2][j][mx-1] + p[mz-1][j][mx-2]);
+              ucat[mz-1][j][mx-1].x = 0.5 * (ucat[mz-2][j][mx-1].x + ucat[mz-1][j][mx-2].x);
+              ucat[mz-1][j][mx-1].y = 0.5 * (ucat[mz-2][j][mx-1].y + ucat[mz-1][j][mx-2].y);
+              ucat[mz-1][j][mx-1].z = 0.5 * (ucat[mz-2][j][mx-1].z + ucat[mz-1][j][mx-2].z);
+          }
       }
-    }
+      if (ys == 0) {
+          for (PetscInt i = xs; i < xe; i++) {
+              p[mz-1][ys][i] = 0.5 * (p[mz-2][ys][i] + p[mz-1][ys+1][i]);
+              ucat[mz-1][ys][i].x = 0.5 * (ucat[mz-2][ys][i].x + ucat[mz-1][ys+1][i].x);
+              ucat[mz-1][ys][i].y = 0.5 * (ucat[mz-2][ys][i].y + ucat[mz-1][ys+1][i].y);
+              ucat[mz-1][ys][i].z = 0.5 * (ucat[mz-2][ys][i].z + ucat[mz-1][ys+1][i].z);
+          }
+      }
+      if (ye == my) {
+          for (PetscInt i = xs; i < xe; i++) {
+              p[mz-1][my-1][i] = 0.5 * (p[mz-2][my-1][i] + p[mz-1][my-2][i]);
+              ucat[mz-1][my-1][i].x = 0.5 * (ucat[mz-2][my-1][i].x + ucat[mz-1][my-2][i].x);
+              ucat[mz-1][my-1][i].y = 0.5 * (ucat[mz-2][my-1][i].y + ucat[mz-1][my-2][i].y);
+              ucat[mz-1][my-1][i].z = 0.5 * (ucat[mz-2][my-1][i].z + ucat[mz-1][my-2][i].z);
+          }
+      }
   }
 
+  // Remaining edges on the XY plane (that are not on Z faces)
+  if (ys == 0) {
+      if (xs == 0) {
+          for (PetscInt k = zs; k < ze; k++) {
+              p[k][ys][xs] = 0.5 * (p[k][ys+1][xs] + p[k][ys][xs+1]);
+              ucat[k][ys][xs].x = 0.5 * (ucat[k][ys+1][xs].x + ucat[k][ys][xs+1].x);
+              ucat[k][ys][xs].y = 0.5 * (ucat[k][ys+1][xs].y + ucat[k][ys][xs+1].y);
+              ucat[k][ys][xs].z = 0.5 * (ucat[k][ys+1][xs].z + ucat[k][ys][xs+1].z);
+          }
+      }
+      if (xe == mx) {
+          for (PetscInt k = zs; k < ze; k++) {
+              p[k][ys][mx-1] = 0.5 * (p[k][ys+1][mx-1] + p[k][ys][mx-2]);
+              ucat[k][ys][mx-1].x = 0.5 * (ucat[k][ys+1][mx-1].x + ucat[k][ys][mx-2].x);
+              ucat[k][ys][mx-1].y = 0.5 * (ucat[k][ys+1][mx-1].y + ucat[k][ys][mx-2].y);
+              ucat[k][ys][mx-1].z = 0.5 * (ucat[k][ys+1][mx-1].z + ucat[k][ys][mx-2].z);
+          }
+      }
+  }
 
-  
-/* ==================================================================================             */
-/*     Ogrid :77 */
-/* ==================================================================================             */
-  /* 
-  if (user->bctype[3]=77 && Ogrid)
-    {Cmpnts ***coor;
-      lArea=0.;
-      FluxOut=0.0;
-      //    k = ze-3;
-      
-      Vec Coor; DMGetCoordinatesLocal(da, &Coor); 
-      DMDAVecGetArray(fda,Coor,&coor);       
-      if (ye==my) {
-	j=my-2;
-	for (k=lzs; k<lze; k++){
-	  for (i=lxs; i<lxe; i++) {
-	    
-	      FluxOut += ucont[k][j][i].y;
-	      lArea += sqrt( (eta[k-1][j][i].x) * (eta[k-1][j][i].x) +
-			     (eta[k-1][j][i].y) * (eta[k-1][j][i].y) +
-			     (eta[k-1][j][i].z) * (eta[k-1][j][i].z));
-	 
-	  }
-	}
+  if (ye == my) {
+      if (xs == 0) {
+          for (PetscInt k = zs; k < ze; k++) {
+              p[k][my-1][xs] = 0.5 * (p[k][my-2][xs] + p[k][my-1][xs+1]);
+              ucat[k][my-1][xs].x = 0.5 * (ucat[k][my-2][xs].x + ucat[k][my-1][xs+1].x);
+              ucat[k][my-1][xs].y = 0.5 * (ucat[k][my-2][xs].y + ucat[k][my-1][xs+1].y);
+              ucat[k][my-1][xs].z = 0.5 * (ucat[k][my-2][xs].z + ucat[k][my-1][xs+1].z);
+          }
       }
-      
-      else {
-	FluxOut = 0.;
+      if (xe == mx) {
+          for (PetscInt k = zs; k < ze; k++) {
+              p[k][my-1][mx-1] = 0.5 * (p[k][my-2][mx-1] + p[k][my-1][mx-2]);
+              ucat[k][my-1][mx-1].x = 0.5 * (ucat[k][my-2][mx-1].x + ucat[k][my-1][mx-2].x);
+              ucat[k][my-1][mx-1].y = 0.5 * (ucat[k][my-2][mx-1].y + ucat[k][my-1][mx-2].y);
+              ucat[k][my-1][mx-1].z = 0.5 * (ucat[k][my-2][mx-1].z + ucat[k][my-1][mx-2].z);
+          }
       }
-      
-      MPI_Allreduce(&FluxOut,&FluxOutSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-      MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-      
-      user->FluxOutSum = FluxOutSum;
-      simCtx->AreaOutSum = AreaSum;
-     export PL="$HOME/CSBL/Codes/fdf_project/pic_les"
- ratio=2*(FluxIn-FluxOutSum)/AreaSum;
-       ratio=0.0;   
-      if (ye==my){
-	j=my-2;
-	for (k=lzs; k<lze; k++){      
-	  for (i=lxs; i<lxe; i++) {	
-	    if ((nvert[k-1][j][i])<0.1 && coor[k][j][i].z >= 800.) {
-	      ucont[k][j][i].y *= (1+ratio);
-	      
-	    }
-	  }
-	}
-      }
+  }
+
+    ierr = DMDAVecRestoreArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(da, user->P, &p); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "UpdatePeriodicCornerNodes"
+/**
+ * @brief (Orchestrator) Performs a sequential, deterministic periodic update for a list of fields.
+ *
+ * This function orchestrates the resolution of ambiguous periodic corners and edges.
+ * It takes an array of field names and updates them in a strict i-sync-j-sync-k order
+ * by calling the low-level worker `TransferPeriodicFieldByDirection` and the
+ * communication routine `UpdateLocalGhosts`.
+ *
+ * @param user The main UserCtx struct.
+ * @param num_fields The number of fields in the field_names array.
+ * @param field_names An array of strings with the names of fields to update (e.g., ["Ucat", "P"]).
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode UpdatePeriodicCornerNodes(UserCtx *user, PetscInt num_fields, const char* field_names[])
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    if (num_fields == 0) PetscFunctionReturn(0);
+
+    // --- I-DIRECTION ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = TransferPeriodicFieldByDirection(user, field_names[i], 'i'); CHKERRQ(ierr);
+    }
+    // --- SYNC ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = UpdateLocalGhosts(user, field_names[i]); CHKERRQ(ierr);
+    }
+
+    // --- J-DIRECTION ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = TransferPeriodicFieldByDirection(user, field_names[i], 'j'); CHKERRQ(ierr);
+    }
+    // --- SYNC ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = UpdateLocalGhosts(user, field_names[i]); CHKERRQ(ierr);
+    }
+
+    // --- K-DIRECTION ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = TransferPeriodicFieldByDirection(user, field_names[i], 'k'); CHKERRQ(ierr);
+    }
+    // --- FINAL SYNC ---
+    for (PetscInt i = 0; i < num_fields; i++) {
+        ierr = UpdateLocalGhosts(user, field_names[i]); CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyWallFunction"
+/**
+ * @brief Applies wall function modeling to near-wall velocities for all wall-type boundaries.
+ *
+ * This function implements log-law wall functions to model the near-wall velocity profile
+ * without fully resolving the viscous sublayer. It is applicable to ALL wall-type boundaries
+ * regardless of their specific boundary condition (no-slip, moving wall, slip, etc.), as
+ * determined by the mathematical_type being WALL.
+ *
+ * MATHEMATICAL BACKGROUND:
+ * Wall functions bridge the gap between the wall (y=0) and the first computational cell
+ * center by using empirical log-law relationships:
+ *   - Viscous sublayer (y+ < 11.81): u+ = y+
+ *   - Log-law region (y+ > 11.81): u+ = (1/κ) * ln(E * y+)
+ * where u+ = u/u_τ, y+ = y*u_τ/ν, κ = 0.41 (von Karman constant), E = exp(κB)
+ *
+ * IMPLEMENTATION DETAILS:
+ * Unlike standard boundary conditions that set ghost cell values, wall functions:
+ *   1. Read velocity from the SECOND interior cell (i±2, j±2, k±2)
+ *   2. Compute wall shear stress using log-law
+ *   3. Modify velocity at the FIRST interior cell (i±1, j±1, k±1) 
+ *   4. Keep ghost cell boundary values (ubcs, ucont) at zero
+ *
+ * WORKFLOW:
+ *   - Called from ApplyBoundaryConditions after standard BC application
+ *   - Operates on ucat (Cartesian velocity)
+ *   - Updates ustar (friction velocity field) for diagnostics/turbulence models
+ *   - Ghost cells remain zero; UpdateDummyCells handles extrapolation afterward
+ *
+ * GEOMETRIC QUANTITIES:
+ *   sb = wall-normal distance from wall to first interior cell center
+ *   sc = wall-normal distance from wall to second interior cell center  
+ *   These are computed from cell Jacobians (aj) and face area vectors
+ *
+ * APPLICABILITY:
+ *   - Requires simCtx->wallfunction = true
+ *   - Only processes faces where mathematical_type == WALL
+ *   - Skips solid-embedded cells (nvert >= 0.1)
+ *
+ * @param user The UserCtx containing all simulation state and geometry
+ * @return PetscErrorCode 0 on success
+ *
+ * @note This function modifies interior cell velocities, NOT ghost cells
+ * @note Wall roughness (ks) is currently set to 1e-16 (smooth wall)
+ * @see wall_function_loglaw() in wallfunction.c for the actual log-law implementation
+ * @see noslip() in wallfunction.c for the initial linear interpolation
+ */
+PetscErrorCode ApplyWallFunction(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    SimCtx *simCtx = user->simCtx;
+    DMDALocalInfo *info = &user->info;
+    
+    PetscFunctionBeginUser;
+    
+    // =========================================================================
+    // STEP 0: Early exit if wall functions are disabled
+    // =========================================================================
+    if (!simCtx->wallfunction) {
+        PetscFunctionReturn(0);
+    }
+    
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Processing wall function boundaries.\n");
+    
+    // =========================================================================
+    // STEP 1: Get read/write access to all necessary field arrays
+    // =========================================================================
+    Cmpnts ***velocity_cartesian;           // Cartesian velocity (modified)
+    Cmpnts ***velocity_contravariant;       // Contravariant velocity (set to zero at walls)
+    Cmpnts ***velocity_boundary;            // Boundary condition velocity (kept at zero)
+    Cmpnts ***csi, ***eta, ***zet;         // Metric tensor components (face normals)
+    PetscReal ***node_vertex_flag;          // Fluid/solid indicator (0=fluid, 1=solid)
+    PetscReal ***cell_jacobian;             // Grid Jacobian (1/volume)
+    PetscReal ***friction_velocity;         // u_tau (friction velocity field)
+    
+    ierr = DMDAVecGetArray(user->fda, user->Ucat, &velocity_cartesian); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->Ucont, &velocity_contravariant); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &velocity_boundary); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&node_vertex_flag); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da, user->lAj, (const PetscReal***)&cell_jacobian); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->da, user->lFriction_Velocity, &friction_velocity); CHKERRQ(ierr);
+    
+    // =========================================================================
+    // STEP 2: Define loop bounds (owned portion of the grid for this MPI rank)
+    // =========================================================================
+    PetscInt grid_start_i = info->xs, grid_end_i = info->xs + info->xm;
+    PetscInt grid_start_j = info->ys, grid_end_j = info->ys + info->ym;
+    PetscInt grid_start_k = info->zs, grid_end_k = info->zs + info->zm;
+    PetscInt grid_size_i = info->mx, grid_size_j = info->my, grid_size_k = info->mz;
+    
+    // Shrunken loop bounds: exclude domain edges and corners to avoid double-counting
+    PetscInt loop_start_i = grid_start_i, loop_end_i = grid_end_i;
+    PetscInt loop_start_j = grid_start_j, loop_end_j = grid_end_j;
+    PetscInt loop_start_k = grid_start_k, loop_end_k = grid_end_k;
+    
+    if (grid_start_i == 0) loop_start_i = grid_start_i + 1;
+    if (grid_end_i == grid_size_i) loop_end_i = grid_end_i - 1;
+    if (grid_start_j == 0) loop_start_j = grid_start_j + 1;
+    if (grid_end_j == grid_size_j) loop_end_j = grid_end_j - 1;
+    if (grid_start_k == 0) loop_start_k = grid_start_k + 1;
+    if (grid_end_k == grid_size_k) loop_end_k = grid_end_k - 1;
+    
+    // Wall roughness parameter (currently smooth wall)
+    const PetscReal wall_roughness_height = 1.e-16;
+    
+    // =========================================================================
+    // STEP 3: Process each of the 6 domain faces
+    // =========================================================================
+    for (int face_index = 0; face_index < 6; face_index++) {
+        BCFace current_face_id = (BCFace)face_index;
+        BoundaryFaceConfig *face_config = &user->boundary_faces[current_face_id];
+        
+        // Only process faces that are mathematical walls (applies to no-slip, moving, slip, etc.)
+        if (face_config->mathematical_type != WALL) {
+            continue;
+        }
+        
+        // Check if this MPI rank owns part of this face
+        PetscBool rank_owns_this_face;
+        ierr = CanRankServiceFace(info, user->IM, user->JM, user->KM, 
+                                  current_face_id, &rank_owns_this_face); CHKERRQ(ierr);
+        
+        if (!rank_owns_this_face) {
+            continue;
+        }
+        
+        LOG_ALLOW(LOCAL, LOG_TRACE, "Processing Face %d (%s)\n",
+                  current_face_id, BCFaceToString(current_face_id));
+        
+        // =====================================================================
+        // Process each face with appropriate indexing
+        // =====================================================================
+        switch(current_face_id) {
             
-      if (ye==my){
-	j=my-2;
-	for (k=lzs; k<lze; k++){      
-	  for (i=lxs; i<lxe; i++) {	
-	    
-	    ubcs[k][j+1][i].z=ucat[k][j][i].z;
-	    ubcs[k][j+1][i].y=ucat[k][j][i].y;
-	    ubcs[k][j+1][i].x=ucat[k][j][i].x;
-	  }
-	}
-      }
-      
-      //   LOG_ALLOW(GLOBAL,LOG_DEBUG, "  ratio %le ",ratio);
-
+            // =================================================================
+            // NEGATIVE X FACE (i = 0, normal points in +X direction)
+            // =================================================================
+            case BC_FACE_NEG_X: {
+                if (grid_start_i == 0) {
+                    const PetscInt ghost_cell_index = grid_start_i;
+                    const PetscInt first_interior_cell = grid_start_i + 1;
+                    const PetscInt second_interior_cell = grid_start_i + 2;
+                    
+                    for (PetscInt k = loop_start_k; k < loop_end_k; k++) {
+                        for (PetscInt j = loop_start_j; j < loop_end_j; j++) {
+                            
+                            // Skip if this is a solid cell (embedded boundary)
+                            if (node_vertex_flag[k][j][first_interior_cell] < 0.1) {
+                                
+                                // Calculate face area from contravariant metric tensor
+                                PetscReal face_area = sqrt(
+                                    csi[k][j][ghost_cell_index].x * csi[k][j][ghost_cell_index].x + 
+                                    csi[k][j][ghost_cell_index].y * csi[k][j][ghost_cell_index].y + 
+                                    csi[k][j][ghost_cell_index].z * csi[k][j][ghost_cell_index].z
+                                );
+                                
+                                // Compute wall-normal distances using cell Jacobians
+                                // sb = distance from wall to first interior cell center
+                                // sc = distance from wall to second interior cell center
+                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[k][j][first_interior_cell] / face_area;
+                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
+                                                                     0.5 / cell_jacobian[k][j][second_interior_cell] / face_area;
+                                
+                                // Compute unit normal vector pointing INTO the domain
+                                PetscReal wall_normal[3];
+                                wall_normal[0] = csi[k][j][ghost_cell_index].x / face_area;
+                                wall_normal[1] = csi[k][j][ghost_cell_index].y / face_area;
+                                wall_normal[2] = csi[k][j][ghost_cell_index].z / face_area;
+                                
+                                // Define velocities for wall function calculation
+                                Cmpnts wall_velocity;      // Ua = velocity at wall (zero for stationary wall)
+                                Cmpnts reference_velocity; // Uc = velocity at second interior cell
+                                
+                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
+                                reference_velocity = velocity_cartesian[k][j][second_interior_cell];
+                                
+                                // Step 1: Linear interpolation (provides initial guess)
+                                noslip(user, distance_to_second_cell, distance_to_first_cell,
+                                      wall_velocity, reference_velocity,
+                                      &velocity_cartesian[k][j][first_interior_cell],
+                                      wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                // Step 2: Apply log-law correction (improves near-wall velocity)
+                                wall_function_loglaw(user, wall_roughness_height,
+                                                    distance_to_second_cell, distance_to_first_cell,
+                                                    wall_velocity, reference_velocity,
+                                                    &velocity_cartesian[k][j][first_interior_cell],
+                                                    &friction_velocity[k][j][first_interior_cell],
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                // Ensure ghost cell BC remains zero (required for proper extrapolation)
+                                velocity_boundary[k][j][ghost_cell_index].x = 0.0;
+                                velocity_boundary[k][j][ghost_cell_index].y = 0.0;
+                                velocity_boundary[k][j][ghost_cell_index].z = 0.0;
+                                velocity_contravariant[k][j][ghost_cell_index].x = 0.0;
+                            }
+                        }
+                    }
+                }
+            } break;
+            
+            // =================================================================
+            // POSITIVE X FACE (i = mx-1, normal points in -X direction)
+            // =================================================================
+            case BC_FACE_POS_X: {
+                if (grid_end_i == grid_size_i) {
+                    const PetscInt ghost_cell_index = grid_end_i - 1;
+                    const PetscInt first_interior_cell = grid_end_i - 2;
+                    const PetscInt second_interior_cell = grid_end_i - 3;
+                    
+                    for (PetscInt k = loop_start_k; k < loop_end_k; k++) {
+                        for (PetscInt j = loop_start_j; j < loop_end_j; j++) {
+                            
+                            if (node_vertex_flag[k][j][first_interior_cell] < 0.1) {
+                                
+                                PetscReal face_area = sqrt(
+                                    csi[k][j][first_interior_cell].x * csi[k][j][first_interior_cell].x + 
+                                    csi[k][j][first_interior_cell].y * csi[k][j][first_interior_cell].y + 
+                                    csi[k][j][first_interior_cell].z * csi[k][j][first_interior_cell].z
+                                );
+                                
+                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[k][j][first_interior_cell] / face_area;
+                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
+                                                                     0.5 / cell_jacobian[k][j][second_interior_cell] / face_area;
+                                
+                                // Note: Normal flipped for +X face to point INTO domain
+                                PetscReal wall_normal[3];
+                                wall_normal[0] = -csi[k][j][first_interior_cell].x / face_area;
+                                wall_normal[1] = -csi[k][j][first_interior_cell].y / face_area;
+                                wall_normal[2] = -csi[k][j][first_interior_cell].z / face_area;
+                                
+                                Cmpnts wall_velocity, reference_velocity;
+                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
+                                reference_velocity = velocity_cartesian[k][j][second_interior_cell];
+                                
+                                noslip(user, distance_to_second_cell, distance_to_first_cell,
+                                      wall_velocity, reference_velocity,
+                                      &velocity_cartesian[k][j][first_interior_cell],
+                                      wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                wall_function_loglaw(user, wall_roughness_height,
+                                                    distance_to_second_cell, distance_to_first_cell,
+                                                    wall_velocity, reference_velocity,
+                                                    &velocity_cartesian[k][j][first_interior_cell],
+                                                    &friction_velocity[k][j][first_interior_cell],
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                velocity_boundary[k][j][ghost_cell_index].x = 0.0;
+                                velocity_boundary[k][j][ghost_cell_index].y = 0.0;
+                                velocity_boundary[k][j][ghost_cell_index].z = 0.0;
+                                velocity_contravariant[k][j][first_interior_cell].x = 0.0;
+                            }
+                        }
+                    }
+                }
+            } break;
+            
+            // =================================================================
+            // NEGATIVE Y FACE (j = 0, normal points in +Y direction)
+            // =================================================================
+            case BC_FACE_NEG_Y: {
+                if (grid_start_j == 0) {
+                    const PetscInt ghost_cell_index = grid_start_j;
+                    const PetscInt first_interior_cell = grid_start_j + 1;
+                    const PetscInt second_interior_cell = grid_start_j + 2;
+                    
+                    for (PetscInt k = loop_start_k; k < loop_end_k; k++) {
+                        for (PetscInt i = loop_start_i; i < loop_end_i; i++) {
+                            
+                            if (node_vertex_flag[k][first_interior_cell][i] < 0.1) {
+                                
+                                PetscReal face_area = sqrt(
+                                    eta[k][ghost_cell_index][i].x * eta[k][ghost_cell_index][i].x + 
+                                    eta[k][ghost_cell_index][i].y * eta[k][ghost_cell_index][i].y + 
+                                    eta[k][ghost_cell_index][i].z * eta[k][ghost_cell_index][i].z
+                                );
+                                
+                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[k][first_interior_cell][i] / face_area;
+                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
+                                                                     0.5 / cell_jacobian[k][second_interior_cell][i] / face_area;
+                                
+                                PetscReal wall_normal[3];
+                                wall_normal[0] = eta[k][ghost_cell_index][i].x / face_area;
+                                wall_normal[1] = eta[k][ghost_cell_index][i].y / face_area;
+                                wall_normal[2] = eta[k][ghost_cell_index][i].z / face_area;
+                                
+                                Cmpnts wall_velocity, reference_velocity;
+                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
+                                reference_velocity = velocity_cartesian[k][second_interior_cell][i];
+                                
+                                noslip(user, distance_to_second_cell, distance_to_first_cell,
+                                      wall_velocity, reference_velocity,
+                                      &velocity_cartesian[k][first_interior_cell][i],
+                                      wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                wall_function_loglaw(user, wall_roughness_height,
+                                                    distance_to_second_cell, distance_to_first_cell,
+                                                    wall_velocity, reference_velocity,
+                                                    &velocity_cartesian[k][first_interior_cell][i],
+                                                    &friction_velocity[k][first_interior_cell][i],
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                velocity_boundary[k][ghost_cell_index][i].x = 0.0;
+                                velocity_boundary[k][ghost_cell_index][i].y = 0.0;
+                                velocity_boundary[k][ghost_cell_index][i].z = 0.0;
+                                velocity_contravariant[k][ghost_cell_index][i].y = 0.0;
+                            }
+                        }
+                    }
+                }
+            } break;
+            
+            // =================================================================
+            // POSITIVE Y FACE (j = my-1, normal points in -Y direction)
+            // =================================================================
+            case BC_FACE_POS_Y: {
+                if (grid_end_j == grid_size_j) {
+                    const PetscInt ghost_cell_index = grid_end_j - 1;
+                    const PetscInt first_interior_cell = grid_end_j - 2;
+                    const PetscInt second_interior_cell = grid_end_j - 3;
+                    
+                    for (PetscInt k = loop_start_k; k < loop_end_k; k++) {
+                        for (PetscInt i = loop_start_i; i < loop_end_i; i++) {
+                            
+                            if (node_vertex_flag[k][first_interior_cell][i] < 0.1) {
+                                
+                                PetscReal face_area = sqrt(
+                                    eta[k][first_interior_cell][i].x * eta[k][first_interior_cell][i].x + 
+                                    eta[k][first_interior_cell][i].y * eta[k][first_interior_cell][i].y + 
+                                    eta[k][first_interior_cell][i].z * eta[k][first_interior_cell][i].z
+                                );
+                                
+                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[k][first_interior_cell][i] / face_area;
+                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
+                                                                     0.5 / cell_jacobian[k][second_interior_cell][i] / face_area;
+                                
+                                PetscReal wall_normal[3];
+                                wall_normal[0] = -eta[k][first_interior_cell][i].x / face_area;
+                                wall_normal[1] = -eta[k][first_interior_cell][i].y / face_area;
+                                wall_normal[2] = -eta[k][first_interior_cell][i].z / face_area;
+                                
+                                Cmpnts wall_velocity, reference_velocity;
+                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
+                                reference_velocity = velocity_cartesian[k][second_interior_cell][i];
+                                
+                                noslip(user, distance_to_second_cell, distance_to_first_cell,
+                                      wall_velocity, reference_velocity,
+                                      &velocity_cartesian[k][first_interior_cell][i],
+                                      wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                wall_function_loglaw(user, wall_roughness_height,
+                                                    distance_to_second_cell, distance_to_first_cell,
+                                                    wall_velocity, reference_velocity,
+                                                    &velocity_cartesian[k][first_interior_cell][i],
+                                                    &friction_velocity[k][first_interior_cell][i],
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                velocity_boundary[k][ghost_cell_index][i].x = 0.0;
+                                velocity_boundary[k][ghost_cell_index][i].y = 0.0;
+                                velocity_boundary[k][ghost_cell_index][i].z = 0.0;
+                                velocity_contravariant[k][first_interior_cell][i].y = 0.0;
+                            }
+                        }
+                    }
+                }
+            } break;
+            
+            // =================================================================
+            // NEGATIVE Z FACE (k = 0, normal points in +Z direction)
+            // =================================================================
+            case BC_FACE_NEG_Z: {
+                if (grid_start_k == 0) {
+                    const PetscInt ghost_cell_index = grid_start_k;
+                    const PetscInt first_interior_cell = grid_start_k + 1;
+                    const PetscInt second_interior_cell = grid_start_k + 2;
+                    
+                    for (PetscInt j = loop_start_j; j < loop_end_j; j++) {
+                        for (PetscInt i = loop_start_i; i < loop_end_i; i++) {
+                            
+                            if (node_vertex_flag[first_interior_cell][j][i] < 0.1) {
+                                
+                                PetscReal face_area = sqrt(
+                                    zet[ghost_cell_index][j][i].x * zet[ghost_cell_index][j][i].x + 
+                                    zet[ghost_cell_index][j][i].y * zet[ghost_cell_index][j][i].y + 
+                                    zet[ghost_cell_index][j][i].z * zet[ghost_cell_index][j][i].z
+                                );
+                                
+                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[first_interior_cell][j][i] / face_area;
+                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
+                                                                     0.5 / cell_jacobian[second_interior_cell][j][i] / face_area;
+                                
+                                PetscReal wall_normal[3];
+                                wall_normal[0] = zet[ghost_cell_index][j][i].x / face_area;
+                                wall_normal[1] = zet[ghost_cell_index][j][i].y / face_area;
+                                wall_normal[2] = zet[ghost_cell_index][j][i].z / face_area;
+                                
+                                Cmpnts wall_velocity, reference_velocity;
+                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
+                                reference_velocity = velocity_cartesian[second_interior_cell][j][i];
+                                
+                                noslip(user, distance_to_second_cell, distance_to_first_cell,
+                                      wall_velocity, reference_velocity,
+                                      &velocity_cartesian[first_interior_cell][j][i],
+                                      wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                wall_function_loglaw(user, wall_roughness_height,
+                                                    distance_to_second_cell, distance_to_first_cell,
+                                                    wall_velocity, reference_velocity,
+                                                    &velocity_cartesian[first_interior_cell][j][i],
+                                                    &friction_velocity[first_interior_cell][j][i],
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                velocity_boundary[ghost_cell_index][j][i].x = 0.0;
+                                velocity_boundary[ghost_cell_index][j][i].y = 0.0;
+                                velocity_boundary[ghost_cell_index][j][i].z = 0.0;
+                                velocity_contravariant[ghost_cell_index][j][i].z = 0.0;
+                            }
+                        }
+                    }
+                }
+            } break;
+            
+            // =================================================================
+            // POSITIVE Z FACE (k = mz-1, normal points in -Z direction)
+            // =================================================================
+            case BC_FACE_POS_Z: {
+                if (grid_end_k == grid_size_k) {
+                    const PetscInt ghost_cell_index = grid_end_k - 1;
+                    const PetscInt first_interior_cell = grid_end_k - 2;
+                    const PetscInt second_interior_cell = grid_end_k - 3;
+                    
+                    for (PetscInt j = loop_start_j; j < loop_end_j; j++) {
+                        for (PetscInt i = loop_start_i; i < loop_end_i; i++) {
+                            
+                            if (node_vertex_flag[first_interior_cell][j][i] < 0.1) {
+                                
+                                PetscReal face_area = sqrt(
+                                    zet[first_interior_cell][j][i].x * zet[first_interior_cell][j][i].x + 
+                                    zet[first_interior_cell][j][i].y * zet[first_interior_cell][j][i].y + 
+                                    zet[first_interior_cell][j][i].z * zet[first_interior_cell][j][i].z
+                                );
+                                
+                                PetscReal distance_to_first_cell = 0.5 / cell_jacobian[first_interior_cell][j][i] / face_area;
+                                PetscReal distance_to_second_cell = 2.0 * distance_to_first_cell + 
+                                                                     0.5 / cell_jacobian[second_interior_cell][j][i] / face_area;
+                                
+                                PetscReal wall_normal[3];
+                                wall_normal[0] = -zet[first_interior_cell][j][i].x / face_area;
+                                wall_normal[1] = -zet[first_interior_cell][j][i].y / face_area;
+                                wall_normal[2] = -zet[first_interior_cell][j][i].z / face_area;
+                                
+                                Cmpnts wall_velocity, reference_velocity;
+                                wall_velocity.x = wall_velocity.y = wall_velocity.z = 0.0;
+                                reference_velocity = velocity_cartesian[second_interior_cell][j][i];
+                                
+                                noslip(user, distance_to_second_cell, distance_to_first_cell,
+                                      wall_velocity, reference_velocity,
+                                      &velocity_cartesian[first_interior_cell][j][i],
+                                      wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                wall_function_loglaw(user, wall_roughness_height,
+                                                    distance_to_second_cell, distance_to_first_cell,
+                                                    wall_velocity, reference_velocity,
+                                                    &velocity_cartesian[first_interior_cell][j][i],
+                                                    &friction_velocity[first_interior_cell][j][i],
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                
+                                velocity_boundary[ghost_cell_index][j][i].x = 0.0;
+                                velocity_boundary[ghost_cell_index][j][i].y = 0.0;
+                                velocity_boundary[ghost_cell_index][j][i].z = 0.0;
+                                velocity_contravariant[first_interior_cell][j][i].z = 0.0;
+                            }
+                        }
+                    }
+                }
+            } break;
+        }
     }
-
-  */
-
-
-/* ==================================================================================             */
-/*     Channelz */
-/* ==================================================================================             */
- // Amir channel flow correction
-  if (user->bctype[4]==7 && simCtx->channelz==1) {
- Vec Coor; DMGetCoordinatesLocal(da, &Coor); 
- DMDAVecGetArray(fda,Coor,&coor); 
-    Cmpnts  ***uch;
-    DMDAVecGetArray(fda, user->Bcs.Uch, &uch);
-
-    lArea=0.0;
-   // if (zs==0) {
-   // k=0;
-    FluxIn=0.0;
     
-    double Fluxbcs=0.0, Fluxbcssum,ratiobcs;
-
-   if (zs==0) {
-    k=0;
-     Fluxbcs=0.0;      
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if (nvert[k][j][i]<0.1){
-	    Fluxbcs += ucont[k][j][i].z;
-
-	    lArea +=  sqrt((zet[k][j][i].x) * (zet[k][j][i].x) +
-			  (zet[k][j][i].y) * (zet[k][j][i].y) +
-			  (zet[k][j][i].z) * (zet[k][j][i].z));
-	  }
-	}
-      }
-    }
+    // =========================================================================
+    // STEP 4: Restore all arrays and release memory
+    // =========================================================================
+    ierr = DMDAVecRestoreArray(user->fda, user->Ucat, &velocity_cartesian); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &velocity_contravariant); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &velocity_boundary); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&node_vertex_flag); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, user->lAj, (const PetscReal***)&cell_jacobian); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->da, user->lFriction_Velocity, &friction_velocity); CHKERRQ(ierr);
     
-
-    //int kk=(simCtx->step % (mz-2))+2;
- 
-    for (k=zs;k<lze;k++){      
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if (nvert[k][j][i]<0.1){
-	    FluxIn += ucont[k][j][i].z /((mz)-1);
-	  }
-	}
-      }
-    }
-   // else {
-  //   FluxIn=0.0;
-//  }
- 
-    MPI_Allreduce(&FluxIn,&simCtx->Fluxsum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    MPI_Allreduce(&Fluxbcs,&Fluxbcssum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
- 
-    if (simCtx->step==simCtx->StartStep && simCtx->StartStep > 0 && simCtx->ccc==0) {
-      simCtx->ccc=1;
-      simCtx->FluxInSum=Fluxbcssum;
-//	simCtx->FluxInSum=6.3908; 
-      LOG_ALLOW(LOCAL,LOG_DEBUG, "  FluxInSum %le .\n ",simCtx->FluxInSum);
-    }
-  
-	simCtx->FluxInSum=6.35066; 
-        ratio=(simCtx->FluxInSum-simCtx->Fluxsum)/AreaSum;
-	simCtx->ratio=ratio;
-        ratiobcs=(simCtx->FluxInSum-Fluxbcssum)/AreaSum;
-
-    if (zs==0) {
-	k=0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if (nvert[k+1][j][i]<0.1){
-	    if (simCtx->fish) { 
-			 ucont[k][j][i].z+=ratiobcs * /* (1.-exp(-500. * (1.-fabs(coor[k][j][i].y))))  */ sqrt( (zet[k+1][j][i].x) * (zet[k+1][j][i].x) + 
- 					   (zet[k+1][j][i].y) * (zet[k+1][j][i].y) + 
- 					   (zet[k+1][j][i].z) * (zet[k+1][j][i].z)); 
-			}
-
-	    uch[k][j][i].z=ratiobcs * /* (1.-exp(-500. * (1.-fabs(coor[k][j][i].y)))) */   sqrt( (zet[k+1][j][i].x) * (zet[k+1][j][i].x) +
-					   (zet[k+1][j][i].y) * (zet[k+1][j][i].y) +
-					   (zet[k+1][j][i].z) * (zet[k+1][j][i].z)); 
-	  }
-	}
-      }
-    }
-  
-    if (ze==mz) {
-      k=mz-1;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if (nvert[k-1][j][i]<0.1){
- 	    if (simCtx->fish){
-		   ucont[k-1][j][i].z+=ratiobcs * /*(1.-exp(-500. * (1.-fabs(coor[k][j][i].y))))  */    sqrt((zet[k-1][j][i].x) * (zet[k-1][j][i].x) + 
- 					   (zet[k-1][j][i].y) * (zet[k-1][j][i].y) + 
- 					   (zet[k-1][j][i].z) * (zet[k-1][j][i].z));  	
-	  }
-	    uch[k][j][i].z=ratiobcs *   /*(1.-exp(-500. * (1.-fabs(coor[k][j][i].y)))) */     sqrt( (zet[k+1][j][i].x) * (zet[k+1][j][i].x) +
-					   (zet[k+1][j][i].y) * (zet[k+1][j][i].y) +
-					   (zet[k+1][j][i].z) * (zet[k+1][j][i].z)); 
-	  }
-	}
-      }
-    }
-    DMDAVecRestoreArray(fda, user->Bcs.Uch, &uch);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Ratio  %le %.15le %.15le  %.15le \n", ratio, ratiobcs, simCtx->FluxInSum,AreaSum);
-    DMDAVecRestoreArray(fda,Coor,&coor); 
-
-  ////.................////
-   
-   
-  
-
-    //just for check
-/*         if (zs==0) { */
-/*       k=10; */
-/*       FluxIn=0.0; */
-/*       for (j=lys; j<lye; j++) { */
-/* 	for (i=lxs; i<lxe; i++) { */
-/* 	  if (nvert[k+1][j][i]<0.1){ */
-/* 	    FluxIn += ucont[k][j][i].z; */
-/* 	    lArea += sqrt((zet[k+1][j][i].x) * (zet[k+1][j][i].x) + */
-/* 			  (zet[k+1][j][i].y) * (zet[k+1][j][i].y) + */
-/* 			  (zet[k+1][j][i].z) * (zet[k+1][j][i].z)); */
-/* 	  } */
-/* 	} */
-/*       } */
-/* 	} */
-/*     else { */
-/*       FluxIn=0.0; */
-/*     } */
-/*     // LOG_ALLOW(PETSC_COMM_SELF, "  Fluxsum %le ",FluxIn); */
-
-/*     MPI_Allreduce(&FluxIn,&Fluxsum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); */
-/*     MPI_Allreduce(&lArea,&AreaSum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); */
-
-
-
-  }//channel
-
-
-
-  /*  ==================================================================================== */
-  /*     Cylinder O-grid */
-  /*  ==================================================================================== */
-  if (user->bctype[3]==12) {
-  /* Designed to test O-grid for flow over a cylinder at jmax velocity is 1 (horizontal) 
-   u_x = 1 at k==kmax */
-    if (ye==my) {
-      j = ye-1;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x = 0.;
-	  ubcs[k][j][i].y = 0.;
-	  ubcs[k][j][i].z = 1.;
-	}
-      }
-    }
-  }
-  /*  ==================================================================================== */
-  /*     Annulus */
-  /*  ==================================================================================== */
-  /* designed to test periodic boundary condition for O-grid j=0 rotates */
-  DMDAVecGetArray(fda, user->Cent, &cent);
-  if (user->bctype[2]==11) {
-    if (ys==0){
-      j=0;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	
-	/*   ubcs[k][j][i].x=0.0; */
-	 
-/* 	  ubcs[k][j][i].y = -cent[k][j+1][i].z/sqrt(cent[k][j+1][i].z*cent[k][j+1][i].z+cent[k][j+1][i].y*cent[k][j+1][i].y); */
-	 
-/* 	  ubcs[k][j][i].z =cent[k][j+1][i].y/sqrt(cent[k][j+1][i].z*cent[k][j+1][i].z+cent[k][j+1][i].y*cent[k][j+1][i].y); */
-	  ubcs[k][j][i].x = cent[k][j+1][i].y/sqrt(cent[k][j+1][i].x*cent[k][j+1][i].x+cent[k][j+1][i].y*cent[k][j+1][i].y);;
-	  ubcs[k][j][i].y =-cent[k][j+1][i].x/sqrt(cent[k][j+1][i].x*cent[k][j+1][i].x+cent[k][j+1][i].y*cent[k][j+1][i].y);
-	  ubcs[k][j][i].z =0.0;
-	  //  if(k==1)  LOG_ALLOW(PETSC_COMM_SELF, "@ i= %d j=%d k=%d ubcs.y is %le\n",i,j,k,ubcs[k][j][i].y);
-	}
-      }
-    }
-  }
-  /*  ==================================================================================== */
-  /*     Rheology */
-  /*  ==================================================================================== */
- 
-  if(simCtx->rheology && (user->bctype[2]==13 || user->bctype[3]==13 || user->bctype[4]==13 || user->bctype[5]==13)){
-      LOG_ALLOW(GLOBAL,LOG_DEBUG, "moving plate velocity for rheology setup is %le \n",simCtx->U_bc);
-  }
-  
-  if (user->bctype[2]==13){
-    if (ys==0){
-      j=0;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	   ubcs[k][j][i].x = 0.;
-	  // ubcs[k][j][i].x = -simCtx->U_bc;
-	  ubcs[k][j][i].y = 0.;
-	  ubcs[k][j][i].z = -simCtx->U_bc;
-	  //ubcs[k][j][i].z =0.0;
-	}
-      }
-    }
-  }
-  if (user->bctype[3]==13){
-    if (ye==my){
-      j=ye-1;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x = 0.;
-	  // ubcs[k][j][i].x = simCtx->U_bc;
-	  ubcs[k][j][i].y = 0.;
-	  ubcs[k][j][i].z = simCtx->U_bc;
-	   //ubcs[k][j][i].z =0.0;
-	}
-      }
-    }
-  }
-
- if (user->bctype[4]==13){
-    if (zs==0){
-      k=0;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x =-simCtx->U_bc;
-	  ubcs[k][j][i].y = 0.;
-	  ubcs[k][j][i].z = 0.;
-	}
-      }
-    }
-  }
-  if (user->bctype[5]==13){
-    if (ze==mz){
-      k=ze-1;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  ubcs[k][j][i].x = simCtx->U_bc;
-	  ubcs[k][j][i].y = 0.;
-	  ubcs[k][j][i].z = 0.;
-	}
-      }
-    }
-  }
-  DMDAVecRestoreArray(fda, user->Cent, &cent);
-  DMDAVecRestoreArray(fda, user->lUcat, &ucat);
-  DMDAVecRestoreArray(fda, user->Ucont, &ucont);
-  DMDAVecRestoreArray(da, user->Nvert, &nvert);
-  DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-
- 
- 
-  Contra2Cart(user); // it also does global to local for Ucat
- 
-/* ==================================================================================             */
-/*   WALL FUNCTION */
-/* ==================================================================================             */
-
-  if (simCtx->wallfunction && user->bctype[2]==-1) {
-  PetscReal ***ustar, ***aj;
-  //Mohsen Dec 2015
-  Vec Aj  =  user->lAj;
-  DMDAVecGetArray(fda, user->Ucat, &ucat);
-  DMDAVecGetArray(fda, user->Ucont, &ucont);
-  DMDAVecGetArray(da, Aj,  &aj);
-//  DMDAVecGetArray(da, user->Nvert, &nvert);
-	DMDAVecGetArray(da, user->lUstar, &ustar);
- 
-  // wall function for boundary
-  for (k=lzs; k<lze; k++)
-    for (j=lys; j<lye; j++)
-      for (i=lxs; i<lxe; i++) {
-
-	if( nvert[k][j][i]<1.1 &&  user->bctype[2]==-1 && j==1 )
-	 {
-	  double area = sqrt( eta[k][j][i].x*eta[k][j][i].x + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].z*eta[k][j][i].z );
-	  double sb, sc;
-	  double ni[3], nj[3], nk[3];
-	  Cmpnts Uc, Ua;
-	  
-	  Ua.x = Ua.y = Ua.z = 0;
-	  sb = 0.5/aj[k][j][i]/area;
-	  
-	  
-	    sc = 2*sb + 0.5/aj[k][j+1][i]/area;
-	    Uc = ucat[k][j+1][i];
-	  
-	  
-	  //Calculate_normal(csi[k][j][i], eta[k][j][i], zet[k][j][i], ni, nj, nk);
-	  //if(j==my-2) nj[0]*=-1, nj[1]*=-1, nj[2]*=-1;
-	
-         double AA=sqrt(eta[k][j][i].z*eta[k][j][i].z +
-               eta[k][j][i].y*eta[k][j][i].y +
-               eta[k][j][i].x*eta[k][j][i].x);
- 	nj[0]=eta[k][j][i].x/AA;
-        nj[1]=eta[k][j][i].y/AA;
-        nj[2]=eta[k][j][i].z/AA;     
-	  noslip (user, sc, sb, Ua, Uc, &ucat[k][j][i], nj[0], nj[1], nj[2]);
-	wall_function_loglaw(user, 1.e-16, sc, sb, Ua, Uc, &ucat[k][j][i], &ustar[k][j][i], nj[0], nj[1], nj[2]);
-
-	 // nvert[k][j][i]=1.;	/* set nvert to 1 to exclude from rhs */
-	// if (k==1) 
-	  // LOG_ALLOW(GLOBAL,LOG_DEBUG, " %d   %le   %le  %le   %le   %le   %le   %le   %le   %le\n",i, sb,aj[k][j][i],AA, nj[0], nj[1], nj[2],ucat[k][j][i].x,ucat[k][j][i].y,ucat[k][j][i].z);
-
-	}
-      }
-  if (ys==0) {
-    j= ys;
-
-    for (k=lzs; k<lze; k++) {
-      for (i=lxs; i<lxe; i++) {
-        ubcs[k][j][i].x = 0.0;
-        ubcs[k][j][i].y = 0.0;
-        ubcs[k][j][i].z = 0.0;
-        ucont[k][j][i].y = 0.;
-      }
-    }
-    }
-
-  DMDAVecRestoreArray(da, Aj,  &aj);
-  DMDAVecRestoreArray(da, user->lUstar, &ustar);
-  DMDAVecRestoreArray(fda, user->Ucat, &ucat);
-  DMDAVecRestoreArray(fda, user->Ucont, &ucont);
- // DMDAVecRestoreArray(da, user->Nvert, &nvert);
- // DMGlobalToLocalBegin(da, user->Nvert, INSERT_VALUES, user->lNvert);
- // DMGlobalToLocalEnd(da, user->Nvert, INSERT_VALUES, user->lNvert);
-
-  DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-  DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-//   DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); 
-//   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); 
-
- 
-  }
-
-/* ==================================================================================             */
-
-  DMDAVecGetArray(fda, user->Ucat, &ucat);
- 
-/* ==================================================================================             */
- 
-  // boundary conditions on ghost nodes
-  if (xs==0 && user->bctype[0]!=7) {
-    i = xs;
-    for (k=lzs; k<lze; k++) {
-      for (j=lys; j<lye; j++) {
-	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k][j][i+1].x;
-	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k][j][i+1].y;
-	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k][j][i+1].z;
-      }
-    }
-  }
-
-  if (xe==mx && user->bctype[0]!=7) {
-    i = xe-1;
-    for (k=lzs; k<lze; k++) {
-      for (j=lys; j<lye; j++) {
-	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k][j][i-1].x;
-	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k][j][i-1].y;
-	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k][j][i-1].z;
-      }
-    }
-  }
-
-
-  if (ys==0 && user->bctype[2]!=7) {
-    j = ys;
-    for (k=lzs; k<lze; k++) {
-      for (i=lxs; i<lxe; i++) {
-	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k][j+1][i].x;
-	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k][j+1][i].y;
-	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k][j+1][i].z;
-      }
-    }
-  }
-
-  if (ye==my && user->bctype[2]!=7) {
-    j = ye-1;
-    for (k=lzs; k<lze; k++) {
-      for (i=lxs; i<lxe; i++) {
-	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k][j-1][i].x;
-	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k][j-1][i].y;
-	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k][j-1][i].z;
-      }
-    }
-  }
- 
-  if (zs==0 && user->bctype[4]!=7) {
-    k = zs;
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k+1][j][i].x;
-	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k+1][j][i].y;
-	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k+1][j][i].z;
-      }
-    }
-  }
-
-  if (ze==mz && user->bctype[4]!=7) {
-    k = ze-1;
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	ucat[k][j][i].x = 2 * ubcs[k][j][i].x - ucat[k-1][j][i].x;
-	ucat[k][j][i].y = 2 * ubcs[k][j][i].y - ucat[k-1][j][i].y;
-	ucat[k][j][i].z = 2 * ubcs[k][j][i].z - ucat[k-1][j][i].z;
-      }
-    }
-  }
-
-  DMDAVecRestoreArray(fda, user->Ucat,  &ucat);
- /* ==================================================================================             */
-  /*   Periodic BC *///Mohsen
-/* ==================================================================================             */
-  if (user->bctype[0]==7 || user->bctype[2]==7 || user->bctype[4]==7){
-    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-    DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
-    DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-    /* /\*   DMGlobalToLocalBegin(da, user->Nvert, INSERT_VALUES, user->lNvert); *\/ */
-    /* /\*   DMGlobalToLocalEnd(da, user->Nvert, INSERT_VALUES, user->lNvert); *\/ */
-  //Mohsen Dec 2015
-    DMDAVecGetArray(da, user->lP, &lp);
-    DMDAVecGetArray(da, user->lNvert, &lnvert);
-    DMDAVecGetArray(fda, user->lUcat, &lucat);
-    DMDAVecGetArray(da, user->P, &p);
-    DMDAVecGetArray(da, user->Nvert, &nvert);
-    DMDAVecGetArray(fda, user->Ucat, &ucat);
-   
-    if (user->bctype[0]==7 || user->bctype[1]==7){
-      if (xs==0){
-	i=xs;
-	for (k=zs; k<ze; k++) {
-	  for (j=ys; j<ye; j++) {
-	    if(j>0 && k>0 && j<user->JM && k<user->KM){
-	      ucat[k][j][i]=lucat[k][j][i-2];
-	      p[k][j][i]=lp[k][j][i-2];
-	      nvert[k][j][i]=lnvert[k][j][i-2];
-	    }
-	  }
-	}
-      }
-    }
-    if (user->bctype[2]==7 || user->bctype[3]==7){
-      if (ys==0){
-	j=ys;
-	for (k=zs; k<ze; k++) {
-	  for (i=xs; i<xe; i++) {
-	    if(i>0 && k>0 && i<user->IM && k<user->KM){
-	      ucat[k][j][i]=lucat[k][j-2][i];
-	      p[k][j][i]=lp[k][j-2][i];
-	      nvert[k][j][i]=lnvert[k][j-2][i];
-	    }
-	  }
-	}
-      }
-    }
-    if (user->bctype[4]==7 || user->bctype[5]==7){
-      if (zs==0){
-	k=zs;
-	for (j=ys; j<ye; j++) {
-	  for (i=xs; i<xe; i++) {
-	    if(i>0 && j>0 && i<user->IM && j<user->JM){
-	      ucat[k][j][i]=lucat[k-2][j][i];
-	      nvert[k][j][i]=lnvert[k-2][j][i];
-	      //amir
-		p[k][j][i]=lp[k-2][j][i];
-	    }
-	  }
-	}
-      }
-    }
-    if (user->bctype[0]==7 || user->bctype[1]==7){
-      if (xe==mx){
-	i=mx-1;
-	for (k=zs; k<ze; k++) {
-	  for (j=ys; j<ye; j++) {
-	    if(j>0 && k>0 && j<user->JM && k<user->KM){
-	      ucat[k][j][i]=lucat[k][j][i+2];
-	      p[k][j][i]=lp[k][j][i+2];
-	      nvert[k][j][i]=lnvert[k][j][i+2];
-	    }
-	  }
-	}
-      }
-    }
-    if (user->bctype[2]==7 || user->bctype[3]==7){
-      if (ye==my){
-	j=my-1;
-	for (k=zs; k<ze; k++) {
-	  for (i=xs; i<xe; i++) {
-	    if(i>0 && k>0 && i<user->IM && k<user->KM){
-	      ucat[k][j][i]=lucat[k][j+2][i];
-	      p[k][j][i]=lp[k][j+2][i];
-	      nvert[k][j][i]=lnvert[k][j+2][i];
-	    }
-	  }
-	}
-      }
-    }
-  
-    if (user->bctype[4]==7 || user->bctype[5]==7){
-      if (ze==mz){
-	k=mz-1;
-	for (j=ys; j<ye; j++) {
-	  for (i=xs; i<xe; i++) {
-	    if(i>0 && j>0 && i<user->IM && j<user->JM){
-	      ucat[k][j][i]=lucat[k+2][j][i];
-      	      nvert[k][j][i]=lnvert[k+2][j][i]; 
-	      //amir
-		p[k][j][i]=lp[k+2][j][i];
-	    }
-	  }
-	}
-      }
-    }
-
-       
-
-
- 
-    DMDAVecRestoreArray(fda, user->lUcat, &lucat);
-    DMDAVecRestoreArray(da, user->lP, &lp);
-    DMDAVecRestoreArray(da, user->lNvert, &lnvert);
-    DMDAVecRestoreArray(fda, user->Ucat, &ucat);
-    DMDAVecRestoreArray(da, user->P, &p);
-    DMDAVecRestoreArray(da, user->Nvert, &nvert);
-
-  /*  /\*  DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); *\/ */
-  /* /\*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); *\/ */
-
-  /* /\*   DMLocalToGlobalBegin(da, user->lP, INSERT_VALUES, user->P); *\/ */
-  /* /\*   DMLocalToGlobalEnd(da, user->lP, INSERT_VALUES, user->P); *\/ */
-
-  /* /\*   DMLocalToGlobalBegin(da, user->lNvert, INSERT_VALUES, user->Nvert); *\/ */
-  /* /\*   DMLocalToGlobalEnd(da, user->lNvert, INSERT_VALUES, user->Nvert); *\/ */
-
-    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Complete.\n");
     
-    DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
-    DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-    
-    DMGlobalToLocalBegin(da, user->Nvert, INSERT_VALUES, user->lNvert);
-    DMGlobalToLocalEnd(da, user->Nvert, INSERT_VALUES, user->lNvert);
+    PetscFunctionReturn(0);
 }
- // 0 velocity on the corner point
 
-  DMDAVecGetArray(fda, user->Ucat, &ucat);
-  DMDAVecGetArray(da, user->P, &p);
-  
-  if (zs==0) {
-    k=0;
-    if (xs==0) {
-      i=0;
-      for (j=ys; j<ye; j++) {
-	ucat[k][j][i].x = 0.5*(ucat[k+1][j][i].x+ucat[k][j][i+1].x);
-	ucat[k][j][i].y = 0.5*(ucat[k+1][j][i].y+ucat[k][j][i+1].y);
-	ucat[k][j][i].z = 0.5*(ucat[k+1][j][i].z+ucat[k][j][i+1].z);
-	p[k][j][i]= 0.5*(p[k+1][j][i]+p[k][j][i+1]);
-      }
-    }
-    if (xe == mx) {
-      i=mx-1;
-      for (j=ys; j<ye; j++) {
-	ucat[k][j][i].x = 0.5*(ucat[k+1][j][i].x+ucat[k][j][i-1].x);
-	ucat[k][j][i].y = 0.5*(ucat[k+1][j][i].y+ucat[k][j][i-1].y);
-	ucat[k][j][i].z = 0.5*(ucat[k+1][j][i].z+ucat[k][j][i-1].z);
-	p[k][j][i] = 0.5*(p[k+1][j][i]+p[k][j][i-1]);
-      }
-    }
+#undef __FUNCT__
+#define __FUNCT__ "RefreshBoundaryGhostCells"
+/**
+ * @brief (Public) Orchestrates the "light" refresh of all boundary ghost cells after the projection step.
+ *
+ * This function is the correct and complete replacement for the role that `GhostNodeVelocity`
+ * played when called from within the `Projection` function. Its purpose is to ensure that
+ * all ghost cells for `ucat` and `p` are made consistent with the final, divergence-free
+ * interior velocity field computed by the projection step.
+ *
+ * This function is fundamentally different from `ApplyBoundaryConditions` because it does
+ * NOT modify the physical flux field (`ucont`) and does NOT apply physical models like
+ * the wall function. It is a purely geometric and data-consistency operation.
+ *
+ * WORKFLOW:
+ * 1.  Calls the lightweight `BoundarySystem_RefreshUbcs()` engine. This re-calculates the
+ *     `ubcs` target values ONLY for flow-dependent boundary conditions (like Symmetry or Outlets)
+ *     using the newly updated interior `ucat` field.
+ *
+ * 2.  Calls the geometric updaters (`ApplyPeriodicBCs`, `UpdateDummyCells`, `UpdateCornerNodes`)
+ *     in the correct, dependency-aware order to fill in all ghost cell values based on the now
+ *     fully-refreshed `ubcs` targets.
+ *
+ * 3.  Performs a final synchronization of local PETSc vectors to ensure all MPI ranks are
+ *     consistent before proceeding to the next time step.
+ *
+ * @param user The main UserCtx struct, containing all simulation state.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode RefreshBoundaryGhostCells(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
-    if (ys==0) {
-      j=0;
-      for (i=xs; i<xe; i++) {
-	ucat[k][j][i].x = 0.5*(ucat[k+1][j][i].x+ucat[k][j+1][i].x);
-	ucat[k][j][i].y = 0.5*(ucat[k+1][j][i].y+ucat[k][j+1][i].y);
-	ucat[k][j][i].z = 0.5*(ucat[k+1][j][i].z+ucat[k][j+1][i].z);
-	p[k][j][i] = 0.5*(p[k+1][j][i]+p[k][j+1][i]);
-      }
-    }
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Starting post-projection refresh of boundary ghost cells.\n");
 
-    if (ye==my) {
-      j=my-1;
-      for (i=xs; i<xe; i++) {
-	ucat[k][j][i].x = 0.5*(ucat[k+1][j][i].x+ucat[k][j-1][i].x);
-	ucat[k][j][i].y = 0.5*(ucat[k+1][j][i].y+ucat[k][j-1][i].y);
-	ucat[k][j][i].z = 0.5*(ucat[k+1][j][i].z+ucat[k][j-1][i].z);
-	p[k][j][i] = 0.5*(p[k+1][j][i]+p[k][j-1][i]);
-      }
-    }
-  }
- 
-  if (ze==mz) {
-    k=mz-1;
-    if (xs==0) {
-      i=0;
-      for (j=ys; j<ye; j++) {
-	ucat[k][j][i].x = 0.5*(ucat[k-1][j][i].x+ucat[k][j][i+1].x);
-	ucat[k][j][i].y = 0.5*(ucat[k-1][j][i].y+ucat[k][j][i+1].y);
-	ucat[k][j][i].z = 0.5*(ucat[k-1][j][i].z+ucat[k][j][i+1].z);
-	p[k][j][i] = 0.5*(p[k-1][j][i]+p[k][j][i+1]);
-      }
-    }
-    if (xe == mx) {
-      i=mx-1;
-      for (j=ys; j<ye; j++) {
-	ucat[k][j][i].x = 0.5*(ucat[k-1][j][i].x+ucat[k][j][i-1].x);
-	ucat[k][j][i].y = 0.5*(ucat[k-1][j][i].y+ucat[k][j][i-1].y);
-	ucat[k][j][i].z = 0.5*(ucat[k-1][j][i].z+ucat[k][j][i-1].z);
-	p[k][j][i] = 0.5*(p[k-1][j][i]+p[k][j][i-1]);
-      }
-    }
+    // -------------------------------------------------------------------------
+    // STEP 1: Refresh Flow-Dependent Boundary Value Targets (`ubcs`)
+    // -------------------------------------------------------------------------
+    // This is the "physics" part of the refresh. It calls the lightweight engine
+    // to update `ubcs` for any BCs (like Symmetry) that depend on the now-corrected
+    // interior velocity field. This step does NOT touch `ucont`.
+    ierr = BoundarySystem_RefreshUbcs(user); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  `ubcs` targets refreshed.\n");
 
-    if (ys==0) {
-      j=0;
-      for (i=xs; i<xe; i++) {
-	ucat[k][j][i].x = 0.5*(ucat[k-1][j][i].x+ucat[k][j+1][i].x);
-	ucat[k][j][i].y = 0.5*(ucat[k-1][j][i].y+ucat[k][j+1][i].y);
-	ucat[k][j][i].z = 0.5*(ucat[k-1][j][i].z+ucat[k][j+1][i].z);
-	p[k][j][i] = 0.5*(p[k-1][j][i]+p[k][j+1][i]);
-      }
-    }
+    ierr = UpdateLocalGhosts(user,"Ucat");
 
-    if (ye==my) {
-      j=my-1;
-      for (i=xs; i<xe; i++) {
-	ucat[k][j][i].x = 0.5*(ucat[k-1][j][i].x+ucat[k][j-1][i].x);
-	ucat[k][j][i].y = 0.5*(ucat[k-1][j][i].y+ucat[k][j-1][i].y);
-	ucat[k][j][i].z = 0.5*(ucat[k-1][j][i].z+ucat[k][j-1][i].z);
-	p[k][j][i] = 0.5*(p[k-1][j][i]+p[k][j-1][i]);
-      }
-    }
-  }
- 
-  if (ys==0) {
-    j=0;
-    if (xs==0) {
-      i=0;
-      for (k=zs; k<ze; k++) {
-	ucat[k][j][i].x = 0.5*(ucat[k][j+1][i].x+ucat[k][j][i+1].x);
-	ucat[k][j][i].y = 0.5*(ucat[k][j+1][i].y+ucat[k][j][i+1].y);
-	ucat[k][j][i].z = 0.5*(ucat[k][j+1][i].z+ucat[k][j][i+1].z);
-	p[k][j][i]= 0.5*(p[k][j+1][i]+p[k][j][i+1]);
-      }
-    }
+    // STEP 1.5: Apply Wall function if applicable.
+    if(user->simCtx->wallfunction){
 
-    if (xe==mx) {
-      i=mx-1;
-      for (k=zs; k<ze; k++) {
-	ucat[k][j][i].x = 0.5*(ucat[k][j+1][i].x+ucat[k][j][i-1].x);
-	ucat[k][j][i].y = 0.5*(ucat[k][j+1][i].y+ucat[k][j][i-1].y);
-	ucat[k][j][i].z = 0.5*(ucat[k][j+1][i].z+ucat[k][j][i-1].z);
-	p[k][j][i] = 0.5*(p[k][j+1][i]+p[k][j][i-1]);
-      }
-    }
-  }
- 
-  if (ye==my) {
-    j=my-1;
-    if (xs==0) {
-      i=0;
-      for (k=zs; k<ze; k++) {
-	ucat[k][j][i].x = 0.5*(ucat[k][j-1][i].x+ucat[k][j][i+1].x);
-	ucat[k][j][i].y = 0.5*(ucat[k][j-1][i].y+ucat[k][j][i+1].y);
-	ucat[k][j][i].z = 0.5*(ucat[k][j-1][i].z+ucat[k][j][i+1].z);
-	p[k][j][i] = 0.5*(p[k][j-1][i]+p[k][j][i+1]);
-      }
-    }
-
-    if (xe==mx) {
-      i=mx-1;
-      for (k=zs; k<ze; k++) {
-	ucat[k][j][i].x = 0.5*(ucat[k][j-1][i].x+ucat[k][j][i-1].x);
-	ucat[k][j][i].y = 0.5*(ucat[k][j-1][i].y+ucat[k][j][i-1].y);
-	ucat[k][j][i].z = 0.5*(ucat[k][j-1][i].z+ucat[k][j][i-1].z);
-	p[k][j][i] = 0.5*(p[k][j-1][i]+p[k][j][i-1]);
-      }
-    }
-  }
-
-  DMDAVecRestoreArray(fda, user->Ucat,  &ucat);
-  DMDAVecRestoreArray(da, user->P, &p);
-
-  DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-  DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-
-  DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
-  DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-
-  //Mohsen Nov 2012
-  //Velocity and Presurre at corners for Periodic BC's
-
-  if (user->bctype[0]==7 || user->bctype[2]==7 || user->bctype[4]==7){
-  //i-direction
-
-    DMDAVecGetArray(fda, user->lUcat,  &lucat);
-    DMDAVecGetArray(da, user->lP, &lp);
-    DMDAVecGetArray(da, user->lNvert, &lnvert);
-    DMDAVecGetArray(fda, user->Ucat,  &ucat);
-    DMDAVecGetArray(da, user->P, &p);
-    DMDAVecGetArray(da, user->Nvert, &nvert);
+        ierr = ApplyWallFunction(user); CHKERRQ(ierr);
     
-    if (user->bctype[0]==7){
-      if (xs==0){
-	i=xs;
-	for (k=zs; k<ze; k++) {
-	  for (j=ys; j<ye; j++) {
-	    ucat[k][j][i]=lucat[k][j][i-2];
-	    p[k][j][i]=lp[k][j][i-2];
-	    nvert[k][j][i]=lnvert[k][j][i-2];
-	  }
-	}
-      }
     }
-    if (user->bctype[1]==7){
-      if (xe==mx){
-	i=xe-1;
-	for (k=zs; k<ze; k++) {
-	  for (j=ys; j<ye; j++) {
-	    ucat[k][j][i].x=lucat[k][j][i+2].x;
-	    p[k][j][i]=lp[k][j][i+2];
-	    nvert[k][j][i]=lnvert[k][j][i+2];
-	  }
-	}
-      }
+    // -------------------------------------------------------------------------
+    // STEP 2: Apply Geometric Ghost Cell Updates
+    // -------------------------------------------------------------------------
+    // With `ubcs` now fully up-to-date, we execute the purely geometric
+    // operations to fill the entire ghost cell layer. The order is important.
+
+    // (a) Update the ghost cells on the faces of non-periodic boundaries.
+    ierr = UpdateDummyCells(user); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Face ghost cells (dummy cells) updated.\n");    
+    
+    // (b) Handle periodic boundaries first. This is a direct data copy.
+    // Ghost Update is done inside this function.s
+    ierr = ApplyPeriodicBCs(user); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Periodic boundaries synchronized.\n");
+    
+    // (c) Update the ghost cells at the edges and corners by averaging.
+    ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Edge and corner ghost cells updated.\n");
+
+    // (d) Synchronize Ucat after setting corner nodes.
+    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+    
+    // (e) Update the corners for periodic conditions sequentially
+    //  ensuring no race conditions are raised. 
+    const char* ucat_only[] = {"Ucat"};
+    ierr = UpdatePeriodicCornerNodes(user,1,ucat_only);CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Boundary ghost cell refresh complete.\n");
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyBoundaryConditions"
+/**
+ * @brief Main master function to apply all boundary conditions for a time step.
+ *
+ * This function orchestrates the entire boundary condition workflow in a specific,
+ * dependency-aware order:
+ *
+ * 1.  **Iterate Non-Periodic BCs:** It then enters an iterative loop to solve for
+ *     the non-periodic boundary conditions. This allows complex, coupled conditions
+ *     (like mass-conserving outlets that depend on inlet fluxes) to converge.
+ *     - `BoundarySystem_ExecuteStep` calculates fluxes and sets boundary values (`ubcs`).
+ *     - `UpdateDummyCells` uses these values to update the ghost cells.
+ *
+ * 2.  **Apply Periodic BCs:** First, it handles all periodic boundaries. This is a
+ *     direct, non-iterative data copy that establishes the "wrap-around" state for
+ *     all relevant fields. This provides a fixed constraint for the subsequent steps.
+ * 
+ * 3.  **Update Corner Nodes:** After the loop, `UpdateCornerNodes` is called to
+ *     resolve the values at ghost cell edges and corners, using the now-final
+ *     values from both the periodic and non-periodic faces.
+ *
+ * 4.  **Final Ghost Synchronization:** Finally, it performs a global-to-local
+ *     update on all key fields to ensure that every processor's ghost-cell data
+ *     is fully consistent before the main solver proceeds.
+ *
+ * @param user The main UserCtx struct containing the complete simulation state.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    LOG_ALLOW(GLOBAL,LOG_TRACE,"Boundary Condition Application begins.\n");
+
+    // STEP 1: Main iteration loop for applying and converging non-periodic BCs.
+    // The number of iterations (e.g., 3) allows information to propagate
+    // between coupled boundaries, like an inlet and a conserving outlet.
+    for (PetscInt iter = 0; iter < 3; iter++) {
+        // (a) Execute the boundary system. This phase calculates fluxes across
+        //     the domain and then applies the physical logic for each non-periodic
+        //     handler, setting the `ubcs` (boundary value) array.
+        ierr = BoundarySystem_ExecuteStep(user); CHKERRQ(ierr);
+
+        LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Boundary Condition Setup Executed.\n");
+
+        // (b) Synchronize the updated ghost cells across all processors to ensure
+        //     all ucont values are current before updating the dummy cells.
+        ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
+
+        // (c) Convert updated Contravariant velocities to Cartesian velocities.
+        ierr = Contra2Cart(user); CHKERRQ(ierr);
+
+        // (d) Synchronize the updated Cartesian velocities across all processors
+        //     to ensure all ucat values are current before updating the dummy cells.
+        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+
+        // (e) If Wall functions are enabled, apply them now to adjust near-wall velocities.
+        if(user->simCtx->wallfunction){
+          // Apply wall function adjustments to the boundary velocities.
+          ierr = ApplyWallFunction(user); CHKERRQ(ierr);
+
+          // Synchronize the updated Cartesian velocities after wall function adjustments.
+          ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+
+          LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Wall Function Applied at Walls.\n");
+        }
+
+        // (f) Update the first layer of ghost cells for non-periodic faces using
+        //     the newly computed `ubcs` values.
+        ierr = UpdateDummyCells(user); CHKERRQ(ierr);
+
+        LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Dummy Cells/Ghost Cells Updated.\n");
+
+        // (g) Handle all periodic boundaries. This is a parallel direct copy
+        // that sets the absolute constraints for the rest of the solve.
+        // There is a Ghost update happening inside this function.
+        ierr = ApplyPeriodicBCs(user); CHKERRQ(ierr);
+
+        // (h) Update the corner and edge ghost nodes. This routine calculates
+        // values for corners/edges by averaging their neighbors, which have been
+        // finalized in the steps above (both periodic and non-periodic).
+        ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
+        
+        // (i) Synchronize the updated edge and corner cells across all processors to ensure
+        //     consistency before the next iteration or finalization.
+        ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
+
+        // (j) Ensure All the corners are synchronized with  a well defined protocol  in case of Periodic boundary conditions
+        // To avoid race conditions.
+        const char* all_fields[] = {"Ucat", "P", "Nvert"};
+        ierr = UpdatePeriodicCornerNodes(user,3,all_fields); CHKERRQ(ierr);
+
     }
-    DMDAVecRestoreArray(fda, user->lUcat, &lucat);
-    DMDAVecRestoreArray(da, user->lP, &lp);
-    DMDAVecRestoreArray(da, user->lNvert, &lnvert);
-    DMDAVecRestoreArray(fda, user->Ucat, &ucat);
-    DMDAVecRestoreArray(da, user->P, &p);
-    DMDAVecRestoreArray(da, user->Nvert, &nvert);
 
- /*  DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
-/*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
+    // STEP 3: Final ghost node synchronization. This ensures all changes made
+    // to the global vectors are reflected in the local ghost regions of all
+    // processors, making the state fully consistent before the next solver stage.
+    ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
 
-/*   DMLocalToGlobalBegin(da, user->lP, INSERT_VALUES, user->P); */
-/*   DMLocalToGlobalEnd(da, user->lP, INSERT_VALUES, user->P); */
-
-/*   DMLocalToGlobalBegin(da, user->lNvert, INSERT_VALUES, user->Nvert); */
-/*   DMLocalToGlobalEnd(da, user->lNvert, INSERT_VALUES, user->Nvert); */
-  
-    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-    
-    DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
-    DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-    
-    DMGlobalToLocalBegin(da, user->Nvert, INSERT_VALUES, user->lNvert);
-    DMGlobalToLocalEnd(da, user->Nvert, INSERT_VALUES, user->lNvert);
-    
-    //j-direction
-    DMDAVecGetArray(fda, user->lUcat,  &lucat);
-    DMDAVecGetArray(da, user->lP, &lp);
-    DMDAVecGetArray(da, user->lNvert, &lnvert);
-    DMDAVecGetArray(fda, user->Ucat,  &ucat);
-    DMDAVecGetArray(da, user->P, &p);
-    DMDAVecGetArray(da, user->Nvert, &nvert);
-    
-    if (user->bctype[2]==7){
-      if (ys==0){
-	j=ys;
-	for (k=zs; k<ze; k++) {
-	  for (i=xs; i<xe; i++) {
-	    ucat[k][j][i]=lucat[k][j-2][i];
-	    p[k][j][i]=lp[k][j-2][i];
-	    nvert[k][j][i]=lnvert[k][j-2][i];
-	  }
-	}
-      }
-    }
-    
-    if (user->bctype[3]==7){
-      if (ye==my){
-	j=my-1;
-	for (k=zs; k<ze; k++) {
-	  for (i=xs; i<xe; i++) {
-	    ucat[k][j][i]=lucat[k][j+2][i];
-	    p[k][j][i]=lp[k][j+2][i];
-	    nvert[k][j][i]=lnvert[k][j+2][i];
-	  }
-	}
-      }
-    }
-    
-    DMDAVecRestoreArray(fda, user->lUcat, &lucat);
-    DMDAVecRestoreArray(da, user->lP, &lp);
-    DMDAVecRestoreArray(da, user->lNvert, &lnvert);
-    DMDAVecRestoreArray(fda, user->Ucat, &ucat);
-    DMDAVecRestoreArray(da, user->P, &p);
-    DMDAVecRestoreArray(da, user->Nvert, &nvert);
-    
-/*   DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
-/*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
-
-/*   DMLocalToGlobalBegin(da, user->lP, INSERT_VALUES, user->P); */
-/*   DMLocalToGlobalEnd(da, user->lP, INSERT_VALUES, user->P); */
-
-/*   DMLocalToGlobalBegin(da, user->lNvert, INSERT_VALUES, user->Nvert); */
-/*   DMLocalToGlobalEnd(da, user->lNvert, INSERT_VALUES, user->Nvert); */
-
-    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-    
-    DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
-    DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-    
-    DMGlobalToLocalBegin(da, user->Nvert, INSERT_VALUES, user->lNvert);
-    DMGlobalToLocalEnd(da, user->Nvert, INSERT_VALUES, user->lNvert);
-    
-    //k-direction
-    DMDAVecGetArray(fda, user->lUcat,  &lucat);
-    DMDAVecGetArray(da, user->lP, &lp);
-    DMDAVecGetArray(da, user->lNvert, &lnvert);
-    DMDAVecGetArray(fda, user->Ucat,  &ucat);
-    DMDAVecGetArray(da, user->P, &p);
-    DMDAVecGetArray(da, user->Nvert, &nvert);
-    
-    if (user->bctype[4]==7){
-      if (zs==0){
-	k=zs;
-	for (j=ys; j<ye; j++) {
-	  for (i=xs; i<xe; i++) {
-	    ucat[k][j][i]=lucat[k-2][j][i];
-	    nvert[k][j][i]=lnvert[k-2][j][i]; 
-	    //amir   
-	      p[k][j][i]=lp[k-2][j][i];
-	  }
-	}
-      }
-    }
-    if (user->bctype[5]==7){
-      if (ze==mz){
-	k=mz-1;
-	for (j=ys; j<ye; j++) {
-	  for (i=xs; i<xe; i++) {
-	    ucat[k][j][i]=lucat[k+2][j][i];
-	    nvert[k][j][i]=lnvert[k+2][j][i];
-	      p[k][j][i]=lp[k+2][j][i];
-	  }
-	}
-      }
-    }
-    
-    DMDAVecRestoreArray(fda, user->lUcat, &lucat);
-    DMDAVecRestoreArray(da, user->lP, &lp);
-    DMDAVecRestoreArray(da, user->lNvert, &lnvert);
-    DMDAVecRestoreArray(fda, user->Ucat, &ucat);
-    DMDAVecRestoreArray(da, user->P, &p);
-    DMDAVecRestoreArray(da, user->Nvert, &nvert);
-    
-/*   DMLocalToGlobalBegin(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
-/*   DMLocalToGlobalEnd(fda, user->lUcat, INSERT_VALUES, user->Ucat); */
-
-/*   DMLocalToGlobalBegin(da, user->lP, INSERT_VALUES, user->P); */
-/*   DMLocalToGlobalEnd(da, user->lP, INSERT_VALUES, user->P); */
-
-/*   DMLocalToGlobalBegin(da, user->lNvert, INSERT_VALUES, user->Nvert); */
-/*   DMLocalToGlobalEnd(da, user->lNvert, INSERT_VALUES, user->Nvert); */
-
-    DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-    DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-    
-    DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
-    DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-    
-    DMGlobalToLocalBegin(da, user->Nvert, INSERT_VALUES, user->lNvert);
-    DMGlobalToLocalEnd(da, user->Nvert, INSERT_VALUES, user->lNvert);
-  }
-  /* ==================================================================================             */
-/*   Analytical Vortex BC */
-/* ==================================================================================             */
- 
-  DMDAVecGetArray(fda, user->Ucat, &ucat);
-  DMDAVecGetArray(fda, user->Ucont, &ucont);
-  DMDAVecGetArray(fda, user->Cent, &cent); 
-  DMDAVecGetArray(fda, user->Centx, &centx);
-  DMDAVecGetArray(fda, user->Centy, &centy);
-  DMDAVecGetArray(fda, user->Centz, &centz);
-
-  if (user->bctype[0]==9) {
-    if (xs==0) {
-      i= xs;
-      for (k=lzs; k<lze; k++) {
-	for (j=lys; j<lye; j++) {
-	  ucat[k][j][i].x=-cos(cent[k][j][i+1].x)*sin(cent[k][j][i+1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].y=-sin(cent[k][j][i+1].x)*cos(cent[k][j][i+1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].z =0.0;
-	 
-	  ucont[k][j][i].x =-(cos(centx[k][j][i].x)*sin(centx[k][j][i].y)*csi[k][j][i].x)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	}
-      }
-      if (ys==0) {
-	j=ys;
-	for (k=lzs; k<lze; k++) {
-	  ucat[k][j][i].x=cos(cent[k][j+1][i+1].x)*sin(cent[k][j+1][i+1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].y=-sin(cent[k][j+1][i+1].x)*cos(cent[k][j+1][i+1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].z =0.0;
-	}
-      }
-      if (ye==my) {
-	j=ye-1;
-	for (k=lzs; k<lze; k++) {
-	  ucat[k][j][i].x=cos(cent[k][j-1][i+1].x)*sin(cent[k][j-1][i+1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].y=-sin(cent[k][j-1][i+1].x)*cos(cent[k][j-1][i+1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].z =0.0;
-	}
-      }
-    }
-  }
-  if (user->bctype[1]==9) {
-    if (xe==mx) {
-      i= xe-1;
-      for (k=lzs; k<lze; k++) {
-	for (j=lys; j<lye; j++) {
-	  ucat[k][j][i].x=-cos(cent[k][j][i-1].x)*sin(cent[k][j][i-1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].y=-sin(cent[k][j][i-1].x)*cos(cent[k][j][i-1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].z =0.0;
-	
-	  ucont[k][j][i-1].x =(-cos(centx[k][j][i-1].x)*sin(centx[k][j][i-1].y)*csi[k][j][i-1].x)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	}
-      }
-      if (ys==0) {
-	j=ys;
-	for (k=lzs; k<lze; k++) {
-	  ucat[k][j][i].x=cos(cent[k][j+1][i-1].x)*sin(cent[k][j+1][i-1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].y=-sin(cent[k][j+1][i-1].x)*cos(cent[k][j+1][i-1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].z =0.0;
-	}
-      }
-      if (ye==my) {
-	j=ye-1;
-	for (k=lzs; k<lze; k++) {
-	  ucat[k][j][i].x=cos(cent[k][j-1][i-1].x)*sin(cent[k][j-1][i-1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].y=-sin(cent[k][j-1][i-1].x)*cos(cent[k][j-1][i-1].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].z =0.0;
-	}
-      }
-    }
-  }
-
-  if (user->bctype[2]==9) {
-    if (ys==0) {
-      j= ys;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	  ucat[k][j][i].x=cos(cent[k][j+1][i].x)*sin(cent[k][j+1][i].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].y=sin(cent[k][j+1][i].x)*cos(cent[k][j+1][i].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].z =0.0;
-
-	  ucont[k][j][i].y=(sin(centy[k][j][i].x)*cos(centy[k][j][i].y)*eta[k][j][i].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	}
-      }
-    }
-  }
- 
- 
-  if (user->bctype[3]==9) {
-    if (ye==my) {
-      j= ye-1;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	  ucat[k][j][i].x=cos(cent[k][j-1][i].x)*sin(cent[k][j-1][i].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].y=sin(cent[k][j-1][i].x)*cos(cent[k][j-1][i].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	  ucat[k][j][i].z =0.0;
-	
-	  ucont[k][j-1][i].y=(sin(centy[k][j-1][i].x)*cos(centy[k][j-1][i].y)*eta[k][j-1][i].y)*exp(-2.0*simCtx->dt*(simCtx->step+1)/simCtx->ren);
-	}
-      }
-    }
-  }
-  if (user->bctype[4]==9) {
-    if (zs==0) {
-      k= zs;
-      for (j=ys; j<ye; j++) {
-	for (i=xs; i<xe; i++) {
-	  ucat[k][j][i].x=ucat[k+1][j][i].x;
-	  ucat[k][j][i].y=ucat[k+1][j][i].y;
-	  ucat[k][j][i].z=ucat[k+1][j][i].z;
-
-	  ucont[k][j][i].z=0.0;
-	}
-      }
-    }
-  }
-  if (user->bctype[5]==9) {
-    if (ze==mz) {
-      k= ze-1;
-      for (j=ys; j<ye; j++) {
-	for (i=xs; i<xe; i++) {
-	  ucat[k][j][i].x=ucat[k-1][j][i].x;
-	  ucat[k][j][i].y=ucat[k-1][j][i].y;
-	  ucat[k][j][i].z=ucat[k-1][j][i].z;
-
-	  ucont[k-1][j][i].z=0.0;
-	}
-      }
-    }
-  }
-
-  DMDAVecRestoreArray(fda, user->Cent, &cent);
-  DMDAVecRestoreArray(fda, user->Centx, &centx);
-  DMDAVecRestoreArray(fda, user->Centy, &centy);
-  DMDAVecRestoreArray(fda, user->Centz, &centz);
-
-  DMDAVecRestoreArray(fda, user->Ucat,  &ucat);
-  DMDAVecRestoreArray(fda, user->Ucont,  &ucont);
- 
-  } // ttemp
-
- 
-  DMDAVecRestoreArray(fda, user->Bcs.Ubcs, &ubcs);
-  DMDAVecRestoreArray(fda, user->lCsi,  &csi);
-  DMDAVecRestoreArray(fda, user->lEta,  &eta);
-  DMDAVecRestoreArray(fda, user->lZet,  &zet);
-
-  DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
-  DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-  DMGlobalToLocalBegin(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-  DMGlobalToLocalEnd(fda, user->Ucat, INSERT_VALUES, user->lUcat);
-  DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont); 
-
-  PROFILE_FUNCTION_END;
-
-  PetscFunctionReturn(0);
-  }
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}

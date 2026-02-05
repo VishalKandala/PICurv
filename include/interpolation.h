@@ -39,14 +39,6 @@
       PetscReal ***: InterpolateFieldFromCornerToCenter_Scalar,                             \
       Cmpnts ***:    InterpolateFieldFromCornerToCenter_Vector                                \
     )(field, centfield, user) )
-
-/*
-#define InterpolateFieldFromCenterToCorner(centfield, field, info)         \
-  _Generic((centfield),                                                    \
-    PetscReal ***: InterpolateFieldFromCenterToCorner_Scalar,                \
-    Cmpnts ***:    InterpolateFieldFromCenterToCorner_Vector                  \
-  )(centfield, field, info)
-*/
   
 /**
  * @brief Macro to dispatch to the correct scalar or vector center-to-corner function
@@ -63,8 +55,8 @@
  */
 #define InterpolateFieldFromCenterToCorner(blockSize, centfield_ptr, corner_ptr, user_ctx) \
     ( (blockSize) == 1 ? \
-        InterpolateFieldFromCenterToCorner_Scalar_Petsc((PetscReal***)(centfield_ptr), (PetscReal***)(corner_ptr), (user_ctx)) : \
-        InterpolateFieldFromCenterToCorner_Vector_Petsc((Cmpnts***)(centfield_ptr), (Cmpnts***)(corner_ptr), (user_ctx)) \
+        InterpolateFieldFromCenterToCorner_Scalar((PetscReal***)(centfield_ptr), (PetscReal***)(corner_ptr), (user_ctx)) : \
+        InterpolateFieldFromCenterToCorner_Vector((Cmpnts***)(centfield_ptr), (Cmpnts***)(corner_ptr), (user_ctx)) \
     )
 
 
@@ -297,51 +289,24 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
     UserCtx *user);
 
 /**
- * @brief Interpolates a scalar field from cell centers to corner nodes.
+ * @brief Tests the InterpolateFieldFromCornerToCenter function by reproducing the Cent vector.
  *
- * This function estimates the value of a scalar field at each grid node by averaging
- * the values from the cell centers of the cells surrounding that node (up to 8).
- * It handles physical boundaries by averaging only the available adjacent cells.
+ * This function serves as a unit test. It performs the following steps:
+ * 1. Takes the corner-centered nodal coordinates (from DMGetCoordinatesLocal) as input.
+ * 2. Uses the `InterpolateFieldFromCornerToCenter` macro to interpolate these coordinates to
+ *    the cell centers, storing the result in a new temporary vector.
+ * 3. Compares this new vector with the `user->Cent` vector, which is assumed to have been
+ *    computed by `ComputeCellCentersAndSpacing` and serves as the ground truth.
+ * 4. A 2-norm of the difference is computed. If it is below a small tolerance, the test passes.
  *
- * Assumes input `centfield_arr` is from a ghosted local vector associated with `user->da` (DOF=1, s=2)
- * and output `field_arr` is from a ghosted local vector also associated with `user->da` (DOF=1, s=2).
- * Input array uses GLOBAL cell indices, output array uses GLOBAL node indices.
+ * @note This function should be called immediately after `ComputeCellCentersAndSpacing` has
+ *       been successfully executed.
  *
- * @param[in]  centfield_arr  Input: 3D array (ghosted) of scalar data at cell centers,
- *                            accessed via GLOBAL cell indices (k=0..KM-1, j=0..JM-1, i=0..IM-1).
- * @param[out] field_arr      Output: 3D array (ghosted) where interpolated node values are stored,
- *                            accessed via GLOBAL node indices (k=0..KM, j=0..JM, i=0..IM).
- * @param[in]  user           User context containing DMDA information (da).
- *
- * @return PetscErrorCode 0 on success.
+ * @param user The UserCtx for a specific grid level.
+ * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
  */
-PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(PetscReal ***field_arr,
-                                                  PetscReal ***centfield_arr,
-                                                  UserCtx *user);
+PetscErrorCode TestCornerToCenterInterpolation(UserCtx *user);
 
-/**
- * @brief Interpolates a vector field from cell centers to corner nodes.
- *
- * This function estimates the value of a vector field at each grid node by averaging
- * the vector values from the cell centers of the cells surrounding that node (up to 8).
- * It handles physical boundaries by averaging only the available adjacent cells.
- *
- * Assumes input `centfield_arr` is from a ghosted local vector (e.g., representing ucat,
- * stored using node-indexing convention) and output `field_arr` is a ghosted local
- * vector associated with `user->fda` (DOF=3, s=2), accessed using global node indices.
- *
- * @param[in]  centfield_arr  Input: 3D array (ghosted) of vector data conceptually at cell centers,
- *                            accessed via GLOBAL indices respecting the storage convention
- *                            (e.g., `ucat[k][j][i]` uses node index `i` but represents cell `C(i,j,k)` for interior).
- * @param[out] field_arr      Output: 3D array (ghosted) where interpolated node values are stored,
- *                            accessed via GLOBAL node indices (k=0..KM, j=0..JM, i=0..IM).
- * @param[in]  user           User context containing DMDA information (da and fda).
- *
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(Cmpnts ***field_arr,
-                                                  Cmpnts ***centfield_arr,
-                                                  UserCtx *user);
 
 /**
  * @brief Interpolates a vector field from cell centers to corner nodes.
@@ -356,7 +321,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(Cmpnts ***field_arr,
  *
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
+PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
     Cmpnts ***centfield_arr, /* Input: Ghosted local array from Vec (read) */
     Cmpnts ***corner_arr,    /* Output: Ghosted local array from Vec (write) */
     UserCtx *user);
@@ -374,7 +339,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector_Petsc(
  *
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar_Petsc(
+PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
     PetscReal ***centfield_arr, /* Input: Ghosted local array from Vec (read) */
     PetscReal ***corner_arr,    /* Output: Ghosted local array from Vec (write) */
     UserCtx *user);
@@ -397,6 +362,15 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar_Petsc(
 PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName,
                                     DM *targetDM, PetscInt *expected_dof);
 
+/**
+ * @brief Retrieves the persistent local vector (e.g., lPsi, lUcat) for a given field name.
+ * 
+ * @param user          User context containing the persistent vectors.
+ * @param fieldName     Name of the field ("Psi", "Ucat", etc.).
+ * @param localVec      Output pointer to the vector.
+ * @return PetscErrorCode 
+ */
+PetscErrorCode GetPersistentLocalVector(UserCtx *user, const char *fieldName, Vec *localVec);
 
 /**
  * @brief Accumulates a particle field (scalar or vector) into a target grid sum vector.

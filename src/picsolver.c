@@ -115,7 +115,7 @@ int main(int argc, char **argv)
   // Cleanly destroy all objects and free all memory.
 
   ierr = ProfilingFinalize(simCtx); CHKERRQ(ierr);
-  // ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
+  ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
   ierr = PetscFinalize();
 
   return ierr;

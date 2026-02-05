@@ -3,7 +3,7 @@
 
 #include "variables.h" // Provides definitions for UserCtx, UserMG, Vec, Mat, etc.
 #include "Metric.h"       // Provides some primitives necessary.
-
+#include "Boundaries.h"
 /*================================================================================*
  *                     HIGH-LEVEL POISSON SOLVER                                  *
  *================================================================================*/
@@ -53,6 +53,29 @@ extern PetscErrorCode PoissonRHS(UserCtx *user, Vec B);
  * @return PetscErrorCode 0 on success.
  */
 extern PetscErrorCode UpdatePressure(UserCtx *user);
+
+/**
+ * @brief Enforces a constant volumetric flux profile along the entire length of a driven periodic channel.
+ *
+ * This function is a "hard" corrector, called at the end of the projection step.
+ * The projection ensures the velocity field is divergence-free (3D continuity), but this
+ * function enforces a stricter 1D continuity condition (`Flux(plane) = constant`)
+ * required for physically realistic, fully-developed periodic channel/pipe flow.
+ *
+ * The process is as follows:
+ * 1.  Introspects the boundary condition handlers to detect if a `DRIVEN_` flow is active
+ *     and in which direction ('X', 'Y', or 'Z'). If none is found, it exits.
+ * 2.  Measures the current volumetric flux through *every single cross-sectional plane*
+ *     in the driven direction.
+ * 3.  For each plane, it calculates the velocity correction required to make its flux
+ *     match the global `targetVolumetricFlux` (which was set by the controller).
+ * 4.  It applies this spatially-uniform (but plane-dependent) velocity correction directly
+ *     to the `ucont` field, ensuring `Flux(plane) = TargetFlux` for all planes.
+ *
+ * @param user The UserCtx containing the simulation state for a single block.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode CorrectChannelFluxProfile(UserCtx *user);
 
 /**
  * @brief Corrects the contravariant velocity field `Ucont` to be divergence-free

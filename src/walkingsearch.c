@@ -639,12 +639,83 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
       }
     } else {
         // No valid previous cell ID (e.g., -1,-1,-1 or first time).
-        // Start from the first cell in the local owned grid domain.
-        *idx = info.xs;
-        *idy = info.ys;
-        *idz = info.zs;
-        LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle %lld has no valid previous cell. Starting search at local corner (%d, %d, %d).\n",
-                  (long long)particle->PID, *idx, *idy, *idz);
+        // IMPROVED: Use distance-based multi-seed approach to find the closest strategic cell.
+        // Sample the 6 face centers + volume center (7 total candidates) and start from the closest.
+
+        Cmpnts ***cent;
+
+        // Get local cell center array (lCent)
+        // For cell (i,j,k), the center is at cent[k+1][j+1][i+1]
+        ierr = DMDAVecGetArrayRead(user->fda, user->lCent, &cent); CHKERRQ(ierr);
+
+        // Define 7 strategic sampling points: 6 face centers + 1 volume center
+        PetscInt candidates[7][3];
+        const char* candidate_names[7] = {"X-min face", "X-max face", "Y-min face",
+                                          "Y-max face", "Z-min face", "Z-max face", "Volume center"};
+
+        // Calculate middle indices for each dimension
+        PetscInt mid_i = info.xs + (info.xm - 1) / 2;
+        PetscInt mid_j = info.ys + (info.ym - 1) / 2;
+        PetscInt mid_k = info.zs + (info.zm - 1) / 2;
+        PetscInt max_i = info.xs + info.xm - 2;
+        PetscInt max_j = info.ys + info.ym - 2;
+        PetscInt max_k = info.zs + info.zm - 2;
+
+        // Clamp max indices to ensure valid cells
+        if (max_i < info.xs) max_i = info.xs;
+        if (max_j < info.ys) max_j = info.ys;
+        if (max_k < info.zs) max_k = info.zs;
+
+        // X-min face center (i=min, j=mid, k=mid)
+        candidates[0][0] = info.xs; candidates[0][1] = mid_j; candidates[0][2] = mid_k;
+        // X-max face center (i=max, j=mid, k=mid)
+        candidates[1][0] = max_i; candidates[1][1] = mid_j; candidates[1][2] = mid_k;
+        // Y-min face center (i=mid, j=min, k=mid)
+        candidates[2][0] = mid_i; candidates[2][1] = info.ys; candidates[2][2] = mid_k;
+        // Y-max face center (i=mid, j=max, k=mid)
+        candidates[3][0] = mid_i; candidates[3][1] = max_j; candidates[3][2] = mid_k;
+        // Z-min face center (i=mid, j=mid, k=min)
+        candidates[4][0] = mid_i; candidates[4][1] = mid_j; candidates[4][2] = info.zs;
+        // Z-max face center (i=mid, j=mid, k=max)
+        candidates[5][0] = mid_i; candidates[5][1] = mid_j; candidates[5][2] = max_k;
+        // Volume center (i=mid, j=mid, k=mid)
+        candidates[6][0] = mid_i; candidates[6][1] = mid_j; candidates[6][2] = mid_k;
+
+        // Find the closest candidate cell
+        PetscReal min_distance = PETSC_MAX_REAL;
+        PetscInt best_candidate = 6; // Default to volume center
+
+        for (PetscInt i = 0; i < 7; i++) {
+            PetscInt ci = candidates[i][0];
+            PetscInt cj = candidates[i][1];
+            PetscInt ck = candidates[i][2];
+
+            // Get cell center coordinates: cent[k+1][j+1][i+1] for cell (i,j,k)
+            Cmpnts cell_center = cent[ck+1][cj+1][ci+1];
+
+            // Calculate Euclidean distance from particle to cell center
+            PetscReal dx = particle->loc.x - cell_center.x;
+            PetscReal dy = particle->loc.y - cell_center.y;
+            PetscReal dz = particle->loc.z - cell_center.z;
+            PetscReal distance = sqrt(dx*dx + dy*dy + dz*dz);
+
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "  Candidate %d (%s) at cell (%d,%d,%d): center=(%.3e,%.3e,%.3e), distance=%.3e\n",
+                      i, candidate_names[i], ci, cj, ck, cell_center.x, cell_center.y, cell_center.z, distance);
+
+            if (distance < min_distance) {
+                min_distance = distance;
+                best_candidate = i;
+                *idx = ci;
+                *idy = cj;
+                *idz = ck;
+            }
+        }
+
+        // Restore array
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCent, &cent); CHKERRQ(ierr);
+
+        LOG_ALLOW(LOCAL, LOG_INFO, "Particle %lld has no valid previous cell. Multi-seed search selected %s at cell (%d,%d,%d) with distance %.3e.\n",
+                  (long long)particle->PID, candidate_names[best_candidate], *idx, *idy, *idz, min_distance);
     }
 
     // Initialize traversal step counter
@@ -1185,11 +1256,44 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         traversal_steps++;
 
         // --- 2a. GLOBAL Domain Boundary Check ---
-        if (idx < 0 || idx >= (user->IM - 1) || idy < 0 || idy >= (user->JM - 1) || idz < 0 || idz >= (user->KM - 1)) {
-            LOG_ALLOW(LOCAL, LOG_WARNING, "[PID %lld]: Walked outside GLOBAL domain boundaries to invalid cell (%d,%d,%d). Search fails.\n",
+        // IMPROVED: Instead of failing immediately when hitting a boundary, clamp the indices
+        // to the boundary and continue searching. This allows the search to explore other
+        // directions that might lead to the particle.
+        PetscBool hit_boundary = PETSC_FALSE;
+        if (idx < 0) {
+            idx = 0;
+            hit_boundary = PETSC_TRUE;
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global i-min boundary, clamped to idx=0.\n", (long long)particle->PID);
+        }
+        if (idx >= (user->IM - 1)) {
+            idx = user->IM - 2;
+            hit_boundary = PETSC_TRUE;
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global i-max boundary, clamped to idx=%d.\n", (long long)particle->PID, idx);
+        }
+        if (idy < 0) {
+            idy = 0;
+            hit_boundary = PETSC_TRUE;
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global j-min boundary, clamped to idy=0.\n", (long long)particle->PID);
+        }
+        if (idy >= (user->JM - 1)) {
+            idy = user->JM - 2;
+            hit_boundary = PETSC_TRUE;
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global j-max boundary, clamped to idy=%d.\n", (long long)particle->PID, idy);
+        }
+        if (idz < 0) {
+            idz = 0;
+            hit_boundary = PETSC_TRUE;
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global k-min boundary, clamped to idz=0.\n", (long long)particle->PID);
+        }
+        if (idz >= (user->KM - 1)) {
+            idz = user->KM - 2;
+            hit_boundary = PETSC_TRUE;
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global k-max boundary, clamped to idz=%d.\n", (long long)particle->PID, idz);
+        }
+
+        if (hit_boundary) {
+            LOG_ALLOW(LOCAL, LOG_INFO, "[PID %lld]: Hit GLOBAL domain boundary. Clamped to boundary cell (%d,%d,%d) and continuing search.\n",
                       (long long)particle->PID, idx, idy, idz);
-            idx = -1; // Invalidate the result to signal failure
-            break;    // Exit the loop immediately
         }
 
         // --- 2b. LOCAL GHOST REGION CHECK (PREVENTS SEGV) ---

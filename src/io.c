@@ -299,7 +299,7 @@ PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
     else if (strcasecmp(str, "SYMMETRY")  == 0) *type_out = SYMMETRY;
     else if (strcasecmp(str, "INLET")     == 0) *type_out = INLET;
     else if (strcasecmp(str, "OUTLET")    == 0) *type_out = OUTLET;
-    else if (strcasecmp(str, "NOGRAD")    == 0) *type_out = NOGRAD;
+    else if (strcasecmp(str, "PERIODIC")  == 0) *type_out = PERIODIC;
     // ... add other BCTypes here ...
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown BC Type string: %s", str);
     return 0;
@@ -315,8 +315,10 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
     if      (strcasecmp(str, "noslip")              == 0) *handler_out = BC_HANDLER_WALL_NOSLIP;
     else if (strcasecmp(str, "constant_velocity")   == 0) *handler_out = BC_HANDLER_INLET_CONSTANT_VELOCITY;
     else if (strcasecmp(str, "conservation")        == 0) *handler_out = BC_HANDLER_OUTLET_CONSERVATION;
-    else if (strcasecmp(str, "allcopy")             == 0) *handler_out = BC_HANDLER_NOGRAD_COPY_GHOST;
     else if (strcasecmp(str, "parabolic")           == 0) *handler_out = BC_HANDLER_INLET_PARABOLIC;
+    else if (strcasecmp(str,"geometric")            == 0) *handler_out = BC_HANDLER_PERIODIC_GEOMETRIC;
+    else if (strcasecmp(str,"constant_flux")        == 0) *handler_out = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
+    else if (strcasecmp(str,"initial_flux")         == 0) *handler_out = BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX;
     // ... add other BCHandlerTypes here ...
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown BC Handler string: %s", str);
     return 0;
@@ -330,8 +332,8 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
  */
 PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
     switch (type) {
-        case NOGRAD:
-	    if(handler != BC_HANDLER_NOGRAD_COPY_GHOST) return PETSC_ERR_ARG_WRONG;
+        case OUTLET:
+	    if(handler != BC_HANDLER_OUTLET_CONSERVATION) return PETSC_ERR_ARG_WRONG;
 	    break;
         case WALL:
             if (handler != BC_HANDLER_WALL_NOSLIP && handler != BC_HANDLER_WALL_MOVING) return PETSC_ERR_ARG_WRONG;
@@ -339,6 +341,8 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
         case INLET:
             if (handler != BC_HANDLER_INLET_CONSTANT_VELOCITY && handler != BC_HANDLER_INLET_PARABOLIC) return PETSC_ERR_ARG_WRONG;
             break;
+        case PERIODIC:
+            if(handler != BC_HANDLER_PERIODIC_GEOMETRIC && handler != BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX && !handler != BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) return PETSC_ERR_ARG_WRONG;
         // ... add other validation cases here ...
         default: break;
     }
@@ -363,6 +367,42 @@ PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *valu
         if (strcasecmp(current->key, key) == 0) {
             *value_out = atof(current->value);
             *found = PETSC_TRUE;
+            return 0; // Found it, we're done
+        }
+        current = current->next;
+    }
+    return 0; // It's not an error to not find the key.
+}
+
+/**
+ * @brief Searches a BC_Param linked list for a key and returns its value as a bool.
+ * @param params The head of the BC_Param linked list.
+ * @param key The key to search for (case-insensitive).
+ * @param[out] value_out The found value, converted to a PetscBool.
+ * @param[out] found Set to PETSC_TRUE if the key was found, PETSC_FALSE otherwise.
+ * @return 0 on success.
+ */
+PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found) {
+    *found = PETSC_FALSE;
+    *value_out = PETSC_FALSE;
+    if (!key) return 0; // No key to search for
+
+    BC_Param *current = params;
+    while (current) {
+        if (strcasecmp(current->key, key) == 0) {
+                        // Key was found.
+            *found = PETSC_TRUE;
+            
+            // Check the value string. Default to FALSE if the value is NULL or doesn't match a "true" string.
+            if (current->value && 
+               (strcasecmp(current->value, "true") == 0 ||
+                strcmp(current->value, "1") == 0         ||
+                strcasecmp(current->value, "yes") == 0))
+            {
+                *value_out = PETSC_TRUE;
+            } else {
+                *value_out = PETSC_FALSE;
+            }
             return 0; // Found it, we're done
         }
         current = current->next;
@@ -567,6 +607,138 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
     }
 
     PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+//================================================================================
+//
+//                        PRIVATE HELPER FUNCTIONS
+//
+//================================================================================
+
+// ... (existing helper functions like FreeBC_ParamList, StringToBCFace, etc.) ...
+#undef __FUNCT__
+#define __FUNCT__ "DeterminePeriodicity"
+/**
+ * @brief Scans all block-specific boundary condition files to determine a globally
+ *        consistent periodicity for each dimension.
+ *
+ * This is a lightweight pre-parser intended to be called before DMDA creation.
+ * It ensures that the periodicity setting is consistent across all blocks, which is a
+ * physical requirement for the domain.
+ *
+ * 1. It collectively verifies that the mandatory BCS file for each block exists.
+ * 2. On MPI rank 0, it then iterates through the files.
+ * 3. It parses each line to extract the first (face) and second (type) tokens,
+ *    mimicking the main BC parser's tokenization logic.
+ * 4. It performs a direct, case-insensitive string comparison on the "type" token
+ *    to check if it is "PERIODIC". Other types are silently ignored.
+ * 5. It validates consistency (e.g., -Xi and +Xi match) and ensures all block files
+ *    specify the same global periodicity.
+ * 6. It broadcasts the final three flags (as integers 0 or 1) to all MPI ranks.
+ * 7. All ranks update the i_periodic, j_periodic, and k_periodic fields in their SimCtx.
+ *
+ * @param[in,out] simCtx The master SimCtx struct, containing the bcs_files list and
+ *                       where the final periodicity flags will be stored.
+ * @return PetscErrorCode 0 on success, error code on failure.
+ */
+PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank;
+    PetscInt       periodic_flags[3] = {0, 0, 0}; // Index 0:I, 1:J, 2:K
+
+    PetscFunctionBeginUser;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    // --- Part 1: Collectively verify all BCS files exist before proceeding ---
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        const char *bcs_filename = simCtx->bcs_files[bi];
+        if (!bcs_filename) SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "BCS filename for block %d is not set in SimCtx.", bi);
+        char desc_buf[256];
+        PetscBool file_exists;
+        snprintf(desc_buf, sizeof(desc_buf), "BCS file for block %d", bi);
+        ierr = VerifyPathExistence(bcs_filename, PETSC_FALSE, PETSC_FALSE, desc_buf, &file_exists); CHKERRQ(ierr);
+    }
+
+    // --- Part 2: Rank 0 does the parsing, since we know all files exist ---
+    if (rank == 0) {
+        PetscBool global_is_periodic[3] = {PETSC_FALSE, PETSC_FALSE, PETSC_FALSE};
+        PetscBool is_set = PETSC_FALSE;
+
+        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+            const char *bcs_filename = simCtx->bcs_files[bi];
+            FILE *file = fopen(bcs_filename, "r");
+
+            PetscBool face_is_periodic[6] = {PETSC_FALSE};
+            char line_buffer[1024];
+
+            while (fgets(line_buffer, sizeof(line_buffer), file)) {
+                char *current_pos = line_buffer;
+                while (isspace((unsigned char)*current_pos)) current_pos++;
+                if (*current_pos == '#' || *current_pos == '\0' || *current_pos == '\n') continue;
+
+                // --- Tokenize the line exactly like the main parser ---
+                char *face_str = strtok(current_pos, " \t\n\r");
+                char *type_str = strtok(NULL, " \t\n\r");
+
+                // If the line doesn't have at least two tokens, we can't determine the type.
+                if (!face_str || !type_str) continue;
+
+                // --- Perform a direct, non-erroring check on the mathematical type string ---
+                if (strcasecmp(type_str, "PERIODIC") == 0) {
+                    BCFace face_enum;
+                    // A malformed face string on a periodic line IS a fatal error.
+                    ierr = StringToBCFace(face_str, &face_enum); CHKERRQ(ierr);
+                    face_is_periodic[face_enum] = PETSC_TRUE;
+                }
+                // Any other type_str (e.g., "WALL", "INLET") is correctly and silently ignored.
+            }
+            fclose(file);
+
+            // --- Validate consistency within this file ---
+            if (face_is_periodic[BC_FACE_NEG_X] != face_is_periodic[BC_FACE_POS_X])
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent X-periodicity in file '%s' for block %d. Both -Xi and +Xi must be periodic or neither.", bcs_filename, bi);
+            if (face_is_periodic[BC_FACE_NEG_Y] != face_is_periodic[BC_FACE_POS_Y])
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent Y-periodicity in file '%s' for block %d. Both -Eta and +Eta must be periodic or neither.", bcs_filename, bi);
+            if (face_is_periodic[BC_FACE_NEG_Z] != face_is_periodic[BC_FACE_POS_Z])
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent Z-periodicity in file '%s' for block %d. Both -Zeta and +Zeta must be periodic or neither.", bcs_filename, bi);
+
+            PetscBool local_is_periodic[3] = {face_is_periodic[BC_FACE_NEG_X], face_is_periodic[BC_FACE_NEG_Y], face_is_periodic[BC_FACE_NEG_Z]};
+
+            // --- Validate consistency across block files ---
+            if (!is_set) {
+                global_is_periodic[0] = local_is_periodic[0];
+                global_is_periodic[1] = local_is_periodic[1];
+                global_is_periodic[2] = local_is_periodic[2];
+                is_set = PETSC_TRUE;
+            } else {
+                if (global_is_periodic[0] != local_is_periodic[0] || global_is_periodic[1] != local_is_periodic[1] || global_is_periodic[2] != local_is_periodic[2]) {
+                    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
+                            "Periodicity mismatch between blocks. Block 0 requires (I:%d, J:%d, K:%d), but block %d (file '%s') has (I:%d, J:%d, K:%d).",
+                            (int)global_is_periodic[0], (int)global_is_periodic[1], (int)global_is_periodic[2],
+                            bi, bcs_filename,
+                            (int)local_is_periodic[0], (int)local_is_periodic[1], (int)local_is_periodic[2]);
+                }
+            }
+        } // end loop over blocks
+
+        periodic_flags[0] = (global_is_periodic[0]) ? 1 : 0;
+        periodic_flags[1] = (global_is_periodic[1]) ? 1 : 0;
+        periodic_flags[2] = (global_is_periodic[2]) ? 1 : 0;
+
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Global periodicity determined: I-periodic=%d, J-periodic=%d, K-periodic=%d\n",
+                  periodic_flags[0], periodic_flags[1], periodic_flags[2]);
+    }
+
+    // --- Part 3: Broadcast the final flags from rank 0 to all other ranks ---
+    ierr = MPI_Bcast(periodic_flags, 3, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    // --- All ranks now update their SimCtx ---
+    simCtx->i_periodic = periodic_flags[0];
+    simCtx->j_periodic = periodic_flags[1];
+    simCtx->k_periodic = periodic_flags[2];
+
     PetscFunctionReturn(0);
 }
 
@@ -926,6 +1098,10 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    PetscInt globalSize;
    ierr = VecGetSize(field_vec,&globalSize);CHKERRQ(ierr);
 
+   DM         dm = NULL;
+   const char *dmtype = NULL;
+   Vec        nat = NULL;                 /* Natural-ordered vector for DMDA */
+
    /* -------------------- rank-0 : read the sequential file -------------- */
    Vec            seq_vec = NULL;      /* only valid on rank-0            */
    const PetscScalar *seqArray = NULL; /* borrowed pointer on rank-0 only */
@@ -963,42 +1139,73 @@ PetscErrorCode ReadFieldData(UserCtx *user,
                 "Rank 0 successfully loaded <%s>\n",filename);
    }
 
-   /* -------------------- everybody : broadcast raw data ----------------- */
-   PetscScalar *buffer = NULL;               /* receives the full field    */
-   if(rank==0)
-   {
-      /* shallow-copy: const-cast is safe, we do not modify the data        */
-      buffer = (PetscScalar *)seqArray;
+   /* -------------------- Check if this is a DMDA vector ----------------- */
+   ierr = VecGetDM(field_vec, &dm); CHKERRQ(ierr);
+   if (dm) { ierr = DMGetType(dm, &dmtype); CHKERRQ(ierr); }
+
+   if (dmtype && !strcmp(dmtype, DMDA)) {
+      /* ==================================================================
+       * DMDA PATH: File is in natural ordering, need to convert to global
+       * ================================================================== */
+
+      /* Create natural vector */
+      ierr = DMDACreateNaturalVector(dm, &nat); CHKERRQ(ierr);
+
+      /* Scatter from rank 0's seq_vec to all ranks' natural vector */
+      VecScatter scatter;
+      Vec nat_seq = NULL;  /* Sequential natural vector on rank 0 */
+
+      ierr = VecScatterCreateToZero(nat, &scatter, &nat_seq); CHKERRQ(ierr);
+
+      /* Reverse scatter: from rank 0 to all ranks */
+      ierr = VecScatterBegin(scatter, (rank == 0 ? seq_vec : nat_seq), nat,
+                             INSERT_VALUES, SCATTER_REVERSE); CHKERRQ(ierr);
+      ierr = VecScatterEnd(scatter, (rank == 0 ? seq_vec : nat_seq), nat,
+                           INSERT_VALUES, SCATTER_REVERSE); CHKERRQ(ierr);
+
+      /* Convert natural → global ordering */
+      ierr = DMDANaturalToGlobalBegin(dm, nat, INSERT_VALUES, field_vec); CHKERRQ(ierr);
+      ierr = DMDANaturalToGlobalEnd(dm, nat, INSERT_VALUES, field_vec); CHKERRQ(ierr);
+
+      /* Cleanup */
+      ierr = VecScatterDestroy(&scatter); CHKERRQ(ierr);
+      ierr = VecDestroy(&nat_seq); CHKERRQ(ierr);
+      ierr = VecDestroy(&nat); CHKERRQ(ierr);
+
+   } else {
+      /* ==================================================================
+       * NON-DMDA PATH: Use broadcast and direct copy (assumes global ordering)
+       * ================================================================== */
+
+      PetscScalar *buffer = NULL;
+      if (rank == 0) {
+         buffer = (PetscScalar *)seqArray;
+      } else {
+         ierr = PetscMalloc1(globalSize, &buffer); CHKERRQ(ierr);
+      }
+
+      ierr = MPI_Bcast(buffer, (int)globalSize, MPIU_SCALAR, 0, comm); CHKERRQ(ierr);
+
+      /* Copy slice based on ownership range */
+      PetscInt rstart, rend, loc;
+      PetscScalar *locArray;
+
+      ierr = VecGetOwnershipRange(field_vec, &rstart, &rend); CHKERRQ(ierr);
+      loc = rend - rstart;
+
+      ierr = VecGetArray(field_vec, &locArray); CHKERRQ(ierr);
+      ierr = PetscMemcpy(locArray, buffer + rstart, loc * sizeof(PetscScalar)); CHKERRQ(ierr);
+      ierr = VecRestoreArray(field_vec, &locArray); CHKERRQ(ierr);
+
+      if (rank != 0) {
+         ierr = PetscFree(buffer); CHKERRQ(ierr);
+      }
    }
-   else
-   { /* non-root ranks allocate a receive buffer                           */
-      ierr = PetscMalloc1(globalSize,&buffer);CHKERRQ(ierr);
-   }
-
-   ierr = MPI_Bcast(buffer, (int)globalSize, MPIU_SCALAR, 0, comm);CHKERRQ(ierr);
-
-   /* -------------------- copy my slice into field_vec ------------------- */
-   PetscInt  rstart,rend,loc;
-   PetscScalar *locArray;
-
-   ierr = VecGetOwnershipRange(field_vec,&rstart,&rend);CHKERRQ(ierr);
-   loc  = rend - rstart;                    /* local length               */
-
-   ierr = VecGetArray(field_vec,&locArray);CHKERRQ(ierr);
-   ierr = PetscMemcpy(locArray,
-                      buffer + rstart,
-                      loc*sizeof(PetscScalar));CHKERRQ(ierr);
-   ierr = VecRestoreArray(field_vec,&locArray);CHKERRQ(ierr);
 
    /* -------------------- tidy up ---------------------------------------- */
-   if(rank==0)
-   {
-      ierr = VecRestoreArrayRead(seq_vec,&seqArray);CHKERRQ(ierr);
-      ierr = VecDestroy(&seq_vec);CHKERRQ(ierr);
-   }
-   else
-   {
-      ierr = PetscFree(buffer);CHKERRQ(ierr);
+   if (rank == 0) {
+      ierr = VecRestoreArrayRead(seq_vec, &seqArray); CHKERRQ(ierr);
+      ierr = VecDestroy(&seq_vec); CHKERRQ(ierr);
    }
 
    LOG_ALLOW(GLOBAL,LOG_INFO,
@@ -1483,15 +1690,32 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     /* ------------------------------------------------------------ */
     VecScatter scatter;
     Vec        seq_vec=NULL;               /* created by PETSc, lives only on rank 0 */
+    DM         dm = NULL;
+    const char *dmtype = NULL;
+    Vec        nat = NULL;                 /* Natural-ordered vector for DMDA */
 
-    /* 2.1  Create gather context and buffer                        */
-    ierr = VecScatterCreateToZero(field_vec,&scatter,&seq_vec);CHKERRQ(ierr);
+    /* 2.1  Check if vector has DMDA and convert to natural ordering if needed */
+    ierr = VecGetDM(field_vec, &dm); CHKERRQ(ierr);
+    if (dm) { ierr = DMGetType(dm, &dmtype); CHKERRQ(ierr); }
+
+    if (dmtype && !strcmp(dmtype, DMDA)) {
+        /* DMDA path: convert to natural ordering first */
+        ierr = DMDACreateNaturalVector(dm, &nat); CHKERRQ(ierr);
+        ierr = DMDAGlobalToNaturalBegin(dm, field_vec, INSERT_VALUES, nat); CHKERRQ(ierr);
+        ierr = DMDAGlobalToNaturalEnd(dm, field_vec, INSERT_VALUES, nat); CHKERRQ(ierr);
+
+        /* Gather the natural-ordered vector */
+        ierr = VecScatterCreateToZero(nat, &scatter, &seq_vec); CHKERRQ(ierr);
+    } else {
+        /* Non-DMDA path: direct gather in global ordering */
+        ierr = VecScatterCreateToZero(field_vec, &scatter, &seq_vec); CHKERRQ(ierr);
+    }
 
     /* 2.2  Gather distributed → sequential (on rank 0)             */
-    ierr = VecScatterBegin(scatter,field_vec,seq_vec,
-                           INSERT_VALUES,SCATTER_FORWARD);CHKERRQ(ierr);
-    ierr = VecScatterEnd  (scatter,field_vec,seq_vec,
-                           INSERT_VALUES,SCATTER_FORWARD);CHKERRQ(ierr);
+    ierr = VecScatterBegin(scatter, (nat ? nat : field_vec), seq_vec,
+                           INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
+    ierr = VecScatterEnd(scatter, (nat ? nat : field_vec), seq_vec,
+                         INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
 
     /* 2.3  Rank 0 writes the file                                  */
     if (rank == 0) {
@@ -1517,6 +1741,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     /* 2.4  Cleanup                                                 */
     ierr = VecScatterDestroy(&scatter);CHKERRQ(ierr);
     ierr = VecDestroy(&seq_vec);CHKERRQ(ierr);
+    if (nat) { ierr = VecDestroy(&nat); CHKERRQ(ierr); }
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -2122,11 +2347,10 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             // user->global_domain_bbox.max_coords = global_max_coords;
         } else {
             // Fallback or warning if bboxlist is not available for global calculation
-            LOG_ALLOW(PETSC_COMM_SELF, LOG_WARNING, "(Rank 0) - bboxlist not provided or num_mpi_procs <=0; using user->bbox for domain bounds.\n");
+            LOG_ALLOW(LOCAL, LOG_WARNING, "(Rank 0) - bboxlist not provided or num_mpi_procs <=0; using user->bbox for domain bounds.\n");
 	    // global_min_coords = user->bbox.min_coords; // Use local bbox of rank 0 as fallback
 	    // global_max_coords = user->bbox.max_coords;
         }
-
 
         ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
@@ -2137,17 +2361,37 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (X)    : %.6f to %.6f\n", (double)global_min_coords.x, (double)global_max_coords.x); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (Y)    : %.6f to %.6f\n", (double)global_min_coords.y, (double)global_max_coords.y); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (Z)    : %.6f to %.6f\n", (double)global_min_coords.z, (double)global_max_coords.z); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------- Boundary Conditions --------------------\n"); CHKERRQ(ierr);
-	    const int face_name_width = 17; // Adjusted for longer names (Zeta,Eta,Xi)
-        const char* field_init_str = FieldInitializationToString(simCtx->FieldInitialization);
-        const char* particle_init_str = ParticleInitializationToString(simCtx->ParticleInitialization);
-        for (PetscInt i_face = 0; i_face < 6; ++i_face) {
-	    BCFace current_face = (BCFace)i_face;
-	    // The BCFaceToString will now return the Xi, Eta, Zeta versions
-	    const char* face_str = BCFaceToString(current_face); 
-	    const char* bc_type_str = BCTypeToString(user->boundary_faces[current_face].mathematical_type);    
-	    ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s\n", 
-			     face_name_width, face_str, bc_type_str); CHKERRQ(ierr);
+        if(strcmp(simCtx->eulerianSource,"load")==0 || strcmp(simCtx->eulerianSource,"solve")==0){
+            ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------- Boundary Conditions --------------------\n"); CHKERRQ(ierr);
+            const int face_name_width = 17; // Adjusted for longer names (Zeta,Eta,Xi)
+            for (PetscInt i_face = 0; i_face < 6; ++i_face) {
+                BCFace current_face = (BCFace)i_face;
+                // The BCFaceToString will now return the Xi, Eta, Zeta versions
+                const char* face_str = BCFaceToString(current_face); 
+                const char* bc_type_str = BCTypeToString(user->boundary_faces[current_face].mathematical_type);
+                const char* bc_handler_type_str = BCHandlerTypeToString(user->boundary_faces[current_face].handler_type);
+                if(user->boundary_faces[current_face].mathematical_type == INLET){
+                    if(user->boundary_faces[current_face].handler_type == BC_HANDLER_INLET_CONSTANT_VELOCITY){
+                        Cmpnts inlet_velocity = {0.0,0.0,0.0};
+                        PetscBool found;
+                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vx",&inlet_velocity.x,&found); CHKERRQ(ierr);
+                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vy",&inlet_velocity.y,&found); CHKERRQ(ierr);
+                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vz",&inlet_velocity.z,&found); CHKERRQ(ierr);
+                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - [%.4f,%.4f,%.4f]\n", 
+                        face_name_width, face_str, bc_type_str, bc_handler_type_str,inlet_velocity.x,inlet_velocity.y,inlet_velocity.z); CHKERRQ(ierr);
+                        } // Support for Other Inlet handlers can be added later
+                    } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX){
+                        PetscReal flux;
+                        PetscBool trimflag,foundflux,foundtrimflag;
+                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"target_flux",&flux,&foundflux); CHKERRQ(ierr);
+                        ierr = GetBCParamBool(user->boundary_faces[current_face].params,"apply_trim",&trimflag,&foundtrimflag); CHKERRQ(ierr);
+                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - [%.4f] - %s\n", 
+                        face_name_width, face_str, bc_type_str, bc_handler_type_str,flux,trimflag?"Trim Ucont":"No Trim"); CHKERRQ(ierr);
+                    } else{    
+                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s\n", 
+                                face_name_width, face_str, bc_type_str,bc_handler_type_str); CHKERRQ(ierr);
+                    }
+            }
         }
         ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------------------------------------------------\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Start Time                  : %.4f\n", (double)StartTime); CHKERRQ(ierr);
@@ -2156,25 +2400,33 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, " Total Steps to Run          : %d\n", StepsToRun); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Number of MPI Processes     : %d\n", num_mpi_procs); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %d\n", total_num_particles); CHKERRQ(ierr);
-	    ierr = PetscPrintf(PETSC_COMM_WORLD," Reynolds Number             : %le\n", simCtx->ren); CHKERRQ(ierr);
-	    ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
-	    ierr = PetscPrintf(PETSC_COMM_WORLD," CFL Number                  : %le\n", simCtx->cfl); CHKERRQ(ierr);
-	    ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESFlagToString(simCtx->les)); CHKERRQ(ierr);
-        if (simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) {
-            if (user->inletFaceDefined) {
-                ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : %s (Enum Val: %d)\n", BCFaceToString(user->identifiedInletBCFace), user->identifiedInletBCFace); CHKERRQ(ierr);
-            } else {
-                ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : --- (No INLET face identified)\n"); CHKERRQ(ierr);
+        if(strcmp(simCtx->eulerianSource,"solve")==0 || strcmp(simCtx->eulerianSource,"load")==0){
+            const char* field_init_str = FieldInitializationToString(simCtx->FieldInitialization);
+            const char* particle_init_str = ParticleInitializationToString(simCtx->ParticleInitialization);
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Reynolds Number             : %le\n", simCtx->ren); CHKERRQ(ierr);
+            //ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
+            if(strcmp(simCtx->eulerianSource,"solve")==0){
+                //ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
+                ierr = PetscPrintf(PETSC_COMM_WORLD," Momentum Equation Solver      : %s\n", MomentumSolverTypeToString(simCtx->mom_solver_type)); CHKERRQ(ierr);
+                ierr = PetscPrintf(PETSC_COMM_WORLD," Initial Pseudo-CFL    : %le\n", simCtx->pseudo_cfl); CHKERRQ(ierr);
+                ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
             }
-        }
+            if (simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) {
+                if (user->inletFaceDefined) {
+                    ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : %s (Enum Val: %d)\n", BCFaceToString(user->identifiedInletBCFace), user->identifiedInletBCFace); CHKERRQ(ierr);
+                } else {
+                    ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : --- (No INLET face identified)\n"); CHKERRQ(ierr);
+                }
+            }
 
-        ierr = PetscPrintf(PETSC_COMM_SELF, " Field Initialization Mode   : %s\n", field_init_str); CHKERRQ(ierr);
-        if (simCtx->FieldInitialization == 1) {
-	  ierr = PetscPrintf(PETSC_COMM_SELF, " Constant Velocity           : x - %.4f, y - %.4f, z - %.4f \n", (double)simCtx->InitialConstantContra.x,(double)simCtx->InitialConstantContra.y,(double)simCtx->InitialConstantContra.z ); CHKERRQ(ierr);
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Field Initialization Mode   : %s\n", field_init_str); CHKERRQ(ierr);
+            if (simCtx->FieldInitialization == 1) {
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Constant Velocity           : x - %.4f, y - %.4f, z - %.4f \n", (double)simCtx->InitialConstantContra.x,(double)simCtx->InitialConstantContra.y,(double)simCtx->InitialConstantContra.z ); CHKERRQ(ierr);
+            }
+        } else if(strcmp(simCtx->eulerianSource,"analytical")==0){
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Analytical Solution Type : %s\n", simCtx->AnalyticalSolutionType); CHKERRQ(ierr);
         }
-	
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);
     }

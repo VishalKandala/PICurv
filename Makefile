@@ -106,15 +106,15 @@ $(info Building for system: $(SYSTEM_NAME))
 # --- 3. Source & Object File Definitions ---
 # Explicitly list the object files required for each final executable.
 PICSOLVER_OBJS := $(addprefix $(OBJDIR)/, \
-                 picsolver.o setup.o logging.o grid.o io.o Metric.o \
-                 Boundaries.o wallfunction.o simulation.o walkingsearch.o \
+                 picsolver.o setup.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
+                 Boundaries.o BC_Handlers.o wallfunction.o simulation.o walkingsearch.o BodyForces.o\
                  ParticleSwarm.o ParticleMotion.o ParticlePhysics.o interpolation.o \
-                 initialcondition.o rhs.o solvers.o implicitsolvers.o poisson.o\
+                 initialcondition.o rhs.o solvers.o momentumsolvers.o poisson.o\
 				 les.o  Filter.o)
 
 POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
-                     postprocessor.o setup.o logging.o grid.o io.o Metric.o \
-                     Boundaries.o wallfunction.o postprocessing_kernels.o vtk_io.o \
+                     postprocessor.o setup.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
+                     Boundaries.o BC_Handlers.o wallfunction.o postprocessing_kernels.o vtk_io.o \
 					 ParticleSwarm.o ParticleMotion.o interpolation.o walkingsearch.o)
 
 # --- 4. Executable Definitions ---

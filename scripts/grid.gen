@@ -50,14 +50,208 @@ import numpy as np
 # Type alias for grid coordinates for clarity
 GridCoords = Tuple[np.ndarray, np.ndarray, np.ndarray]
 
+# Global variable to store computed stretch factors for reporting
+_computed_stretch_factors = {'i': 0.0, 'j': 0.0, 'k': 0.0}
+
+# --- NEW: Helper function for hyperbolic stretching ---
+def create_stretched_linspace(
+    num_points: int, stretch_factor: float,
+    min_val: float, max_val: float,
+    first_cell_start: float = None, first_cell_end: float = None
+) -> np.ndarray:
+    """!
+    @brief Generates a 1D array of points with hyperbolic tangent stretching.
+    @param num_points The number of points in the array.
+    @param stretch_factor Controls the intensity of clustering. A value of 0 means
+                          uniform spacing. Values > 1 create noticeable clustering
+                          at the boundaries.
+    @param min_val The minimum value of the output array.
+    @param max_val The maximum value of the output array.
+    @param first_cell_start Desired size of first cell at start (normalized). If specified,
+                            overrides stretch_factor for one-sided stretching from start.
+    @param first_cell_end Desired size of first cell at end (normalized). If specified,
+                          overrides stretch_factor for one-sided stretching from end.
+    @return A NumPy array with the stretched coordinates.
+    """
+    domain_length = max_val - min_val
+    num_cells = num_points - 1
+
+    if num_cells == 0:
+        return np.array([min_val])
+
+    # Determine stretching mode
+    use_geometric = first_cell_start is not None or first_cell_end is not None
+    use_hyperbolic = stretch_factor > 1e-6
+
+    # Mode 1: Only first cell specified (no stretch factor) - use geometric progression
+    if use_geometric and not use_hyperbolic:
+        if first_cell_start is not None and first_cell_end is not None:
+            # Two-sided stretching
+            n_half = num_cells // 2
+            # From start
+            r1 = compute_geometric_ratio(n_half, domain_length/2, first_cell_start)
+            dist1 = np.zeros(n_half + 1)
+            for i in range(n_half):
+                dist1[i+1] = dist1[i] + first_cell_start * r1**i
+            # From end
+            n_remain = num_cells - n_half
+            r2 = compute_geometric_ratio(n_remain, domain_length/2, first_cell_end)
+            dist2 = np.zeros(n_remain + 1)
+            for i in range(n_remain):
+                dist2[i+1] = dist2[i] + first_cell_end * r2**(n_remain-1-i)
+            # Combine and normalize
+            combined = np.concatenate([dist1[:-1], domain_length/2 + dist2])
+            combined = combined / combined[-1] * domain_length
+            return min_val + combined, 0.0  # No tanh stretch factor for geometric
+        elif first_cell_start is not None:
+            # One-sided from start
+            r = compute_geometric_ratio(num_cells, domain_length, first_cell_start)
+            dist = np.zeros(num_points)
+            for i in range(num_cells):
+                dist[i+1] = dist[i] + first_cell_start * r**i
+            # Normalize to exact domain length
+            dist = dist / dist[-1] * domain_length
+            return min_val + dist, 0.0  # No tanh stretch factor for geometric
+        else:
+            # One-sided from end
+            r = compute_geometric_ratio(num_cells, domain_length, first_cell_end)
+            dist = np.zeros(num_points)
+            for i in range(num_cells):
+                dist[i+1] = dist[i] + first_cell_end * r**(num_cells-1-i)
+            # Normalize to exact domain length
+            dist = dist / dist[-1] * domain_length
+            return min_val + dist, 0.0  # No tanh stretch factor for geometric
+
+    # Mode 2: Hyperbolic tangent stretching (with or without first cell constraint)
+    if not use_hyperbolic:
+        return np.linspace(min_val, max_val, num_points), 0.0
+
+    # Mode 2a: When first_cell is specified, find the stretch_factor that naturally produces it
+    # This maintains smooth tanh clustering without rescaling
+    if use_geometric:
+        # We need to find stretch_factor such that the tanh distribution naturally produces
+        # the desired first cell size. This is an inverse problem solved via bisection.
+
+        def compute_first_cell_for_stretch(sf):
+            """Helper: compute first cell size for a given stretch factor"""
+            if sf < 1e-10:
+                # Uniform spacing
+                return domain_length / num_cells
+            uniform = np.linspace(-1.0, 1.0, num_points)
+            stretched = np.tanh(sf * uniform) / np.tanh(sf)
+            pos = min_val + domain_length * (stretched + 1.0) / 2.0
+            return pos[1] - pos[0]  # First cell at start
+
+        # For symmetric tanh, first_cell_start == first_cell_end
+        # If they differ, we can't achieve it with symmetric tanh - fall back to geometric
+        if first_cell_start is not None and first_cell_end is not None:
+            if abs(first_cell_start - first_cell_end) / max(first_cell_start, first_cell_end) > 0.01:
+                # Asymmetric - fall back to geometric progression
+                print("WARNING: Asymmetric first cell sizes specified with tanh stretching.")
+                print("         Tanh is symmetric. Using geometric progression instead.")
+                return create_stretched_linspace(num_points, 0.0, min_val, max_val,
+                                                first_cell_start, first_cell_end)
+            target_first_cell = (first_cell_start + first_cell_end) / 2.0
+        elif first_cell_start is not None:
+            target_first_cell = first_cell_start
+        else:
+            target_first_cell = first_cell_end
+
+        # Use bisection to find the right stretch_factor
+        # For tanh, larger stretch_factor => smaller first cell
+        # We need to find sf such that compute_first_cell_for_stretch(sf) == target_first_cell
+
+        # Determine search bounds
+        # Uniform case: first_cell = domain_length / num_cells
+        uniform_first_cell = domain_length / num_cells
+
+        if target_first_cell >= uniform_first_cell * 0.999:
+            # Want uniform or nearly uniform spacing
+            stretch_factor = 0.0
+        else:
+            # Binary search for the right stretch_factor
+            sf_low, sf_high = 0.0, 20.0
+
+            # Check if target is achievable
+            max_first_cell = compute_first_cell_for_stretch(0.0)  # Uniform
+            min_first_cell = compute_first_cell_for_stretch(20.0)  # Highly stretched
+
+            if target_first_cell > max_first_cell * 1.01:
+                print(f"WARNING: Requested first cell ({target_first_cell:.6f}) larger than uniform ({max_first_cell:.6f}).")
+                print(f"         Using uniform spacing.")
+                stretch_factor = 0.0
+            elif target_first_cell < min_first_cell * 0.99:
+                print(f"WARNING: Requested first cell ({target_first_cell:.6f}) too small (min achievable: {min_first_cell:.6f}).")
+                print(f"         Using maximum stretching (sf=20.0).")
+                stretch_factor = 20.0
+            else:
+                # Bisection search
+                for _ in range(50):
+                    sf_mid = (sf_low + sf_high) / 2.0
+                    first_cell_mid = compute_first_cell_for_stretch(sf_mid)
+
+                    if abs(first_cell_mid - target_first_cell) < 1e-10:
+                        break
+
+                    if first_cell_mid > target_first_cell:
+                        # Need more stretching (larger sf)
+                        sf_low = sf_mid
+                    else:
+                        # Need less stretching (smaller sf)
+                        sf_high = sf_mid
+
+                stretch_factor = (sf_low + sf_high) / 2.0
+
+    # Now generate the tanh distribution with the (possibly adjusted) stretch_factor
+    uniform_dist = np.linspace(-1.0, 1.0, num_points)
+    stretched_dist = np.tanh(stretch_factor * uniform_dist) / np.tanh(stretch_factor)
+    positions = min_val + (max_val - min_val) * (stretched_dist + 1.0) / 2.0
+
+    return positions, stretch_factor
+
+def compute_geometric_ratio(num_cells: int, total_length: float, first_cell: float) -> float:
+    """!
+    @brief Computes geometric growth ratio for given first cell size.
+    @param num_cells Number of cells.
+    @param total_length Total domain length.
+    @param first_cell First cell dimension.
+    @return Geometric ratio r.
+    """
+    if num_cells == 1:
+        return 1.0
+
+    # Geometric series: L = a * (r^n - 1) / (r - 1)
+    # Solve for r using Newton-Raphson
+    r = 1.05  # Initial guess
+    for _ in range(100):
+        sum_geo = first_cell * (r**num_cells - 1.0) / (r - 1.0) if abs(r - 1.0) > 1e-10 else first_cell * num_cells
+        f = sum_geo - total_length
+        if abs(f) < 1e-12:
+            break
+        # Derivative
+        if abs(r - 1.0) > 1e-10:
+            df = first_cell * (num_cells * r**(num_cells-1) * (r - 1.0) - (r**num_cells - 1.0)) / (r - 1.0)**2
+        else:
+            df = first_cell * num_cells * (num_cells - 1) / 2.0
+        if abs(df) < 1e-12:
+            break
+        r_new = r - f / df
+        r = max(r_new, 1.0001)  # Keep r > 1
+
+    return r
+
 # --- Core Grid Generation Functions ---
 
 def cartesian_pipe_grid(
     ncells_i: int, ncells_j: int, ncells_k: int,
     side_lengths: List[float], Rc_factor: float,
     straight_factor: float, bend_angle_deg: float,
-    orientation: str, origin: List[float]
-) -> GridCoords:
+    orientation: str, origin: List[float],
+    stretch_i: float, stretch_j: float, stretch_k: float,  # --- MODIFIED ---
+    first_cell_i_start: float = None, first_cell_i_end: float = None,
+    first_cell_j_start: float = None, first_cell_j_end: float = None,
+    first_cell_k_start: float = None, first_cell_k_end: float = None
+) -> GridCoords: 
     """!
     @brief Generates a bent pipe grid by warping a Cartesian block.
     """
@@ -72,9 +266,44 @@ def cartesian_pipe_grid(
     total_len = L_in + L_bend + L_out
 
     IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
-    xi_vals = np.linspace(-0.5, 0.5, IM)
-    eta_vals = np.linspace(-0.5, 0.5, JM)
-    zeta_vals = np.linspace(0, 1, KM)
+
+    # --- MODIFIED: Use the stretching function for transverse coordinates ---
+    if (first_cell_i_start or first_cell_i_end) and stretch_i > 0:
+        print(f"Applying hyperbolic stretching in i-direction: auto-computing stretch factor to achieve first cell = {first_cell_i_start or first_cell_i_end} (initial guess: {stretch_i:.2f}).")
+    elif first_cell_i_start or first_cell_i_end:
+        print(f"Applying geometric stretching in i-direction (first cell: start={first_cell_i_start}, end={first_cell_i_end}).")
+    elif stretch_i > 0:
+        print(f"Applying hyperbolic stretching in i-direction (factor={stretch_i:.2f}).")
+
+    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
+        print(f"Applying hyperbolic stretching in j-direction: auto-computing stretch factor to achieve first cell = {first_cell_j_start or first_cell_j_end} (initial guess: {stretch_j:.2f}).")
+    elif first_cell_j_start or first_cell_j_end:
+        print(f"Applying geometric stretching in j-direction (first cell: start={first_cell_j_start}, end={first_cell_j_end}).")
+    elif stretch_j > 0:
+        print(f"Applying hyperbolic stretching in j-direction (factor={stretch_j:.2f}).")
+
+    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
+        print(f"Applying hyperbolic stretching in k-direction: auto-computing stretch factor to achieve first cell = {first_cell_k_start or first_cell_k_end} (initial guess: {stretch_k:.2f}).")
+    elif first_cell_k_start or first_cell_k_end:
+        print(f"Applying geometric stretching in k-direction (first cell: start={first_cell_k_start}, end={first_cell_k_end}).")
+    elif stretch_k > 0:
+        print(f"Applying hyperbolic stretching in k-direction (factor={stretch_k:.2f}).")
+
+    xi_vals, computed_stretch_i = create_stretched_linspace(IM, stretch_i, -0.5, 0.5, first_cell_i_start, first_cell_i_end)
+    eta_vals, computed_stretch_j = create_stretched_linspace(JM, stretch_j, -0.5, 0.5, first_cell_j_start, first_cell_j_end)
+    zeta_vals, computed_stretch_k = create_stretched_linspace(KM, stretch_k, 0, 1, first_cell_k_start, first_cell_k_end)
+
+    # Store computed stretch factors globally for reporting
+    global _computed_stretch_factors
+    _computed_stretch_factors = {'i': computed_stretch_i, 'j': computed_stretch_j, 'k': computed_stretch_k}
+
+    # Print computed stretch factors when first cell constraints are used
+    if (first_cell_i_start or first_cell_i_end) and stretch_i > 0:
+        print(f"  → Computed stretch factor for i-direction: {computed_stretch_i:.4f}")
+    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
+        print(f"  → Computed stretch factor for j-direction: {computed_stretch_j:.4f}")
+    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
+        print(f"  → Computed stretch factor for k-direction: {computed_stretch_k:.4f}")
 
     XI, ETA = np.meshgrid(xi_vals, eta_vals, indexing='ij')
     d_xi = side_i * XI
@@ -112,7 +341,6 @@ def cartesian_pipe_grid(
         Y[:,:,k] = yc + d_xi*v_xi[1] + d_eta*v_eta[1]
         Z[:,:,k] = zc + d_xi*v_xi[2] + d_eta*v_eta[2]
     
-    # Shift grid to align its minimum bounding box corner with the specified origin
     shift_x = origin[0] - np.min(X)
     shift_y = origin[1] - np.min(Y)
     shift_z = origin[2] - np.min(Z)
@@ -123,7 +351,11 @@ def bent_pipe_grid(
     ncells_phi: int, ncells_r: int, ncells_path: int,
     D: float, Rc_factor: float, straight_factor: float,
     bend_angle_deg: float, pinhole_factor: float,
-    orientation: str, origin: List[float]
+    orientation: str, origin: List[float],
+    stretch_i: float, stretch_j: float, stretch_k: float,  # --- MODIFIED ---
+    first_cell_i_start: float = None, first_cell_i_end: float = None,
+    first_cell_j_start: float = None, first_cell_j_end: float = None,
+    first_cell_k_start: float = None, first_cell_k_end: float = None
 ) -> GridCoords:
     """!
     @brief Generates a structured O-grid for a bent pipe.
@@ -133,9 +365,41 @@ def bent_pipe_grid(
     L_in = straight_factor*D; L_bend = Rc*bend_angle_rad; L_out = straight_factor*D
     total_len = L_in + L_bend + L_out
     IM, JM, KM = ncells_phi + 1, ncells_r + 1, ncells_path + 1
+
+    # --- MODIFIED: Apply stretching to the radial direction (j) ---
+    if first_cell_i_start or first_cell_i_end:
+        print("Note: first-cell-i (circumferential) is ignored for O-grid pipes.")
+    elif stretch_i > 0:
+        print("Note: stretch-i (circumferential) is ignored for O-grid pipes.")
+
+    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
+        print(f"Applying hyperbolic stretching in j-direction (radial): auto-computing stretch factor to achieve first cell = {first_cell_j_start or first_cell_j_end} (initial guess: {stretch_j:.2f}).")
+    elif first_cell_j_start or first_cell_j_end:
+        print(f"Applying geometric stretching in j-direction (radial, first cell: start={first_cell_j_start}, end={first_cell_j_end}).")
+    elif stretch_j > 0:
+        print(f"Applying hyperbolic stretching in j-direction (radial, factor={stretch_j:.2f}).")
+
+    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
+        print(f"Applying hyperbolic stretching in k-direction: auto-computing stretch factor to achieve first cell = {first_cell_k_start or first_cell_k_end} (initial guess: {stretch_k:.2f}).")
+    elif first_cell_k_start or first_cell_k_end:
+        print(f"Applying geometric stretching in k-direction (first cell: start={first_cell_k_start}, end={first_cell_k_end}).")
+    elif stretch_k > 0:
+        print(f"Applying hyperbolic stretching in k-direction (factor={stretch_k:.2f}).")
+
     phi_vals = np.linspace(0, 2 * np.pi, IM)
-    r_vals_norm = np.linspace(0, 1, JM)
-    zeta_vals = np.linspace(0, 1, KM)
+    r_vals_norm, computed_stretch_j = create_stretched_linspace(JM, stretch_j, 0, 1, first_cell_j_start, first_cell_j_end) # Radial direction
+    zeta_vals, computed_stretch_k = create_stretched_linspace(KM, stretch_k, 0, 1, first_cell_k_start, first_cell_k_end)
+
+    # Store computed stretch factors globally for reporting
+    global _computed_stretch_factors
+    _computed_stretch_factors = {'i': 0.0, 'j': computed_stretch_j, 'k': computed_stretch_k}
+
+    # Print computed stretch factors when first cell constraints are used
+    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
+        print(f"  → Computed stretch factor for j-direction: {computed_stretch_j:.4f}")
+    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
+        print(f"  → Computed stretch factor for k-direction: {computed_stretch_k:.4f}")
+    
     if 0 < pinhole_factor < 1: print(f"Applying pinhole with radius factor: {pinhole_factor}")
     pinhole_radius = pinhole_factor * Rp
     physical_r = pinhole_radius + r_vals_norm * (Rp - pinhole_radius)
@@ -171,7 +435,6 @@ def bent_pipe_grid(
         Y[:,:,k] = yc + disp_xi*v_xi[1] + disp_eta*v_eta[1]
         Z[:,:,k] = zc + disp_xi*v_xi[2] + disp_eta*v_eta[2]
         
-    # Shift grid to align its minimum bounding box corner with the specified origin
     shift_x = origin[0] - np.min(X)
     shift_y = origin[1] - np.min(Y)
     shift_z = origin[2] - np.min(Z)
@@ -181,32 +444,72 @@ def bent_pipe_grid(
 def generate_curvilinear_grid(
     ncells_i: int, ncells_j: int, ncells_k: int,
     x_min: float, x_max: float, y_min: float, y_max: float, z_min: float, z_max: float,
-    A: float, B: float, C: float, origin: List[float]
+    A: float, B: float, C: float, origin: List[float],
+    stretch_i: float, stretch_j: float, stretch_k: float,  # --- MODIFIED ---
+    first_cell_i_start: float = None, first_cell_i_end: float = None,
+    first_cell_j_start: float = None, first_cell_j_end: float = None,
+    first_cell_k_start: float = None, first_cell_k_end: float = None
 ) -> GridCoords:
     """!
     @brief Generates a 3D all-hexahedral grid by warping a Cartesian block.
     """
     print("Generating Warped Box Grid ---")
     IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
-    xi = np.linspace(0, 1, IM); eta = np.linspace(0, 1, JM); zeta = np.linspace(0, 1, KM)
+
+    # --- MODIFIED: Use the stretching function for all coordinates ---
+    if (first_cell_i_start or first_cell_i_end) and stretch_i > 0:
+        print(f"Applying hyperbolic stretching in i-direction: auto-computing stretch factor to achieve first cell = {first_cell_i_start or first_cell_i_end} (initial guess: {stretch_i:.2f}).")
+    elif first_cell_i_start or first_cell_i_end:
+        print(f"Applying geometric stretching in i-direction (first cell: start={first_cell_i_start}, end={first_cell_i_end}).")
+    elif stretch_i > 0:
+        print(f"Applying hyperbolic stretching in i-direction (factor={stretch_i:.2f}).")
+
+    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
+        print(f"Applying hyperbolic stretching in j-direction: auto-computing stretch factor to achieve first cell = {first_cell_j_start or first_cell_j_end} (initial guess: {stretch_j:.2f}).")
+    elif first_cell_j_start or first_cell_j_end:
+        print(f"Applying geometric stretching in j-direction (first cell: start={first_cell_j_start}, end={first_cell_j_end}).")
+    elif stretch_j > 0:
+        print(f"Applying hyperbolic stretching in j-direction (factor={stretch_j:.2f}).")
+
+    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
+        print(f"Applying hyperbolic stretching in k-direction: auto-computing stretch factor to achieve first cell = {first_cell_k_start or first_cell_k_end} (initial guess: {stretch_k:.2f}).")
+    elif first_cell_k_start or first_cell_k_end:
+        print(f"Applying geometric stretching in k-direction (first cell: start={first_cell_k_start}, end={first_cell_k_end}).")
+    elif stretch_k > 0:
+        print(f"Applying hyperbolic stretching in k-direction (factor={stretch_k:.2f}).")
+
+    xi, computed_stretch_i = create_stretched_linspace(IM, stretch_i, 0, 1, first_cell_i_start, first_cell_i_end)
+    eta, computed_stretch_j = create_stretched_linspace(JM, stretch_j, 0, 1, first_cell_j_start, first_cell_j_end)
+    zeta, computed_stretch_k = create_stretched_linspace(KM, stretch_k, 0, 1, first_cell_k_start, first_cell_k_end)
+
+    # Store computed stretch factors globally for reporting
+    global _computed_stretch_factors
+    _computed_stretch_factors = {'i': computed_stretch_i, 'j': computed_stretch_j, 'k': computed_stretch_k}
+
+    # Print computed stretch factors when first cell constraints are used
+    if (first_cell_i_start or first_cell_i_end) and stretch_i > 0:
+        print(f"  → Computed stretch factor for i-direction: {computed_stretch_i:.4f}")
+    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
+        print(f"  → Computed stretch factor for j-direction: {computed_stretch_j:.4f}")
+    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
+        print(f"  → Computed stretch factor for k-direction: {computed_stretch_k:.4f}")
+    
     XI, ETA, ZETA = np.meshgrid(xi, eta, zeta, indexing='ij')
     X_norm = (XI+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*ETA)+C*np.sin(2*np.pi*ZETA))
     Y_norm = (ETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ZETA))
     Z_norm = (ZETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ETA))
     
-    # Generate grid in local coordinates based on bounds
     X_local = x_min + (x_max-x_min)*X_norm
     Y_local = y_min + (y_max-y_min)*Y_norm
     Z_local = z_min + (z_max-z_min)*Z_norm
     
-    # Shift grid to align its minimum bounding box corner with the specified origin
     shift_x = origin[0] - np.min(X_local)
     shift_y = origin[1] - np.min(Y_local)
     shift_z = origin[2] - np.min(Z_local)
 
     return X_local + shift_x, Y_local + shift_y, Z_local + shift_z
 
-# --- Grid Analysis and Export Functions ---
+# --- Grid Analysis and Export Functions (UNCHANGED) ---
 def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
     """!
     @brief Performs a comprehensive quality analysis on the grid and returns a dictionary of metrics.
@@ -225,6 +528,34 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
     stats['bounds_x'] = (np.min(X), np.max(X))
     stats['bounds_y'] = (np.min(Y), np.max(Y))
     stats['bounds_z'] = (np.min(Z), np.max(Z))
+
+    # --- First Cell Dimensions ---
+    # Calculate first cell size at both ends of each direction
+    P = np.stack((X, Y, Z), axis=-1)
+
+    # i-direction: first cell at i=0 and i=IM-2 (averaged over j,k)
+    first_cells_i_start = np.linalg.norm(P[1,:,:,:] - P[0,:,:,:], axis=-1)
+    first_cells_i_end = np.linalg.norm(P[-1,:,:,:] - P[-2,:,:,:], axis=-1)
+    stats['first_cell_i_start'] = np.mean(first_cells_i_start)
+    stats['first_cell_i_end'] = np.mean(first_cells_i_end)
+
+    # j-direction: first cell at j=0 and j=JM-2 (averaged over i,k)
+    first_cells_j_start = np.linalg.norm(P[:,1,:,:] - P[:,0,:,:], axis=-1)
+    first_cells_j_end = np.linalg.norm(P[:,-1,:,:] - P[:,-2,:,:], axis=-1)
+    stats['first_cell_j_start'] = np.mean(first_cells_j_start)
+    stats['first_cell_j_end'] = np.mean(first_cells_j_end)
+
+    # k-direction: first cell at k=0 and k=KM-2 (averaged over i,j)
+    first_cells_k_start = np.linalg.norm(P[:,:,1,:] - P[:,:,0,:], axis=-1)
+    first_cells_k_end = np.linalg.norm(P[:,:,-1,:] - P[:,:,-2,:], axis=-1)
+    stats['first_cell_k_start'] = np.mean(first_cells_k_start)
+    stats['first_cell_k_end'] = np.mean(first_cells_k_end)
+
+    # --- Computed Stretch Factors ---
+    # Store the computed tanh stretch factors (if auto-computed)
+    stats['computed_stretch_i'] = _computed_stretch_factors['i']
+    stats['computed_stretch_j'] = _computed_stretch_factors['j']
+    stats['computed_stretch_k'] = _computed_stretch_factors['k']
 
     # --- Volume / Jacobian Checks ---
     ax=np.diff(X,axis=0)[:,:-1,:-1]; ay=np.diff(Y,axis=0)[:,:-1,:-1]; az=np.diff(Z,axis=0)[:,:-1,:-1]
@@ -287,7 +618,7 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
     stats['std_non_ortho'] = np.std(all_ortho_angles)
 
     return stats
-
+# ... (print_stats_to_console, export_stats_to_file, etc. are unchanged)
 def print_stats_to_console(stats: dict) -> None:
     """!
     @brief Prints a formatted summary of the grid quality analysis to the console.
@@ -303,7 +634,24 @@ def print_stats_to_console(stats: dict) -> None:
     print(f"Y range: [{stats.get('bounds_y', [0,0])[0]:.4f}, {stats.get('bounds_y', [0,0])[1]:.4f}]")
     print(f"Z range: [{stats.get('bounds_z', [0,0])[0]:.4f}, {stats.get('bounds_z', [0,0])[1]:.4f}]")
     print(f"Total Domain Volume: {stats.get('total_volume', 0.0):.6e}")
-    
+    print("\nFirst Cell Dimensions:")
+    print(f"i-direction: start={stats.get('first_cell_i_start', 0.0):.6e}, end={stats.get('first_cell_i_end', 0.0):.6e}")
+    print(f"j-direction: start={stats.get('first_cell_j_start', 0.0):.6e}, end={stats.get('first_cell_j_end', 0.0):.6e}")
+    print(f"k-direction: start={stats.get('first_cell_k_start', 0.0):.6e}, end={stats.get('first_cell_k_end', 0.0):.6e}")
+
+    # Print computed stretch factors if any are non-zero
+    stretch_i = stats.get('computed_stretch_i', 0.0)
+    stretch_j = stats.get('computed_stretch_j', 0.0)
+    stretch_k = stats.get('computed_stretch_k', 0.0)
+    if stretch_i > 0 or stretch_j > 0 or stretch_k > 0:
+        print("\nComputed Stretch Factors (tanh):")
+        if stretch_i > 0:
+            print(f"i-direction: {stretch_i:.4f}")
+        if stretch_j > 0:
+            print(f"j-direction: {stretch_j:.4f}")
+        if stretch_k > 0:
+            print(f"k-direction: {stretch_k:.4f}")
+
     print("\n[Primary CFD Quality Checks]")
     if stats.get('jacobian_consistent', False):
         print(f"Jacobian Sign Consistency: PASS")
@@ -311,7 +659,15 @@ def print_stats_to_console(stats: dict) -> None:
         print(f"Jacobian Sign Consistency: FAIL")
         print("** CRITICAL ERROR: Grid contains inverted cells. Solver will abort. **")
     print(f"Min/Max Cell Volume: [{stats.get('min_volume', 0.0):.6e}, {stats.get('max_volume', 0.0):.6e}]")
-    print(f"Max Volume Expansion Ratio: {stats.get('max_expansion_ratio', 0.0):.4f} (Ideal: ~1.0, Concern: >1.5)")
+    exp_ratio = stats.get('max_expansion_ratio', 0.0)
+    if exp_ratio < 1.05:
+        print(f"Max Volume Expansion Ratio: {exp_ratio:.4f} (Nearly uniform)")
+    elif exp_ratio < 1.3:
+        print(f"Max Volume Expansion Ratio: {exp_ratio:.4f} (Smooth clustering - good)")
+    elif exp_ratio < 1.5:
+        print(f"Max Volume Expansion Ratio: {exp_ratio:.4f} (Moderate clustering)")
+    else:
+        print(f"Max Volume Expansion Ratio: {exp_ratio:.4f} (Aggressive clustering - verify quality)")
     print(f"Non-Orthogonality [deg]: Max={stats.get('max_non_ortho', 0.0):.4f}, Avg={stats.get('avg_non_ortho', 0.0):.4f}, StdDev={stats.get('std_non_ortho', 0.0):.4f}")
     if stats.get('max_non_ortho', 0.0) > 70:
         print("** WARNING: High non-orthogonality detected. Solver accuracy may be affected. **")
@@ -342,6 +698,19 @@ def export_stats_to_file(filename: str, stats: dict) -> None:
             f.write(f"Y_Range = {stats.get('bounds_y', [0,0])[0]:.6e}, {stats.get('bounds_y', [0,0])[1]:.6e}\n")
             f.write(f"Z_Range = {stats.get('bounds_z', [0,0])[0]:.6e}, {stats.get('bounds_z', [0,0])[1]:.6e}\n")
             f.write(f"Total_Domain_Volume = {stats.get('total_volume', 0.0):.6e}\n\n")
+
+            f.write("[First Cell Dimensions]\n")
+            f.write(f"First_Cell_i_Start = {stats.get('first_cell_i_start', 0.0):.6e}\n")
+            f.write(f"First_Cell_i_End = {stats.get('first_cell_i_end', 0.0):.6e}\n")
+            f.write(f"First_Cell_j_Start = {stats.get('first_cell_j_start', 0.0):.6e}\n")
+            f.write(f"First_Cell_j_End = {stats.get('first_cell_j_end', 0.0):.6e}\n")
+            f.write(f"First_Cell_k_Start = {stats.get('first_cell_k_start', 0.0):.6e}\n")
+            f.write(f"First_Cell_k_End = {stats.get('first_cell_k_end', 0.0):.6e}\n\n")
+
+            f.write("[Computed Stretch Factors]\n")
+            f.write(f"Computed_Stretch_i = {stats.get('computed_stretch_i', 0.0):.6f}\n")
+            f.write(f"Computed_Stretch_j = {stats.get('computed_stretch_j', 0.0):.6f}\n")
+            f.write(f"Computed_Stretch_k = {stats.get('computed_stretch_k', 0.0):.6f}\n\n")
 
             f.write("[Primary CFD Quality Checks]\n")
             f.write(f"Jacobian_Sign_Consistent = {stats.get('jacobian_consistent', False)}\n")
@@ -388,7 +757,6 @@ def export_grid_to_vts_manual(filename: str, X: np.ndarray, Y: np.ndarray, Z: np
     except IOError as e: print(f"Error: Could not write to file '{filename}'.\n{e}", file=sys.stderr)
 
 # --- Main Command-Line Interface ---
-# --- Main Command-Line Interface ---
 def main() -> None:
     """!
     @brief Parses arguments and config file, then runs the grid generator.
@@ -402,6 +770,7 @@ Order of Precedence:
 2. Configuration file settings
 3. Built-in script defaults (lowest priority)
 """
+    # --- MODIFIED: Added stretching and first cell examples to epilog ---
     prog_epilog = """
 Usage Examples:
 -----------------
@@ -413,30 +782,48 @@ python3 grid.gen --config grid.cfg pipe --ncells-path 200
 
 # Run without a config file, using command-line args and built-in defaults
 python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
+
+# Generate a cpipe grid with hyperbolic clustering near the walls
+python3 grid.gen cpipe --ncells-i 32 --ncells-j 32 --stretch-i 2.5 --stretch-j 2.5
+
+# Generate a cpipe grid with specific first cell dimensions
+python3 grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 0.01 --first-cell-j-start 0.01
 """
     
-    # --- Step 1: Define the parsers. ---
     parser = argparse.ArgumentParser(description=prog_description, formatter_class=argparse.RawDescriptionHelpFormatter, epilog=prog_epilog)
     parser.add_argument("-c", "--config", help="Path to configuration file.", metavar="FILE")
     subparsers = parser.add_subparsers(dest='grid_type', title='Available Commands', metavar='COMMAND', help='Run "COMMAND -h" for more information.')
-
+    
+    # --- MODIFIED: Added stretch factors and first cell parameters to defaults ---
     default_map = {
         'cpipe': {
             'ncells_i': 16, 'ncells_j': 16, 'ncells_k': 100, 'side_lengths': [1.0, 1.0],
             'rc_factor': 4.0, 'straight_factor': 5.0, 'bend_angle': 90.0, 'orientation': 'xy',
             'origin': [0.0, 0.0, 0.0], 'show_stats': True, 'write_vtk': True,
+            'stretch_i': 0.0, 'stretch_j': 0.0, 'stretch_k': 0.0,
+            'first_cell_i_start': None, 'first_cell_i_end': None,
+            'first_cell_j_start': None, 'first_cell_j_end': None,
+            'first_cell_k_start': None, 'first_cell_k_end': None,
         },
         'pipe': {
             'ncells_phi': 24, 'ncells_r': 12, 'ncells_path': 100, 'diameter': 1.0,
             'rc_factor': 2.0, 'straight_factor': 5.0, 'bend_angle': 90.0,
             'pinhole_factor': 0.05, 'orientation': 'xy', 'origin': [0.0, 0.0, 0.0],
             'show_stats': True, 'write_vtk': True,
+            'stretch_i': 0.0, 'stretch_j': 0.0, 'stretch_k': 0.0,
+            'first_cell_i_start': None, 'first_cell_i_end': None,
+            'first_cell_j_start': None, 'first_cell_j_end': None,
+            'first_cell_k_start': None, 'first_cell_k_end': None,
         },
         'warp': {
             'ncells_i': 20, 'ncells_j': 20, 'ncells_k': 20, 'bounds_x': [0.0, 1.0],
             'bounds_y': [0.0, 1.0], 'bounds_z': [0.0, 1.0], 'amp_A': 0.1,
             'amp_B': 0.05, 'amp_C': 0.05, 'origin': [0.0, 0.0, 0.0],
             'show_stats': True, 'write_vtk': True,
+            'stretch_i': 0.0, 'stretch_j': 0.0, 'stretch_k': 0.0,
+            'first_cell_i_start': None, 'first_cell_i_end': None,
+            'first_cell_j_start': None, 'first_cell_j_end': None,
+            'first_cell_k_start': None, 'first_cell_k_end': None,
         }
     }
 
@@ -448,6 +835,20 @@ python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
     add_arg(parent, '--output', type=str, help="Output filename for PICGRID format.")
     add_arg(parent, '--origin', type=float, nargs=3, metavar=('X','Y','Z'), help="Set the [x,y,z] minimum corner of the grid's bounding box.")
     add_arg(parent, '--stats-file', type=str, help="Output filename for grid quality statistics report.")
+
+    # --- NEW: Added stretch factor arguments to the parent parser ---
+    add_arg(parent, '--stretch-i', type=float, help="Hyperbolic stretching factor in i-dir. 0=uniform, >1=clustered. (Default: 0.0)")
+    add_arg(parent, '--stretch-j', type=float, help="Hyperbolic stretching factor in j-dir. 0=uniform, >1=clustered. (Default: 0.0)")
+    add_arg(parent, '--stretch-k', type=float, help="Hyperbolic stretching factor in k-dir. 0=uniform, >1=clustered. (Default: 0.0)")
+
+    # --- NEW: Added first cell dimension arguments to the parent parser ---
+    add_arg(parent, '--first-cell-i-start', type=float, help="First cell dimension at i=0 (start).")
+    add_arg(parent, '--first-cell-i-end', type=float, help="First cell dimension at i=IM-1 (end).")
+    add_arg(parent, '--first-cell-j-start', type=float, help="First cell dimension at j=0 (start).")
+    add_arg(parent, '--first-cell-j-end', type=float, help="First cell dimension at j=JM-1 (end).")
+    add_arg(parent, '--first-cell-k-start', type=float, help="First cell dimension at k=0 (start).")
+    add_arg(parent, '--first-cell-k-end', type=float, help="First cell dimension at k=KM-1 (end).")
+
     stats_group = parent.add_mutually_exclusive_group()
     stats_group.add_argument('--show-stats', action='store_true', dest='show_stats', default=argparse.SUPPRESS, help="Print quality stats to console.")
     stats_group.add_argument('--no-show-stats', action='store_false', dest='show_stats', default=argparse.SUPPRESS, help="Suppress printing quality stats.")
@@ -487,13 +888,10 @@ python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
     add_arg(p_warp, '--amp-B',type=float)
     add_arg(p_warp, '--amp-C',type=float)
 
-    # --- Step 2: Manually build the final parameters with correct precedence ---
+    # --- Parameter precedence logic (UNCHANGED) ---
     cli_args = parser.parse_args()
-    
     grid_type = cli_args.grid_type
     config_params = {}
-    
-    # --- BUG FIX 1: Check if cli_args.config has a value, not just if it exists ---
     if cli_args.config:
         print(f"Reading settings from '{cli_args.config}' ---")
         config = configparser.ConfigParser(inline_comment_prefixes=('#', ';'))
@@ -501,17 +899,13 @@ python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
             config.read(cli_args.config)
             if not grid_type and config.sections():
                 grid_type = config.sections()[0]
-            
             if grid_type and config.has_section(grid_type):
                 config_params = dict(config.items(grid_type))
         else:
             print(f"Warning: Config file '{cli_args.config}' not found.", file=sys.stderr)
-
     if not grid_type:
         parser.error("A grid type must be specified on the command line or as the first section in a config file.")
-        
     params = default_map[grid_type].copy()
-
     active_subparser = subparsers.choices[grid_type]
     for key, value in config_params.items():
         for action in active_subparser._actions:
@@ -528,24 +922,47 @@ python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
                 except Exception:
                      parser.error(f"Invalid value for '{key}' from config file: '{value}'")
                 break
-    
-    # --- BUG FIX 2: Filter out None values from CLI args before updating ---
-    # This prevents `grid_type=None` from overwriting the value from the config file.
     cli_only_args = {k: v for k, v in vars(cli_args).items() if v is not None}
     params.update(cli_only_args)
-
     params['grid_type'] = grid_type
-    
     args = argparse.Namespace(**params)
     
-    # --- Step 3 & 4: Call generator and export ---
+    # --- MODIFIED: Pass new stretch arguments and first cell arguments to generator functions ---
     X, Y, Z = None, None, None
     if args.grid_type == 'cpipe':
-        X, Y, Z = cartesian_pipe_grid(ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k, side_lengths=args.side_lengths, Rc_factor=args.rc_factor, straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle, orientation=args.orientation, origin=args.origin)
+        X, Y, Z = cartesian_pipe_grid(
+            ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
+            side_lengths=args.side_lengths, Rc_factor=args.rc_factor,
+            straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle,
+            orientation=args.orientation, origin=args.origin,
+            stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
+            first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
+            first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
+            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end
+        )
     elif args.grid_type == 'pipe':
-        X, Y, Z = bent_pipe_grid(ncells_phi=args.ncells_phi, ncells_r=args.ncells_r, ncells_path=args.ncells_path, D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor, orientation=args.orientation, origin=args.origin)
+        X, Y, Z = bent_pipe_grid(
+            ncells_phi=args.ncells_phi, ncells_r=args.ncells_r, ncells_path=args.ncells_path,
+            D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor,
+            bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor,
+            orientation=args.orientation, origin=args.origin,
+            stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
+            first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
+            first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
+            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end
+        )
     elif args.grid_type == 'warp':
-        X, Y, Z = generate_curvilinear_grid(ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k, x_min=args.bounds_x[0], x_max=args.bounds_x[1], y_min=args.bounds_y[0], y_max=args.bounds_y[1], z_min=args.bounds_z[0], z_max=args.bounds_z[1], A=args.amp_A, B=args.amp_B, C=args.amp_C, origin=args.origin)
+        X, Y, Z = generate_curvilinear_grid(
+            ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
+            x_min=args.bounds_x[0], x_max=args.bounds_x[1],
+            y_min=args.bounds_y[0], y_max=args.bounds_y[1],
+            z_min=args.bounds_z[0], z_max=args.bounds_z[1],
+            A=args.amp_A, B=args.amp_B, C=args.amp_C, origin=args.origin,
+            stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
+            first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
+            first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
+            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end
+        )
 
     if X is None:
         print(f"Error: Grid generation failed for type '{args.grid_type}'.", file=sys.stderr)

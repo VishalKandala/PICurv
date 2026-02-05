@@ -107,11 +107,21 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
     for (k = zs; k < ze; k++) {
         for (j = ys; j < ye; j++) {
             for (i = xs; i < xe; i++) {
-                
-                // The crucial check to ensure we only modify interior nodes.
-                const PetscBool is_interior = (i > 0 && i < im_phys - 1 &&
-                                               j > 0 && j < jm_phys - 1 &&
-                                               k > 0 && k < km_phys - 1);
+
+                // Check to ensure we only set initial conditions for PHYSICAL cells, not ghost cells.
+                // Ghost cells (at indices 0 and n) will be set later by ApplyBoundaryConditions.
+                //
+                // Grid structure: For n physical grid points, DMDA has size n+1
+                //   - im_phys = mx - 1 = n (number of coordinate points, also equals number of cells + 1)
+                //   - Physical cell indices: [1, im_phys-1] = [1, n-1] (gives n-1 physical cells)
+                //   - Ghost cells at boundaries: index 0 and index im_phys (= n)
+                //
+                // Example: n=25 physical points → im_phys=25
+                //   - Physical cells: indices 1..24 (24 cells)
+                //   - Ghost cells: indices 0 and 25
+                const PetscBool is_interior = (i > 0 && i < im_phys &&
+                                               j > 0 && j < jm_phys &&
+                                               k > 0 && k < km_phys);
 
                 if (is_interior) {
                     Cmpnts ucont_val = {0.0, 0.0, 0.0}; // Default to zero velocity
@@ -258,8 +268,7 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
     PROFILE_FUNCTION_BEGIN;
 
     // This sequence ensures a fully consistent state for a single block.
-    // 1. Apply BCs using the information from InflowFlux/OutflowFlux.
-    ierr = FormBCS(user); CHKERRQ(ierr);
+    ierr = ApplyBoundaryConditions(user); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition applied.\n");
     // 2. Sync contravariant velocity field.
     ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
@@ -305,16 +314,10 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
 	LOG_ALLOW(GLOBAL,LOG_TRACE," Initializing Interior Ucont field.\n");
         ierr = SetInitialInteriorField(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
 	LOG_ALLOW(GLOBAL,LOG_TRACE," Interior Ucont field initialized.\n");
-	
-        // 2. Establish the initial boundary flux values and set inlet profiles.
-        //    This sequence is critical and comes directly from the legacy setup.
-	LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition Preparation steps initiated.\n");
-        ierr = InflowFlux(&user_finest[bi]); CHKERRQ(ierr);
-        ierr = OutflowFlux(&user_finest[bi]); CHKERRQ(ierr);
-	LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition Preparation steps completed.\n");
-        // 3. Apply all boundary conditions, convert to Cartesian, and sync ghosts.
-        LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition application and state finalization initiated.\n");
-        ierr = FinalizeBlockState(&user_finest[bi]); CHKERRQ(ierr);
+
+    // 2. Apply all boundary conditions, convert to Cartesian, and sync ghosts.
+    LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition application and state finalization initiated.\n");
+    ierr = FinalizeBlockState(&user_finest[bi]); CHKERRQ(ierr);
 	LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition application and state finalization complete.\n");
     }
 
@@ -354,11 +357,13 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
         // ReadSimulationFields handles all file I/O for one block.
         ierr = ReadSimulationFields(&user_finest[bi], simCtx->StartStep); CHKERRQ(ierr);
         
+        // Apply Boundary Conditions on Read fields
+        ierr = ApplyBoundaryConditions(&user_finest[bi]); CHKERRQ(ierr);
         // After reading from a file, the local ghost regions MUST be updated
         // to ensure consistency across process boundaries for the first time step.
-        ierr = UpdateLocalGhosts(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(&user_finest[bi], "Ucat"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(&user_finest[bi], "P"); CHKERRQ(ierr);
+        //ierr = UpdateLocalGhosts(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
+        //ierr = UpdateLocalGhosts(&user_finest[bi], "Ucat"); CHKERRQ(ierr);
+        //ierr = UpdateLocalGhosts(&user_finest[bi], "P"); CHKERRQ(ierr);
         // ... add ghost updates for any other fields read from file ...
     }
     
@@ -390,19 +395,27 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initializing Eulerian State ---\n");
 
     if (simCtx->StartStep > 0) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Starting from RESTART files (t=%.4f, step=%d).\n",
-                  simCtx->StartTime, simCtx->StartStep);
-        ierr = SetInitialFluidState_Load(simCtx); CHKERRQ(ierr);
-    } else {
+        if(strcmp(simCtx->eulerianSource,"analytical")==0){
+            LOG_ALLOW(GLOBAL,LOG_INFO,"Initializing Analytical Solution type: %s (t=%.4f, step=%d).\n",simCtx->AnalyticalSolutionType,simCtx->StartTime,simCtx->StartStep);
+            ierr = AnalyticalSolutionEngine(simCtx);
+        }
+        else{
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Starting from RESTART files (t=%.4f, step=%d).\n",
+                    simCtx->StartTime, simCtx->StartStep);
+            ierr = SetInitialFluidState_Load(simCtx); CHKERRQ(ierr);
+        }
+    } else { // StartStep = 0
         LOG_ALLOW(GLOBAL, LOG_INFO, "Performing a FRESH START (t=0, step=0).\n");
         if(strcmp(simCtx->eulerianSource,"solve")==0){
             ierr = SetInitialFluidState_FreshStart(simCtx); CHKERRQ(ierr);
         }else if(strcmp(simCtx->eulerianSource,"load")==0){
-            
             LOG_ALLOW(GLOBAL,LOG_INFO,"FRESH START in LOAD mode. Reading files (t=%.4f,step=%d).\n",
                       simCtx->StartTime,simCtx->StartStep);
-
             ierr=SetInitialFluidState_Load(simCtx);CHKERRQ(ierr);
+        }else if(strcmp(simCtx->eulerianSource,"analytical")==0){
+            LOG_ALLOW(GLOBAL,LOG_INFO,"FRESH START in ANALYTICAL mode. Initializing Analytical Solution type: %s (t=%.4f,step=%d).\n",
+                      simCtx->AnalyticalSolutionType,simCtx->StartTime,simCtx->StartStep);
+            ierr=AnalyticalSolutionEngine(simCtx);CHKERRQ(ierr);
         }
     }
 
@@ -416,6 +429,5 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Eulerian State Initialized and History Vectors Populated ---\n");
 
     PROFILE_FUNCTION_END;
-
     PetscFunctionReturn(0);
 }

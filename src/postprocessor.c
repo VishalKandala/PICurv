@@ -652,7 +652,7 @@ int main(int argc, char **argv)
     // === IIB. SET EXECUTION MODE (SOLVER vs POST-PROCESSOR) =====
     simCtx->exec_mode = EXEC_MODE_POSTPROCESSOR;
     // == IIC. CONFIGURE SIMULATION ENVIRONMENT & DIRECTORIES =====
-  ierr = SetupSimulationEnvironment(simCtx); CHKERRQ(ierr);
+    ierr = SetupSimulationEnvironment(simCtx); CHKERRQ(ierr);
     // === III. SETUP GRID & DATA STRUCTURES ===================================
     ierr = SetupGridAndSolvers(simCtx); CHKERRQ(ierr);
     // === IV. SETUP DOMAIN DECOMPOSITION INFORMATION =========================
@@ -729,7 +729,7 @@ int main(int argc, char **argv)
     
 
     // === VIII. FINALIZE =========================================================
-   // ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
+    ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
     ierr = ProfilingFinalize(simCtx); CHKERRQ(ierr);
     ierr = PetscFinalize();
     return ierr;

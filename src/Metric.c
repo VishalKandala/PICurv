@@ -438,6 +438,468 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "ApplyPeriodicCorrectionsToCellCentersAndSpacing"
+/**
+ * @brief Applies periodic boundary corrections to cell centers (Cent) and grid spacing (GridSpace).
+ *
+ * This function handles the special logic needed when periodic boundaries are present.
+ * For coarse grids (cgrid), it directly copies from ghost regions. For fine grids,
+ * it calculates the boundary values using the GridSpace information.
+ *
+ * @param user The UserCtx containing grid and field data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       xs = info.xs, xe = info.xs + info.xm;
+    PetscInt       ys = info.ys, ye = info.ys + info.ym;
+    PetscInt       zs = info.zs, ze = info.zs + info.zm;
+    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
+    Cmpnts       ***cent, ***lcent, ***gs;
+    PetscReal      delta;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // Check if any periodic boundaries exist
+    PetscBool has_periodic = PETSC_FALSE;
+    for (int i = 0; i < 6; i++) {
+        if (user->boundary_faces[i].mathematical_type == PERIODIC) {
+            has_periodic = PETSC_TRUE;
+            break;
+        }
+    }
+
+    if (!has_periodic) {
+        LOG_ALLOW(LOCAL, LOG_TRACE, "No periodic boundaries; skipping corrections for Cent/GridSpace.\n");
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Applying periodic corrections to Cent and GridSpace.\n");
+
+    // Must update ghosts first before applying corrections
+    ierr = UpdateLocalGhosts(user, "Cent"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "GridSpace"); CHKERRQ(ierr);
+
+    // --- X-direction periodic corrections ---
+    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || 
+        user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
+        
+        ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+
+        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) {
+            if (user->cgrid) {
+                for (PetscInt k=zs; k<ze; k++) {
+                    for (PetscInt j=ys; j<ye; j++) {
+                        cent[k][j][0] = lcent[k][j][-2];
+                    }
+                }
+            } else {
+                for (PetscInt k=zs; k<ze; k++) {
+                    for (PetscInt j=ys; j<ye; j++) {
+                        delta = (gs[k][j][1].x + gs[k][j][-2].x) / 2.0;
+                        cent[k][j][0].x = cent[k][j][1].x - delta;
+                        cent[k][j][0].y = cent[k][j][1].y;
+                        cent[k][j][0].z = cent[k][j][1].z;
+                    }
+                }
+            }
+        }
+
+        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) {
+            if (user->cgrid) {
+                for (PetscInt k=zs; k<ze; k++) {
+                    for (PetscInt j=ys; j<ye; j++) {
+                        cent[k][j][mx-1] = lcent[k][j][mx+1];
+                    }
+                }
+            } else {
+                for (PetscInt k=zs; k<ze; k++) {
+                    for (PetscInt j=ys; j<ye; j++) {
+                        delta = (gs[k][j][mx-2].x + gs[k][j][mx+1].x) / 2.0;
+                        cent[k][j][mx-1].x = cent[k][j][mx-2].x + delta;
+                        cent[k][j][mx-1].y = cent[k][j][mx-2].y;
+                        cent[k][j][mx-1].z = cent[k][j][mx-2].z;
+                    }
+                }
+            }
+        }
+
+        ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
+    }    
+    // --- Y-direction periodic corrections ---
+    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || 
+        user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
+        
+        ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+
+        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) {
+            if (user->cgrid) {
+                for (PetscInt k=zs; k<ze; k++) {
+                    for (PetscInt i=xs; i<xe; i++) {
+                        cent[k][0][i] = lcent[k][-2][i];
+                    }
+                }
+            } else {
+                for (PetscInt k=zs; k<ze; k++) {
+                    for (PetscInt i=xs; i<xe; i++) {
+                        delta = (gs[k][1][i].y + gs[k][-2][i].y) / 2.0;
+                        cent[k][0][i].x = cent[k][1][i].x;
+                        cent[k][0][i].y = cent[k][1][i].y - delta;
+                        cent[k][0][i].z = cent[k][1][i].z;
+                    }
+                }
+            }
+        }
+
+        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) {
+            if (user->cgrid) {
+                for (PetscInt k=zs; k<ze; k++) {
+                    for (PetscInt i=xs; i<xe; i++) {
+                        cent[k][my-1][i] = lcent[k][my+1][i];
+                    }
+                }
+            } else {
+                for (PetscInt k=zs; k<ze; k++) {
+                    for (PetscInt i=xs; i<xe; i++) {
+                        delta = (gs[k][my-2][i].y + gs[k][my+1][i].y) / 2.0;
+                        cent[k][my-1][i].x = cent[k][my-2][i].x;
+                        cent[k][my-1][i].y = cent[k][my-2][i].y + delta;
+                        cent[k][my-1][i].z = cent[k][my-2][i].z;
+                    }
+                }
+            }
+        }
+
+        ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
+
+    }
+
+    // --- Z-direction periodic corrections ---
+    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || 
+        user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
+        
+        ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+
+        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) {
+            if (user->cgrid) {
+                for (PetscInt j=ys; j<ye; j++) {
+                    for (PetscInt i=xs; i<xe; i++) {
+                        cent[0][j][i] = lcent[-2][j][i];
+                    }
+                }
+            } else {
+                for (PetscInt j=ys; j<ye; j++) {
+                    for (PetscInt i=xs; i<xe; i++) {
+                        delta = (gs[1][j][i].z + gs[-2][j][i].z) / 2.0;
+                        cent[0][j][i].x = cent[1][j][i].x;
+                        cent[0][j][i].y = cent[1][j][i].y;
+                        cent[0][j][i].z = cent[1][j][i].z - delta;
+                    }
+                }
+            }
+        }
+
+        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) {
+            if (user->cgrid) {
+                for (PetscInt j=ys; j<ye; j++) {
+                    for (PetscInt i=xs; i<xe; i++) {
+                        cent[mz-1][j][i] = lcent[mz+1][j][i];
+                    }
+                }
+            } else {
+                for (PetscInt j=ys; j<ye; j++) {
+                    for (PetscInt i=xs; i<xe; i++) {
+                        delta = (gs[mz-2][j][i].z + gs[mz+1][j][i].z) / 2.0;
+                        cent[mz-1][j][i].x = cent[mz-2][j][i].x;
+                        cent[mz-1][j][i].y = cent[mz-2][j][i].y;
+                        cent[mz-1][j][i].z = cent[mz-2][j][i].z + delta;
+                    }
+                }
+            }
+        }
+
+        ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
+
+    }
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyPeriodicCorrectionsToIFaceCenter"
+/**
+ * @brief Applies periodic boundary corrections to i-face centers (Centx).
+ *
+ * Only X-direction periodicity affects Centx. This function must be called
+ * after Centx has been initially computed but before it's used for metric calculations.
+ *
+ * @param user The UserCtx containing grid and field data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       xs = info.xs, xe = info.xs + info.xm;
+    PetscInt       mx = info.mx;
+    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
+    PetscInt       gys = info.gys, gye = info.gys + info.gym;
+    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
+    Cmpnts       ***centx, ***gs;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // Check if X-periodic boundaries exist
+    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC && 
+        user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC) {
+        LOG_ALLOW(LOCAL, LOG_TRACE, "No X-periodic boundaries; skipping Centx corrections.\n");
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Applying X-periodic corrections to Centx.\n");
+
+    ierr = DMDAVecGetArray(user->fda, user->Centx, &centx); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+
+    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) {
+        if (user->cgrid) {
+            for (PetscInt k=gzs+1; k<gze; k++) {
+                for (PetscInt j=gys+1; j<gye; j++) {
+                    centx[k][j][-1].x = centx[k][j][-3].x;
+                    centx[k][j][-1].y = centx[k][j][-3].y;
+                    centx[k][j][-1].z = centx[k][j][-3].z;
+                }
+            }
+        } else {
+            for (PetscInt k=gzs+1; k<gze; k++) {
+                for (PetscInt j=gys+1; j<gye; j++) {
+                    centx[k][j][-1].x = centx[k][j][0].x - gs[k][j][-2].x;
+                    centx[k][j][-1].y = centx[k][j][0].y;
+                    centx[k][j][-1].z = centx[k][j][0].z;
+                }
+            }
+        }
+    }
+
+    if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) {
+        if (user->cgrid) {
+            for (PetscInt k=gzs+1; k<gze; k++) {
+                for (PetscInt j=gys+1; j<gye; j++) {
+                    centx[k][j][mx-1].x = centx[k][j][mx+1].x;
+                    centx[k][j][mx-1].y = centx[k][j][mx+1].y;
+                    centx[k][j][mx-1].z = centx[k][j][mx+1].z;
+                }
+            }
+        } else {
+            for (PetscInt k=gzs+1; k<gze; k++) {
+                for (PetscInt j=gys+1; j<gye; j++) {
+                    centx[k][j][mx-1].x = centx[k][j][mx-2].x + gs[k][j][mx+1].x;
+                    centx[k][j][mx-1].y = centx[k][j][mx-2].y;
+                    centx[k][j][mx-1].z = centx[k][j][mx-2].z;
+                }
+            }
+        }
+    }
+
+    ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Centx, &centx); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyPeriodicCorrectionsToJFaceCenter"
+/**
+ * @brief Applies periodic boundary corrections to j-face centers (Centy).
+ *
+ * Only Y-direction periodicity affects Centy. This function must be called
+ * after Centy has been initially computed but before it's used for metric calculations.
+ *
+ * @param user The UserCtx containing grid and field data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       ys = info.ys, ye = info.ys + info.ym;
+    PetscInt       my = info.my;
+    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
+    PetscInt       gys = info.gys, gye = info.gys + info.gym;
+    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
+    Cmpnts       ***centy, ***gs;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // Check if Y-periodic boundaries exist
+    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC && 
+        user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC) {
+        LOG_ALLOW(LOCAL, LOG_TRACE, "No Y-periodic boundaries; skipping Centy corrections.\n");
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Applying Y-periodic corrections to Centy.\n");
+
+    ierr = DMDAVecGetArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+
+    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) {
+        if (user->cgrid) {
+            for (PetscInt k=gzs+1; k<gze; k++) {
+                for (PetscInt i=gxs+1; i<gxe; i++) {
+                    centy[k][-1][i].x = centy[k][-3][i].x;
+                    centy[k][-1][i].y = centy[k][-3][i].y;
+                    centy[k][-1][i].z = centy[k][-3][i].z;
+                }
+            }
+        } else {
+            for (PetscInt k=gzs+1; k<gze; k++) {
+                for (PetscInt i=gxs+1; i<gxe; i++) {
+                    centy[k][-1][i].x = centy[k][0][i].x;
+                    centy[k][-1][i].y = centy[k][0][i].y - gs[k][-2][i].y;
+                    centy[k][-1][i].z = centy[k][0][i].z;
+                }
+            }
+        }
+    }
+
+    if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) {
+        if (user->cgrid) {
+            for (PetscInt k=gzs+1; k<gze; k++) {
+                for (PetscInt i=gxs+1; i<gxe; i++) {
+                    centy[k][my-1][i].x = centy[k][my+1][i].x;
+                    centy[k][my-1][i].y = centy[k][my+1][i].y;
+                    centy[k][my-1][i].z = centy[k][my+1][i].z;
+                }
+            }
+        } else {
+            for (PetscInt k=gzs+1; k<gze; k++) {
+                for (PetscInt i=gxs+1; i<gxe; i++) {
+                    centy[k][my-1][i].x = centy[k][my-2][i].x;
+                    centy[k][my-1][i].y = centy[k][my-2][i].y + gs[k][my+1][i].y;
+                    centy[k][my-1][i].z = centy[k][my-2][i].z;
+                }
+            }
+        }
+    }
+
+    ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyPeriodicCorrectionsToKFaceCenter"
+/**
+ * @brief Applies periodic boundary corrections to k-face centers (Centz).
+ *
+ * Only Z-direction periodicity affects Centz. This function must be called
+ * after Centz has been initially computed but before it's used for metric calculations.
+ *
+ * @param user The UserCtx containing grid and field data.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo  info = user->info;
+    PetscInt       zs = info.zs, ze = info.zs + info.zm;
+    PetscInt       mz = info.mz;
+    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
+    PetscInt       gys = info.gys, gye = info.gys + info.gym;
+    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
+    Cmpnts       ***centz, ***gs;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    // Check if Z-periodic boundaries exist
+    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC && 
+        user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC) {
+        LOG_ALLOW(LOCAL, LOG_TRACE, "No Z-periodic boundaries; skipping Centz corrections.\n");
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Applying Z-periodic corrections to Centz.\n");
+
+    ierr = DMDAVecGetArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+
+    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) {
+        if (user->cgrid) {
+            for (PetscInt j=gys+1; j<gye; j++) {
+                for (PetscInt i=gxs+1; i<gxe; i++) {
+                    centz[-1][j][i].x = centz[-3][j][i].x;
+                    centz[-1][j][i].y = centz[-3][j][i].y;
+                    centz[-1][j][i].z = centz[-3][j][i].z;
+                }
+            }
+        } else {
+            for (PetscInt j=gys+1; j<gye; j++) {
+                for (PetscInt i=gxs+1; i<gxe; i++) {
+                    centz[-1][j][i].x = centz[0][j][i].x;
+                    centz[-1][j][i].y = centz[0][j][i].y;
+                    centz[-1][j][i].z = centz[0][j][i].z - gs[-2][j][i].z;
+                }
+            }
+        }
+    }
+
+    if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) {
+        if (user->cgrid) {
+            for (PetscInt j=gys+1; j<gye; j++) {
+                for (PetscInt i=gxs+1; i<gxe; i++) {
+                    centz[mz-1][j][i].x = centz[mz+1][j][i].x;
+                    centz[mz-1][j][i].y = centz[mz+1][j][i].y;
+                    centz[mz-1][j][i].z = centz[mz+1][j][i].z;
+                }
+            }
+        } else {
+            for (PetscInt j=gys+1; j<gye; j++) {
+                for (PetscInt i=gxs+1; i<gxe; i++) {
+                    centz[mz-1][j][i].x = centz[mz-2][j][i].x;
+                    centz[mz-1][j][i].y = centz[mz-2][j][i].y;
+                    centz[mz-1][j][i].z = centz[mz-2][j][i].z + gs[mz+1][j][i].z;
+                }
+            }
+        }
+    }
+
+    ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "ComputeFaceMetrics"
 /**
  * @brief Computes the primary face metric components (Csi, Eta, Zet), including
@@ -451,6 +913,35 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
  *           from the nearest computed interior face.
  *        4. Assembles the global `user->Csi`, `user->Eta`, `user->Zet` Vecs.
  *        5. Updates the local ghosted `user->lCsi`, `user->lEta`, `user->lZet` Vecs.
+ * * @details
+ * This function calculates the face area vectors, which are fundamental to the finite volume
+ * method on a curvilinear grid. The process is performed in two main stages to ensure
+ * robustness and correctness across the entire domain, including physical boundaries.
+ *
+ * **Stage 1: Interior Face Calculation**
+ * The core of the function uses centered finite-difference stencils on the nodal coordinates (`coor`)
+ * to compute the metric terms. For example, `csi` at a node `(k,j,i)` is calculated using a
+ * 2x2 stencil of nodes in the J-K plane.
+ *
+ * Crucially, these stencils are only valid for **interior nodes/faces** where all required neighboring
+ * nodes exist. The loops are intentionally constructed (e.g., `i_loop_start = 1`) to skip the
+ * calculation directly on the domain's physical boundaries (e.g., at i=0, j=0, etc.), as the
+ * stencil would require out-of-bounds data.
+ *
+ * **Stage 2: Boundary Face Extrapolation**
+ * After the interior metrics are computed, the values for the faces lying on the physical
+ * boundaries of the domain are populated. This is done via zero-order extrapolation, which
+ * simply means **copying the values from the nearest valid interior face layer.**
+ *
+ * For example, on a rank owning the global `i=0` boundary, `zet_arr[k][j][0]` is explicitly set to
+ * be equal to `zet_arr[k][j][1]`. Similarly, on a rank owning the `i=mx-1` boundary,
+ * `zet_arr[k][j][mx-1]` is set to `zet_arr[k][j][mx-2]`.
+ *
+ * This two-stage approach ensures that every node in the physical domain, including the
+ * boundaries, has a valid metric value associated with it.
+ *
+ * The function concludes by assembling the global PETSc vectors and updating the local ghosted
+ * versions, making the computed metrics ready for use by the solver.
  *
  * @param[in,out] user             Pointer to the UserCtx structure.
  *
@@ -460,6 +951,7 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
  *  - This function is a complete "compute and make ready" unit for Csi, Eta, and Zet.
  *  - It's recommended to call `VecZeroEntries` on user->Csi, Eta, Zet before this
  *    if they might contain old data.
+ * - Csi,Eta,Zeta are face centered quantities which represent the surface area in magnitude and the direction of positive computational coordinate increase in direction.
  */
 PetscErrorCode ComputeFaceMetrics(UserCtx *user)
 {
@@ -502,6 +994,9 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user)
     PetscInt k_loop_start = (zs == 0) ? zs + 1 : zs;
     PetscInt j_loop_start = (ys == 0) ? ys + 1 : ys;
     PetscInt i_loop_start = (xs == 0) ? xs + 1 : xs;
+
+   // These represent the surface area of the curvilinear cell face and the normal rotated such that the direction of increasing coordinate is maintained.
+   // The metric vectors (Csi, Eta, Zet) are defined to point in the direction of their corresponding increasing computational coordinate.
 
     // Calculate Csi
     for (PetscInt k_node = k_loop_start; k_node < ze; ++k_node) {
@@ -825,6 +1320,8 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
  *
  * @param user The UserCtx for a specific grid level. The function populates `user->Cent` and `user->GridSpace`.
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * 
+ * @note Grid Spacing represents the vector connecting two adjacent grid cell faces. It is a vector whose magnitude gives the distance between two faces and direction is from one face center to the other.
  */
 PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
 {
@@ -833,7 +1330,8 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
     Vec            lCoords;
     const Cmpnts ***coor;
     Cmpnts       ***cent, ***gs;
-    PetscReal      xcp, ycp, zcp, xcm, ycm, zcm;
+    PetscReal    xcp, ycp, zcp, xcm, ycm, zcm;
+    PetscInt     xs,ys,zs,xe,ye,ze,mx,my,mz;
 
     PetscFunctionBeginUser;
 
@@ -847,11 +1345,24 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
 
     ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->GridSpace, &gs); CHKERRQ(ierr);
+
+    xs = info.xs; xe = info.xs + info.xm;
+    ys = info.ys; ye = info.ys + info.ym;
+    zs = info.zs; ze = info.zs + info.zm;
+    mx = info.mx; my =  info.my; mz = info.mz;
+
+    PetscInt k_start_node = (zs == 0) ? zs + 1 : zs;
+    PetscInt j_start_node = (ys == 0) ? ys + 1 : ys;
+    PetscInt i_start_node = (xs == 0) ? xs + 1 : xs;
+
+    PetscInt k_end_node = (ze == mz) ? ze - 1 : ze;
+    PetscInt j_end_node = (ye == my) ? ye - 1 : ye;
+    PetscInt i_end_node = (xe == mx) ? xe - 1 : xe;    
     
     // Loop over the interior OWNED cells (stencil requires i-1, j-1, k-1)
-    for (PetscInt k=info.zs+1; k<info.zs+info.zm; k++) {
-        for (PetscInt j=info.ys+1; j<info.ys+info.ym; j++) {
-            for (PetscInt i=info.xs+1; i<info.xs+info.xm; i++) {
+    for (PetscInt k=k_start_node; k<k_end_node; k++) {
+        for (PetscInt j=j_start_node; j<j_end_node; j++) {
+            for (PetscInt i=i_start_node; i<i_end_node; i++) {
                 // Calculate cell center as the average of its 8 corner nodes
                 cent[k][j][i].x = 0.125 * (coor[k][j][i].x + coor[k][j-1][i].x + coor[k-1][j][i].x + coor[k-1][j-1][i].x + coor[k][j][i-1].x + coor[k][j-1][i-1].x + coor[k-1][j][i-1].x + coor[k-1][j-1][i-1].x);
                 cent[k][j][i].y = 0.125 * (coor[k][j][i].y + coor[k][j-1][i].y + coor[k-1][j][i].y + coor[k-1][j-1][i].y + coor[k][j][i-1].y + coor[k][j-1][i-1].y + coor[k-1][j][i-1].y + coor[k-1][j-1][i-1].y);
@@ -897,6 +1408,13 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
     ierr = UpdateLocalGhosts(user, "Cent"); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, "GridSpace"); CHKERRQ(ierr);
 
+    ierr = ApplyPeriodicCorrectionsToCellCentersAndSpacing(user); CHKERRQ(ierr);
+
+    // Final assembly and ghost update after corrections
+    ierr = VecAssemblyBegin(user->Cent); CHKERRQ(ierr); 
+    ierr = VecAssemblyEnd(user->Cent); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Cent"); CHKERRQ(ierr);
+
     PROFILE_FUNCTION_END;
 
     PetscFunctionReturn(0);
@@ -925,6 +1443,9 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
  * @param user The UserCtx for a specific grid level. This function populates
  *             the `user->ICsi`, `user->IEta`, `user->IZet`, and `user->IAj` vectors.
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * 
+ * @note Icsi,Ieta,Izet represent the computational coordinate gradients scaled by local volume inverse ((Iaj)
+ *       
  */
 PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 {
@@ -973,8 +1494,12 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Calculating i-face centers (Centx) with i[%d,%d], j[%d,%d], k[%d,%d] ...\n", user->simCtx->rank,gxs,gxe,gys,gye,gzs,gze);
 
     // Loop over the ghosted region to calculate all local face centers
-    for (PetscInt k = gzs + 1; k < gze; k++) {
-        for (PetscInt j = gys + 1; j < gye; j++) {
+    // To ensure we don't mistakenly calculate unused/dummy elements along non-dominant directions.
+    PetscInt j_end = (ye == mx)? my - 1:gye;
+    PetscInt k_end = (ze == mz)? mz - 1:gze;
+
+    for (PetscInt k = gzs + 1; k < k_end; k++) {
+        for (PetscInt j = gys + 1; j < j_end; j++) {
             for (PetscInt i = gxs; i < gxe; i++) {
                 //----- DEBUG ------
                 //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:     Calculating i-face center at (k=%d, j=%d, i=%d)\n", user->simCtx->rank, k, j, i);
@@ -1022,6 +1547,15 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
+    // For periodic BCs, exchange ghosts between processes
+    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || 
+        user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
+        ierr = DMLocalToLocalBegin(user->fda, user->Centx, INSERT_VALUES, user->Centx); CHKERRQ(ierr);
+        ierr = DMLocalToLocalEnd(user->fda, user->Centx, INSERT_VALUES, user->Centx); CHKERRQ(ierr);
+    }
+
+    ierr = ApplyPeriodicCorrectionsToIFaceCenter(user); CHKERRQ(ierr);
+
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   i-face centers (Centx) calculated and ghosts updated.\n", user->simCtx->rank);
 
     // --- Part 2: Calculate metrics using face-centered coordinates ---
@@ -1037,45 +1571,51 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
             for (PetscInt i=xs; i<lxe; i++) {
 
                 // --- Stencil Logic for d/dcsi (derivative in i-direction) ---
-                if (i == 0) { // Forward difference at the domain's min-i boundary
-                    dxdc = centx_const[k][j][i+1].x - centx_const[k][j][i].x;
-                    dydc = centx_const[k][j][i+1].y - centx_const[k][j][i].y;
-                    dzdc = centx_const[k][j][i+1].z - centx_const[k][j][i].z;
-                } else if (i == mx - 2) { // Backward difference at the domain's max-i boundary
+                if(i == 0 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC){
+                        // Forward difference at the domain's min-i boundary
+                        dxdc = centx_const[k][j][i+1].x - centx_const[k][j][i].x;
+                        dydc = centx_const[k][j][i+1].y - centx_const[k][j][i].y;
+                        dzdc = centx_const[k][j][i+1].z - centx_const[k][j][i].z;
+                } else if (i == mx - 2 && user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC) { 
+                    // Backward difference at the domain's max-i boundary
                     dxdc = centx_const[k][j][i].x - centx_const[k][j][i-1].x;
                     dydc = centx_const[k][j][i].y - centx_const[k][j][i-1].y;
                     dzdc = centx_const[k][j][i].z - centx_const[k][j][i-1].z;
-                } else { // Central difference in the interior
+                } else { // Central difference in the interior  (or if PERIODIC BCs)
                     dxdc = 0.5 * (centx_const[k][j][i+1].x - centx_const[k][j][i-1].x);
                     dydc = 0.5 * (centx_const[k][j][i+1].y - centx_const[k][j][i-1].y);
                     dzdc = 0.5 * (centx_const[k][j][i+1].z - centx_const[k][j][i-1].z);
                 }
 
                 // --- Stencil Logic for d/deta (derivative in j-direction) ---
-                if (j == 1) { // Forward difference
+                if (j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) { 
+                    // Forward difference
                     dxde = centx_const[k][j+1][i].x - centx_const[k][j][i].x;
                     dyde = centx_const[k][j+1][i].y - centx_const[k][j][i].y;
                     dzde = centx_const[k][j+1][i].z - centx_const[k][j][i].z;
-                } else if (j == my - 2) { // Backward difference
+                } else if (j == my - 2 && user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC) { 
+                    // Backward difference
                     dxde = centx_const[k][j][i].x - centx_const[k][j-1][i].x;
                     dyde = centx_const[k][j][i].y - centx_const[k][j-1][i].y;
                     dzde = centx_const[k][j][i].z - centx_const[k][j-1][i].z;
-                } else { // Central difference
+                } else { // Central difference (interior or PERIODIC)
                     dxde = 0.5 * (centx_const[k][j+1][i].x - centx_const[k][j-1][i].x);
                     dyde = 0.5 * (centx_const[k][j+1][i].y - centx_const[k][j-1][i].y);
                     dzde = 0.5 * (centx_const[k][j+1][i].z - centx_const[k][j-1][i].z);
                 }
 
                 // --- Stencil Logic for d/dzeta (derivative in k-direction) ---
-                if (k == 1) { // Forward difference
+                if (k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) { 
+                    // Forward difference
                     dxdz = centx_const[k+1][j][i].x - centx_const[k][j][i].x;
                     dydz = centx_const[k+1][j][i].y - centx_const[k][j][i].y;
                     dzdz = centx_const[k+1][j][i].z - centx_const[k][j][i].z;
-                } else if (k == mz - 2) { // Backward difference
+                } else if (k == mz - 2 && user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC) { 
+                    // Backward difference
                     dxdz = centx_const[k][j][i].x - centx_const[k-1][j][i].x;
                     dydz = centx_const[k][j][i].y - centx_const[k-1][j][i].y;
                     dzdz = centx_const[k][j][i].z - centx_const[k-1][j][i].z;
-                } else { // Central difference
+                } else { // Central difference (Interior + PERIODIC)
                     dxdz = 0.5 * (centx_const[k+1][j][i].x - centx_const[k-1][j][i].x);
                     dydz = 0.5 * (centx_const[k+1][j][i].y - centx_const[k-1][j][i].y);
                     dzdz = 0.5 * (centx_const[k+1][j][i].z - centx_const[k-1][j][i].z);
@@ -1147,6 +1687,7 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
  * @param user The UserCtx for a specific grid level. This function populates
  *             the `user->JCsi`, `user->JEta`, `user->JZet`, and `user->JAj` vectors.
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @note Jcsi,Jeta,Jzet represent the computational coordinate gradients scaled by local volume inverse ((Jaj)
  */
 PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
 {
@@ -1193,9 +1734,13 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     // Loop over the ghosted region to calculate all local face centers
-    for (PetscInt k = gzs + 1; k < gze; k++) {
+    // To ensure we don't mistakenly calculate unused/dummy elements along non-dominant directions.
+    PetscInt k_end = (ze == mz)? mz - 1:gze;
+    PetscInt i_end = (xe == mx)? mx - 1:gxe;
+
+    for (PetscInt k = gzs + 1; k < k_end; k++) {
         for (PetscInt j = gys; j < gye; j++) {
-            for (PetscInt i = gxs + 1; i < gxe; i++) {
+            for (PetscInt i = gxs + 1; i < i_end; i++) {
                 centy[k][j][i].x = 0.25 * (coor[k][j][i].x + coor[k-1][j][i].x + coor[k][j][i-1].x + coor[k-1][j][i-1].x);
                 centy[k][j][i].y = 0.25 * (coor[k][j][i].y + coor[k-1][j][i].y + coor[k][j][i-1].y + coor[k-1][j][i-1].y);
                 centy[k][j][i].z = 0.25 * (coor[k][j][i].z + coor[k-1][j][i].z + coor[k][j][i-1].z + coor[k-1][j][i-1].z);
@@ -1230,6 +1775,15 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     ierr = DMDAVecRestoreArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
+    // For periodic BCs, exchange ghosts between processes
+    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || 
+        user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
+        ierr = DMLocalToLocalBegin(user->fda, user->Centy, INSERT_VALUES, user->Centy); CHKERRQ(ierr);
+        ierr = DMLocalToLocalEnd(user->fda, user->Centy, INSERT_VALUES, user->Centy); CHKERRQ(ierr);
+    }
+
+    ierr = ApplyPeriodicCorrectionsToJFaceCenter(user); CHKERRQ(ierr);
+
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   j-face centers (Centx) calculated and ghosts updated.\n", user->simCtx->rank);
 
     // --- Part 2: Calculate metrics using face-centered coordinates ---
@@ -1245,45 +1799,51 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
             for (PetscInt i=lxs; i<lxe; i++) {
 
                 // --- Stencil Logic for d/dcsi (derivative in i-direction) ---
-                if (i == 1) { // Forward difference at the domain's min-i boundary
+                if (i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) { 
+                    // Forward difference at the domain's min-i boundary
                     dxdc = centy_const[k][j][i+1].x - centy_const[k][j][i].x;
                     dydc = centy_const[k][j][i+1].y - centy_const[k][j][i].y;
                     dzdc = centy_const[k][j][i+1].z - centy_const[k][j][i].z;
-                } else if (i == mx - 2) { // Backward difference at the domain's max-i boundary
+                } else if (i == mx - 2 && user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC) { 
+                    // Backward difference at the domain's max-i boundary
                     dxdc = centy_const[k][j][i].x - centy_const[k][j][i-1].x;
                     dydc = centy_const[k][j][i].y - centy_const[k][j][i-1].y;
                     dzdc = centy_const[k][j][i].z - centy_const[k][j][i-1].z;
-                } else { // Central difference in the interior
+                } else { // Central difference in the interior or PERIODIC
                     dxdc = 0.5 * (centy_const[k][j][i+1].x - centy_const[k][j][i-1].x);
                     dydc = 0.5 * (centy_const[k][j][i+1].y - centy_const[k][j][i-1].y);
                     dzdc = 0.5 * (centy_const[k][j][i+1].z - centy_const[k][j][i-1].z);
                 }
 
                 // --- Stencil Logic for d/deta (derivative in j-direction) ---
-                if (j == 0) { // Forward difference
+                if (j == 0 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) { 
+                    // Forward difference
                     dxde = centy_const[k][j+1][i].x - centy_const[k][j][i].x;
                     dyde = centy_const[k][j+1][i].y - centy_const[k][j][i].y;
                     dzde = centy_const[k][j+1][i].z - centy_const[k][j][i].z;
-                } else if (j == my - 2) { // Backward difference
+                } else if (j == my - 2 && user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC) {
+                    // Backward difference
                     dxde = centy_const[k][j][i].x - centy_const[k][j-1][i].x;
                     dyde = centy_const[k][j][i].y - centy_const[k][j-1][i].y;
                     dzde = centy_const[k][j][i].z - centy_const[k][j-1][i].z;
-                } else { // Central difference
+                } else { // Central difference (interior or PERIODIC)
                     dxde = 0.5 * (centy_const[k][j+1][i].x - centy_const[k][j-1][i].x);
                     dyde = 0.5 * (centy_const[k][j+1][i].y - centy_const[k][j-1][i].y);
                     dzde = 0.5 * (centy_const[k][j+1][i].z - centy_const[k][j-1][i].z);
                 }
 
                 // --- Stencil Logic for d/dzeta (derivative in k-direction) ---
-                if (k == 1) { // Forward difference
+                if (k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) { 
+                    // Forward difference
                     dxdz = centy_const[k+1][j][i].x - centy_const[k][j][i].x;
                     dydz = centy_const[k+1][j][i].y - centy_const[k][j][i].y;
                     dzdz = centy_const[k+1][j][i].z - centy_const[k][j][i].z;
-                } else if (k == mz - 2) { // Backward difference
+                } else if (k == mz - 2 && user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC) { 
+                    // Backward difference
                     dxdz = centy_const[k][j][i].x - centy_const[k-1][j][i].x;
                     dydz = centy_const[k][j][i].y - centy_const[k-1][j][i].y;
                     dzdz = centy_const[k][j][i].z - centy_const[k-1][j][i].z;
-                } else { // Central difference
+                } else { // Central difference (Interior or PERIODIC)
                     dxdz = 0.5 * (centy_const[k+1][j][i].x - centy_const[k-1][j][i].x);
                     dydz = 0.5 * (centy_const[k+1][j][i].y - centy_const[k-1][j][i].y);
                     dzdz = 0.5 * (centy_const[k+1][j][i].z - centy_const[k-1][j][i].z);
@@ -1355,6 +1915,7 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
  * @param user The UserCtx for a specific grid level. This function populates
  *             the `user->KCsi`, `user->KEta`, `user->KZet`, and `user->KAj` vectors.
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @note Kcsi,Keta,Kzet represent the computational coordinate gradients scaled by local volume inverse ((Kaj)
  */
 PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
 {
@@ -1401,6 +1962,9 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     // Loop over the ghosted region to calculate all local face centers
+    // To ensure we don't mistakenly calculate unused/dummy elements along non-dominant directions.
+    PetscInt i_end = (xe == mx)? mx - 1:gxe;
+    PetscInt j_end = (ye == my)? my - 1:gye;
     for (PetscInt k = gzs; k < gze; k++) {
         for (PetscInt j = gys; j < gye; j++) {
             for (PetscInt i = gxs + 1; i < gxe; i++) {
@@ -1438,6 +2002,15 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     ierr = DMDAVecRestoreArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
+    // For periodic BCs, exchange ghosts between processes
+    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || 
+        user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
+        ierr = DMLocalToLocalBegin(user->fda, user->Centz, INSERT_VALUES, user->Centz); CHKERRQ(ierr);
+        ierr = DMLocalToLocalEnd(user->fda, user->Centz, INSERT_VALUES, user->Centz); CHKERRQ(ierr);
+    }
+
+    ierr = ApplyPeriodicCorrectionsToKFaceCenter(user); CHKERRQ(ierr);
+
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   k-face centers (Centx) calculated and ghosts updated.\n", user->simCtx->rank);
 
     // --- Part 2: Calculate metrics using face-centered coordinates ---
@@ -1453,45 +2026,51 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
             for (PetscInt i=lxs; i<lxe; i++) {
 
                 // --- Stencil Logic for d/dcsi (derivative in i-direction) ---
-                if (i == 1) { // Forward difference at the domain's min-i boundary
+                if (i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) { 
+                    // Forward difference at the domain's min-i boundary
                     dxdc = centz_const[k][j][i+1].x - centz_const[k][j][i].x;
                     dydc = centz_const[k][j][i+1].y - centz_const[k][j][i].y;
                     dzdc = centz_const[k][j][i+1].z - centz_const[k][j][i].z;
-                } else if (i == mx - 2) { // Backward difference at the domain's max-i boundary
+                } else if (i == mx - 2 && user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC) { 
+                    // Backward difference at the domain's max-i boundary
                     dxdc = centz_const[k][j][i].x - centz_const[k][j][i-1].x;
                     dydc = centz_const[k][j][i].y - centz_const[k][j][i-1].y;
                     dzdc = centz_const[k][j][i].z - centz_const[k][j][i-1].z;
-                } else { // Central difference in the interior
+                } else { // Central difference in the interior (or PERIODIC)
                     dxdc = 0.5 * (centz_const[k][j][i+1].x - centz_const[k][j][i-1].x);
                     dydc = 0.5 * (centz_const[k][j][i+1].y - centz_const[k][j][i-1].y);
                     dzdc = 0.5 * (centz_const[k][j][i+1].z - centz_const[k][j][i-1].z);
                 }
 
                 // --- Stencil Logic for d/deta (derivative in j-direction) ---
-                if (j == 1) { // Forward difference
+                if (j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) { 
+                    // Forward difference
                     dxde = centz_const[k][j+1][i].x - centz_const[k][j][i].x;
                     dyde = centz_const[k][j+1][i].y - centz_const[k][j][i].y;
                     dzde = centz_const[k][j+1][i].z - centz_const[k][j][i].z;
-                } else if (j == my - 2) { // Backward difference
+                } else if (j == my - 2 && user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC) { 
+                    // Backward difference
                     dxde = centz_const[k][j][i].x - centz_const[k][j-1][i].x;
                     dyde = centz_const[k][j][i].y - centz_const[k][j-1][i].y;
                     dzde = centz_const[k][j][i].z - centz_const[k][j-1][i].z;
-                } else { // Central difference
+                } else { // Central difference (interior or PERIODIC)
                     dxde = 0.5 * (centz_const[k][j+1][i].x - centz_const[k][j-1][i].x);
                     dyde = 0.5 * (centz_const[k][j+1][i].y - centz_const[k][j-1][i].y);
                     dzde = 0.5 * (centz_const[k][j+1][i].z - centz_const[k][j-1][i].z);
                 }
 
                 // --- Stencil Logic for d/dzeta (derivative in k-direction) ---
-                if (k == 0) { // Forward difference
+                if (k == 0 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) { 
+                    // Forward difference
                     dxdz = centz_const[k+1][j][i].x - centz_const[k][j][i].x;
                     dydz = centz_const[k+1][j][i].y - centz_const[k][j][i].y;
                     dzdz = centz_const[k+1][j][i].z - centz_const[k][j][i].z;
-                } else if (k == mz - 2) { // Backward difference
+                } else if (k == mz - 2 && user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC) { 
+                    // Backward difference
                     dxdz = centz_const[k][j][i].x - centz_const[k-1][j][i].x;
                     dydz = centz_const[k][j][i].y - centz_const[k-1][j][i].y;
                     dzdz = centz_const[k][j][i].z - centz_const[k-1][j][i].z;
-                } else { // Central difference
+                } else { // Central difference (Interior or PERIODIC)
                     dxdz = 0.5 * (centz_const[k+1][j][i].x - centz_const[k-1][j][i].x);
                     dydz = 0.5 * (centz_const[k+1][j][i].y - centz_const[k-1][j][i].y);
                     dzdz = 0.5 * (centz_const[k+1][j][i].z - centz_const[k-1][j][i].z);
@@ -1835,6 +2414,8 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
             ierr = ComputeJFaceMetrics(user); CHKERRQ(ierr);
             ierr = ComputeKFaceMetrics(user); CHKERRQ(ierr); 
 
+            // Apply Periodic Boundary Condition Adjustments if necessary
+            ierr = ApplyMetricsPeriodicBCs(user); CHKERRQ(ierr);
             // Diagnostics
 	    ierr = ComputeMetricNorms(user);
             if (level == usermg->mglevels - 1) {

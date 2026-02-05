@@ -80,21 +80,26 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->rotateframe = 0; simCtx->blank = 0;
     simCtx->dgf_x = 0; simCtx->dgf_y = 1; simCtx->dgf_z = 0;
     simCtx->dgf_ax = 1; simCtx->dgf_ay = 0; simCtx->dgf_az = 0;
-    simCtx->st = 1.0;
+    strcpy(simCtx->AnalyticalSolutionType,"TGV3D");
 
     // --- Group 4: Specific Simulation Case Flags --- (DEPRICATED)
     simCtx->cop=0; simCtx->fish=0; simCtx->fish_c=0; simCtx->fishcyl=0;
     simCtx->eel=0; simCtx->pizza=0; simCtx->turbine=0; simCtx->Pipe=0;
     simCtx->wing=0; simCtx->hydro=0; simCtx->MHV=0; simCtx->LV=0;
+    simCtx->channelz = 0;
 
     // --- Group 5: Solver & Numerics Parameters ---
-    simCtx->implicit = 0; simCtx->implicit_type = 0; simCtx->imp_MAX_IT = 50;
-    simCtx->imp_atol = 1e-7; simCtx->imp_rtol = 1e-4; simCtx->imp_stol = 1.e-8;
+    simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4; simCtx->mom_max_pseudo_steps = 50;
+    simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor = 1.05; // New addition for divergence detection
+    simCtx->mom_atol = 1e-7; simCtx->mom_rtol = 1e-4; simCtx->imp_stol = 1.e-8;
     simCtx->mglevels = 3; simCtx->mg_MAX_IT = 30; simCtx->mg_idx = 1;
     simCtx->mg_preItr = 1; simCtx->mg_poItr = 1;
     simCtx->poisson = 0; simCtx->poisson_tol = 5.e-9;
     simCtx->STRONG_COUPLING = 0;simCtx->central=0;
-    simCtx->ren = 100.0; simCtx->cfl = 0.1; simCtx->vnn = 0.1;
+    simCtx->ren = 100.0; simCtx->pseudo_cfl = 0.1;
+    simCtx->max_pseudo_cfl = 1.0; simCtx->min_pseudo_cfl = 0.001;
+    simCtx->pseudo_cfl_reduction_factor = 1.0;
+    simCtx->pseudo_cfl_growth_factor = 1.0; //simCtx->vnn = 0.1;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
     simCtx->FieldInitialization = 0;
     simCtx->InitialConstantContra.x = 0.0;
@@ -105,10 +110,12 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->NumberOfBodies = 1; simCtx->Flux_in = 1.0; simCtx->angle = 0.0;
     simCtx->max_angle = -54. * 3.1415926 / 180.;
     simCtx->CMx_c=0.0; simCtx->CMy_c=0.0; simCtx->CMz_c=0.0;
+    simCtx->wall_roughness_height = 1e-16;
+    simCtx->schmidt_number = 1.0; simCtx->Turbulent_schmidt_number = 0.7;
 
     // --- Group 7: Grid, Domain, and Boundary Condition Settings ---
     simCtx->block_number = 1; simCtx->inletprofile = 1;
-    simCtx->grid1d = 0; simCtx->Ogrid = 0; simCtx->channelz = 0;
+    simCtx->grid1d = 0; simCtx->Ogrid = 0;
     simCtx->i_periodic = 0; simCtx->j_periodic = 0; simCtx->k_periodic = 0;
     simCtx->blkpbc = 10; simCtx->pseudo_periodic = 0;
     strcpy(simCtx->grid_file, "config/grid.run");
@@ -122,13 +129,15 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscMalloc1(1, &simCtx->bcs_files); CHKERRQ(ierr);
     ierr = PetscStrallocpy("config/bcs.run", &simCtx->bcs_files[0]); CHKERRQ(ierr);
     simCtx->FluxInSum = 0.0; simCtx->FluxOutSum = 0.0; simCtx->Fluxsum = 0.0;
+    simCtx->drivingForceMagnitude = 0.0, simCtx->forceScalingFactor = 1.8;
+    simCtx->targetVolumetricFlux  = 0.0;
     simCtx->AreaInSum = 0.0; simCtx->AreaOutSum = 0.0;
     simCtx->U_bc = 0.0; simCtx->ccc = 0;
     simCtx->ratio = 0.0;
     
     
     // --- Group 8: Turbulence Modeling (LES/RANS) ---
-    simCtx->averaging = PETSC_FALSE; simCtx->les = 0; simCtx->rans = 0;
+    simCtx->averaging = PETSC_FALSE; simCtx->les = NO_LES_MODEL; simCtx->rans = 0;
     simCtx->wallfunction = 0; simCtx->mixed = 0; simCtx->clark = 0;
     simCtx->dynamic_freq = 1; simCtx->max_cs = 0.5;
     simCtx->Const_CS = 0.03;
@@ -140,6 +149,12 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->dm_swarm = NULL; simCtx->bboxlist = NULL;
     simCtx->ParticleInitialization = 0;
     strcpy(simCtx->particleRestartMode,"load");
+    simCtx->particlesLostLastStep = 0;
+    simCtx->particlesMigratedLastStep = 0;
+    simCtx->occupiedCellCount = 0;
+    simCtx->particleLoadImbalance = 0.0;
+    simCtx->migrationPassesLastStep = 0;
+    simCtx->BrownianMotionRNG = NULL;
 
     // --- Group 10: Immersed Boundary & FSI Data Object Pointers ---
     simCtx->ibm = NULL; simCtx->ibmv = NULL; simCtx->fsi = NULL;
@@ -252,7 +267,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetBool(NULL, NULL, "-only_setup", &simCtx->OnlySetup, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-dt", &simCtx->dt, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-tio", &simCtx->tiout, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-euler_field_source",simCtx->eulerianSource,64,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-euler_field_source",simCtx->eulerianSource,sizeof(simCtx->eulerianSource),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",&simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",&simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",&simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
@@ -260,8 +275,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetString(NULL,NULL,"-particle_subdir",&simCtx->particle_subdir,sizeof(simCtx->particle_subdir),NULL);CHKERRQ(ierr);
 
     simCtx->OutputFreq = simCtx->tiout; // backward compatibility related redundancy.
-    if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0){
-      SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Invalid value for -euler_field_source. Must be 'load' or 'solve'. You provided '%s'.",simCtx->eulerianSource);
+    if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0 && strcmp(simCtx->eulerianSource,"analytical")!=0){
+      SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Invalid value for -euler_field_source. Must be 'load','analytical' or 'solve'. You provided '%s'.",simCtx->eulerianSource);
     }
 
     //  --- Group 3
@@ -283,6 +298,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-dgf_az", &simCtx->dgf_az, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-dgf_ay", &simCtx->dgf_ay, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-dgf_ax", &simCtx->dgf_ax, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-analytical_type",simCtx->AnalyticalSolutionType,sizeof(simCtx->AnalyticalSolutionType),NULL);CHKERRQ(ierr);
 
     //  --- Group 4
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 4: Specific Simulation Case Flags \n");
@@ -298,17 +314,33 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-hydro", &simCtx->hydro, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-lv", &simCtx->LV, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-Pipe", &simCtx->Pipe, NULL); CHKERRQ(ierr);
-
+    ierr = PetscOptionsGetInt(NULL, NULL, "-Turbulent_Channel_z", &simCtx->channelz, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-Turbulent_Channel_z_Driving_Force",&simCtx->drivingForceMagnitude,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-Turbulent_Channel_z_Scaling_Factor",&simCtx->forceScalingFactor,NULL);CHKERRQ(ierr);
     //  --- Group 5
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 5: Solver & Numerics Parameters \n");
-    ierr = PetscOptionsGetInt(NULL, NULL, "-imp", &simCtx->implicit, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-imp_type", &simCtx->implicit_type, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-imp_MAX_IT", &simCtx->imp_MAX_IT, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-imp_atol", &simCtx->imp_atol, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-imp_rtol", &simCtx->imp_rtol, NULL); CHKERRQ(ierr);
+    char mom_solver_type_char[PETSC_MAX_PATH_LEN];
+    ierr = PetscOptionsGetString(NULL, NULL, "-mom_solver_type", &mom_solver_type_char,sizeof(mom_solver_type_char),NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-mom_max_pseudo_steps", &simCtx->mom_max_pseudo_steps, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-mom_atol", &simCtx->mom_atol, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-mom_rtol", &simCtx->mom_rtol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-imp_stol", &simCtx->imp_stol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-central", &simCtx->central, NULL); CHKERRQ(ierr);
 
+    // Map the string input to the enum type.
+    if(strcmp(mom_solver_type_char, "DUALTIME_PICARD_RK4") == 0) {
+        simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4;
+    } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ARNOLDI") == 0) {
+        simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI;
+    } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ANALYTICAL_JACOBIAN") == 0) {
+        simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN;
+    } else if (strcmp(mom_solver_type_char, "EXPLICIT_RK") == 0) {
+        simCtx->mom_solver_type = MOMENTUM_SOLVER_EXPLICIT_RK;
+    } else {
+        LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_RK4', 'DUALTIME_NK_ARNOLDI', 'DUALTIME_NK_ANALYTICAL_JACOBIAN', 'EXPLICIT_RK'.\n", mom_solver_type_char);
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -mom_solver_type: '%s'.", mom_solver_type_char);
+    }
+    
     // --- Multigrid Options ---
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_level", &simCtx->mglevels, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_max_it", &simCtx->mg_MAX_IT, NULL); CHKERRQ(ierr);
@@ -321,8 +353,12 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL, NULL, "-poisson_tol", &simCtx->poisson_tol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-str", &simCtx->STRONG_COUPLING, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ren", &simCtx->ren, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-cfl", &simCtx->cfl, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-vnn", &simCtx->vnn, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl", &simCtx->pseudo_cfl, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-max_pseudo_cfl", &simCtx->max_pseudo_cfl, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-min_pseudo_cfl", &simCtx->min_pseudo_cfl, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl_reduction_factor", &simCtx->pseudo_cfl_reduction_factor, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl_growth_factor", &simCtx->pseudo_cfl_growth_factor, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_rk4_residual_norm_noise_allowance_factor",&simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-finit", &simCtx->FieldInitialization, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_y", &simCtx->InitialConstantContra.y, NULL); CHKERRQ(ierr);
@@ -331,7 +367,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
      //  --- Group 6
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 6: Physical & Geometric Parameters \n");   
+    ierr = PetscOptionsGetReal(NULL,NULL,"-schmidt_number",&simCtx->schmidt_number,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-turb_schmidt_number",&simCtx->Turbulent_schmidt_number,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-no_of_bodies", &simCtx->NumberOfBodies, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-wall_roughness",&simCtx->wall_roughness_height,NULL);CHKERRQ(ierr);
     // NOTE: angle is not parsed in the original code, it set programmatically. We will follow that.
     // NOTE: max_angle is calculated based on other flags (like MHV) in the legacy code.
     // We will defer that logic to a later setup stage and not parse them directly.
@@ -400,7 +439,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
      //  --- Group 8
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 8: Turbulence Modeling (LES/RANS) \n");
-    ierr = PetscOptionsGetInt(NULL, NULL, "-les", &simCtx->les, NULL); CHKERRQ(ierr);
+    PetscInt temp_les_model;
+    ierr = PetscOptionsGetInt(NULL, NULL, "-les", &temp_les_model, NULL); CHKERRQ(ierr);
+    simCtx->les = (LESModelType)temp_les_model;
     ierr = PetscOptionsGetInt(NULL, NULL, "-rans", &simCtx->rans, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-wallfunction", &simCtx->wallfunction, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mixed", &simCtx->mixed, NULL); CHKERRQ(ierr);
@@ -425,6 +466,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     if (strcmp(simCtx->particleRestartMode, "load") != 0 && strcmp(simCtx->particleRestartMode, "init") != 0) {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -particle_restart_mode. Must be 'load' or 'init'. You provided '%s'.", simCtx->particleRestartMode);
     }
+    ierr = InitializeBrownianRNG(simCtx); CHKERRQ(ierr);
     // --- Group 10
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 10: Immersed Boundary & FSI Data Object Pointers \n");
     ierr = PetscOptionsGetBool(NULL, NULL, "-rs_fsi", &simCtx->rstart_fsi, NULL); CHKERRQ(ierr);
@@ -744,6 +786,8 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
 
     // --- 1. Allocate the array of MGCtx structs ---
     ierr = PetscMalloc(usermg->mglevels * sizeof(MGCtx), &usermg->mgctx); CHKERRQ(ierr);
+    // Zero-initialize to ensure all pointers (especially packer) are NULL
+    ierr = PetscMemzero(usermg->mgctx, usermg->mglevels * sizeof(MGCtx)); CHKERRQ(ierr);
     mgctx = usermg->mgctx;
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Allocated MGCtx array of size %d.\n", simCtx->rank, usermg->mglevels);
     
@@ -866,13 +910,16 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
     // Phase 1: Allocate the UserMG and UserCtx hierarchy
     ierr = AllocateContextHierarchy(simCtx); CHKERRQ(ierr);
 
-    // [ The next phases will be added here ]
     ierr = DefineAllGridDimensions(simCtx); CHKERRQ(ierr);
     ierr = InitializeAllGridDMs(simCtx); CHKERRQ(ierr);
     ierr = AssignAllGridCoordinates(simCtx);
     ierr = CreateAndInitializeAllVectors(simCtx); CHKERRQ(ierr);
     ierr = SetupSolverParameters(simCtx); CHKERRQ(ierr);
-    ierr = CalculateAllGridMetrics(simCtx); CHKERRQ(ierr);
+
+    // NOTE: CalculateAllGridMetrics is now called inside SetupBoundaryConditions (not here) to ensure:
+    // 1. Boundary condition configuration data (boundary_faces) is available for periodic BC corrections
+    // 2. Computed metrics are available for inlet/outlet area calculations
+    // This resolves the circular dependency between BC setup and metric calculations.
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Grid and Solvers Setup Complete ---\n");
     
@@ -929,6 +976,12 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             ierr = DMCreateLocalVector(user->da,  &user->lP);     CHKERRQ(ierr); ierr = VecSet(user->lP, 0.0); CHKERRQ(ierr);
             ierr = DMCreateLocalVector(user->da,  &user->lNvert); CHKERRQ(ierr); ierr = VecSet(user->lNvert, 0.0); CHKERRQ(ierr);
 
+            // -- Group A2: Derived Flow Fields (Global and Local) ---
+            ierr = VecDuplicate(user->P,&user->Diffusivity); CHKERRQ(ierr); ierr = VecSet(user->Diffusivity, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lP,&user->lDiffusivity); CHKERRQ(ierr); ierr = VecSet(user->lDiffusivity, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->Ucat,&user->DiffusivityGradient); CHKERRQ(ierr); ierr = VecSet(user->DiffusivityGradient, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lUcat,&user->lDiffusivityGradient); CHKERRQ(ierr); ierr = VecSet(user->lDiffusivityGradient, 0.0); CHKERRQ(ierr);
+
             // -- Group B: Solver Work Vectors (Global and Local) ---
             ierr = VecDuplicate(user->P, &user->Phi);       CHKERRQ(ierr); ierr = VecSet(user->Phi, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->lP, &user->lPhi);       CHKERRQ(ierr); ierr = VecSet(user->lPhi, 0.0); CHKERRQ(ierr);
@@ -945,7 +998,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 		            ierr = VecDuplicate(user->Nvert, &user->Nvert_o); CHKERRQ(ierr); ierr = VecSet(user->Nvert_o, 0.0); CHKERRQ(ierr);
               }
 
-	    // --- Group D: Grid Metrics (Cell-Centered) ---
+	    // --- Group D: Grid Metrics (Face-Centered) ---
             ierr = DMCreateGlobalVector(user->fda, &user->Csi); CHKERRQ(ierr); ierr = VecSet(user->Csi, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->Csi, &user->Eta);         CHKERRQ(ierr); ierr = VecSet(user->Eta, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->Csi, &user->Zet);         CHKERRQ(ierr); ierr = VecSet(user->Zet, 0.0); CHKERRQ(ierr);
@@ -1010,6 +1063,10 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 ierr = DMCreateLocalVector(user->da,&user->lCs); CHKERRQ(ierr); ierr = VecSet(user->lCs,0.0); CHKERRQ(ierr);
                 LOG_ALLOW(GLOBAL, LOG_DEBUG, "Smagorinsky constant (CS) vectors created for LES model.\n");
                 }
+
+                if(simCtx->wallfunction){
+                  ierr = DMCreateLocalVector(user->fda,&user->lFriction_Velocity); CHKERRQ(ierr); ierr = VecSet(user->lFriction_Velocity,0.0);
+                }
 	              // Add K_Omega etc. here as needed
 
                 // Note: Add any other vectors from the legacy MG_Initial here as needed.
@@ -1026,7 +1083,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	      LOG_ALLOW(GLOBAL,LOG_DEBUG,"ParticleCount & Scalar(Psi) created for %d particles.\n",simCtx->np);
 	      }
 	    }
-	    // --- Group I: Boundary Condition vectors needed by the legacy FormBCS ---
+	    // --- Group I: Boundary Condition vectors ---
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Ubcs); CHKERRQ(ierr);
 	    ierr = VecSet(user->Bcs.Ubcs, 0.0); CHKERRQ(ierr);
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Uch); CHKERRQ(ierr);
@@ -1114,6 +1171,14 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
         globalVec = user->P;
         localVec  = user->lP;
         dm        = user->da;
+    } else if (strcmp(fieldName, "Diffusivity") == 0) {
+        globalVec = user->Diffusivity;
+        localVec  = user->lDiffusivity;
+        dm        = user->da;
+    } else if (strcmp(fieldName, "DiffusivityGradient") == 0) {
+        globalVec = user->DiffusivityGradient;
+        localVec  = user->lDiffusivityGradient;
+        dm        = user->fda;
     } else if (strcmp(fieldName, "Csi") == 0) {
         globalVec = user->Csi;
         localVec  = user->lCsi;
@@ -1359,9 +1424,8 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
     PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Setting up Boundary Conditions ---\n");
-    
-    // --- Parse and Adapt for each block on the finest level ---
-    LOG_ALLOW(GLOBAL,LOG_INFO,"Parsing BC configuration file and adapting to legacy system for finest grid.\n");
+    // --- Phase 1: Parse and initialize BC configuration for all blocks ---
+    LOG_ALLOW(GLOBAL,LOG_INFO,"Parsing BC configuration files and initializing boundary condition data structures.\n");
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         LOG_ALLOW(GLOBAL,LOG_DEBUG, "  -> Processing Block %d:\n", bi);
@@ -1370,13 +1434,33 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
 	const char *current_bc_filename = simCtx->bcs_files[bi];
 	LOG_ALLOW(GLOBAL,LOG_DEBUG,"  -> Processing Block %d using config file '%s'\n", bi, current_bc_filename);
        // This will populate user_finest[bi].boundary_faces
-        ierr = ParseAllBoundaryConditions(&user_finest[bi],current_bc_filename); CHKERRQ(ierr);
 
+        //ierr = ParseAllBoundaryConditions(&user_finest[bi],current_bc_filename); CHKERRQ(ierr);
+
+        ierr = BoundarySystem_Initialize(&user_finest[bi], current_bc_filename); CHKERRQ(ierr);
         // Call the adapter to translate into the legacy format
         ierr = TranslateModernBCsToLegacy(&user_finest[bi]); CHKERRQ(ierr);
+    }
 
-        // Call the function to calculate the center of the inlet face, which may be used to calculate Boundary values.
-        ierr = CalculateInletCenter(&user_finest[bi]); CHKERRQ(ierr); 
+    // Propogate BC Configuration to coarser levels.
+    ierr = PropagateBoundaryConfigToCoarserLevels(simCtx); CHKERRQ(ierr);
+
+    // --- Calculate Grid Metrics (requires BC configuration) ---
+    // NOTE: This MUST be called here (after BC initialization but before inlet/outlet calculations) because:
+    // 1. Periodic BC corrections in metric calculations need boundary_faces data to be populated
+    // 2. Inlet/Outlet area calculations (below) require computed metrics (Csi, Eta, Zet) to be available
+    // Previously this was in SetupGridAndSolvers, but that caused metrics to be computed without BC info.
+    LOG_ALLOW(GLOBAL,LOG_INFO,"Computing grid metrics with boundary condition information.\n");
+    ierr = CalculateAllGridMetrics(simCtx); CHKERRQ(ierr);
+
+    // --- Phase 2: Calculate inlet/outlet properties (requires computed metrics) ---
+    LOG_ALLOW(GLOBAL,LOG_INFO,"Calculating inlet and outlet face properties.\n");
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        // Call the function to calculate the center of the inlet face & the inlet area, which may be used to calculate Boundary values.
+        ierr = CalculateInletProperties(&user_finest[bi]); CHKERRQ(ierr);
+
+        // Call the function to calculate the center of the outlet face & the outlet area, which may be used to calculate Boundary values.
+        ierr = CalculateOutletProperties(&user_finest[bi]); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL,LOG_INFO, "--- Boundary Conditions setup complete ---\n");   
@@ -2635,8 +2719,75 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "InitializeBrownianRNG"
+/**
+ * @brief Initializes a single master RNG for time-stepping physics (Brownian motion).
+ *        Configures it for Uniform [0, 1) which is required for Box-Muller transformation.
+ *
+ * @param[in,out] simCtx  Pointer to the Simulation Context.
+ * @return PetscErrorCode
+ */
+PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx) {
+    PetscErrorCode ierr;
+    PetscMPIInt rank;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    // 1. Create the generator (stored in SimCtx, not UserCtx, as it is global physics)
+    ierr = PetscRandomCreate(PETSC_COMM_WORLD, &simCtx->BrownianMotionRNG); CHKERRQ(ierr);
+    ierr = PetscRandomSetType(simCtx->BrownianMotionRNG, PETSCRAND48); CHKERRQ(ierr);
+
+    // 2. CRITICAL: Set interval to [0, 1). 
+    // This is required for the Gaussian math to work.
+    ierr = PetscRandomSetInterval(simCtx->BrownianMotionRNG, 0.0, 1.0); CHKERRQ(ierr);
+
+    // 3. Seed based on Rank to ensure spatial randomness
+    // Multiplying by a large prime helps separate the streams significantly
+    unsigned long seed = (unsigned long)rank * 987654321 + (unsigned long)time(NULL);
+    ierr = PetscRandomSetSeed(simCtx->BrownianMotionRNG, seed); CHKERRQ(ierr);
+    ierr = PetscRandomSeed(simCtx->BrownianMotionRNG); CHKERRQ(ierr);
+
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "[Rank %d] Initialized Brownian Physics RNG.\n", rank);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
 /////////////// DERIVATIVE CALCULATION HELPERS ///////////////
 
+#undef __FUNCT__
+#define __FUNCT__ "TransformScalarDerivativesToPhysical"
+/**
+ * @brief Transforms scalar derivatives from computational space to physical space 
+ *        using the chain rule.
+ * 
+ * Formula: dPhi/dx = J * ( dPhi/dCsi * dCsi/dx + dPhi/dEta * dEta/dx + ... )
+ */
+ void TransformScalarDerivativesToPhysical(PetscReal jacobian, 
+                                                 Cmpnts csi_metrics, 
+                                                 Cmpnts eta_metrics, 
+                                                 Cmpnts zet_metrics,
+                                                 PetscReal dPhi_dcsi, 
+                                                 PetscReal dPhi_deta, 
+                                                 PetscReal dPhi_dzet,
+                                                 Cmpnts *gradPhi)
+{
+    // Gradient X component
+    gradPhi->x = jacobian * (dPhi_dcsi * csi_metrics.x + dPhi_deta * eta_metrics.x + dPhi_dzet * zet_metrics.x);
+    
+    // Gradient Y component
+    gradPhi->y = jacobian * (dPhi_dcsi * csi_metrics.y + dPhi_deta * eta_metrics.y + dPhi_dzet * zet_metrics.y);
+    
+    // Gradient Z component
+    gradPhi->z = jacobian * (dPhi_dcsi * csi_metrics.z + dPhi_deta * eta_metrics.z + dPhi_dzet * zet_metrics.z);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "TransformDerivativesToPhysical"
 /**
  * @brief Transforms derivatives from computational space to physical space using the chain rule.
  */
@@ -2656,6 +2807,54 @@ static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metric
     dwdx->x = jacobian * (deriv_csi.z * csi_metrics.x + deriv_eta.z * eta_metrics.x + deriv_zet.z * zet_metrics.x);
     dwdx->y = jacobian * (deriv_csi.z * csi_metrics.y + deriv_eta.z * eta_metrics.y + deriv_zet.z * zet_metrics.y);
     dwdx->z = jacobian * (deriv_csi.z * csi_metrics.z + deriv_eta.z * eta_metrics.z + deriv_zet.z * zet_metrics.z);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeScalarFieldDerivatives"
+/**
+ * @brief Computes the gradient of a cell-centered SCALAR field at a specific grid point.
+ *
+ * @param user       The user context.
+ * @param i, j, k    The grid indices.
+ * @param field_data 3D array pointer to the scalar field (PetscReal***).
+ * @param grad       Output: A Cmpnts struct storing [dPhi/dx, dPhi/dy, dPhi/dz].
+ * @return           PetscErrorCode
+ */
+PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, 
+                                             PetscReal ***field_data, Cmpnts *grad)
+{
+    PetscErrorCode ierr;
+    Cmpnts    ***csi, ***eta, ***zet;
+    PetscReal ***jac;
+    PetscReal d_csi, d_eta, d_zet;
+
+    PetscFunctionBeginUser;
+
+    // 1. Get read-only access to metrics
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
+
+    // 2. Compute derivatives in computational space (Central Difference)
+    //    Assumes ghosts are available at i+/-1
+    d_csi = 0.5 * (field_data[k][j][i+1] - field_data[k][j][i-1]);
+    d_eta = 0.5 * (field_data[k][j+1][i] - field_data[k][j-1][i]);
+    d_zet = 0.5 * (field_data[k+1][j][i] - field_data[k-1][j][i]);
+
+    // 3. Transform to physical space
+    TransformScalarDerivativesToPhysical(jac[k][j][i], 
+                                         csi[k][j][i], eta[k][j][i], zet[k][j][i],
+                                         d_csi, d_eta, d_zet,
+                                         grad);
+
+    // 4. Restore arrays
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
@@ -2713,6 +2912,453 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+//================================================================================
+//
+//                         MEMORY CLEANUP FUNCTIONS
+//
+//================================================================================
+
+#undef __FUNCT__
+#define __FUNCT__ "DestroyUserVectors"
+/**
+ * @brief Destroys all Vec objects in a UserCtx structure.
+ *
+ * This function systematically destroys all PETSc Vec objects allocated in a UserCtx,
+ * with proper conditional checks for vectors that are only allocated under certain
+ * conditions (finest level, turbulence models, particles, postprocessor mode, etc.).
+ *
+ * @param user The UserCtx structure whose vectors should be destroyed.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode DestroyUserVectors(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    // --- Group A: Primary Flow Fields (Always allocated at all levels) ---
+    if (user->Ucont) { ierr = VecDestroy(&user->Ucont); CHKERRQ(ierr); }
+    if (user->lUcont) { ierr = VecDestroy(&user->lUcont); CHKERRQ(ierr); }
+    if (user->Ucat) { ierr = VecDestroy(&user->Ucat); CHKERRQ(ierr); }
+    if (user->lUcat) { ierr = VecDestroy(&user->lUcat); CHKERRQ(ierr); }
+    if (user->P) { ierr = VecDestroy(&user->P); CHKERRQ(ierr); }
+    if (user->lP) { ierr = VecDestroy(&user->lP); CHKERRQ(ierr); }
+    if (user->Nvert) { ierr = VecDestroy(&user->Nvert); CHKERRQ(ierr); }
+    if (user->lNvert) { ierr = VecDestroy(&user->lNvert); CHKERRQ(ierr); }
+
+    // --- Group A2: Derived Flow Fields (Conditional) ---
+    if(user->Diffusivity) {ierr = VecDestroy(&user->Diffusivity); CHKERRQ(ierr);}
+    if(user->lDiffusivity){ierr = VecDestroy(&user->lDiffusivity); CHKERRQ(ierr);}
+    if(user->DiffusivityGradient){ierr = VecDestroy(&user->DiffusivityGradient); CHKERRQ(ierr);}
+    if(user->lDiffusivityGradient){ierr = VecDestroy(&user->lDiffusivityGradient); CHKERRQ(ierr);}
+    
+    // --- Group B: Solver Work Vectors (All levels) ---
+    if (user->Phi) { ierr = VecDestroy(&user->Phi); CHKERRQ(ierr); }
+    if (user->lPhi) { ierr = VecDestroy(&user->lPhi); CHKERRQ(ierr); }
+
+    // --- Group C: Time-Stepping Vectors (Finest level only) ---
+    if (user->Ucont_o) { ierr = VecDestroy(&user->Ucont_o); CHKERRQ(ierr); }
+    if (user->Ucont_rm1) { ierr = VecDestroy(&user->Ucont_rm1); CHKERRQ(ierr); }
+    if (user->Ucat_o) { ierr = VecDestroy(&user->Ucat_o); CHKERRQ(ierr); }
+    if (user->P_o) { ierr = VecDestroy(&user->P_o); CHKERRQ(ierr); }
+    if (user->Nvert_o) { ierr = VecDestroy(&user->Nvert_o); CHKERRQ(ierr); }
+    if (user->lUcont_o) { ierr = VecDestroy(&user->lUcont_o); CHKERRQ(ierr); }
+    if (user->lUcont_rm1) { ierr = VecDestroy(&user->lUcont_rm1); CHKERRQ(ierr); }
+    if (user->lNvert_o) { ierr = VecDestroy(&user->lNvert_o); CHKERRQ(ierr); }
+
+    // --- Group D: Grid Metrics - Face Centered (All levels) ---
+    if (user->Csi) { ierr = VecDestroy(&user->Csi); CHKERRQ(ierr); }
+    if (user->Eta) { ierr = VecDestroy(&user->Eta); CHKERRQ(ierr); }
+    if (user->Zet) { ierr = VecDestroy(&user->Zet); CHKERRQ(ierr); }
+    if (user->Aj) { ierr = VecDestroy(&user->Aj); CHKERRQ(ierr); }
+    if (user->lCsi) { ierr = VecDestroy(&user->lCsi); CHKERRQ(ierr); }
+    if (user->lEta) { ierr = VecDestroy(&user->lEta); CHKERRQ(ierr); }
+    if (user->lZet) { ierr = VecDestroy(&user->lZet); CHKERRQ(ierr); }
+    if (user->lAj) { ierr = VecDestroy(&user->lAj); CHKERRQ(ierr); }
+
+    // --- Group E: Grid Metrics - Face Centered (All levels) ---
+    if (user->ICsi) { ierr = VecDestroy(&user->ICsi); CHKERRQ(ierr); }
+    if (user->IEta) { ierr = VecDestroy(&user->IEta); CHKERRQ(ierr); }
+    if (user->IZet) { ierr = VecDestroy(&user->IZet); CHKERRQ(ierr); }
+    if (user->JCsi) { ierr = VecDestroy(&user->JCsi); CHKERRQ(ierr); }
+    if (user->JEta) { ierr = VecDestroy(&user->JEta); CHKERRQ(ierr); }
+    if (user->JZet) { ierr = VecDestroy(&user->JZet); CHKERRQ(ierr); }
+    if (user->KCsi) { ierr = VecDestroy(&user->KCsi); CHKERRQ(ierr); }
+    if (user->KEta) { ierr = VecDestroy(&user->KEta); CHKERRQ(ierr); }
+    if (user->KZet) { ierr = VecDestroy(&user->KZet); CHKERRQ(ierr); }
+    if (user->IAj) { ierr = VecDestroy(&user->IAj); CHKERRQ(ierr); }
+    if (user->JAj) { ierr = VecDestroy(&user->JAj); CHKERRQ(ierr); }
+    if (user->KAj) { ierr = VecDestroy(&user->KAj); CHKERRQ(ierr); }
+    if (user->lICsi) { ierr = VecDestroy(&user->lICsi); CHKERRQ(ierr); }
+    if (user->lIEta) { ierr = VecDestroy(&user->lIEta); CHKERRQ(ierr); }
+    if (user->lIZet) { ierr = VecDestroy(&user->lIZet); CHKERRQ(ierr); }
+    if (user->lJCsi) { ierr = VecDestroy(&user->lJCsi); CHKERRQ(ierr); }
+    if (user->lJEta) { ierr = VecDestroy(&user->lJEta); CHKERRQ(ierr); }
+    if (user->lJZet) { ierr = VecDestroy(&user->lJZet); CHKERRQ(ierr); }
+    if (user->lKCsi) { ierr = VecDestroy(&user->lKCsi); CHKERRQ(ierr); }
+    if (user->lKEta) { ierr = VecDestroy(&user->lKEta); CHKERRQ(ierr); }
+    if (user->lKZet) { ierr = VecDestroy(&user->lKZet); CHKERRQ(ierr); }
+    if (user->lIAj) { ierr = VecDestroy(&user->lIAj); CHKERRQ(ierr); }
+    if (user->lJAj) { ierr = VecDestroy(&user->lJAj); CHKERRQ(ierr); }
+    if (user->lKAj) { ierr = VecDestroy(&user->lKAj); CHKERRQ(ierr); }
+
+    // --- Group F: Cell/Face Coordinates and Grid Spacing (All levels) ---
+    if (user->Cent) { ierr = VecDestroy(&user->Cent); CHKERRQ(ierr); }
+    if (user->lCent) { ierr = VecDestroy(&user->lCent); CHKERRQ(ierr); }
+    if (user->GridSpace) { ierr = VecDestroy(&user->GridSpace); CHKERRQ(ierr); }
+    if (user->lGridSpace) { ierr = VecDestroy(&user->lGridSpace); CHKERRQ(ierr); }
+    if (user->Centx) { ierr = VecDestroy(&user->Centx); CHKERRQ(ierr); }
+    if (user->Centy) { ierr = VecDestroy(&user->Centy); CHKERRQ(ierr); }
+    if (user->Centz) { ierr = VecDestroy(&user->Centz); CHKERRQ(ierr); }
+
+    // --- Group G: Turbulence Model Vectors (Finest level, conditional on les/rans) ---
+    if (user->Nu_t) { ierr = VecDestroy(&user->Nu_t); CHKERRQ(ierr); }
+    if (user->lNu_t) { ierr = VecDestroy(&user->lNu_t); CHKERRQ(ierr); }
+    if (user->CS) { ierr = VecDestroy(&user->CS); CHKERRQ(ierr); }
+    if (user->lCs) { ierr = VecDestroy(&user->lCs); CHKERRQ(ierr); }
+    if (user->lFriction_Velocity) { ierr = VecDestroy(&user->lFriction_Velocity); CHKERRQ(ierr); }
+    if (user->K_Omega) { ierr = VecDestroy(&user->K_Omega); CHKERRQ(ierr); }
+    if (user->lK_Omega) { ierr = VecDestroy(&user->lK_Omega); CHKERRQ(ierr); }
+    if (user->K_Omega_o) { ierr = VecDestroy(&user->K_Omega_o); CHKERRQ(ierr); }
+    if (user->lK_Omega_o) { ierr = VecDestroy(&user->lK_Omega_o); CHKERRQ(ierr); }
+
+    // --- Group H: Particle Vectors (Finest level, conditional on np > 0) ---
+    if (user->ParticleCount) { ierr = VecDestroy(&user->ParticleCount); CHKERRQ(ierr); }
+    if (user->lParticleCount) { ierr = VecDestroy(&user->lParticleCount); CHKERRQ(ierr); }
+    if (user->Psi) { ierr = VecDestroy(&user->Psi); CHKERRQ(ierr); }
+    if (user->lPsi) { ierr = VecDestroy(&user->lPsi); CHKERRQ(ierr); }
+
+    // --- Group I: Boundary Condition Vectors (All levels) ---
+    if (user->Bcs.Ubcs) { ierr = VecDestroy(&user->Bcs.Ubcs); CHKERRQ(ierr); }
+    if (user->Bcs.Uch) { ierr = VecDestroy(&user->Bcs.Uch); CHKERRQ(ierr); }
+
+    // --- Group J: Post-Processing Vectors (Finest level, postprocessor mode) ---
+    if (user->P_nodal) { ierr = VecDestroy(&user->P_nodal); CHKERRQ(ierr); }
+    if (user->Ucat_nodal) { ierr = VecDestroy(&user->Ucat_nodal); CHKERRQ(ierr); }
+    if (user->Qcrit) { ierr = VecDestroy(&user->Qcrit); CHKERRQ(ierr); }
+    if (user->Psi_nodal) { ierr = VecDestroy(&user->Psi_nodal); CHKERRQ(ierr); }
+
+    // --- Group K: Interpolation Vectors (Lazy allocation) ---
+    if (user->CellFieldAtCorner) { ierr = VecDestroy(&user->CellFieldAtCorner); CHKERRQ(ierr); }
+    if (user->lCellFieldAtCorner) { ierr = VecDestroy(&user->lCellFieldAtCorner); CHKERRQ(ierr); }
+
+    // --- Group L: Statistical Averaging Vectors (If allocated) ---
+    if (user->Ucat_sum) { ierr = VecDestroy(&user->Ucat_sum); CHKERRQ(ierr); }
+    if (user->Ucat_cross_sum) { ierr = VecDestroy(&user->Ucat_cross_sum); CHKERRQ(ierr); }
+    if (user->Ucat_square_sum) { ierr = VecDestroy(&user->Ucat_square_sum); CHKERRQ(ierr); }
+    if (user->P_sum) { ierr = VecDestroy(&user->P_sum); CHKERRQ(ierr); }
+
+    // --- Group M: Implicit Solver Temporary Vectors (Destroyed after use, but check anyway) ---
+    if (user->Rhs) { ierr = VecDestroy(&user->Rhs); CHKERRQ(ierr); }
+    if (user->dUcont) { ierr = VecDestroy(&user->dUcont); CHKERRQ(ierr); }
+    if (user->pUcont) { ierr = VecDestroy(&user->pUcont); CHKERRQ(ierr); }
+
+    // --- Group N: Poisson Solver Vectors (Destroyed after solve, but check anyway) ---
+    if (user->B) { ierr = VecDestroy(&user->B); CHKERRQ(ierr); }
+    if (user->R) { ierr = VecDestroy(&user->R); CHKERRQ(ierr); }
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "All vectors destroyed for UserCtx.\n");
+    PetscFunctionReturn(0);
+}
+#undef __FUNCT__
+#define __FUNCT__ "DestroyUserContext"
+/**
+ * @brief Destroys all resources allocated within a single UserCtx structure.
+ *
+ * This function cleans up all memory and PETSc objects associated with a single
+ * UserCtx (grid level). It calls the helper functions and destroys remaining objects
+ * in the proper dependency order:
+ *   1. Boundary conditions (handlers and their data)
+ *   2. All PETSc vectors (via DestroyUserVectors)
+ *   3. Matrix and solver objects (A, C, MR, MP, ksp, nullsp)
+ *   4. Application ordering (AO)
+ *   5. Distributed mesh objects (DMs) - most derived first
+ *   6. Raw PetscMalloc'd arrays (RankCellInfoMap, KSKE)
+ *
+ * This function should be called for each UserCtx in the multigrid hierarchy.
+ *
+ * @param[in,out] user Pointer to the UserCtx to be destroyed.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode DestroyUserContext(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    if (!user) {
+        LOG_ALLOW(LOCAL, LOG_WARNING, "DestroyUserContext called with NULL user pointer.\n");
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(LOCAL, LOG_INFO, "Destroying UserCtx at level %d...\n", user->thislevel);
+
+    // --- Step 1: Destroy Boundary Condition System ---
+    // This handles all BC handlers and their private data.
+    ierr = BoundarySystem_Destroy(user); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Boundary system destroyed.\n");
+
+    // --- Step 2: Destroy All Vectors ---
+    // Handles ~74 Vec objects with proper NULL checking.
+    ierr = DestroyUserVectors(user); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "  All vectors destroyed.\n");
+
+    // --- Step 3: Destroy Matrix and Solver Objects ---
+    // Destroy pressure-Poisson matrices and solver.
+    if (user->A) {
+        ierr = MatDestroy(&user->A); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix A destroyed.\n");
+    }
+    if (user->C) {
+        ierr = MatDestroy(&user->C); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix C destroyed.\n");
+    }
+    if (user->MR) {
+        ierr = MatDestroy(&user->MR); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix MR destroyed.\n");
+    }
+    if (user->MP) {
+        ierr = MatDestroy(&user->MP); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix MP destroyed.\n");
+    }
+    if (user->ksp) {
+        ierr = KSPDestroy(&user->ksp); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  KSP solver destroyed.\n");
+    }
+    if (user->nullsp) {
+        ierr = MatNullSpaceDestroy(&user->nullsp); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  MatNullSpace destroyed.\n");
+    }
+
+    // --- Step 4: Destroy Application Ordering ---
+    if (user->ao) {
+        ierr = AODestroy(&user->ao); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  AO destroyed.\n");
+    }
+
+    // --- Step 5: Destroy DM Objects ---
+    // Destroy in reverse order of dependency: post_swarm, swarm, fda2, fda, da
+    if (user->post_swarm) {
+        ierr = DMDestroy(&user->post_swarm); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  post_swarm DM destroyed.\n");
+    }
+    if (user->swarm) {
+        ierr = DMDestroy(&user->swarm); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  swarm DM destroyed.\n");
+    }
+    if (user->fda2) {
+        ierr = DMDestroy(&user->fda2); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  fda2 DM destroyed.\n");
+    }
+    if (user->da) {
+        ierr = DMDestroy(&user->da); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  da DM destroyed.\n");
+    }
+
+    // --- Step 6: Free PetscMalloc'd Arrays ---
+    // Free arrays allocated with PetscMalloc1
+    if (user->RankCellInfoMap) {
+        ierr = PetscFree(user->RankCellInfoMap); CHKERRQ(ierr);
+        user->RankCellInfoMap = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  RankCellInfoMap freed.\n");
+    }
+    if (user->KSKE) {
+        ierr = PetscFree(user->KSKE); CHKERRQ(ierr);
+        user->KSKE = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  KSKE array freed.\n");
+    }
+
+    LOG_ALLOW(LOCAL, LOG_INFO, "UserCtx at level %d fully destroyed.\n", user->thislevel);
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "FinalizeSimulation"
+/**
+ * @brief Main cleanup function for the entire simulation context.
+ *
+ * This function is responsible for destroying ALL memory and PETSc objects allocated
+ * during the simulation, including:
+ *   - All UserCtx structures in the multigrid hierarchy (via DestroyUserContext)
+ *   - The multigrid management structures (UserMG, MGCtx array)
+ *   - All SimCtx-level objects (logviewer, dm_swarm, bboxlist, string arrays, etc.)
+ *
+ * This function should be called ONCE at the end of the simulation, after all
+ * computation is complete, but BEFORE PetscFinalize().
+ *
+ * Call order in main:
+ *   1. [Simulation runs]
+ *   2. ProfilingFinalize(simCtx);
+ *   3. FinalizeSimulation(simCtx);  <- This function
+ *   4. PetscFinalize();
+ *
+ * @param[in,out] simCtx Pointer to the master SimulationContext to be destroyed.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    if (!simCtx) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "FinalizeSimulation called with NULL SimCtx pointer.\n");
+        PetscFunctionReturn(0);
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Beginning simulation memory cleanup...\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
+
+    // ============================================================================
+    // PHASE 1: DESTROY MULTIGRID HIERARCHY (All UserCtx structures)
+    // ============================================================================
+
+    if (simCtx->usermg.mgctx) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying multigrid hierarchy (%d levels)...\n",
+                  simCtx->usermg.mglevels);
+
+        // Destroy each UserCtx from finest to coarsest (reverse order is safer)
+        for (PetscInt level = simCtx->usermg.mglevels - 1; level >= 0; level--) {
+            UserCtx *user = simCtx->usermg.mgctx[level].user;
+            if (user) {
+                LOG_ALLOW(LOCAL, LOG_INFO, "  Destroying level %d of %d...\n",
+                          level, simCtx->usermg.mglevels - 1);
+                ierr = DestroyUserContext(user); CHKERRQ(ierr);
+
+                // Free the UserCtx structure itself
+                ierr = PetscFree(user); CHKERRQ(ierr);
+                simCtx->usermg.mgctx[level].user = NULL;
+            }
+
+            // Destroy the MGCtx-level packer DM
+            if (simCtx->usermg.mgctx[level].packer) {
+                ierr = DMDestroy(&simCtx->usermg.mgctx[level].packer); CHKERRQ(ierr);
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "  MGCtx[%d].packer destroyed.\n", level);
+            }
+        }
+
+        // Free the MGCtx array itself
+        ierr = PetscFree(simCtx->usermg.mgctx); CHKERRQ(ierr);
+        simCtx->usermg.mgctx = NULL;
+        LOG_ALLOW(GLOBAL, LOG_INFO, "All multigrid levels destroyed.\n");
+    }
+
+    // ============================================================================
+    // PHASE 2: DESTROY USERMG-LEVEL OBJECTS
+    // ============================================================================
+
+    if (simCtx->usermg.packer) {
+        ierr = DMDestroy(&simCtx->usermg.packer); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "UserMG.packer DM destroyed.\n");
+    }
+
+    if (simCtx->usermg.snespacker) {
+        ierr = SNESDestroy(&simCtx->usermg.snespacker); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "UserMG.snespacker SNES destroyed.\n");
+    }
+
+    // ============================================================================
+    // PHASE 3: DESTROY SIMCTX-LEVEL OBJECTS
+    // ============================================================================
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying SimCtx-level objects...\n");
+
+    // --- PetscViewer for logging ---
+    if (simCtx->logviewer) {
+        ierr = PetscViewerDestroy(&simCtx->logviewer); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  logviewer destroyed.\n");
+    }
+
+    // --- Particle System DM ---
+    if (simCtx->dm_swarm) {
+        ierr = DMDestroy(&simCtx->dm_swarm); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  dm_swarm destroyed.\n");
+    }
+
+    // --- BoundingBox List (Array of BoundingBox structs) ---
+    if (simCtx->bboxlist) {
+        ierr = PetscFree(simCtx->bboxlist); CHKERRQ(ierr);
+        simCtx->bboxlist = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  bboxlist freed.\n");
+    }
+
+    // --- Boundary Condition Files (Array of strings) ---
+    if (simCtx->bcs_files) {
+        for (PetscInt i = 0; i < simCtx->num_bcs_files; i++) {
+            if (simCtx->bcs_files[i]) {
+                ierr = PetscFree(simCtx->bcs_files[i]); CHKERRQ(ierr);
+            }
+        }
+        ierr = PetscFree(simCtx->bcs_files); CHKERRQ(ierr);
+        simCtx->bcs_files = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  bcs_files array freed (%d files).\n", simCtx->num_bcs_files);
+    }
+
+    // --- Brownian Motion RNG ---
+    if (simCtx->BrownianMotionRNG) {
+        ierr = PetscRandomDestroy(&simCtx->BrownianMotionRNG); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  BrownianMotionRNG destroyed.\n");
+    }
+    // --- Post-Processing Parameters ---
+    // pps is allocated with PetscNew and contains only static char arrays and basic types.
+    // No internal dynamic allocations need to be freed.
+    if (simCtx->pps) {
+        ierr = PetscFree(simCtx->pps); CHKERRQ(ierr);
+        simCtx->pps = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  PostProcessParams freed.\n");
+    }
+
+    // --- IBM/FSI Objects ---
+    // Note: These are initialized to NULL and currently have no dedicated destroy functions.
+    // If these modules are extended with cleanup routines, call them here.
+    if (simCtx->ibm != NULL) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "  WARNING: simCtx->ibm is non-NULL but no destroy function exists. Potential memory leak.\n");
+    }
+    if (simCtx->ibmv != NULL) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "  WARNING: simCtx->ibmv is non-NULL but no destroy function exists. Potential memory leak.\n");
+    }
+    if (simCtx->fsi != NULL) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "  WARNING: simCtx->fsi is non-NULL but no destroy function exists. Potential memory leak.\n");
+    }
+
+    // --- Logging Allowed Functions (Array of strings) ---
+    // Note: The logging system maintains its own copy via set_allowed_functions(),
+    // so freeing simCtx->allowedFuncs will NOT affect LOG_ALLOW functionality.
+    if (simCtx->allowedFuncs) {
+        for (PetscInt i = 0; i < simCtx->nAllowed; i++) {
+            if (simCtx->allowedFuncs[i]) {
+                ierr = PetscFree(simCtx->allowedFuncs[i]); CHKERRQ(ierr);
+            }
+        }
+        ierr = PetscFree(simCtx->allowedFuncs); CHKERRQ(ierr);
+        simCtx->allowedFuncs = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  allowedFuncs array freed (%d functions).\n", simCtx->nAllowed);
+    }
+
+    // --- Profiling Critical Functions (Array of strings) ---
+    if (simCtx->criticalFuncs) {
+        for (PetscInt i = 0; i < simCtx->nCriticalFuncs; i++) {
+            if (simCtx->criticalFuncs[i]) {
+                ierr = PetscFree(simCtx->criticalFuncs[i]); CHKERRQ(ierr);
+            }
+        }
+        ierr = PetscFree(simCtx->criticalFuncs); CHKERRQ(ierr);
+        simCtx->criticalFuncs = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  criticalFuncs array freed (%d functions).\n", simCtx->nCriticalFuncs);
+    }
+
+    // ============================================================================
+    // PHASE 4: FINAL SUMMARY
+    // ============================================================================
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Simulation cleanup completed successfully.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "All PETSc objects have been destroyed.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
 
     PetscFunctionReturn(0);
 }

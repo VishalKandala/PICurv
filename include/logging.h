@@ -16,7 +16,6 @@
 #include <petscsys.h>
 #include <ctype.h>
 #include "variables.h"
-#include "AnalyticalSolution.h"
 #include "Boundaries.h"
 // --------------------- Logging Levels Definition ---------------------
 
@@ -584,10 +583,17 @@ const char* ParticleInitializationToString(PetscInt ParticleInitialization);
 
 /**
  * @brief Helper function to convert LES Flag to a string representation.
- * @param[in] PetscInt The LES flag value.
- * @return Pointer to a constant string representing the FieldInitialization.
+ * @param[in] LESModelType The LES flag value.
+ * @return Pointer to a constant string representing the LES Flag.
  */
-const char* LESFlagToString(PetscInt LESFlag);
+const char* LESModelToString(LESModelType LESFlag);
+
+/**
+ * @brief Helper function to convert Momentum Solver flag to a string representation.
+ * @param[in] MomentumSolverType The Momentum Solver flag value.
+ * @return Pointer to a constant string representing the MomentumSolverType.
+ */
+const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag);
 
 /**
  * @brief Helper function to convert BCType enum to a string representation.
@@ -786,4 +792,38 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName);
  */
 PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const char *stage_name);
 
+/**
+@brief Logs the interpolation error between the analytical and computed solutions.
+*/
+PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user);
+
+/**
+ * @brief Computes advanced particle statistics and stores them in SimCtx.
+ *
+ * This function calculates:
+ * - Particle load imbalance across MPI ranks.
+ * - The total number of grid cells occupied by at least one particle.
+ *
+ * It requires that CalculateParticleCountPerCell() has been called prior to its
+ * execution. It uses collective MPI operations and must be called by all ranks.
+ *
+ * @param user Pointer to the UserCtx.
+ * @return     PetscErrorCode 0 on success.
+ */
+PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user);
+
+/**
+ * @brief Logs particle swarm metrics, adapting its behavior based on a boolean flag in SimCtx.
+ *
+ * This function serves a dual purpose:
+ * 1. If simCtx->isInitializationPhase is PETSC_TRUE, it logs settlement
+ *    diagnostics to "Initialization_Metrics.log", using the provided stageName.
+ * 2. If simCtx->isInitializationPhase is PETSC_FALSE, it logs regular
+ *    timestep metrics to "Particle_Metrics.log".
+ *
+ * @param user      A pointer to the UserCtx.
+ * @param stageName A descriptive string for the initialization stage (ignored in timestep mode).
+ * @return          PetscErrorCode 0 on success.
+ */
+PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName);
 #endif // LOGGING_H

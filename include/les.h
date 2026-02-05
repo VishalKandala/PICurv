@@ -6,6 +6,7 @@
 #include "Metric.h"
 #include "setup.h"
 #include "Filter.h"
+#include "Boundaries.h"
 
 /**
  * @brief Computes the dynamic Smagorinsky constant (Cs) for the LES model.
