@@ -30,14 +30,15 @@
 set -e
 
 # --- Configuration ---
-# Relative path to the directory containing the Makefile.
-CODE_DIR="/root/PE/PICurv"
+# Derive project root from the location of this script, allowing it to be run
+# from any directory without a hardcoded path.
+CODE_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- Pre-flight Check ---
 # Ensure the code directory actually exists.
 if [ ! -d "$CODE_DIR" ]; then
     echo "Error: Code directory not found at '$CODE_DIR'."
-    echo "Please ensure this script is in the 'run' directory and the 'code' directory is a sibling."
+    echo "Please ensure this script is in the project root directory alongside the Makefile."
     exit 1
 fi
 
