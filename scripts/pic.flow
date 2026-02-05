@@ -22,6 +22,7 @@ import shutil
 import glob
 import numpy as np
 from datetime import datetime
+import time
 
 # --- Global Path Definitions ---
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -48,6 +49,140 @@ def read_yaml_file(filepath: str) -> dict:
     except yaml.YAMLError as e:
         print(f"[FATAL] Error parsing YAML file '{filepath}': {e}", file=sys.stderr)
         sys.exit(1)
+
+def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
+                            case_path: str, solver_path: str, monitor_path: str):
+    """!
+    @brief Validates all solver input configs before any work is done.
+    @details Checks for required sections, required keys, and physical sanity.
+             Exits with a clear error message on the first problem found.
+    @param[in] case_cfg    Parsed case YAML dictionary.
+    @param[in] solver_cfg  Parsed solver YAML dictionary.
+    @param[in] monitor_cfg Parsed monitor YAML dictionary.
+    @param[in] case_path   Path to case file (for error messages).
+    @param[in] solver_path Path to solver file (for error messages).
+    @param[in] monitor_path Path to monitor file (for error messages).
+    @throws SystemExit on validation failure.
+    """
+    errors = []
+
+    # --- case.yml: required top-level sections ---
+    required_case_sections = ['properties', 'run_control', 'grid', 'models', 'boundary_conditions']
+    for section in required_case_sections:
+        if section not in case_cfg:
+            errors.append(f"  {case_path}: missing required section '{section}'.")
+
+    if errors:
+        _print_validation_errors(errors)
+
+    # --- case.yml: properties sub-keys ---
+    props = case_cfg.get('properties', {})
+    for group, keys in [('scaling', ['length_ref', 'velocity_ref']),
+                        ('fluid', ['density', 'viscosity']),
+                        ('initial_conditions', ['u_physical', 'v_physical', 'w_physical'])]:
+        sub = props.get(group, {})
+        if not sub:
+            errors.append(f"  {case_path}: missing 'properties.{group}' section.")
+        else:
+            for k in keys:
+                if k not in sub:
+                    errors.append(f"  {case_path}: missing key 'properties.{group}.{k}'.")
+
+    # --- case.yml: run_control sub-keys ---
+    rc = case_cfg.get('run_control', {})
+    for k in ['start_step', 'total_steps', 'dt_physical']:
+        if k not in rc:
+            errors.append(f"  {case_path}: missing key 'run_control.{k}'.")
+
+    # --- Physical sanity checks ---
+    try:
+        density = float(props.get('fluid', {}).get('density', 0))
+        viscosity = float(props.get('fluid', {}).get('viscosity', 0))
+        dt = float(rc.get('dt_physical', 0))
+        if density <= 0:
+            errors.append(f"  {case_path}: 'properties.fluid.density' must be positive (got {density}).")
+        if viscosity < 0:
+            errors.append(f"  {case_path}: 'properties.fluid.viscosity' must be non-negative (got {viscosity}).")
+        if dt <= 0:
+            errors.append(f"  {case_path}: 'run_control.dt_physical' must be positive (got {dt}).")
+    except (TypeError, ValueError):
+        pass  # Will be caught later during processing
+
+    # --- case.yml: grid mode ---
+    grid_cfg = case_cfg.get('grid', {})
+    grid_mode = grid_cfg.get('mode')
+    valid_grid_modes = ['file', 'programmatic_c']
+    if grid_mode not in valid_grid_modes:
+        errors.append(f"  {case_path}: 'grid.mode' must be one of {valid_grid_modes} (got '{grid_mode}').")
+    elif grid_mode == 'file' and not grid_cfg.get('source_file'):
+        errors.append(f"  {case_path}: 'grid.source_file' is required when grid.mode is 'file'.")
+    elif grid_mode == 'programmatic_c' and not grid_cfg.get('programmatic_settings'):
+        errors.append(f"  {case_path}: 'grid.programmatic_settings' is required when grid.mode is 'programmatic_c'.")
+
+    # --- solver.yml: basic structure ---
+    if not isinstance(solver_cfg, dict) or not solver_cfg:
+        errors.append(f"  {solver_path}: solver config is empty or not a valid YAML mapping.")
+
+    # --- monitor.yml: basic structure ---
+    if not isinstance(monitor_cfg, dict) or not monitor_cfg:
+        errors.append(f"  {monitor_path}: monitor config is empty or not a valid YAML mapping.")
+    else:
+        io_cfg = monitor_cfg.get('io', {})
+        freq = io_cfg.get('data_output_frequency')
+        if freq is not None and (not isinstance(freq, int) or freq <= 0):
+            errors.append(f"  {monitor_path}: 'io.data_output_frequency' must be a positive integer (got {freq}).")
+
+    if errors:
+        _print_validation_errors(errors)
+
+
+def validate_post_config(post_cfg: dict, post_path: str):
+    """!
+    @brief Validates the post-processing config before running the post-processor.
+    @param[in] post_cfg  Parsed post-processing YAML dictionary.
+    @param[in] post_path Path to post file (for error messages).
+    @throws SystemExit on validation failure.
+    """
+    errors = []
+
+    if not isinstance(post_cfg, dict) or not post_cfg:
+        errors.append(f"  {post_path}: post-processing config is empty or not a valid YAML mapping.")
+        _print_validation_errors(errors)
+
+    # --- run_control ---
+    if 'run_control' not in post_cfg:
+        errors.append(f"  {post_path}: missing required section 'run_control'.")
+
+    # --- io section ---
+    io_cfg = post_cfg.get('io', {})
+    if not io_cfg:
+        errors.append(f"  {post_path}: missing required section 'io'.")
+    else:
+        for k in ['output_directory', 'output_filename_prefix']:
+            if k not in io_cfg:
+                errors.append(f"  {post_path}: missing required key 'io.{k}'.")
+
+    # --- Check eulerian_pipeline entries have 'task' key ---
+    for i, entry in enumerate(post_cfg.get('eulerian_pipeline', [])):
+        if not isinstance(entry, dict) or 'task' not in entry:
+            errors.append(f"  {post_path}: 'eulerian_pipeline[{i}]' is missing the 'task' key. "
+                          "Check YAML indentation (each entry needs '- task: ...' with proper spacing).")
+
+    if errors:
+        _print_validation_errors(errors)
+
+
+def _print_validation_errors(errors: list):
+    """!
+    @brief Prints validation errors and exits.
+    @param[in] errors List of error message strings.
+    """
+    print("\n[FATAL] Configuration validation failed:", file=sys.stderr)
+    for e in errors:
+        print(e, file=sys.stderr)
+    print(f"\n  Hint: See examples/master_template/ for valid config file structure.", file=sys.stderr)
+    sys.exit(1)
+
 
 def generate_header(run_id: str, source_files: dict) -> str:
     """!
@@ -381,10 +516,11 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     c_config = {}
 
     # --- 1. Process Run Control ---
+    # Accept snake_case names (preferred) with camelCase fallback for backwards compatibility.
     rc = post_cfg.get('run_control', {})
-    c_config['startTime'] = rc.get('startTime', 0)
-    c_config['endTime'] = rc.get('endTime', 10)
-    c_config['timeStep'] = rc.get('timeStep', 1)
+    c_config['startTime'] = rc.get('start_step', rc.get('startTime', 0))
+    c_config['endTime'] = rc.get('end_step', rc.get('endTime', 10))
+    c_config['timeStep'] = rc.get('step_interval', rc.get('timeStep', 1))
 
     # --- 2. Process Global Operations ---
     eulerian_pipeline_parts = []
@@ -515,7 +651,9 @@ def run_workflow(args):
     """
     run_dir = None
     run_id = None
-    
+    workflow_start = time.time()
+    stages_completed = []
+
     # --- Stage 1: Solver (if requested) ---
     if args.solve:
         configs = {
@@ -523,6 +661,15 @@ def run_workflow(args):
             'solver': read_yaml_file(args.solver), 'solver_path': args.solver,
             'monitor': read_yaml_file(args.monitor), 'monitor_path': args.monitor
         }
+
+        # --- Pre-flight validation ---
+        print("\n[INFO] Validating configuration files...")
+        validate_solver_configs(
+            configs['case'], configs['solver'], configs['monitor'],
+            args.case, args.solver, args.monitor
+        )
+        print("[SUCCESS] All configuration files passed validation.\n")
+
         case_name = os.path.splitext(os.path.basename(args.case))[0]
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         run_id = f"{case_name}_{timestamp}"
@@ -552,6 +699,7 @@ def run_workflow(args):
         if args.num_procs > 1:
             command = ["mpiexec", "-n", str(args.num_procs)] + command
         execute_command(command, run_dir, f"{run_id}_solver.log", configs['monitor'])
+        stages_completed.append('solve')
 
     # --- Stage 2: Post-Processing (if requested) ---
     if args.post_process:
@@ -597,6 +745,11 @@ def run_workflow(args):
             monitor_cfg = read_yaml_file(monitor_path)
             post_cfg = read_yaml_file(args.post)
 
+            # --- Pre-flight validation ---
+            print("[INFO] Validating post-processing configuration...")
+            validate_post_config(post_cfg, args.post)
+            print("[SUCCESS] Post-processing configuration passed validation.\n")
+
             # --- Resolve Source Data Directory & Verify Existence ---
             solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
             solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
@@ -641,6 +794,51 @@ def run_workflow(args):
                 command = ["mpiexec", "-n", str(args.num_procs)] + command
             
             execute_command(command, run_dir, f"{run_id}_{output_prefix}.log", monitor_cfg)
+            stages_completed.append('post-process')
+
+    # --- Post-Run Summary ---
+    if stages_completed:
+        elapsed = time.time() - workflow_start
+        mins, secs = divmod(int(elapsed), 60)
+        hrs, mins = divmod(mins, 60)
+        if hrs > 0:
+            time_str = f"{hrs}h {mins}m {secs}s"
+        elif mins > 0:
+            time_str = f"{mins}m {secs}s"
+        else:
+            time_str = f"{secs}s"
+
+        print("\n" + "=" * 60)
+        print("                       RUN SUMMARY")
+        print("=" * 60)
+        print(f"  Run ID       : {run_id}")
+        print(f"  Run directory : {os.path.relpath(run_dir)}")
+        print(f"  Wall-clock    : {time_str}")
+        print(f"  Stages        : {', '.join(stages_completed)}")
+        print(f"  MPI processes : {args.num_procs}")
+
+        if 'solve' in stages_completed:
+            case_cfg = configs['case'] if args.solve else read_yaml_file(os.path.join(run_dir, "config", "case.yml"))
+            total_steps = case_cfg.get('run_control', {}).get('total_steps', '?')
+            print(f"  Steps run     : {total_steps}")
+            result_dir = os.path.join(run_dir, configs['monitor'].get('io', {}).get('directories', {}).get('output', 'results')) if args.solve else os.path.join(run_dir, 'results')
+            print(f"  Solver output : {os.path.relpath(result_dir)}")
+
+        if 'post-process' in stages_completed:
+            print(f"  Post output   : {os.path.relpath(output_dir_abs)}")
+
+        log_dir = os.path.join(run_dir, "logs")
+        print(f"  Logs          : {os.path.relpath(log_dir)}")
+
+        print("-" * 60)
+        # Suggest next step
+        if 'solve' in stages_completed and 'post-process' not in stages_completed:
+            print("  Next step: run post-processing with:")
+            print(f"    pic-flow run --post-process --run-dir {os.path.relpath(run_dir)} --post <post.yml>")
+        elif stages_completed:
+            print("  All requested stages completed successfully.")
+        print("=" * 60)
+
 
 def init_case(args):
     """!
