@@ -78,7 +78,7 @@ eulerian_pipeline:
   # (Optional) Normalizes a relative field (like pressure) by subtracting
   # the value at a specific grid index.
   # Invokes the C function: `NormalizeRelativeField()`.
-  - task:normalize:
+  - task: normalize_field
     # The field to normalize. Currently, only "P" is supported by the C code.
     field: 'P'
     # The [i, j, k] grid indices of the reference point. The Python script will
