@@ -676,6 +676,7 @@ typedef struct SimCtx {
     PetscInt occupiedCellCount;
     PetscReal particleLoadImbalance;
     PetscRandom BrownianMotionRNG;
+    PetscReal C_IEM;
 
     //================ Group 10: Immersed Boundary & FSI Data Object Pointers ================
     IBMNodes  *ibm;

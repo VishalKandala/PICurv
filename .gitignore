@@ -3,3 +3,8 @@ obj/
 stubs/
 __pycache__/
 *.pyc
+
+# Large grid/mesh files
+*.vts
+*.grid
+scripts/brownian_grids/

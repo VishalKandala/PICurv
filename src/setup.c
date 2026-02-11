@@ -155,6 +155,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->particleLoadImbalance = 0.0;
     simCtx->migrationPassesLastStep = 0;
     simCtx->BrownianMotionRNG = NULL;
+    simCtx->C_IEM = 2.0;
 
     // --- Group 10: Immersed Boundary & FSI Data Object Pointers ---
     simCtx->ibm = NULL; simCtx->ibmv = NULL; simCtx->fsi = NULL;
