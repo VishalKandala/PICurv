@@ -918,10 +918,10 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
         //    ierr = Create_PeriodicDrivenInitial(bc);
         //    break;
                 
-        //case BC_HANDLER_INLET_PARABOLIC:
-        //    LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletParabolicProfile().\n");
-	      //    ierr = Create_InletParabolicProfile(bc); CHKERRQ(ierr);
-        //    break;
+        case BC_HANDLER_INLET_PARABOLIC:
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletParabolicProfile().\n");
+            ierr = Create_InletParabolicProfile(bc); CHKERRQ(ierr);
+            break;
         //Add cases for other handlers here in future phases 
         
         default:

@@ -700,6 +700,470 @@ static PetscErrorCode Destroy_InletConstantVelocity(BoundaryCondition *self)
     }
     PetscFunctionReturn(0);
 }
+
+//================================================================================
+//
+//          HANDLER IMPLEMENTATION: PARABOLIC VELOCITY INLET (POISEUILLE PROFILE)
+//          (Corresponds to BC_HANDLER_INLET_PARABOLIC)
+//
+// This handler enforces a fully-developed parabolic (Poiseuille) velocity profile
+// on a rectangular/square inlet face. The profile shape is:
+//
+//   V(cs1, cs2) = v_max * (1 - cs1_norm^2) * (1 - cs2_norm^2)
+//
+// where cs1 and cs2 are the two cross-stream index directions for the given face,
+// normalized to [-1, +1] across the interior nodes. The profile is zero at the
+// walls and peaks at v_max at the center.
+//
+// Workflow:
+//   Constructor  -> Allocate private data, wire function pointers.
+//   Initialize   -> Parse v_max from params, compute cross-stream geometry, call Apply.
+//   PreStep      -> No-op (profile is static in time).
+//   Apply        -> Set ucont and ubcs on the inlet face using the parabolic profile.
+//   PostStep     -> Measure actual volumetric flux through the face.
+//   Destroy      -> Free private data.
+//
+//================================================================================
+
+// --- FORWARD DECLARATIONS ---
+static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx);
+static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
+                                                     PetscReal *in, PetscReal *out);
+static PetscErrorCode Apply_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx);
+static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
+                                                      PetscReal *in, PetscReal *out);
+static PetscErrorCode Destroy_InletParabolicProfile(BoundaryCondition *self);
+
+/**
+ * @brief Private data structure for the Parabolic Velocity Inlet handler.
+ *
+ * Stores the peak velocity and pre-computed cross-stream geometry needed
+ * to evaluate the parabolic profile at each boundary node.
+ */
+typedef struct {
+    PetscReal v_max;       /**< Peak centerline velocity (from user params). */
+    PetscReal cs1_center;  /**< Center index in cross-stream direction 1. */
+    PetscReal cs2_center;  /**< Center index in cross-stream direction 2. */
+    PetscReal cs1_half;    /**< Half-width (in index space) in cross-stream direction 1. */
+    PetscReal cs2_half;    /**< Half-width (in index space) in cross-stream direction 2. */
+} InletParabolicData;
+
+#undef __FUNCT__
+#define __FUNCT__ "Create_InletParabolicProfile"
+/**
+ * @brief (Handler Constructor) Populates a BoundaryCondition object with Parabolic Inlet behavior.
+ *
+ * Allocates the private data structure and wires all lifecycle function pointers.
+ * Actual parameter parsing and geometry computation are deferred to Initialize.
+ *
+ * @param bc The BoundaryCondition object to populate.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
+
+    InletParabolicData *data = NULL;
+    ierr = PetscMalloc1(1, &data); CHKERRQ(ierr);
+    bc->data = (void*)data;
+
+    bc->priority   = BC_PRIORITY_INLET;
+    bc->Initialize = Initialize_InletParabolicProfile;
+    bc->PreStep    = PreStep_InletParabolicProfile;
+    bc->Apply      = Apply_InletParabolicProfile;
+    bc->PostStep   = PostStep_InletParabolicProfile;
+    bc->UpdateUbcs = NULL;
+    bc->Destroy    = Destroy_InletParabolicProfile;
+
+    PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "Initialize_InletParabolicProfile"
+/**
+ * @brief (Handler Action) Initializes the parabolic inlet handler.
+ *
+ * Parses 'v_max' (peak centerline velocity) from the boundary condition parameters,
+ * determines the two cross-stream directions based on face orientation, and
+ * pre-computes the center and half-width in index space for each cross-stream direction.
+ *
+ * Cross-stream direction mapping:
+ *   - X-faces (i-normal): cs1 = j (JM nodes), cs2 = k (KM nodes)
+ *   - Y-faces (j-normal): cs1 = i (IM nodes), cs2 = k (KM nodes)
+ *   - Z-faces (k-normal): cs1 = i (IM nodes), cs2 = j (JM nodes)
+ *
+ * The interior node width in each cross-stream direction is (dim - 2), since
+ * indices 0 and (dim-1) are ghost/boundary layers. The parabolic profile spans
+ * from index 1 to (dim-2), centered at 1.0 + (dim-2)/2.0.
+ */
+static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx)
+{
+    PetscErrorCode ierr;
+    UserCtx*       user = ctx->user;
+    BCFace         face_id = ctx->face_id;
+    InletParabolicData *data = (InletParabolicData*)self->data;
+    PetscBool      found;
+
+    PetscFunctionBeginUser;
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Initialize_InletParabolicProfile: Initializing handler for Face %d.\n", face_id);
+
+    // --- Parse v_max from boundary condition parameters ---
+    data->v_max = 0.0;
+    ierr = GetBCParamReal(user->boundary_faces[face_id].params, "v_max",
+                          &data->v_max, &found); CHKERRQ(ierr);
+    if (!found) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "Initialize_InletParabolicProfile: 'v_max' not found in params for face %d. Defaulting to 0.0.\n", face_id);
+    }
+
+    // --- Determine cross-stream dimensions based on face orientation ---
+    PetscReal cs1_dim, cs2_dim;
+    switch (face_id) {
+        case BC_FACE_NEG_X:
+        case BC_FACE_POS_X:
+            cs1_dim = (PetscReal)user->JM;  // j-direction
+            cs2_dim = (PetscReal)user->KM;  // k-direction
+            break;
+        case BC_FACE_NEG_Y:
+        case BC_FACE_POS_Y:
+            cs1_dim = (PetscReal)user->IM;  // i-direction
+            cs2_dim = (PetscReal)user->KM;  // k-direction
+            break;
+        case BC_FACE_NEG_Z:
+        case BC_FACE_POS_Z:
+        default:
+            cs1_dim = (PetscReal)user->IM;  // i-direction
+            cs2_dim = (PetscReal)user->JM;  // j-direction
+            break;
+    }
+
+    // Interior width = dim - 2 (nodes 1 through dim-2 are interior)
+    PetscReal cs1_width = cs1_dim - 2.0;
+    PetscReal cs2_width = cs2_dim - 2.0;
+
+    data->cs1_center = 1.0 + cs1_width / 2.0;
+    data->cs2_center = 1.0 + cs2_width / 2.0;
+    data->cs1_half   = cs1_width / 2.0;
+    data->cs2_half   = cs2_width / 2.0;
+
+    LOG_ALLOW(LOCAL, LOG_INFO, "  Inlet Face %d (Parabolic): v_max = %.4f\n", face_id, data->v_max);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "    Cross-stream 1: center=%.1f, half=%.1f\n", data->cs1_center, data->cs1_half);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "    Cross-stream 2: center=%.1f, half=%.1f\n", data->cs2_center, data->cs2_half);
+
+    // Set initial boundary state
+    ierr = Apply_InletParabolicProfile(self, ctx); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "PreStep_InletParabolicProfile"
+/**
+ * @brief (Handler PreStep) No preparation needed for parabolic inlet.
+ *
+ * The parabolic profile is time-invariant. All geometry and parameters are
+ * computed once during Initialize and stored in the handler's private data.
+ */
+static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
+                                                     PetscReal *local_inflow_contribution,
+                                                     PetscReal *local_outflow_contribution)
+{
+    (void)self;
+    (void)ctx;
+    (void)local_inflow_contribution;
+    (void)local_outflow_contribution;
+
+    PetscFunctionBeginUser;
+    PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "Apply_InletParabolicProfile"
+/**
+ * @brief (Handler Action) Applies the parabolic velocity inlet condition.
+ *
+ * Enforces a Poiseuille (parabolic) velocity profile on the assigned inlet face:
+ * 1.  Iterates over all owned nodes on the boundary face.
+ * 2.  For each fluid node, computes the local velocity from the parabolic profile:
+ *     v_local = v_max * max(0, 1 - cs1_norm^2) * max(0, 1 - cs2_norm^2).
+ * 3.  Sets the contravariant velocity (Ucont) using the local velocity and face
+ *     area metric.
+ * 4.  Sets the Cartesian velocity (Ubcs) in the ghost cells from the metric
+ *     decomposition.
+ *
+ * The profile evaluates to v_max at the face center and zero at the walls,
+ * matching a fully-developed rectangular channel Poiseuille solution.
+ */
+static PetscErrorCode Apply_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx)
+{
+    PetscErrorCode ierr;
+    UserCtx*       user = ctx->user;
+    BCFace         face_id = ctx->face_id;
+    InletParabolicData *data = (InletParabolicData*)self->data;
+    PetscBool      can_service;
+
+    PetscFunctionBeginUser;
+
+    DMDALocalInfo *info = &user->info;
+    Cmpnts ***ubcs, ***ucont, ***csi, ***eta, ***zet;
+    PetscReal ***nvert;
+    PetscInt IM_nodes_global, JM_nodes_global, KM_nodes_global;
+
+    IM_nodes_global = user->IM;
+    JM_nodes_global = user->JM;
+    KM_nodes_global = user->KM;
+
+    ierr = CanRankServiceFace(info, IM_nodes_global, JM_nodes_global, KM_nodes_global,
+                              face_id, &can_service); CHKERRQ(ierr);
+
+    if (!can_service) PetscFunctionReturn(0);
+
+    // Get arrays
+    ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+
+    PetscInt xs = info->xs, xe = info->xs + info->xm;
+    PetscInt ys = info->ys, ye = info->ys + info->ym;
+    PetscInt zs = info->zs, ze = info->zs + info->zm;
+    PetscInt mx = info->mx, my = info->my, mz = info->mz;
+
+    PetscInt lxs = xs, lxe = xe, lys = ys, lye = ye, lzs = zs, lze = ze;
+    if (xs == 0) lxs = xs + 1;
+    if (xe == mx) lxe = xe - 1;
+    if (ys == 0) lys = ys + 1;
+    if (ye == my) lye = ye - 1;
+    if (zs == 0) lzs = zs + 1;
+    if (ze == mz) lze = ze - 1;
+
+    switch (face_id) {
+        case BC_FACE_NEG_X:
+        case BC_FACE_POS_X: {
+            // X-faces: normal = i, cross-stream = (j, k)
+            PetscReal sign = (face_id == BC_FACE_NEG_X) ? 1.0 : -1.0;
+            PetscInt i = (face_id == BC_FACE_NEG_X) ? xs : mx - 2;
+
+            for (PetscInt k = lzs; k < lze; k++) {
+                for (PetscInt j = lys; j < lye; j++) {
+                    if ((sign > 0 && nvert[k][j][i+1] > 0.1) ||
+                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
+
+                    // Evaluate parabolic profile: cs1 = j, cs2 = k
+                    PetscReal cs1_norm = ((PetscReal)j - data->cs1_center) / data->cs1_half;
+                    PetscReal cs2_norm = ((PetscReal)k - data->cs2_center) / data->cs2_half;
+                    PetscReal profile = PetscMax(0.0, 1.0 - cs1_norm * cs1_norm)
+                                      * PetscMax(0.0, 1.0 - cs2_norm * cs2_norm);
+                    PetscReal uin_local = data->v_max * profile;
+
+                    PetscReal CellArea = sqrt(csi[k][j][i].x * csi[k][j][i].x +
+                                             csi[k][j][i].y * csi[k][j][i].y +
+                                             csi[k][j][i].z * csi[k][j][i].z);
+
+                    ucont[k][j][i].x = sign * uin_local * CellArea;
+
+                    ubcs[k][j][i + (sign < 0)].x = sign * uin_local * csi[k][j][i].x / CellArea;
+                    ubcs[k][j][i + (sign < 0)].y = sign * uin_local * csi[k][j][i].y / CellArea;
+                    ubcs[k][j][i + (sign < 0)].z = sign * uin_local * csi[k][j][i].z / CellArea;
+                }
+            }
+        } break;
+
+        case BC_FACE_NEG_Y:
+        case BC_FACE_POS_Y: {
+            // Y-faces: normal = j, cross-stream = (i, k)
+            PetscReal sign = (face_id == BC_FACE_NEG_Y) ? 1.0 : -1.0;
+            PetscInt j = (face_id == BC_FACE_NEG_Y) ? ys : my - 2;
+
+            for (PetscInt k = lzs; k < lze; k++) {
+                for (PetscInt i = lxs; i < lxe; i++) {
+                    if ((sign > 0 && nvert[k][j+1][i] > 0.1) ||
+                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
+
+                    // Evaluate parabolic profile: cs1 = i, cs2 = k
+                    PetscReal cs1_norm = ((PetscReal)i - data->cs1_center) / data->cs1_half;
+                    PetscReal cs2_norm = ((PetscReal)k - data->cs2_center) / data->cs2_half;
+                    PetscReal profile = PetscMax(0.0, 1.0 - cs1_norm * cs1_norm)
+                                      * PetscMax(0.0, 1.0 - cs2_norm * cs2_norm);
+                    PetscReal uin_local = data->v_max * profile;
+
+                    PetscReal CellArea = sqrt(eta[k][j][i].x * eta[k][j][i].x +
+                                             eta[k][j][i].y * eta[k][j][i].y +
+                                             eta[k][j][i].z * eta[k][j][i].z);
+
+                    ucont[k][j][i].y = sign * uin_local * CellArea;
+
+                    ubcs[k][j + (sign < 0)][i].x = sign * uin_local * eta[k][j][i].x / CellArea;
+                    ubcs[k][j + (sign < 0)][i].y = sign * uin_local * eta[k][j][i].y / CellArea;
+                    ubcs[k][j + (sign < 0)][i].z = sign * uin_local * eta[k][j][i].z / CellArea;
+                }
+            }
+        } break;
+
+        case BC_FACE_NEG_Z:
+        case BC_FACE_POS_Z: {
+            // Z-faces: normal = k, cross-stream = (i, j)
+            PetscReal sign = (face_id == BC_FACE_NEG_Z) ? 1.0 : -1.0;
+            PetscInt k = (face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
+
+            for (PetscInt j = lys; j < lye; j++) {
+                for (PetscInt i = lxs; i < lxe; i++) {
+                    if ((sign > 0 && nvert[k+1][j][i] > 0.1) ||
+                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
+
+                    // Evaluate parabolic profile: cs1 = i, cs2 = j
+                    PetscReal cs1_norm = ((PetscReal)i - data->cs1_center) / data->cs1_half;
+                    PetscReal cs2_norm = ((PetscReal)j - data->cs2_center) / data->cs2_half;
+                    PetscReal profile = PetscMax(0.0, 1.0 - cs1_norm * cs1_norm)
+                                      * PetscMax(0.0, 1.0 - cs2_norm * cs2_norm);
+                    PetscReal uin_local = data->v_max * profile;
+
+                    PetscReal CellArea = sqrt(zet[k][j][i].x * zet[k][j][i].x +
+                                             zet[k][j][i].y * zet[k][j][i].y +
+                                             zet[k][j][i].z * zet[k][j][i].z);
+
+                    ucont[k][j][i].z = sign * uin_local * CellArea;
+
+                    ubcs[k + (sign < 0)][j][i].x = sign * uin_local * zet[k][j][i].x / CellArea;
+                    ubcs[k + (sign < 0)][j][i].y = sign * uin_local * zet[k][j][i].y / CellArea;
+                    ubcs[k + (sign < 0)][j][i].z = sign * uin_local * zet[k][j][i].z / CellArea;
+                }
+            }
+        } break;
+    }
+
+    // Restore arrays
+    ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "PostStep_InletParabolicProfile"
+/**
+ * @brief (Handler PostStep) Measures actual inflow flux through the parabolic inlet face.
+ *
+ * Sums the contravariant velocity (ucont) over all owned nodes on the inlet face
+ * to compute the volumetric flux contribution from this MPI rank. This is identical
+ * to the constant velocity inlet's PostStep, since flux measurement is independent
+ * of how the velocity was set.
+ */
+static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
+                                                      PetscReal *local_inflow_contribution,
+                                                      PetscReal *local_outflow_contribution)
+{
+    PetscErrorCode ierr;
+    UserCtx*       user = ctx->user;
+    BCFace         face_id = ctx->face_id;
+    PetscBool      can_service;
+
+    (void)self;
+    (void)local_outflow_contribution;
+
+    PetscFunctionBeginUser;
+
+    DMDALocalInfo *info = &user->info;
+    Cmpnts ***ucont;
+
+    PetscInt IM_nodes_global, JM_nodes_global, KM_nodes_global;
+
+    IM_nodes_global = user->IM;
+    JM_nodes_global = user->JM;
+    KM_nodes_global = user->KM;
+
+    ierr = CanRankServiceFace(info, IM_nodes_global, JM_nodes_global, KM_nodes_global,
+                              face_id, &can_service); CHKERRQ(ierr);
+
+    if (!can_service) PetscFunctionReturn(0);
+
+    ierr = DMDAVecGetArrayRead(user->fda, user->Ucont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
+
+    PetscReal local_flux = 0.0;
+
+    PetscInt xs = info->xs, xe = info->xs + info->xm;
+    PetscInt ys = info->ys, ye = info->ys + info->ym;
+    PetscInt zs = info->zs, ze = info->zs + info->zm;
+    PetscInt mx = info->mx, my = info->my, mz = info->mz;
+
+    PetscInt lxs = xs, lxe = xe, lys = ys, lye = ye, lzs = zs, lze = ze;
+    if (xs == 0) lxs = xs + 1;
+    if (xe == mx) lxe = xe - 1;
+    if (ys == 0) lys = ys + 1;
+    if (ye == my) lye = ye - 1;
+    if (zs == 0) lzs = zs + 1;
+    if (ze == mz) lze = ze - 1;
+
+    switch (face_id) {
+        case BC_FACE_NEG_X:
+        case BC_FACE_POS_X: {
+            PetscInt i = (face_id == BC_FACE_NEG_X) ? xs : mx - 2;
+            for (PetscInt k = lzs; k < lze; k++) {
+                for (PetscInt j = lys; j < lye; j++) {
+                    local_flux += ucont[k][j][i].x;
+                }
+            }
+        } break;
+
+        case BC_FACE_NEG_Y:
+        case BC_FACE_POS_Y: {
+            PetscInt j = (face_id == BC_FACE_NEG_Y) ? ys : my - 2;
+            for (PetscInt k = lzs; k < lze; k++) {
+                for (PetscInt i = lxs; i < lxe; i++) {
+                    local_flux += ucont[k][j][i].y;
+                }
+            }
+        } break;
+
+        case BC_FACE_NEG_Z:
+        case BC_FACE_POS_Z: {
+            PetscInt k = (face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
+            for (PetscInt j = lys; j < lye; j++) {
+                for (PetscInt i = lxs; i < lxe; i++) {
+                    local_flux += ucont[k][j][i].z;
+                }
+            }
+        } break;
+    }
+
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->Ucont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
+
+    *local_inflow_contribution += local_flux;
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "PostStep_InletParabolicProfile: Face %d, flux = %.6e\n",
+              face_id, local_flux);
+
+    PetscFunctionReturn(0);
+}
+
+
+#undef __FUNCT__
+#define __FUNCT__ "Destroy_InletParabolicProfile"
+/**
+ * @brief (Handler Destructor) Frees memory for the Parabolic Velocity Inlet.
+ */
+static PetscErrorCode Destroy_InletParabolicProfile(BoundaryCondition *self)
+{
+    PetscFunctionBeginUser;
+    if (self && self->data) {
+        PetscFree(self->data);
+        self->data = NULL;
+    }
+    PetscFunctionReturn(0);
+}
+
 //================================================================================
 //
 //          HANDLER IMPLEMENTATION: OUTLET WITH MASS CONSERVATION

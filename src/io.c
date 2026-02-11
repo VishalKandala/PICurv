@@ -2379,7 +2379,13 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                         ierr = GetBCParamReal(user->boundary_faces[current_face].params,"vz",&inlet_velocity.z,&found); CHKERRQ(ierr);
                         ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - [%.4f,%.4f,%.4f]\n", 
                         face_name_width, face_str, bc_type_str, bc_handler_type_str,inlet_velocity.x,inlet_velocity.y,inlet_velocity.z); CHKERRQ(ierr);
-                        } // Support for Other Inlet handlers can be added later
+                        } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_INLET_PARABOLIC){
+                        PetscReal v_max = 0.0;
+                        PetscBool found;
+                        ierr = GetBCParamReal(user->boundary_faces[current_face].params,"v_max",&v_max,&found); CHKERRQ(ierr);
+                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - v_max=%.4f\n",
+                        face_name_width, face_str, bc_type_str, bc_handler_type_str, v_max); CHKERRQ(ierr);
+                        }
                     } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX){
                         PetscReal flux;
                         PetscBool trimflag,foundflux,foundtrimflag;
