@@ -232,7 +232,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
     const PetscReal dt = simCtx->dt;       // Physical Time Step
     const PetscReal cfl = simCtx->pseudo_cfl;     // Initial CFL Scaling
     const PetscReal alfa[] = {0.25, 1.0/3.0, 0.5, 1.0}; // RK4 Coefficients
-    Vec pRhs; // To store the initial RHS for backtracking.
+    Vec *pRhs; // Per-block backup of Rhs at last accepted pseudo-state.
 
     // State flags
     PetscBool force_restart = PETSC_FALSE;
@@ -269,6 +269,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
     ierr = PetscMalloc2(block_number, &resid_norm_init,     block_number, &resid_norm_prev); CHKERRQ(ierr);
     ierr = PetscMalloc2(block_number, &resid_norm_curr,     block_number, &pseudo_dt_scaling); CHKERRQ(ierr);
     ierr = PetscMalloc1(block_number, &resid_rel_curr); CHKERRQ(ierr);
+    ierr = PetscMalloc1(block_number, &pRhs); CHKERRQ(ierr);
 
     ierr = PetscTime(&ts); CHKERRQ(ierr);
 
@@ -285,7 +286,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
 
         // Allocate workspace
         ierr = VecDuplicate(user[bi].Ucont, &user[bi].Rhs); CHKERRQ(ierr);
-        ierr = VecDuplicate(user[bi].Rhs, &pRhs); CHKERRQ(ierr);
+        ierr = VecDuplicate(user[bi].Rhs, &pRhs[bi]); CHKERRQ(ierr);
         ierr = VecDuplicate(user[bi].Ucont, &user[bi].dUcont); CHKERRQ(ierr);
         ierr = VecDuplicate(user[bi].Ucont, &user[bi].pUcont); CHKERRQ(ierr);
         
@@ -296,13 +297,13 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
         ierr = ComputeTotalResidual(&user[bi]); CHKERRQ(ierr);
 
         // Backup Rhs with current state
-        ierr = VecCopy(user[bi].Rhs, pRhs); CHKERRQ(ierr);
+        ierr = VecCopy(user[bi].Rhs, pRhs[bi]); CHKERRQ(ierr);
 
         // Compute Initial Norms
         ierr = VecNorm(user[bi].Rhs, NORM_INFINITY, &resid_norm_init[bi]); CHKERRQ(ierr);
         
         // Initialize history for backtracking logic
-        resid_norm_prev[bi] = 1000.0; 
+        resid_norm_prev[bi]     = resid_norm_init[bi]; // Meaningful ratio on first iteration
         delta_sol_norm_prev[bi] = 1000.0;
         pseudo_dt_scaling[bi] = cfl; // Initialize adaptive scalar
 
@@ -311,8 +312,8 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
     
     // --- 2. Main Pseudo-Time Iteration Loop ---
     pseudo_iter = 0;
-    while ((force_restart || (global_norm_delta > tol_abs_delta && global_rel_delta > tol_rtol_delta) || pseudo_iter < 1) 
-            && pseudo_iter < max_pseudo_steps) 
+    while ((force_restart || (global_norm_delta > tol_abs_delta || global_rel_delta > tol_rtol_delta) || pseudo_iter < 1)
+            && pseudo_iter < max_pseudo_steps)
     {
         pseudo_iter++;
         force_restart = PETSC_FALSE;
@@ -348,7 +349,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
             // === Convergence Metrics Calculation ===
             
             // Calculate dU = U_current - U_backup
-            ierr = VecWAXPY(user[bi].dUcont, -1.0, user[bi].Ucont, user[bi].pUcont); CHKERRQ(ierr);
+            ierr = VecWAXPY(user[bi].dUcont, -1.0, user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
 
             // Compute Infinity Norms
             ierr = VecNorm(user[bi].dUcont, NORM_INFINITY, &delta_sol_norm_curr[bi]); CHKERRQ(ierr);
@@ -357,10 +358,10 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
             // Normalize relative metrics
             if (pseudo_iter == 1) {
                 delta_sol_norm_init[bi] = delta_sol_norm_curr[bi];
-                delta_sol_rel_curr[bi] = 1.0;
-	            resid_norm_init[bi] = resid_norm_curr[bi];
-		        resid_rel_curr[bi] = 1.0;
-            } else { 
+                delta_sol_rel_curr[bi]  = 1.0;
+                resid_rel_curr[bi]      = 1.0;
+                // resid_norm_init[bi] set correctly before the loop — do not overwrite
+            } else {
                 if (delta_sol_norm_init[bi] > 1.0e-10) 
                     delta_sol_rel_curr[bi] = delta_sol_norm_curr[bi] / delta_sol_norm_init[bi];
                 else 
@@ -394,12 +395,12 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
         for (PetscInt bi = 0; bi < block_number; bi++) {
             global_norm_delta = PetscMax(delta_sol_norm_curr[bi], global_norm_delta);
             global_rel_delta  = PetscMax(delta_sol_rel_curr[bi],  global_rel_delta);
-            global_rel_resid  = PetscMax(resid_rel_curr[bi],      global_rel_resid);        ierr = PetscTime(&te); CHKERRQ(ierr);
-            
-            cput = te - ts;
-            LOG_ALLOW(GLOBAL, LOG_INFO, "  Pseudo-Iter(k) %d: Pseudo-CFL = %.4f |dUk|=%e, |dUk|/|dUprev| = %e, |Rk|/|Rprev| = %e, CPU=%.2fs\n",
-                  pseudo_iter, pseudo_dt_scaling[bi], global_norm_delta, global_rel_delta, global_rel_resid, cput);    
+            global_rel_resid  = PetscMax(resid_rel_curr[bi],      global_rel_resid);
         }
+        ierr = PetscTime(&te); CHKERRQ(ierr);
+        cput = te - ts;
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  Pseudo-Iter(k) %d: |dUk|=%e, |dUk|/|dU0| = %e, |Rk|/|R0| = %e, CPU=%.2fs\n",
+              pseudo_iter, global_norm_delta, global_rel_delta, global_rel_resid, cput);
 
         // === Backtracking Line Search ===
         for (PetscInt bi = 0; bi < block_number; bi++) {
@@ -434,23 +435,22 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
                             "Block %d: Solver diverged (NaN or explosion) and min time-step reached. Simulation aborted.", bi);
                     }
 
-                    // For nan situations, we always backtrack.    
-                    force_restart = PETSC_TRUE;    
+                    // For nan situations, we always backtrack.
+                    force_restart = PETSC_TRUE;
 
                 // 1. Reduce Step Size
-                pseudo_dt_scaling[bi] *= 0.5*simCtx->pseudo_cfl_reduction_factor; // Aggressive decceleration (1/2 x reduction factor).
-                // 2. Decrement iterator to retry
-                pseudo_iter--; 
-                
+                pseudo_dt_scaling[bi] *= 0.5*simCtx->pseudo_cfl_reduction_factor; // Aggressive deceleration (1/2 x reduction factor).
+                // NOTE: pseudo_iter-- is handled once after this loop to avoid multi-decrement for block_number > 1.
+
                 LOG_ALLOW(LOCAL, LOG_DEBUG, "  Block %d: Backtracking triggered. Reducing scaling to %f.\n", bi, pseudo_dt_scaling[bi]);
                 
                 // 3. RESTORE from Backup
                 ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
 
-                ierr = VecCopy(pRhs,user[bi].Rhs); CHKERRQ(ierr);
+                ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
                 
                 // 4. SYNC Ghost Cells
-                ierr = UpdateLocalGhosts(&user[bi],"Ucont");
+                ierr = UpdateLocalGhosts(&user[bi],"Ucont"); CHKERRQ(ierr);
                 //ierr = DMGlobalToLocalBegin(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
                 //ierr = DMGlobalToLocalEnd(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
 
@@ -462,6 +462,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
             else {
                 // SUCCESS: Step accepted. Update Backup and History.
                 ierr = VecCopy(user[bi].Ucont, user[bi].pUcont); CHKERRQ(ierr);
+                ierr = VecCopy(user[bi].Rhs,   pRhs[bi]);        CHKERRQ(ierr);
                 resid_norm_prev[bi]     = resid_norm_curr[bi];
                 delta_sol_norm_prev[bi] = delta_sol_norm_curr[bi];
 
@@ -509,7 +510,10 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
                 pseudo_dt_scaling[bi] = PetscMax(pseudo_dt_scaling[bi], simCtx->min_pseudo_cfl);
             }
         }
-        
+
+        // Decrement once regardless of how many blocks backtracked.
+        if (force_restart) pseudo_iter--;
+
         if (block_number > 1) {
              // ierr = Block_Interface_U(user); CHKERRQ(ierr);
         }
@@ -566,9 +570,10 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
         ierr = VecDestroy(&user[bi].Rhs); CHKERRQ(ierr);
         ierr = VecDestroy(&user[bi].dUcont); CHKERRQ(ierr);
         ierr = VecDestroy(&user[bi].pUcont); CHKERRQ(ierr);
-        ierr = VecDestroy(&pRhs); CHKERRQ(ierr);
+        ierr = VecDestroy(&pRhs[bi]); CHKERRQ(ierr);
     }
-    
+    ierr = PetscFree(pRhs); CHKERRQ(ierr);
+
     ierr = PetscFree2(delta_sol_norm_init, delta_sol_norm_prev);CHKERRQ(ierr);
     ierr = PetscFree2(delta_sol_norm_curr, delta_sol_rel_curr);CHKERRQ(ierr);
     ierr = PetscFree2(resid_norm_init,     resid_norm_prev);CHKERRQ(ierr);
