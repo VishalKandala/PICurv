@@ -17,40 +17,15 @@
 SYSTEM_NAME := HPC Cluster Environment
 
 # --- 2. Prerequisite Checks & PETSc Integration ---
-# Assume 'module load' has set the PETSc environment variables.
-<<<<<<< HEAD
+# Verify PETSC_DIR is set, then include a compatibility layer that supports
+# both old-style (PETSC_ARCH) and new-style (installed prefix) PETSc installs.
 ifndef PETSC_DIR
-    $(error PETSC_DIR is not set. Did you forget to 'module load petsc'?)
+    $(error PETSC_DIR is not set. Did you forget to 'module load petsc' or export PETSC_DIR?)
 endif
-############# PETSC_ARCH not available on some clusters  (architecture is preset)
-#ifndef PETSC_ARCH
-#    $(error PETSC_ARCH is not set. Did you forget to 'module load petsc'?)
-#endif
-############
-include $(PETSC_DIR)/lib/petsc/conf/variables
-include $(PETSC_DIR)/lib/petsc/conf/rules
-#$(info Using PETSC_ARCH: $(PETSC_ARCH))
-$(info Using PETSc from: $(PETSC_DIR))
-=======
 include config.petsc.mk
->>>>>>> 910c253 ( Compatibility patch with EasyBuild/Spack/system installations with no PETSC_ARCH)
 
-############# PETSC_ARCH not available on some clusters
 # --- 3. Automatic Build Type Detection ---
-# Set optimization flags based on the name of the PETSc architecture.
-<<<<<<< HEAD
-#ifeq (,$(findstring debug,$(PETSC_ARCH)))
-#    # If "debug" is NOT in the name, use aggressive, architecture-specific optimizations.
-#    $(info PETSc performance build detected. Using optimization flags: -O3 -march=native)
-#    OPT_FLAGS := -O3 -march=native
-#else
-#    # If "debug" is in the name, use flags for debugging on the cluster.
-#    $(info PETSc debug build detected. Using debug flags: -g -O0)
-#    OPT_FLAGS := -g -O0
-#endif
-###########
-=======
-# Prefer performance by default on cluster, but if PETSc looks like debug, back off.
+# Preserve original behavior when PETSC_ARCH exists; add minimal fallback when it doesn't.
 ifdef PETSC_ARCH
 ifeq (,$(findstring debug,$(PETSC_ARCH)))
     # If "debug" is NOT in the name, use aggressive, architecture-specific optimizations.
@@ -66,11 +41,10 @@ else
     $(info PETSC_ARCH not set (new-style PETSc). Defaulting to: -O3 -march=native)
     OPT_FLAGS := -O3 -march=native
 endif
->>>>>>> 910c253 ( Compatibility patch with EasyBuild/Spack/system installations with no PETSC_ARCH)
 
 # --- 4. Generic Variable Definitions for the Main Makefile ---
 CC_TO_USE     := $(PCC)
-CFLAGS_TO_USE := $(PCC_FLAGS) -Wall $(OPT_FLAGS) -I$(INCDIR)
+CFLAGS_TO_USE := $(PCC_FLAGS) $(PETSC_CC_INCLUDES) -Wall $(OPT_FLAGS) -I$(INCDIR)
 LINKER_TO_USE := $(CLINKER)
 LIBS_TO_USE   := $(PETSC_LIB)
 
@@ -87,3 +61,4 @@ NPROCS ?= 4
 # $(info Adding cluster-specific HDF5 library from $(HDF5_PATH))
 # CFLAGS_TO_USE += -I$(HDF5_PATH)/include
 # LIBS_TO_USE   += -L$(HDF5_PATH)/lib -lhdf5_parallel
+
