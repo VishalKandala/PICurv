@@ -33,7 +33,7 @@
 #   3. **PETSc Library:** A compiled PETSc distribution. The following environment
 #      variables MUST be set correctly before invoking make:
 #      - `PETSC_DIR`:  Absolute path to the PETSc root directory.
-#      - `PETSC_ARCH`: PETSc build architecture name (e.g., `arch-linux-c-debug`).
+#      - `PETSC_ARCH`: Optional(required only for old style in-tree builds.) New style prefix installs don't use it.
 #
 # ------------------------------------------------------------------------------
 #
@@ -225,3 +225,15 @@ clean-project-docs:
 ## @brief (Internal) Removes the TAGS file.
 clean-project-tags:
 	@rm -f TAGS
+.PHONY: show-config
+show-config:
+	@echo "SYSTEM=$(SYSTEM)"
+	@echo "SYSTEM_NAME=$(SYSTEM_NAME)"
+	@echo "PETSC_DIR=$(PETSC_DIR)"
+	@echo "PETSC_ARCH=$(PETSC_ARCH)"
+	@echo "CC_TO_USE=$(CC_TO_USE)"
+	@echo "CFLAGS_TO_USE=$(CFLAGS_TO_USE)"
+	@echo "LINKER_TO_USE=$(LINKER_TO_USE)"
+	@echo "LIBS_TO_USE=$(LIBS_TO_USE)"
+	@echo "MPI_LAUNCHER=$(MPI_LAUNCHER)"
+

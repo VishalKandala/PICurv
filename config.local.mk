@@ -16,18 +16,8 @@
 # --- 1. System Identification ---
 SYSTEM_NAME := Local Development Environment (e.g., WSL)
 
-# --- 2. Prerequisite Checks & PETSc Integration ---
-# Verify that PETSc environment variables are set, then include PETSc's makefiles.
-ifndef PETSC_DIR
-    $(error PETSC_DIR is not set. Please export it to your PETSc installation path.)
-endif
-ifndef PETSC_ARCH
-    $(error PETSC_ARCH is not set. Please export your PETSc build architecture.)
-endif
-include $(PETSC_DIR)/lib/petsc/conf/variables
-include $(PETSC_DIR)/lib/petsc/conf/rules
-$(info Using PETSC_ARCH: $(PETSC_ARCH))
-
+# --- 2. PETSc Integration ---
+include config.petsc.mk
 $(info ------------------------------------------------)
 #$(info DEBUG: Value of PCC_FLAGS is [$(PCC_FLAGS)])
 #$(info DEBUG: Value of CLINKER is [$(CLINKER)])
@@ -35,16 +25,19 @@ $(info ------------------------------------------------)
 #$(info ------------------------------------------------)
 
 # ==============================================================================
-
 # --- 3. Automatic Build Type Detection ---
-# Set optimization flags based on the name of the PETSc architecture.
+ifdef PETSC_ARCH
 ifeq (,$(findstring debug,$(PETSC_ARCH)))
-    # If "debug" is NOT in the PETSC_ARCH name, assume an optimized build.
     $(info PETSc performance build detected. Using debug flags: -O0)
-    OPT_FLAGS := -O0 # Change to -O3 for performance builds, for now -O0 for easier debugging.
+    OPT_FLAGS := -O0
 else
-    # If "debug" is in the name, use flags for debugging.
     $(info PETSc debug build detected. Using debug flags: -g -O0)
+    OPT_FLAGS := -g -O0
+endif
+else
+    # New-style install: no PETSC_ARCH exists, so we choose a safe default.
+    # This does NOT affect old-style behavior at all.
+    $(info PETSC_ARCH not set (new-style PETSc). Defaulting to debug flags: -g -O0)
     OPT_FLAGS := -g -O0
 endif
 

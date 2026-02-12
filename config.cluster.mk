@@ -18,6 +18,7 @@ SYSTEM_NAME := HPC Cluster Environment
 
 # --- 2. Prerequisite Checks & PETSc Integration ---
 # Assume 'module load' has set the PETSc environment variables.
+<<<<<<< HEAD
 ifndef PETSC_DIR
     $(error PETSC_DIR is not set. Did you forget to 'module load petsc'?)
 endif
@@ -30,10 +31,14 @@ include $(PETSC_DIR)/lib/petsc/conf/variables
 include $(PETSC_DIR)/lib/petsc/conf/rules
 #$(info Using PETSC_ARCH: $(PETSC_ARCH))
 $(info Using PETSc from: $(PETSC_DIR))
+=======
+include config.petsc.mk
+>>>>>>> 910c253 ( Compatibility patch with EasyBuild/Spack/system installations with no PETSC_ARCH)
 
 ############# PETSC_ARCH not available on some clusters
 # --- 3. Automatic Build Type Detection ---
 # Set optimization flags based on the name of the PETSc architecture.
+<<<<<<< HEAD
 #ifeq (,$(findstring debug,$(PETSC_ARCH)))
 #    # If "debug" is NOT in the name, use aggressive, architecture-specific optimizations.
 #    $(info PETSc performance build detected. Using optimization flags: -O3 -march=native)
@@ -44,6 +49,24 @@ $(info Using PETSc from: $(PETSC_DIR))
 #    OPT_FLAGS := -g -O0
 #endif
 ###########
+=======
+# Prefer performance by default on cluster, but if PETSc looks like debug, back off.
+ifdef PETSC_ARCH
+ifeq (,$(findstring debug,$(PETSC_ARCH)))
+    # If "debug" is NOT in the name, use aggressive, architecture-specific optimizations.
+    $(info PETSc performance build detected. Using optimization flags: -O3 -march=native)
+    OPT_FLAGS := -O3 -march=native
+else
+    # If "debug" is in the name, use flags for debugging on the cluster.
+    $(info PETSc debug build detected. Using debug flags: -g -O0)
+    OPT_FLAGS := -g -O0
+endif
+else
+    # New-style install: no PETSC_ARCH exists. Choose the same cluster default you prefer.
+    $(info PETSC_ARCH not set (new-style PETSc). Defaulting to: -O3 -march=native)
+    OPT_FLAGS := -O3 -march=native
+endif
+>>>>>>> 910c253 ( Compatibility patch with EasyBuild/Spack/system installations with no PETSC_ARCH)
 
 # --- 4. Generic Variable Definitions for the Main Makefile ---
 CC_TO_USE     := $(PCC)
