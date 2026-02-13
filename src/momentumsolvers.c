@@ -542,7 +542,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
     // We use a factor (e.g., 0.85) to back off slightly for the start of the next timestep
     // to accommodate the initial residual spike from the BDF term.
     
-    PetscReal cfl_carry_over_relaxation_factor = 0.9; // Could be parameterized in simCtx if desired.
+    PetscReal cfl_carry_over_relaxation_factor = 1.0; // Could be parameterized in simCtx if desired.
     
     PetscReal next_start_cfl;
 
