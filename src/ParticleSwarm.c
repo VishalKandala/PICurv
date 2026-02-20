@@ -326,8 +326,9 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Initializing %d particles. Mode: %s.\n",
             rank, particlesPerProcess, ParticleInitializationToString(simCtx->ParticleInitialization));
 
-    // --- 2. Pre-computation for Surface Initialization (Mode 0) ---
-    if (simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) { // Surface initialization
+    // --- 2. Pre-computation for Surface Initialization (PARTICLE_INIT_SURFACE_RANDOM and PARTICLE_INIT_SURFACE_EDGES) ---
+    if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM ||
+        simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES) { // Surface initialization
         ierr = CanRankServiceInletFace(user, &info, IM_nodes_global, JM_nodes_global, KM_nodes_global, &can_this_rank_service_inlet); CHKERRQ(ierr);
         if (can_this_rank_service_inlet) {
             LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Will attempt to place particles on inlet face %s.\n", rank, BCFaceToString((BCFace)user->identifiedInletBCFace));
@@ -356,7 +357,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         Cmpnts    phys_coords = {0.0, 0.0, 0.0}; 
         PetscBool particle_placed_by_this_rank = PETSC_FALSE; 
 
-        if (simCtx->ParticleInitialization == 0) { // --- 5.a. Surface Random Initialization ---
+        if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM) { // --- 5.a. Surface Random Initialization ---
             if (can_this_rank_service_inlet) {
                 ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
                                                         IM_nodes_global, JM_nodes_global, KM_nodes_global,
@@ -375,7 +376,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                 phys_coords.z = user->simCtx->CMz_c;
                 particle_placed_by_this_rank = PETSC_FALSE; // Relies on migration
             }
-        }else if(simCtx->ParticleInitialization == 3) { // --- 5.a1. Custom Initialization DEBUG (Mode 3) ---
+        }else if(simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES) { // --- 5.a1. Surface Edges Initialization (deterministic) ---
             if(can_this_rank_service_inlet) {
                 PetscInt64 particle_global_id = (PetscInt64)(base_pid_for_rank + p);
                 ierr = GetDeterministicFaceGridLocation(user,&info,xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
@@ -394,7 +395,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                     phys_coords.x = user->simCtx->CMx_c;
                     phys_coords.y = user->simCtx->CMy_c;
                     phys_coords.z = user->simCtx->CMz_c;
-                }                                               
+                }
             }else{
                 // Rank cannot service inlet - place at inlet center to be migrated later
                 phys_coords.x = user->simCtx->CMx_c;
@@ -402,7 +403,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                 phys_coords.z = user->simCtx->CMz_c;
                 particle_placed_by_this_rank = PETSC_FALSE; // Relies on migration
             }
-        }else if(simCtx->ParticleInitialization == 1){ // --- 5.b. Volumetric Initialization (simCtx->ParticleInitialization == 1) ---
+        }else if(simCtx->ParticleInitialization == PARTICLE_INIT_VOLUME){ // --- 5.b. Volumetric Initialization ---
             PetscBool can_place_volumetrically;
             ierr = DetermineVolumetricInitializationParameters(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
                                                             rand_logic_i, rand_logic_j, rand_logic_k,
@@ -417,9 +418,16 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                 particle_placed_by_this_rank = PETSC_TRUE;
             } else {
                 LOG_LOOP_ALLOW(LOCAL, LOG_WARNING, p, 1,
-                    "Rank %d: PID %lld (idx %ld) (Volumetric Mode %d) - DetermineVolumetric... returned false. Default Phys: (%.2f,%.2f,%.2f).\n",
-                    rank, (long long)(base_pid_for_rank + p), (long)p, simCtx->ParticleInitialization, phys_coords.x, phys_coords.y, phys_coords.z);
+                    "Rank %d: PID %lld (idx %ld) (Volumetric Mode) - DetermineVolumetric... returned false. Default Phys: (%.2f,%.2f,%.2f).\n",
+                    rank, (long long)(base_pid_for_rank + p), (long)p, phys_coords.x, phys_coords.y, phys_coords.z);
             }
+        }else if(simCtx->ParticleInitialization == PARTICLE_INIT_POINT_SOURCE){ // --- 5.c. Point Source Initialization ---
+            // All particles placed at the user-specified fixed point (psrc_x, psrc_y, psrc_z).
+            // No random number generation or logical-to-physical conversion needed.
+            phys_coords.x = simCtx->psrc_x;
+            phys_coords.y = simCtx->psrc_y;
+            phys_coords.z = simCtx->psrc_z;
+            particle_placed_by_this_rank = PETSC_TRUE;
         }else {
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Unknown ParticleInitialization mode %d.", simCtx->ParticleInitialization);
         }
@@ -630,8 +638,9 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
     LOG_ALLOW(GLOBAL, LOG_INFO, "Initializing swarm with %d particles per process. Mode: %s.\n",
             particlesPerProcess, ParticleInitializationToString(simCtx->ParticleInitialization));
 
-    // --- 1. Parse BCS File for Inlet Information (if Mode 0) ---
-    if (simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) { // Surface initialization
+    // --- 1. Parse BCS File for Inlet Information (if surface initialization) ---
+    if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM ||
+        simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES) { // Surface initialization
     if(user->inletFaceDefined == PETSC_FALSE){
     LOG_ALLOW(GLOBAL, LOG_ERROR, "Particle Initialization on inlet surface selected, but no INLET face was identified from bcs.dat. Cannot proceed.\n");
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "ParticleInitialization Mode 0 requires an INLET face to be defined in bcs.dat.");

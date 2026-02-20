@@ -669,15 +669,16 @@ const char* FieldInitializationToString(PetscInt FieldInitialization)
 
 /**
  * @brief Helper function to convert ParticleInitialization to a string representation.
- * @param[in] PetscInt The ParticleInitialization value.
- * @return Pointer to a constant string representing the FieldInitialization.
+ * @param[in] ParticleInitializationType The ParticleInitialization value.
+ * @return Pointer to a constant string representing the ParticleInitialization.
  */
-const char* ParticleInitializationToString(PetscInt ParticleInitialization)
+const char* ParticleInitializationToString(ParticleInitializationType ParticleInitialization)
 {
     switch(ParticleInitialization){
-        case 0: return "Surface: Random";
-        case 1: return "Volume";
-        case 3: return "Surface: At edges";
+        case PARTICLE_INIT_SURFACE_RANDOM: return "Surface: Random";
+        case PARTICLE_INIT_VOLUME:         return "Volume";
+        case PARTICLE_INIT_POINT_SOURCE:   return "Point Source";
+        case PARTICLE_INIT_SURFACE_EDGES:  return "Surface: At edges";
         default: return "Unknown Particle Initialization";
     }
 }

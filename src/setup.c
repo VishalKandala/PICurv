@@ -147,7 +147,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // --- Group 9: Particle / DMSwarm Data & Settings ---
     simCtx->np = 0; simCtx->readFields = PETSC_FALSE;
     simCtx->dm_swarm = NULL; simCtx->bboxlist = NULL;
-    simCtx->ParticleInitialization = 0;
+    simCtx->ParticleInitialization = PARTICLE_INIT_SURFACE_RANDOM;
     strcpy(simCtx->particleRestartMode,"load");
     simCtx->particlesLostLastStep = 0;
     simCtx->particlesMigratedLastStep = 0;
@@ -461,7 +461,15 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 9:  Particle / DMSwarm Data & Settings \n");
     ierr = PetscOptionsGetInt(NULL, NULL, "-numParticles", &simCtx->np, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-read_fields", &simCtx->readFields, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-pinit", &simCtx->ParticleInitialization, NULL); CHKERRQ(ierr);
+    PetscInt temp_pinit = (PetscInt)PARTICLE_INIT_SURFACE_RANDOM;
+    ierr = PetscOptionsGetInt(NULL, NULL, "-pinit", &temp_pinit, NULL); CHKERRQ(ierr);
+    simCtx->ParticleInitialization = (ParticleInitializationType)temp_pinit;
+    ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_x", &simCtx->psrc_x, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_y", &simCtx->psrc_y, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_z", &simCtx->psrc_z, NULL); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Particle initialization mode: %s. Point source: (%.6f, %.6f, %.6f)\n",
+              ParticleInitializationToString(simCtx->ParticleInitialization),
+              simCtx->psrc_x, simCtx->psrc_y, simCtx->psrc_z);
     ierr = PetscOptionsGetString(NULL,NULL,"-particle_restart_mode",simCtx->particleRestartMode,sizeof(simCtx->particleRestartMode),NULL); CHKERRQ(ierr);
     // Validation for Particle Restart Mode
     if (strcmp(simCtx->particleRestartMode, "load") != 0 && strcmp(simCtx->particleRestartMode, "init") != 0) {

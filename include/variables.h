@@ -461,6 +461,14 @@ typedef enum{
     MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN = 3
 } MomentumSolverType;
 
+/** @brief Enumerator to identify the particle initialization strategy. */
+typedef enum {
+    PARTICLE_INIT_SURFACE_RANDOM = 0, /**< Random placement on the inlet face */
+    PARTICLE_INIT_VOLUME         = 1, /**< Random volumetric distribution across the domain */
+    PARTICLE_INIT_POINT_SOURCE   = 2, /**< All particles at a fixed (psrc_x,psrc_y,psrc_z) — for validation */
+    PARTICLE_INIT_SURFACE_EDGES  = 3  /**< Deterministic placement at inlet face edges */
+} ParticleInitializationType;
+
 /** @brief Context for Multigrid operations. */
 typedef struct MGCtx {
   UserCtx  *user;
@@ -632,6 +640,7 @@ typedef struct SimCtx {
     PetscInt  NumberOfBodies;
     PetscReal Flux_in, angle,max_angle;
     PetscReal CMx_c, CMy_c, CMz_c;
+    PetscReal psrc_x, psrc_y, psrc_z;  /**< Point source location for PARTICLE_INIT_POINT_SOURCE */
     ScalingCtx scaling;
     PetscReal  wall_roughness_height;
     PetscReal schmidt_number, Turbulent_schmidt_number;
@@ -668,7 +677,7 @@ typedef struct SimCtx {
     PetscBool readFields;
     DM        dm_swarm;
     BoundingBox *bboxlist;
-    PetscInt   ParticleInitialization;
+    ParticleInitializationType ParticleInitialization;
     char particleRestartMode[16];
     PetscInt particlesLostLastStep;
     PetscInt migrationPassesLastStep;

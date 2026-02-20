@@ -1085,7 +1085,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
         Cmpnts    phys_coords = {0.0,0.0,0.0}; // To store newly calculated physical coordinates
         PetscBool particle_was_placed = PETSC_FALSE;
 
-        if(user->simCtx->ParticleInitialization == 0){ 
+        if(user->simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM){
         // Get random cell on this rank's portion of the inlet and random logical coords within it
             ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
                                                     IM_nodes_global, JM_nodes_global, KM_nodes_global,
@@ -1106,7 +1106,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
             positions_field[3*p+2] = phys_coords.z;
             particle_was_placed = PETSC_TRUE;                            
 
-        }else if(user->simCtx->ParticleInitialization == 3){
+        }else if(user->simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES){
             PetscBool placement_flag = PETSC_FALSE;
             ierr = GetDeterministicFaceGridLocation(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
                                                 IM_cells_global, JM_cells_global, KM_cells_global,

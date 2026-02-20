@@ -2418,7 +2418,8 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Initial Pseudo-CFL    : %le\n", simCtx->pseudo_cfl); CHKERRQ(ierr);
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
             }
-            if (simCtx->ParticleInitialization == 0 || simCtx->ParticleInitialization == 3) {
+            if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM ||
+                simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES) {
                 if (user->inletFaceDefined) {
                     ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : %s (Enum Val: %d)\n", BCFaceToString(user->identifiedInletBCFace), user->identifiedInletBCFace); CHKERRQ(ierr);
                 } else {

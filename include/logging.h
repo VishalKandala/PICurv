@@ -579,7 +579,7 @@ const char* FieldInitializationToString(PetscInt FieldInitialization);
  * @param[in] PetscInt The ParticleInitialization value.
  * @return Pointer to a constant string representing the FieldInitialization.
  */
-const char* ParticleInitializationToString(PetscInt ParticleInitialization);
+const char* ParticleInitializationToString(ParticleInitializationType ParticleInitialization);
 
 /**
  * @brief Helper function to convert LES Flag to a string representation.

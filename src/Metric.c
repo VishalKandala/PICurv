@@ -2216,7 +2216,7 @@ PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
     for (j=ys; j<ye; j++) {
       for (i=xs; i<xe; i++) {
 	if (Gidx(i,j,k,user) == MaxFlatIndex) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence(%e) is at location [%d][%d][%d]. \n", maxdiv,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence(%e) is at location [%d][%d][%d]. \n", maxdiv,(int)k,(int)j,(int)i);
 	}
       }
     }
