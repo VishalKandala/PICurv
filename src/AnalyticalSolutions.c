@@ -33,6 +33,7 @@
 // Forward-declare the private function for the TGV3D case.
 // This function is not visible outside this file, enforcing modularity.
 static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx);
+static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx);
 
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalGridInfo"
@@ -194,6 +195,10 @@ PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx)
     if (strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applying Analytical Solution: 3D Taylor-Green Vortex (TGV3D).\n");
         ierr = SetAnalyticalSolution_TGV3D(simCtx); CHKERRQ(ierr);
+    }
+    else if (strcmp(simCtx->AnalyticalSolutionType, "ZERO_FLOW") == 0) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applying Analytical Solution: Zero Background Flow (ZERO_FLOW).\n");
+        ierr = SetAnalyticalSolution_ZeroFlow(simCtx); CHKERRQ(ierr);
     }
     /*
      * --- EXTENSIBILITY HOOK ---
@@ -378,6 +383,45 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
         ierr = UpdateLocalGhosts(user,"Ucat");
         ierr = UpdateLocalGhosts(user,"P");
 
+    }
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "SetAnalyticalSolution_ZeroFlow"
+/**
+ * @brief Sets all fluid fields to zero for a quiescent (zero-flow) background.
+ *
+ * Used for Brownian-motion validation: particles diffuse from a point source with
+ * no advection, so the carrier flow is identically zero everywhere.  The ghost-cell
+ * sequence is identical to that used by TGV3D, ensuring a fully consistent field
+ * state before the first time step.
+ *
+ * @param[in] simCtx The main simulation context.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+
+    PetscFunctionBeginUser;
+
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        UserCtx *user = &user_finest[bi];
+
+        ierr = VecZeroEntries(user->Ucat);     CHKERRQ(ierr);
+        ierr = VecZeroEntries(user->P);        CHKERRQ(ierr);
+        ierr = VecZeroEntries(user->Bcs.Ubcs); CHKERRQ(ierr);
+
+        // Ghost-cell finalization — identical sequence to TGV3D
+        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "P");    CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user);          CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user);         CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "P");    CHKERRQ(ierr);
     }
 
     PetscFunctionReturn(0);

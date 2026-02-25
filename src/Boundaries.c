@@ -1022,7 +1022,7 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
     LOG_ALLOW(GLOBAL, LOG_INFO, "Configuration file '%s' parsed successfully.\n", bcs_filename);
 
     // Step 1.1: Validate the parsed configuration to ensure there are no Boundary Condition conflicts
-    ierr = BoundarySystem_Validate(user);
+    ierr = BoundarySystem_Validate(user); CHKERRQ(ierr);
 
     // Step 2: Create and Initialize the handler object for each of the 6 faces.
     for (int i = 0; i < 6; i++) {

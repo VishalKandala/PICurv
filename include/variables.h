@@ -516,6 +516,10 @@ typedef struct PostProcessParams {
     char particle_output_prefix[MAX_FILENAME_LENGTH];
     PetscInt particle_output_freq;
 
+    // --- Statistics Pipeline (global reductions → CSV files) ---
+    char statistics_pipeline[MAX_PIPELINE_LENGTH];      /**< e.g. "ComputeMSD; ComputeVelocityPDF" */
+    char statistics_output_prefix[MAX_FILENAME_LENGTH]; /**< basename for CSV output, e.g. "Stats" */
+
     // --- Legacy settings ---
     char eulerianExt[8]; // from original PostProcessParams (repurposed for PreCheckAndResize() as the input file extension.)
     char particleExt[8]; // from original PostProcessParams

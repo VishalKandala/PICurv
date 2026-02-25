@@ -342,7 +342,7 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
             if (handler != BC_HANDLER_INLET_CONSTANT_VELOCITY && handler != BC_HANDLER_INLET_PARABOLIC) return PETSC_ERR_ARG_WRONG;
             break;
         case PERIODIC:
-            if(handler != BC_HANDLER_PERIODIC_GEOMETRIC && handler != BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX && !handler != BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) return PETSC_ERR_ARG_WRONG;
+            if(handler != BC_HANDLER_PERIODIC_GEOMETRIC && handler != BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX && handler != BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) return PETSC_ERR_ARG_WRONG;
         // ... add other validation cases here ...
         default: break;
     }
@@ -2485,6 +2485,8 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     strcpy(pps->particle_output_prefix,"Particle");
     strcpy(pps->particle_fields,"velocity,CellID,weight,pid");
     strcpy(pps->particle_pipeline,"");
+    strncpy(pps->statistics_pipeline,      "",       MAX_PIPELINE_LENGTH - 1);
+    strncpy(pps->statistics_output_prefix, "Stats",  MAX_FILENAME_LENGTH - 1);
     strcpy(pps->particleExt,"dat"); // The input file format for particles.
     strcpy(pps->eulerianExt,"dat"); // The input file format for Eulerian fields.
     pps->reference[0] = pps->reference[1] = pps->reference[2] = 1;
@@ -2528,6 +2530,12 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                     pps->particle_pipeline[MAX_PIPELINE_LENGTH - 1] = '\0';
                 } else if (strcasecmp(key, "particle_output_freq") == 0) {
                     pps->particle_output_freq = atoi(value);
+                } else if (strcasecmp(key, "statistics_pipeline") == 0) {
+                    strncpy(pps->statistics_pipeline, value, MAX_PIPELINE_LENGTH - 1);
+                    pps->statistics_pipeline[MAX_PIPELINE_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "statistics_output_prefix") == 0) {
+                    strncpy(pps->statistics_output_prefix, value, MAX_FILENAME_LENGTH - 1);
+                    pps->statistics_output_prefix[MAX_FILENAME_LENGTH - 1] = '\0';
                 } else if (strcmp(key, "reference_ip") == 0) {pps->reference[0] = atoi(value);
                 } else if (strcmp(key, "reference_jp") == 0) {pps->reference[1] = atoi(value);
                 } else if (strcmp(key, "reference_kp") == 0) {pps->reference[2] = atoi(value);

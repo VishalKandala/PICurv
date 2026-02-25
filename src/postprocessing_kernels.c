@@ -526,3 +526,53 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ComputeDisplacement"
+/**
+ * @brief Computes displacement magnitude |r_i - r_0| for each particle (per-particle VTK kernel).
+ *
+ * Reference point r_0 is taken from simCtx->psrc_x/y/z.  Reads the "position" field from
+ * user->swarm and writes the scalar distance to user->post_swarm[disp_field].
+ *
+ * This is a visualisation kernel — for quantitative statistics use ComputeParticleMSD.
+ *
+ * @param user       The UserCtx containing the DMSwarms.
+ * @param disp_field Name of the output scalar field in post_swarm.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field)
+{
+    PetscErrorCode  ierr;
+    PetscInt        n_local;
+    const PetscReal (*pos_arr)[3];
+    PetscScalar    *disp_out;
+    SimCtx         *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running ComputeDisplacement (-> '%s').\n", disp_field);
+
+    ierr = DMSwarmGetLocalSize(user->swarm, &n_local); CHKERRQ(ierr);
+    if (n_local == 0) PetscFunctionReturn(0);
+
+    const PetscReal x0 = simCtx->psrc_x;
+    const PetscReal y0 = simCtx->psrc_y;
+    const PetscReal z0 = simCtx->psrc_z;
+
+    ierr = DMSwarmGetField(user->swarm,      "position", NULL, NULL, (const void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->post_swarm, disp_field, NULL, NULL, (void**)&disp_out);       CHKERRQ(ierr);
+
+    for (PetscInt p = 0; p < n_local; p++) {
+        const PetscReal dx = pos_arr[p][0] - x0;
+        const PetscReal dy = pos_arr[p][1] - y0;
+        const PetscReal dz = pos_arr[p][2] - z0;
+        disp_out[p] = PetscSqrtReal(dx*dx + dy*dy + dz*dz);
+    }
+
+    ierr = DMSwarmRestoreField(user->swarm,      "position", NULL, NULL, (const void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->post_swarm, disp_field, NULL, NULL, (void**)&disp_out);       CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+

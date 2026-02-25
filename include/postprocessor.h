@@ -88,5 +88,20 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
  */
 PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt ti);
 
+/**
+ * @brief Executes the global statistics pipeline, computing aggregate reductions over all particles.
+ *
+ * Parses the semicolon-delimited `pps->statistics_pipeline` string and dispatches to the
+ * appropriate kernel (e.g. ComputeParticleMSD).  Each kernel appends one row to its own CSV
+ * file and logs a summary via LOG_INFO.  All MPI reductions happen inside each kernel.
+ * This pipeline is independent of the per-particle VTK pipeline; it produces no .vtp output.
+ *
+ * @param user The UserCtx containing the primary DMSwarm (user->swarm).
+ * @param pps  The PostProcessParams containing statistics_pipeline and statistics_output_prefix.
+ * @param ti   Current time-step index (passed through to kernels for time computation).
+ * @return PetscErrorCode
+ */
+PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, PetscInt ti);
+
 #endif /* POSTPROCESSOR_H */
 

@@ -63,4 +63,17 @@ PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user);
  */
 PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, const char* ske_field);
 
+/**
+ * @brief Computes the displacement magnitude |r_i - r_0| for each particle (per-particle VTK kernel).
+ *
+ * Reference point r_0 = (simCtx->psrc_x, psrc_y, psrc_z).  Writes the scalar displacement to
+ * post_swarm[disp_field].  This is a visualisation kernel only — use ComputeParticleMSD from
+ * particle_statistics.h for quantitative global statistics.
+ *
+ * @param user       The UserCtx containing the DMSwarms.
+ * @param disp_field Name of the output scalar field in post_swarm.
+ * @return PetscErrorCode
+ */
+PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field);
+
 #endif // POSTPROCESSING_KERNELS_H
