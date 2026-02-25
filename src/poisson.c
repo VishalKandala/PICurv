@@ -3109,49 +3109,86 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
   DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
   DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
 
-  /* periodci boundary condition update corrected flux */
-  //Mohsen Dec 2015
+  /* periodic boundary condition update corrected flux */
+  // Mohsen Dec 2015 (kept for transition safety; modern periodic helper path is also active)
+  PetscBool has_periodic_ucont_seam =
+      (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC ||
+       user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC ||
+       user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC ||
+       user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC ||
+       user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC ||
+       user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC);
+  PetscInt  periodic_seam_updates_local = 0, periodic_seam_updates_global = 0;
+  PetscReal periodic_seam_max_delta_local = 0.0, periodic_seam_max_delta_global = 0.0;
+
+  if (has_periodic_ucont_seam) {
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "VolumeFlux: entering legacy periodic Ucont seam refresh block.\n");
+  }
+
   DMDAVecGetArray(fda, user->lUcont, &lucor);
   DMDAVecGetArray(fda, user->Ucont, &ucor);
   
   if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC){
     if (xs==0){
       i=xs;
-      for (k=zs; k<ze; k++) {
-	for (j=ys; j<ye; j++) {
-	  if(j>0 && k>0 && j<user->JM && k<user->KM){
-	    ucor[k][j][i].x=lucor[k][j][i-2].x;  
-	  }
-	}
-      }
+	      for (k=zs; k<ze; k++) {
+		for (j=ys; j<ye; j++) {
+		  if(j>0 && k>0 && j<user->JM && k<user->KM){
+		    PetscReal old_val = ucor[k][j][i].x;
+		    PetscReal new_val = lucor[k][j][i-2].x;
+		    PetscReal delta = PetscAbsReal(new_val - old_val);
+		    ucor[k][j][i].x = new_val;
+		    if (delta > 1.0e-14) periodic_seam_updates_local++;
+		    periodic_seam_max_delta_local = PetscMax(periodic_seam_max_delta_local, delta);
+		  }
+		}
+	      }
     }
   }
   if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC){
     if (ys==0){
       j=ys;
-      for (k=zs; k<ze; k++) {
-	for (i=xs; i<xe; i++) {
-	  if(i>0 && k>0 && i<user->IM && k<user->KM){
-	    ucor[k][j][i].y=lucor[k][j-2][i].y;
-	  }
-	}
-      }
+	      for (k=zs; k<ze; k++) {
+		for (i=xs; i<xe; i++) {
+		  if(i>0 && k>0 && i<user->IM && k<user->KM){
+		    PetscReal old_val = ucor[k][j][i].y;
+		    PetscReal new_val = lucor[k][j-2][i].y;
+		    PetscReal delta = PetscAbsReal(new_val - old_val);
+		    ucor[k][j][i].y = new_val;
+		    if (delta > 1.0e-14) periodic_seam_updates_local++;
+		    periodic_seam_max_delta_local = PetscMax(periodic_seam_max_delta_local, delta);
+		  }
+		}
+	      }
     }
   }
   if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC){
     if (zs==0){
       k=zs;
-      for (j=ys; j<ye; j++) {
-	for (i=xs; i<xe; i++) {
-	  if(i>0 && j>0 && i<user->IM && j<user->JM){
-	    ucor[k][j][i].z=lucor[k-2][j][i].z;
-	  }
-	}
-      }
+	      for (j=ys; j<ye; j++) {
+		for (i=xs; i<xe; i++) {
+		  if(i>0 && j>0 && i<user->IM && j<user->JM){
+		    PetscReal old_val = ucor[k][j][i].z;
+		    PetscReal new_val = lucor[k-2][j][i].z;
+		    PetscReal delta = PetscAbsReal(new_val - old_val);
+		    ucor[k][j][i].z = new_val;
+		    if (delta > 1.0e-14) periodic_seam_updates_local++;
+		    periodic_seam_max_delta_local = PetscMax(periodic_seam_max_delta_local, delta);
+		  }
+		}
+	      }
     }
   }
   DMDAVecRestoreArray(fda, user->lUcont, &lucor);
   DMDAVecRestoreArray(fda, user->Ucont, &ucor);
+
+  if (has_periodic_ucont_seam) {
+    MPI_Allreduce(&periodic_seam_updates_local, &periodic_seam_updates_global, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD);
+    MPI_Allreduce(&periodic_seam_max_delta_local, &periodic_seam_max_delta_global, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG,
+              "VolumeFlux: legacy periodic Ucont seam refresh updated %d values, max |delta|=%.6e.\n",
+              (int)periodic_seam_updates_global, periodic_seam_max_delta_global);
+  }
 
  /*  DMLocalToGlobalBegin(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); */
 /*   DMLocalToGlobalEnd(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); */

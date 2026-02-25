@@ -1863,6 +1863,8 @@ PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
     PROFILE_FUNCTION_BEGIN;
 
     // --- STEP 1: Dispatcher - Set the specific DM, Vecs, and dof based on field_name ---
+    // Field-extension note: to add a new periodic field, add one case here and then
+    // add one call in ApplyPeriodicBCs()/UpdatePeriodicCornerNodes() where appropriate.
     if (strcmp(field_name, "Ucat") == 0) {
         dm         = user->fda;
         global_vec = user->Ucat;
@@ -1966,6 +1968,8 @@ PetscErrorCode TransferPeriodicFaceField(UserCtx *user, const char *field_name)
     PetscInt       mx = info.mx, my = info.my, mz = info.mz;
 
     // --- Dispatcher to get the correct DM, Vec, and DoF for the specified field ---
+    // Field-extension note: add one case here when a new field needs periodic
+    // ghost-face transfer (typically for stencil-heavy operators).
     DM          dm;
     Vec         local_vec;
     PetscInt    dof;
@@ -2122,9 +2126,19 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
 /**
  * @brief Applies periodic boundary conditions by copying data across domain boundaries for all relevant fields.
  *
- * This function orchestrates the periodic update. It first performs a single, collective
- * ghost-cell exchange for all fields. Then, it calls a generic helper routine to perform
- * the memory copy for each individual field by name.
+ * This function orchestrates the periodic update. It first performs a collective
+ * ghost-cell exchange for core fields, then performs periodic face updates on
+ * field-by-field helpers.
+ *
+ * For staggered contravariant fluxes (`Ucont`), this routine additionally:
+ * 1) refreshes local ghost values,
+ * 2) applies periodic ghost-face transfer (`ApplyUcontPeriodicBCs`),
+ * 3) enforces strict seam consistency on the last interior periodic faces
+ *    (`EnforceUcontPeriodicity`),
+ * 4) performs a final ghost refresh for downstream stencils.
+ *
+ * Future extension rule: when adding a new periodic field, keep this routine as
+ * the single orchestration point and update the field dispatchers.
  *
  * @param user The main UserCtx struct.
  * @return PetscErrorCode 0 on success.
@@ -2153,16 +2167,23 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
 
     LOG_ALLOW(GLOBAL, LOG_TRACE, "Applying periodic boundary conditions for all fields.\s");
 
-    // STEP 1: Perform the collective communication for all fields at once.
+    // STEP 1: Perform the collective communication for periodic core fields.
     ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, "Nvert"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
     /* if (user->solve_temperature) { ierr = UpdateLocalGhosts(user, "Temperature"); CHKERRQ(ierr); } */
 
-    // STEP 2: Call the generic copy routine for each field by name.
+    // STEP 2: Call the generic copy routine for each face-centered/cell-centered field.
     ierr = TransferPeriodicField(user, "Ucat"); CHKERRQ(ierr);
     ierr = TransferPeriodicField(user, "P"); CHKERRQ(ierr);
     ierr = TransferPeriodicField(user, "Nvert"); CHKERRQ(ierr);
+
+    // STEP 3: Update contravariant flux periodic ghosts and enforce strict seam consistency.
+    // This keeps the staggered Ucont field robust for QUICK-like stencils and periodic flux closure.
+    ierr = ApplyUcontPeriodicBCs(user); CHKERRQ(ierr);
+    ierr = EnforceUcontPeriodicity(user); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
 
     // FUTURE EXTENSION: Adding a new scalar field like Temperature is now trivial.
     /*
@@ -2192,7 +2213,13 @@ PetscErrorCode ApplyUcontPeriodicBCs(UserCtx *user)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
+    // Update local periodic ghost faces (two-cells deep) for Ucont.
     ierr = TransferPeriodicFaceField(user, "Ucont"); CHKERRQ(ierr);
+
+    // Commit periodic-face updates back to global Ucont so follow-up routines
+    // (including EnforceUcontPeriodicity) can safely refresh from global state.
+    ierr = DMLocalToGlobalBegin(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); CHKERRQ(ierr);
+    ierr = DMLocalToGlobalEnd(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
