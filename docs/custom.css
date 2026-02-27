@@ -1,4 +1,5 @@
 /* PICurv Doxygen skin aligned to al-folio light/dark palettes. */
+@import url("https://fonts.googleapis.com/css?family=Roboto:300,400,500,700|Roboto+Slab:400,500,700");
 
 :root {
   --pic-bg: #ffffff;
@@ -71,7 +72,7 @@ p,
 dl,
 ul,
 ol {
-  font: 400 15px/1.65 "Lato", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font: 400 15px/1.65 Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
   color: var(--pic-text);
 }
 
@@ -243,4 +244,240 @@ h2.groupheader {
   transform: translateY(-1px);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
   border-color: var(--pic-accent);
+}
+
+/* Deeper Doxygen overrides to remove default blue scheme and match al-folio. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.title,
+.headertitle,
+h1.groupheader,
+h2.groupheader,
+h3.groupheader {
+  font-family: "Roboto Slab", Georgia, serif !important;
+  color: var(--pic-text) !important;
+}
+
+div.header,
+div.headertitle,
+div.title,
+div.qindex,
+div.navtab,
+div.navpath,
+.memnav,
+td.indexkey,
+td.indexvalue,
+tr.memlist,
+th.dirtab,
+div.directory,
+table.fieldtable th,
+table.doxtable th,
+div.memtitle,
+.tabsearch,
+.searchresult,
+#MSearchResultsWindow {
+  background-image: none !important;
+  background-color: var(--pic-card-bg) !important;
+  border-color: var(--pic-border) !important;
+  color: var(--pic-text) !important;
+}
+
+table.doxtable th {
+  color: #fff !important;
+  background-color: var(--pic-accent) !important;
+}
+
+table.doxtable td,
+table.doxtable th,
+table.fieldtable,
+table.fieldtable td,
+table.fieldtable th,
+table.fieldtable td.fieldtype,
+table.fieldtable td.fieldname,
+table.fieldtable td.fielddoc,
+td.mdescLeft,
+td.mdescRight,
+td.memItemLeft,
+td.memItemRight,
+td.memTemplItemLeft,
+td.memTemplItemRight,
+td.memTemplParams {
+  border-color: var(--pic-border) !important;
+  color: var(--pic-text) !important;
+}
+
+span.mlabel,
+.icon {
+  background: var(--pic-accent) !important;
+  border-color: var(--pic-accent) !important;
+  color: #fff !important;
+}
+
+.memTemplParams,
+.memtemplate,
+.permalink,
+.SRSymbol,
+a.SRScope,
+.directory .levels span,
+.arrow,
+.paramname,
+address {
+  color: var(--pic-link) !important;
+}
+
+.paramname,
+.paramname em {
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+}
+
+hr,
+.memSeparator {
+  border-color: var(--pic-border) !important;
+}
+
+blockquote,
+blockquote.DocNodeRTL {
+  background: var(--pic-code-bg) !important;
+  border-color: var(--pic-accent) !important;
+  color: var(--pic-text) !important;
+}
+
+/* Top and side navigation bars */
+#main-nav,
+.sm-dox,
+.sm-dox ul,
+.sm-dox a,
+.sm-dox a:hover,
+.sm-dox a.highlighted {
+  background-image: none !important;
+}
+
+.sm-dox a.has-submenu {
+  padding-right: 24px !important;
+}
+
+.sm-dox a span.sub-arrow {
+  border-color: var(--pic-text) transparent transparent transparent !important;
+}
+
+.sm-dox a:hover span.sub-arrow,
+.sm-dox a.highlighted span.sub-arrow {
+  border-color: var(--pic-link) transparent transparent transparent !important;
+}
+
+#nav-tree {
+  background-image: none !important;
+  background-color: var(--pic-card-bg) !important;
+}
+
+#nav-tree .label {
+  font: 400 12px/1.35 Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+}
+
+#nav-tree a {
+  color: var(--pic-text) !important;
+}
+
+#nav-tree .selected {
+  background-image: none !important;
+  background-color: var(--pic-accent) !important;
+  color: #fff !important;
+  text-shadow: none !important;
+}
+
+#nav-tree .selected a {
+  color: #fff !important;
+}
+
+/* Search controls and search result pages */
+#MSearchBox .left,
+#MSearchBox .right {
+  background: none !important;
+}
+
+#MSearchField {
+  height: 22px !important;
+  margin-top: 1px !important;
+  border: 1px solid var(--pic-border) !important;
+  border-radius: 999px !important;
+  background: var(--pic-card-bg) !important;
+  color: var(--pic-text) !important;
+  font: 400 12px Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+}
+
+.MSearchBoxActive #MSearchField {
+  color: var(--pic-text) !important;
+}
+
+#MSearchSelectWindow {
+  border-color: var(--pic-border) !important;
+  background-color: var(--pic-card-bg) !important;
+}
+
+a.SelectItem {
+  color: var(--pic-text) !important;
+}
+
+a.SelectItem:hover {
+  background-color: var(--pic-accent) !important;
+  color: #fff !important;
+}
+
+.pages b {
+  background-image: none !important;
+  background-color: var(--pic-accent) !important;
+  text-shadow: none !important;
+}
+
+.navpath ul,
+.navpath li,
+.navpath li.navelem a,
+.navpath li.footer {
+  background-image: none !important;
+  color: var(--pic-muted) !important;
+  border-color: var(--pic-border) !important;
+  text-shadow: none !important;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+}
+
+.navpath li.navelem a:hover {
+  color: var(--pic-link) !important;
+}
+
+.directory tr.even {
+  background: var(--pic-code-bg) !important;
+}
+
+/* API blocks */
+.memproto,
+dl.reflist dt {
+  box-shadow: none !important;
+  text-shadow: none !important;
+  border-bottom: 1px solid var(--pic-border) !important;
+}
+
+.memdoc,
+dl.reflist dd {
+  box-shadow: none !important;
+  background-image: none !important;
+}
+
+.line.glow,
+.memberdecls td.glow,
+.fieldtable tr.glow,
+.memitem.glow {
+  background: rgba(38, 152, 186, 0.14) !important;
+  box-shadow: 0 0 0 2px rgba(38, 152, 186, 0.18) inset !important;
+}
+
+html[data-theme="light"] .line.glow,
+html[data-theme="light"] .memberdecls td.glow,
+html[data-theme="light"] .fieldtable tr.glow,
+html[data-theme="light"] .memitem.glow {
+  background: rgba(181, 9, 172, 0.1) !important;
+  box-shadow: 0 0 0 2px rgba(181, 9, 172, 0.14) inset !important;
 }
