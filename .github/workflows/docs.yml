@@ -31,6 +31,7 @@ jobs:
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             <title>PICurv File List</title>
             <link href="doxygen.css" rel="stylesheet" />
+            <link href="custom.css" rel="stylesheet" />
           </head>
           <body>
             <div class="header"><div class="title">File List</div></div>
@@ -52,6 +53,7 @@ jobs:
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             <title>PICurv Data Structures</title>
             <link href="doxygen.css" rel="stylesheet" />
+            <link href="custom.css" rel="stylesheet" />
           </head>
           <body>
             <div class="header"><div class="title">Data Structures</div></div>
@@ -63,6 +65,18 @@ jobs:
           </html>
           EOF
           fi
+
+          cp docs/theme-sync.js docs/docs_build/html/theme-sync.js
+          for f in docs/docs_build/html/*.html docs/docs_build/html/search/*.html; do
+            [ -f "$f" ] || continue
+            case "$f" in
+              */search/*) sync_path="../theme-sync.js" ;;
+              *) sync_path="theme-sync.js" ;;
+            esac
+            if ! grep -q "theme-sync.js" "$f"; then
+              sed -i "s#</head>#<script type=\"text/javascript\" src=\"${sync_path}\"></script>\n</head>#g" "$f"
+            fi
+          done
       - name: Upload build artifact (for mirroring)
         uses: actions/upload-artifact@v4
         with:
@@ -116,22 +130,29 @@ jobs:
           if [ ! -f site/_pages/picurv-docs.md ]; then
             cat > site/_pages/picurv-docs.md << 'EOF'
           ---
-          layout: page
+          layout: none
           title: PICurv Docs
           permalink: /picurv-docs/
           nav: true
-          nav_order: 8
+          nav_order: 3
           description: PICurv solver documentation (Doxygen)
           ---
 
-          <iframe src="{{ '/docs/picurv/index.html' | relative_url }}"
-                  style="width: 100%; min-height: 82vh; border: 0;"
-                  loading="lazy"
-                  title="PICurv Doxygen Documentation">
-          </iframe>
-
-          If the embedded view does not load, open the standalone docs:
-          [PICurv Doxygen Documentation]({{ '/docs/picurv/index.html' | relative_url }}).
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <meta http-equiv="refresh" content="0; url={{ '/docs/picurv/index.html' | relative_url }}" />
+            <title>Redirecting to PICurv Docs</title>
+            <script>
+              window.location.replace("{{ '/docs/picurv/index.html' | relative_url }}");
+            </script>
+          </head>
+          <body>
+            <p>Redirecting to <a href="{{ '/docs/picurv/index.html' | relative_url }}">PICurv documentation</a>...</p>
+          </body>
+          </html>
           EOF
           fi
 
@@ -141,5 +162,5 @@ jobs:
           git config user.name  "gh-actions"
           git config user.email "actions@github.com"
           git add docs/picurv docs/pic_dev _pages/picurv-docs.md
-          git commit -m "Update PIC Dev Doxygen docs" || echo "No changes to commit"
+          git commit -m "Update PICurv Doxygen docs" || echo "No changes to commit"
           git push origin HEAD:master || git push origin HEAD:main
