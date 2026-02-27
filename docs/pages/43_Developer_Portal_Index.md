@@ -29,6 +29,7 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 35_API_Documentation_Status**: current API documentation coverage and gaps.
 - **@subpage 20_Grid_Cell_Architecture_Guide**: data-structure contracts in grid/cell storage.
 - **@subpage 29_Maintenance_Backlog**: low-priority but known technical-debt items.
+- **@subpage Documentation_Catalog**: alternate categorized entry path.
 
 @section contribution_flow_sec 4. Suggested Contributor Read Path
 

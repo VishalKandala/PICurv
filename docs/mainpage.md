@@ -17,6 +17,7 @@ The user workflow is configuration-first: YAML inputs are validated and translat
 - **@subpage 41_Getting_Started_Index**: first-run onboarding sequence.
 - **@subpage 42_User_Guide_Index**: operational workflows, config references, and run recipes.
 - **@subpage 43_Developer_Portal_Index**: methods, architecture, and extension docs.
+- **@subpage Documentation_Catalog**: categorized catalog by lifecycle and artifact type.
 
 @section preview_sec Quick Preview
 

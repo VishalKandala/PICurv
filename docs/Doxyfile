@@ -8,10 +8,10 @@ OUTPUT_LANGUAGE        = English
 OPTIMIZE_OUTPUT_FOR_C  = YES
 
 #------------------------- Input ---------------------------
-INPUT                  = ../include ../src . pages ../examples ../scripts
+INPUT                  = ../include ../src . pages ../examples
 FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md
 RECURSIVE              = YES
-EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/* */guide.md
+EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/* */guide.md */38_Start_Here_10_Minutes.md */examples/*.md */examples/*/*.md */scripts/*.md */README.md
 
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = NO
@@ -62,6 +62,8 @@ GENERATE_LATEX         = NO
 SOURCE_BROWSER         = YES
 INLINE_SOURCES         = YES
 STRIP_CODE_COMMENTS    = NO
+SHOW_FILES             = YES
+SHOW_USED_FILES        = YES
 
 #------------------------- Groups & Index ------------------
 ENABLE_PREPROCESSING   = YES

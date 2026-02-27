@@ -32,6 +32,7 @@ If Getting Started proves the toolchain works, this section is where production 
 
 - **@subpage 30_Repository_Navigation**: directory map and linked local guides.
 - **@subpage 18_Changelog**: recent behavior/contract changes.
+- **@subpage Documentation_Catalog**: categorized index across lifecycle and artifact types.
 
 @section outcomes_sec 5. Competencies You Should Gain
 

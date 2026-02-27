@@ -146,6 +146,6 @@ Sweep (`sweep`):
 - Config contract: **@subpage 14_Config_Contract**
 - User workflows: **@subpage 11_User_How_To_Guides**
 - Extensibility: **@subpage 17_Workflow_Extensibility**
-- First-run path: **@subpage 38_Start_Here_10_Minutes**
+- First-run path: **@subpage 02_Tutorial_Programmatic_Grid**
 - Troubleshooting map: **@subpage 39_Common_Fatal_Errors**
 - Smoke/CI verification details: **@subpage 40_Testing_and_Quality_Guide**

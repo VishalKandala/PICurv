@@ -14,22 +14,19 @@ Use this section if you are in one of these states:
 - returning after dependency/toolchain changes,
 - onboarding someone to the repository and needing a deterministic starting path.
 
-@section distinction_sec 2. Quickstart vs First Simulation
+@section distinction_sec 2. First Simulation Entry
 
-Two pages look similar but serve different goals:
+The canonical first-run page is:
 
-- **@subpage 38_Start_Here_10_Minutes**
-  shortest command path, minimal explanation, optimized for speed.
 - **@subpage 02_Tutorial_Programmatic_Grid**
   complete walkthrough with artifact inspection and troubleshooting context.
 
 @section path_sec 3. Recommended Read Order
 
 1. **@subpage 01_Installation**
-2. **@subpage 38_Start_Here_10_Minutes**
-3. **@subpage 02_Tutorial_Programmatic_Grid**
-4. **@subpage 03_Tutorial_File-Based_Grid**
-5. **@subpage 04_Visualization_Tutorial**
+2. **@subpage 02_Tutorial_Programmatic_Grid**
+3. **@subpage 03_Tutorial_File-Based_Grid**
+4. **@subpage 04_Visualization_Tutorial**
 
 @section outputs_sec 4. Expected Outcomes After Completing This Path
 
@@ -46,3 +43,4 @@ You should be able to:
 - Operational run authoring: **@subpage 42_User_Guide_Index**
 - Troubleshooting catalog: **@subpage 39_Common_Fatal_Errors**
 - CI/smoke test contract: **@subpage 40_Testing_and_Quality_Guide**
+- Cross-axis catalog view: **@subpage Documentation_Catalog**
