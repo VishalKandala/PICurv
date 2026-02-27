@@ -12,24 +12,39 @@ This document serves as a reference for all available sections and parameters wi
 
 @tableofcontents
 
-@section strategy_sec 1. The `strategy` Section
+@section operation_mode_sec 1. The `operation_mode` Section
+
+This section controls how Eulerian fields are sourced and, for analytical mode, which analytical family is requested.
+
+```yaml
+operation_mode:
+  eulerian_field_source: "solve"
+  analytical_type: "TGV3D"
+```
+
+| Parameter | Type | Description | C-Solver Flag |
+| :--- | :--- | :--- | :--- |
+| `eulerian_field_source` | String | Selects Eulerian source mode. Common values: `"solve"`, `"load"`, `"analytical"`. | `-euler_field_source` |
+| `analytical_type` | String | Analytical solution selector used when `eulerian_field_source` is analytical. | `-analytical_type` |
+
+@section strategy_sec 2. The `strategy` Section
 
 This section controls the high-level numerical scheme for the momentum equations.
 
 ```yaml
 strategy:
-  implicit: true
+  momentum_solver: "Dual Time Picard RK4"
   central_diff: false
 ```
 
 | Parameter | Type | Description | C-Solver Flag |
 | :--- | :--- | :--- | :--- |
-| `implicit` | Boolean | If `true`, uses an implicit time-stepping scheme (more robust, larger timesteps possible). If `false`, uses an explicit Runge-Kutta scheme (faster per step, but subject to stricter stability constraints). | `-imp` |
+| `momentum_solver` | String | Preferred momentum solver selector. User-friendly values like `"Explicit RK4"` and `"Dual Time Picard RK4"` are translated by `pic-flow` to C enum strings. | `-mom_solver_type` |
 | `central_diff` | Boolean | If `true`, uses a central differencing scheme for the convective term. If `false` (default), uses a higher-order QUICK scheme. | `-central` |
 
-@section tolerances_sec 2. The `tolerances` Section
+@section tolerances_sec 3. The `tolerances` Section
 
-This section is used to configure the convergence criteria for the **implicit momentum solver** (i.e., when `implicit: true`).
+This section configures momentum-solver convergence controls (primarily used by dual-time solvers).
 
 ```yaml
 tolerances:
@@ -41,12 +56,30 @@ tolerances:
 
 | Parameter | Type | Description | C-Solver Flag |
 | :--- | :--- | :--- | :--- |
-| `max_iterations` | Integer | The maximum number of non-linear iterations for the implicit solver per time step. | `-imp_MAX_IT` |
-| `absolute_tol` | Real | The absolute tolerance for the residual norm. The solver converges if `||F(x)|| < atol`. | `-imp_atol` |
-| `relative_tol` | Real | The relative tolerance for the residual norm. The solver converges if `||F(x)|| < rtol * ||F(x_0)||`. | `-imp_rtol` |
+| `max_iterations` | Integer | The maximum number of pseudo-time iterations for the momentum solver per time step. | `-mom_max_pseudo_steps` |
+| `absolute_tol` | Real | The absolute tolerance for the momentum update norm. | `-mom_atol` |
+| `relative_tol` | Real | The relative tolerance for the momentum update norm. | `-mom_rtol` |
 | `step_tol` | Real | The step tolerance. The solver converges if the norm of the solution update is smaller than this value. | `-imp_stol` |
 
-@section pressure_solver_sec 3. The `pressure_solver` Section
+@section momentum_solver_sec 3.1. The `momentum_solver` Section (Advanced)
+
+This optional section exposes solver-specific controls directly in YAML.
+
+| Parameter | Type | Description | C-Solver Flag |
+| :--- | :--- | :--- | :--- |
+| `type` | String | Optional canonical enum fallback (`DUALTIME_PICARD_RK4`, `EXPLICIT_RK`, etc.) if `strategy.momentum_solver` is omitted. | `-mom_solver_type` |
+| `dual_time_picard_rk4.max_pseudo_steps` | Integer | Maximum pseudo-time iterations per physical step. | `-mom_max_pseudo_steps` |
+| `dual_time_picard_rk4.absolute_tol` | Real | Absolute pseudo-time convergence threshold. | `-mom_atol` |
+| `dual_time_picard_rk4.relative_tol` | Real | Relative pseudo-time convergence threshold. | `-mom_rtol` |
+| `dual_time_picard_rk4.step_tol` | Real | Step-size convergence threshold. | `-imp_stol` |
+| `dual_time_picard_rk4.pseudo_cfl.initial` | Real | Initial pseudo-CFL at the start of each physical step. | `-pseudo_cfl` |
+| `dual_time_picard_rk4.pseudo_cfl.minimum` | Real | Lower bound for adaptive pseudo-CFL. | `-min_pseudo_cfl` |
+| `dual_time_picard_rk4.pseudo_cfl.maximum` | Real | Upper bound for adaptive pseudo-CFL. | `-max_pseudo_cfl` |
+| `dual_time_picard_rk4.pseudo_cfl.growth_factor` | Real | Growth factor used when convergence is healthy. | `-pseudo_cfl_growth_factor` |
+| `dual_time_picard_rk4.pseudo_cfl.reduction_factor` | Real | Reduction factor used when convergence degrades. | `-pseudo_cfl_reduction_factor` |
+| `dual_time_picard_rk4.rk4_residual_noise_allowance_factor` | Real | Noise threshold for RK4 residual-based divergence detection. | `-mom_dt_rk4_residual_norm_noise_allowance_factor` |
+
+@section pressure_solver_sec 4. The `pressure_solver` Section
 
 This section provides detailed control over the linear solver used for the pressure-Poisson equation, which is often the most computationally expensive part of the simulation.
 
@@ -79,7 +112,7 @@ These parameters configure the geometric multigrid (PCMG) preconditioner.
 | `semi_coarsening.j`| Bool Array | An array of booleans (one per block) specifying whether to disable coarsening in the j-direction. | `-mg_j_semi` |
 | `semi_coarsening.k`| Bool Array | An array of booleans (one per block) specifying whether to disable coarsening in the k-direction. | `-mg_k_semi` |
 
-@section petsc_sec 4. The `petsc_passthrough_options` Section
+@section petsc_sec 5. The `petsc_passthrough_options` Section
 
 This is an advanced section that allows you to pass any command-line option directly to the underlying PETSc library. This gives you complete control over the linear solvers (KSP) and preconditioners (PC).
 
@@ -105,8 +138,10 @@ petsc_passthrough_options:
 ```
 For a full list of PETSc options, please refer to the [PETSc Users Manual](https://petsc.org/release/docs/manual/).
 
-@section next_steps_sec 5. Next Steps
+@section next_steps_sec 6. Next Steps
 
 You now know how to define the physics of a problem (`case.yml`) and control the numerical strategy used to solve it (`solver.yml`). The next step is to learn how to manage the simulation's output and runtime monitoring.
 
 Proceed to the **@subpage 09_Monitor_Reference** to learn about all the parameters available in the `monitor.yml` file.
+
+For end-to-end mapping and extension workflow, see **@subpage 15_Config_Ingestion_Map** and **@subpage 16_Config_Extension_Playbook**.

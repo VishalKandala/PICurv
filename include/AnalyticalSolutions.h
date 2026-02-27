@@ -35,8 +35,8 @@
  *   blocks remains `[0, 2*PI]`. If `nblk` is not a perfect square, the simulation is aborted
  *   with an error.
  *
- * After setting the domain bounds, it proceeds to read the grid resolution options
- * (`-im`, `-jm`, `-km`) from the command line for the specific block.
+ * Grid resolution (`IM/JM/KM`) is expected to be pre-populated in `user`
+ * before this function is called.
  *
  * @param user Pointer to the `UserCtx` for a specific block. The function will
  *             populate the geometric fields (`IM`, `JM`, `KM`, `Min_X`, `Max_X`, etc.)
@@ -44,6 +44,18 @@
  * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
  */
 PetscErrorCode SetAnalyticalGridInfo(UserCtx *user);
+
+/**
+ * @brief Reports whether an analytical type requires custom geometry/decomposition logic.
+ *
+ * Analytical types returning PETSC_TRUE are expected to route through
+ * `SetAnalyticalGridInfo`. Types returning PETSC_FALSE should use the standard
+ * programmatic grid parser fallback.
+ *
+ * @param analytical_type Analytical solution type string.
+ * @return PETSC_TRUE if custom geometry is required, PETSC_FALSE otherwise.
+ */
+PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type);
 
 #undef __FUNCT__
 #define __FUNCT__ "AnalyticalSolutionEngine"

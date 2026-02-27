@@ -50,8 +50,8 @@ The following physical boundary conditions are available through the `boundary_c
 -   **Walls:**
     -   `noslip`: Standard no-slip wall condition.
 -   **Other:**
-    -   `symmetry_plane`: A slip-wall condition.
-    -   `periodic`: For use with periodic domains.
+    -   `geometric`: Periodic geometric coupling.
+    -   `constant_flux`: Periodic driven-flow handler with a target flux and optional trim control.
 
 @section pp_cap_sec 5. Post-Processing Capabilities
 
@@ -66,7 +66,16 @@ The built-in post-processor allows you to perform the following analyses without
 -   **Derived Quantities (Lagrangian):**
     -   Calculate the **Specific Kinetic Energy** (`specific_ke`) of each particle.
 
-@section next_steps_sec 6. Beyond Configuration: The Developer Portal
+@section data_driven_cap_sec 6. Data-Driven Closure Readiness (Particle Physics)
+
+- **Offline workflows are currently well-supported:**
+    - Use solver/post output directories as data sources and run separate Python ML training/inference scripts outside the solver binary.
+    - Use post-processing pipelines and statistics outputs as stable feature/target extraction paths.
+- **Tightly coupled in-solver inference is intentionally extension-only today:**
+    - The current particle physics update path is model-specific and must be extended to add a runtime-selectable closure model interface.
+    - Recommended implementation route is documented in the extension playbook.
+
+@section next_steps_sec 7. Beyond Configuration: The Developer Portal
 
 If your research requires a feature not listed above—such as a new turbulence model, a custom boundary condition, or a new post-processing kernel—you will need to extend the C source code.
 

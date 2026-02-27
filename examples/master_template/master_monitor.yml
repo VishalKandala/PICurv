@@ -64,6 +64,8 @@ io:
     output: "results"   # [string] -> -output_dir
     restart: "results"  # [string] -> -restart_dir
     log: "logs"         # [string] -> -log_dir
+    eulerian_subdir: "eulerian"  # [string] -> -euler_subdir
+    particle_subdir: "particles" # [string] -> -particle_subdir
 
 # ==============================================================================
 # 4. SOLVER MONITORING (PASSTHROUGH)

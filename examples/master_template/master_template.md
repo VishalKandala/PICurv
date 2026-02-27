@@ -22,3 +22,9 @@ The recommended workflow is to combine simple, working templates with the detail
 2.  **Customize:** Edit the `case.yml` in your new study directory to match the specific physics you want to simulate.
 3.  **Enhance with Master Templates:** When you need to add more advanced features (e.g., a custom PETSc solver setting, particle physics, or a different turbulence model), refer to the master templates, copy the relevant sections, and paste them into your study's configuration files.
 4.  **Build Your Own Library:** As you create new, useful configurations, save them in the central `solver_profiles/` and `monitor_profiles/` directories so you can easily reuse them in future studies.
+
+## 4. Contract and Developer Maps
+
+- User-facing config contract: see `docs/pages/14_Config_Contract.md`.
+- Developer ingestion map (YAML/artifact -> C parse/use sites): see `docs/pages/15_Config_Ingestion_Map.md`.
+- Extension workflow (including ParticlePhysics): see `docs/pages/16_Config_Extension_Playbook.md`.

@@ -155,6 +155,51 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Parses grid resolution arrays (`-im`, `-jm`, `-km`) once and applies them to all finest-grid blocks.
+ */
+PetscErrorCode PopulateFinestUserGridResolutionFromOptions(UserCtx *finest_users, PetscInt nblk)
+{
+    PetscErrorCode ierr;
+    PetscBool      found;
+    PetscInt       *IMs = NULL, *JMs = NULL, *KMs = NULL;
+    SimCtx         *simCtx = NULL;
+
+    PetscFunctionBeginUser;
+
+    if (!finest_users) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "finest_users cannot be NULL.");
+    }
+    if (nblk <= 0) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "nblk must be positive. Got %d.", nblk);
+    }
+    simCtx = finest_users[0].simCtx;
+
+    ierr = PetscMalloc3(nblk, &IMs, nblk, &JMs, nblk, &KMs); CHKERRQ(ierr);
+    for (PetscInt i = 0; i < nblk; ++i) {
+        IMs[i] = 10; JMs[i] = 10; KMs[i] = 10;
+    }
+
+    PetscInt count;
+    count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-im", IMs, &count, &found); CHKERRQ(ierr);
+    count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-jm", JMs, &count, &found); CHKERRQ(ierr);
+    count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-km", KMs, &count, &found); CHKERRQ(ierr);
+
+    for (PetscInt bi = 0; bi < nblk; ++bi) {
+        finest_users[bi].IM = IMs[bi];
+        finest_users[bi].JM = JMs[bi];
+        finest_users[bi].KM = KMs[bi];
+        if (simCtx) {
+            LOG_ALLOW(LOCAL, LOG_DEBUG,
+                      "Rank %d: Preloaded analytical grid resolution for block %d: IM=%d, JM=%d, KM=%d\n",
+                      simCtx->rank, bi, finest_users[bi].IM, finest_users[bi].JM, finest_users[bi].KM);
+        }
+    }
+
+    ierr = PetscFree3(IMs, JMs, KMs); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
 
 #undef __FUNCT__
 #define __FUNCT__ "ReadGridFile"
@@ -1234,9 +1279,13 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 
     SimCtx *simCtx = user->simCtx;
     const char *source_path = NULL;
+    const char *eulerian_ext = "dat";
 
     if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
         source_path = simCtx->pps->source_dir;
+        if (simCtx->pps->eulerianExt[0] != '\0') {
+            eulerian_ext = simCtx->pps->eulerianExt;
+        }
     } else if(simCtx->exec_mode == EXEC_MODE_SOLVER){
         source_path = simCtx->restart_dir;
     } else{
@@ -1250,16 +1299,16 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     simCtx->current_io_directory = simCtx->_io_context_buffer;
 
     // Read Cartesian velocity field
-    ierr = ReadFieldData(user, "ufield", user->Ucat, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadFieldData(user, "ufield", user->Ucat, ti, eulerian_ext); CHKERRQ(ierr);
 
     // Read contravariant velocity field
-    ierr = ReadFieldData(user, "vfield", user->Ucont, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadFieldData(user, "vfield", user->Ucont, ti, eulerian_ext); CHKERRQ(ierr);
 
     // Read pressure field
-    ierr = ReadFieldData(user, "pfield", user->P, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadFieldData(user, "pfield", user->P, ti, eulerian_ext); CHKERRQ(ierr);
 
     // Read node state field (nvert)
-    ierr = ReadFieldData(user, "nvfield", user->Nvert, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadFieldData(user, "nvfield", user->Nvert, ti, eulerian_ext); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL,LOG_INFO,"Successfully read all mandatory fields. \n");
 
@@ -1268,9 +1317,9 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     if(!user->ParticleCount){
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ParticleCount Vec is NULL but np>0");
     }
-    ierr = ReadOptionalField(user, "ParticleCount", "Particle Count", user->ParticleCount, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "ParticleCount", "Particle Count", user->ParticleCount, ti, eulerian_ext); CHKERRQ(ierr);
     
-    ierr = ReadOptionalField(user, "psifield", "Scalar Psi Field", user->Psi, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "psifield", "Scalar Psi Field", user->Psi, ti, eulerian_ext); CHKERRQ(ierr);
     }
     else{
         LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, skipping Particle fields reading.\n");
@@ -1311,13 +1360,17 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 PetscErrorCode ReadStatisticalFields(UserCtx *user,PetscInt ti)
 {
     PetscErrorCode ierr;
+    const char *eulerian_ext = "dat";
+    if (user->simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR && user->simCtx->pps->eulerianExt[0] != '\0') {
+        eulerian_ext = user->simCtx->pps->eulerianExt;
+    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read statistical fields.\n");
 
-    ierr = ReadOptionalField(user, "su0", "Velocity Sum",       user->Ucat_sum,        ti, "dat"); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "su1", "Velocity Cross Sum", user->Ucat_cross_sum,  ti, "dat"); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "su2", "Velocity Square Sum",user->Ucat_square_sum, ti, "dat"); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "sp",  "Pressure Sum",       user->P_sum,           ti, "dat"); CHKERRQ(ierr);    
+    ierr = ReadOptionalField(user, "su0", "Velocity Sum",       user->Ucat_sum,        ti, eulerian_ext); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "su1", "Velocity Cross Sum", user->Ucat_cross_sum,  ti, eulerian_ext); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "su2", "Velocity Square Sum",user->Ucat_square_sum, ti, eulerian_ext); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "sp",  "Pressure Sum",       user->P_sum,           ti, eulerian_ext); CHKERRQ(ierr);    
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading statistical fields.\n");
 
@@ -1338,11 +1391,15 @@ PetscErrorCode ReadStatisticalFields(UserCtx *user,PetscInt ti)
 PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
 {
     PetscErrorCode ierr;
+    const char *eulerian_ext = "dat";
+    if (user->simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR && user->simCtx->pps->eulerianExt[0] != '\0') {
+        eulerian_ext = user->simCtx->pps->eulerianExt;
+    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read LES fields.\n");
 
-    ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, "dat"); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "cs", "Smagorinsky Constant (Cs)", user->CS, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, eulerian_ext); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "cs", "Smagorinsky Constant (Cs)", user->CS, ti, eulerian_ext); CHKERRQ(ierr);
 
     DMGlobalToLocalBegin(user->da, user->CS, INSERT_VALUES, user->lCs);
     DMGlobalToLocalEnd(user->da, user->CS, INSERT_VALUES, user->lCs);
@@ -1369,11 +1426,15 @@ PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
 PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
 {
     PetscErrorCode ierr;
+    const char *eulerian_ext = "dat";
+    if (user->simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR && user->simCtx->pps->eulerianExt[0] != '\0') {
+        eulerian_ext = user->simCtx->pps->eulerianExt;
+    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read RANS fields.\n");
 
-    ierr = ReadOptionalField(user, "kfield", "K-Omega RANS", user->K_Omega, ti, "dat"); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, "dat"); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "kfield", "K-Omega RANS", user->K_Omega, ti, eulerian_ext); CHKERRQ(ierr);
+    ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, eulerian_ext); CHKERRQ(ierr);
 
     VecCopy(user->K_Omega, user->K_Omega_o);
 
@@ -1537,6 +1598,7 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
   PetscInt nGlobal;
   SimCtx *simCtx = user->simCtx;
   const char *source_path = NULL;
+  const char *particle_ext = "dat";
 
   PetscFunctionBeginUser;
   ierr = DMSwarmGetSize(user->swarm, &nGlobal); CHKERRQ(ierr);
@@ -1552,6 +1614,9 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
         source_path = simCtx->restart_dir;
     } else if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) {
         source_path = simCtx->pps->source_dir;
+        if (simCtx->pps->particleExt[0] != '\0') {
+            particle_ext = simCtx->pps->particleExt;
+        }
     } else {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "Invalid execution mode for reading simulation fields.");
     }
@@ -1564,7 +1629,7 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 
   /* 1) Read positions (REQUIRED) */
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading mandatory position field...\n");
-  ierr = ReadSwarmField(user, "position", ti, "dat");
+  ierr = ReadSwarmField(user, "position", ti, particle_ext);
   if (ierr) {
       SETERRQ(PETSC_COMM_WORLD, ierr, "Failed to read MANDATORY 'position' field for step %d. Cannot continue.", ti);
   }
@@ -1572,12 +1637,12 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 
   /* 2) Read all OPTIONAL fields using the helper function. */
   /* The helper will print a warning and continue if a file is not found. */
-  ierr = ReadOptionalSwarmField(user, "velocity",                "Velocity",                   ti, "dat"); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "DMSwarm_pid",             "Particle ID",                ti, "dat"); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "DMSwarm_CellID",          "Cell ID",                    ti, "dat"); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "weight",                  "Particle Weight",            ti, "dat"); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "Psi",                     "Scalar Psi",                 ti, "dat"); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "DMSwarm_location_status", "Migration Status",   ti, "dat"); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "velocity",                "Velocity",                   ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "DMSwarm_pid",             "Particle ID",                ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "DMSwarm_CellID",          "Cell ID",                    ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "weight",                  "Particle Weight",            ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "Psi",                     "Scalar Psi",                 ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, "DMSwarm_location_status", "Migration Status",   ti, particle_ext); CHKERRQ(ierr);
 
   simCtx->current_io_directory = NULL; // Clear the I/O context after reading
 
@@ -2516,6 +2581,9 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                 } else if (strcasecmp(key, "output_fields_instantaneous") == 0) {
                     strncpy(pps->output_fields_instantaneous, value, MAX_FIELD_LIST_LENGTH - 1);
                     pps->output_fields_instantaneous[MAX_FIELD_LIST_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "output_fields_averaged") == 0) {
+                    strncpy(pps->output_fields_averaged, value, MAX_FIELD_LIST_LENGTH - 1);
+                    pps->output_fields_averaged[MAX_FIELD_LIST_LENGTH - 1] = '\0';
                 } else if (strcasecmp(key, "output_prefix") == 0) {
                     strncpy(pps->output_prefix, value, MAX_FILENAME_LENGTH - 1);
                     pps->output_prefix[MAX_FILENAME_LENGTH - 1] = '\0';
@@ -2536,6 +2604,12 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                 } else if (strcasecmp(key, "statistics_output_prefix") == 0) {
                     strncpy(pps->statistics_output_prefix, value, MAX_FILENAME_LENGTH - 1);
                     pps->statistics_output_prefix[MAX_FILENAME_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "particleExt") == 0) {
+                    strncpy(pps->particleExt, value, sizeof(pps->particleExt) - 1);
+                    pps->particleExt[sizeof(pps->particleExt) - 1] = '\0';
+                } else if (strcasecmp(key, "eulerianExt") == 0) {
+                    strncpy(pps->eulerianExt, value, sizeof(pps->eulerianExt) - 1);
+                    pps->eulerianExt[sizeof(pps->eulerianExt) - 1] = '\0';
                 } else if (strcmp(key, "reference_ip") == 0) {pps->reference[0] = atoi(value);
                 } else if (strcmp(key, "reference_jp") == 0) {pps->reference[1] = atoi(value);
                 } else if (strcmp(key, "reference_kp") == 0) {pps->reference[2] = atoi(value);
@@ -2578,6 +2652,8 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Fields: %s\n", pps->particle_fields);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Pipeline: %s\n", pps->particle_pipeline);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Frequency: %d\n", pps->particle_output_freq);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Averaged Output Fields (reserved): %s\n", pps->output_fields_averaged);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Post input extensions: Eulerian='.%s', Particle='.%s'\n", pps->eulerianExt, pps->particleExt);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -2871,5 +2947,3 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
             fieldName, *Nscalars);
   PetscFunctionReturn(0);
 }
-
-

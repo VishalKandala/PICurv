@@ -637,6 +637,7 @@ typedef struct SimCtx {
     PetscReal pseudo_cfl_reduction_factor, pseudo_cfl_growth_factor; // st, vnn
     PetscReal max_pseudo_cfl, min_pseudo_cfl; // New addition for adaptive pseudo-CFL
     PetscReal mom_dt_rk4_residual_norm_noise_allowance_factor; // New addition for divergence detection
+    PetscBool ps_ksp_pic_monitor_true_residual; // Parsed once from options for custom Poisson monitor logging.
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
     

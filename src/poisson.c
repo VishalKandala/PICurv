@@ -3489,7 +3489,6 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 	// =======================================================================
         DualMonitorCtx *monctx;
         char           filen[128];
-        PetscBool      has_monitor_option;
 
         // 1. Allocate the context and set it up.
         ierr = PetscNew(&monctx); CHKERRQ(ierr);
@@ -3515,8 +3514,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             }
         }
 
-        ierr = PetscOptionsHasName(NULL, NULL, "-ps_ksp_pic_monitor_true_residual", &has_monitor_option); CHKERRQ(ierr);
-        monctx->log_to_console = has_monitor_option;
+        monctx->log_to_console = simCtx->ps_ksp_pic_monitor_true_residual;
 
         ierr = KSPMonitorSet(mgksp, DualKSPMonitor, monctx, DualMonitorDestroy); CHKERRQ(ierr);
         // =======================================================================

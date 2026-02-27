@@ -131,11 +131,12 @@ Use the `-n` flag with `pic-flow run`. To optimize performance, you can optional
 grid:
   mode: programmatic_c
   programmatic_settings:
-    da_processors_x: [4]
-    da_processors_y: [2]
-    da_processors_z: [2]
+    da_processors_x: 4
+    da_processors_y: 2
+    da_processors_z: 2
     # ... other grid settings ...
 ```
+These are global DMDA layout hints for the run; per-block processor decomposition is not currently supported.
 
 @subsection ht_restart_ssec 3.2. How do I restart a simulation?
 
@@ -182,10 +183,10 @@ Add the task to the `eulerian_pipeline` list in your `post.yml` recipe. Then, ad
 **`my_analysis.yml`:**
 ```yaml
 eulerian_pipeline:
-  - task: CellToNodeAverage
+  - task: nodal_average
     input_field: Ucat
     output_field: Ucat_nodal
-  - task: ComputeQCriterion # Add this task
+  - task: q_criterion # Add this task
 
 io:
   # ...
@@ -199,4 +200,3 @@ io:
 This page serves as a quick reference for common tasks. For a broader overview of all features available through the configuration files, see the summary page.
 
 Proceed to the **@subpage 12_Capabilities_Summary**.
-

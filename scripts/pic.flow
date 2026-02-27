@@ -50,6 +50,465 @@ def read_yaml_file(filepath: str) -> dict:
         print(f"[FATAL] Error parsing YAML file '{filepath}': {e}", file=sys.stderr)
         sys.exit(1)
 
+def normalize_statistics_task(task_name: str) -> str:
+    """!
+    @brief Normalizes user-facing statistics task names to C pipeline keywords.
+    @param[in] task_name Task name from YAML.
+    @return Canonical keyword accepted by C statistics pipeline.
+    @throws ValueError if task is unsupported.
+    """
+    if task_name is None:
+        raise ValueError("statistics task cannot be None")
+    raw = str(task_name).strip()
+    if raw == "ComputeMSD":
+        return raw
+    normalized = raw.lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "msd": "ComputeMSD",
+        "compute_msd": "ComputeMSD",
+        "computemsd": "ComputeMSD",
+    }
+    mapped = aliases.get(normalized)
+    if mapped is None:
+        raise ValueError(f"Unsupported statistics task '{task_name}'. Currently supported: 'msd'.")
+    return mapped
+
+def _iter_nonempty_noncomment_lines(file_obj):
+    """Yield (lineno, stripped_line) for non-empty, non-comment lines."""
+    for lineno, raw in enumerate(file_obj, start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        yield lineno, line
+
+def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_ref: float, expected_nblk: int = None) -> dict:
+    """!
+    @brief Validates PICGRID payload and writes a non-dimensionalized copy.
+    @details Accepts files with or without leading "PICGRID" token. Output is always
+             written in canonical PICGRID format with header and per-block dims.
+    @param[in] source_grid Input grid file path.
+    @param[in] dest_grid Output grid file path.
+    @param[in] L_ref Reference length for non-dimensionalization.
+    @param[in] expected_nblk Optional expected block count.
+    @return Summary dictionary with nblk, dims, and total_nodes.
+    @throws ValueError on malformed grid.
+    """
+    if L_ref == 0.0:
+        raise ValueError("length_ref must be non-zero when processing grid coordinates.")
+    if not os.path.isfile(source_grid):
+        raise ValueError(f"Grid file not found: {source_grid}")
+
+    with open(source_grid, "r") as fin:
+        line_iter = _iter_nonempty_noncomment_lines(fin)
+        try:
+            _, first_token = next(line_iter)
+        except StopIteration:
+            raise ValueError(f"Grid file '{source_grid}' is empty.")
+
+        if first_token == "PICGRID":
+            try:
+                _, nblk_line = next(line_iter)
+            except StopIteration:
+                raise ValueError(f"Grid file '{source_grid}' missing block count after PICGRID header.")
+        else:
+            nblk_line = first_token
+
+        try:
+            nblk = int(nblk_line)
+        except ValueError:
+            raise ValueError(f"Invalid block count '{nblk_line}' in grid file '{source_grid}'.")
+        if nblk <= 0:
+            raise ValueError(f"Grid file '{source_grid}' has non-positive block count: {nblk}.")
+        if expected_nblk is not None and nblk != expected_nblk:
+            raise ValueError(
+                f"Grid file block count mismatch: case expects {expected_nblk}, grid contains {nblk}."
+            )
+
+        dims = []
+        for bi in range(nblk):
+            try:
+                lineno, dim_line = next(line_iter)
+            except StopIteration:
+                raise ValueError(f"Grid file '{source_grid}' missing dimensions for block {bi}.")
+            parts = dim_line.split()
+            if len(parts) != 3:
+                raise ValueError(
+                    f"Invalid dimensions line at {source_grid}:{lineno}. Expected 3 integers, got: '{dim_line}'."
+                )
+            try:
+                im, jm, km = (int(parts[0]), int(parts[1]), int(parts[2]))
+            except ValueError:
+                raise ValueError(
+                    f"Invalid dimensions line at {source_grid}:{lineno}. Non-integer values: '{dim_line}'."
+                )
+            if im <= 0 or jm <= 0 or km <= 0:
+                raise ValueError(
+                    f"Invalid block dimensions at {source_grid}:{lineno}: ({im}, {jm}, {km}). Must be > 0."
+                )
+            dims.append((im, jm, km))
+
+        total_nodes_expected = sum(im * jm * km for (im, jm, km) in dims)
+        os.makedirs(os.path.dirname(dest_grid), exist_ok=True)
+        with open(dest_grid, "w") as fout:
+            fout.write("PICGRID\n")
+            fout.write(f"{nblk}\n")
+            for (im, jm, km) in dims:
+                fout.write(f"{im} {jm} {km}\n")
+
+            total_nodes_seen = 0
+            for lineno, coord_line in line_iter:
+                parts = coord_line.split()
+                if len(parts) != 3:
+                    raise ValueError(
+                        f"Invalid coordinate row at {source_grid}:{lineno}. Expected 3 floats, got: '{coord_line}'."
+                    )
+                try:
+                    x = float(parts[0]) / L_ref
+                    y = float(parts[1]) / L_ref
+                    z = float(parts[2]) / L_ref
+                except ValueError:
+                    raise ValueError(
+                        f"Invalid coordinate row at {source_grid}:{lineno}. Non-numeric values: '{coord_line}'."
+                    )
+                total_nodes_seen += 1
+                if total_nodes_seen > total_nodes_expected:
+                    raise ValueError(
+                        f"Grid file '{source_grid}' has more coordinates ({total_nodes_seen}) than expected ({total_nodes_expected})."
+                    )
+                fout.write(f"{x:.8e} {y:.8e} {z:.8e}\n")
+
+        if total_nodes_seen != total_nodes_expected:
+            raise ValueError(
+                f"Grid file '{source_grid}' has {total_nodes_seen} coordinates, expected {total_nodes_expected} from header."
+            )
+
+    return {"nblk": nblk, "dims": dims, "total_nodes": total_nodes_expected}
+
+def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict) -> str:
+    """!
+    @brief Runs scripts/grid.gen to produce a PICGRID file for this run.
+    @param[in] case_path Path to case.yml (used for relative path resolution).
+    @param[in] run_dir Run directory path.
+    @param[in] grid_cfg The grid config section from case.yml.
+    @return Absolute path to generated dimensional PICGRID file.
+    @throws ValueError on invalid config or generator failure.
+    """
+    generator = grid_cfg.get("generator", {})
+    if not isinstance(generator, dict):
+        raise ValueError("grid.generator must be a mapping when grid.mode is 'grid_gen'.")
+
+    case_dir = os.path.dirname(os.path.abspath(case_path))
+    gridgen_script = generator.get("script", os.path.join(SCRIPT_PATH, "grid.gen"))
+    if not os.path.isabs(gridgen_script):
+        gridgen_script = os.path.abspath(os.path.join(case_dir, gridgen_script))
+    if not os.path.isfile(gridgen_script):
+        raise ValueError(f"grid.gen script not found: {gridgen_script}")
+
+    config_file = generator.get("config_file")
+    if not config_file:
+        raise ValueError("grid.generator.config_file is required when grid.mode is 'grid_gen'.")
+    if not os.path.isabs(config_file):
+        config_file = os.path.abspath(os.path.join(case_dir, config_file))
+    if not os.path.isfile(config_file):
+        raise ValueError(f"grid.generator.config_file not found: {config_file}")
+
+    output_file = generator.get("output_file", os.path.join("config", "grid.generated.picgrid"))
+    if not os.path.isabs(output_file):
+        output_file = os.path.abspath(os.path.join(run_dir, output_file))
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+    grid_type = generator.get("grid_type")
+    cli_args = generator.get("cli_args", [])
+    if cli_args is None:
+        cli_args = []
+    if not isinstance(cli_args, list):
+        raise ValueError("grid.generator.cli_args must be a list of CLI tokens.")
+
+    cmd = [sys.executable, gridgen_script, "-c", config_file]
+    if grid_type:
+        cmd.append(str(grid_type))
+    cmd.extend([str(token) for token in cli_args])
+    cmd.extend(["--output", output_file])
+
+    vts_file = generator.get("vts_file")
+    if vts_file:
+        if not os.path.isabs(vts_file):
+            vts_file = os.path.abspath(os.path.join(run_dir, vts_file))
+        os.makedirs(os.path.dirname(vts_file), exist_ok=True)
+        cmd.extend(["--vts", vts_file])
+
+    stats_file = generator.get("stats_file")
+    if stats_file:
+        if not os.path.isabs(stats_file):
+            stats_file = os.path.abspath(os.path.join(run_dir, stats_file))
+        os.makedirs(os.path.dirname(stats_file), exist_ok=True)
+        cmd.extend(["--stats-file", stats_file])
+
+    print(f"[INFO] Grid generator command: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        details = stderr if stderr else stdout
+        raise ValueError(
+            f"grid.gen failed with exit code {result.returncode}. Details:\n{details}"
+        )
+    if result.stdout:
+        print(result.stdout.strip())
+    if result.stderr:
+        print(result.stderr.strip())
+
+    if not os.path.isfile(output_file):
+        raise ValueError(f"grid.gen did not produce expected output file: {output_file}")
+
+    return output_file
+
+BC_FACE_MAP = {
+    "-xi": "-Xi",
+    "+xi": "+Xi",
+    "-eta": "-Eta",
+    "+eta": "+Eta",
+    "-zeta": "-Zeta",
+    "+zeta": "+Zeta",
+}
+
+BC_TYPE_MAP = {
+    "wall": "WALL",
+    "symmetry": "SYMMETRY",
+    "inlet": "INLET",
+    "outlet": "OUTLET",
+    "periodic": "PERIODIC",
+}
+
+BC_HANDLER_SPECS = {
+    # Only handlers that are implemented end-to-end in current C path are allowed.
+    "noslip": {
+        "types": {"WALL"},
+        "required_params": set(),
+        "optional_params": set(),
+    },
+    "constant_velocity": {
+        "types": {"INLET"},
+        "required_params": {"vx", "vy", "vz"},
+        "optional_params": set(),
+    },
+    "conservation": {
+        "types": {"OUTLET"},
+        "required_params": set(),
+        "optional_params": set(),
+    },
+    "parabolic": {
+        "types": {"INLET"},
+        "required_params": {"v_max"},
+        "optional_params": set(),
+    },
+    "geometric": {
+        "types": {"PERIODIC"},
+        "required_params": set(),
+        "optional_params": set(),
+    },
+    "constant_flux": {
+        "types": {"PERIODIC"},
+        "required_params": {"target_flux"},
+        "optional_params": {"apply_trim"},
+    },
+}
+
+_NUMERIC_BC_PARAMS = {"vx", "vy", "vz", "v_max", "target_flux"}
+_BOOL_BC_PARAMS = {"apply_trim"}
+
+def _to_float(value, field_name: str) -> float:
+    """Convert a YAML scalar to float with a clear error message."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"'{field_name}' must be numeric (got {value!r}).")
+
+def _to_bool(value, field_name: str) -> bool:
+    """Convert a YAML scalar/string to bool with a clear error message."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if raw in {"true", "1", "yes"}:
+            return True
+        if raw in {"false", "0", "no"}:
+            return False
+    raise ValueError(f"'{field_name}' must be boolean (got {value!r}).")
+
+def normalize_boundary_conditions_layout(all_blocks_bcs, num_blocks: int):
+    """
+    Normalize boundary_conditions to list-of-lists form and validate block count.
+    """
+    if not all_blocks_bcs:
+        raise ValueError("The 'boundary_conditions' section in case.yml is empty.")
+
+    is_simple_list = isinstance(all_blocks_bcs[0], dict)
+    if num_blocks == 1 and is_simple_list:
+        all_blocks_bcs = [all_blocks_bcs]
+    elif is_simple_list and num_blocks > 1:
+        raise ValueError(
+            f"case.yml declares {num_blocks} blocks but boundary_conditions is a single face-list. "
+            "Use a list-of-lists, one inner list per block."
+        )
+
+    if len(all_blocks_bcs) != num_blocks:
+        raise ValueError(
+            f"Mismatch: case.yml declares {num_blocks} block(s) but found {len(all_blocks_bcs)} BC definitions."
+        )
+    return all_blocks_bcs
+
+def validate_and_prepare_boundary_conditions(case_cfg: dict):
+    """
+    Validate BC entries against currently supported C-side handlers/types and
+    return normalized entries ready for bcs.run generation.
+    """
+    num_blocks = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
+    scales = case_cfg.get('properties', {}).get('scaling', {})
+    L_ref = _to_float(scales.get('length_ref'), "properties.scaling.length_ref")
+    U_ref = _to_float(scales.get('velocity_ref'), "properties.scaling.velocity_ref")
+    if U_ref == 0.0:
+        raise ValueError("properties.scaling.velocity_ref must be non-zero for non-dimensionalization.")
+    if L_ref == 0.0:
+        raise ValueError("properties.scaling.length_ref must be non-zero for non-dimensionalization.")
+
+    all_blocks_bcs = normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions', []), num_blocks)
+    prepared_blocks = []
+
+    expected_faces = {"-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta"}
+    axis_pairs = [("-Xi", "+Xi"), ("-Eta", "+Eta"), ("-Zeta", "+Zeta")]
+
+    for bi, block_bcs in enumerate(all_blocks_bcs):
+        if not isinstance(block_bcs, list):
+            raise ValueError(f"boundary_conditions[{bi}] must be a list of face configs.")
+
+        prepared_block = []
+        seen_faces = {}
+
+        for idx, bc in enumerate(block_bcs):
+            if not isinstance(bc, dict):
+                raise ValueError(f"boundary_conditions[{bi}][{idx}] must be a mapping.")
+
+            for req in ("face", "type", "handler"):
+                if req not in bc:
+                    raise ValueError(f"boundary_conditions[{bi}][{idx}] missing required key '{req}'.")
+
+            face_raw = str(bc["face"]).strip()
+            face_key = face_raw.lower()
+            face = BC_FACE_MAP.get(face_key)
+            if face is None:
+                raise ValueError(
+                    f"Unsupported BC face '{face_raw}' at boundary_conditions[{bi}][{idx}]. "
+                    f"Supported: {sorted(expected_faces)}."
+                )
+            if face in seen_faces:
+                raise ValueError(f"Duplicate face '{face}' in boundary_conditions[{bi}] (entries {seen_faces[face]} and {idx}).")
+            seen_faces[face] = idx
+
+            bc_type_raw = str(bc["type"]).strip()
+            bc_type = BC_TYPE_MAP.get(bc_type_raw.lower())
+            if bc_type is None:
+                raise ValueError(
+                    f"Unsupported BC type '{bc_type_raw}' for face {face} in block {bi}. "
+                    f"Supported: {sorted(set(BC_TYPE_MAP.values()))}."
+                )
+
+            handler = str(bc["handler"]).strip().lower()
+            handler_spec = BC_HANDLER_SPECS.get(handler)
+            if handler_spec is None:
+                raise ValueError(
+                    f"Unsupported BC handler '{bc['handler']}' for face {face} in block {bi}. "
+                    f"Supported now: {sorted(BC_HANDLER_SPECS.keys())}."
+                )
+            if bc_type not in handler_spec["types"]:
+                raise ValueError(
+                    f"Invalid BC combination on block {bi}, face {face}: type '{bc_type}' cannot use handler '{handler}'."
+                )
+
+            params = bc.get("params", {})
+            if params is None:
+                params = {}
+            if not isinstance(params, dict):
+                raise ValueError(f"'params' for block {bi}, face {face} must be a mapping.")
+
+            # Reject legacy structured keys explicitly.
+            if "vector" in params or "velocity" in params:
+                raise ValueError(
+                    f"Legacy params key ('vector'/'velocity') found on block {bi}, face {face}. "
+                    "Use scalar keys 'vx', 'vy', 'vz'."
+                )
+
+            required = handler_spec["required_params"]
+            optional = handler_spec["optional_params"]
+            allowed = required | optional
+
+            missing = sorted(required - set(params.keys()))
+            if missing:
+                raise ValueError(
+                    f"Missing required params for handler '{handler}' on block {bi}, face {face}: {missing}."
+                )
+            unknown = sorted(set(params.keys()) - allowed)
+            if unknown:
+                raise ValueError(
+                    f"Unknown params for handler '{handler}' on block {bi}, face {face}: {unknown}. "
+                    f"Allowed: {sorted(allowed)}."
+                )
+
+            converted_params = {}
+            for key, value in params.items():
+                if key in _NUMERIC_BC_PARAMS:
+                    numeric = _to_float(value, f"boundary_conditions[{bi}][{idx}].params.{key}")
+                    if key in {"vx", "vy", "vz", "v_max"}:
+                        converted_params[key] = numeric / U_ref
+                    elif key == "target_flux":
+                        converted_params[key] = numeric / (U_ref * (L_ref ** 2))
+                elif key in _BOOL_BC_PARAMS:
+                    converted_params[key] = _to_bool(value, f"boundary_conditions[{bi}][{idx}].params.{key}")
+                else:
+                    # Defensive fallback; should not happen due unknown-key gate above.
+                    converted_params[key] = value
+
+            prepared_block.append({
+                "face": face,
+                "type": bc_type,
+                "handler": handler,
+                "params": converted_params,
+            })
+
+        missing_faces = sorted(expected_faces - set(seen_faces.keys()))
+        if missing_faces:
+            raise ValueError(
+                f"boundary_conditions[{bi}] is incomplete. Missing faces: {missing_faces}. "
+                "Provide all six faces explicitly."
+            )
+
+        # Pairwise periodic consistency checks.
+        face_map = {entry["face"]: entry for entry in prepared_block}
+        for neg_face, pos_face in axis_pairs:
+            neg = face_map[neg_face]
+            pos = face_map[pos_face]
+            neg_periodic = (neg["type"] == "PERIODIC")
+            pos_periodic = (pos["type"] == "PERIODIC")
+            if neg_periodic != pos_periodic:
+                raise ValueError(
+                    f"Inconsistent periodicity in block {bi}: {neg_face} and {pos_face} must both be PERIODIC or neither."
+                )
+
+            driven_handlers = {"constant_flux"}
+            if (neg["handler"] in driven_handlers) or (pos["handler"] in driven_handlers):
+                if neg["handler"] != pos["handler"]:
+                    raise ValueError(
+                        f"In block {bi}, driven periodic handlers on {neg_face}/{pos_face} must match exactly."
+                    )
+                if not (neg_periodic and pos_periodic):
+                    raise ValueError(
+                        f"In block {bi}, driven periodic handler '{neg['handler']}' requires PERIODIC type on both faces."
+                    )
+
+        prepared_blocks.append(prepared_block)
+
+    return prepared_blocks
+
 def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                             case_path: str, solver_path: str, monitor_path: str):
     """!
@@ -87,6 +546,11 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             for k in keys:
                 if k not in sub:
                     errors.append(f"  {case_path}: missing key 'properties.{group}.{k}'.")
+            if group == 'initial_conditions' and 'mode' in sub:
+                try:
+                    normalize_field_init_mode(sub.get('mode'))
+                except ValueError as e:
+                    errors.append(f"  {case_path}: {e}")
 
     # --- case.yml: run_control sub-keys ---
     rc = case_cfg.get('run_control', {})
@@ -111,17 +575,191 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
     # --- case.yml: grid mode ---
     grid_cfg = case_cfg.get('grid', {})
     grid_mode = grid_cfg.get('mode')
-    valid_grid_modes = ['file', 'programmatic_c']
+    valid_grid_modes = ['file', 'programmatic_c', 'grid_gen']
     if grid_mode not in valid_grid_modes:
         errors.append(f"  {case_path}: 'grid.mode' must be one of {valid_grid_modes} (got '{grid_mode}').")
-    elif grid_mode == 'file' and not grid_cfg.get('source_file'):
-        errors.append(f"  {case_path}: 'grid.source_file' is required when grid.mode is 'file'.")
-    elif grid_mode == 'programmatic_c' and not grid_cfg.get('programmatic_settings'):
-        errors.append(f"  {case_path}: 'grid.programmatic_settings' is required when grid.mode is 'programmatic_c'.")
+    elif grid_mode == 'file':
+        source_file = grid_cfg.get('source_file')
+        if not source_file:
+            errors.append(f"  {case_path}: 'grid.source_file' is required when grid.mode is 'file'.")
+        else:
+            source_abs = source_file if os.path.isabs(source_file) else os.path.abspath(os.path.join(os.path.dirname(case_path), source_file))
+            if not os.path.isfile(source_abs):
+                errors.append(f"  {case_path}: grid.source_file does not exist: {source_abs}")
+    elif grid_mode == 'programmatic_c':
+        grid_settings = grid_cfg.get('programmatic_settings')
+        if not grid_settings:
+            errors.append(f"  {case_path}: 'grid.programmatic_settings' is required when grid.mode is 'programmatic_c'.")
+        elif not isinstance(grid_settings, dict):
+            errors.append(f"  {case_path}: 'grid.programmatic_settings' must be a mapping.")
+        else:
+            for p_key in ('da_processors_x', 'da_processors_y', 'da_processors_z'):
+                p_val = grid_settings.get(p_key)
+                if isinstance(p_val, (list, tuple)):
+                    errors.append(
+                        f"  {case_path}: grid.programmatic_settings.{p_key} must be a scalar integer. "
+                        "Per-block MPI decomposition is not implemented on the C side; DMDA layout is global."
+                    )
+                elif p_val is not None and (not isinstance(p_val, int) or p_val <= 0):
+                    errors.append(
+                        f"  {case_path}: grid.programmatic_settings.{p_key} must be a positive integer when provided (got {p_val})."
+                    )
+    elif grid_mode == 'grid_gen':
+        gen_cfg = grid_cfg.get('generator')
+        if not isinstance(gen_cfg, dict):
+            errors.append(f"  {case_path}: 'grid.generator' must be a mapping when grid.mode is 'grid_gen'.")
+        else:
+            config_file = gen_cfg.get('config_file')
+            if not config_file:
+                errors.append(f"  {case_path}: 'grid.generator.config_file' is required for grid.mode='grid_gen'.")
+            else:
+                config_abs = config_file if os.path.isabs(config_file) else os.path.abspath(os.path.join(os.path.dirname(case_path), config_file))
+                if not os.path.isfile(config_abs):
+                    errors.append(f"  {case_path}: grid.generator.config_file does not exist: {config_abs}")
+
+            grid_type = gen_cfg.get('grid_type')
+            if grid_type is not None and str(grid_type) not in {'cpipe', 'pipe', 'warp'}:
+                errors.append(f"  {case_path}: grid.generator.grid_type must be one of ['cpipe','pipe','warp'] (got '{grid_type}').")
+
+            cli_args = gen_cfg.get('cli_args', [])
+            if cli_args is not None and not isinstance(cli_args, list):
+                errors.append(f"  {case_path}: grid.generator.cli_args must be a list of CLI tokens.")
+
+    # --- case.yml: boundary_conditions strict validation ---
+    try:
+        validate_and_prepare_boundary_conditions(case_cfg)
+    except ValueError as e:
+        errors.append(f"  {case_path}: {e}")
+
+    # --- case.yml: particle initialization validation ---
+    particles_cfg = case_cfg.get('models', {}).get('physics', {}).get('particles', {})
+    if particles_cfg and not isinstance(particles_cfg, dict):
+        errors.append(f"  {case_path}: 'models.physics.particles' must be a mapping.")
+    elif isinstance(particles_cfg, dict):
+        init_mode_raw = particles_cfg.get('init_mode', 'Surface')
+        try:
+            pinit_code = normalize_particle_init_mode(init_mode_raw)
+        except ValueError as e:
+            errors.append(f"  {case_path}: {e}")
+            pinit_code = None
+
+        restart_mode = particles_cfg.get('restart_mode')
+        if restart_mode is not None and str(restart_mode).lower() not in {"init", "load"}:
+            errors.append(
+                f"  {case_path}: models.physics.particles.restart_mode must be 'init' or 'load' (got '{restart_mode}')."
+            )
+
+        if pinit_code == 2:
+            point_cfg = particles_cfg.get('point_source', {})
+            if not isinstance(point_cfg, dict):
+                errors.append(f"  {case_path}: models.physics.particles.point_source must be a mapping when init_mode is PointSource.")
+            else:
+                for coord in ('x', 'y', 'z'):
+                    if coord not in point_cfg:
+                        errors.append(
+                            f"  {case_path}: models.physics.particles.point_source.{coord} is required when init_mode is PointSource."
+                        )
 
     # --- solver.yml: basic structure ---
     if not isinstance(solver_cfg, dict) or not solver_cfg:
         errors.append(f"  {solver_path}: solver config is empty or not a valid YAML mapping.")
+    else:
+        strategy_cfg = solver_cfg.get('strategy', {})
+        if not isinstance(strategy_cfg, dict):
+            errors.append(f"  {solver_path}: 'strategy' must be a mapping.")
+        elif 'implicit' in strategy_cfg:
+            errors.append(
+                f"  {solver_path}: legacy key 'strategy.implicit' is not supported. "
+                "Use 'strategy.momentum_solver' with named solver values."
+            )
+        if isinstance(strategy_cfg, dict) and 'momentum_solver' in strategy_cfg:
+            try:
+                normalize_momentum_solver_type(strategy_cfg['momentum_solver'])
+            except ValueError as e:
+                errors.append(f"  {solver_path}: {e}")
+
+        op_mode_cfg = solver_cfg.get('operation_mode', {})
+        if op_mode_cfg is not None and not isinstance(op_mode_cfg, dict):
+            errors.append(f"  {solver_path}: 'operation_mode' must be a mapping when provided.")
+        elif isinstance(op_mode_cfg, dict):
+            analytical_type = op_mode_cfg.get('analytical_type')
+            if analytical_type is not None and not isinstance(analytical_type, str):
+                errors.append(f"  {solver_path}: 'operation_mode.analytical_type' must be a string when provided.")
+
+        ms_cfg = solver_cfg.get('momentum_solver', {})
+        if ms_cfg is not None and not isinstance(ms_cfg, dict):
+            errors.append(f"  {solver_path}: 'momentum_solver' must be a mapping when provided.")
+        elif isinstance(ms_cfg, dict):
+            legacy_flat_keys = {
+                'max_pseudo_steps', 'absolute_tol', 'relative_tol', 'step_tol',
+                'pseudo_cfl', 'rk4_residual_noise_allowance_factor'
+            }
+            present_legacy = sorted(legacy_flat_keys.intersection(ms_cfg.keys()))
+            if present_legacy:
+                errors.append(
+                    f"  {solver_path}: legacy flat keys in 'momentum_solver' are not supported: {present_legacy}. "
+                    "Use solver-specific sub-blocks (e.g., momentum_solver.dual_time_picard_rk4)."
+                )
+
+            if 'type' in ms_cfg:
+                try:
+                    normalize_momentum_solver_type(ms_cfg['type'])
+                except ValueError as e:
+                    errors.append(f"  {solver_path}: {e}")
+
+            allowed_ms_keys = {'type', 'dual_time_picard_rk4'}
+            unknown_ms_keys = sorted(set(ms_cfg.keys()) - allowed_ms_keys)
+            if unknown_ms_keys:
+                errors.append(
+                    f"  {solver_path}: unsupported momentum_solver blocks/keys: {unknown_ms_keys}. "
+                    "Currently supported: 'dual_time_picard_rk4' (plus optional 'type')."
+                )
+
+            selected_solver = None
+            if isinstance(strategy_cfg, dict) and 'momentum_solver' in strategy_cfg:
+                try:
+                    selected_solver = normalize_momentum_solver_type(strategy_cfg['momentum_solver'])
+                except ValueError:
+                    pass
+            if selected_solver is None and 'type' in ms_cfg:
+                try:
+                    selected_solver = normalize_momentum_solver_type(ms_cfg['type'])
+                except ValueError:
+                    pass
+            if selected_solver is None:
+                selected_solver = "DUALTIME_PICARD_RK4"
+
+            if selected_solver != "DUALTIME_PICARD_RK4" and 'dual_time_picard_rk4' in ms_cfg:
+                errors.append(
+                    f"  {solver_path}: momentum_solver.dual_time_picard_rk4 is set but selected solver is "
+                    f"{selected_solver}. Solver-specific blocks must match the selected solver."
+                )
+
+            dt_picard_cfg = ms_cfg.get('dual_time_picard_rk4')
+            if dt_picard_cfg is not None:
+                if not isinstance(dt_picard_cfg, dict):
+                    errors.append(f"  {solver_path}: momentum_solver.dual_time_picard_rk4 must be a mapping.")
+                else:
+                    allowed_dt_keys = {
+                        'max_pseudo_steps', 'absolute_tol', 'relative_tol', 'step_tol',
+                        'pseudo_cfl', 'rk4_residual_noise_allowance_factor'
+                    }
+                    unknown_dt_keys = sorted(set(dt_picard_cfg.keys()) - allowed_dt_keys)
+                    if unknown_dt_keys:
+                        errors.append(
+                            f"  {solver_path}: unsupported keys in momentum_solver.dual_time_picard_rk4: {unknown_dt_keys}."
+                        )
+                    if 'pseudo_cfl' in dt_picard_cfg:
+                        pcfl_cfg = dt_picard_cfg['pseudo_cfl']
+                        if not isinstance(pcfl_cfg, dict):
+                            errors.append(f"  {solver_path}: momentum_solver.dual_time_picard_rk4.pseudo_cfl must be a mapping.")
+                        else:
+                            allowed_pcfl_keys = {'initial', 'minimum', 'maximum', 'growth_factor', 'reduction_factor'}
+                            unknown_pcfl_keys = sorted(set(pcfl_cfg.keys()) - allowed_pcfl_keys)
+                            if unknown_pcfl_keys:
+                                errors.append(
+                                    f"  {solver_path}: unsupported keys in momentum_solver.dual_time_picard_rk4.pseudo_cfl: {unknown_pcfl_keys}."
+                                )
 
     # --- monitor.yml: basic structure ---
     if not isinstance(monitor_cfg, dict) or not monitor_cfg:
@@ -131,6 +769,9 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         freq = io_cfg.get('data_output_frequency')
         if freq is not None and (not isinstance(freq, int) or freq <= 0):
             errors.append(f"  {monitor_path}: 'io.data_output_frequency' must be a positive integer (got {freq}).")
+        solver_mon_cfg = monitor_cfg.get('solver_monitoring')
+        if solver_mon_cfg is not None and not isinstance(solver_mon_cfg, dict):
+            errors.append(f"  {monitor_path}: 'solver_monitoring' must be a mapping of <flag>: <value>.")
 
     if errors:
         _print_validation_errors(errors)
@@ -161,12 +802,57 @@ def validate_post_config(post_cfg: dict, post_path: str):
         for k in ['output_directory', 'output_filename_prefix']:
             if k not in io_cfg:
                 errors.append(f"  {post_path}: missing required key 'io.{k}'.")
+        input_extensions = io_cfg.get('input_extensions')
+        if input_extensions is not None:
+            if not isinstance(input_extensions, dict):
+                errors.append(f"  {post_path}: 'io.input_extensions' must be a mapping when provided.")
+            else:
+                for ext_key in ('eulerian', 'particle'):
+                    ext_val = input_extensions.get(ext_key)
+                    if ext_val is not None and not isinstance(ext_val, str):
+                        errors.append(f"  {post_path}: 'io.input_extensions.{ext_key}' must be a string extension.")
+
+        averaged_fields = io_cfg.get('eulerian_fields_averaged')
+        if averaged_fields is not None and not isinstance(averaged_fields, list):
+            errors.append(f"  {post_path}: 'io.eulerian_fields_averaged' must be a list when provided.")
 
     # --- Check eulerian_pipeline entries have 'task' key ---
     for i, entry in enumerate(post_cfg.get('eulerian_pipeline', [])):
         if not isinstance(entry, dict) or 'task' not in entry:
             errors.append(f"  {post_path}: 'eulerian_pipeline[{i}]' is missing the 'task' key. "
                           "Check YAML indentation (each entry needs '- task: ...' with proper spacing).")
+
+    # --- Check statistics pipeline entries ---
+    stats_cfg = post_cfg.get('statistics_pipeline')
+    stats_entries = []
+    if stats_cfg is not None:
+        if isinstance(stats_cfg, list):
+            stats_entries = stats_cfg
+        elif isinstance(stats_cfg, dict):
+            stats_entries = stats_cfg.get('tasks', [])
+            if not isinstance(stats_entries, list):
+                errors.append(f"  {post_path}: 'statistics_pipeline.tasks' must be a list.")
+            stats_output_prefix = stats_cfg.get('output_prefix')
+            if stats_output_prefix is not None and not isinstance(stats_output_prefix, str):
+                errors.append(f"  {post_path}: 'statistics_pipeline.output_prefix' must be a string.")
+        else:
+            errors.append(
+                f"  {post_path}: 'statistics_pipeline' must be either a list of tasks or a mapping with a 'tasks' list."
+            )
+        for i, entry in enumerate(stats_entries):
+            if isinstance(entry, str):
+                task_name = entry
+            elif isinstance(entry, dict) and 'task' in entry:
+                task_name = entry.get('task')
+            else:
+                errors.append(
+                    f"  {post_path}: statistics task entry {i} must be either a string or a mapping with key 'task'."
+                )
+                continue
+            try:
+                normalize_statistics_task(task_name)
+            except ValueError as e:
+                errors.append(f"  {post_path}: {e}")
 
     if errors:
         _print_validation_errors(errors)
@@ -248,33 +934,26 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
     """
     print("[INFO] Generating boundary condition files...")
     config_dir = os.path.join(run_dir, "config")
-    
-    all_blocks_bcs = case_cfg.get('boundary_conditions', [])
-    num_blocks = case_cfg.get('models', {}).get('domain', {}).get('blocks', 1)
-
-    if not all_blocks_bcs:
-        raise ValueError("The 'boundary_conditions' section in case.yml is empty.")
-
-    is_simple_list = isinstance(all_blocks_bcs[0], dict)
-    if num_blocks == 1 and is_simple_list:
-        print("[INFO] Detected simple list format for single-block case. Wrapping automatically.")
-        all_blocks_bcs = [all_blocks_bcs]
-
-    if len(all_blocks_bcs) != num_blocks:
-        raise ValueError(
-            f"Mismatch: case.yml declares {num_blocks} block(s) but found {len(all_blocks_bcs)} BC definitions."
-        )
+    num_blocks = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
+    prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
 
     generated_files = []
-    for i, block_bcs_list in enumerate(all_blocks_bcs):
-        bcs_file_path = os.path.join(config_dir, f"bcs_block{i}.run")
+    for i, block_bcs_list in enumerate(prepared_blocks):
+        file_name = "bcs.run" if num_blocks == 1 else f"bcs_block{i}.run"
+        bcs_file_path = os.path.join(config_dir, file_name)
         bcs_lines = [generate_header(run_id, source_files)]
 
         for bc in block_bcs_list:
             face, bc_type, handler = bc['face'], bc['type'], bc['handler']
             params_str = ""
             if bc.get('params'):
-                parts = [f"{k}={','.join(map(str,v)) if isinstance(v,list) else v}" for k, v in bc['params'].items()]
+                parts = []
+                for k, v in bc['params'].items():
+                    if isinstance(v, bool):
+                        value_str = "true" if v else "false"
+                    else:
+                        value_str = str(v)
+                    parts.append(f"{k}={value_str}")
                 params_str = " ".join(parts)
             bcs_lines.append(f"{face:<20s} {bc_type:<12s} {handler:<20s} {params_str}")
         
@@ -296,6 +975,133 @@ def format_flag_value(value):
     if isinstance(value, list):
         return ",".join(map(str, value))
     return str(value)
+
+def normalize_momentum_solver_type(value: str) -> str:
+    """!
+    @brief Normalizes user-facing momentum solver names to C-enum CLI values.
+    @param[in] value Human-readable or enum-like momentum solver string.
+    @return Canonical value accepted by -mom_solver_type.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if value is None:
+        raise ValueError("momentum solver type cannot be None")
+
+    raw = str(value).strip()
+    direct = {
+        "EXPLICIT_RK",
+        "DUALTIME_PICARD_RK4",
+        "DUALTIME_NK_ARNOLDI",
+        "DUALTIME_NK_ANALYTICAL_JACOBIAN"
+    }
+    if raw in direct:
+        return raw
+
+    normalized = raw.lower().replace("-", " ").replace("_", " ")
+    normalized = " ".join(normalized.split())
+    aliases = {
+        "explicit rk4": "EXPLICIT_RK",
+        "explicit rk": "EXPLICIT_RK",
+        "explicit runge kutta 4": "EXPLICIT_RK",
+        "explicit runge kutta": "EXPLICIT_RK",
+        "dual time picard rk4": "DUALTIME_PICARD_RK4",
+        "dualtime picard rk4": "DUALTIME_PICARD_RK4",
+        "dual time picard": "DUALTIME_PICARD_RK4",
+        "dualtime picard": "DUALTIME_PICARD_RK4",
+        "dual time nk arnoldi": "DUALTIME_NK_ARNOLDI",
+        "dualtime nk arnoldi": "DUALTIME_NK_ARNOLDI",
+        "dual time nk analytical jacobian": "DUALTIME_NK_ANALYTICAL_JACOBIAN",
+        "dualtime nk analytical jacobian": "DUALTIME_NK_ANALYTICAL_JACOBIAN"
+    }
+    mapped = aliases.get(normalized)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown momentum solver '{value}'. Use one of: "
+            "'Explicit RK4', 'Dual Time Picard RK4', 'Dual Time NK Arnoldi', "
+            "'Dual Time NK Analytical Jacobian' (or canonical enum values)."
+        )
+    return mapped
+
+def normalize_field_init_mode(value: str) -> int:
+    """!
+    @brief Normalizes user-facing field init mode names to C enum/int codes (-finit).
+    @param[in] value Human-readable or enum-like field initialization mode.
+    @return Canonical integer code accepted by -finit.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if value is None:
+        raise ValueError("field initialization mode cannot be None")
+
+    raw = str(value).strip()
+    direct = {"0": 0, "1": 1, "2": 2}
+    if raw in direct:
+        return direct[raw]
+
+    normalized = raw.lower().replace("-", " ").replace("_", " ")
+    normalized = " ".join(normalized.split())
+    aliases = {
+        "zero": 0,
+        "constant": 1,
+        "poiseuille": 2,
+    }
+    mapped = aliases.get(normalized)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown initial_conditions mode '{value}'. Use one of: 'Zero', 'Constant', 'Poiseuille' (or 0/1/2)."
+        )
+    return mapped
+
+def normalize_particle_init_mode(value: str) -> int:
+    """!
+    @brief Normalizes particle init mode names to C enum/int codes (-pinit).
+    @param[in] value Human-readable or enum-like particle initialization mode.
+    @return Canonical integer code accepted by -pinit.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if value is None:
+        raise ValueError("particle init mode cannot be None")
+
+    raw = str(value).strip()
+    direct = {"0": 0, "1": 1, "2": 2, "3": 3}
+    if raw in direct:
+        return direct[raw]
+
+    normalized = raw.lower().replace("-", " ").replace("_", " ")
+    normalized = " ".join(normalized.split())
+    aliases = {
+        "surface": 0,
+        "surface random": 0,
+        "volume": 1,
+        "volumetric": 1,
+        "point source": 2,
+        "pointsource": 2,
+        "surface edges": 3,
+        "surfaceedges": 3,
+        "surface at edges": 3,
+    }
+    mapped = aliases.get(normalized)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown particle init_mode '{value}'. Use one of: "
+            "'Surface', 'Volume', 'PointSource', 'SurfaceEdges' (or 0/1/2/3)."
+        )
+    return mapped
+
+def append_passthrough_flags(control_lines: list, options: dict):
+    """!
+    @brief Appends raw CLI flags to the control list from a {flag: value} dict.
+    @details Boolean `true` is emitted as a switch with no value. Boolean `false`
+             is skipped. All other values are emitted as "<flag> <value>".
+    @param[out] control_lines The destination list of control-file lines.
+    @param[in] options Mapping of raw CLI flags to values.
+    """
+    if not options:
+        return
+    for flag, value in options.items():
+        if isinstance(value, bool):
+            if value:
+                control_lines.append(str(flag))
+            continue
+        control_lines.append(f"{flag} {format_flag_value(value)}")
 
 def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
     """!
@@ -323,16 +1129,32 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
     if models.get('physics', {}).get('dimensionality') == '2D':
         control_lines.append("-TwoD 1")
     
-    p_init_map = {'Surface': 0, 'Volume': 1}
-    p_init_mode_str = models.get('physics', {}).get('particles', {}).get('init_mode', 'Surface')
-    pinit_code = p_init_map.get(p_init_mode_str)
-    if pinit_code is None:
-        raise ValueError(f"Unknown particle init_mode '{p_init_mode_str}'. Options are {list(p_init_map.keys())}")
+    particles_cfg = models.get('physics', {}).get('particles', {})
+    p_init_mode_str = particles_cfg.get('init_mode', 'Surface')
+    pinit_code = normalize_particle_init_mode(p_init_mode_str)
     control_lines.append(f"-pinit {pinit_code}")
     print(f"  - Particle Initialization Mode: {p_init_mode_str} (Code: {pinit_code})")
-    
-    p_restart_mode = models.get('physics', {}).get('particles', {}).get('restart_mode')
+
+    if pinit_code == 2:
+        point_cfg = particles_cfg.get('point_source', {})
+        if not isinstance(point_cfg, dict):
+            raise ValueError("models.physics.particles.point_source must be a mapping when init_mode is PointSource.")
+        try:
+            psrc_x = float(point_cfg['x'])
+            psrc_y = float(point_cfg['y'])
+            psrc_z = float(point_cfg['z'])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("PointSource init_mode requires numeric point_source.{x,y,z} values.")
+        control_lines.append(f"-psrc_x {psrc_x}")
+        control_lines.append(f"-psrc_y {psrc_y}")
+        control_lines.append(f"-psrc_z {psrc_z}")
+        print(f"  - Particle Point Source: ({psrc_x}, {psrc_y}, {psrc_z})")
+
+    p_restart_mode = particles_cfg.get('restart_mode')
     if p_restart_mode:
+        p_restart_mode_normalized = str(p_restart_mode).lower()
+        if p_restart_mode_normalized not in {"init", "load"}:
+            raise ValueError(f"Unknown particle restart_mode '{p_restart_mode}'. Options are 'init' or 'load'.")
         control_lines.append(f"-particle_restart_mode \"{p_restart_mode}\"")
 
 def parse_solver_config(solver_cfg: dict) -> dict:
@@ -342,17 +1164,86 @@ def parse_solver_config(solver_cfg: dict) -> dict:
     @return A dictionary where keys are C-solver flags and values are the corresponding settings.
     """
     flags = {}
-    if 'operation_mode' in solver_cfg and 'eulerian_field_source' in solver_cfg['operation_mode']:
-        flags['-euler_field_source'] = f"\"{solver_cfg['operation_mode'].get('eulerian_field_source', 'solve')}\""
+    if 'operation_mode' in solver_cfg and isinstance(solver_cfg['operation_mode'], dict):
+        op_mode = solver_cfg['operation_mode']
+        if 'eulerian_field_source' in op_mode:
+            flags['-euler_field_source'] = f"\"{op_mode.get('eulerian_field_source', 'solve')}\""
+        if 'analytical_type' in op_mode and op_mode.get('analytical_type') is not None:
+            flags['-analytical_type'] = f"\"{op_mode.get('analytical_type')}\""
+
+    selected_solver = None
     if 'strategy' in solver_cfg:
         s = solver_cfg['strategy']
-        if 'implicit' in s: flags['-imp'] = format_flag_value(s['implicit'])
-        if 'central_diff' in s: flags['-central'] = format_flag_value(s['central_diff'])
+        if 'central_diff' in s:
+            flags['-central'] = format_flag_value(s['central_diff'])
+        # Preferred selector.
+        if 'momentum_solver' in s:
+            selected_solver = normalize_momentum_solver_type(s['momentum_solver'])
+        elif 'implicit' in s:
+            raise ValueError("Legacy key 'strategy.implicit' is not supported. Use 'strategy.momentum_solver'.")
+
+    ms = solver_cfg.get('momentum_solver', {})
+    if isinstance(ms, dict) and 'type' in ms and selected_solver is None:
+        selected_solver = normalize_momentum_solver_type(ms['type'])
+
+    if selected_solver is None:
+        selected_solver = "DUALTIME_PICARD_RK4"
+    flags['-mom_solver_type'] = f"\"{selected_solver}\""
+
     if 'tolerances' in solver_cfg:
         t = solver_cfg['tolerances']
-        tol_map = {'max_iterations': '-imp_MAX_IT', 'absolute_tol': '-imp_atol', 'relative_tol': '-imp_rtol','step_tol':'-imp_stol'}
+        tol_map = {
+            'max_iterations': '-mom_max_pseudo_steps',
+            'absolute_tol': '-mom_atol',
+            'relative_tol': '-mom_rtol',
+            'step_tol': '-imp_stol'
+        }
         for key, flag in tol_map.items():
-            if key in t: flags[flag] = t[key]
+            if key in t:
+                flags[flag] = t[key]
+
+    def _append_dualtime_options(cfg: dict):
+        if 'max_pseudo_steps' in cfg:
+            flags['-mom_max_pseudo_steps'] = cfg['max_pseudo_steps']
+        if 'absolute_tol' in cfg:
+            flags['-mom_atol'] = cfg['absolute_tol']
+        if 'relative_tol' in cfg:
+            flags['-mom_rtol'] = cfg['relative_tol']
+        if 'step_tol' in cfg:
+            flags['-imp_stol'] = cfg['step_tol']
+        if 'pseudo_cfl' in cfg:
+            pcfl = cfg['pseudo_cfl']
+            if 'initial' in pcfl:
+                flags['-pseudo_cfl'] = pcfl['initial']
+            if 'minimum' in pcfl:
+                flags['-min_pseudo_cfl'] = pcfl['minimum']
+            if 'maximum' in pcfl:
+                flags['-max_pseudo_cfl'] = pcfl['maximum']
+            if 'growth_factor' in pcfl:
+                flags['-pseudo_cfl_growth_factor'] = pcfl['growth_factor']
+            if 'reduction_factor' in pcfl:
+                flags['-pseudo_cfl_reduction_factor'] = pcfl['reduction_factor']
+        if 'rk4_residual_noise_allowance_factor' in cfg:
+            flags['-mom_dt_rk4_residual_norm_noise_allowance_factor'] = cfg['rk4_residual_noise_allowance_factor']
+
+    if isinstance(ms, dict):
+        allowed_ms_keys = {'type', 'dual_time_picard_rk4'}
+        unknown_ms_keys = sorted(set(ms.keys()) - allowed_ms_keys)
+        if unknown_ms_keys:
+            raise ValueError(
+                f"Unsupported momentum_solver keys/blocks: {unknown_ms_keys}. "
+                "Currently supported block: 'dual_time_picard_rk4'."
+            )
+
+        dt_picard_cfg = ms.get('dual_time_picard_rk4')
+        if dt_picard_cfg is not None:
+            if selected_solver != "DUALTIME_PICARD_RK4":
+                raise ValueError(
+                    f"momentum_solver.dual_time_picard_rk4 is set but selected solver is {selected_solver}."
+                )
+            if not isinstance(dt_picard_cfg, dict):
+                raise ValueError("momentum_solver.dual_time_picard_rk4 must be a mapping.")
+            _append_dualtime_options(dt_picard_cfg)
     if 'pressure_solver' in solver_cfg:
         ps = solver_cfg['pressure_solver']
         if 'tolerance' in ps: flags['-poisson_tol'] = ps['tolerance']
@@ -404,24 +1295,26 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         T_ref = L_ref / U_ref if U_ref != 0 else float('inf')
         dt_nondim = dt_phys / T_ref if T_ref != float('inf') else 0.0
         u, v, w = float(ic['u_physical']), float(ic['v_physical']), float(ic['w_physical'])
-        finit_map = {'Zero': 0, 'Constant': 1, 'Poiseuille': 2}
         finit_mode_str = ic.get('mode', 'Constant')
-        finit_code = finit_map.get(finit_mode_str)
-        if finit_code is None: raise ValueError(f"Unknown initial_conditions mode '{finit_mode_str}'.")
+        finit_code = normalize_field_init_mode(finit_mode_str)
         print(f"  - Reynolds Number (Re) = {reynolds:.4f}")
         print(f"  - Non-Dimensional dt*  = {dt_nondim:.6f}")
         print(f"  - Field Initialization Mode: {finit_mode_str} (Code: {finit_code})")
         control_lines.extend([
             f"-start_step {run_ctrl['start_step']}", f"-totalsteps {run_ctrl['total_steps']}",
             f"-ren {reynolds}", f"-dt {dt_nondim}", f"-finit {finit_code}",
-            f"-ucont_x {u/U_ref if U_ref!=0 else 0}", f"-ucont_y {v/U_ref if U_ref!=0 else 0}", f"-ucont_z {w}",
+            f"-ucont_x {u/U_ref if U_ref!=0 else 0}", f"-ucont_y {v/U_ref if U_ref!=0 else 0}", f"-ucont_z {w/U_ref if U_ref!=0 else 0}",
             f"-scaling_L_ref {L_ref}", f"-scaling_U_ref {U_ref}", f"-scaling_rho_ref {rho}"
         ])
     except (KeyError, TypeError, ZeroDivisionError, ValueError) as e:
         print(f"[FATAL] Error processing case.yml: {e}", file=sys.stderr)
         sys.exit(1)
         
-    bcs_files = generate_multi_block_bcs(run_dir, run_id, case_cfg, source_files)
+    try:
+        bcs_files = generate_multi_block_bcs(run_dir, run_id, case_cfg, source_files)
+    except ValueError as e:
+        print(f"[FATAL] Invalid boundary_conditions in case.yml: {e}", file=sys.stderr)
+        sys.exit(1)
     control_lines.append(f"-bcs_files \"{','.join(bcs_files)}\"")
 
     # --- CORRECTED: Add paths for whitelist and profile files ---
@@ -429,34 +1322,58 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     control_lines.append(f"-profile_config_file {monitor_files['profile']}")
     
     grid_cfg = case_cfg.get('grid', {})
-    if grid_cfg.get('mode') == 'file':
+    grid_mode = grid_cfg.get('mode')
+    expected_nblk = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
+
+    if grid_mode == 'file':
         print("[INFO] Grid Mode: Using external file...")
         case_file_dir = os.path.dirname(configs['case_path'])
-        source_grid = os.path.join(case_file_dir, grid_cfg['source_file'])
+        source_grid = grid_cfg['source_file']
+        if not os.path.isabs(source_grid):
+            source_grid = os.path.abspath(os.path.join(case_file_dir, source_grid))
         nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
         try:
-            with open(source_grid, 'r') as f_in:
-                header = [f_in.readline() for _ in range(3)]
-                coords = np.loadtxt(f_in)
-            coords_nondim = coords / L_ref if L_ref != 0 else coords
-            with open(nondim_grid_path, 'w') as f_out:
-                f_out.writelines(header)
-                np.savetxt(f_out, coords_nondim, fmt='%.8e')
-            print(f"[SUCCESS] Generated non-dimensional grid: {os.path.relpath(nondim_grid_path)}")
+            summary = validate_and_nondimensionalize_picgrid(
+                source_grid, nondim_grid_path, L_ref, expected_nblk=expected_nblk
+            )
+            print(
+                f"[SUCCESS] Validated and non-dimensionalized grid: {os.path.relpath(nondim_grid_path)} "
+                f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
+            )
             control_lines.append(f"-grid_file {nondim_grid_path}")
         except Exception as e:
             print(f"[FATAL] Failed to process grid file '{source_grid}': {e}", file=sys.stderr)
             sys.exit(1)
-    elif grid_cfg.get('mode') == 'programmatic_c':
+    elif grid_mode == 'grid_gen':
+        print("[INFO] Grid Mode: Generating external grid via grid.gen...")
+        nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
+        try:
+            generated_grid = run_grid_generator(configs['case_path'], run_dir, grid_cfg)
+            summary = validate_and_nondimensionalize_picgrid(
+                generated_grid, nondim_grid_path, L_ref, expected_nblk=expected_nblk
+            )
+            print(
+                f"[SUCCESS] grid.gen output validated and non-dimensionalized: {os.path.relpath(nondim_grid_path)} "
+                f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
+            )
+            control_lines.append(f"-grid_file {nondim_grid_path}")
+        except Exception as e:
+            print(f"[FATAL] Grid generation failed: {e}", file=sys.stderr)
+            sys.exit(1)
+    elif grid_mode == 'programmatic_c':
         print("[INFO] Grid Mode: Programmatic C...")
-        grid_settings = grid_cfg.get('programmatic_settings', {})
+        grid_settings = dict(grid_cfg.get('programmatic_settings', {}))
         control_lines.append("-grid")
         px, py, pz = grid_settings.get('da_processors_x'), grid_settings.get('da_processors_y'), grid_settings.get('da_processors_z')
+        if any(isinstance(p, (list, tuple)) for p in [px, py, pz] if p is not None):
+            raise ValueError(
+                "da_processors_x/y/z must be scalar integers. "
+                "Per-block MPI decomposition is not implemented on the C side; DMDA layout is global."
+            )
         if num_procs > 1 and all(p is not None for p in [px, py, pz]):
-            if isinstance(px, list):
-                total_layout = sum(p_x * p_y * p_z for p_x, p_y, p_z in zip(px, py, pz))
-            else:
-                total_layout = px * py * pz
+            if not all(isinstance(p, int) and p > 0 for p in [px, py, pz]):
+                raise ValueError("da_processors_x/y/z must be positive integers when provided.")
+            total_layout = px * py * pz
             if total_layout != num_procs:
                 raise ValueError(f"Processor layout mismatch: product ({total_layout}) != processes ({num_procs}).")
             print(f"[INFO] Applying user-defined processor layout for {num_procs} processes.")
@@ -467,7 +1384,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 grid_settings.pop(p_key, None)
         for key, value in grid_settings.items(): control_lines.append(f"-{key} {format_flag_value(value)}")
     else:
-        raise ValueError(f"Unknown or missing grid mode '{grid_cfg.get('mode')}' in case.yml.")
+        raise ValueError(f"Unknown or missing grid mode '{grid_mode}' in case.yml.")
     
     parse_and_add_model_flags(case_cfg, control_lines)
     
@@ -477,8 +1394,14 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             for key, value in params.items():
                 control_lines.append(f"{key} {format_flag_value(value)}")
 
-    solver_flags = parse_solver_config(solver_cfg)
+    try:
+        solver_flags = parse_solver_config(solver_cfg)
+    except ValueError as e:
+        print(f"[FATAL] Invalid solver.yml settings: {e}", file=sys.stderr)
+        sys.exit(1)
     for flag, value in solver_flags.items(): control_lines.append(f"{flag} {value}")
+
+    append_passthrough_flags(control_lines, monitor_cfg.get('solver_monitoring', {}))
     
     io_cfg = monitor_cfg.get('io', {})
     if 'data_output_frequency' in io_cfg: control_lines.append(f"-tio {io_cfg['data_output_frequency']}")
@@ -488,6 +1411,8 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         if 'output' in dirs: control_lines.append(f"-output_dir {dirs['output']}")
         if 'restart' in dirs: control_lines.append(f"-restart_dir {dirs['restart']}")
         if 'log' in dirs: control_lines.append(f"-log_dir {dirs['log']}")
+        if 'eulerian_subdir' in dirs: control_lines.append(f"-euler_subdir {dirs['eulerian_subdir']}")
+        if 'particle_subdir' in dirs: control_lines.append(f"-particle_subdir {dirs['particle_subdir']}")
         
     final_content = generate_header(run_id, source_files) + "\n".join(control_lines)
     control_file_path = os.path.join(run_dir, "config", f"{run_id}.control")
@@ -561,6 +1486,37 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     if lagrangian_pipeline_parts:
         c_config['particle_pipeline'] = ";".join(lagrangian_pipeline_parts)
 
+    # --- 4B. Build Statistics Pipeline String ---
+    statistics_pipeline_parts = []
+    statistics_output_prefix = None
+    stats_cfg = post_cfg.get('statistics_pipeline')
+    stats_entries = []
+    if isinstance(stats_cfg, list):
+        stats_entries = stats_cfg
+    elif isinstance(stats_cfg, dict):
+        stats_entries = stats_cfg.get('tasks', [])
+        statistics_output_prefix = stats_cfg.get('output_prefix')
+
+    for entry in stats_entries:
+        if isinstance(entry, str):
+            task_name = entry
+        elif isinstance(entry, dict):
+            task_name = entry.get('task')
+        else:
+            continue
+        try:
+            statistics_pipeline_parts.append(normalize_statistics_task(task_name))
+        except ValueError:
+            # validation should catch this earlier; keep generation tolerant.
+            continue
+
+    if statistics_pipeline_parts:
+        c_config['statistics_pipeline'] = ";".join(statistics_pipeline_parts)
+    if statistics_output_prefix is None:
+        statistics_output_prefix = post_cfg.get('statistics_output_prefix')
+    if statistics_output_prefix:
+        c_config['statistics_output_prefix'] = statistics_output_prefix
+
     # --- 5. Process I/O ---
     io = post_cfg.get('io', {})
     c_config['output_prefix'] = io.get('output_directory','viz')+'/'+io.get('output_filename_prefix', 'Field')
@@ -568,7 +1524,16 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     c_config['output_particles'] = io.get('output_particles', False)
     c_config['particle_output_freq'] = io.get('particle_subsampling_frequency', 1)
     c_config['output_fields_instantaneous'] = ",".join(io.get('eulerian_fields', []))
+    c_config['output_fields_averaged'] = ",".join(io.get('eulerian_fields_averaged', []))
     c_config['particle_fields_instantaneous'] = ",".join(io.get('particle_fields', []))
+    input_extensions = io.get('input_extensions', {})
+    if isinstance(input_extensions, dict):
+        e_ext = input_extensions.get('eulerian')
+        p_ext = input_extensions.get('particle')
+        if e_ext:
+            c_config['eulerianExt'] = str(e_ext).strip().lstrip('.')
+        if p_ext:
+            c_config['particleExt'] = str(p_ext).strip().lstrip('.')
 
     # --- 6. Add Source Directory ---
     if 'source_data' in post_cfg and 'directory' in post_cfg['source_data']:

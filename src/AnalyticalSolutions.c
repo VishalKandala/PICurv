@@ -35,6 +35,12 @@
 static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx);
 static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx);
 
+PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
+{
+    if (!analytical_type) return PETSC_FALSE;
+    return (strcmp(analytical_type, "TGV3D") == 0) ? PETSC_TRUE : PETSC_FALSE;
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalGridInfo"
 /**
@@ -53,8 +59,8 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx);
  *   blocks remains `[0, 2*PI]`. If `nblk` is not a perfect square, the simulation is aborted
  *   with an error.
  *
- * After setting the domain bounds, it proceeds to read the grid resolution options
- * (`-im`, `-jm`, `-km`) from the command line for the specific block.
+ * Grid resolution (`IM/JM/KM`) is expected to be pre-populated in `user`
+ * before this function is called.
  *
  * @param user Pointer to the `UserCtx` for a specific block. The function will
  *             populate the geometric fields (`IM`, `JM`, `KM`, `Min_X`, `Max_X`, etc.)
@@ -63,13 +69,22 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx);
  */
 PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
 {
-    PetscErrorCode ierr;
     SimCtx         *simCtx = user->simCtx;
     PetscInt       nblk = simCtx->block_number;
     PetscInt       block_index = user->_this;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+
+    if (!AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) {
+        SETERRQ1(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+                 "SetAnalyticalGridInfo called for analytical type '%s' that does not require custom geometry.",
+                 simCtx->AnalyticalSolutionType);
+    }
+    if (user->IM <= 0 || user->JM <= 0 || user->KM <= 0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+                "Analytical grid resolution is not initialized. Ensure IM/JM/KM are preloaded before SetAnalyticalGridInfo.");
+    }
 
     if (strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
         LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Configuring grid for TGV3D analytical solution, block %d.\n", simCtx->rank, block_index);
@@ -125,29 +140,10 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
      * }
      */
     else {
-        // Fallback for other analytical solutions: require manual grid specification.
-        LOG(GLOBAL, LOG_INFO, "Analytical solution '%s' detected. Using user-provided grid generation inputs.\n", simCtx->AnalyticalSolutionType);
-        ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
-        PetscFunctionReturn(0); // Return early as ReadGridGenerationInputs already handled everything.
+        SETERRQ1(PETSC_COMM_WORLD, PETSC_ERR_ARG_UNKNOWN_TYPE,
+                 "Analytical type '%s' has no custom geometry implementation.",
+                 simCtx->AnalyticalSolutionType);
     }
-    
-    // --- For TGV3D, we now read the grid resolution, as this is independent of the domain ---
-    PetscInt  *IMs, *JMs, *KMs;
-    PetscBool found;
-    PetscInt  count;
-    
-    ierr = PetscMalloc3(nblk, &IMs, nblk, &JMs, nblk, &KMs); CHKERRQ(ierr);
-    
-    // Set defaults first
-    for(PetscInt i=0; i<nblk; ++i) { IMs[i] = 10; JMs[i] = 10; KMs[i] = 10; }
-    
-    count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-im", IMs, &count, &found); CHKERRQ(ierr);
-    count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-jm", JMs, &count, &found); CHKERRQ(ierr);
-    count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-km", KMs, &count, &found); CHKERRQ(ierr);
-    
-    user->IM = IMs[block_index];
-    user->JM = JMs[block_index];
-    user->KM = KMs[block_index];
 
     // We can also read stretching ratios, as they are independent of the domain size
     // For simplicity, we assume uniform grid unless specified.
@@ -157,8 +153,6 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
               simCtx->rank, block_index, user->IM, user->JM, user->KM);
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d final bounds: X=[%.4f, %.4f], Y=[%.4f, %.4f], Z=[%.4f, %.4f]\n",
               simCtx->rank, block_index, user->Min_X, user->Max_X, user->Min_Y, user->Max_Y, user->Min_Z, user->Max_Z);
-
-    ierr = PetscFree3(IMs, JMs, KMs); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

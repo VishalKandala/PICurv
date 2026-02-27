@@ -91,7 +91,9 @@ grid:
     xMaxs: [1.0]
     # ... and so on for y and z ...
     rxs: [1.0] # Stretching ratio
-    da_processors_x: [4] # Optional MPI layout
+    da_processors_x: 4
+    da_processors_y: 2
+    da_processors_z: 2
 ```
 
 | Parameter | Type | Description | C-Solver Flag |
@@ -101,7 +103,7 @@ grid:
 | `yMins`, `yMaxs` | Real Array | Physical domain boundaries for each block in the y-direction. | `-yMins`, `-yMaxs`|
 | `zMins`, `zMaxs` | Real Array | Physical domain boundaries for each block in the z-direction. | `-zMins`, `-zMaxs`|
 | `rxs`, `rys`, `rzs`| Real Array | Geometric stretching ratio in each direction. `1.0` is uniform. `>1.0` clusters points near the minimum boundary. | `-rxs`, `-rys`, `-rzs`|
-| `da_processors_x/y/z`| Int Array | (Optional) Explicitly sets the number of MPI processes to use in each direction for domain decomposition. The product must equal the total number of processes (`-n`). If omitted, PETSc decides automatically. | `-da_processors_x/y/z` |
+| `da_processors_x/y/z`| Integer | (Optional) Explicitly sets the global number of MPI processes to use in each direction for DMDA decomposition. The product must equal the total number of processes (`-n`). If omitted, PETSc decides automatically. | `-da_processors_x/y/z` |
 
 @subsection file_ssec 3.2. File-Based Grid (`mode: file`)
 
@@ -190,14 +192,16 @@ boundary_conditions:
 | `type` | `handler` | Description & Required `params` |
 | :--- | :--- | :--- |
 | `INLET` | `constant_velocity` | Specifies a uniform inlet velocity. Requires `vx`, `vy`, `vz` in physical units (m/s). |
-| `INLET` | `parabolic` | Specifies a parabolic inlet profile. Requires `u_max` (the centerline velocity). |
+| `INLET` | `parabolic` | Specifies a parabolic inlet profile. Requires `v_max` (the centerline velocity) in physical units (m/s). |
 | `OUTLET`| `conservation` | A simple zero-gradient outflow condition that enforces global mass conservation. |
 | `WALL` | `noslip` | A standard no-slip wall (zero velocity relative to the wall). |
-| `SYMMETRY`| `symmetry_plane` | A slip-wall condition for symmetry planes. |
-| `NOGRAD`| `allcopy` | A generic zero-gradient condition. |
+| `PERIODIC` | `geometric` | Standard geometric periodic coupling. |
+| `PERIODIC` | `constant_flux` | Driven periodic flow with constant volumetric flux. Requires `target_flux`; optional `apply_trim`. |
 
 @section next_steps_sec 6. Next Steps
 
 With a full understanding of the `case.yml` file, you are now equipped to define the physics of your own simulations. Next, you will need to learn how to control the numerical schemes used to solve the problem.
 
 Proceed to the **@subpage 08_Solver_Reference** to learn about all the parameters available in the `solver.yml` file.
+
+For cross-file contract details and developer mapping, see **@subpage 14_Config_Contract** and **@subpage 15_Config_Ingestion_Map**.
