@@ -186,3 +186,5 @@ For full option reference, also see:
 - **@subpage 10_Post_Processing_Reference**
 - **@subpage 33_Initial_Conditions**
 - **@subpage 34_Particle_Model_Overview**
+- **@subpage 38_Start_Here_10_Minutes**
+- **@subpage 39_Common_Fatal_Errors**

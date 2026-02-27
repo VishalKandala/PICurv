@@ -15,12 +15,14 @@ Primary commands:
 - `build`
 - `run`
 - `sweep`
+- `validate`
 
 Help:
 ```bash
 python3 scripts/pic.flow --help
 python3 scripts/pic.flow run --help
 python3 scripts/pic.flow sweep --help
+python3 scripts/pic.flow validate --help
 ```
 
 @section run_sec 2. `run`: Single-Case Workflow
@@ -49,6 +51,10 @@ Cluster/Slurm options:
 - `--cluster <cluster.yml>`
 - `--scheduler slurm` (optional explicit selector)
 - `--no-submit` (generate scripts/manifests only)
+
+Preflight options:
+- `--dry-run` (resolve and print launch/artifact plan only)
+- `--format json` (machine-readable output for `--dry-run`)
 
 Local example:
 ```bash
@@ -80,6 +86,16 @@ python3 scripts/pic.flow run --solve --post-process \
   --no-submit
 ```
 
+Dry-run example (no file writes):
+```bash
+python3 scripts/pic.flow run --solve --post-process \
+  --case my_case/case.yml \
+  --solver my_case/solver.yml \
+  --monitor my_case/monitor.yml \
+  --post my_case/post.yml \
+  --dry-run --format json
+```
+
 @section sweep_sec 3. `sweep`: Parameter Study via Slurm Arrays
 
 ```bash
@@ -95,7 +111,19 @@ Behavior:
 - submits post array with `afterok:<solver_jobid>` dependency (unless `--no-submit`)
 - aggregates metrics and emits plots in `studies/<study_id>/results/`
 
-@section artifacts_sec 4. Generated Runtime Artifacts
+@section validate_sec 4. `validate`: Config-Only Checks
+
+```bash
+python3 scripts/pic.flow validate \
+  --case my_case/case.yml \
+  --solver my_case/solver.yml \
+  --monitor my_case/monitor.yml \
+  --post my_case/post.yml
+```
+
+`validate` does not launch solver/post and does not create run/study artifacts.
+
+@section artifacts_sec 5. Generated Runtime Artifacts
 
 Single run (`run`):
 - `runs/<run_id>/config/*.control`, `bcs*.run`, `whitelist.run`, `profile.run`, `post.run`
@@ -113,9 +141,10 @@ Sweep (`sweep`):
 - `studies/<study_id>/results/plots/*.png` (if plotting enabled and matplotlib available)
 - `studies/<study_id>/study_manifest.json`
 
-@section next_steps_sec 5. Next Steps
+@section next_steps_sec 6. Next Steps
 
 - Config contract: **@subpage 14_Config_Contract**
 - User workflows: **@subpage 11_User_How_To_Guides**
 - Extensibility: **@subpage 17_Workflow_Extensibility**
-
+- First-run path: **@subpage 38_Start_Here_10_Minutes**
+- Troubleshooting map: **@subpage 39_Common_Fatal_Errors**

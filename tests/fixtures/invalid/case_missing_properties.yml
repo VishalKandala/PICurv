@@ -1,0 +1,52 @@
+run_control:
+  start_step: 0
+  total_steps: 10
+  dt_physical: 0.04
+
+grid:
+  mode: programmatic_c
+  programmatic_settings:
+    im: 8
+    jm: 8
+    km: 16
+    xMins: 0.0
+    xMaxs: 1.0
+    yMins: 0.0
+    yMaxs: 1.0
+    zMins: 0.0
+    zMaxs: 4.0
+    rxs: 1.0
+    rys: 1.0
+    rzs: 1.0
+    cgrids: 0
+
+models:
+  domain:
+    blocks: 1
+  physics:
+    particles:
+      count: 0
+
+boundary_conditions:
+  - face: "-Xi"
+    type: WALL
+    handler: noslip
+  - face: "+Xi"
+    type: WALL
+    handler: noslip
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  - face: "-Zeta"
+    type: INLET
+    handler: constant_velocity
+    params:
+      vx: 0.0
+      vy: 0.0
+      vz: 1.0
+  - face: "+Zeta"
+    type: OUTLET
+    handler: conservation

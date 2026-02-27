@@ -1,0 +1,10 @@
+base_configs:
+  case: "../valid/case.yml"
+  solver: "../valid/solver.yml"
+  monitor: "../valid/monitor.yml"
+  post: "../valid/post.yml"
+
+study_type: "sensitivity"
+
+parameters:
+  badkey: [1, 2]
