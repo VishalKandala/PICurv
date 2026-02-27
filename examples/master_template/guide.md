@@ -1,10 +1,10 @@
 # Master Template Guide
 
-This directory contains fully commented schema reference templates.
+This directory provides fully commented template files for all major YAML roles.
+Use these as schema references, then copy only needed sections into runnable case directories.
 
-Use these as contract references, then copy needed sections into runnable case files.
+## Template Files
 
-Templates include:
 - `master_case.yml`
 - `master_solver.yml`
 - `master_monitor.yml`
@@ -12,5 +12,15 @@ Templates include:
 - `master_cluster.yml`
 - `master_study.yml`
 
-See also:
+## Suggested Workflow
+
+1. start from template relevant to your role,
+2. trim to minimum required fields,
+3. validate with `pic.flow validate`,
+4. run with `pic.flow run` or `pic.flow sweep`.
+
+## Related Docs
+
 - `master_template.md`
+- `docs/pages/14_Config_Contract.md`
+- `docs/pages/16_Config_Extension_Playbook.md`

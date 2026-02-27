@@ -1,102 +1,109 @@
 @page 12_Capabilities_Summary Capabilities Summary
 
-This page summarizes what is currently available through YAML + `pic.flow` without editing C source.
+This page summarizes current capabilities from YAML + `pic.flow` without editing C source.
+It is organized by workflow stage rather than just a feature bullet list.
 
 @tableofcontents
 
-@section grid_sec 1. Grid and Domain
+@section ingest_sec 1. Input and Grid Capabilities
 
-- Grid modes:
-  - `programmatic_c` (C-side structured generation)
-  - `file` (external `.picgrid` ingestion with validation and scaling)
-  - `grid_gen` (pre-run Python grid generation orchestration)
-- Domain topology:
-  - single- and multi-block support
-  - per-direction periodic flags
-- Programmatic grid controls:
-  - per-block geometry arrays (`im/jm/km`, bounds, stretching)
-  - global DMDA partition hints (`da_processors_x/y/z`, scalar only)
+PICurv currently supports three grid ingestion modes:
 
-@section flow_sec 2. Flow and Particle Physics
+- `programmatic_c`: C-side structured grid generation,
+- `file`: external `.picgrid` read path with scaling/validation,
+- `grid_gen`: pre-run Python generator orchestration.
 
-- Incompressible Navier-Stokes flow
-- 2D/3D selection
-- LES toggle
-- Eulerian source modes:
-  - `solve`
-  - `load`
-  - `analytical` + `analytical_type`
-- Particle controls:
-  - particle count
-  - init modes (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`)
-  - restart mode (`init`, `load`)
+Domain controls include:
 
-@section numerics_sec 3. Numerics and Solvers
+- single- and multi-block support,
+- per-direction periodicity,
+- optional DMDA partition hints (`da_processors_x/y/z`).
 
-- Named momentum solver selection (extensible string selector)
-- Solver-specific option blocks (`momentum_solver.dual_time_picard_rk4`)
-- Pseudo-CFL and convergence tuning for dual-time method
-- Pressure Poisson control:
-  - multigrid levels/sweeps/semi-coarsening
-  - PETSc passthrough options and monitors
+@section physics_sec 2. Physics and Model Selection
 
-@section bc_sec 4. Boundary Conditions
+Supported high-level operation modes:
 
-Supported combinations include:
-- `INLET`: `constant_velocity`, `parabolic`
-- `OUTLET`: `conservation`
-- `WALL`: `noslip`
-- `PERIODIC`: `geometric`, `constant_flux`
+- solve from numerically evolved Eulerian fields,
+- load/restart from prior field outputs,
+- analytical Eulerian field modes (`TGV3D`, `ZERO_FLOW`).
 
-`pic.flow` validates face completeness, type-handler compatibility, and periodic pair consistency.
+Particle controls include:
 
-@section io_sec 5. Runtime I/O and Monitoring
+- particle count,
+- initialization modes (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`),
+- restart modes (`init`, `load`),
+- scalar micromixing update path (IEM-style `Psi` model).
 
-- Output/restart/log root directory controls
-- Eulerian/particle subdirectory controls
-- Function whitelist logging and critical-function profiling files
-- Raw PETSc monitor passthrough from monitor profile
+@section solver_sec 3. Numerical Solver Stack
 
-@section post_sec 6. Postprocessing and Statistics
+Momentum:
 
-- Eulerian pipeline tasks:
-  - dimensionalize
-  - nodal averaging
-  - Q-criterion
-  - relative field normalization
-- Lagrangian pipeline tasks:
-  - specific kinetic energy
-- Statistics pipeline:
-  - MSD (`ComputeMSD`) with configurable output prefix
-- Configurable post input extensions (`eulerianExt`, `particleExt`)
+- named momentum strategy selection,
+- active implementations: explicit RK and dual-time Picard RK4,
+- tunable tolerances and pseudo-CFL controls.
 
-@section data_driven_sec 7. Data-Driven Closure Readiness
+Pressure:
 
-- Offline ML workflows are supported today via stable solver/post outputs.
-- Tightly coupled in-solver inference requires extension work (documented in playbook).
+- multigrid Poisson workflow,
+- level/sweep/semi-coarsening controls,
+- PETSc passthrough flags for advanced tuning.
 
-@section orchestration_sec 8. Cluster and Study Orchestration
+See method details in **@subpage 21_Methods_Overview**.
 
-- Slurm single-run orchestration from `pic.flow run --cluster ...`
-  - solver/post script generation
-  - optional direct submission
-  - dependency chaining (`post` after `solve`)
-  - per-run submission and manifest metadata
-- Slurm study sweeps from `pic.flow sweep`
-  - parameter matrix expansion
-  - solver/post array script generation
-  - metrics aggregation from CSV/log outputs
-  - convergence/sensitivity plot generation (matplotlib-enabled environments)
+@section bc_sec 4. Boundary and Runtime Controls
 
-@section next_steps_sec 9. Next Steps
+Boundary capabilities include validated type-handler pairings across inlet/outlet/wall/periodic classes.
+Runtime controls include:
 
-Proceed to **@subpage 13_Code_Architecture**.
+- output/restart/log directory selection,
+- function-level logging allowlists,
+- profiling critical function lists,
+- monitor verbosity and cadence controls.
 
-For extension and maintenance details:
+@section post_sec 5. Post-Processing and Statistics
+
+Pipeline capabilities include:
+
+- Eulerian transforms (dimensionalization, nodal averaging, Q-criterion, normalization),
+- Lagrangian particle tasks,
+- statistics reduction pipeline (currently MSD family),
+- configurable input extensions and output field selection.
+
+@section orchestration_sec 6. Cluster and Study Orchestration
+
+Single-run cluster flow (`run --cluster ...`):
+
+- scheduler script generation,
+- optional submission,
+- solver/post dependency chaining,
+- run manifests.
+
+Study flow (`sweep`):
+
+- parameter matrix expansion,
+- array script generation,
+- metric aggregation and optional plots,
+- study manifest and reproducible directory structure.
+
+@section extension_sec 7. Extensibility Status
+
+Current extension pathways are documented and active for:
+
+- YAML contract extension,
+- ingestion mapping updates,
+- workflow orchestration growth,
+- method-level and model-level solver extension.
+
+Reference pages:
+
+- **@subpage 14_Config_Contract**
+- **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 17_Workflow_Extensibility**
-- **@subpage 21_Methods_Overview**
-- **@subpage 31_Momentum_Solvers**
-- **@subpage 32_Analytical_Solutions**
-- **@subpage 33_Initial_Conditions**
-- **@subpage 34_Particle_Model_Overview**
+
+@section next_steps_sec 8. Suggested Reading Order
+
+1. **@subpage 13_Code_Architecture**
+2. **@subpage 21_Methods_Overview**
+3. **@subpage 31_Momentum_Solvers**
+4. **@subpage 34_Particle_Model_Overview**

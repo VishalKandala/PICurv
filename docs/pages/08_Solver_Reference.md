@@ -1,4 +1,4 @@
-@page 08_Solver_Reference Configuration Reference: `solver.yml`
+@page 08_Solver_Reference Configuration Reference: solver.yml
 
 For the full commented template, see:
 
@@ -8,7 +8,7 @@ For the full commented template, see:
 
 @tableofcontents
 
-@section opmode_sec 1. `operation_mode`
+@section opmode_sec 1. operation_mode
 
 ```yaml
 operation_mode:
@@ -20,7 +20,7 @@ Mappings:
 - `eulerian_field_source` -> `-euler_field_source` (`solve`, `load`, `analytical`)
 - `analytical_type` -> `-analytical_type`
 
-@section strategy_sec 2. `strategy`
+@section strategy_sec 2. strategy
 
 ```yaml
 strategy:
@@ -34,7 +34,7 @@ Mappings:
 
 Named solver values are preferred over legacy boolean toggles.
 
-@section tol_sec 3. `tolerances`
+@section tol_sec 3. tolerances
 
 ```yaml
 tolerances:
@@ -50,7 +50,7 @@ Mappings:
 - `relative_tol` -> `-mom_rtol`
 - `step_tol` -> `-imp_stol`
 
-@section msolver_sec 4. `momentum_solver` (Solver-Specific Block)
+@section msolver_sec 4. momentum_solver (Solver-Specific Block)
 
 ```yaml
 momentum_solver:
@@ -75,7 +75,7 @@ Mappings include:
 
 Rule: solver-specific blocks must match selected momentum solver type.
 
-@section pressure_sec 5. `pressure_solver`
+@section pressure_sec 5. pressure_solver
 
 ```yaml
 pressure_solver:
@@ -93,7 +93,7 @@ Mappings:
 - `multigrid.post_sweeps` -> `-mg_post_it`
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
 
-@section petsc_sec 6. `petsc_passthrough_options`
+@section petsc_sec 6. petsc_passthrough_options
 
 Advanced escape hatch for raw PETSc flags:
 

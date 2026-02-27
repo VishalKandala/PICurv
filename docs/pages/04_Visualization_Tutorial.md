@@ -33,7 +33,7 @@ ParaView's interface has four key areas you will interact with constantly:
 3.  **3D View (Center):** Your visualization.
 4.  **Toolbar (Top):** Provides quick access to common data sources and filters.
 
-@section eulerian_recipes_sec 3. Recipes for Visualizing Grid Data (`.vts` files)
+@section eulerian_recipes_sec 3. Recipes for Visualizing Grid Data (.vts files)
 
 Let's walk through the most common visualization techniques for the Eulerian grid data. First, open your `Field..vts` time series in ParaView and click **Apply**.
 
@@ -72,7 +72,7 @@ To visualize the direction and magnitude of the flow:
 4.  In the Properties panel, increase the **Resolution** of the seed line to generate more streamlines.
 5.  Click **Apply**. You can now color the streamlines by velocity or pressure.
 
-@section lagrangian_recipes_sec 4. Recipes for Visualizing Particle Data (`.vtp` files)
+@section lagrangian_recipes_sec 4. Recipes for Visualizing Particle Data (.vtp files)
 
 Load your `Particle..vtp` time series (if present) to visualize the Lagrangian particles.
 

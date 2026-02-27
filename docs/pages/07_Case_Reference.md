@@ -1,4 +1,4 @@
-@page 07_Case_Reference Configuration Reference: `case.yml`
+@page 07_Case_Reference Configuration Reference: case.yml
 
 For the full commented template, see:
 
@@ -8,7 +8,7 @@ For the full commented template, see:
 
 @tableofcontents
 
-@section properties_sec 1. `properties`
+@section properties_sec 1. properties
 
 ```yaml
 properties:
@@ -34,7 +34,7 @@ Key mappings:
 
 For the scaling model and conversion logic, see **@subpage 19_Nondimensionalization**.
 
-@section run_control_sec 2. `run_control`
+@section run_control_sec 2. run_control
 
 ```yaml
 run_control:
@@ -48,14 +48,14 @@ Mappings:
 - `start_step` -> `-start_step`
 - `total_steps` -> `-totalsteps`
 
-@section grid_sec 3. `grid`
+@section grid_sec 3. grid
 
 Supported modes:
 - `programmatic_c`
 - `file`
 - `grid_gen`
 
-@subsection grid_prog_ssec 3.1 `mode: programmatic_c`
+@subsection grid_prog_ssec 3.1 mode: programmatic_c
 
 `programmatic_settings` supports per-block lists for geometry arrays:
 - `im/jm/km`
@@ -65,7 +65,7 @@ Supported modes:
 Important constraint:
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block processor decomposition is not implemented.
 
-@subsection grid_file_ssec 3.2 `mode: file`
+@subsection grid_file_ssec 3.2 mode: file
 
 ```yaml
 grid:
@@ -75,7 +75,7 @@ grid:
 
 `pic.flow` validates existence and prepares normalized grid data for C-side ingestion.
 
-@subsection grid_gen_ssec 3.3 `mode: grid_gen`
+@subsection grid_gen_ssec 3.3 mode: grid_gen
 
 ```yaml
 grid:
@@ -88,7 +88,7 @@ grid:
 
 This runs `scripts/grid.gen` before solver launch and stages generated grid artifacts into the run config.
 
-@section models_sec 4. `models`
+@section models_sec 4. models
 
 ```yaml
 models:
@@ -117,7 +117,7 @@ Common mappings:
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
 - point source coordinates -> `-psrc_x/-psrc_y/-psrc_z`
 
-@section bc_sec 5. `boundary_conditions`
+@section bc_sec 5. boundary_conditions
 
 Single-block syntax: list of 6 face entries.
 Multi-block syntax: list-of-lists, one 6-face list per block.
@@ -135,7 +135,7 @@ Supported type/handler combinations:
 
 All six faces must be explicitly provided for each block.
 
-@section passthrough_sec 6. `solver_parameters` (Advanced)
+@section passthrough_sec 6. solver_parameters (Advanced)
 
 Optional escape hatch for flags not yet exposed in structured schema:
 

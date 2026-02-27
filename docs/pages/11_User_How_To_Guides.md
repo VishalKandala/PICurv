@@ -1,6 +1,7 @@
 @page 11_User_How_To_Guides User How-To Guides
 
-Quick recipes for common PICurv tasks.
+This page provides operational recipes for common PICurv tasks.
+Each recipe includes what to change, why it matters, and a quick verification action.
 
 @tableofcontents
 
@@ -8,7 +9,7 @@ Quick recipes for common PICurv tasks.
 
 @subsection reynolds_ssec 1.1 Change Reynolds Number
 
-Edit `case.yml -> properties` values used by `Re = rho * U * L / mu`:
+What to change (in `case.yml`):
 
 ```yaml
 properties:
@@ -19,6 +20,19 @@ properties:
     density: 1000.0
     viscosity: 0.001
 ```
+
+Why:
+
+\f[
+Re = \frac{\rho U L}{\mu}
+\f]
+
+These values set the non-dimensional operating point consumed by solver controls.
+
+Quick check:
+
+- rerun `pic.flow validate ...`,
+- inspect generated `.control` file for updated values.
 
 @subsection twod_ssec 1.2 Run in 2D
 
@@ -33,15 +47,28 @@ grid:
     km: [3]
 ```
 
+Why:
+
+- 2D mode still uses a thin third dimension for structured-grid machinery,
+- small `km` is typically enough for planar scenarios.
+
+Quick check:
+
+- confirm generated run uses expected Z resolution.
+
 @subsection gridres_ssec 1.3 Increase Grid Resolution
 
-For `programmatic_c`, adjust `im/jm/km`.
-For `file`, provide a finer external grid and update `source_file`.
-For `grid_gen`, increase generator resolution controls in `grid.generator.cli_args` or config.
+- `programmatic_c`: increase `im/jm/km` arrays,
+- `file`: use finer `.picgrid`,
+- `grid_gen`: increase generator resolution args.
+
+Verification:
+
+- compare runtime memory/cost and key output metrics across resolutions.
 
 @section bc_sec 2. Boundary Conditions
 
-@subsection bc_simple_ssec 2.1 Set a Basic Inlet + Wall
+@subsection bc_simple_ssec 2.1 Set a Constant-Velocity Inlet and Walls
 
 ```yaml
 boundary_conditions:
@@ -52,10 +79,19 @@ boundary_conditions:
   - face: "-Eta"
     type: "WALL"
     handler: "noslip"
-  # ... include all remaining faces ...
+  # define all remaining faces explicitly
 ```
 
-@subsection bc_periodic_ssec 2.2 Set a Periodic Direction
+Why:
+
+- handler/type compatibility is validated,
+- all faces must be covered for each block.
+
+Verification:
+
+- use `validate` first and check BC generation files under `runs/<run_id>/config/`.
+
+@subsection bc_periodic_ssec 2.2 Enable Periodicity in One Direction
 
 ```yaml
 models:
@@ -63,19 +99,24 @@ models:
     i_periodic: true
 ```
 
-Use `PERIODIC` type on both paired faces (`-Xi` and `+Xi`) with supported handlers:
+Use `PERIODIC` BC type on both paired faces with supported handlers:
+
 - `geometric`
 - `constant_flux` (requires `target_flux`)
 
-@section run_sec 3. Run and Monitoring
+Verification:
 
-@subsection mpi_ssec 3.1 Run in Parallel and Set DMDA Layout
+- confirm paired-face consistency in validation output.
+
+@section run_sec 3. Running and Monitoring
+
+@subsection mpi_ssec 3.1 Run in Parallel and Control DMDA Layout
 
 ```bash
 ./scripts/pic.flow run -n 16 --solve ...
 ```
 
-Optional global layout hint:
+Optional partition hints:
 
 ```yaml
 grid:
@@ -86,9 +127,9 @@ grid:
     da_processors_z: 2
 ```
 
-`da_processors_*` are scalar globals, not per-block arrays.
+Note: `da_processors_*` are scalar globals, not per-block vectors.
 
-@subsection cluster_run_ssec 3.2 Run on Slurm (Generate + Submit)
+@subsection cluster_run_ssec 3.2 Run on Slurm (Generate and Submit)
 
 ```bash
 python3 scripts/pic.flow run --solve --post-process \
@@ -99,7 +140,7 @@ python3 scripts/pic.flow run --solve --post-process \
   --cluster my_case/cluster.yml
 ```
 
-To only generate scripts/configs:
+Generate-only mode:
 
 ```bash
 python3 scripts/pic.flow run --solve --post-process \
@@ -111,6 +152,10 @@ python3 scripts/pic.flow run --solve --post-process \
   --no-submit
 ```
 
+Verification:
+
+- inspect `scheduler/*.sbatch` and `submission.json` in run directory.
+
 @subsection restart_ssec 3.3 Restart from a Saved Step
 
 ```yaml
@@ -119,9 +164,15 @@ run_control:
   total_steps: 2000
 ```
 
-This advances from step 1000 to 3000.
+Meaning:
 
-@subsection logging_ssec 3.4 Targeted Debug Logging
+- run resumes from step 1000 and advances 2000 additional steps.
+
+Verification:
+
+- confirm restart directory and step indices in run logs.
+
+@subsection logging_ssec 3.4 Enable Targeted Debug Logging
 
 ```yaml
 logging:
@@ -131,7 +182,10 @@ logging:
     - UpdatePressure
 ```
 
-@section post_sec 4. Post-Processing
+Use this for local diagnosis of instability or boundary anomalies.
+Prefer narrow function lists to keep logs manageable.
+
+@section post_sec 4. Post-Processing Recipes
 
 @subsection post_existing_ssec 4.1 Postprocess an Existing Run
 
@@ -141,7 +195,9 @@ logging:
   --post my_study/standard_analysis.yml
 ```
 
-@subsection qcrit_ssec 4.2 Add Q-Criterion
+Use when solver outputs already exist and you are iterating only on analysis pipeline.
+
+@subsection qcrit_ssec 4.2 Add Q-Criterion to Eulerian Pipeline
 
 ```yaml
 eulerian_pipeline:
@@ -156,6 +212,10 @@ io:
     - Qcrit
 ```
 
+Verification:
+
+- open VTK output and confirm `Qcrit` field is present.
+
 @subsection stats_ssec 4.3 Enable Statistics Output (MSD)
 
 ```yaml
@@ -165,7 +225,11 @@ statistics_pipeline:
     - task: msd
 ```
 
-@section sweep_sec 5. Sweeps and Study Arrays
+Verification:
+
+- check `Stats_msd.csv` in configured output location.
+
+@section sweep_sec 5. Sweep Studies
 
 ```bash
 python3 scripts/pic.flow sweep \
@@ -173,19 +237,17 @@ python3 scripts/pic.flow sweep \
   --cluster my_study/cluster.yml
 ```
 
-This creates `studies/<study_id>/...`, submits solver/post array jobs with dependency chaining, and writes aggregated metrics/plots.
+What you get:
+
+- expanded case matrix,
+- scheduler array scripts,
+- aggregated metrics table,
+- optional plots.
+
+See **@subpage 37_Sweep_Studies_Guide** for full contract details.
 
 @section next_steps_sec 6. Next Steps
 
-Proceed to **@subpage 12_Capabilities_Summary**.
-
-For full option reference, also see:
-- **@subpage 07_Case_Reference**
-- **@subpage 08_Solver_Reference**
-- **@subpage 09_Monitor_Reference**
-- **@subpage 10_Post_Processing_Reference**
-- **@subpage 33_Initial_Conditions**
-- **@subpage 34_Particle_Model_Overview**
-- **@subpage 38_Start_Here_10_Minutes**
-- **@subpage 39_Common_Fatal_Errors**
-- **@subpage 40_Testing_and_Quality_Guide**
+- Full capability map: **@subpage 12_Capabilities_Summary**
+- Config references: **@subpage 07_Case_Reference**, **@subpage 08_Solver_Reference**, **@subpage 09_Monitor_Reference**, **@subpage 10_Post_Processing_Reference**
+- Troubleshooting and quality: **@subpage 39_Common_Fatal_Errors**, **@subpage 40_Testing_and_Quality_Guide**

@@ -1,4 +1,4 @@
-@page 05_The_Conductor_Script The Conductor Script: `pic.flow`
+@page 05_The_Conductor_Script The Conductor Script: pic.flow
 
 `pic.flow` is the workflow orchestrator for PICurv. It validates YAML inputs, generates C runtime artifacts, and runs or schedules solver/postprocessing stages.
 
@@ -25,7 +25,7 @@ python3 scripts/pic.flow sweep --help
 python3 scripts/pic.flow validate --help
 ```
 
-@section run_sec 2. `run`: Single-Case Workflow
+@section run_sec 2. run: Single-Case Workflow
 
 ```bash
 python3 scripts/pic.flow run [STAGES] [INPUTS] [OPTIONS]
@@ -96,7 +96,7 @@ python3 scripts/pic.flow run --solve --post-process \
   --dry-run --format json
 ```
 
-@section sweep_sec 3. `sweep`: Parameter Study via Slurm Arrays
+@section sweep_sec 3. sweep: Parameter Study via Slurm Arrays
 
 ```bash
 python3 scripts/pic.flow sweep \
@@ -111,7 +111,7 @@ Behavior:
 - submits post array with `afterok:<solver_jobid>` dependency (unless `--no-submit`)
 - aggregates metrics and emits plots in `studies/<study_id>/results/`
 
-@section validate_sec 4. `validate`: Config-Only Checks
+@section validate_sec 4. validate: Config-Only Checks
 
 ```bash
 python3 scripts/pic.flow validate \
