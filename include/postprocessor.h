@@ -11,6 +11,7 @@
 #include "Metric.h"
 #include "postprocessing_kernels.h"
 #include "vtk_io.h"
+#include "particle_statistics.h"
 /* --------------------------------------------------------------------
    postprocessor.h
 

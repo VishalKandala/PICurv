@@ -115,7 +115,8 @@ PICSOLVER_OBJS := $(addprefix $(OBJDIR)/, \
 POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
                      postprocessor.o setup.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
                      Boundaries.o BC_Handlers.o wallfunction.o postprocessing_kernels.o vtk_io.o \
-					 ParticleSwarm.o ParticleMotion.o interpolation.o walkingsearch.o)
+					 ParticleSwarm.o ParticleMotion.o interpolation.o walkingsearch.o \
+					 particle_statistics.o)
 
 # --- 4. Executable Definitions ---
 # Define the final paths for the compiled programs.
