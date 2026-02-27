@@ -1,7 +1,7 @@
 @page 02_Tutorial_Programmatic_Grid Tutorial: Your First Simulation (Flat Channel)
 
 This is the complete first simulation walkthrough for PICurv using the `flat_channel` template.
-Compared to **@subpage 38_Start_Here_10_Minutes**, this page explains what each step does and how to verify outcomes.
+This is the canonical first-simulation walkthrough with both commands and reasoning.
 
 @tableofcontents
 

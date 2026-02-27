@@ -17,6 +17,11 @@ jobs:
       - name: Generate Doxygen
         working-directory: docs
         run: doxygen Doxyfile
+      - name: Verify key Doxygen index pages
+        run: |
+          test -f docs/docs_build/html/files.html
+          test -f docs/docs_build/html/annotated.html
+          test -f docs/docs_build/html/pages.html
       - name: Upload build artifact (for mirroring)
         uses: actions/upload-artifact@v4
         with:
@@ -45,12 +50,33 @@ jobs:
           rm -rf site/docs/pic_dev
           mkdir -p site/docs/pic_dev
           cp -R built-docs/* site/docs/pic_dev/
+          touch site/docs/pic_dev/.nojekyll
+          mkdir -p site/_pages
+          cat > site/_pages/picurv-docs.md << 'EOF'
+          ---
+          layout: page
+          title: PICurv Docs
+          permalink: /picurv-docs/
+          nav: true
+          nav_order: 8
+          description: PICurv solver documentation (Doxygen)
+          ---
+
+          <iframe src="{{ '/docs/pic_dev/index.html' | relative_url }}"
+                  style="width: 100%; min-height: 82vh; border: 0;"
+                  loading="lazy"
+                  title="PICurv Doxygen Documentation">
+          </iframe>
+
+          If the embedded view does not load, open the standalone docs:
+          [PICurv Doxygen Documentation]({{ '/docs/pic_dev/index.html' | relative_url }}).
+          EOF
 
       - name: Commit & push
         working-directory: site
         run: |
           git config user.name  "gh-actions"
           git config user.email "actions@github.com"
-          git add docs/pic_dev
+          git add docs/pic_dev _pages/picurv-docs.md
           git commit -m "Update PIC Dev Doxygen docs" || echo "No changes to commit"
           git push origin HEAD:master || git push origin HEAD:main

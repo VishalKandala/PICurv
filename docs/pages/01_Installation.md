@@ -138,5 +138,4 @@ For runtime-level failures after successful build, see **@subpage 39_Common_Fata
 
 @section next_steps_sec 9. Next Steps
 
-- Quick path: **@subpage 38_Start_Here_10_Minutes**
-- Full first simulation: **@subpage 02_Tutorial_Programmatic_Grid**
+- First simulation walkthrough: **@subpage 02_Tutorial_Programmatic_Grid**
