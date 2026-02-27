@@ -716,13 +716,16 @@ int main(int argc, char **argv)
     PostProcessParams *pps = simCtx->pps;
 
     // === VI. PARTICLE INITIALIZATION (if needed) ============================
-    if(pps->outputParticles) {
+    PetscBool needs_particle_stage = (pps->outputParticles || pps->statistics_pipeline[0] != '\0') ? PETSC_TRUE : PETSC_FALSE;
+    if(needs_particle_stage) {
         if(simCtx->np > 0){
             ierr = InitializeParticleSwarm(simCtx); CHKERRQ(ierr);
             // Create a post-processing specific DMSwarm
             ierr = SetupPostProcessSwarm(user,pps); CHKERRQ(ierr);
         }else{
-            SETERRQ(PETSC_COMM_SELF,1,"Particle output requested but np=0. Please set np>0 to enable particle output.");
+            SETERRQ(PETSC_COMM_SELF,1,
+                    "Particle post-processing requested (particle output or statistics pipeline) but np=0. "
+                    "Please set np>0 during solver run to enable particle post-processing.");
         }
     }
 
@@ -742,7 +745,7 @@ int main(int argc, char **argv)
         // 3. Write Output
         ierr = WriteEulerianFile(user, pps, ti); CHKERRQ(ierr);
 
-        if(pps->outputParticles) {
+        if(needs_particle_stage) {
             // 1. Resize swarm based on particle count in this timestep's file
             ierr = PreCheckAndResizeSwarm(user, ti, pps->particleExt); CHKERRQ(ierr);
 
@@ -752,8 +755,10 @@ int main(int argc, char **argv)
             // 3. Transform particle data
             ierr = ParticleDataProcessingPipeline(user, pps); CHKERRQ(ierr);
 
-            // 4. Write particle output
-            ierr = WriteParticleFile(user, pps, ti); CHKERRQ(ierr);
+            // 4. Write particle output (optional)
+            if (pps->outputParticles) {
+                ierr = WriteParticleFile(user, pps, ti); CHKERRQ(ierr);
+            }
 
             // 5. Global statistical reductions (MSD, etc.) → CSV files
             ierr = GlobalStatisticsPipeline(user, pps, ti); CHKERRQ(ierr);

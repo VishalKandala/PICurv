@@ -24,6 +24,8 @@ io:
     output: "results"
     restart: "results"
     log: "logs"
+    eulerian_subdir: "eulerian"
+    particle_subdir: "particles"
 ```
 
 | Parameter | Type | Description | C-Solver Flag |
@@ -33,6 +35,8 @@ io:
 | `directories.output` | String | The name of the subdirectory within the run folder where simulation results (`ufield`, `pfield`, etc.) will be saved. | `-output_dir` |
 | `directories.restart`| String | The name of the subdirectory where the solver will look for restart files. | `-restart_dir` |
 | `directories.log` | String | The name of the subdirectory where text-based log files (e.g., convergence history) will be saved. | `-log_dir` |
+| `directories.eulerian_subdir` | String | Name of the Eulerian subdirectory under output/restart roots. | `-euler_subdir` |
+| `directories.particle_subdir` | String | Name of the particle subdirectory under output/restart roots. | `-particle_subdir` |
 
 @section logging_sec 2. The `logging` Section
 
@@ -74,8 +78,26 @@ profiling:
 | :--- | :--- | :--- | :--- |
 | `critical_functions`| String List | A list of C function names that are considered "critical" for performance. The time spent in these functions will be logged at the `INFO` verbosity level at the end of each time step. A full report of all profiled functions is always available at the `PROFILE` verbosity level. | `-profile_config_file` |
 
-@section next_steps_sec 4. Next Steps
+@section solver_monitoring_sec 4. The `solver_monitoring` Section
+
+This section passes raw PETSc-style monitor/debug flags directly to the solver.
+
+```yaml
+solver_monitoring:
+  -ps_ksp_pic_monitor_true_residual: true
+  -ps_ksp_converged_reason: true
+```
+
+Rules:
+- Keys must be full CLI flags (for example, `-ps_ksp_converged_reason`).
+- `true` emits the flag as a switch in the generated `.control` file.
+- `false` omits the flag.
+- Non-boolean values are emitted as `flag value`.
+
+@section next_steps_sec 5. Next Steps
 
 You now have a complete understanding of the main configuration files for running a simulation. The final piece of the user workflow is learning how to analyze the data you've generated.
 
 Proceed to the **@subpage 10_Post_Processing_Reference** to learn about all the parameters available in the `post.yml` file for creating analysis recipes.
+
+For full pipeline contract and artifact mapping, see **@subpage 14_Config_Contract** and **@subpage 15_Config_Ingestion_Map**.

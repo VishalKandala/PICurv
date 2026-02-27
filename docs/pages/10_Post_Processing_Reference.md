@@ -17,18 +17,18 @@ A `post.yml` file is organized into sections that control the time range, data s
 ```yaml
 # Example post.yml
 run_control:
-  startTime: 100
-  endTime: 1000
-  timeStep: 100
+  start_step: 100
+  end_step: 1000
+  step_interval: 100
 
 source_data:
   directory: "<solver_output_dir>"
 
 eulerian_pipeline:
-  - task: CellToNodeAverage
+  - task: nodal_average
     input_field: Ucat
     output_field: Ucat_nodal
-  - task: ComputeQCriterion
+  - task: q_criterion
 
 lagrangian_pipeline:
   - task: specific_ke
@@ -54,9 +54,9 @@ This section specifies which timesteps from the simulation will be analyzed.
 
 | Parameter | Type | Description |
 | :--- | :--- | :--- |
-| `startTime` | Integer | The first time step to process. |
-| `endTime` | Integer | The last time step to process. |
-| `timeStep` | Integer | The interval between processed time steps. |
+| `start_step` | Integer | The first time step to process. |
+| `end_step` | Integer | The last time step to process. |
+| `step_interval` | Integer | The interval between processed time steps. |
 
 @section source_data_sec 3. The `source_data` Section
 
@@ -74,9 +74,9 @@ This is a list of computational tasks (kernels) that are executed in sequence on
 
 | `task` Name | Description | Parameters |
 | :--- | :--- | :--- |
-| `CellToNodeAverage` | Averages a cell-centered field to the grid nodes. This is essential for creating smooth visualizations. | `input_field`: Name of the cell-centered field (e.g., "Ucat", "P").<br>`output_field`: Name for the new node-centered field (e.g., "Ucat_nodal", "P_nodal"). |
-| `ComputeQCriterion` | Computes the Q-criterion, a scalar field used to identify vortices. This creates a new field named `Qcrit`. | *None* |
-| `NormalizeRelativeField`| Normalizes a scalar field (like pressure) by subtracting the value at a reference point. | `field`: The name of the field to normalize (e.g., "P").<br>`reference_point`: A list of 3 integers `[i, j, k]` for the reference grid index. |
+| `nodal_average` | Averages a cell-centered field to the grid nodes. This is essential for creating smooth visualizations. | `input_field`: Name of the cell-centered field (e.g., "Ucat", "P").<br>`output_field`: Name for the new node-centered field (e.g., "Ucat_nodal", "P_nodal"). |
+| `q_criterion` | Computes the Q-criterion, a scalar field used to identify vortices. This creates a new field named `Qcrit`. | *None* |
+| `normalize_field`| Normalizes a scalar field (like pressure) by subtracting the value at a reference point. | `field`: The name of the field to normalize (e.g., "P").<br>`reference_point`: A list of 3 integers `[i, j, k]` for the reference grid index. |
 | `DimensionalizeAllLoadedFields` | (Implicitly available) Converts all loaded non-dimensional fields to dimensional units using the scaling factors from the original `case.yml`. This is usually run automatically. | *None* |
 
 @section lagrangian_pipeline_sec 5. The `lagrangian_pipeline` Section
@@ -101,11 +101,15 @@ This section controls the format and content of the final visualization files (`
 | `output_particles` | Boolean | If `true`, the post-processor will load, process, and save particle data into `.vtp` files. |
 | `particle_subsampling_frequency`| Integer | Saves particle data for every N-th particle, reducing the size of `.vtp` files. A value of `1` saves all particles. |
 | `eulerian_fields` | String List | A list of the final grid-based fields to include in the output `.vts` files. These can be fields loaded from the solver or new fields created by the pipeline. |
+| `eulerian_fields_averaged` | String List | Reserved passthrough for averaged Eulerian output field names (`post.run` key: `output_fields_averaged`). |
 | `particle_fields` | String List | A list of the final particle-based fields to include in the output `.vtp` files. |
+| `input_extensions.eulerian` | String | Input extension for Eulerian data files read by postprocessor (maps to `eulerianExt`). |
+| `input_extensions.particle` | String | Input extension for particle data files read by postprocessor (maps to `particleExt`). |
 
 @section next_steps_sec 7. Next Steps
 
 You have now completed the reference guides for all the core configuration files in the PICurv user workflow. The next step is to explore a collection of practical examples.
 
 Proceed to the **@subpage 11_User_How_To_Guides** for a list of quick, goal-oriented recipes for common simulation tasks.
-logical step is to create the "How-To Guides" page that consolidates answers to common user questions. Ready to proceed?
+
+For schema-to-C mapping and extension guidance, see **@subpage 15_Config_Ingestion_Map** and **@subpage 16_Config_Extension_Playbook**.

@@ -28,6 +28,18 @@
 PetscErrorCode ReadGridGenerationInputs(UserCtx *user);
 
 /**
+ * @brief Parses grid resolution arrays (`-im`, `-jm`, `-km`) once and applies them to all finest-grid blocks.
+ *
+ * This helper centralizes one-time resolution ingestion for analytical grid setup.
+ * It fills `IM/JM/KM` in each element of the finest-level `UserCtx` array.
+ *
+ * @param finest_users Pointer to the finest-level `UserCtx` array (length `nblk`).
+ * @param nblk Number of blocks in the finest-level array.
+ * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ */
+PetscErrorCode PopulateFinestUserGridResolutionFromOptions(UserCtx *finest_users, PetscInt nblk);
+
+/**
  * @brief Sets grid dimensions from a file for a SINGLE block using a one-time read cache.
  *
  * This function uses a static-variable pattern to ensure the grid file header

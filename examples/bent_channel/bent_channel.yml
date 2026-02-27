@@ -60,7 +60,9 @@ boundary_conditions:
     type: INLET
     handler: constant_velocity
     params:
-      vector: [0.0, 0.0, 1.0] # Physical velocity [m/s]
+      vx: 0.0 # Physical velocity [m/s]
+      vy: 0.0
+      vz: 1.0
   - face: "+Zeta"
     type: OUTLET
     handler: conservation

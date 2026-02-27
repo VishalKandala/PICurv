@@ -100,6 +100,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->max_pseudo_cfl = 1.0; simCtx->min_pseudo_cfl = 0.001;
     simCtx->pseudo_cfl_reduction_factor = 1.0;
     simCtx->pseudo_cfl_growth_factor = 1.0; //simCtx->vnn = 0.1;
+    simCtx->ps_ksp_pic_monitor_true_residual = PETSC_FALSE;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
     simCtx->FieldInitialization = 0;
     simCtx->InitialConstantContra.x = 0.0;
@@ -321,25 +322,28 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     //  --- Group 5
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 5: Solver & Numerics Parameters \n");
     char mom_solver_type_char[PETSC_MAX_PATH_LEN];
-    ierr = PetscOptionsGetString(NULL, NULL, "-mom_solver_type", &mom_solver_type_char,sizeof(mom_solver_type_char),NULL); CHKERRQ(ierr);
+    PetscBool mom_solver_type_flg = PETSC_FALSE;
+    ierr = PetscOptionsGetString(NULL, NULL, "-mom_solver_type", mom_solver_type_char, sizeof(mom_solver_type_char), &mom_solver_type_flg); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mom_max_pseudo_steps", &simCtx->mom_max_pseudo_steps, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-mom_atol", &simCtx->mom_atol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-mom_rtol", &simCtx->mom_rtol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-imp_stol", &simCtx->imp_stol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-central", &simCtx->central, NULL); CHKERRQ(ierr);
 
-    // Map the string input to the enum type.
-    if(strcmp(mom_solver_type_char, "DUALTIME_PICARD_RK4") == 0) {
-        simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4;
-    } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ARNOLDI") == 0) {
-        simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI;
-    } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ANALYTICAL_JACOBIAN") == 0) {
-        simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN;
-    } else if (strcmp(mom_solver_type_char, "EXPLICIT_RK") == 0) {
-        simCtx->mom_solver_type = MOMENTUM_SOLVER_EXPLICIT_RK;
-    } else {
-        LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_RK4', 'DUALTIME_NK_ARNOLDI', 'DUALTIME_NK_ANALYTICAL_JACOBIAN', 'EXPLICIT_RK'.\n", mom_solver_type_char);
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -mom_solver_type: '%s'.", mom_solver_type_char);
+    // Map the string input to the enum type only when explicitly provided.
+    if (mom_solver_type_flg) {
+        if(strcmp(mom_solver_type_char, "DUALTIME_PICARD_RK4") == 0) {
+            simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4;
+        } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ARNOLDI") == 0) {
+            simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI;
+        } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ANALYTICAL_JACOBIAN") == 0) {
+            simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN;
+        } else if (strcmp(mom_solver_type_char, "EXPLICIT_RK") == 0) {
+            simCtx->mom_solver_type = MOMENTUM_SOLVER_EXPLICIT_RK;
+        } else {
+            LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_RK4', 'DUALTIME_NK_ARNOLDI', 'DUALTIME_NK_ANALYTICAL_JACOBIAN', 'EXPLICIT_RK'.\n", mom_solver_type_char);
+            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -mom_solver_type: '%s'.", mom_solver_type_char);
+        }
     }
     
     // --- Multigrid Options ---
@@ -360,6 +364,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl_reduction_factor", &simCtx->pseudo_cfl_reduction_factor, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl_growth_factor", &simCtx->pseudo_cfl_growth_factor, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_rk4_residual_norm_noise_allowance_factor",&simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsHasName(NULL, NULL, "-ps_ksp_pic_monitor_true_residual", &simCtx->ps_ksp_pic_monitor_true_residual); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-finit", &simCtx->FieldInitialization, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_y", &simCtx->InitialConstantContra.y, NULL); CHKERRQ(ierr);
@@ -493,7 +498,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 12: Post-Processing Information.\n");
     // This logic determines the Post Processing configuration and STORES it in simCtx for later reference and cleanup.
     ierr = PetscOptionsGetString(NULL,NULL,"-postprocessing_config_file",simCtx->PostprocessingControlFile,PETSC_MAX_PATH_LEN,NULL); CHKERRQ(ierr);
-    ierr = PetscNew(&simCtx->pps); CHKERRQ(ierr);
+    /* Parse post settings for both solver and post-processor binaries using the single pre-allocated pps object. */
     ierr = ParsePostProcessingSettings(simCtx);
 
     // === 5. Dependent Parameter Calculations ================================

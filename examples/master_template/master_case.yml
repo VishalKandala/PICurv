@@ -79,15 +79,29 @@ properties:
 grid:
   # --- Mode Selection ---
   # Determines how the grid is provided to the solver.
-  # Options: 'file' or 'programmatic_c'.
+  # Options: 'file', 'programmatic_c', or 'grid_gen'.
   mode: programmatic_c
 
   # --- Option A: Grid from File ---
   # Use this if you have a pre-generated grid file.
-  # The script will non-dimensionalize the coordinates using 'length_ref'.
+  # The script validates and non-dimensionalizes coordinates using 'length_ref'.
   # source_file: "grids/my_premade_grid.picgrid"
 
-  # --- Option B: Programmatic Grid Generation ---
+  # --- Option B: Grid via Python Grid Generator (scripts/grid.gen) ---
+  # Use this for complex curvilinear meshes generated before solver launch.
+  # generator:
+  #   config_file: "grids/grid.cfg"    # Required. Relative to case.yml or absolute.
+  #   grid_type: "cpipe"               # Optional override: cpipe | pipe | warp
+  #   cli_args:                        # Optional raw CLI token list
+  #     - "--ncells-i"
+  #     - "96"
+  #     - "--ncells-j"
+  #     - "96"
+  #   output_file: "config/grid.generated.picgrid"  # Optional; relative to run dir.
+  #   stats_file: "config/grid.generated.info"      # Optional.
+  #   vts_file: "config/grid.generated.vts"         # Optional.
+
+  # --- Option C: Programmatic Grid Generation in C ---
   # Use this to have the C solver generate a structured Cartesian grid.
   # For MULTI-BLOCK cases, all values must be LISTS of the same length.
   programmatic_settings:
@@ -111,11 +125,12 @@ grid:
     rzs: 1.0
 
     # --- Domain Decomposition (for parallel runs) ---
-    # Number of MPI processes in each direction for this block.
-    # The product must equal the total number of processes assigned to the block.
+    # GLOBAL DMDA layout for the run (single value per direction).
+    # NOTE: Per-block processor decomposition is not implemented on the C side.
+    # The product must equal the total number of MPI processes (-n) for parallel runs.
     da_processors_x: 2
     da_processors_y: 2
-    da_processors_z: 4  # -> For a 2-block run on 32 procs (16 each): [2, 2]
+    da_processors_z: 4
 
 # ==============================================================================
 # 4. MODEL SELECTION
@@ -140,8 +155,12 @@ models:
 
     particles:
       count: 0             # [Integer] -> -numParticles
-      init_mode: "Surface" # [string] -> -pinit. Options: "Surface" (0), "volume" (1)
+      init_mode: "Surface" # [string] -> -pinit. Options: "Surface"(0), "Volume"(1), "PointSource"(2), "SurfaceEdges"(3)
       restart_mode: "init" # [string] -> -particle_restart_mode. Options: "init", "load"
+      point_source:        # Required only when init_mode = "PointSource" (maps to -psrc_x/-psrc_y/-psrc_z)
+        x: 0.5
+        y: 0.5
+        z: 0.5
 
     turbulence:
       les: false           # [true/false] -> -les (Large Eddy Simulation)
@@ -174,7 +193,9 @@ boundary_conditions:
     type: INLET
     handler: constant_velocity
     params:
-      vector: [1.5, 0.0, 0.0]  # Physical velocity [m/s]
+      vx: 1.5  # Physical velocity [m/s]
+      vy: 0.0
+      vz: 0.0
       
   - face: "+Eta"
     type: OUTLET
@@ -200,7 +221,7 @@ boundary_conditions:
 #     - face: "-Eta"
 #       type: INLET
 #       handler: constant_velocity
-#       params: { vector: [1.5, 0.0, 0.0] }
+#       params: { vx: 1.5, vy: 0.0, vz: 0.0 }
 #     - face: "+Eta"
 #       type: WALL
 #       handler: noslip
@@ -210,6 +231,16 @@ boundary_conditions:
 #     - face: "+Zeta"
 #       type: WALL
 #       handler: noslip
+
+# ==============================================================================
+# 6. ADVANCED PASSTHROUGH (OPTIONAL)
+# ------------------------------------------------------------------------------
+# Use this for C flags not yet exposed in the structured schema.
+# Keys must be full C/PETSc-style flags (including leading '-').
+# ==============================================================================
+# solver_parameters:
+#   -read_fields: true
+#   -some_new_flag: 123
 #   # --- Block 1 Definitions ---
 #   - - face: "-Xi"  # Interface where Block 1 connects to Block 0
 #       type: INTERFACE

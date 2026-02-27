@@ -95,8 +95,18 @@ lagrangian_pipeline:
     input_field: 'velocity'
     output_field: 'ske'
 
+# --- Global Particle Statistics Pipeline ---
+# Optional reduction kernels that append CSV diagnostics per timestep.
+# NOTE: Requires particle data in solver outputs (np > 0 at solve time).
+statistics_pipeline:
+  # Optional base name for CSV outputs (default: "Stats")
+  output_prefix: "Stats"
+  tasks:
+    # Mean-square displacement based on simCtx->psrc_x/y/z reference point.
+    - task: msd
+
 # ==============================================================================
-# SECTION 3: OUTPUT CONFIGURATION
+# SECTION 4: OUTPUT CONFIGURATION
 # ------------------------------------------------------------------------------
 # Controls what data is written to the final VTK files.
 # ==============================================================================
@@ -123,6 +133,10 @@ io:
     - 'Qcrit'
     - 'P_nodal'
 
+  # (Optional) Reserved for future averaged-field writer support.
+  # Maps to 'output_fields_averaged' in post.cfg.
+  eulerian_fields_averaged: []
+
   # (Optional) A master switch for all particle-related output. Defaults to false.
   # Maps to 'output_particles' in post.cfg.
   output_particles: true
@@ -141,3 +155,9 @@ io:
   # Defaults to 1 if not specified.
   # Maps to 'particle_output_freq' in post.cfg.
   particle_subsampling_frequency: 1
+
+  # (Optional) Input file extensions used by the C post reader (without dot preferred).
+  # Maps to 'eulerianExt' and 'particleExt' in post.cfg.
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"

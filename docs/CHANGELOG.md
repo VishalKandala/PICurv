@@ -1,3 +1,17 @@
 # Changelog
 - Unreleased
   - Initial Doxygen docs scaffold, architecture & dev guide pages.
+  - Hardened YAML->C config contract across case/solver/monitor/post:
+    - Scalar-only `da_processors_*` contract with validation.
+    - Structured mappings for analytical type and monitor subdirectories.
+    - Post input extension keys and statistics pipeline wiring.
+  - Added config contract documentation set:
+    - `14_Config_Contract.md`
+    - `15_Config_Ingestion_Map.md`
+    - `16_Config_Extension_Playbook.md`
+  - Added ingress drift guard:
+    - `scripts/audit_ingress.py`
+    - `scripts/audit_ingress_manifest.json`
+  - Added explicit documentation note on data-driven particle-closure expansion:
+    - Offline workflows supported now via solver/post artifacts.
+    - Tightly coupled inference requires runtime-selectable closure interface extension.

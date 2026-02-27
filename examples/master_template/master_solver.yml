@@ -17,21 +17,43 @@ operation_mode:
   # 'solve': (Default) Compute the fluid dynamics equations.
   # 'load':  Load pre-computed field data from disk.
   eulerian_field_source: "solve"  # -> -euler_field_source
+  # Optional analytical solution selector used when eulerian_field_source = "analytical".
+  analytical_type: "TGV3D"        # -> -analytical_type
 
 # ==============================================================================
 # 2. PRIMARY SOLVER STRATEGY & TOLERANCES
 # ==============================================================================
 # --- Main Time-Stepping Scheme ---
 strategy:
-  implicit: true      # [true/false] -> -imp
+  momentum_solver: "Dual Time Picard RK4" # -> -mom_solver_type (preferred, extensible form)
   central_diff: false # [true/false] -> -central
 
-# --- Convergence Criteria for the Implicit Solver ---
+# --- Convergence Criteria for the Momentum Solver ---
 tolerances:
-  max_iterations: 50   # [Integer] -> -imp_MAX_IT
-  absolute_tol: 1.0e-8 # [Float] -> -imp_atol
-  relative_tol: 1.0e-5 # [Float] -> -imp_rtol
+  max_iterations: 50   # [Integer] -> -mom_max_pseudo_steps
+  absolute_tol: 1.0e-8 # [Float] -> -mom_atol
+  relative_tol: 1.0e-5 # [Float] -> -mom_rtol
   step_tol:     1.0e-8 # [Float] -> -imp_stol
+
+# --- Advanced Momentum Solver Controls (optional) ---
+# This section exposes newer dual-time controls directly (no passthrough needed).
+momentum_solver:
+  # Optional fallback selector if strategy.momentum_solver is not set.
+  # type: "DUALTIME_PICARD_RK4"
+
+  # Solver-specific controls for Dual Time Picard RK4.
+  dual_time_picard_rk4:
+    max_pseudo_steps: 50         # -> -mom_max_pseudo_steps
+    absolute_tol: 1.0e-8         # -> -mom_atol
+    relative_tol: 1.0e-5         # -> -mom_rtol
+    step_tol: 1.0e-8             # -> -imp_stol
+    pseudo_cfl:
+      initial: 0.1               # -> -pseudo_cfl
+      minimum: 0.001             # -> -min_pseudo_cfl
+      maximum: 1.0               # -> -max_pseudo_cfl
+      growth_factor: 1.0         # -> -pseudo_cfl_growth_factor
+      reduction_factor: 1.0      # -> -pseudo_cfl_reduction_factor
+    rk4_residual_noise_allowance_factor: 1.05 # -> -mom_dt_rk4_residual_norm_noise_allowance_factor
 
 # ==============================================================================
 # 3. PRESSURE-POISSON SOLVER CONFIGURATION
@@ -76,6 +98,13 @@ petsc_passthrough_options:
   # --- PC (Preconditioner) Settings ---
   # The C-code forces the top-level PC to be 'mg'. This line is for clarity.
   -ps_pc_type: "mg"
+
+  # --- Additional Momentum Controls (if you prefer passthrough style) ---
+  # -pseudo_cfl: 0.1
+  # -max_pseudo_cfl: 1.0
+  # -min_pseudo_cfl: 0.001
+  # -pseudo_cfl_growth_factor: 1.0
+  # -pseudo_cfl_reduction_factor: 1.0
 
   # --- Redundant/Ineffective Flag Example ---
   # You could add the following line here, but the C-code's hardcoded

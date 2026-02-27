@@ -28,7 +28,14 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
 
     PROFILE_FUNCTION_BEGIN;
     if(strcmp(simCtx->eulerianSource,"analytical")==0){
-        ierr = SetAnalyticalGridInfo(user); CHKERRQ(ierr);
+        if (AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) {
+            ierr = SetAnalyticalGridInfo(user); CHKERRQ(ierr);
+        } else {
+            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
+                           "Rank %d: Analytical type '%s' uses programmatic grid fallback for block %d.\n",
+                           simCtx->rank, simCtx->AnalyticalSolutionType, user->_this);
+            ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
+        }
     }else{ // eulerianSource is "solve" or "load"
         if (simCtx->generate_grid) {
             LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
@@ -82,6 +89,13 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
     finest_users = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Defining grid dimensions for %d blocks...\n", nblk);
+    if (strcmp(simCtx->eulerianSource, "analytical") == 0 &&
+        AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) {
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "Analytical type '%s' requires custom geometry; preloading finest-grid IM/JM/KM once.\n",
+                  simCtx->AnalyticalSolutionType);
+        ierr = PopulateFinestUserGridResolutionFromOptions(finest_users, nblk); CHKERRQ(ierr);
+    }
 
     // Loop over each block to configure its grid dimensions and geometry.
     for (PetscInt bi = 0; bi < nblk; bi++) {

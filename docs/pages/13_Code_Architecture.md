@@ -89,3 +89,4 @@ This page provides the "map" to the codebase. To understand how these components
 
 - **Next:** Dive into the **@subpage 14_Core_Algorithms** to see a detailed breakdown of the main simulation loop.
 - **For function-level details:** Consult the **@ref "" "API Reference"**.
+- **For configuration ingress and extension workflow:** see **@subpage 15_Config_Ingestion_Map** and **@subpage 16_Config_Extension_Playbook**.

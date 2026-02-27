@@ -76,3 +76,8 @@ config/
 Now that you understand the roles of the different configuration files, you are ready to learn the specific parameters for each.
 
 Proceed to the **@subpage 07_Case_Reference** to dive into the details of the `case.yml` file.
+
+For full pipeline contracts and developer mapping details, see:
+- **@subpage 14_Config_Contract**
+- **@subpage 15_Config_Ingestion_Map**
+- **@subpage 16_Config_Extension_Playbook**
