@@ -1,0 +1,21 @@
+base_configs:
+  case: "bent_channel.yml"
+  solver: "Imp-MG-Standard.yml"
+  monitor: "Standard_Output.yml"
+  post: "standard_analysis.yml"
+
+study_type: "timestep_independence"
+
+parameters:
+  case.run_control.dt_physical: [0.001, 0.0005, 0.00025]
+
+metrics:
+  - msd_final
+
+plotting:
+  enabled: true
+  output_format: "png"
+
+execution:
+  max_concurrent_array_tasks: 2
+

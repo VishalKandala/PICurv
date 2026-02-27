@@ -1,4 +1,4 @@
-# Grid, Cell, and Variable Architecture Guide
+@page 20_Grid_Cell_Architecture_Guide Grid, Cell, and Variable Architecture Guide
 
 ## 1. Overview
 

@@ -1,102 +1,107 @@
 # PICurv
 
-A parallel, high-performance Particle-In-Cell (PIC) solver with curvilinear coordinate support.
+A parallel Eulerian-Lagrangian solver for incompressible flow and particle transport on curvilinear structured grids.
 
-PICurv enables efficient simulation of particle-laden flows in complex geometries by combining state-of-the-art numerical methods with high-performance parallel computing. Perfect for multiphase flow simulations, plasma physics, and particle transport phenomena in curved geometries.
+![PICurv Preview](docs/assets/curv.gif)
 
-![Curvilinear Grid with Particles](curv.gif)
+## What It Provides
 
-## Overview
+- Incompressible flow solve (fractional-step projection) on curvilinear grids
+- Particle tracking with PETSc `DMSwarm`
+- Grid-particle interpolation and particle-grid projection
+- Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`)
+- YAML-driven orchestration through `./scripts/pic.flow`
+- Slurm job generation/submission from YAML (`cluster.yml`)
+- Parameter sweep orchestration with Slurm arrays (`study.yml`)
+- Solver and postprocessor executables from one build system
 
-PICurv is a scientific computing application that combines Eulerian grid-based fluid dynamics with Lagrangian particle tracking using the PIC (Particle-In-Cell) method. It features:
+## Quick Start
 
-- Parallel execution using MPI and PETSc
-- Curvilinear coordinate system support
-- Flexible boundary condition handling
-- Turbulence modeling (LES/RANS)
-- Advanced particle tracking algorithms
-- VTK-compatible output for visualization
-
-## Prerequisites
-
-- C compiler (GCC/Clang)
-- MPI implementation (OpenMPI/MPICH)
-- PETSc library
-- GNU Make
-- Doxygen (for documentation)
-
-## Building
-
-1. Set required environment variables:
-```sh
+1. Set PETSc environment variables:
+```bash
 export PETSC_DIR=/path/to/petsc
 export PETSC_ARCH=arch-linux-c-debug
 ```
 
-2. Build the project:
-```sh
-# For local development
-make
-
-# For cluster deployment
-make SYSTEM=cluster
+2. Build:
+```bash
+./scripts/pic.flow build
 ```
 
-## Running a Simulation
-
-1. Create a simulation directory:
-```sh
-mkdir my_simulation
-cd my_simulation
-mkdir logs results
+3. Initialize an example:
+```bash
+./scripts/pic.flow init flat_channel --dest my_case
 ```
 
-2. Copy configuration files:
-```sh
-cp -r /path/to/picurv/test/flow_solver_test/config .
+4. Run solver + post:
+```bash
+./scripts/pic.flow run --solve --post-process -n 4 \
+  --case my_case/flat_channel.yml \
+  --solver my_case/Imp-MG-Standard.yml \
+  --monitor my_case/Standard_Output.yml \
+  --post my_case/standard_analysis.yml
 ```
 
-3. Link the executable:
-```sh
-ln -s /path/to/picurv/bin/picsolver .
+5. Run on a cluster (Slurm):
+```bash
+./scripts/pic.flow run --solve --post-process \
+  --case my_case/flat_channel.yml \
+  --solver my_case/Imp-MG-Standard.yml \
+  --monitor my_case/Standard_Output.yml \
+  --post my_case/standard_analysis.yml \
+  --cluster my_case/slurm_cluster.yml
 ```
 
-4. Run the simulation:
-```sh
-# Local run with 4 processes
-make run NPROCS=4
-
-# Cluster run with 64 processes
-make run SYSTEM=cluster NPROCS=64
+6. Launch a sweep study:
+```bash
+./scripts/pic.flow sweep \
+  --study my_case/grid_independence_study.yml \
+  --cluster my_case/slurm_cluster.yml
 ```
 
-## Directory Structure
+## Repository Navigation
 
-```
-├── bin/           # Compiled executables
-├── docs/          # Documentation
-├── include/       # Header files
-├── src/           # Source files
-├── test/          # Test cases
-└── config.*.mk    # Build configurations
-```
+Top-level guides:
+- `config/guide.md`
+- `docs/guide.md`
+- `examples/guide.md`
+- `include/guide.md`
+- `src/guide.md`
+- `scripts/guide.md`
+- `sandbox/guide.md`
+- `logs/guide.md`
+
+Build config location:
+- `config/build/` (`config.local.mk`, `config.cluster.mk`, `config.petsc.mk`)
+
+Grid profile library:
+- `config/grids/` (shared `grid.gen` configs)
+
+Scheduler/study profiles:
+- `config/schedulers/`
+- `config/studies/`
 
 ## Documentation
 
-Generate documentation using:
-```sh
+Authoritative docs entry points:
+- `docs/mainpage.md`
+- `docs/pages/14_Config_Contract.md`
+- `docs/pages/15_Config_Ingestion_Map.md`
+- `docs/pages/16_Config_Extension_Playbook.md`
+- `docs/pages/30_Repository_Navigation.md`
+
+Build docs:
+```bash
 make build-docs
 ```
 
-View documentation in a web browser:
-```sh
-make open-docs
-```
+Docs output:
+- `docs/docs_build/html/index.html`
 
-## License
+Doxygen warnings log:
+- `logs/doxygen.warnings`
 
-MIT License
+## Notes
 
-## Authors
-
-Vishal Indivar Kandala
+- Only one `README.md` is maintained at repository root.
+- Internal per-directory usage notes are standardized as `guide.md`.

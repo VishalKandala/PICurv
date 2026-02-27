@@ -1,0 +1,54 @@
+# ####################################################################
+# #                        RESOURCE REQUESTS                         #
+# ####################################################################
+#
+#SBATCH --nodes 8                       # Number of nodes.
+#SBATCH --ntasks-per-node=48            # Number of processes (or tasks) to run on each node.
+#SBATCH --mem=360G                      # Memory per node (e.g., 8G, 64G, 128G). For specific memory per CPU, use --mem-per-cpu.
+#SBATCH --time=02:00:00                 # Wall-clock time limit in HH:MM:SS.
+#SBATCH --output=humphrey_lam%j.output     # The console output is stored at this file.
+#
+# ####################################################################
+# #                  CLUSTER/QUEUE SPECIFICATIONS                    #
+# ####################################################################
+#
+##SBATCH --partition=short
+#SBATCH --account=132759692068        # Account/project name to charge the job to. (Optional, cluster-specific)
+#
+# ####################################################################
+#                       OPTIONAL NOTIFICATIONS                      #
+# ####################################################################
+#
+#SBATCH --mail-type=ALL               # Send email on ALL events (BEGIN, END, FAIL, REQUEUE).
+#SBATCH --mail-user=vishalkandala@tamu.edu # Your email address.
+###################################################################################
+###                                                                             ###
+###                        ---- USER CONFIGURATION ----                          ###
+###          (Please edit the variables and commands in the section below)      ###
+###                                                                             ###
+###################################################################################
+
+# --- 1. Set up your environment ---
+
+# Purge existing modules to start with a clean environment
+module purge
+
+# Load the software modules
+
+module restore petsc-setup
+
+###################################################################################
+###                                                                             ###
+###                  ---- JOB EXECUTION COMMANDS ----                           ###
+###          (Choose ONE of the following command patterns for your job)        ###
+###                                                                             ###
+###################################################################################
+
+echo "=========================================================="
+echo "Starting job '$SLURM_JOB_NAME' ($SLURM_JOB_ID) at $(date)"
+echo "Running on hosts: $SLURM_JOB_NODELIST"
+echo "Working directory: $PWD"
+echo "=========================================================="
+
+# --- For a parallel MPI job ---
+mpirun  -mca pml ucx   -mca btl '^uct,ofi'   -mca mtl '^ofi' ./picsolver -control_file config/humphrey.control

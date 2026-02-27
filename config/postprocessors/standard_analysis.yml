@@ -1,16 +1,20 @@
 # ==========================================================
 #         Post-Processing Profile: Standard Analysis
 # ==========================================================
-# A standard recipe to generate visualization files. It performs
-# cell-to-node averaging and calculates vorticity.
+# Purpose:
+# Baseline visualization recipe for Eulerian output.
+# Optional particle/statistics sections are included as commented examples.
 # ==========================================================
 
 run_control:
-  # Analyze only the final timestep from the solver run.
-  # For a movie, you could use: start_step: 0, end_step: 1000, step_interval: 100
+  # Process all available timesteps by default.
   start_step: 0
-  end_step: 10
+  end_step: -1
   step_interval: 1
+
+source_data:
+  # Recommended placeholder: resolved by pic.flow to this run's solver output.
+  directory: "<solver_output_dir>"
 
 global_operations:
   dimensionalize: true
@@ -28,14 +32,39 @@ eulerian_pipeline:
 
   - task: normalize_field
     field: 'P'
-    reference_point: [1,1,1]
+    reference_point: [1, 1, 1]
+
+# Optional particle-derived fields (enable only if particle data exists).
+# lagrangian_pipeline:
+#   - task: specific_ke
+#     input_field: 'velocity'
+#     output_field: 'specific_ke'
+
+# Optional statistics pipeline (currently supports MSD).
+# statistics_pipeline:
+#   output_prefix: "Stats"
+#   tasks:
+#     - task: msd
 
 io:
-
-  output_directory: "visualization/standard_analysis"
-  output_filename_prefix: "eulerian_data"
+  output_directory: "viz"
+  output_filename_prefix: "Field"
+  particle_filename_prefix: "Particle"
 
   eulerian_fields:
-  - 'Ucat_nodal'
-  - 'P_nodal'
-  - 'Qcrit'
+    - 'Ucat_nodal'
+    - 'P_nodal'
+    - 'Qcrit'
+
+  # Reserved passthrough (currently no-op in writer path).
+  eulerian_fields_averaged: []
+
+  # Keep false for Eulerian-only postprocessing.
+  output_particles: false
+  particle_fields: []
+  particle_subsampling_frequency: 1
+
+  # Post input file extensions (without leading dot preferred).
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"

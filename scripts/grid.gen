@@ -795,20 +795,20 @@ Order of Precedence:
     prog_epilog = """
 Usage Examples:
 -----------------
-# Run using settings from a configuration file (command is taken from config)
-python3 grid.gen --config grid.cfg
+# Run using settings from a shared configuration profile
+python3 scripts/grid.gen --config config/grids/coarse_square_tube_curved.cfg
 
 # Run using a config file, but override the command and a parameter
-python3 grid.gen --config grid.cfg pipe --ncells-path 200
+python3 scripts/grid.gen --config config/grids/coarse_square_tube_curved.cfg pipe --ncells-path 200
 
 # Run without a config file, using command-line args and built-in defaults
-python3 grid.gen cpipe --orientation xz --vts cpipe_xz.vts
+python3 scripts/grid.gen cpipe --orientation xz --vts cpipe_xz.vts
 
 # Generate a cpipe grid with hyperbolic clustering near the walls
-python3 grid.gen cpipe --ncells-i 32 --ncells-j 32 --stretch-i 2.5 --stretch-j 2.5
+python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --stretch-i 2.5 --stretch-j 2.5
 
 # Generate a cpipe grid with specific first cell dimensions
-python3 grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 0.01 --first-cell-j-start 0.01
+python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 0.01 --first-cell-j-start 0.01
 """
     
     parser = argparse.ArgumentParser(description=prog_description, formatter_class=argparse.RawDescriptionHelpFormatter, epilog=prog_epilog)

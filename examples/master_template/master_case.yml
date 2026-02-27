@@ -90,7 +90,7 @@ grid:
   # --- Option B: Grid via Python Grid Generator (scripts/grid.gen) ---
   # Use this for complex curvilinear meshes generated before solver launch.
   # generator:
-  #   config_file: "grids/grid.cfg"    # Required. Relative to case.yml or absolute.
+  #   config_file: "config/grids/coarse_square_tube_curved.cfg"    # Required. Relative to case.yml or absolute.
   #   grid_type: "cpipe"               # Optional override: cpipe | pipe | warp
   #   cli_args:                        # Optional raw CLI token list
   #     - "--ncells-i"
@@ -209,19 +209,40 @@ boundary_conditions:
     type: WALL
     handler: noslip
 
-# --- Example for a 2-Block Case (uncomment and adapt if models.domain.blocks > 1) ---
+# --- Example for a 2-Block Case (syntax example; all handlers shown are currently supported) ---
 # boundary_conditions:
 #   # --- Block 0 Definitions ---
 #   - - face: "-Xi"
-#       type: WALL
-#       handler: noslip
-#     - face: "+Xi"  # Interface where Block 0 connects to Block 1
-#       type: INTERFACE
-#       handler: overset
-#     - face: "-Eta"
 #       type: INLET
 #       handler: constant_velocity
 #       params: { vx: 1.5, vy: 0.0, vz: 0.0 }
+#     - face: "+Xi"
+#       type: OUTLET
+#       handler: conservation
+#     - face: "-Eta"
+#       type: WALL
+#       handler: noslip
+#     - face: "+Eta"
+#       type: WALL
+#       handler: noslip
+#     - face: "-Zeta"
+#       type: WALL
+#       handler: noslip
+#     - face: "+Zeta"
+#       type: WALL
+#       handler: noslip
+#
+#   # --- Block 1 Definitions ---
+#   - - face: "-Xi"
+#       type: INLET
+#       handler: parabolic
+#       params: { v_max: 1.5 }
+#     - face: "+Xi"
+#       type: OUTLET
+#       handler: conservation
+#     - face: "-Eta"
+#       type: WALL
+#       handler: noslip
 #     - face: "+Eta"
 #       type: WALL
 #       handler: noslip
@@ -241,22 +262,3 @@ boundary_conditions:
 # solver_parameters:
 #   -read_fields: true
 #   -some_new_flag: 123
-#   # --- Block 1 Definitions ---
-#   - - face: "-Xi"  # Interface where Block 1 connects to Block 0
-#       type: INTERFACE
-#       handler: overset
-#     - face: "+Xi"
-#       type: OUTLET
-#       handler: conservation
-#     - face: "-Eta"
-#       type: WALL
-#       handler: noslip
-#     - face: "+Eta"
-#       type: WALL
-#       handler: noslip
-#     - face: "-Zeta"
-#       type: WALL
-#       handler: noslip
-#     - face: "+Zeta"
-#       type: WALL
-#       handler: noslip

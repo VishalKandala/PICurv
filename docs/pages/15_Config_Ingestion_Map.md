@@ -35,16 +35,35 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `post.io.eulerian_fields_averaged` | `output_fields_averaged` in `post.run` | `src/io.c` | reserved/no-op in current writer path |
 | `post.statistics_pipeline.*` | `statistics_pipeline`, `statistics_output_prefix` | `src/io.c` | `GlobalStatisticsPipeline` dispatch |
 
-@section exceptions_sec 3. Important Exceptions
+@section python_only_sec 3. Python-Only Orchestration Mapping (No C Ingestion)
+
+These keys are consumed by `pic.flow` orchestration only:
+
+| YAML / Source Key | Generated Artifact Key | Ingestion Site | Runtime Consumer |
+| :--- | :--- | :--- | :--- |
+| `cluster.scheduler.type` | scheduler selector | `scripts/pic.flow` (`validate_cluster_config`) | `run`/`sweep` scheduler dispatch |
+| `cluster.resources.*` | `#SBATCH` directives | `scripts/pic.flow` (Slurm renderers) | Slurm scheduler |
+| `cluster.notifications.*` | `#SBATCH --mail-*` | `scripts/pic.flow` | Slurm scheduler |
+| `cluster.execution.module_setup` | pre-launch shell lines in `*.sbatch` | `scripts/pic.flow` | batch script runtime env |
+| `cluster.execution.launcher*` | launch command (`srun`/`mpirun`) | `scripts/pic.flow` | solver/post executable launch |
+| `study.base_configs.*` | per-case config materialization | `scripts/pic.flow` (`sweep_workflow`) | case generation pipeline |
+| `study.parameters` | case matrix expansion | `scripts/pic.flow` (`expand_parameter_matrix`) | study case synthesis |
+| `study.execution.max_concurrent_array_tasks` | Slurm array `%N` throttle | `scripts/pic.flow` | Slurm scheduler |
+| `study.metrics` | `metrics_table.csv` extraction contract | `scripts/pic.flow` metric extractors | study aggregation/reporting |
+| `study.plotting` | `results/plots/*` output controls | `scripts/pic.flow` plotting pipeline | study reporting |
+
+@section exceptions_sec 4. Important Exceptions
 
 - PETSc runtime option consumption is not only explicit `PetscOptionsGet*`.
 - `KSPSetFromOptions` in `src/poisson.c` ingests prefixed PETSc options dynamically.
 - `LOG_LEVEL` is environment-driven (`src/logging.c`) and intentionally outside control-file parsing.
 
-@section maintenance_sec 4. Drift Prevention
+@section maintenance_sec 5. Drift Prevention
 
 - Use `scripts/audit_ingress.py` to compare PETSc option ingress in `setup.c/io.c` with the maintained manifest.
 - Keep this map and the manifest updated whenever new options are introduced.
 - Run manually with:
   - `python3 scripts/audit_ingress.py`
   - or `make audit-ingress`
+
+For roadmap-oriented workflow extensions built on this contract, see **@subpage 17_Workflow_Extensibility**.

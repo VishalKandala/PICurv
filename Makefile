@@ -16,7 +16,7 @@
 #
 #   This Makefile manages the compilation, linking, and execution of a C-based
 #   parallel scientific computing project. It is engineered for portability,
-#   relying on an external configuration system (`config.*.mk` files) to adapt
+#   relying on an external configuration system (`config/build/config.*.mk` files) to adapt
 #   to different build environments (e.g., local development vs. HPC cluster).
 #
 #   Its core philosophy is to separate the build *logic* (in this file) from
@@ -43,8 +43,8 @@
 #
 #   .
 #   ├── Makefile            (This file)
-#   ├── config.local.mk     (Configuration for local development)
-#   ├── config.cluster.mk   (Configuration for the HPC cluster)
+#   ├── config/build/config.local.mk     (Configuration for local development)
+#   ├── config/build/config.cluster.mk   (Configuration for the HPC cluster)
 #   ├── src/                (Directory for all .c source files)
 #   ├── include/            (Directory for all .h header files)
 #   └── ...
@@ -94,11 +94,14 @@ SCRIPTDIR := scripts
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
 SYSTEM ?= local
-CONFIG_FILE = config.$(SYSTEM).mk
+CONFIG_FILE := config/build/config.$(SYSTEM).mk
+LEGACY_CONFIG_FILE := config.$(SYSTEM).mk
 ifneq ("$(wildcard $(CONFIG_FILE))","")
     include $(CONFIG_FILE)
+else ifneq ("$(wildcard $(LEGACY_CONFIG_FILE))","")
+    include $(LEGACY_CONFIG_FILE)
 else
-    $(error Cannot find configuration file '$(CONFIG_FILE)'. Please create it or specify a valid SYSTEM.)
+    $(error Cannot find configuration file '$(CONFIG_FILE)' (or legacy '$(LEGACY_CONFIG_FILE)'). Please create it or specify a valid SYSTEM.)
 endif
 $(info Building for system: $(SYSTEM_NAME))
 
@@ -187,8 +190,10 @@ run: $(PICSOLVER_EXE)
 ## @brief Generates Doxygen documentation for the project.
 build-docs: dirs
 	@echo "==> Generating Doxygen documentation..."
+	@mkdir -p logs
 	@doxygen docs/Doxyfile
 	@echo "HTML documentation generated in docs/docs_build/html/index.html"
+	@echo "Doxygen warnings log: logs/doxygen.warnings"
 
 ## @target open-docs
 ## @brief Opens the generated documentation in a web browser.

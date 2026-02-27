@@ -22,7 +22,7 @@ SYSTEM_NAME := HPC Cluster Environment
 ifndef PETSC_DIR
     $(error PETSC_DIR is not set. Did you forget to 'module load petsc' or export PETSC_DIR?)
 endif
-include config.petsc.mk
+include config/build/config.petsc.mk
 
 # --- 3. Automatic Build Type Detection ---
 # Preserve original behavior when PETSC_ARCH exists; add minimal fallback when it doesn't.
@@ -61,4 +61,3 @@ NPROCS ?= 4
 # $(info Adding cluster-specific HDF5 library from $(HDF5_PATH))
 # CFLAGS_TO_USE += -I$(HDF5_PATH)/include
 # LIBS_TO_USE   += -L$(HDF5_PATH)/lib -lhdf5_parallel
-

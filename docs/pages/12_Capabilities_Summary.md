@@ -1,82 +1,102 @@
-@page 12_Capabilities_Summary Capabilities Summary: What You Can Do
+@page 12_Capabilities_Summary Capabilities Summary
 
-This page provides a high-level summary of the features and models currently implemented in PICurv that are fully configurable through the `pic-flow` workflow and `.yml` files. This is the scope of what you can achieve as a user, without needing to modify the C source code.
+This page summarizes what is currently available through YAML + `pic.flow` without editing C source.
 
 @tableofcontents
 
-@section grid_cap_sec 1. Grid and Domain Features
+@section grid_sec 1. Grid and Domain
 
-- **Grid Generation:**
-    - **Programmatic:** Generate stretched Cartesian grids for simple domains. You control the resolution, physical dimensions, and geometric stretching ratio in each direction.
-    - **File-Based:** Import complex, single-block or multi-block curvilinear grids from an external file (`.picgrid` format).
-- **Domain Topology:**
-    - **Multi-Block:** Configure simulations with multiple stitched grid blocks, each with its own boundary conditions.
-    - **Periodicity:** Enable periodic boundary conditions in any of the i, j, or k logical directions.
+- Grid modes:
+  - `programmatic_c` (C-side structured generation)
+  - `file` (external `.picgrid` ingestion with validation and scaling)
+  - `grid_gen` (pre-run Python grid generation orchestration)
+- Domain topology:
+  - single- and multi-block support
+  - per-direction periodic flags
+- Programmatic grid controls:
+  - per-block geometry arrays (`im/jm/km`, bounds, stretching)
+  - global DMDA partition hints (`da_processors_x/y/z`, scalar only)
 
-@section physics_cap_sec 2. Physics & Flow Models
+@section flow_sec 2. Flow and Particle Physics
 
-- **Flow Regime:**
-    - **Incompressible Flow:** The solver is built on the incompressible Navier-Stokes equations.
-    - **Laminar or Turbulent:** Simulate both laminar flows and turbulent flows using the implemented turbulence model.
-- **Dimensionality:**
-    - Configure simulations to run in full **3D** or simplified **2D**.
-- **Turbulence Modeling:**
-    - **Large Eddy Simulation (LES):** An LES model with a dynamic Smagorinsky sub-grid scale model is available.
-- **Lagrangian Particle Transport:**
-    - **Particle Seeding:** Add a specified number of massless Lagrangian particles to the domain.
-    - **Initialization:** Initialize particles either randomly throughout the entire volume or specifically on the surface of the primary inlet.
+- Incompressible Navier-Stokes flow
+- 2D/3D selection
+- LES toggle
+- Eulerian source modes:
+  - `solve`
+  - `load`
+  - `analytical` + `analytical_type`
+- Particle controls:
+  - particle count
+  - init modes (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`)
+  - restart mode (`init`, `load`)
 
-@section numerics_cap_sec 3. Numerical Scheme Control
+@section numerics_sec 3. Numerics and Solvers
 
-- **Time Integration:**
-    - **Explicit (Runge-Kutta):** A fast, explicit time-stepping scheme suitable for flows with a moderate time-step restriction.
-    - **Implicit:** A more robust implicit scheme that allows for larger time steps, suitable for stiff or complex problems.
-- **Convection Scheme:**
-    - **QUICK:** A third-order upwind scheme (default).
-    - **Central Differencing:** A second-order central difference scheme.
-- **Pressure-Poisson Solver:**
-    - **Geometric Multigrid:** A highly configurable geometric multigrid (PCMG) preconditioner is the default. You can control the number of levels, sweeps, and cycle types.
-    - **Advanced PETSc Control:** Pass-through any valid PETSc KSP (solver) or PC (preconditioner) option to fully customize the linear algebra strategy.
+- Named momentum solver selection (extensible string selector)
+- Solver-specific option blocks (`momentum_solver.dual_time_picard_rk4`)
+- Pseudo-CFL and convergence tuning for dual-time method
+- Pressure Poisson control:
+  - multigrid levels/sweeps/semi-coarsening
+  - PETSc passthrough options and monitors
 
-@section bc_cap_sec 4. Boundary Conditions
+@section bc_sec 4. Boundary Conditions
 
-The following physical boundary conditions are available through the `boundary_conditions` section of `case.yml`:
+Supported combinations include:
+- `INLET`: `constant_velocity`, `parabolic`
+- `OUTLET`: `conservation`
+- `WALL`: `noslip`
+- `PERIODIC`: `geometric`, `constant_flux`
 
--   **Inlets:**
-    -   `constant_velocity`: Uniform velocity profile.
-    -   `parabolic`: Parabolic (Poiseuille) profile for developed flow.
--   **Outlets:**
-    -   `conservation`: A zero-gradient condition that enforces mass conservation.
--   **Walls:**
-    -   `noslip`: Standard no-slip wall condition.
--   **Other:**
-    -   `geometric`: Periodic geometric coupling.
-    -   `constant_flux`: Periodic driven-flow handler with a target flux and optional trim control.
+`pic.flow` validates face completeness, type-handler compatibility, and periodic pair consistency.
 
-@section pp_cap_sec 5. Post-Processing Capabilities
+@section io_sec 5. Runtime I/O and Monitoring
 
-The built-in post-processor allows you to perform the following analyses without external tools:
+- Output/restart/log root directory controls
+- Eulerian/particle subdirectory controls
+- Function whitelist logging and critical-function profiling files
+- Raw PETSc monitor passthrough from monitor profile
 
--   **Data Conversion:**
-    -   Convert cell-centered data to node-centered data (`CellToNodeAverage`), which is ideal for smooth contour plots in visualization software.
-    -   Convert all non-dimensional solver output back to physical, dimensional units.
--   **Derived Quantities (Eulerian):**
-    -   Calculate the **Q-Criterion** (`ComputeQCriterion`) to identify vortex structures.
-    -   Normalize fields relative to a reference point (`NormalizeRelativeField`).
--   **Derived Quantities (Lagrangian):**
-    -   Calculate the **Specific Kinetic Energy** (`specific_ke`) of each particle.
+@section post_sec 6. Postprocessing and Statistics
 
-@section data_driven_cap_sec 6. Data-Driven Closure Readiness (Particle Physics)
+- Eulerian pipeline tasks:
+  - dimensionalize
+  - nodal averaging
+  - Q-criterion
+  - relative field normalization
+- Lagrangian pipeline tasks:
+  - specific kinetic energy
+- Statistics pipeline:
+  - MSD (`ComputeMSD`) with configurable output prefix
+- Configurable post input extensions (`eulerianExt`, `particleExt`)
 
-- **Offline workflows are currently well-supported:**
-    - Use solver/post output directories as data sources and run separate Python ML training/inference scripts outside the solver binary.
-    - Use post-processing pipelines and statistics outputs as stable feature/target extraction paths.
-- **Tightly coupled in-solver inference is intentionally extension-only today:**
-    - The current particle physics update path is model-specific and must be extended to add a runtime-selectable closure model interface.
-    - Recommended implementation route is documented in the extension playbook.
+@section data_driven_sec 7. Data-Driven Closure Readiness
 
-@section next_steps_sec 7. Beyond Configuration: The Developer Portal
+- Offline ML workflows are supported today via stable solver/post outputs.
+- Tightly coupled in-solver inference requires extension work (documented in playbook).
 
-If your research requires a feature not listed above—such as a new turbulence model, a custom boundary condition, or a new post-processing kernel—you will need to extend the C source code.
+@section orchestration_sec 8. Cluster and Study Orchestration
 
-Please proceed to the **@subpage 13_Code_Architecture "Developer Portal"** to learn about the code's structure and how to contribute new features.
+- Slurm single-run orchestration from `pic.flow run --cluster ...`
+  - solver/post script generation
+  - optional direct submission
+  - dependency chaining (`post` after `solve`)
+  - per-run submission and manifest metadata
+- Slurm study sweeps from `pic.flow sweep`
+  - parameter matrix expansion
+  - solver/post array script generation
+  - metrics aggregation from CSV/log outputs
+  - convergence/sensitivity plot generation (matplotlib-enabled environments)
+
+@section next_steps_sec 9. Next Steps
+
+Proceed to **@subpage 13_Code_Architecture**.
+
+For extension and maintenance details:
+- **@subpage 16_Config_Extension_Playbook**
+- **@subpage 17_Workflow_Extensibility**
+- **@subpage 21_Methods_Overview**
+- **@subpage 31_Momentum_Solvers**
+- **@subpage 32_Analytical_Solutions**
+- **@subpage 33_Initial_Conditions**
+- **@subpage 34_Particle_Model_Overview**

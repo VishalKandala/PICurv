@@ -1,130 +1,121 @@
-@page 05_The_Conductor_Script The Conductor Script: `pic-flow`
+@page 05_The_Conductor_Script The Conductor Script: `pic.flow`
 
-The `pic-flow` script is the primary user interface for the PICurv platform. It is a powerful Python-based "conductor" that automates the entire simulation workflow, from building the source code to launching simulations and post-processing results.
-
-This guide serves as the main reference for all of its commands and command-line arguments. All commands are run from the root directory of your PICurv project.
+`pic.flow` is the workflow orchestrator for PICurv. It validates YAML inputs, generates C runtime artifacts, and runs or schedules solver/postprocessing stages.
 
 @tableofcontents
 
 @section usage_sec 1. General Usage
 
-The script is invoked via `./bin/pic-flow` and uses a command-based structure, similar to `git`.
-
 ```bash
-./bin/pic-flow [COMMAND] [ARGUMENTS...]
+python3 scripts/pic.flow [COMMAND] [ARGS...]
 ```
 
-There are three main commands:
-- **`init`**: Creates a new study directory from a template.
-- **`build`**: Compiles the C solver and other tools.
-- **`run`**: Executes a simulation or post-processing workflow.
+Primary commands:
+- `init`
+- `build`
+- `run`
+- `sweep`
 
-You can get help at any time by running:
+Help:
 ```bash
-./bin/pic-flow --help
-./bin/pic-flow run --help
+python3 scripts/pic.flow --help
+python3 scripts/pic.flow run --help
+python3 scripts/pic.flow sweep --help
 ```
 
-@section init_command_sec 2. The `init` Command
+@section run_sec 2. `run`: Single-Case Workflow
 
-The `init` command is used to bootstrap a new simulation study by copying a pre-configured template.
-
-**Usage:**
 ```bash
-./bin/pic-flow init <template_name> [OPTIONS]
+python3 scripts/pic.flow run [STAGES] [INPUTS] [OPTIONS]
 ```
 
-**Arguments:**
-- `<template_name>`: (Required) The name of a template directory located in `examples/`. Common choices are `flat_channel` or `bent_channel`.
+Stages:
+- `--solve`
+- `--post-process`
 
-**Options:**
-- `--dest <new_directory_name>`: Specifies a name for the new study directory. If omitted, the directory will be named after the template.
-- `--copy-binaries`: If this flag is present, the C executables (`picsolver`, `postprocessor`) will be physically copied into the new study directory. This creates a fully portable, self-contained study. By default, symbolic links are created instead.
+Inputs for `--solve`:
+- `--case <case.yml>`
+- `--solver <solver.yml>`
+- `--monitor <monitor.yml>`
 
-**Example:**
+Inputs for `--post-process`:
+- `--post <post.yml>`
+- either same invocation with `--solve`, or `--run-dir <existing_run_dir>`
+
+MPI/local options:
+- `-n, --num-procs`
+
+Cluster/Slurm options:
+- `--cluster <cluster.yml>`
+- `--scheduler slurm` (optional explicit selector)
+- `--no-submit` (generate scripts/manifests only)
+
+Local example:
 ```bash
-# Create a new study named "my_channel_case" from the "flat_channel" template.
-./bin/pic-flow init flat_channel --dest my_channel_case
+python3 scripts/pic.flow run --solve --post-process -n 8 \
+  --case my_case/case.yml \
+  --solver my_case/solver.yml \
+  --monitor my_case/monitor.yml \
+  --post my_case/post.yml
 ```
 
-@section build_command_sec 3. The `build` Command
-
-The `build` command is a wrapper around the project's `Makefile`. It is used to compile all C source code.
-
-**Usage:**
+Slurm example (generate + submit):
 ```bash
-./bin/pic-flow build [make_arguments...]
+python3 scripts/pic.flow run --solve --post-process \
+  --case my_case/case.yml \
+  --solver my_case/solver.yml \
+  --monitor my_case/monitor.yml \
+  --post my_case/post.yml \
+  --cluster my_case/cluster.yml
 ```
 
-Any arguments provided after `build` are passed directly to the `make` command.
-
-**Examples:**
+Slurm example (generate only):
 ```bash
-# Compile all executables (equivalent to 'make all')
-./bin/pic-flow build
-
-# Build only the postprocessor
-./bin/pic-flow build postprocessor
-
-# Clean the entire project of all build artifacts
-./bin/pic-flow build clean-project
-
-# Build using a specific system configuration for a cluster
-./bin/pic-flow build SYSTEM=cluster
+python3 scripts/pic.flow run --solve --post-process \
+  --case my_case/case.yml \
+  --solver my_case/solver.yml \
+  --monitor my_case/monitor.yml \
+  --post my_case/post.yml \
+  --cluster my_case/cluster.yml \
+  --no-submit
 ```
 
-@section run_command_sec 4. The `run` Command
+@section sweep_sec 3. `sweep`: Parameter Study via Slurm Arrays
 
-The `run` command is the most powerful command. It orchestrates the execution of the C-solver and post-processor based on the provided YAML configuration files.
-
-**Usage:**
 ```bash
-./bin/pic-flow run [STAGES] [INPUTS] [OPTIONS]
+python3 scripts/pic.flow sweep \
+  --study my_study/study.yml \
+  --cluster my_study/cluster.yml [--no-submit]
 ```
 
-**Workflow Stages:**
-You must specify at least one of the following stages:
-- `--solve`: Executes the `picsolver` executable. This will create a new, timestamped output directory inside the `runs/` folder.
-- `--post-process`: Executes the `postprocessor` executable. This can be run on the results of a `--solve` stage in the same command, or on a previously completed run directory using the `--run-dir` flag.
+Behavior:
+- expands parameter matrix from `study.yml`
+- materializes case directories under `studies/<study_id>/cases/`
+- generates `solver_array.sbatch` and `post_array.sbatch`
+- submits post array with `afterok:<solver_jobid>` dependency (unless `--no-submit`)
+- aggregates metrics and emits plots in `studies/<study_id>/results/`
 
-**Input Files:**
-- `--case <path/to/case.yml>`: (Required for `--solve`) Path to the case definition file, which specifies the physics and geometry.
-- `--solver <path/to/solver.yml>`: (Required for `--solve`) Path to the solver profile, which specifies the numerical strategy.
-- `--monitor <path/to/monitor.yml>`: (Required for `--solve`) Path to the monitor profile, which controls I/O and logging.
-- `--post <path/to/post.yml>`: (Required for `--post-process`) Path to the post-processing recipe file.
-- `--run-dir <path/to/run_directory>`: (Required for standalone `--post-process`) Specifies an existing run directory (e.g., `runs/flat_channel_...`) to post-process. Not needed if running `--solve` and `--post-process` together.
+@section artifacts_sec 4. Generated Runtime Artifacts
 
-**Execution Options:**
-- `-n, --num-procs <integer>`: The number of MPI processes to use for the simulation. Defaults to `1` (serial execution).
+Single run (`run`):
+- `runs/<run_id>/config/*.control`, `bcs*.run`, `whitelist.run`, `profile.run`, `post.run`
+- `runs/<run_id>/scheduler/solver.sbatch`, `post.sbatch` (cluster mode)
+- `runs/<run_id>/scheduler/submission.json` (cluster mode)
+- `runs/<run_id>/manifest.json`
 
-**Examples:**
-
-1.  **Run a solver simulation on 8 cores:**
-    ```bash
-    ./bin/pic-flow run --solve -n 8 \
-        --case my_studies/case.yml \
-        --solver my_studies/solver.yml \
-        --monitor my_studies/monitor.yml
-    ```
-
-2.  **Run a solver simulation and immediately post-process the results:**
-    ```bash
-    ./bin/pic-flow run --solve --post-process -n 8 \
-        --case my_studies/case.yml \
-        --solver my_studies/solver.yml \
-        --monitor my_studies/monitor.yml \
-        --post my_studies/post-recipe.yml
-    ```
-
-3.  **Run post-processing on an existing simulation directory:**
-    ```bash
-    ./bin/pic-flow run --post-process \
-        --run-dir runs/flat_channel_20240401-153000 \
-        --post my_studies/another-post-recipe.yml
-    ```
+Sweep (`sweep`):
+- `studies/<study_id>/cases/<case_i>/...`
+- `studies/<study_id>/scheduler/case_index.tsv`
+- `studies/<study_id>/scheduler/solver_array.sbatch`
+- `studies/<study_id>/scheduler/post_array.sbatch`
+- `studies/<study_id>/scheduler/submission.json`
+- `studies/<study_id>/results/metrics_table.csv`
+- `studies/<study_id>/results/plots/*.png` (if plotting enabled and matplotlib available)
+- `studies/<study_id>/study_manifest.json`
 
 @section next_steps_sec 5. Next Steps
 
-Now that you understand how to use the `pic-flow` conductor, the next step is to learn the details of the configuration files it consumes.
+- Config contract: **@subpage 14_Config_Contract**
+- User workflows: **@subpage 11_User_How_To_Guides**
+- Extensibility: **@subpage 17_Workflow_Extensibility**
 
-Proceed to the **@subpage 06_Simulation_Anatomy** to learn about the modularity and versatility of the PICurv which helps you get up and running quickly and enables various experiments.

@@ -20,7 +20,7 @@
 logging:
   # --- Verbosity Level ---
   # Sets the master LOG_LEVEL for the C-code.
-  # Options: ERROR, WARNING, INFO, DEBUG, PROFILE
+  # Options: ERROR, WARNING, PROFILE, INFO, DEBUG, TRACE, VERBOSE
   verbosity: INFO
 
   # --- Function Allow-List ---
