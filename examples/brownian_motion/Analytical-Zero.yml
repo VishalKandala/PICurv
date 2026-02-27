@@ -1,0 +1,58 @@
+# ==============================================================================
+#  BROWNIAN MOTION VERIFICATION TEST CASE
+#  solver.yml
+#
+#  CRITICAL SETTINGS:
+#  - eulerian_field_source: analytical  -->  bypasses NS solve entirely
+#  - analytical_type: ZERO_FLOW        -->  sets u = 0 everywhere, every step
+#  - les = 0 (NO_LES_MODEL)            -->  nu_t = 0, so Gamma_eff = nu/Sc only
+#  - schmidt_number = 1.0              -->  Gamma_eff = (1/Re)/Sc = 1/1000 = 1e-3
+#
+#  With these settings the only active physics in the particle update is:
+#
+#    dX_i = sqrt(2 * Gamma_eff * dt) * xi_i        xi_i ~ N(0,1)
+#
+#  which is exactly the Wiener process with diffusivity Gamma_eff.
+# ==============================================================================
+
+operation_mode:
+  eulerian_field_source: "analytical"   # Bypasses NS/Poisson solve -- no momentum solver runs
+  analytical_type: "ZERO_FLOW"          # Sets Ucat = 0 identically every timestep
+
+# Momentum solver block is required by the validator even in analytical mode.
+# These settings are irrelevant but must be schema-valid.
+strategy:
+  momentum_solver: "Dual Time Picard RK4"
+
+tolerances:
+  max_iterations: 20
+  absolute_tol: 1.0e-6
+  relative_tol: 1.0e-3
+  step_tol: 1.0e-6
+
+momentum_solver:
+  dual_time_picard_rk4:
+    pseudo_cfl:
+      initial: 0.1
+      minimum: 0.001
+      maximum: 1.0
+      growth_factor: 1.0
+      reduction_factor: 1.0
+
+pressure_solver:
+  multigrid:
+    levels: 2
+    semi_coarsening:
+      i: false
+      j: false
+      k: false
+
+# Direct PETSc flag passthrough for physics parameters not yet in schema.
+petsc_passthrough_options:
+  # --- Molecular Schmidt number
+  # Gamma_eff = nu / Sc = (1/1000) / 1.0 = 1.0e-3 (non-dimensional)
+  # Changing Sc changes the slope of MSD vs t -- a useful secondary check.
+  -schmidt_number: 1.0
+
+  # --- Turbulent Schmidt number (irrelevant with les: false, set for completeness)
+  -turb_schmidt_number: 0.7

@@ -1,0 +1,59 @@
+# ==============================================================================
+#  BROWNIAN MOTION VERIFICATION TEST CASE
+#  post.yml
+#
+#  The statistics_pipeline MSD task computes:
+#
+#    MSD(t) = (1/N) * sum_n [ (x_n(t) - x_n(0))^2
+#                            + (y_n(t) - y_n(0))^2
+#                            + (z_n(t) - z_n(0))^2 ]
+#
+#  Output: BrownianStats_msd.csv
+#
+#  Verification check (see README_verification.md):
+#    Fit a line through MSD vs t data.
+#    Slope should equal 6 * Gamma_eff = 6 / (Re * Sc) = 6 * 1e-3 = 6.0e-3.
+#    Intercept should be ~0 (point source initial condition).
+#    R^2 > 0.999 expected for N=50000 particles.
+# ==============================================================================
+
+run_control:
+  # Process all 2000 timesteps in the output window.
+  # step 0 = initial condition (all particles at source, MSD = 0)
+  # step 2000 = final state (MSD expected ~0.012)
+  startTime: 0
+  endTime: 2000
+  timeStep: 100             # Read every 100-step snapshot (matches data_output_frequency)
+
+source_data:
+  # pic.flow will resolve these from the run directory automatically
+  # when called with --post-process --run-dir <run_dir>
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"
+
+# Eulerian pipeline: minimal -- we only care about particles here.
+# Keep nodal_average so Eulerian VTK is valid if inspected in ParaView.
+eulerian_pipeline:
+  - task: nodal_average
+    input_field: Ucat
+    output_field: Ucat_nodal
+
+io:
+  output_directory: "viz"
+  output_filename_prefix: "Field"
+  particle_filename_prefix: "Particle"
+  eulerian_fields:
+    - Ucat_nodal            # Confirm velocity is identically zero throughout
+  output_particles: true    # Write particle VTP for visual sanity check
+
+# ---- PRIMARY OUTPUT: MSD statistics ----------------------------------------
+# The MSD task tracks each particle's displacement from its t=0 position and
+# computes the ensemble mean square displacement at each output timestep.
+#
+# Analytical target: MSD(t*) = 6 * Gamma_eff * t* = 6e-3 * t*
+# At t* = 2.0: MSD* = 0.012
+statistics_pipeline:
+  output_prefix: "BrownianStats"
+  tasks:
+    - task: msd
