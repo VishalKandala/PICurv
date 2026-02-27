@@ -1,0 +1,37 @@
+# ==============================================================================
+#  BROWNIAN MOTION VERIFICATION TEST CASE
+#  monitor.yml
+# ==============================================================================
+
+io:
+  # Output every 100 steps --> 20 snapshots over the full run.
+  # This gives 20 points on the MSD(t) curve for slope fitting.
+  # Too frequent: excessive disk usage. Too infrequent: too few points to
+  # distinguish linear MSD from startup transients.
+  data_output_frequency: 100
+
+  # Particle log at same cadence as field output.
+  # The statistics pipeline reads particle positions at these intervals.
+  particle_log_interval: 100
+
+  directories:
+    output: "output"
+    restart: "restart"
+    log: "logs"
+    eulerian_subdir: "eulerian"
+    particle_subdir: "particles"
+
+logging:
+  # INFO level gives enough feedback to confirm the run is progressing.
+  # Switch to DEBUG and add function allowlists for troubleshooting.
+  verbosity: "INFO"
+  enabled_functions: []     # Empty = no function-level filtering
+
+profiling:
+  critical_functions: []    # No profiling overhead for this test
+
+solver_monitoring:
+  # Analytical mode skips the Poisson solve, so KSP monitoring is moot.
+  # Keeping these off avoids misleading output.
+  -ksp_monitor: false
+  -ksp_converged_reason: false
