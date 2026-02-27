@@ -47,6 +47,9 @@ The method pages below document each major stage in detail.
 - **@subpage 32_Analytical_Solutions**: analytical Eulerian modes and geometry policies.
 - **@subpage 33_Initial_Conditions**: Eulerian and particle initialization modes.
 - **@subpage 34_Particle_Model_Overview**: end-to-end particle model pipeline.
+- **@subpage 44_Boundary_Conditions_Guide**: boundary handler combinations and runtime enforcement path.
+- **@subpage 45_Particle_Initialization_and_Restart**: detailed particle seeding/restart/migration behavior.
+- **@subpage 46_C_Runtime_Execution_Map**: code-level startup and timestep execution map.
 
 @section usage_sec 4. How To Read These Pages
 

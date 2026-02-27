@@ -61,3 +61,9 @@ For configuration contract changes, update:
 - **@subpage 14_Config_Contract**
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 40_Testing_and_Quality_Guide**
+
+@section refs_sec 6. Related Pages
+
+- **@subpage 33_Initial_Conditions**
+- **@subpage 45_Particle_Initialization_and_Restart**
+- **@subpage 26_Walking_Search_Method**

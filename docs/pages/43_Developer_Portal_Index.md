@@ -12,6 +12,7 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 15_Config_Ingestion_Map**: where specific YAML keys enter C/Python paths.
 - **@subpage 16_Config_Extension_Playbook**: adding new keys/features safely.
 - **@subpage 17_Workflow_Extensibility**: extending orchestration beyond current run/sweep modes.
+- **@subpage 46_C_Runtime_Execution_Map**: startup/timestep execution trace across C modules.
 
 @section methods_sec 2. Numerical Methods and Models
 
@@ -19,6 +20,8 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 22_CURVIB_Method** through **@subpage 28_IEM_and_Statistical_Averaging**: flow solve, pressure solve, coupling, and mixing/statistics internals.
 - **@subpage 31_Momentum_Solvers**: runtime-dispatched momentum solver implementations.
 - **@subpage 32_Analytical_Solutions** and **@subpage 33_Initial_Conditions**: initialization and analytical-mode behavior.
+- **@subpage 44_Boundary_Conditions_Guide**: BC handler mapping from YAML to C handler objects.
+- **@subpage 45_Particle_Initialization_and_Restart**: seeding and restart/migration behavior.
 - **@subpage 34_Particle_Model_Overview**: particle lifecycle and projection coupling.
 
 @section maintenance_sec 3. Documentation and Maintenance
@@ -32,8 +35,9 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 1. **@subpage 13_Code_Architecture**
 2. **@subpage 14_Config_Contract**
 3. **@subpage 15_Config_Ingestion_Map**
-4. **@subpage 21_Methods_Overview**
-5. **@subpage 16_Config_Extension_Playbook**
+4. **@subpage 46_C_Runtime_Execution_Map**
+5. **@subpage 21_Methods_Overview**
+6. **@subpage 16_Config_Extension_Playbook**
 
 @section developer_outcomes_sec 5. Expected Outcomes
 

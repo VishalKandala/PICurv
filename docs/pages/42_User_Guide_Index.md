@@ -18,6 +18,8 @@ If Getting Started proves the toolchain works, this section is where production 
 - **@subpage 08_Solver_Reference**: numerical strategy and solver tuning.
 - **@subpage 09_Monitor_Reference**: logging/profiling/output cadence.
 - **@subpage 10_Post_Processing_Reference**: analysis tasks and VTK export controls.
+- **@subpage 44_Boundary_Conditions_Guide**: detailed BC handler options and validation rules.
+- **@subpage 45_Particle_Initialization_and_Restart**: particle seeding/restart behavior by mode.
 
 @section practical_sec 3. Practical Recipes and Support
 

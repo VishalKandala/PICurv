@@ -1,32 +1,66 @@
 @page 33_Initial_Conditions Initial Condition Modes
 
-This page documents the currently implemented Eulerian and particle initialization paths, including their CLI mappings.
+This page documents how PICurv initializes Eulerian velocity fields and particles at startup.
+It covers both user-facing YAML inputs and the C implementation path that applies them.
 
 @tableofcontents
 
-@section euler_sec 1. Eulerian Initialization
+@section overview_sec 1. Where Initialization Happens
 
-Main initialization entry:
+Startup sequence:
+
+1. `scripts/pic.flow` converts YAML to control flags (`-finit`, `-ucont_*`, `-pinit`, etc.).
+2. @ref InitializeEulerianState chooses fresh-start, load, or analytical branch.
+3. For fresh starts, @ref SetInitialInteriorField initializes interior `Ucont`.
+4. Boundary handlers then enforce face values and ghost-cell consistency.
+5. If particles are enabled, @ref InitializeParticleSwarm runs independently after Eulerian setup.
+
+@section euler_sec 2. Eulerian Field Initialization (`properties.initial_conditions`)
+
+YAML:
+
+```yaml
+properties:
+  initial_conditions:
+    mode: "Constant"   # Zero | Constant | Poiseuille
+    u_physical: 1.5
+    v_physical: 0.0
+    w_physical: 0.0
+```
+
+`pic.flow` mapping:
+
+- `mode` -> `-finit` via `normalize_field_init_mode`:
+  - `Zero` (or `0`) -> `0`
+  - `Constant` (or `1`) -> `1`
+  - `Poiseuille` (or `2`) -> `2`
+- `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z` after non-dimensionalization by `U_ref`.
+
+C-side entry points:
 
 - @ref InitializeEulerianState
-
-Interior field initializer:
-
 - @ref SetInitialInteriorField
-
-Current `-finit` mappings:
-
-- `0`: zero velocity
-- `1`: constant normal velocity
-- `2`: Poiseuille-like normal profile
-
-Human-readable mapping helper:
-
 - @ref FieldInitializationToString
 
-For the Poiseuille-like profile, code uses index-space normalized coordinates and applies a separable parabolic form in cross-stream directions.
+@section euler_modes_sec 3. Eulerian Mode Details
 
-@section euler_formula_sec 2. Contravariant Initialization Note
+`-finit = 0` (Zero):
+
+- sets interior contravariant velocity to zero.
+
+`-finit = 1` (Constant Normal Velocity):
+
+- uses inlet-face orientation to select the normal component,
+- uses `InitialConstantContra` as target normal speed,
+- applies sign according to inlet on min or max face.
+
+`-finit = 2` (Poiseuille-like Normal Velocity):
+
+- computes a separable parabolic profile using index-space normalized cross-stream coordinates,
+- applies profile in the two cross-stream directions,
+- clamps small negative roundoff to zero.
+
+@section euler_formula_sec 4. Contravariant Initialization Note
 
 Initialization is applied to contravariant velocity components, scaled by face-area metrics:
 
@@ -38,38 +72,46 @@ where face areas are derived from metric vectors (`Csi`, `Eta`, `Zet`) and sign 
 
 This is why equivalent physical inflow speed can map to different `Ucont` magnitudes on stretched/curved meshes.
 
-@section particle_sec 3. Particle Initialization Modes
+@section restart_modes_sec 5. Eulerian Restart Branches
 
-Particle swarm entry:
+In @ref InitializeEulerianState:
 
-- @ref InitializeParticleSwarm
+- `StartStep == 0`:
+  - `eulerian_field_source=solve`: fresh initialization path.
+  - `eulerian_field_source=load`: reads initial fields from restart files.
+  - `eulerian_field_source=analytical`: uses analytical initializer.
+- `StartStep > 0`:
+  - `load` source reloads restart fields for the requested step.
+  - `analytical` source regenerates analytical field at current `(t, step)`.
 
-`-pinit` / `ParticleInitializationType` modes:
+@section particle_link_sec 6. Particle Initialization Relation
 
-- `0`: `PARTICLE_INIT_SURFACE_RANDOM`
-- `1`: `PARTICLE_INIT_VOLUME`
-- `2`: `PARTICLE_INIT_POINT_SOURCE`
-- `3`: `PARTICLE_INIT_SURFACE_EDGES`
+Particle initialization is configured in `case.yml -> models.physics.particles`, but executed by a separate subsystem.
 
-Human-readable mapping helper:
+For full particle mode and restart details, use:
 
-- @ref ParticleInitializationToString
+- **@subpage 45_Particle_Initialization_and_Restart**
+- **@subpage 34_Particle_Model_Overview**
 
-Inlet refresh helper:
+@section checks_sec 7. Practical Checks
 
-- @ref ReinitializeParticlesOnInletSurface
+After startup, confirm:
 
-@section restart_sec 4. Restart Coupling
+- banner line shows expected field initialization mode,
+- no warnings about missing inlet face (for inlet-driven setups),
+- first output step has non-empty `Ucat`/`Ucont` fields.
 
-`-particle_restart_mode` currently accepts:
+Common pitfalls:
 
-- `load`
-- `init`
+- using `Poiseuille` in strongly non-rectangular topology and expecting textbook cylindrical profile,
+- forgetting that initialization sets interior only; boundary handlers then overwrite face behavior,
+- comparing `u_physical` directly to `Ucont` without accounting for metric-face scaling.
 
-For restart files with valid cell IDs, migration can use fast ownership-based path via @ref MigrateRestartParticlesUsingCellID before full walking-search fallback.
+@section refs_sec 8. Related Pages
 
-@section refs_sec 5. Related Pages
-
+- **@subpage 07_Case_Reference**
 - **@subpage 32_Analytical_Solutions**
+- **@subpage 44_Boundary_Conditions_Guide**
+- **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 34_Particle_Model_Overview**
 - **@subpage 39_Common_Fatal_Errors**

@@ -33,6 +33,7 @@ Key mappings:
 - `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
 
 For the scaling model and conversion logic, see **@subpage 19_Nondimensionalization**.
+For detailed startup behavior of field initialization modes, see **@subpage 33_Initial_Conditions**.
 
 @section run_control_sec 2. run_control
 
@@ -117,6 +118,8 @@ Common mappings:
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
 - point source coordinates -> `-psrc_x/-psrc_y/-psrc_z`
 
+For mode-specific particle behavior and restart flow, see **@subpage 45_Particle_Initialization_and_Restart**.
+
 @section bc_sec 5. boundary_conditions
 
 Single-block syntax: list of 6 face entries.
@@ -134,6 +137,7 @@ Supported type/handler combinations:
 - `PERIODIC` + `constant_flux` (`target_flux`, optional `apply_trim`)
 
 All six faces must be explicitly provided for each block.
+For detailed handler semantics, validation constraints, and C dispatch path, see **@subpage 44_Boundary_Conditions_Guide**.
 
 @section passthrough_sec 6. solver_parameters (Advanced)
 
@@ -156,3 +160,5 @@ Cross-file contract/mapping:
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 32_Analytical_Solutions**
 - **@subpage 33_Initial_Conditions**
+- **@subpage 44_Boundary_Conditions_Guide**
+- **@subpage 45_Particle_Initialization_and_Restart**
