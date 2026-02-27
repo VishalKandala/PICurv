@@ -21,9 +21,9 @@
     --pic-card-bg: #212529;
     --pic-text: #e5e7eb;
     --pic-muted: #b4bcc4;
-    --pic-link: #2698ba;
-    --pic-link-hover: #38b2d8;
-    --pic-accent: #2698ba;
+    --pic-link: #1f738a;
+    --pic-link-hover: #2a88a3;
+    --pic-accent: #1f738a;
     --pic-border: #424246;
     --pic-nav-bg: #212529;
     --pic-code-bg: #2c3237;
@@ -36,9 +36,9 @@ html[data-theme="dark"] {
   --pic-card-bg: #212529;
   --pic-text: #e5e7eb;
   --pic-muted: #b4bcc4;
-  --pic-link: #2698ba;
-  --pic-link-hover: #38b2d8;
-  --pic-accent: #2698ba;
+  --pic-link: #1f738a;
+  --pic-link-hover: #2a88a3;
+  --pic-accent: #1f738a;
   --pic-border: #424246;
   --pic-nav-bg: #212529;
   --pic-code-bg: #2c3237;
@@ -470,8 +470,8 @@ dl.reflist dd {
 .memberdecls td.glow,
 .fieldtable tr.glow,
 .memitem.glow {
-  background: rgba(38, 152, 186, 0.14) !important;
-  box-shadow: 0 0 0 2px rgba(38, 152, 186, 0.18) inset !important;
+  background: rgba(31, 115, 138, 0.18) !important;
+  box-shadow: 0 0 0 2px rgba(31, 115, 138, 0.24) inset !important;
 }
 
 html[data-theme="light"] .line.glow,
