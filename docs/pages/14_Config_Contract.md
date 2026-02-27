@@ -13,6 +13,8 @@ This page is the user-facing source of truth for the configuration contract impl
 3. `monitor.yml`: I/O and logging/profiling controls.
 4. `post.yml`: post-processing recipe.
 5. MPI launch settings (`-n`, executable stage selection).
+   - `-n/--num-procs` sizes the solver stage launch.
+   - post stage defaults to single-rank execution by workflow policy.
 6. (Cluster mode) `cluster.yml`: scheduler/resource/launcher contract.
 7. (Sweep mode) `study.yml`: parameter matrix + metrics/plot contract.
 

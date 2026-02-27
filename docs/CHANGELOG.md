@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+- Workflow launch policy update:
+  - `run --num-procs` now applies to solver stage sizing.
+  - post stage defaults to single-rank execution in local mode.
+  - generated `post.sbatch` now defaults to single-task resources (`nodes=1`, `ntasks_per_node=1`).
+  - manifests/dry-run plans now expose stage-specific MPI counts.
+
 - Cluster orchestration and sweeps:
   - added `cluster.yml` Slurm contract support to `pic.flow run` (`--cluster`, `--scheduler`, `--no-submit`).
   - added scheduler artifact generation and submission metadata (`solver.sbatch`, `post.sbatch`, `submission.json`, `manifest.json`).

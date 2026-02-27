@@ -31,7 +31,7 @@ Code reference:
 | `[FATAL] Could not automatically identify required config files in <run>/config` | Missing/renamed `case.yml`, `monitor.yml`, or `*.control` | Re-run solve stage or restore expected files under `runs/<run_id>/config/`. |
 | `[FATAL] Source data directory for post-processing not found or empty` | Post source data path points to missing/empty solver output | Verify monitor output directory and existing solver output files. |
 | `[FATAL] Unsupported scheduler '<x>'. Only Slurm is supported in v1.` | `cluster.yml` has unsupported scheduler type | Set `cluster.yml -> scheduler.type: slurm`. |
-| `[FATAL] In cluster mode, --num-procs must be 1 (auto) or exactly nodes*ntasks_per_node (...)` | MPI count mismatch against cluster resources | Set `-n 1` or set `-n` to `nodes * ntasks_per_node`. |
+| `[FATAL] In cluster mode, --num-procs applies to the solver stage and must be 1 (auto) or exactly nodes*ntasks_per_node (...)` | Solver MPI count mismatch against cluster resources | Set `-n 1` or set solver `-n` to `nodes * ntasks_per_node`. |
 
 @section workflow_sec 3. Recommended Debug Workflow
 

@@ -2552,7 +2552,8 @@ def build_run_dry_plan(args) -> dict:
     cluster_mode = bool(getattr(args, "cluster", None))
     cluster_cfg = None
     cluster_path = None
-    effective_num_procs = args.num_procs
+    solver_num_procs_effective = args.num_procs
+    post_num_procs_effective = 1
     run_id = None
     run_dir = None
     solver_control_path = None
@@ -2581,18 +2582,19 @@ def build_run_dry_plan(args) -> dict:
             )
             sys.exit(1)
         cluster_tasks = get_cluster_total_tasks(cluster_cfg)
-        if args.num_procs not in (1, cluster_tasks):
+        if args.solve and args.num_procs not in (1, cluster_tasks):
             emit_structured_error(
                 ERROR_CODE_CFG_INCONSISTENT_COMBO,
                 key="resources.ntasks_per_node",
                 file_path=cluster_path,
                 message=(
-                    "--num-procs must be 1 (auto) or exactly nodes*ntasks_per_node "
-                    f"({cluster_tasks}) in cluster mode."
+                    "--num-procs applies to the solver stage and must be 1 (auto) or "
+                    f"exactly nodes*ntasks_per_node ({cluster_tasks}) in cluster mode."
                 ),
             )
             sys.exit(1)
-        effective_num_procs = cluster_tasks
+        if args.solve:
+            solver_num_procs_effective = cluster_tasks
         plan["launch_mode"] = "slurm"
         plan["inputs"]["cluster"] = cluster_path
     else:
@@ -2653,15 +2655,17 @@ def build_run_dry_plan(args) -> dict:
             plan["stages"]["solve"] = {
                 "mode": "slurm",
                 "script": solver_script,
+                "num_procs_effective": solver_num_procs_effective,
                 "launch_command": solver_cmd,
                 "launch_command_string": _command_to_string(solver_cmd),
             }
         else:
             solver_cmd = [solver_exe] + solver_args
-            if effective_num_procs > 1:
-                solver_cmd = ["mpiexec", "-n", str(effective_num_procs)] + solver_cmd
+            if solver_num_procs_effective > 1:
+                solver_cmd = ["mpiexec", "-n", str(solver_num_procs_effective)] + solver_cmd
             plan["stages"]["solve"] = {
                 "mode": "local",
+                "num_procs_effective": solver_num_procs_effective,
                 "launch_command": solver_cmd,
                 "launch_command_string": _command_to_string(solver_cmd),
             }
@@ -2729,22 +2733,26 @@ def build_run_dry_plan(args) -> dict:
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
             post_script = os.path.join(scheduler_dir, "post.sbatch")
-            post_cmd = build_cluster_launch_command(cluster_cfg, post_exe, post_args)
+            post_cluster_cfg = copy.deepcopy(cluster_cfg)
+            post_cluster_cfg.setdefault("resources", {})
+            post_cluster_cfg["resources"]["nodes"] = 1
+            post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
+            post_cmd = build_cluster_launch_command(post_cluster_cfg, post_exe, post_args)
             plan["artifacts"].append(post_script)
             plan["stages"]["post-process"] = {
                 "mode": "slurm",
                 "script": post_script,
                 "source_data_directory": resolved_source_dir,
+                "num_procs_effective": post_num_procs_effective,
                 "launch_command": post_cmd,
                 "launch_command_string": _command_to_string(post_cmd),
             }
         else:
             post_cmd = [post_exe] + post_args
-            if effective_num_procs > 1:
-                post_cmd = ["mpiexec", "-n", str(effective_num_procs)] + post_cmd
             plan["stages"]["post-process"] = {
                 "mode": "local",
                 "source_data_directory": resolved_source_dir,
+                "num_procs_effective": post_num_procs_effective,
                 "launch_command": post_cmd,
                 "launch_command_string": _command_to_string(post_cmd),
             }
@@ -2761,7 +2769,9 @@ def build_run_dry_plan(args) -> dict:
         plan["run_id_preview"] = run_id
     if run_dir and "run_dir_preview" not in plan:
         plan["run_dir_preview"] = run_dir
-    plan["num_procs_effective"] = effective_num_procs
+    plan["solver_num_procs_effective"] = solver_num_procs_effective
+    plan["post_num_procs_effective"] = post_num_procs_effective
+    plan["num_procs_effective"] = solver_num_procs_effective
     return plan
 
 
@@ -2780,7 +2790,8 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
         print(f"  Run ID preview : {plan.get('run_id_preview')}")
     if plan.get("run_dir_preview"):
         print(f"  Run dir preview: {plan.get('run_dir_preview')}")
-    print(f"  MPI processes  : {plan.get('num_procs_effective')}")
+    print(f"  Solver MPI procs: {plan.get('solver_num_procs_effective')}")
+    print(f"  Post MPI procs  : {plan.get('post_num_procs_effective')}")
     if plan.get("warnings"):
         print("  Warnings       :")
         for warning in plan["warnings"]:
@@ -2905,7 +2916,8 @@ def run_workflow(args):
     cluster_mode = bool(getattr(args, "cluster", None))
     cluster_cfg = None
     cluster_path = None
-    effective_num_procs = args.num_procs
+    solver_num_procs_effective = args.num_procs
+    post_num_procs_effective = 1
 
     if cluster_mode:
         cluster_path = os.path.abspath(args.cluster)
@@ -2922,17 +2934,25 @@ def run_workflow(args):
             print(f"[FATAL] Unsupported scheduler '{scheduler_type}'. Only Slurm is supported in v1.", file=sys.stderr)
             sys.exit(1)
         cluster_tasks = get_cluster_total_tasks(cluster_cfg)
-        if args.num_procs not in (1, cluster_tasks):
+        if args.solve and args.num_procs not in (1, cluster_tasks):
             print(
-                f"[FATAL] In cluster mode, --num-procs must be 1 (auto) or exactly nodes*ntasks_per_node ({cluster_tasks}).",
+                "[FATAL] In cluster mode, --num-procs applies to the solver stage and must be "
+                f"1 (auto) or exactly nodes*ntasks_per_node ({cluster_tasks}).",
                 file=sys.stderr
             )
             sys.exit(1)
-        effective_num_procs = cluster_tasks
+        if args.solve:
+            solver_num_procs_effective = cluster_tasks
         submission_meta["launch_mode"] = "slurm"
         submission_meta["cluster_config"] = cluster_path
         submission_meta["no_submit"] = bool(args.no_submit)
-        print(f"[INFO] Cluster mode enabled (Slurm). Using {effective_num_procs} MPI tasks from cluster.yml.")
+        if args.solve:
+            print(
+                f"[INFO] Cluster mode enabled (Slurm). Solver uses {solver_num_procs_effective} MPI tasks "
+                f"from cluster.yml; post stage defaults to {post_num_procs_effective} task."
+            )
+        else:
+            print(f"[INFO] Cluster mode enabled (Slurm). Post stage defaults to {post_num_procs_effective} task.")
     elif getattr(args, "scheduler", None):
         print("[FATAL] --scheduler requires --cluster in this version.", file=sys.stderr)
         sys.exit(1)
@@ -2979,7 +2999,7 @@ def run_workflow(args):
         )
 
         monitor_files = {'whitelist': whitelist_path, 'profile': profile_path}
-        control_file = generate_solver_control_file(run_dir, run_id, configs, effective_num_procs, monitor_files)
+        control_file = generate_solver_control_file(run_dir, run_id, configs, solver_num_procs_effective, monitor_files)
 
         solver_exe = os.path.join(BIN_DIR, "picsolver")
         solver_args = ["-control_file", control_file]
@@ -2999,7 +3019,11 @@ def run_workflow(args):
                 solver_err,
                 env_vars={"LOG_LEVEL": configs['monitor'].get('logging', {}).get('verbosity', 'INFO').upper()},
             )
-            submission_meta["stages"]["solve"] = {"script": solver_script, "submitted": False}
+            submission_meta["stages"]["solve"] = {
+                "script": solver_script,
+                "submitted": False,
+                "num_procs_effective": solver_num_procs_effective,
+            }
             print(f"[SUCCESS] Generated solver Slurm script: {os.path.relpath(solver_script)}")
             if not args.no_submit:
                 submit_info = submit_sbatch(solver_script)
@@ -3009,8 +3033,8 @@ def run_workflow(args):
             stages_completed.append('solve')
         else:
             command = [solver_exe] + solver_args
-            if effective_num_procs > 1:
-                command = ["mpiexec", "-n", str(effective_num_procs)] + command
+            if solver_num_procs_effective > 1:
+                command = ["mpiexec", "-n", str(solver_num_procs_effective)] + command
             execute_command(command, run_dir, f"{run_id}_solver.log", configs['monitor'])
             stages_completed.append('solve')
 
@@ -3081,18 +3105,26 @@ def run_workflow(args):
             post_script = os.path.join(scheduler_dir, "post.sbatch")
             post_log = os.path.join(run_dir, "logs", "post_%j.out")
             post_err = os.path.join(run_dir, "logs", "post_%j.err")
-            post_cmd = build_cluster_launch_command(cluster_cfg, post_exe, post_args)
+            post_cluster_cfg = copy.deepcopy(cluster_cfg)
+            post_cluster_cfg.setdefault("resources", {})
+            post_cluster_cfg["resources"]["nodes"] = 1
+            post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
+            post_cmd = build_cluster_launch_command(post_cluster_cfg, post_exe, post_args)
             render_slurm_script(
                 post_script,
                 f"{run_id}_post",
-                cluster_cfg,
+                post_cluster_cfg,
                 post_cmd,
                 run_dir,
                 post_log,
                 post_err,
                 env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
             )
-            submission_meta["stages"]["post-process"] = {"script": post_script, "submitted": False}
+            submission_meta["stages"]["post-process"] = {
+                "script": post_script,
+                "submitted": False,
+                "num_procs_effective": post_num_procs_effective,
+            }
             print(f"[SUCCESS] Generated post Slurm script: {os.path.relpath(post_script)}")
 
             if not args.no_submit:
@@ -3108,8 +3140,6 @@ def run_workflow(args):
             stages_completed.append('post-process')
         else:
             command = [post_exe] + post_args
-            if effective_num_procs > 1:
-                command = ["mpiexec", "-n", str(effective_num_procs)] + command
             execute_command(command, run_dir, f"{run_id}_{output_prefix}.log", monitor_cfg)
             stages_completed.append('post-process')
 
@@ -3119,7 +3149,9 @@ def run_workflow(args):
             "created_at": datetime.now().isoformat(),
             "launch_mode": "slurm" if cluster_mode else "local",
             "git_commit": get_git_commit(),
-            "num_procs": effective_num_procs,
+            "num_procs": solver_num_procs_effective,
+            "solver_num_procs": solver_num_procs_effective,
+            "post_num_procs": post_num_procs_effective,
             "stages_requested": {"solve": bool(args.solve), "post_process": bool(args.post_process)},
             "stages_completed_or_submitted": stages_completed,
             "inputs": {},
@@ -3154,7 +3186,10 @@ def run_workflow(args):
         print(f"  Wall-clock     : {time_str}")
         print(f"  Stages         : {', '.join(stages_completed)}")
         print(f"  Launch mode    : {'slurm' if cluster_mode else 'local'}")
-        print(f"  MPI processes  : {effective_num_procs}")
+        if args.solve:
+            print(f"  Solver MPI procs: {solver_num_procs_effective}")
+        if args.post_process:
+            print(f"  Post MPI procs  : {post_num_procs_effective}")
         if args.solve and configs:
             total_steps = configs['case'].get('run_control', {}).get('total_steps', '?')
             result_dir = os.path.join(run_dir, configs['monitor'].get('io', {}).get('directories', {}).get('output', 'results'))
@@ -3481,6 +3516,9 @@ def _add_run_parser(subparsers):
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Execute solver and/or post-processing stages.\n\n"
+            "Notes:\n"
+            "  - --num-procs applies to solver stage launches.\n"
+            "  - Post-processing defaults to a single MPI rank/task.\n\n"
             "Examples:\n"
             "  pic.flow run --solve --post-process -n 8 --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
             "  pic.flow run --post-process --run-dir runs/my_run --post post.yml\n"
@@ -3503,7 +3541,13 @@ def _add_run_parser(subparsers):
     post_group.add_argument("--run-dir", help="Path to an existing run directory to post-process.\n(Not needed if running with --solve in the same command).")
     post_group.add_argument("--post", help="Path to the post-processing recipe file (e.g., post.yml).")
 
-    p_run.add_argument("-n", "--num-procs", type=int, default=1, help="Number of MPI processes for either stage.")
+    p_run.add_argument(
+        "-n",
+        "--num-procs",
+        type=int,
+        default=1,
+        help="Number of MPI processes for the solver stage. Post-processing defaults to 1 rank.",
+    )
     p_run.add_argument("--cluster", help="Path to cluster.yml for Slurm execution mode.")
     p_run.add_argument("--scheduler", help="Explicit scheduler selector (currently 'slurm').")
     p_run.add_argument("--no-submit", action="store_true", help="Generate Slurm scripts/manifests but do not call sbatch.")
