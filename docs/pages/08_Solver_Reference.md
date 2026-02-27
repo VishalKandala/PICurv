@@ -1,4 +1,4 @@
-@page 08_Solver_Reference Configuration Reference: solver.yml
+@page 08_Solver_Reference Configuration Reference: Solver YAML
 
 For the full commented template, see:
 

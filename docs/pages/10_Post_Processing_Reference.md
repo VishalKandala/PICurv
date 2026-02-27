@@ -1,4 +1,4 @@
-@page 10_Post_Processing_Reference Configuration Reference: post.yml
+@page 10_Post_Processing_Reference Configuration Reference: Postprocessor YAML
 
 For the full commented template, see:
 

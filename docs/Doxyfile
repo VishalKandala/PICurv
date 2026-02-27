@@ -11,7 +11,7 @@ OPTIMIZE_OUTPUT_FOR_C  = YES
 INPUT                  = ../include ../src . pages ../examples ../scripts
 FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md
 RECURSIVE              = YES
-EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/*
+EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/* */guide.md
 
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = NO

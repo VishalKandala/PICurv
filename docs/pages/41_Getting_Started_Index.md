@@ -1,29 +1,48 @@
 @page 41_Getting_Started_Index Getting Started
 
-This index is the recommended first path through PICurv documentation.
-If you are new to the repository, follow these pages in order.
+This index is the recommended onboarding path for new users.
+It is organized to minimize first-run failure risk:
+build first, then run a known working case, then inspect outputs.
 
 @tableofcontents
 
-@section quick_path_sec 1. Fast Path
+@section when_sec 1. When to Use This Section
 
-1. **@subpage 38_Start_Here_10_Minutes**
-2. **@subpage 01_Installation**
+Use this section if you are in one of these states:
+
+- first time cloning PICurv,
+- returning after dependency/toolchain changes,
+- onboarding someone to the repository and needing a deterministic starting path.
+
+@section distinction_sec 2. Quickstart vs First Simulation
+
+Two pages look similar but serve different goals:
+
+- **@subpage 38_Start_Here_10_Minutes**
+  shortest command path, minimal explanation, optimized for speed.
+- **@subpage 02_Tutorial_Programmatic_Grid**
+  complete walkthrough with artifact inspection and troubleshooting context.
+
+@section path_sec 3. Recommended Read Order
+
+1. **@subpage 01_Installation**
+2. **@subpage 38_Start_Here_10_Minutes**
 3. **@subpage 02_Tutorial_Programmatic_Grid**
 4. **@subpage 03_Tutorial_File-Based_Grid**
 5. **@subpage 04_Visualization_Tutorial**
 
-@section what_you_get_sec 2. What You Learn
+@section outputs_sec 4. Expected Outcomes After Completing This Path
 
-- how to build the binaries,
-- how generated runtime artifacts map from YAML inputs,
-- where to inspect solver/post outputs,
-- how to diagnose first-run failures quickly.
+You should be able to:
 
-@section then_sec 3. After First Success
+- build `bin/picsolver` and `bin/postprocessor`,
+- generate valid runtime control artifacts from YAML inputs,
+- execute `run --solve --post-process` locally,
+- inspect VTK outputs in ParaView,
+- map first-run failures to corrective actions.
 
-Move next to:
+@section next_sec 5. Where to Go Next
 
-- **@subpage 42_User_Guide_Index** for production run composition,
-- **@subpage 39_Common_Fatal_Errors** for troubleshooting,
-- **@subpage 40_Testing_and_Quality_Guide** for CI and smoke validation.
+- Operational run authoring: **@subpage 42_User_Guide_Index**
+- Troubleshooting catalog: **@subpage 39_Common_Fatal_Errors**
+- CI/smoke test contract: **@subpage 40_Testing_and_Quality_Guide**
