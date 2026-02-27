@@ -1,0 +1,10 @@
+scheduler:
+  type: pbs
+
+resources:
+  account: "test_account"
+  partition: "compute"
+  nodes: 1
+  ntasks_per_node: 1
+  mem: "4G"
+  time: "00:10:00"

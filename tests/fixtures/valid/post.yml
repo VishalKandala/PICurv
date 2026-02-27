@@ -1,0 +1,20 @@
+run_control:
+  start_step: 0
+  end_step: 10
+  step_interval: 1
+
+global_operations:
+  dimensionalize: true
+
+eulerian_pipeline:
+  - task: q_criterion
+  - task: nodal_average
+    input_field: Ucat
+    output_field: Ucat_nodal
+
+io:
+  output_directory: "visualization/standard_analysis"
+  output_filename_prefix: "eulerian_data"
+  eulerian_fields:
+    - Ucat_nodal
+    - Qcrit

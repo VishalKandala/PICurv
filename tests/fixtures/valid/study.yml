@@ -1,0 +1,19 @@
+base_configs:
+  case: "case.yml"
+  solver: "solver.yml"
+  monitor: "monitor.yml"
+  post: "post.yml"
+
+study_type: "sensitivity"
+
+parameters:
+  solver.tolerances.max_iterations: [20, 40]
+
+metrics:
+  - msd_final
+
+plotting:
+  enabled: false
+
+execution:
+  max_concurrent_array_tasks: 2

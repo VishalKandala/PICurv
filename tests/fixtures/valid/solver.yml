@@ -1,0 +1,32 @@
+operation_mode:
+  eulerian_field_source: "solve"
+
+strategy:
+  momentum_solver: "Dual Time Picard RK4"
+
+tolerances:
+  max_iterations: 50
+  absolute_tol: 1.0e-8
+  relative_tol: 1.0e-3
+  step_tol: 1.0e-8
+
+momentum_solver:
+  dual_time_picard_rk4:
+    pseudo_cfl:
+      initial: 0.1
+      minimum: 0.001
+      maximum: 1.0
+      growth_factor: 1.0
+      reduction_factor: 1.0
+
+pressure_solver:
+  multigrid:
+    levels: 3
+    semi_coarsening:
+      i: false
+      j: false
+      k: true
+
+petsc_passthrough_options:
+  -ps_ksp_type: "fgmres"
+  -ps_ksp_max_it: 50

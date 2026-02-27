@@ -3,6 +3,7 @@
     <tab type="mainpage" visible="yes" title="PICurv Home"/>
 
     <tab type="pages" visible="yes" title="Getting Started" intro="For new users.">
+      <page name="Start Here in 10 Minutes" url="@ref 38_Start_Here_10_Minutes"/>
       <page name="Installation" url="@ref 01_Installation"/>
       <page name="Tutorial: Flat Channel" url="@ref 02_Tutorial_Programmatic_Grid"/>
       <page name="Tutorial: Bent Channel" url="@ref 03_Tutorial_File-Based_Grid"/>
@@ -19,6 +20,7 @@
       <page name="Monitor Profiles" url="@ref 09_Monitor_Reference"/>
       <page name="Post-Processing Recipes" url="@ref 10_Post_Processing_Reference"/>
       <page name="User How-To Guides" url="@ref 11_User_How_To_Guides"/>
+      <page name="Common Fatal Errors" url="@ref 39_Common_Fatal_Errors"/>
       <page name="Capabilities Summary" url="@ref 12_Capabilities_Summary"/>
       <page name="Non-Dimensionalization" url="@ref 19_Nondimensionalization"/>
       <page name="Repository Navigation" url="@ref 30_Repository_Navigation"/>

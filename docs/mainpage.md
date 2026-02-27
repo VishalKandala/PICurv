@@ -14,8 +14,10 @@ The user workflow is configuration-first: YAML inputs are validated and translat
 
 @section get_started_main To Begin, Choose Your Path
 
+- **@subpage 38_Start_Here_10_Minutes**: one-page first run path (validate -> dry-run -> execute).
 - **@subpage 01_Installation**: install dependencies, build binaries, run first case.
 - **@subpage 05_The_Conductor_Script**: YAML-first workflow and command patterns.
+- **@subpage 39_Common_Fatal_Errors**: map frequent failures to fix commands.
 - **@subpage 13_Code_Architecture**: C-side architecture and extension touchpoints.
 - **@subpage 30_Repository_Navigation**: repository map and per-directory `guide.md` pointers.
 

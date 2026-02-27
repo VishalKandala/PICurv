@@ -109,6 +109,7 @@ Useful variants:
 ./scripts/pic.flow --help
 ./scripts/pic.flow run --help
 ./scripts/pic.flow sweep --help
+./scripts/pic.flow validate --help
 ```
 
 @section next_steps_sec 7. Next Steps

@@ -41,6 +41,126 @@ SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 BIN_DIR = SCRIPT_PATH
 PROJECT_ROOT = os.path.dirname(BIN_DIR)
 
+# Standardized error codes used for CLI/validation reporting.
+ERROR_CODE_CLI_USAGE_INVALID = "CLI_USAGE_INVALID"
+ERROR_CODE_CFG_MISSING_SECTION = "CFG_MISSING_SECTION"
+ERROR_CODE_CFG_MISSING_KEY = "CFG_MISSING_KEY"
+ERROR_CODE_CFG_INVALID_TYPE = "CFG_INVALID_TYPE"
+ERROR_CODE_CFG_INVALID_VALUE = "CFG_INVALID_VALUE"
+ERROR_CODE_CFG_FILE_NOT_FOUND = "CFG_FILE_NOT_FOUND"
+ERROR_CODE_CFG_GRID_PARSE = "CFG_GRID_PARSE"
+ERROR_CODE_CFG_INCONSISTENT_COMBO = "CFG_INCONSISTENT_COMBO"
+
+_ERROR_HINTS = {
+    ERROR_CODE_CLI_USAGE_INVALID: "Run 'pic.flow <command> --help' to see valid argument combinations.",
+    ERROR_CODE_CFG_MISSING_SECTION: "Add the missing section using examples/master_template/*.yml as reference.",
+    ERROR_CODE_CFG_MISSING_KEY: "Add the missing key in the referenced YAML file.",
+    ERROR_CODE_CFG_INVALID_TYPE: "Fix the value type to match the documented schema in docs/pages/14_Config_Contract.md.",
+    ERROR_CODE_CFG_INVALID_VALUE: "Adjust the value to a supported range/enum from the config reference pages.",
+    ERROR_CODE_CFG_FILE_NOT_FOUND: "Fix the path or create the missing file before running again.",
+    ERROR_CODE_CFG_GRID_PARSE: "Validate grid file format and numeric payload (block count, dims, coordinates).",
+    ERROR_CODE_CFG_INCONSISTENT_COMBO: "Fix conflicting options/keys so the configuration is internally consistent.",
+}
+
+
+def _sanitize_error_field(value) -> str:
+    """Normalize error fields into a single-line string."""
+    if value is None:
+        return "-"
+    text = str(value).strip()
+    if not text:
+        return "-"
+    return " ".join(text.splitlines())
+
+
+def emit_structured_error(code: str, key: str = "-", file_path: str = "-",
+                          message: str = "", hint: str = None, stream=None):
+    """Emit one standardized error line for tooling and users."""
+    if stream is None:
+        stream = sys.stderr
+    resolved_hint = hint if hint is not None else _ERROR_HINTS.get(code, "-")
+    print(
+        f"ERROR {_sanitize_error_field(code)} | "
+        f"key={_sanitize_error_field(key)} | "
+        f"file={_sanitize_error_field(file_path)} | "
+        f"message={_sanitize_error_field(message)} | "
+        f"hint={_sanitize_error_field(resolved_hint)}",
+        file=stream,
+    )
+
+
+def fail_cli_usage(message: str, hint: str = None):
+    """Emit a structured CLI usage error and exit with code 2."""
+    emit_structured_error(
+        ERROR_CODE_CLI_USAGE_INVALID,
+        key="-",
+        file_path="-",
+        message=message,
+        hint=hint or _ERROR_HINTS[ERROR_CODE_CLI_USAGE_INVALID],
+    )
+    sys.exit(2)
+
+
+def _split_error_file_and_message(raw_error: str):
+    """Split '<file>: <message>' style validation strings when possible."""
+    text = str(raw_error).strip()
+    match = re.match(r"^(?P<file>[^:]+):\s*(?P<msg>.+)$", text)
+    if not match:
+        return "-", text
+    file_candidate = match.group("file").strip()
+    msg = match.group("msg").strip()
+    known_suffixes = (".yml", ".yaml", ".cfg", ".picgrid", ".control", ".run", ".txt")
+    if "/" in file_candidate or file_candidate.endswith(known_suffixes):
+        return file_candidate, msg
+    return "-", text
+
+
+def _extract_key_path(message: str) -> str:
+    """Best-effort key-path extraction from free-form validation messages."""
+    dotted = re.search(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_\[\]-]+)+)\b", message)
+    if dotted:
+        return dotted.group(1)
+
+    bracketed = re.search(r"\b([A-Za-z_][A-Za-z0-9_]*\[[^\]]+\](?:\[[^\]]+\])*)\b", message)
+    if bracketed:
+        return bracketed.group(1)
+
+    quoted = re.findall(r"'([A-Za-z0-9_.\[\]-]+)'", message)
+    for token in quoted:
+        if "." in token or "[" in token or token.isidentifier():
+            return token
+    return "-"
+
+
+def _classify_error_code(message: str) -> str:
+    """Map existing validation/error messages to the standardized code set."""
+    msg = message.lower()
+    if "missing required section" in msg:
+        return ERROR_CODE_CFG_MISSING_SECTION
+    if "missing required key" in msg or "missing key" in msg:
+        return ERROR_CODE_CFG_MISSING_KEY
+    if "not found" in msg or "does not exist" in msg:
+        return ERROR_CODE_CFG_FILE_NOT_FOUND
+    if "invalid dimensions line" in msg or "invalid coordinate row" in msg or "grid file" in msg:
+        return ERROR_CODE_CFG_GRID_PARSE
+    if (
+        "must both be periodic" in msg
+        or "inconsistent periodicity" in msg
+        or "mismatch" in msg
+        or "requires --" in msg
+        or "must be 1 (auto) or exactly" in msg
+    ):
+        return ERROR_CODE_CFG_INCONSISTENT_COMBO
+    if (
+        "must be a mapping" in msg
+        or "must be a list" in msg
+        or "must be a string" in msg
+        or "must be a boolean" in msg
+        or "must be either" in msg
+    ):
+        return ERROR_CODE_CFG_INVALID_TYPE
+    return ERROR_CODE_CFG_INVALID_VALUE
+
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
@@ -53,13 +173,24 @@ def read_yaml_file(filepath: str) -> dict:
     @throws SystemExit if the file is not found or cannot be parsed.
     """
     if not os.path.exists(filepath):
-        print(f"[FATAL] Configuration file not found: {filepath}", file=sys.stderr)
+        emit_structured_error(
+            ERROR_CODE_CFG_FILE_NOT_FOUND,
+            key="-",
+            file_path=filepath,
+            message="Configuration file not found.",
+        )
         sys.exit(1)
     try:
         with open(filepath, 'r') as f:
             return yaml.safe_load(f)
     except yaml.YAMLError as e:
-        print(f"[FATAL] Error parsing YAML file '{filepath}': {e}", file=sys.stderr)
+        emit_structured_error(
+            ERROR_CODE_CFG_INVALID_VALUE,
+            key="-",
+            file_path=filepath,
+            message=f"YAML parse error: {e}",
+            hint="Fix YAML syntax/indentation and retry validation.",
+        )
         sys.exit(1)
 
 def write_yaml_file(filepath: str, data: dict):
@@ -1270,10 +1401,17 @@ def _print_validation_errors(errors: list):
     @brief Prints validation errors and exits.
     @param[in] errors List of error message strings.
     """
-    print("\n[FATAL] Configuration validation failed:", file=sys.stderr)
-    for e in errors:
-        print(e, file=sys.stderr)
-    print(f"\n  Hint: See examples/master_template/ for valid config file structure.", file=sys.stderr)
+    print(f"\n[FATAL] Configuration validation failed with {len(errors)} issue(s):", file=sys.stderr)
+    for raw_error in errors:
+        file_path, message = _split_error_file_and_message(raw_error)
+        key_path = _extract_key_path(message)
+        code = _classify_error_code(message)
+        emit_structured_error(code, key=key_path, file_path=file_path, message=message)
+    print(
+        "\nHint: See examples/master_template/ for valid config structure and "
+        "docs/pages/14_Config_Contract.md for key-level contract details.",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 
@@ -2381,8 +2519,381 @@ def generate_study_plots(study_cfg: dict, metrics_csv: str, plots_dir: str):
         print(f"[SUCCESS] Generated {len(generated)} plot(s) in {os.path.relpath(plots_dir)}")
     return generated
 
+
+def _command_to_string(command_tokens: list) -> str:
+    """Render a command list as a shell-safe display string."""
+    return " ".join(shlex.quote(str(tok)) for tok in command_tokens)
+
+
+def _resolve_post_source_directory_preview(run_dir: str, monitor_cfg: dict, post_cfg: dict) -> str:
+    """Resolve post source directory without side effects or stdout/stderr output."""
+    solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
+    solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
+    source_dir_template = post_cfg.get('source_data', {}).get('directory', '<solver_output_dir>')
+    if source_dir_template == '<solver_output_dir>':
+        return solver_output_dir_abs
+    return os.path.abspath(os.path.join(run_dir, source_dir_template))
+
+
+def build_run_dry_plan(args) -> dict:
+    """Build a no-write execution plan for `run --dry-run`."""
+    plan = {
+        "mode": "dry-run",
+        "created_at": datetime.now().isoformat(),
+        "warnings": [],
+        "inputs": {},
+        "stages": {},
+        "artifacts": [],
+    }
+
+    if args.dry_run and args.no_submit:
+        plan["warnings"].append("--dry-run takes precedence over --no-submit; no files will be written.")
+
+    cluster_mode = bool(getattr(args, "cluster", None))
+    cluster_cfg = None
+    cluster_path = None
+    effective_num_procs = args.num_procs
+    run_id = None
+    run_dir = None
+    solver_control_path = None
+    loaded_case_cfg = None
+    loaded_monitor_cfg = None
+
+    if cluster_mode:
+        cluster_path = os.path.abspath(args.cluster)
+        cluster_cfg = read_yaml_file(cluster_path)
+        validate_cluster_config(cluster_cfg, cluster_path)
+        scheduler_type = str(cluster_cfg.get("scheduler", {}).get("type", "slurm")).lower()
+        if args.scheduler and args.scheduler.lower() != scheduler_type:
+            emit_structured_error(
+                ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                key="scheduler.type",
+                file_path=cluster_path,
+                message=f"--scheduler={args.scheduler} does not match cluster.yml scheduler.type={scheduler_type}.",
+            )
+            sys.exit(1)
+        if scheduler_type != "slurm":
+            emit_structured_error(
+                ERROR_CODE_CFG_INVALID_VALUE,
+                key="scheduler.type",
+                file_path=cluster_path,
+                message=f"Unsupported scheduler '{scheduler_type}'. Only Slurm is supported in v1.",
+            )
+            sys.exit(1)
+        cluster_tasks = get_cluster_total_tasks(cluster_cfg)
+        if args.num_procs not in (1, cluster_tasks):
+            emit_structured_error(
+                ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                key="resources.ntasks_per_node",
+                file_path=cluster_path,
+                message=(
+                    "--num-procs must be 1 (auto) or exactly nodes*ntasks_per_node "
+                    f"({cluster_tasks}) in cluster mode."
+                ),
+            )
+            sys.exit(1)
+        effective_num_procs = cluster_tasks
+        plan["launch_mode"] = "slurm"
+        plan["inputs"]["cluster"] = cluster_path
+    else:
+        if getattr(args, "scheduler", None):
+            fail_cli_usage("--scheduler requires --cluster in this version.")
+        plan["launch_mode"] = "local"
+
+    if args.solve:
+        case_path = os.path.abspath(args.case)
+        solver_path = os.path.abspath(args.solver)
+        monitor_path = os.path.abspath(args.monitor)
+        loaded_case_cfg = read_yaml_file(case_path)
+        solver_cfg = read_yaml_file(solver_path)
+        loaded_monitor_cfg = read_yaml_file(monitor_path)
+        validate_solver_configs(loaded_case_cfg, solver_cfg, loaded_monitor_cfg, case_path, solver_path, monitor_path)
+
+        case_name = os.path.splitext(os.path.basename(case_path))[0]
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        run_id = f"{case_name}_{timestamp}"
+        run_dir = os.path.abspath(os.path.join("runs", run_id))
+
+        config_dir = os.path.join(run_dir, "config")
+        scheduler_dir = os.path.join(run_dir, "scheduler")
+        logs_dir = os.path.join(run_dir, "logs")
+        solver_control_path = os.path.join(config_dir, f"{run_id}.control")
+        whitelist_path = os.path.join(config_dir, "whitelist.run")
+        profile_path = os.path.join(config_dir, "profile.run")
+
+        plan["run_id_preview"] = run_id
+        plan["run_dir_preview"] = run_dir
+        plan["inputs"].update({"case": case_path, "solver": solver_path, "monitor": monitor_path})
+        plan["artifacts"].extend(
+            [
+                run_dir,
+                config_dir,
+                logs_dir,
+                os.path.join(run_dir, "results"),
+                scheduler_dir,
+                os.path.join(config_dir, "case.yml"),
+                os.path.join(config_dir, "solver.yml"),
+                os.path.join(config_dir, "monitor.yml"),
+                whitelist_path,
+                profile_path,
+                solver_control_path,
+                os.path.join(run_dir, "manifest.json"),
+            ]
+        )
+        if cluster_mode:
+            plan["artifacts"].append(os.path.join(config_dir, "cluster.yml"))
+            plan["artifacts"].append(os.path.join(scheduler_dir, "submission.json"))
+
+        solver_exe = os.path.join(BIN_DIR, "picsolver")
+        solver_args = ["-control_file", solver_control_path]
+        if cluster_mode:
+            solver_script = os.path.join(scheduler_dir, "solver.sbatch")
+            solver_cmd = build_cluster_launch_command(cluster_cfg, solver_exe, solver_args)
+            plan["artifacts"].append(solver_script)
+            plan["stages"]["solve"] = {
+                "mode": "slurm",
+                "script": solver_script,
+                "launch_command": solver_cmd,
+                "launch_command_string": _command_to_string(solver_cmd),
+            }
+        else:
+            solver_cmd = [solver_exe] + solver_args
+            if effective_num_procs > 1:
+                solver_cmd = ["mpiexec", "-n", str(effective_num_procs)] + solver_cmd
+            plan["stages"]["solve"] = {
+                "mode": "local",
+                "launch_command": solver_cmd,
+                "launch_command_string": _command_to_string(solver_cmd),
+            }
+
+    if args.post_process:
+        post_path = os.path.abspath(args.post)
+        plan["inputs"]["post"] = post_path
+        post_cfg = read_yaml_file(post_path)
+        validate_post_config(post_cfg, post_path)
+
+        if args.run_dir:
+            run_dir = os.path.abspath(args.run_dir)
+            if not os.path.isdir(run_dir):
+                emit_structured_error(
+                    ERROR_CODE_CFG_FILE_NOT_FOUND,
+                    key="run-dir",
+                    file_path=run_dir,
+                    message="Specified run directory not found.",
+                )
+                sys.exit(1)
+            run_id = os.path.basename(run_dir)
+        elif not args.solve:
+            fail_cli_usage("--post-process requires --run-dir when not used with --solve.")
+
+        if args.run_dir:
+            config_dir = os.path.join(run_dir, "config")
+            case_path, monitor_path, solver_control_path = auto_identify_run_inputs(config_dir)
+            if not all([case_path, monitor_path, solver_control_path]):
+                emit_structured_error(
+                    ERROR_CODE_CFG_MISSING_KEY,
+                    key="run_dir.config",
+                    file_path=config_dir,
+                    message=(
+                        "Could not auto-identify required run inputs "
+                        "(case.yml/monitor.yml/*.control) in run config directory."
+                    ),
+                )
+                sys.exit(1)
+            loaded_case_cfg = read_yaml_file(case_path)
+            loaded_monitor_cfg = read_yaml_file(monitor_path)
+        else:
+            config_dir = os.path.join(run_dir, "config")
+            case_path = os.path.join(config_dir, "case.yml")
+            monitor_path = os.path.join(config_dir, "monitor.yml")
+            if solver_control_path is None:
+                solver_control_path = os.path.join(config_dir, f"{run_id}.control")
+
+        resolved_source_dir = _resolve_post_source_directory_preview(run_dir, loaded_monitor_cfg, post_cfg)
+        post_recipe_path = os.path.join(config_dir, "post.run")
+        output_dir_rel = post_cfg.get("io", {}).get("output_directory")
+        output_prefix = post_cfg.get("io", {}).get("output_filename_prefix")
+        if not output_dir_rel or not output_prefix:
+            emit_structured_error(
+                ERROR_CODE_CFG_MISSING_KEY,
+                key="io.output_directory/io.output_filename_prefix",
+                file_path=post_path,
+                message="Missing required post IO keys.",
+            )
+            sys.exit(1)
+        output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
+        post_exe = os.path.join(BIN_DIR, "postprocessor")
+        post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_path]
+        plan["artifacts"].extend([post_recipe_path, output_dir_abs])
+
+        if cluster_mode:
+            scheduler_dir = os.path.join(run_dir, "scheduler")
+            post_script = os.path.join(scheduler_dir, "post.sbatch")
+            post_cmd = build_cluster_launch_command(cluster_cfg, post_exe, post_args)
+            plan["artifacts"].append(post_script)
+            plan["stages"]["post-process"] = {
+                "mode": "slurm",
+                "script": post_script,
+                "source_data_directory": resolved_source_dir,
+                "launch_command": post_cmd,
+                "launch_command_string": _command_to_string(post_cmd),
+            }
+        else:
+            post_cmd = [post_exe] + post_args
+            if effective_num_procs > 1:
+                post_cmd = ["mpiexec", "-n", str(effective_num_procs)] + post_cmd
+            plan["stages"]["post-process"] = {
+                "mode": "local",
+                "source_data_directory": resolved_source_dir,
+                "launch_command": post_cmd,
+                "launch_command_string": _command_to_string(post_cmd),
+            }
+
+    # Preserve insertion order while removing duplicates.
+    deduped = []
+    seen = set()
+    for item in plan["artifacts"]:
+        if item not in seen:
+            seen.add(item)
+            deduped.append(item)
+    plan["artifacts"] = deduped
+    if run_id and "run_id_preview" not in plan:
+        plan["run_id_preview"] = run_id
+    if run_dir and "run_dir_preview" not in plan:
+        plan["run_dir_preview"] = run_dir
+    plan["num_procs_effective"] = effective_num_procs
+    return plan
+
+
+def render_run_dry_plan(plan: dict, output_format: str = "text"):
+    """Render dry-run plan in human or JSON format."""
+    if output_format == "json":
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return
+
+    print("\n" + "=" * 60)
+    print("                      DRY-RUN PLAN")
+    print("=" * 60)
+    print(f"  Launch mode    : {plan.get('launch_mode')}")
+    print(f"  Created at     : {plan.get('created_at')}")
+    if plan.get("run_id_preview"):
+        print(f"  Run ID preview : {plan.get('run_id_preview')}")
+    if plan.get("run_dir_preview"):
+        print(f"  Run dir preview: {plan.get('run_dir_preview')}")
+    print(f"  MPI processes  : {plan.get('num_procs_effective')}")
+    if plan.get("warnings"):
+        print("  Warnings       :")
+        for warning in plan["warnings"]:
+            print(f"    - {warning}")
+
+    if plan.get("inputs"):
+        print("\n  Inputs:")
+        for key, value in plan["inputs"].items():
+            print(f"    - {key}: {value}")
+
+    if plan.get("stages"):
+        print("\n  Planned stage commands:")
+        for stage, details in plan["stages"].items():
+            print(f"    - {stage} ({details.get('mode')}):")
+            print(f"      {details.get('launch_command_string')}")
+
+    print("\n  Planned artifacts (no files created in dry-run):")
+    for artifact in plan.get("artifacts", []):
+        print(f"    - {artifact}")
+    print("=" * 60)
+
+
+def validate_workflow(args):
+    """Implements `pic.flow validate` without launching solver/post workflows."""
+    checked = []
+    solver_group_selected = any([args.case, args.solver, args.monitor])
+    any_group_selected = solver_group_selected or any([args.post, args.cluster, args.study])
+
+    if not any_group_selected:
+        fail_cli_usage(
+            "validate requires at least one config group. Provide solver trio and/or --post/--cluster/--study.",
+            hint="Example: pic.flow validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml",
+        )
+
+    if solver_group_selected and not all([args.case, args.solver, args.monitor]):
+        fail_cli_usage("When solver validation is requested, --case, --solver, and --monitor are all required.")
+
+    if solver_group_selected:
+        case_path = os.path.abspath(args.case)
+        solver_path = os.path.abspath(args.solver)
+        monitor_path = os.path.abspath(args.monitor)
+        case_cfg = read_yaml_file(case_path)
+        solver_cfg = read_yaml_file(solver_path)
+        monitor_cfg = read_yaml_file(monitor_path)
+        validate_solver_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
+        checked.extend([case_path, solver_path, monitor_path])
+
+    post_cfg = None
+    if args.post:
+        post_path = os.path.abspath(args.post)
+        post_cfg = read_yaml_file(post_path)
+        validate_post_config(post_cfg, post_path)
+        checked.append(post_path)
+
+    cluster_cfg = None
+    if args.cluster:
+        cluster_path = os.path.abspath(args.cluster)
+        cluster_cfg = read_yaml_file(cluster_path)
+        validate_cluster_config(cluster_cfg, cluster_path)
+        checked.append(cluster_path)
+
+    study_cfg = None
+    if args.study:
+        study_path = os.path.abspath(args.study)
+        study_cfg = read_yaml_file(study_path)
+        validate_study_config(study_cfg, study_path)
+        checked.append(study_path)
+
+    if args.strict and post_cfg is not None:
+        post_path = os.path.abspath(args.post)
+        source_dir = post_cfg.get("source_data", {}).get("directory")
+        if source_dir and source_dir != "<solver_output_dir>":
+            resolved = resolve_path(post_path, source_dir)
+            if not os.path.isdir(resolved):
+                emit_structured_error(
+                    ERROR_CODE_CFG_FILE_NOT_FOUND,
+                    key="source_data.directory",
+                    file_path=post_path,
+                    message=f"strict mode: source_data.directory resolves to missing directory '{resolved}'.",
+                )
+                sys.exit(1)
+
+    if args.strict and study_cfg is not None:
+        study_path = os.path.abspath(args.study)
+        base_cfgs = study_cfg.get("base_configs", {})
+        if isinstance(base_cfgs, dict):
+            base_case_path = resolve_path(study_path, base_cfgs.get("case"))
+            base_solver_path = resolve_path(study_path, base_cfgs.get("solver"))
+            base_monitor_path = resolve_path(study_path, base_cfgs.get("monitor"))
+            base_post_path = resolve_path(study_path, base_cfgs.get("post"))
+            if all([base_case_path, base_solver_path, base_monitor_path]):
+                validate_solver_configs(
+                    read_yaml_file(base_case_path),
+                    read_yaml_file(base_solver_path),
+                    read_yaml_file(base_monitor_path),
+                    base_case_path,
+                    base_solver_path,
+                    base_monitor_path,
+                )
+            if base_post_path:
+                validate_post_config(read_yaml_file(base_post_path), base_post_path)
+
+    print(f"[SUCCESS] Validation completed for {len(checked)} file(s).")
+    for path in checked:
+        print(f"  - {path}")
+
 def run_workflow(args):
     """Main orchestrator for the 'run' command (local and Slurm modes)."""
+    if getattr(args, "dry_run", False):
+        plan = build_run_dry_plan(args)
+        render_run_dry_plan(plan, output_format=getattr(args, "output_format", "text"))
+        return
+
     run_dir = None
     run_id = None
     output_dir_abs = None
@@ -2962,76 +3473,199 @@ def build_project(args):
 # MAIN COMMAND-LINE INTERFACE PARSER
 # ==============================================================================
 
-if __name__ == "__main__":
-    main_parser = argparse.ArgumentParser(
+def _add_run_parser(subparsers):
+    """Attach `run` parser with staged execution and dry-run support."""
+    p_run = subparsers.add_parser(
+        "run",
+        help="Execute a simulation workflow (solve and/or post-process).",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Execute solver and/or post-processing stages.\n\n"
+            "Examples:\n"
+            "  pic.flow run --solve --post-process -n 8 --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
+            "  pic.flow run --post-process --run-dir runs/my_run --post post.yml\n"
+            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
+            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
+            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run --format json"
+        ),
+        epilog="Next: run `pic.flow validate ...` first for config-only checks.",
+    )
+    run_group = p_run.add_argument_group("stages")
+    run_group.add_argument("--solve", action="store_true", help="Execute the solver stage (creates a new run directory).")
+    run_group.add_argument("--post-process", action="store_true", help="Execute the post-processing stage on a run directory.")
+
+    solver_group = p_run.add_argument_group("solver inputs (required for --solve)")
+    solver_group.add_argument("--case", help="Path to the case definition file (e.g., case.yml).")
+    solver_group.add_argument("--solver", help="Path to the solver settings profile (e.g., solver.yml).")
+    solver_group.add_argument("--monitor", help="Path to the monitoring and I/O profile (e.g., monitor.yml).")
+
+    post_group = p_run.add_argument_group("post-processor inputs (required for --post-process)")
+    post_group.add_argument("--run-dir", help="Path to an existing run directory to post-process.\n(Not needed if running with --solve in the same command).")
+    post_group.add_argument("--post", help="Path to the post-processing recipe file (e.g., post.yml).")
+
+    p_run.add_argument("-n", "--num-procs", type=int, default=1, help="Number of MPI processes for either stage.")
+    p_run.add_argument("--cluster", help="Path to cluster.yml for Slurm execution mode.")
+    p_run.add_argument("--scheduler", help="Explicit scheduler selector (currently 'slurm').")
+    p_run.add_argument("--no-submit", action="store_true", help="Generate Slurm scripts/manifests but do not call sbatch.")
+    p_run.add_argument("--dry-run", action="store_true", help="Resolve and print planned commands/artifacts without writing files.")
+    p_run.add_argument(
+        "--format",
+        dest="output_format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format for --dry-run (default: text).",
+    )
+    return p_run
+
+
+def _add_sweep_parser(subparsers):
+    p_sweep = subparsers.add_parser(
+        "sweep",
+        help="Launch a Slurm-based parameter sweep/study.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Launch matrix studies from study.yml + cluster.yml.\n\n"
+            "Examples:\n"
+            "  pic.flow sweep --study study.yml --cluster cluster.yml\n"
+            "  pic.flow sweep --study study.yml --cluster cluster.yml --no-submit"
+        ),
+        epilog="Next: inspect studies/<study_id>/results/metrics_table.csv for aggregated metrics.",
+    )
+    p_sweep.add_argument("--study", required=True, help="Path to study.yml defining parameter matrix and metrics.")
+    p_sweep.add_argument("--cluster", required=True, help="Path to cluster.yml defining Slurm resources.")
+    p_sweep.add_argument("--no-submit", action="store_true", help="Generate all study artifacts without submitting jobs.")
+    return p_sweep
+
+
+def _add_validate_parser(subparsers):
+    p_validate = subparsers.add_parser(
+        "validate",
+        help="Validate config files without launching solver/post.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Validate one or more config roles. No solver/post execution and no run/study artifact writes.\n\n"
+            "Examples:\n"
+            "  pic.flow validate --case case.yml --solver solver.yml --monitor monitor.yml\n"
+            "  pic.flow validate --post post.yml --cluster cluster.yml\n"
+            "  pic.flow validate --study study.yml --cluster cluster.yml --strict"
+        ),
+        epilog="Next: run `pic.flow run --dry-run ...` to inspect resolved commands/artifacts.",
+    )
+    p_validate.add_argument("--case", help="Path to case.yml")
+    p_validate.add_argument("--solver", help="Path to solver.yml")
+    p_validate.add_argument("--monitor", help="Path to monitor.yml")
+    p_validate.add_argument("--post", help="Path to post.yml")
+    p_validate.add_argument("--cluster", help="Path to cluster.yml")
+    p_validate.add_argument("--study", help="Path to study.yml")
+    p_validate.add_argument("--strict", action="store_true", help="Enable additional strict checks for selected roles.")
+    return p_validate
+
+
+def _add_init_parser(subparsers):
+    p_init = subparsers.add_parser(
+        "init",
+        help="Initialize a new case study directory from a template.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Create a study directory from examples/<template_name>.\n\n"
+            "Examples:\n"
+            "  pic.flow init flat_channel --dest my_case\n"
+            "  pic.flow init bent_channel --dest my_bent_case --copy-binaries"
+        ),
+        epilog="Next: run `pic.flow validate --case ... --solver ... --monitor ...` before execution.",
+    )
+    p_init.add_argument("template_name", help="Name of the case template directory to copy (e.g., 'flat_channel').")
+    p_init.add_argument(
+        "--dest",
+        dest="dest_name",
+        help="Optional name for the new directory. Defaults to the template name.\nPath is relative to your current working directory.",
+    )
+    p_init.add_argument(
+        "--copy-binaries",
+        action="store_true",
+        help="Copy executables into the case directory instead of symlinking.\nThis creates a fully portable, self-contained case study.",
+    )
+    return p_init
+
+
+def _add_build_parser(subparsers):
+    p_build = subparsers.add_parser(
+        "build",
+        help="Build project executables using the Makefile.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Calls the project's build.sh script. Any arguments provided after 'build'\n"
+            "are passed directly to make.\n\n"
+            "Examples:\n"
+            "  pic.flow build\n"
+            "  pic.flow build clean-project\n"
+            "  pic.flow build SYSTEM=cluster\n"
+            "  pic.flow build postprocessor"
+        ),
+        epilog="Next: run `pic.flow --help` or `pic.flow run --help` for execution commands.",
+    )
+    p_build.add_argument(
+        "make_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments to pass directly to the make command (e.g., 'clean-project').",
+    )
+    return p_build
+
+
+def build_main_parser():
+    """Build and return the top-level CLI parser."""
+    parser = argparse.ArgumentParser(
         description="pic.flow: A comprehensive conductor for the PIC-Flow CFD simulation platform.",
         formatter_class=argparse.RawTextHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  pic.flow validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
+            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
+            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
+            "  pic.flow sweep --study study.yml --cluster cluster.yml\n\n"
+            "Next commands:\n"
+            "  - First run: pic.flow init ... -> pic.flow validate ... -> pic.flow run ...\n"
+            "  - Config debugging: pic.flow validate ...\n"
+            "  - Launch planning: pic.flow run ... --dry-run"
+        ),
     )
-    subparsers = main_parser.add_subparsers(dest='command', required=True, help="Available commands")
+    subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
+    _add_run_parser(subparsers)
+    _add_sweep_parser(subparsers)
+    _add_validate_parser(subparsers)
+    _add_init_parser(subparsers)
+    _add_build_parser(subparsers)
+    return parser
 
-    # --- 'run' command ---
-    p_run = subparsers.add_parser('run', help="Execute a simulation workflow (solve and/or post-process).")
-    run_group = p_run.add_argument_group('stages')
-    run_group.add_argument('--solve', action='store_true', help="Execute the solver stage (creates a new run directory).")
-    run_group.add_argument('--post-process', action='store_true', help="Execute the post-processing stage on a run directory.")
-    
-    solver_group = p_run.add_argument_group('solver inputs (required for --solve)')
-    solver_group.add_argument('--case', help="Path to the case definition file (e.g., case.yml).")
-    solver_group.add_argument('--solver', help="Path to the solver settings profile (e.g., solver.yml).")
-    solver_group.add_argument('--monitor', help="Path to the monitoring and I/O profile (e.g., monitor.yml).")
-    
-    post_group = p_run.add_argument_group('post-processor inputs (required for --post-process)')
-    post_group.add_argument('--run-dir', help="Path to an existing run directory to post-process.\n(Not needed if running with --solve in the same command).")
-    post_group.add_argument('--post', help="Path to the post-processing recipe file (e.g., post.yml).")
-    
-    p_run.add_argument('-n', '--num-procs', type=int, default=1, help="Number of MPI processes for either stage.")
-    p_run.add_argument('--cluster', help="Path to cluster.yml for Slurm execution mode.")
-    p_run.add_argument('--scheduler', help="Explicit scheduler selector (currently 'slurm').")
-    p_run.add_argument('--no-submit', action='store_true', help="Generate Slurm scripts/manifests but do not call sbatch.")
 
-    # --- 'sweep' command ---
-    p_sweep = subparsers.add_parser('sweep', help="Launch a Slurm-based parameter sweep/study.")
-    p_sweep.add_argument('--study', required=True, help="Path to study.yml defining parameter matrix and metrics.")
-    p_sweep.add_argument('--cluster', required=True, help="Path to cluster.yml defining Slurm resources.")
-    p_sweep.add_argument('--no-submit', action='store_true', help="Generate all study artifacts without submitting jobs.")
-
-# --- 'init' command ---
-    p_init = subparsers.add_parser('init', help="Initialize a new case study directory from a template.")
-    p_init.add_argument('template_name', help="Name of the case template directory to copy (e.g., 'laminar_pipe').")
-    p_init.add_argument('--dest', dest='dest_name', 
-                        help="Optional name for the new directory. Defaults to the template name.\n"
-                             "Path is relative to your current working directory.")
-    p_init.add_argument('--copy-binaries', action='store_true',
-                        help="Copy executables into the case directory instead of symlinking.\n"
-                             "This creates a fully portable, self-contained case study.")
-
-    # --- 'build' command ---
-    p_build = subparsers.add_parser('build', help="Build project executables using the Makefile.",
-                                    description="Calls the project's build.sh script. Any arguments provided\n"
-                                                "after 'build' will be passed directly to 'make'.\n\n"
-                                                "Examples:\n"
-                                                "  pic.flow build                  (Runs 'make all')\n"
-                                                "  pic.flow build clean-project    (Runs 'make clean-project')\n"
-                                                "  pic.flow build SYSTEM=cluster   (Runs 'make SYSTEM=cluster')\n"
-                                                "  pic.flow build postprocessor    (Runs 'make postprocessor')")
-    p_build.add_argument('make_args', nargs=argparse.REMAINDER,
-                         help="Arguments to pass directly to the make command (e.g., 'clean-project').")
-
-    args = main_parser.parse_args()
-
-    if args.command == 'run':
+def dispatch_command(args):
+    """Validate argument combinations and dispatch to command handlers."""
+    if args.command == "run":
         if not args.solve and not args.post_process:
-             main_parser.error("At least one stage (--solve or --post-process) must be selected.")
+            fail_cli_usage("At least one stage (--solve or --post-process) must be selected.")
         if args.solve and (not args.case or not args.solver or not args.monitor):
-            main_parser.error("--solve requires --case, --solver, and --monitor.")
+            fail_cli_usage("--solve requires --case, --solver, and --monitor.")
         if args.post_process and not args.post:
-            main_parser.error("--post-process requires a --post profile.")
+            fail_cli_usage("--post-process requires --post.")
+        if args.scheduler and not args.cluster:
+            fail_cli_usage("--scheduler requires --cluster in this version.")
         run_workflow(args)
-    elif args.command == 'sweep':
+        return
+    if args.command == "sweep":
         sweep_workflow(args)
-    elif args.command == 'init':
+        return
+    if args.command == "validate":
+        validate_workflow(args)
+        return
+    if args.command == "init":
         init_case(args)
-    elif args.command == 'build':
+        return
+    if args.command == "build":
         build_project(args)
-    else:
-        main_parser.print_help()
+        return
+    fail_cli_usage(f"Unsupported command '{args.command}'.")
+
+
+if __name__ == "__main__":
+    main_parser = build_main_parser()
+    dispatch_command(main_parser.parse_args())

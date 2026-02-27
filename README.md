@@ -33,7 +33,26 @@ export PETSC_ARCH=arch-linux-c-debug
 ./scripts/pic.flow init flat_channel --dest my_case
 ```
 
-4. Run solver + post:
+4. Validate configs (no run yet):
+```bash
+./scripts/pic.flow validate \
+  --case my_case/flat_channel.yml \
+  --solver my_case/Imp-MG-Standard.yml \
+  --monitor my_case/Standard_Output.yml \
+  --post my_case/standard_analysis.yml
+```
+
+5. Preview planned launch/artifacts:
+```bash
+./scripts/pic.flow run --solve --post-process \
+  --case my_case/flat_channel.yml \
+  --solver my_case/Imp-MG-Standard.yml \
+  --monitor my_case/Standard_Output.yml \
+  --post my_case/standard_analysis.yml \
+  --dry-run
+```
+
+6. Run solver + post:
 ```bash
 ./scripts/pic.flow run --solve --post-process -n 4 \
   --case my_case/flat_channel.yml \
@@ -42,7 +61,7 @@ export PETSC_ARCH=arch-linux-c-debug
   --post my_case/standard_analysis.yml
 ```
 
-5. Run on a cluster (Slurm):
+7. Run on a cluster (Slurm):
 ```bash
 ./scripts/pic.flow run --solve --post-process \
   --case my_case/flat_channel.yml \
@@ -52,7 +71,7 @@ export PETSC_ARCH=arch-linux-c-debug
   --cluster my_case/slurm_cluster.yml
 ```
 
-6. Launch a sweep study:
+8. Launch a sweep study:
 ```bash
 ./scripts/pic.flow sweep \
   --study my_case/grid_independence_study.yml \
