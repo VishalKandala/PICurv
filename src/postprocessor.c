@@ -580,8 +580,59 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "GlobalStatisticsPipeline"
+/**
+ * @brief Executes the global statistics pipeline over all particles.
+ *
+ * Parses pps->statistics_pipeline (semicolon-delimited) and dispatches to the
+ * appropriate kernel in particle_statistics.c.  Each kernel does its own
+ * MPI_Allreduce, appends to its own CSV file, and logs a one-line summary.
+ * This function is a no-op if the statistics_pipeline string is empty.
+ */
+PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, PetscInt ti)
+{
+    PetscErrorCode ierr;
+    char *pipeline_copy, *step_token, *step_saveptr;
+
+    PetscFunctionBeginUser;
+
+    if (pps->statistics_pipeline[0] == '\0') PetscFunctionReturn(0);
+
+    PetscInt n_global;
+    ierr = DMSwarmGetSize(user->swarm, &n_global); CHKERRQ(ierr);
+    if (n_global == 0) PetscFunctionReturn(0);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Global Statistics Pipeline ---\n");
+
+    ierr = PetscStrallocpy(pps->statistics_pipeline, &pipeline_copy); CHKERRQ(ierr);
+    step_token = strtok_r(pipeline_copy, ";", &step_saveptr);
+    while (step_token) {
+        TrimWhitespace(step_token);
+        if (strlen(step_token) == 0) {
+            step_token = strtok_r(NULL, ";", &step_saveptr); continue;
+        }
+        char *keyword = strtok(step_token, ":");
+        TrimWhitespace(keyword);
+
+        if (strcasecmp(keyword, "ComputeMSD") == 0) {
+            ierr = ComputeParticleMSD(user, pps->statistics_output_prefix, ti); CHKERRQ(ierr);
+        } else {
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "Unknown statistics keyword '%s'. Skipping.\n", keyword);
+        }
+        /* Future kernels: add else-if blocks here */
+
+        step_token = strtok_r(NULL, ";", &step_saveptr);
+    }
+    ierr = PetscFree(pipeline_copy); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Global Statistics Pipeline Complete ---\n");
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "WriteParticleFile"
-/** 
+/**
  * @brief Writes particle data to a VTP file using the Prepare-Write-Cleanup pattern.
  */
 PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt ti)
@@ -700,9 +751,12 @@ int main(int argc, char **argv)
             
             // 3. Transform particle data
             ierr = ParticleDataProcessingPipeline(user, pps); CHKERRQ(ierr);
-            
+
             // 4. Write particle output
-           ierr = WriteParticleFile(user, pps, ti); CHKERRQ(ierr);            
+            ierr = WriteParticleFile(user, pps, ti); CHKERRQ(ierr);
+
+            // 5. Global statistical reductions (MSD, etc.) → CSV files
+            ierr = GlobalStatisticsPipeline(user, pps, ti); CHKERRQ(ierr);
         }
 
         if(simCtx->rank == 0){
