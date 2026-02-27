@@ -88,12 +88,33 @@ jobs:
 
       - name: Sync docs into website repo
         run: |
+          rm -rf site/docs/picurv
+          mkdir -p site/docs/picurv
+          cp -R built-docs/* site/docs/picurv/
+          touch site/docs/picurv/.nojekyll
+
+          # Backward-compatibility shim for old /docs/pic_dev links.
           rm -rf site/docs/pic_dev
           mkdir -p site/docs/pic_dev
-          cp -R built-docs/* site/docs/pic_dev/
+          cat > site/docs/pic_dev/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta http-equiv="refresh" content="0; url=/docs/picurv/index.html" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Redirecting to /docs/picurv/</title>
+          </head>
+          <body>
+            <p>Redirecting to <a href="/docs/picurv/index.html">/docs/picurv/index.html</a>...</p>
+          </body>
+          </html>
+          EOF
           touch site/docs/pic_dev/.nojekyll
+
           mkdir -p site/_pages
-          cat > site/_pages/picurv-docs.md << 'EOF'
+          if [ ! -f site/_pages/picurv-docs.md ]; then
+            cat > site/_pages/picurv-docs.md << 'EOF'
           ---
           layout: page
           title: PICurv Docs
@@ -103,21 +124,22 @@ jobs:
           description: PICurv solver documentation (Doxygen)
           ---
 
-          <iframe src="{{ '/docs/pic_dev/index.html' | relative_url }}"
+          <iframe src="{{ '/docs/picurv/index.html' | relative_url }}"
                   style="width: 100%; min-height: 82vh; border: 0;"
                   loading="lazy"
                   title="PICurv Doxygen Documentation">
           </iframe>
 
           If the embedded view does not load, open the standalone docs:
-          [PICurv Doxygen Documentation]({{ '/docs/pic_dev/index.html' | relative_url }}).
+          [PICurv Doxygen Documentation]({{ '/docs/picurv/index.html' | relative_url }}).
           EOF
+          fi
 
       - name: Commit & push
         working-directory: site
         run: |
           git config user.name  "gh-actions"
           git config user.email "actions@github.com"
-          git add docs/pic_dev _pages/picurv-docs.md
+          git add docs/picurv docs/pic_dev _pages/picurv-docs.md
           git commit -m "Update PIC Dev Doxygen docs" || echo "No changes to commit"
           git push origin HEAD:master || git push origin HEAD:main
