@@ -19,6 +19,6 @@ When workflow contracts evolve, update library examples and docs together.
 
 ## Canonical Contract References
 
-- `docs/pages/14_Config_Contract.md`
-- `docs/pages/15_Config_Ingestion_Map.md`
-- `docs/pages/16_Config_Extension_Playbook.md`
+- https://vishalkandala.me/picurv-docs/14_Config_Contract.html
+- https://vishalkandala.me/picurv-docs/15_Config_Ingestion_Map.html
+- https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html

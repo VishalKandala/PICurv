@@ -21,5 +21,5 @@ Headers in this folder define interfaces consumed by translation units in `src/`
 ## Related Docs
 
 - `src/guide.md`
-- `docs/pages/13_Code_Architecture.md`
-- `docs/pages/35_API_Documentation_Status.md`
+- https://vishalkandala.me/picurv-docs/13_Code_Architecture.html
+- https://vishalkandala.me/picurv-docs/35_API_Documentation_Status.html

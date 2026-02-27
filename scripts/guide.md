@@ -26,6 +26,6 @@ This directory contains Python automation and utility scripts used for build/run
 
 ## Related Docs
 
-- `docs/pages/05_The_Conductor_Script.md`
-- `docs/pages/15_Config_Ingestion_Map.md`
+- https://vishalkandala.me/picurv-docs/05_The_Conductor_Script.html
+- https://vishalkandala.me/picurv-docs/15_Config_Ingestion_Map.html
 - `tests/guide.md`

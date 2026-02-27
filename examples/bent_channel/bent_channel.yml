@@ -1,10 +1,9 @@
 # ==============================================================================
-#                 Case Profile: Flat Channel (Laminar Flow)
+#                 Case Profile: Bent Channel (Laminar Flow)
 # ==============================================================================
 # PURPOSE:
-# A simple, fundamental test case simulating laminar flow (Re=200) through a
-# straight rectangular channel. This serves as an excellent starting point and
-# validation case.
+# A baseline curved-geometry test case simulating laminar flow (Re=200) through
+# a bent channel using a file-based curvilinear grid.
 # ==============================================================================
 
 # --- Simulation Control ---
@@ -31,7 +30,7 @@ properties:
 grid:
   mode: file
 
-  source_file: bent_channel.picgrid
+  source_file: bent_channel_coarse.picgrid
 
 # --- Model Selection ---
 models:

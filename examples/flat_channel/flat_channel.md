@@ -50,7 +50,7 @@ Run solve + post:
 Single run on Slurm:
 
 ```bash
-python3 scripts/pic.flow run --solve --post-process \
+./scripts/pic.flow run --solve --post-process \
   --case my_channel_case/flat_channel.yml \
   --solver my_channel_case/Imp-MG-Standard.yml \
   --monitor my_channel_case/Standard_Output.yml \
@@ -61,7 +61,7 @@ python3 scripts/pic.flow run --solve --post-process \
 Grid-independence sweep:
 
 ```bash
-python3 scripts/pic.flow sweep \
+./scripts/pic.flow sweep \
   --study my_channel_case/grid_independence_study.yml \
   --cluster my_channel_case/slurm_cluster.yml
 ```
@@ -69,3 +69,9 @@ python3 scripts/pic.flow sweep \
 ## 6. Output Check
 
 Open `runs/<run_id>/viz/Field_*.vts` in ParaView and color by `Ucat_nodal` to inspect channel profile development.
+
+## 7. Live Docs
+
+- https://vishalkandala.me/picurv-docs/02_Tutorial_Programmatic_Grid.html
+- https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
+- https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html

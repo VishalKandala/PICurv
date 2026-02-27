@@ -15,7 +15,14 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Parameter sweep orchestration with Slurm arrays (`study.yml`)
 - Solver and postprocessor executables from one build system
 
-## Quick Start
+## Requirements
+
+- PETSc build available via `PETSC_DIR` (and `PETSC_ARCH` when required by your install)
+- C toolchain + MPI (`gcc/clang`, `mpicc`, GNU Make)
+- Python 3 with `pyyaml` and `numpy`
+- Optional for plotting in sweep post-processing: `matplotlib`
+
+## Quick Start (Local)
 
 1. Set PETSc environment variables:
 ```bash
@@ -62,7 +69,9 @@ export PETSC_ARCH=arch-linux-c-debug
 ```
 `-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution.
 
-7. Run on a cluster (Slurm):
+## Cluster and Sweep Workflow
+
+Run on a cluster (Slurm):
 ```bash
 ./scripts/pic.flow run --solve --post-process \
   --case my_case/flat_channel.yml \
@@ -72,12 +81,23 @@ export PETSC_ARCH=arch-linux-c-debug
   --cluster my_case/slurm_cluster.yml
 ```
 
-8. Launch a sweep study:
+Launch a sweep study:
 ```bash
 ./scripts/pic.flow sweep \
   --study my_case/grid_independence_study.yml \
   --cluster my_case/slurm_cluster.yml
 ```
+
+## Generated Artifacts
+
+- Single run:
+  - `runs/<run_id>/config/` generated C-facing runtime artifacts (`*.control`, `bcs*.run`, `post.run`, etc.)
+  - `runs/<run_id>/scheduler/` scheduler scripts/manifests when cluster mode is used
+  - `runs/<run_id>/visualization/` and/or post outputs
+- Parameter sweep:
+  - `studies/<study_id>/cases/` materialized case variants
+  - `studies/<study_id>/scheduler/` array scripts and submission metadata
+  - `studies/<study_id>/results/metrics_table.csv` and plots
 
 ## Smoke and Quality Checks
 
@@ -112,7 +132,23 @@ Automated smoke checks:
   - `.github/workflows/quality.yml`
 
 Detailed guide:
-- `docs/pages/40_Testing_and_Quality_Guide.md`
+- https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
+
+## Documentation (Live)
+
+- Docs home: https://vishalkandala.me/picurv-docs/
+- Getting started index: https://vishalkandala.me/picurv-docs/41_Getting_Started_Index.html
+- 10-minute start: https://vishalkandala.me/picurv-docs/38_Start_Here_10_Minutes.html
+- Installation guide: https://vishalkandala.me/picurv-docs/01_Installation.html
+- Conductor CLI: https://vishalkandala.me/picurv-docs/05_The_Conductor_Script.html
+- Config contract: https://vishalkandala.me/picurv-docs/14_Config_Contract.html
+- Config ingestion map: https://vishalkandala.me/picurv-docs/15_Config_Ingestion_Map.html
+- Extension playbook: https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html
+- Cluster guide: https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
+- Sweep guide: https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
+- Testing and quality: https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
+- Common fatal errors: https://vishalkandala.me/picurv-docs/39_Common_Fatal_Errors.html
+- Repository navigation: https://vishalkandala.me/picurv-docs/30_Repository_Navigation.html
 
 ## Repository Navigation
 
@@ -136,22 +172,13 @@ Scheduler/study profiles:
 - `config/schedulers/`
 - `config/studies/`
 
-## Documentation
-
-Authoritative docs entry points:
-- `docs/mainpage.md`
-- `docs/pages/14_Config_Contract.md`
-- `docs/pages/15_Config_Ingestion_Map.md`
-- `docs/pages/16_Config_Extension_Playbook.md`
-- `docs/pages/30_Repository_Navigation.md`
-
-Build docs:
+Build docs locally (if dependencies are available):
 ```bash
 make build-docs
 ```
 
 Docs output:
-- `docs/docs_build/html/index.html`
+- `docs_build/html/index.html`
 
 Doxygen warnings log:
 - `logs/doxygen.warnings`

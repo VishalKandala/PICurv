@@ -3449,10 +3449,22 @@ def init_case(args):
         print("[INFO] Creating symbolic links to project binaries...")
         
     main_bin_dir = os.path.join(PROJECT_ROOT, "bin")
+    conductor_names = {"pic.flow", "pic-flow"}
     
     try:
-        # We only want to copy/link the actual executables, not the orchestrator script itself.
-        binaries = [f for f in os.listdir(main_bin_dir) if f != 'pic.flow' and os.path.isfile(os.path.join(main_bin_dir, f))]
+        if not os.path.isdir(main_bin_dir):
+            print(
+                f"[WARNING] Project bin/ directory not found at '{main_bin_dir}'. "
+                "No binaries were linked/copied. Run 'pic.flow build' first if needed.",
+                file=sys.stderr,
+            )
+            return
+
+        # Copy/link solver executables only; do not duplicate conductor wrappers.
+        binaries = [
+            f for f in os.listdir(main_bin_dir)
+            if f not in conductor_names and os.path.isfile(os.path.join(main_bin_dir, f))
+        ]
         if not binaries:
             print("[WARNING] Main project bin/ directory contains no executables. Nothing to link or copy.", file=sys.stderr)
             return
