@@ -46,6 +46,8 @@ Inputs for `--post-process`:
 
 MPI/local options:
 - `-n, --num-procs`
+  - applies to solver stage launch sizing.
+  - post-processing defaults to one rank/task.
 
 Cluster/Slurm options:
 - `--cluster <cluster.yml>`
@@ -64,6 +66,7 @@ python3 scripts/pic.flow run --solve --post-process -n 8 \
   --monitor my_case/monitor.yml \
   --post my_case/post.yml
 ```
+In this command, solver runs with 8 ranks; post-processing still defaults to 1 rank.
 
 Slurm example (generate + submit):
 ```bash

@@ -13,6 +13,8 @@ scheduler:
   type: slurm
 
 resources:
+  # These resources size solver-stage jobs.
+  # pic.flow currently schedules post stage as single-task by default.
   account: "my_project_account"
   partition: "compute"        # optional
   nodes: 2
@@ -43,4 +45,3 @@ execution:
   # extra_sbatch:
   #   - "--qos=high"
   #   - "--constraint=zen4"
-

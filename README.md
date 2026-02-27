@@ -60,6 +60,7 @@ export PETSC_ARCH=arch-linux-c-debug
   --monitor my_case/Standard_Output.yml \
   --post my_case/standard_analysis.yml
 ```
+`-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution.
 
 7. Run on a cluster (Slurm):
 ```bash

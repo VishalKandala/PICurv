@@ -62,6 +62,8 @@ This allows consistent local dry-run and cluster production flow from the same i
 - Prefer `--no-submit` first when validating new scheduler settings.
 - Keep cluster defaults in reusable templates (`examples/master_template/master_cluster.yml`).
 - If queue policies differ by partition/account, encode them in `cluster.yml` instead of editing generated scripts manually.
+- Solver stage uses `cluster.yml` resources directly.
+- Post stage defaults to single-task scheduling (`nodes=1`, `ntasks_per_node=1`) in generated `post.sbatch`.
 
 See also:
 

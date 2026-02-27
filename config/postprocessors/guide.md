@@ -36,6 +36,7 @@ Solve + post in one command:
   --monitor my_study/monitor.yml \
   --post config/postprocessors/standard_analysis.yml
 ```
+`-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution.
 
 ## 4. Notes on Newer Options
 
