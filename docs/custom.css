@@ -1,33 +1,246 @@
-/* Style for the three main navigation buttons on the main page */
+/* PICurv Doxygen skin aligned to al-folio light/dark palettes. */
+
+:root {
+  --pic-bg: #ffffff;
+  --pic-card-bg: #ffffff;
+  --pic-text: #1c1c1d;
+  --pic-muted: #6b7280;
+  --pic-link: #b509ac;
+  --pic-link-hover: #8e0687;
+  --pic-accent: #b509ac;
+  --pic-border: rgba(0, 0, 0, 0.12);
+  --pic-nav-bg: #ffffff;
+  --pic-code-bg: rgba(181, 9, 172, 0.06);
+  --pic-code-border: rgba(181, 9, 172, 0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pic-bg: #1c1c1d;
+    --pic-card-bg: #212529;
+    --pic-text: #e5e7eb;
+    --pic-muted: #b4bcc4;
+    --pic-link: #2698ba;
+    --pic-link-hover: #38b2d8;
+    --pic-accent: #2698ba;
+    --pic-border: #424246;
+    --pic-nav-bg: #212529;
+    --pic-code-bg: #2c3237;
+    --pic-code-border: #424246;
+  }
+}
+
+html[data-theme="dark"] {
+  --pic-bg: #1c1c1d;
+  --pic-card-bg: #212529;
+  --pic-text: #e5e7eb;
+  --pic-muted: #b4bcc4;
+  --pic-link: #2698ba;
+  --pic-link-hover: #38b2d8;
+  --pic-accent: #2698ba;
+  --pic-border: #424246;
+  --pic-nav-bg: #212529;
+  --pic-code-bg: #2c3237;
+  --pic-code-border: #424246;
+}
+
+html[data-theme="light"] {
+  --pic-bg: #ffffff;
+  --pic-card-bg: #ffffff;
+  --pic-text: #1c1c1d;
+  --pic-muted: #6b7280;
+  --pic-link: #b509ac;
+  --pic-link-hover: #8e0687;
+  --pic-accent: #b509ac;
+  --pic-border: rgba(0, 0, 0, 0.12);
+  --pic-nav-bg: #ffffff;
+  --pic-code-bg: rgba(181, 9, 172, 0.06);
+  --pic-code-border: rgba(181, 9, 172, 0.2);
+}
+
+html,
+body {
+  background: var(--pic-bg);
+  color: var(--pic-text);
+}
+
+body,
+table,
+div,
+p,
+dl,
+ul,
+ol {
+  font: 400 15px/1.65 "Lato", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--pic-text);
+}
+
+a,
+a:visited,
+a.code,
+a.code:visited,
+a.line,
+a.line:visited {
+  color: var(--pic-link);
+}
+
+a:hover,
+a.code:hover,
+a.line:hover {
+  color: var(--pic-link-hover);
+}
+
+#titlearea {
+  background: var(--pic-nav-bg);
+  border-bottom: 1px solid var(--pic-border);
+}
+
+#projectname {
+  color: var(--pic-text);
+}
+
+#projectnumber,
+#projectbrief {
+  color: var(--pic-muted);
+}
+
+#main-nav,
+.sm-dox {
+  background: var(--pic-nav-bg) !important;
+  border-top: 1px solid var(--pic-border);
+  border-bottom: 1px solid var(--pic-border);
+}
+
+.sm-dox a,
+.sm-dox a:focus,
+.sm-dox a:active {
+  background: transparent !important;
+  color: var(--pic-text) !important;
+  text-shadow: none !important;
+}
+
+.sm-dox a:hover,
+.sm-dox a.highlighted {
+  background: rgba(0, 0, 0, 0.03) !important;
+  color: var(--pic-link) !important;
+  text-shadow: none !important;
+}
+
+html[data-theme="dark"] .sm-dox a:hover,
+html[data-theme="dark"] .sm-dox a.highlighted {
+  background: rgba(255, 255, 255, 0.07) !important;
+}
+
+.sm-dox a.current {
+  color: var(--pic-link) !important;
+}
+
+.sm-dox ul {
+  background: var(--pic-card-bg) !important;
+  border: 1px solid var(--pic-border) !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2) !important;
+}
+
+#side-nav {
+  background: var(--pic-card-bg);
+  border-right: 1px solid var(--pic-border);
+}
+
+#doc-content {
+  background: var(--pic-bg);
+}
+
+div.header,
+div.contents,
+div.fragment,
+pre.fragment,
+table.doxtable,
+table.memberdecls,
+table.fieldtable,
+table.params,
+div.memitem,
+div.memproto,
+dl.note,
+dl.warning,
+dl.attention {
+  background: var(--pic-card-bg) !important;
+  border-color: var(--pic-border) !important;
+  color: var(--pic-text) !important;
+}
+
+div.memproto {
+  border-left: 3px solid var(--pic-accent) !important;
+}
+
+div.memdoc,
+div.memitem,
+div.fragment,
+pre.fragment {
+  border-radius: 8px;
+}
+
+pre.fragment,
+div.fragment {
+  background: var(--pic-code-bg) !important;
+  border: 1px solid var(--pic-code-border) !important;
+}
+
+code,
+tt,
+.fragment .line {
+  color: var(--pic-text);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.title,
+h2.groupheader {
+  color: var(--pic-text);
+}
+
+h2.groupheader {
+  border-bottom: 1px solid var(--pic-border);
+}
+
+.line,
+.lineno {
+  color: var(--pic-muted) !important;
+}
+
+#nav-path {
+  border-top: 1px solid var(--pic-border);
+  background: var(--pic-nav-bg);
+}
+
+#nav-path .footer {
+  color: var(--pic-muted);
+}
+
+/* Main-page navigation cards */
 .main_page_buttons {
-    display: flex;
-    justify-content: space-around;
-    flex-wrap: wrap;
-    gap: 20px;
-    margin-top: 20px;
-    margin-bottom: 20px;
-    text-align: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin: 20px 0;
 }
 
 .main_page_button {
-    flex: 1;
-    min-width: 250px;
-    padding: 20px;
-    border: 1px solid #e6a605;
-    border-radius: 8px;
-    text-decoration: none;
-    color: inherit;
-    transition: all 0.2s ease-in-out;
-    background-color: #0c0000;
+  display: block;
+  padding: 16px;
+  border: 1px solid var(--pic-border);
+  border-radius: 10px;
+  background: var(--pic-card-bg);
+  color: var(--pic-text) !important;
+  text-decoration: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
 }
 
 .main_page_button:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    border-color: #00599C; /* A blue color to match Doxygen theme */
-}
-
-.main_page_button h2 {
-    margin-top: 0;
-    color: #00599C;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  border-color: var(--pic-accent);
 }

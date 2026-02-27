@@ -53,6 +53,7 @@ HTML_OUTPUT            = html
 HTML_DYNAMIC_MENUS     = YES
 SEARCHENGINE           = YES
 HTML_EXTRA_STYLESHEET  = custom.css
+HTML_EXTRA_FILES       = theme-sync.js
 IMAGE_PATH             = assets .
 VERBATIM_HEADERS      = YES
 #------------------------- LaTeX/PDF (optional) ------------
