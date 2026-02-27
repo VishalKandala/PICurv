@@ -12,7 +12,7 @@ This directory stores reusable `study.yml` definitions for `pic.flow sweep` work
 ## How To Use
 
 ```bash
-python3 scripts/pic.flow sweep \
+./scripts/pic.flow sweep \
   --study config/studies/grid_independence_example.yml \
   --cluster <cluster.yml>
 ```
@@ -20,4 +20,4 @@ python3 scripts/pic.flow sweep \
 ## Reference Files
 
 - `examples/master_template/master_study.yml`
-- `docs/pages/37_Sweep_Studies_Guide.md`
+- https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html

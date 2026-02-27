@@ -59,7 +59,7 @@ Open `runs/<run_id>/viz/Field_*.vts` in ParaView and inspect streamlines colored
 Single run on Slurm:
 
 ```bash
-python3 scripts/pic.flow run --solve --post-process \
+./scripts/pic.flow run --solve --post-process \
   --case my_bent_case/bent_channel.yml \
   --solver my_bent_case/Imp-MG-Standard.yml \
   --monitor my_bent_case/Standard_Output.yml \
@@ -70,7 +70,13 @@ python3 scripts/pic.flow run --solve --post-process \
 Timestep sensitivity sweep:
 
 ```bash
-python3 scripts/pic.flow sweep \
+./scripts/pic.flow sweep \
   --study my_bent_case/timestep_sensitivity_study.yml \
   --cluster my_bent_case/slurm_cluster.yml
 ```
+
+## 7. Live Docs
+
+- https://vishalkandala.me/picurv-docs/03_Tutorial_File-Based_Grid.html
+- https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
+- https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html

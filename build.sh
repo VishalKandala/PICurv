@@ -29,16 +29,53 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
+# --- Directory Discovery Helpers ---
+is_project_root() {
+    local dir="$1"
+    [ -f "$dir/Makefile" ] && [ -d "$dir/src" ] && [ -d "$dir/include" ]
+}
+
+find_project_root_upwards() {
+    local dir="$1"
+    while [ "$dir" != "/" ]; do
+        if is_project_root "$dir"; then
+            echo "$dir"
+            return 0
+        fi
+        dir="$(dirname "$dir")"
+    done
+
+    if is_project_root "/"; then
+        echo "/"
+        return 0
+    fi
+
+    return 1
+}
+
 # --- Configuration ---
-# Derive project root from the location of this script, allowing it to be run
-# from any directory without a hardcoded path.
-CODE_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve this script directory first (works even when called via symlink).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Allow explicit override for automation/use in external case directories.
+CODE_DIR="${PICURV_CODE_DIR:-}"
+
+# If not explicitly provided, try to discover project root automatically.
+if [ -z "$CODE_DIR" ]; then
+    CODE_DIR="$(find_project_root_upwards "$(pwd)" || true)"
+fi
+if [ -z "$CODE_DIR" ]; then
+    CODE_DIR="$(find_project_root_upwards "$SCRIPT_DIR" || true)"
+fi
 
 # --- Pre-flight Check ---
-# Ensure the code directory actually exists.
-if [ ! -d "$CODE_DIR" ]; then
-    echo "Error: Code directory not found at '$CODE_DIR'."
-    echo "Please ensure this script is in the project root directory alongside the Makefile."
+if [ -z "$CODE_DIR" ] || ! is_project_root "$CODE_DIR"; then
+    echo "Error: Could not locate project root automatically."
+    echo "Searched upward from:"
+    echo "  1) current directory: $(pwd)"
+    echo "  2) script directory : $SCRIPT_DIR"
+    echo "Expected to find: Makefile, src/, and include/."
+    echo "If needed, set PICURV_CODE_DIR=/absolute/path/to/PICurv."
     exit 1
 fi
 

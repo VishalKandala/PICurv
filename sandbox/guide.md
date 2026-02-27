@@ -42,3 +42,8 @@ When an experiment stabilizes, promote it out of `sandbox/`:
 4. Is ownership clear (module/file location, maintenance path)?
 
 If all are yes, move it out of sandbox.
+
+## Related Docs
+
+- https://vishalkandala.me/picurv-docs/30_Repository_Navigation.html
+- https://vishalkandala.me/picurv-docs/29_Maintenance_Backlog.html

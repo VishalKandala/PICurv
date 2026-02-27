@@ -17,5 +17,5 @@ Most solver/postprocessor runtime logs are generated under run/study directories
 
 ## Related Docs
 
-- `docs/pages/35_API_Documentation_Status.md`
-- `docs/pages/40_Testing_and_Quality_Guide.md`
+- https://vishalkandala.me/picurv-docs/35_API_Documentation_Status.html
+- https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html

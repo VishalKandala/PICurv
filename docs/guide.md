@@ -25,6 +25,6 @@ This directory contains authored documentation source, Doxygen configuration, an
 
 ## Entry Pages
 
-- `docs/pages/41_Getting_Started_Index.md`
-- `docs/pages/42_User_Guide_Index.md`
-- `docs/pages/43_Developer_Portal_Index.md`
+- https://vishalkandala.me/picurv-docs/41_Getting_Started_Index.html
+- https://vishalkandala.me/picurv-docs/42_User_Guide_Index.html
+- https://vishalkandala.me/picurv-docs/43_Developer_Portal_Index.html

@@ -27,5 +27,5 @@ It is organized by functional module rather than by executable.
 ## Related Docs
 
 - `include/guide.md`
-- `docs/pages/13_Code_Architecture.md`
-- `docs/pages/21_Methods_Overview.md`
+- https://vishalkandala.me/picurv-docs/13_Code_Architecture.html
+- https://vishalkandala.me/picurv-docs/21_Methods_Overview.html

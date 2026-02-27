@@ -22,5 +22,5 @@ Use these as schema references, then copy only needed sections into runnable cas
 ## Related Docs
 
 - `master_template.md`
-- `docs/pages/14_Config_Contract.md`
-- `docs/pages/16_Config_Extension_Playbook.md`
+- https://vishalkandala.me/picurv-docs/14_Config_Contract.html
+- https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html

@@ -18,5 +18,5 @@ If local Python dependency installation is restricted, run tests in CI (`.github
 
 ## Authoritative Docs
 
-- `docs/pages/40_Testing_and_Quality_Guide.md`
-- `docs/pages/39_Common_Fatal_Errors.md`
+- https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
+- https://vishalkandala.me/picurv-docs/39_Common_Fatal_Errors.html

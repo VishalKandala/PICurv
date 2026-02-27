@@ -125,7 +125,7 @@ POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
 # Define the final paths for the compiled programs.
 PICSOLVER_EXE     := $(BINDIR)/picsolver
 POSTPROCESSOR_EXE := $(BINDIR)/postprocessor
-CONDUCTOR_EXE     := $(BINDIR)/pic-flow
+CONDUCTOR_EXE     := $(BINDIR)/pic.flow
 
 # ==============================================================================
 # --- 5. Build Targets & Rules ---
@@ -145,7 +145,7 @@ picsolver: $(PICSOLVER_EXE)
 postprocessor: $(POSTPROCESSOR_EXE)
 
 ## @target conductor
-## @brief Installs the `pic-flow` conductor script.
+## @brief Installs the `pic.flow` conductor script.
 conductor: $(CONDUCTOR_EXE)
 
 # Explicit rule for linking the main solver.
@@ -192,16 +192,16 @@ build-docs: dirs
 	@echo "==> Generating Doxygen documentation..."
 	@mkdir -p logs
 	@doxygen docs/Doxyfile
-	@echo "HTML documentation generated in docs/docs_build/html/index.html"
+	@echo "HTML documentation generated in docs_build/html/index.html"
 	@echo "Doxygen warnings log: logs/doxygen.warnings"
 
 ## @target open-docs
 ## @brief Opens the generated documentation in a web browser.
 open-docs: build-docs
 ifeq ($(shell uname),Darwin)
-	@open docs/docs_build/html/index.html
+	@open docs_build/html/index.html
 else
-	@xdg-open docs/docs_build/html/index.html || echo "Could not open browser automatically."
+	@xdg-open docs_build/html/index.html || echo "Could not open browser automatically."
 endif
 
 ## @target tags
@@ -230,7 +230,7 @@ cleanobj:
 ## @target clean-project-docs
 ## @brief (Internal) Removes generated documentation.
 clean-project-docs:
-	@rm -rf docs/docs_build
+	@rm -rf docs_build
 
 ## @target clean-project-tags
 ## @brief (Internal) Removes the TAGS file.
