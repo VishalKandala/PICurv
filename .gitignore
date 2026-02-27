@@ -3,8 +3,11 @@ obj/
 stubs/
 __pycache__/
 *.pyc
+runs/
+studies/
 
 # Large grid/mesh files
 *.vts
 *.grid
 scripts/brownian_grids/
+logs/doxygen.warnings

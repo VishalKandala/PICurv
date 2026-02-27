@@ -1,0 +1,22 @@
+scheduler:
+  type: slurm
+
+resources:
+  account: "replace_with_account"
+  partition: "compute"
+  nodes: 1
+  ntasks_per_node: 1
+  mem: "16G"
+  time: "01:00:00"
+
+notifications:
+  mail_user: null
+  mail_type: null
+
+execution:
+  module_setup:
+    - "module purge"
+  launcher: "srun"
+  launcher_args: []
+  extra_sbatch: {}
+

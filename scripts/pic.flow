@@ -10,7 +10,8 @@ managing configurations, and orchestrating the entire end-to-end workflow.
 It translates user-friendly YAML files into C-solver compatible control files,
 supports full multi-block configurations, and provides live log streaming.
 It features intelligent, content-based config file discovery and robustly
-manages data I/O paths for the post-processor.
+manages data I/O paths for the post-processor. It also supports Slurm job
+generation/submission and parameter sweeps via job arrays.
 """
 
 import yaml
@@ -20,9 +21,20 @@ import argparse
 import subprocess
 import shutil
 import glob
+import csv
+import json
+import itertools
+import re
+import shlex
+import copy
 import numpy as np
 from datetime import datetime
 import time
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
 
 # --- Global Path Definitions ---
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -49,6 +61,68 @@ def read_yaml_file(filepath: str) -> dict:
     except yaml.YAMLError as e:
         print(f"[FATAL] Error parsing YAML file '{filepath}': {e}", file=sys.stderr)
         sys.exit(1)
+
+def write_yaml_file(filepath: str, data: dict):
+    """Write YAML with stable ordering for generated study artifacts."""
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w") as f:
+        yaml.safe_dump(data, f, sort_keys=False)
+
+def write_json_file(filepath: str, payload: dict):
+    """Write JSON metadata/manifests with a stable, readable format."""
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+        f.write("\n")
+
+def resolve_path(anchor_file: str, candidate: str) -> str:
+    """Resolve a potentially relative path against a source YAML file path."""
+    if candidate is None:
+        return None
+    if os.path.isabs(candidate):
+        return os.path.abspath(candidate)
+    return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(anchor_file)), candidate))
+
+def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
+    """Convert external grid/generator paths in case config to absolute paths."""
+    grid_cfg = case_cfg.get("grid", {})
+    if not isinstance(grid_cfg, dict):
+        return
+    mode = grid_cfg.get("mode")
+    if mode == "file":
+        source_file = grid_cfg.get("source_file")
+        if isinstance(source_file, str):
+            grid_cfg["source_file"] = resolve_path(case_anchor_path, source_file)
+    elif mode == "grid_gen":
+        gen = grid_cfg.get("generator", {})
+        if isinstance(gen, dict):
+            for key in ("script", "config_file"):
+                val = gen.get(key)
+                if isinstance(val, str):
+                    gen[key] = resolve_path(case_anchor_path, val)
+
+def get_git_commit() -> str:
+    """Best-effort git commit lookup for run/study manifests."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=PROJECT_ROOT,
+            text=True,
+            capture_output=True,
+            check=False
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+def is_valid_email(email: str) -> bool:
+    """Lightweight email validation for scheduler notifications."""
+    if not isinstance(email, str):
+        return False
+    pattern = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+    return re.match(pattern, email.strip()) is not None
 
 def normalize_statistics_task(task_name: str) -> str:
     """!
@@ -857,6 +931,339 @@ def validate_post_config(post_cfg: dict, post_path: str):
     if errors:
         _print_validation_errors(errors)
 
+def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
+    """Validate Slurm scheduler configuration from cluster.yml."""
+    errors = []
+    if not isinstance(cluster_cfg, dict) or not cluster_cfg:
+        errors.append(f"  {cluster_path}: cluster config is empty or not a valid YAML mapping.")
+        _print_validation_errors(errors)
+
+    scheduler = cluster_cfg.get("scheduler", {})
+    if not isinstance(scheduler, dict):
+        errors.append(f"  {cluster_path}: 'scheduler' must be a mapping.")
+    else:
+        scheduler_type = scheduler.get("type", "slurm")
+        if str(scheduler_type).lower() != "slurm":
+            errors.append(f"  {cluster_path}: scheduler.type must be 'slurm' in v1 (got '{scheduler_type}').")
+
+    resources = cluster_cfg.get("resources", {})
+    if not isinstance(resources, dict):
+        errors.append(f"  {cluster_path}: 'resources' must be a mapping.")
+    else:
+        for req in ("account", "nodes", "ntasks_per_node", "mem", "time"):
+            if req not in resources:
+                errors.append(f"  {cluster_path}: missing required key 'resources.{req}'.")
+        for int_key in ("nodes", "ntasks_per_node"):
+            if int_key in resources:
+                val = resources.get(int_key)
+                if not isinstance(val, int) or val <= 0:
+                    errors.append(f"  {cluster_path}: resources.{int_key} must be a positive integer (got {val}).")
+        for str_key in ("account", "mem", "time", "partition"):
+            if str_key in resources and resources.get(str_key) is not None:
+                if not isinstance(resources.get(str_key), str):
+                    errors.append(f"  {cluster_path}: resources.{str_key} must be a string when provided.")
+
+    notifications = cluster_cfg.get("notifications", {})
+    if notifications is not None and not isinstance(notifications, dict):
+        errors.append(f"  {cluster_path}: 'notifications' must be a mapping when provided.")
+    elif isinstance(notifications, dict):
+        mail_user = notifications.get("mail_user")
+        if mail_user is not None and not is_valid_email(mail_user):
+            errors.append(f"  {cluster_path}: notifications.mail_user is not a valid email '{mail_user}'.")
+        mail_type = notifications.get("mail_type")
+        if mail_type is not None and not isinstance(mail_type, str):
+            errors.append(f"  {cluster_path}: notifications.mail_type must be a string when provided.")
+
+    execution = cluster_cfg.get("execution", {})
+    if execution is not None and not isinstance(execution, dict):
+        errors.append(f"  {cluster_path}: 'execution' must be a mapping when provided.")
+    elif isinstance(execution, dict):
+        module_setup = execution.get("module_setup", [])
+        if module_setup is not None and not isinstance(module_setup, list):
+            errors.append(f"  {cluster_path}: execution.module_setup must be a list of shell lines.")
+        elif isinstance(module_setup, list):
+            for i, line in enumerate(module_setup):
+                if not isinstance(line, str):
+                    errors.append(f"  {cluster_path}: execution.module_setup[{i}] must be a string.")
+
+        launcher = execution.get("launcher", "srun")
+        if launcher is not None and not isinstance(launcher, str):
+            errors.append(f"  {cluster_path}: execution.launcher must be a string when provided.")
+        launcher_args = execution.get("launcher_args", [])
+        if launcher_args is not None and not isinstance(launcher_args, list):
+            errors.append(f"  {cluster_path}: execution.launcher_args must be a list of CLI tokens.")
+        elif isinstance(launcher_args, list):
+            for i, token in enumerate(launcher_args):
+                if not isinstance(token, (str, int, float)):
+                    errors.append(f"  {cluster_path}: execution.launcher_args[{i}] must be a scalar CLI token.")
+
+        extra_sbatch = execution.get("extra_sbatch")
+        if extra_sbatch is not None and not isinstance(extra_sbatch, (dict, list)):
+            errors.append(f"  {cluster_path}: execution.extra_sbatch must be a mapping or list when provided.")
+
+    if errors:
+        _print_validation_errors(errors)
+
+def validate_study_config(study_cfg: dict, study_path: str):
+    """Validate sweep/study specification from study.yml."""
+    errors = []
+    if not isinstance(study_cfg, dict) or not study_cfg:
+        errors.append(f"  {study_path}: study config is empty or not a valid YAML mapping.")
+        _print_validation_errors(errors)
+
+    base_cfgs = study_cfg.get("base_configs")
+    if not isinstance(base_cfgs, dict):
+        errors.append(f"  {study_path}: missing required mapping 'base_configs'.")
+    else:
+        for req in ("case", "solver", "monitor", "post"):
+            path_val = base_cfgs.get(req)
+            if not path_val or not isinstance(path_val, str):
+                errors.append(f"  {study_path}: base_configs.{req} must be a path string.")
+            else:
+                resolved = resolve_path(study_path, path_val)
+                if not os.path.isfile(resolved):
+                    errors.append(f"  {study_path}: base_configs.{req} does not exist: {resolved}")
+
+    study_type = study_cfg.get("study_type")
+    allowed_types = {"grid_independence", "timestep_independence", "sensitivity"}
+    if study_type not in allowed_types:
+        errors.append(
+            f"  {study_path}: study_type must be one of {sorted(allowed_types)} (got '{study_type}')."
+        )
+
+    parameters = study_cfg.get("parameters")
+    if not isinstance(parameters, dict) or not parameters:
+        errors.append(f"  {study_path}: 'parameters' must be a non-empty mapping of key->list.")
+    else:
+        allowed_roots = {"case", "solver", "monitor", "post"}
+        for key, values in parameters.items():
+            if not isinstance(key, str) or "." not in key:
+                errors.append(
+                    f"  {study_path}: parameter key '{key}' must use '<target>.<yaml.path>' format."
+                )
+                continue
+            root = key.split(".", 1)[0]
+            if root not in allowed_roots:
+                errors.append(
+                    f"  {study_path}: parameter key '{key}' must start with one of {sorted(allowed_roots)}."
+                )
+            if not isinstance(values, list) or len(values) == 0:
+                errors.append(f"  {study_path}: parameters.{key} must be a non-empty list.")
+
+    metrics = study_cfg.get("metrics", [])
+    if metrics is not None and not isinstance(metrics, list):
+        errors.append(f"  {study_path}: 'metrics' must be a list when provided.")
+    elif isinstance(metrics, list):
+        for i, metric in enumerate(metrics):
+            if isinstance(metric, str):
+                continue
+            if not isinstance(metric, dict):
+                errors.append(
+                    f"  {study_path}: metrics[{i}] must be a string or mapping."
+                )
+                continue
+            if "name" not in metric:
+                errors.append(f"  {study_path}: metrics[{i}] missing required key 'name'.")
+            if "source" not in metric:
+                errors.append(f"  {study_path}: metrics[{i}] missing required key 'source'.")
+
+    plotting = study_cfg.get("plotting", {})
+    if plotting is not None and not isinstance(plotting, dict):
+        errors.append(f"  {study_path}: 'plotting' must be a mapping when provided.")
+    elif isinstance(plotting, dict):
+        enabled = plotting.get("enabled")
+        if enabled is not None and not isinstance(enabled, bool):
+            errors.append(f"  {study_path}: plotting.enabled must be boolean when provided.")
+        output_format = plotting.get("output_format")
+        if output_format is not None and output_format not in {"png", "pdf", "svg"}:
+            errors.append(f"  {study_path}: plotting.output_format must be one of ['png','pdf','svg'].")
+
+    execution = study_cfg.get("execution", {})
+    if execution is not None and not isinstance(execution, dict):
+        errors.append(f"  {study_path}: 'execution' must be a mapping when provided.")
+    elif isinstance(execution, dict):
+        max_conc = execution.get("max_concurrent_array_tasks")
+        if max_conc is not None and (not isinstance(max_conc, int) or max_conc <= 0):
+            errors.append(
+                f"  {study_path}: execution.max_concurrent_array_tasks must be a positive integer when provided."
+            )
+
+    if errors:
+        _print_validation_errors(errors)
+
+def _deep_set(container: dict, dotted_path: str, value):
+    """Set nested dictionary value, creating intermediate maps when needed."""
+    keys = dotted_path.split(".")
+    current = container
+    for key in keys[:-1]:
+        if key not in current or not isinstance(current[key], dict):
+            current[key] = {}
+        current = current[key]
+    current[keys[-1]] = value
+
+def expand_parameter_matrix(parameters: dict) -> list:
+    """Expand study parameter lists into cartesian-product combinations."""
+    param_keys = list(parameters.keys())
+    all_values = [parameters[k] for k in param_keys]
+    combos = []
+    for combo in itertools.product(*all_values):
+        combos.append(dict(zip(param_keys, combo)))
+    return combos
+
+def get_cluster_total_tasks(cluster_cfg: dict) -> int:
+    resources = cluster_cfg.get("resources", {})
+    return int(resources.get("nodes", 1)) * int(resources.get("ntasks_per_node", 1))
+
+def normalize_extension(ext: str) -> str:
+    if ext is None:
+        return None
+    return str(ext).strip().lstrip(".")
+
+def render_slurm_script(
+    script_path: str,
+    job_name: str,
+    cluster_cfg: dict,
+    command: list,
+    workdir: str,
+    stdout_path: str,
+    stderr_path: str = None,
+    env_vars: dict = None,
+    array_spec: str = None
+):
+    """Render a Slurm batch script for a single command."""
+    resources = cluster_cfg.get("resources", {})
+    notifications = cluster_cfg.get("notifications", {}) or {}
+    execution = cluster_cfg.get("execution", {}) or {}
+    extra_sbatch = execution.get("extra_sbatch")
+    module_setup = execution.get("module_setup", []) or []
+
+    if stderr_path is None:
+        stderr_path = stdout_path.replace(".out", ".err")
+
+    lines = [
+        "#!/bin/bash",
+        f"#SBATCH --job-name={job_name}",
+        f"#SBATCH --nodes={resources['nodes']}",
+        f"#SBATCH --ntasks-per-node={resources['ntasks_per_node']}",
+        f"#SBATCH --mem={resources['mem']}",
+        f"#SBATCH --time={resources['time']}",
+        f"#SBATCH --output={stdout_path}",
+        f"#SBATCH --error={stderr_path}",
+        f"#SBATCH --account={resources['account']}",
+    ]
+    partition = resources.get("partition")
+    if partition:
+        lines.append(f"#SBATCH --partition={partition}")
+    if array_spec:
+        lines.append(f"#SBATCH --array={array_spec}")
+    mail_user = notifications.get("mail_user")
+    mail_type = notifications.get("mail_type")
+    if mail_user:
+        lines.append(f"#SBATCH --mail-user={mail_user}")
+    if mail_type:
+        lines.append(f"#SBATCH --mail-type={mail_type}")
+
+    if isinstance(extra_sbatch, dict):
+        for key, value in extra_sbatch.items():
+            flag = str(key)
+            if not flag.startswith("--"):
+                flag = f"--{flag}"
+            if isinstance(value, bool):
+                if value:
+                    lines.append(f"#SBATCH {flag}")
+            elif value is not None:
+                lines.append(f"#SBATCH {flag}={value}")
+    elif isinstance(extra_sbatch, list):
+        for token in extra_sbatch:
+            lines.append(f"#SBATCH {token}")
+
+    lines.extend(
+        [
+            "",
+            "set -euo pipefail",
+            "",
+            f"cd {shlex.quote(workdir)}",
+            'echo "[$(date)] Starting job ${SLURM_JOB_NAME} (${SLURM_JOB_ID})"',
+            'echo "[$(date)] Working directory: $PWD"',
+        ]
+    )
+
+    for setup_line in module_setup:
+        lines.append(str(setup_line))
+
+    if env_vars:
+        for key, value in env_vars.items():
+            lines.append(f"export {key}={shlex.quote(str(value))}")
+
+    cmd = " ".join(shlex.quote(str(tok)) for tok in command)
+    lines.append(cmd)
+    lines.append('echo "[$(date)] Job completed."')
+
+    os.makedirs(os.path.dirname(script_path), exist_ok=True)
+    with open(script_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(script_path, 0o755)
+
+def build_cluster_launch_command(cluster_cfg: dict, executable: str, executable_args: list) -> list:
+    """Build scheduler launcher command (srun/mpirun/custom) from cluster config."""
+    execution = cluster_cfg.get("execution", {}) or {}
+    launcher = execution.get("launcher", "srun")
+    launcher_args = [str(x) for x in execution.get("launcher_args", [])]
+    ntasks = get_cluster_total_tasks(cluster_cfg)
+
+    if launcher and launcher.lower() == "srun":
+        has_n = any(token in {"-n", "--ntasks"} for token in launcher_args)
+        cmd = ["srun"] + launcher_args
+        if not has_n:
+            cmd += ["-n", str(ntasks)]
+        return cmd + [executable] + executable_args
+
+    if launcher and launcher.lower() == "mpirun":
+        has_np = any(token in {"-np", "-n"} for token in launcher_args)
+        cmd = ["mpirun"] + launcher_args
+        if not has_np:
+            cmd += ["-np", str(ntasks)]
+        return cmd + [executable] + executable_args
+
+    # Custom launcher or no launcher.
+    cmd = []
+    if launcher:
+        cmd.append(str(launcher))
+    cmd += launcher_args
+    cmd += [executable] + executable_args
+    return cmd
+
+def parse_slurm_job_id(sbatch_output: str) -> str:
+    """Extract numeric job id from standard sbatch output."""
+    match = re.search(r"Submitted batch job\s+(\d+)", sbatch_output or "")
+    return match.group(1) if match else None
+
+def submit_sbatch(script_path: str, dependency: str = None) -> dict:
+    """Submit sbatch script and return submission metadata."""
+    cmd = ["sbatch"]
+    if dependency:
+        cmd.append(f"--dependency=afterok:{dependency}")
+    cmd.append(script_path)
+    result = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    metadata = {
+        "command": cmd,
+        "returncode": result.returncode,
+        "stdout": (result.stdout or "").strip(),
+        "stderr": (result.stderr or "").strip(),
+        "script": script_path,
+    }
+    if result.returncode != 0:
+        print(f"[FATAL] sbatch submission failed for {script_path}\n{metadata['stderr']}", file=sys.stderr)
+        sys.exit(result.returncode)
+    metadata["job_id"] = parse_slurm_job_id(metadata["stdout"])
+    if not metadata["job_id"]:
+        print(
+            f"[FATAL] Could not parse Slurm job id from sbatch output: {metadata['stdout']}",
+            file=sys.stderr
+        )
+        sys.exit(1)
+    return metadata
+
 
 def _print_validation_errors(errors: list):
     """!
@@ -1606,28 +2013,427 @@ def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg:
         print(f"[FATAL] An unexpected error occurred during execution: {e}", file=sys.stderr)
         sys.exit(1)
 
+def auto_identify_run_inputs(config_dir: str):
+    """Auto-detect case.yml, monitor.yml, and *.control in a run config directory."""
+    all_yml_files = glob.glob(os.path.join(config_dir, "*.yml"))
+    case_path, monitor_path = None, None
+    for f_path in all_yml_files:
+        try:
+            content = read_yaml_file(f_path)
+            if not isinstance(content, dict):
+                continue
+            if 'models' in content and 'boundary_conditions' in content:
+                case_path = f_path
+            elif 'io' in content and 'logging' in content:
+                monitor_path = f_path
+        except Exception as e:
+            print(f"[WARNING] Could not parse or inspect '{f_path}': {e}", file=sys.stderr)
+    try:
+        solver_control_path = glob.glob(os.path.join(config_dir, "*.control"))[0]
+    except IndexError:
+        solver_control_path = None
+    return case_path, monitor_path, solver_control_path
+
+def resolve_post_source_directory(run_dir: str, monitor_cfg: dict, post_cfg: dict, strict: bool = True) -> str:
+    """Resolve post source directory token and optionally enforce existence."""
+    solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
+    solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
+    source_dir_template = post_cfg.get('source_data', {}).get('directory', '<solver_output_dir>')
+    if source_dir_template == '<solver_output_dir>':
+        resolved_source_dir = solver_output_dir_abs
+        print(f"[INFO] Post-processor source data: {os.path.relpath(resolved_source_dir)}")
+    else:
+        resolved_source_dir = os.path.abspath(os.path.join(run_dir, source_dir_template))
+        print(f"[INFO] Post-processor source data (user-defined): {os.path.relpath(resolved_source_dir)}")
+
+    if strict and (not os.path.isdir(resolved_source_dir) or not os.listdir(resolved_source_dir)):
+        print(
+            f"[FATAL] Source data directory for post-processing not found or empty: {os.path.relpath(resolved_source_dir)}",
+            file=sys.stderr
+        )
+        sys.exit(1)
+    if not strict and (not os.path.isdir(resolved_source_dir) or not os.listdir(resolved_source_dir)):
+        print("[WARNING] Source data directory is not available yet; keeping deferred path for scheduled post job.")
+    return resolved_source_dir
+
+def render_slurm_array_stage_script(
+    script_path: str,
+    job_name: str,
+    cluster_cfg: dict,
+    array_spec: str,
+    case_index_tsv: str,
+    stage: str,
+    solver_exe: str,
+    post_exe: str,
+    stdout_path: str,
+    stderr_path: str
+):
+    """Render array script that maps SLURM_ARRAY_TASK_ID to per-case run artifacts."""
+    resources = cluster_cfg.get("resources", {})
+    notifications = cluster_cfg.get("notifications", {}) or {}
+    execution = cluster_cfg.get("execution", {}) or {}
+    module_setup = execution.get("module_setup", []) or []
+    extra_sbatch = execution.get("extra_sbatch")
+
+    lines = [
+        "#!/bin/bash",
+        f"#SBATCH --job-name={job_name}",
+        f"#SBATCH --nodes={resources['nodes']}",
+        f"#SBATCH --ntasks-per-node={resources['ntasks_per_node']}",
+        f"#SBATCH --mem={resources['mem']}",
+        f"#SBATCH --time={resources['time']}",
+        f"#SBATCH --output={stdout_path}",
+        f"#SBATCH --error={stderr_path}",
+        f"#SBATCH --account={resources['account']}",
+        f"#SBATCH --array={array_spec}",
+    ]
+    partition = resources.get("partition")
+    if partition:
+        lines.append(f"#SBATCH --partition={partition}")
+    mail_user = notifications.get("mail_user")
+    mail_type = notifications.get("mail_type")
+    if mail_user:
+        lines.append(f"#SBATCH --mail-user={mail_user}")
+    if mail_type:
+        lines.append(f"#SBATCH --mail-type={mail_type}")
+    if isinstance(extra_sbatch, dict):
+        for key, value in extra_sbatch.items():
+            flag = str(key)
+            if not flag.startswith("--"):
+                flag = f"--{flag}"
+            if isinstance(value, bool):
+                if value:
+                    lines.append(f"#SBATCH {flag}")
+            elif value is not None:
+                lines.append(f"#SBATCH {flag}={value}")
+    elif isinstance(extra_sbatch, list):
+        for token in extra_sbatch:
+            lines.append(f"#SBATCH {token}")
+
+    lines.extend([
+        "",
+        "set -euo pipefail",
+        "",
+        f'CASE_INDEX_FILE={shlex.quote(case_index_tsv)}',
+        'LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$CASE_INDEX_FILE")',
+        'if [ -z "$LINE" ]; then',
+        '  echo "No case entry for array index ${SLURM_ARRAY_TASK_ID}" >&2',
+        '  exit 1',
+        "fi",
+        "IFS=$'\\t' read -r CASE_INDEX CASE_ID RUN_DIR CONTROL_FILE POST_RECIPE_FILE LOG_LEVEL POST_PREFIX <<< \"$LINE\"",
+        'cd "$RUN_DIR"',
+        'echo "[$(date)] Starting case ${CASE_ID} (array index ${SLURM_ARRAY_TASK_ID})"',
+        'export LOG_LEVEL="${LOG_LEVEL}"',
+    ])
+
+    for setup_line in module_setup:
+        lines.append(str(setup_line))
+
+    if stage == "solve":
+        cmd = build_cluster_launch_command(
+            cluster_cfg,
+            solver_exe,
+            ["-control_file", "$CONTROL_FILE"]
+        )
+    else:
+        cmd = build_cluster_launch_command(
+            cluster_cfg,
+            post_exe,
+            ["-control_file", "$CONTROL_FILE", "-postprocessing_config_file", "$POST_RECIPE_FILE"]
+        )
+
+    # Keep shell variables unresolved inside sbatch script.
+    def _token(tok: str) -> str:
+        if tok.startswith("$"):
+            return tok
+        return shlex.quote(str(tok))
+
+    lines.append(" ".join(_token(t) for t in cmd))
+    lines.append('echo "[$(date)] Completed case ${CASE_ID}"')
+
+    os.makedirs(os.path.dirname(script_path), exist_ok=True)
+    with open(script_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(script_path, 0o755)
+
+def extract_metric_from_csv(case_dir: str, spec: dict):
+    """Extract a scalar metric from a CSV source."""
+    file_glob = spec.get("file_glob", "**/*_msd.csv")
+    candidates = sorted(glob.glob(os.path.join(case_dir, file_glob), recursive=True))
+    if not candidates:
+        return None
+    csv_path = candidates[0]
+    rows = []
+    with open(csv_path, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames:
+            for row in reader:
+                rows.append(row)
+            if not rows:
+                return None
+            column = spec.get("column")
+            if not column:
+                for name in reversed(reader.fieldnames):
+                    if name and name.lower() not in {"step", "time", "timestep"}:
+                        column = name
+                        break
+            if not column:
+                return None
+            values = []
+            for row in rows:
+                try:
+                    values.append(float(row[column]))
+                except Exception:
+                    continue
+        else:
+            return None
+    if not values:
+        return None
+    reduction = str(spec.get("reduction", "last")).lower()
+    if reduction == "mean":
+        return float(np.mean(values))
+    if reduction == "min":
+        return float(np.min(values))
+    if reduction == "max":
+        return float(np.max(values))
+    return float(values[-1])
+
+def extract_metric_from_log(case_dir: str, spec: dict):
+    """Extract a scalar metric from a log file using regex."""
+    file_glob = spec.get("file_glob", "logs/*.log")
+    regex = spec.get("regex")
+    if not regex:
+        return None
+    candidates = sorted(glob.glob(os.path.join(case_dir, file_glob), recursive=True))
+    if not candidates:
+        return None
+    pattern = re.compile(regex)
+    values = []
+    for path in candidates:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    m = pattern.search(line)
+                    if m:
+                        try:
+                            values.append(float(m.group(1)))
+                        except Exception:
+                            pass
+        except OSError:
+            continue
+    if not values:
+        return None
+    reduction = str(spec.get("reduction", "last")).lower()
+    if reduction == "mean":
+        return float(np.mean(values))
+    if reduction == "min":
+        return float(np.min(values))
+    if reduction == "max":
+        return float(np.max(values))
+    return float(values[-1])
+
+def normalize_metric_spec(metric):
+    """Normalize study metric definitions to a common dictionary form."""
+    if isinstance(metric, str):
+        if metric.lower() in {"msd", "msd_final"}:
+            return {
+                "name": "msd_final",
+                "source": "statistics_csv",
+                "file_glob": "**/*_msd.csv",
+                "reduction": "last",
+            }
+        return {"name": metric, "source": "log_regex", "regex": metric}
+    return dict(metric)
+
+def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> str:
+    """Collect metric values from generated case directories into one CSV."""
+    metrics = study_cfg.get("metrics", [])
+    if not metrics:
+        metrics = ["msd_final"]
+    normalized_specs = [normalize_metric_spec(m) for m in metrics]
+
+    rows = []
+    for case in cases:
+        row = {"case_id": case["case_id"]}
+        for p_key, p_val in case["parameters"].items():
+            row[p_key] = p_val
+        for spec in normalized_specs:
+            name = spec.get("name", "metric")
+            source = str(spec.get("source", "")).lower()
+            if source in {"statistics_csv", "csv"}:
+                row[name] = extract_metric_from_csv(case["run_dir"], spec)
+            elif source in {"log_regex", "log"}:
+                row[name] = extract_metric_from_log(case["run_dir"], spec)
+            else:
+                row[name] = None
+        rows.append(row)
+
+    if not rows:
+        return None
+
+    all_keys = []
+    seen = set()
+    for row in rows:
+        for k in row.keys():
+            if k not in seen:
+                seen.add(k)
+                all_keys.append(k)
+
+    os.makedirs(results_dir, exist_ok=True)
+    out_csv = os.path.join(results_dir, "metrics_table.csv")
+    with open(out_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=all_keys)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"[SUCCESS] Aggregated metrics table: {os.path.relpath(out_csv)}")
+    return out_csv
+
+def infer_plot_x_axis(study_cfg: dict, rows: list):
+    """Infer x-axis key/values for study plots."""
+    params = list((study_cfg.get("parameters") or {}).keys())
+    if not params or not rows:
+        return None, None
+
+    study_type = study_cfg.get("study_type")
+    if study_type == "grid_independence":
+        has_im = "case.grid.programmatic_settings.im" in params
+        has_jm = "case.grid.programmatic_settings.jm" in params
+        has_km = "case.grid.programmatic_settings.km" in params
+        if has_im and has_jm and has_km:
+            xs = []
+            for row in rows:
+                try:
+                    im = float(row["case.grid.programmatic_settings.im"])
+                    jm = float(row["case.grid.programmatic_settings.jm"])
+                    km = float(row["case.grid.programmatic_settings.km"])
+                    xs.append((im * jm * km) ** (1.0 / 3.0))
+                except Exception:
+                    return None, None
+            return "N^(1/3)", xs
+
+    primary = params[0]
+    xs = []
+    for row in rows:
+        try:
+            xs.append(float(row[primary]))
+        except Exception:
+            return None, None
+    return primary, xs
+
+def generate_study_plots(study_cfg: dict, metrics_csv: str, plots_dir: str):
+    """Generate metric-vs-parameter plots for completed studies."""
+    plotting_cfg = study_cfg.get("plotting", {}) or {}
+    if plotting_cfg.get("enabled", True) is False:
+        print("[INFO] Plotting disabled by study.yml.")
+        return []
+    if plt is None:
+        print("[WARNING] matplotlib not available; skipping plot generation.")
+        return []
+    if not metrics_csv or not os.path.isfile(metrics_csv):
+        return []
+
+    with open(metrics_csv, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    if not rows:
+        return []
+
+    x_name, x_values = infer_plot_x_axis(study_cfg, rows)
+    if not x_name or x_values is None:
+        print("[WARNING] Could not infer numeric x-axis for plots; skipping.")
+        return []
+
+    metric_keys = []
+    param_keys = list((study_cfg.get("parameters") or {}).keys())
+    for key in rows[0].keys():
+        if key in {"case_id"}:
+            continue
+        if key in param_keys:
+            continue
+        metric_keys.append(key)
+
+    out_format = plotting_cfg.get("output_format", "png")
+    os.makedirs(plots_dir, exist_ok=True)
+    generated = []
+    for metric in metric_keys:
+        y_values = []
+        ok = True
+        for row in rows:
+            try:
+                y_values.append(float(row[metric]))
+            except Exception:
+                ok = False
+                break
+        if not ok:
+            continue
+        plt.figure(figsize=(7.0, 4.2))
+        plt.plot(x_values, y_values, marker="o", linewidth=1.5)
+        plt.xlabel(x_name)
+        plt.ylabel(metric)
+        plt.title(f"{metric} vs {x_name}")
+        plt.grid(True, alpha=0.3)
+        out_path = os.path.join(plots_dir, f"{metric}_vs_{x_name.replace('/', '_')}.{out_format}")
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=150)
+        plt.close()
+        generated.append(out_path)
+    if generated:
+        print(f"[SUCCESS] Generated {len(generated)} plot(s) in {os.path.relpath(plots_dir)}")
+    return generated
+
 def run_workflow(args):
-    """!
-    @brief Main orchestrator for the 'run' command.
-    @details This function manages the entire simulation workflow, including setting up
-             run directories, generating configuration files, and executing the
-             solver and/or post-processor stages.
-    @param[in] args The command-line arguments parsed by argparse.
-    """
+    """Main orchestrator for the 'run' command (local and Slurm modes)."""
     run_dir = None
     run_id = None
+    output_dir_abs = None
     workflow_start = time.time()
     stages_completed = []
+    configs = None
+    submission_meta = {"launch_mode": "local", "stages": {}}
+
+    cluster_mode = bool(getattr(args, "cluster", None))
+    cluster_cfg = None
+    cluster_path = None
+    effective_num_procs = args.num_procs
+
+    if cluster_mode:
+        cluster_path = os.path.abspath(args.cluster)
+        cluster_cfg = read_yaml_file(cluster_path)
+        validate_cluster_config(cluster_cfg, cluster_path)
+        scheduler_type = str(cluster_cfg.get("scheduler", {}).get("type", "slurm")).lower()
+        if args.scheduler and args.scheduler.lower() != scheduler_type:
+            print(
+                f"[FATAL] --scheduler={args.scheduler} does not match cluster.yml scheduler.type={scheduler_type}.",
+                file=sys.stderr
+            )
+            sys.exit(1)
+        if scheduler_type != "slurm":
+            print(f"[FATAL] Unsupported scheduler '{scheduler_type}'. Only Slurm is supported in v1.", file=sys.stderr)
+            sys.exit(1)
+        cluster_tasks = get_cluster_total_tasks(cluster_cfg)
+        if args.num_procs not in (1, cluster_tasks):
+            print(
+                f"[FATAL] In cluster mode, --num-procs must be 1 (auto) or exactly nodes*ntasks_per_node ({cluster_tasks}).",
+                file=sys.stderr
+            )
+            sys.exit(1)
+        effective_num_procs = cluster_tasks
+        submission_meta["launch_mode"] = "slurm"
+        submission_meta["cluster_config"] = cluster_path
+        submission_meta["no_submit"] = bool(args.no_submit)
+        print(f"[INFO] Cluster mode enabled (Slurm). Using {effective_num_procs} MPI tasks from cluster.yml.")
+    elif getattr(args, "scheduler", None):
+        print("[FATAL] --scheduler requires --cluster in this version.", file=sys.stderr)
+        sys.exit(1)
 
     # --- Stage 1: Solver (if requested) ---
     if args.solve:
         configs = {
-            'case': read_yaml_file(args.case), 'case_path': args.case,
-            'solver': read_yaml_file(args.solver), 'solver_path': args.solver,
-            'monitor': read_yaml_file(args.monitor), 'monitor_path': args.monitor
+            'case': read_yaml_file(args.case), 'case_path': os.path.abspath(args.case),
+            'solver': read_yaml_file(args.solver), 'solver_path': os.path.abspath(args.solver),
+            'monitor': read_yaml_file(args.monitor), 'monitor_path': os.path.abspath(args.monitor)
         }
 
-        # --- Pre-flight validation ---
         print("\n[INFO] Validating configuration files...")
         validate_solver_configs(
             configs['case'], configs['solver'], configs['monitor'],
@@ -1639,129 +2445,185 @@ def run_workflow(args):
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         run_id = f"{case_name}_{timestamp}"
         run_dir = os.path.abspath(os.path.join("runs", run_id))
-        
+
         config_dir = os.path.join(run_dir, "config")
-        for d in [config_dir, "logs", "results"]:
-            os.makedirs(os.path.join(run_dir, d), exist_ok=True)
+        for d in [config_dir, "logs", "results", os.path.join(run_dir, "scheduler")]:
+            os.makedirs(d, exist_ok=True)
         print(f"[INFO] Created new self-contained run directory: {os.path.relpath(run_dir)}")
-        
+
         shutil.copy(args.case, os.path.join(config_dir, "case.yml"))
         shutil.copy(args.solver, os.path.join(config_dir, "solver.yml"))
         shutil.copy(args.monitor, os.path.join(config_dir, "monitor.yml"))
+        if cluster_mode:
+            shutil.copy(cluster_path, os.path.join(config_dir, "cluster.yml"))
 
         print("\n" + "="*25 + " SOLVER STAGE " + "="*25)
-        
         source_files = {'Case': args.case, 'Solver': args.solver, 'Monitor': args.monitor}
         print("[INFO] Generating monitoring files (whitelist.run, profile.run)...")
-        whitelist_path = generate_simple_list_file(run_dir, run_id, configs['monitor'], 'logging', 'enabled_functions', 'whitelist.run', source_files)
-        profile_path = generate_simple_list_file(run_dir, run_id, configs['monitor'], 'profiling', 'critical_functions', 'profile.run', source_files)
-        
+        whitelist_path = generate_simple_list_file(
+            run_dir, run_id, configs['monitor'], 'logging', 'enabled_functions', 'whitelist.run', source_files
+        )
+        profile_path = generate_simple_list_file(
+            run_dir, run_id, configs['monitor'], 'profiling', 'critical_functions', 'profile.run', source_files
+        )
+
         monitor_files = {'whitelist': whitelist_path, 'profile': profile_path}
-        control_file = generate_solver_control_file(run_dir, run_id, configs, args.num_procs, monitor_files)
-        
+        control_file = generate_solver_control_file(run_dir, run_id, configs, effective_num_procs, monitor_files)
+
         solver_exe = os.path.join(BIN_DIR, "picsolver")
-        command = [solver_exe, "-control_file", control_file]
-        if args.num_procs > 1:
-            command = ["mpiexec", "-n", str(args.num_procs)] + command
-        execute_command(command, run_dir, f"{run_id}_solver.log", configs['monitor'])
-        stages_completed.append('solve')
+        solver_args = ["-control_file", control_file]
+        if cluster_mode:
+            scheduler_dir = os.path.join(run_dir, "scheduler")
+            solver_script = os.path.join(scheduler_dir, "solver.sbatch")
+            solver_log = os.path.join(run_dir, "logs", "solver_%j.out")
+            solver_err = os.path.join(run_dir, "logs", "solver_%j.err")
+            solver_cmd = build_cluster_launch_command(cluster_cfg, solver_exe, solver_args)
+            render_slurm_script(
+                solver_script,
+                f"{run_id}_solve",
+                cluster_cfg,
+                solver_cmd,
+                run_dir,
+                solver_log,
+                solver_err,
+                env_vars={"LOG_LEVEL": configs['monitor'].get('logging', {}).get('verbosity', 'INFO').upper()},
+            )
+            submission_meta["stages"]["solve"] = {"script": solver_script, "submitted": False}
+            print(f"[SUCCESS] Generated solver Slurm script: {os.path.relpath(solver_script)}")
+            if not args.no_submit:
+                submit_info = submit_sbatch(solver_script)
+                submission_meta["stages"]["solve"].update(submit_info)
+                submission_meta["stages"]["solve"]["submitted"] = True
+                print(f"[SUCCESS] Submitted solver job: {submit_info['job_id']}")
+            stages_completed.append('solve')
+        else:
+            command = [solver_exe] + solver_args
+            if effective_num_procs > 1:
+                command = ["mpiexec", "-n", str(effective_num_procs)] + command
+            execute_command(command, run_dir, f"{run_id}_solver.log", configs['monitor'])
+            stages_completed.append('solve')
 
     # --- Stage 2: Post-Processing (if requested) ---
     if args.post_process:
-            if args.run_dir:
-                run_dir = os.path.abspath(args.run_dir)
-                if not os.path.isdir(run_dir):
-                    print(f"[FATAL] Specified run directory not found: {run_dir}", file=sys.stderr)
-                    sys.exit(1)
-                print(f"[INFO] Operating on existing run directory: {os.path.relpath(run_dir)}")
-                run_id = os.path.basename(run_dir)
-            elif not args.solve:
-                main_parser.error("--post-process requires --run-dir when not used with --solve.")
-            
-            print("\n" + "="*20 + " POST-PROCESSING STAGE " + "="*20)
-            config_dir = os.path.join(run_dir, "config")
-            
-            # --- Find necessary config files by inspecting their content ---
-            all_yml_files = glob.glob(os.path.join(config_dir, "*.yml"))
-            case_path, monitor_path = None, None
-            for f_path in all_yml_files:
-                try:
-                    content = read_yaml_file(f_path)
-                    if not isinstance(content, dict): continue
-                    if 'models' in content and 'boundary_conditions' in content: case_path = f_path
-                    elif 'io' in content and 'logging' in content: monitor_path = f_path
-                except Exception as e:
-                    print(f"[WARNING] Could not parse or inspect '{f_path}': {e}", file=sys.stderr)
-                    continue
-            try:
-                solver_control_path = glob.glob(os.path.join(config_dir, "*.control"))[0]
-            except IndexError: solver_control_path = None
-
-            if not all([case_path, monitor_path, solver_control_path]):
-                print(f"[FATAL] Could not automatically identify required config files in {config_dir}", file=sys.stderr)
-                if not case_path: print("         - No 'case' file found (expected to contain 'models' and 'boundary_conditions').", file=sys.stderr)
-                if not monitor_path: print("         - No 'monitor' file found (expected to contain 'io' and 'logging').", file=sys.stderr)
-                if not solver_control_path: print("         - No '.control' file found.", file=sys.stderr)
+        if args.run_dir:
+            run_dir = os.path.abspath(args.run_dir)
+            if not os.path.isdir(run_dir):
+                print(f"[FATAL] Specified run directory not found: {run_dir}", file=sys.stderr)
                 sys.exit(1)
-            print(f"[INFO] Auto-identified Case file:    {os.path.basename(case_path)}")
-            print(f"[INFO] Auto-identified Monitor file: {os.path.basename(monitor_path)}")
+            print(f"[INFO] Operating on existing run directory: {os.path.relpath(run_dir)}")
+            run_id = os.path.basename(run_dir)
+        elif not args.solve:
+            print("[FATAL] --post-process requires --run-dir when not used with --solve.", file=sys.stderr)
+            sys.exit(1)
 
-            case_cfg = read_yaml_file(case_path)
-            monitor_cfg = read_yaml_file(monitor_path)
-            post_cfg = read_yaml_file(args.post)
+        print("\n" + "="*20 + " POST-PROCESSING STAGE " + "="*20)
+        config_dir = os.path.join(run_dir, "config")
+        case_path, monitor_path, solver_control_path = auto_identify_run_inputs(config_dir)
 
-            # --- Pre-flight validation ---
-            print("[INFO] Validating post-processing configuration...")
-            validate_post_config(post_cfg, args.post)
-            print("[SUCCESS] Post-processing configuration passed validation.\n")
+        if not all([case_path, monitor_path, solver_control_path]):
+            print(f"[FATAL] Could not automatically identify required config files in {config_dir}", file=sys.stderr)
+            if not case_path:
+                print("         - No 'case' file found (expected 'models' + 'boundary_conditions').", file=sys.stderr)
+            if not monitor_path:
+                print("         - No 'monitor' file found (expected 'io' + 'logging').", file=sys.stderr)
+            if not solver_control_path:
+                print("         - No '.control' file found.", file=sys.stderr)
+            sys.exit(1)
 
-            # --- Resolve Source Data Directory & Verify Existence ---
-            solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
-            solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
-            source_dir_template = post_cfg.get('source_data', {}).get('directory', '<solver_output_dir>')
-            if source_dir_template == '<solver_output_dir>':
-                resolved_source_dir = solver_output_dir_abs
-                print(f"[INFO] Post-processor will read data from solver's output directory: {os.path.relpath(resolved_source_dir)}")
-            else:
-                resolved_source_dir = os.path.abspath(os.path.join(run_dir, source_dir_template))
-                print(f"[INFO] Post-processor will read from user-specified directory: {os.path.relpath(resolved_source_dir)}")
-            if not os.path.isdir(resolved_source_dir) or not os.listdir(resolved_source_dir):
-                 print(f"[FATAL] Source data directory for post-processing not found or is empty: {os.path.relpath(resolved_source_dir)}", file=sys.stderr)
-                 sys.exit(1)
-            print("[SUCCESS] Source data directory verified.")
-            if 'source_data' not in post_cfg: post_cfg['source_data'] = {}
-            post_cfg['source_data']['directory'] = resolved_source_dir
-            
-            # --- Explicit Output Directory and Prefix Logic ---
-            post_io_cfg = post_cfg.get('io', {})
-            try:
-                output_dir_rel = post_io_cfg['output_directory']
-                output_prefix = post_io_cfg['output_filename_prefix']
-            except KeyError as e:
-                print(f"[FATAL] Missing required key '{e.args[0]}' in the 'io' section of {args.post}", file=sys.stderr)
-                sys.exit(1)
-            output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
-            os.makedirs(output_dir_abs, exist_ok=True)
-            print(f"[INFO] Post-processor will write output to: {os.path.relpath(output_dir_abs)}")
-            
-            # --- Generate the post-processing recipe file (post.run) ---
-            source_files_post = {'Case': case_path, 'Post-Profile': args.post}
-            post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_cfg, source_files_post)
-            
-            # --- Build and execute the post-processor command ---
-            post_exe = os.path.join(BIN_DIR, "postprocessor")
-            command = [
-                post_exe,
-                "-control_file", solver_control_path,
-                "-postprocessing_config_file", post_recipe_file
-            ]
-            if args.num_procs > 1:
-                command = ["mpiexec", "-n", str(args.num_procs)] + command
-            
+        print(f"[INFO] Auto-identified Case file:    {os.path.basename(case_path)}")
+        print(f"[INFO] Auto-identified Monitor file: {os.path.basename(monitor_path)}")
+
+        case_cfg = read_yaml_file(case_path)
+        monitor_cfg = read_yaml_file(monitor_path)
+        post_cfg = read_yaml_file(args.post)
+
+        print("[INFO] Validating post-processing configuration...")
+        validate_post_config(post_cfg, args.post)
+        print("[SUCCESS] Post-processing configuration passed validation.\n")
+
+        strict_source_check = not (cluster_mode and args.solve)
+        resolved_source_dir = resolve_post_source_directory(run_dir, monitor_cfg, post_cfg, strict=strict_source_check)
+        if 'source_data' not in post_cfg:
+            post_cfg['source_data'] = {}
+        post_cfg['source_data']['directory'] = resolved_source_dir
+
+        post_io_cfg = post_cfg.get('io', {})
+        try:
+            output_dir_rel = post_io_cfg['output_directory']
+            output_prefix = post_io_cfg['output_filename_prefix']
+        except KeyError as e:
+            print(f"[FATAL] Missing required key '{e.args[0]}' in the 'io' section of {args.post}", file=sys.stderr)
+            sys.exit(1)
+
+        output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
+        os.makedirs(output_dir_abs, exist_ok=True)
+        print(f"[INFO] Post-processor output directory: {os.path.relpath(output_dir_abs)}")
+
+        source_files_post = {'Case': case_path, 'Post-Profile': args.post}
+        post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_cfg, source_files_post)
+
+        post_exe = os.path.join(BIN_DIR, "postprocessor")
+        post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_file]
+        if cluster_mode:
+            scheduler_dir = os.path.join(run_dir, "scheduler")
+            os.makedirs(scheduler_dir, exist_ok=True)
+            post_script = os.path.join(scheduler_dir, "post.sbatch")
+            post_log = os.path.join(run_dir, "logs", "post_%j.out")
+            post_err = os.path.join(run_dir, "logs", "post_%j.err")
+            post_cmd = build_cluster_launch_command(cluster_cfg, post_exe, post_args)
+            render_slurm_script(
+                post_script,
+                f"{run_id}_post",
+                cluster_cfg,
+                post_cmd,
+                run_dir,
+                post_log,
+                post_err,
+                env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
+            )
+            submission_meta["stages"]["post-process"] = {"script": post_script, "submitted": False}
+            print(f"[SUCCESS] Generated post Slurm script: {os.path.relpath(post_script)}")
+
+            if not args.no_submit:
+                dependency_job = None
+                if args.solve:
+                    dependency_job = submission_meta.get("stages", {}).get("solve", {}).get("job_id")
+                submit_info = submit_sbatch(post_script, dependency=dependency_job)
+                submission_meta["stages"]["post-process"].update(submit_info)
+                submission_meta["stages"]["post-process"]["submitted"] = True
+                if dependency_job:
+                    submission_meta["stages"]["post-process"]["dependency"] = f"afterok:{dependency_job}"
+                print(f"[SUCCESS] Submitted post job: {submit_info['job_id']}")
+            stages_completed.append('post-process')
+        else:
+            command = [post_exe] + post_args
+            if effective_num_procs > 1:
+                command = ["mpiexec", "-n", str(effective_num_procs)] + command
             execute_command(command, run_dir, f"{run_id}_{output_prefix}.log", monitor_cfg)
             stages_completed.append('post-process')
 
-    # --- Post-Run Summary ---
+    if run_dir:
+        manifest = {
+            "run_id": run_id,
+            "created_at": datetime.now().isoformat(),
+            "launch_mode": "slurm" if cluster_mode else "local",
+            "git_commit": get_git_commit(),
+            "num_procs": effective_num_procs,
+            "stages_requested": {"solve": bool(args.solve), "post_process": bool(args.post_process)},
+            "stages_completed_or_submitted": stages_completed,
+            "inputs": {},
+        }
+        if args.solve:
+            manifest["inputs"]["case"] = os.path.abspath(args.case)
+            manifest["inputs"]["solver"] = os.path.abspath(args.solver)
+            manifest["inputs"]["monitor"] = os.path.abspath(args.monitor)
+        if args.post_process:
+            manifest["inputs"]["post"] = os.path.abspath(args.post)
+        if cluster_mode:
+            manifest["inputs"]["cluster"] = cluster_path
+            write_json_file(os.path.join(run_dir, "scheduler", "submission.json"), submission_meta)
+        write_json_file(os.path.join(run_dir, "manifest.json"), manifest)
+
     if stages_completed:
         elapsed = time.time() - workflow_start
         mins, secs = divmod(int(elapsed), 60)
@@ -1776,33 +2638,239 @@ def run_workflow(args):
         print("\n" + "=" * 60)
         print("                       RUN SUMMARY")
         print("=" * 60)
-        print(f"  Run ID       : {run_id}")
-        print(f"  Run directory : {os.path.relpath(run_dir)}")
-        print(f"  Wall-clock    : {time_str}")
-        print(f"  Stages        : {', '.join(stages_completed)}")
-        print(f"  MPI processes : {args.num_procs}")
-
-        if 'solve' in stages_completed:
-            case_cfg = configs['case'] if args.solve else read_yaml_file(os.path.join(run_dir, "config", "case.yml"))
-            total_steps = case_cfg.get('run_control', {}).get('total_steps', '?')
-            print(f"  Steps run     : {total_steps}")
-            result_dir = os.path.join(run_dir, configs['monitor'].get('io', {}).get('directories', {}).get('output', 'results')) if args.solve else os.path.join(run_dir, 'results')
-            print(f"  Solver output : {os.path.relpath(result_dir)}")
-
-        if 'post-process' in stages_completed:
-            print(f"  Post output   : {os.path.relpath(output_dir_abs)}")
-
-        log_dir = os.path.join(run_dir, "logs")
-        print(f"  Logs          : {os.path.relpath(log_dir)}")
-
-        print("-" * 60)
-        # Suggest next step
-        if 'solve' in stages_completed and 'post-process' not in stages_completed:
-            print("  Next step: run post-processing with:")
-            print(f"    pic-flow run --post-process --run-dir {os.path.relpath(run_dir)} --post <post.yml>")
-        elif stages_completed:
-            print("  All requested stages completed successfully.")
+        print(f"  Run ID         : {run_id}")
+        print(f"  Run directory  : {os.path.relpath(run_dir)}")
+        print(f"  Wall-clock     : {time_str}")
+        print(f"  Stages         : {', '.join(stages_completed)}")
+        print(f"  Launch mode    : {'slurm' if cluster_mode else 'local'}")
+        print(f"  MPI processes  : {effective_num_procs}")
+        if args.solve and configs:
+            total_steps = configs['case'].get('run_control', {}).get('total_steps', '?')
+            result_dir = os.path.join(run_dir, configs['monitor'].get('io', {}).get('directories', {}).get('output', 'results'))
+            print(f"  Steps run      : {total_steps}")
+            print(f"  Solver output  : {os.path.relpath(result_dir)}")
+        if 'post-process' in stages_completed and output_dir_abs:
+            print(f"  Post output    : {os.path.relpath(output_dir_abs)}")
+        print(f"  Logs           : {os.path.relpath(os.path.join(run_dir, 'logs'))}")
+        if cluster_mode:
+            submission_file = os.path.join(run_dir, "scheduler", "submission.json")
+            print(f"  Submission meta: {os.path.relpath(submission_file)}")
         print("=" * 60)
+
+def sweep_workflow(args):
+    """Study/sweep orchestration using Slurm job arrays."""
+    study_path = os.path.abspath(args.study)
+    cluster_path = os.path.abspath(args.cluster)
+
+    study_cfg = read_yaml_file(study_path)
+    cluster_cfg = read_yaml_file(cluster_path)
+    validate_study_config(study_cfg, study_path)
+    validate_cluster_config(cluster_cfg, cluster_path)
+
+    study_name = os.path.splitext(os.path.basename(study_path))[0]
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    study_id = f"{study_name}_{timestamp}"
+    study_dir = os.path.abspath(os.path.join("studies", study_id))
+    cases_dir = os.path.join(study_dir, "cases")
+    scheduler_dir = os.path.join(study_dir, "scheduler")
+    results_dir = os.path.join(study_dir, "results")
+    logs_dir = os.path.join(study_dir, "logs")
+    for path in [cases_dir, scheduler_dir, results_dir, logs_dir]:
+        os.makedirs(path, exist_ok=True)
+
+    print(f"[INFO] Creating study directory: {os.path.relpath(study_dir)}")
+    shutil.copy(study_path, os.path.join(study_dir, "study.yml"))
+    shutil.copy(cluster_path, os.path.join(study_dir, "cluster.yml"))
+
+    base_cfgs = study_cfg["base_configs"]
+    base_paths = {k: resolve_path(study_path, v) for k, v in base_cfgs.items()}
+    base_case = read_yaml_file(base_paths["case"])
+    base_solver = read_yaml_file(base_paths["solver"])
+    base_monitor = read_yaml_file(base_paths["monitor"])
+    base_post = read_yaml_file(base_paths["post"])
+    validate_solver_configs(base_case, base_solver, base_monitor, base_paths["case"], base_paths["solver"], base_paths["monitor"])
+    validate_post_config(base_post, base_paths["post"])
+
+    combinations = expand_parameter_matrix(study_cfg["parameters"])
+    if not combinations:
+        print("[FATAL] Study parameter matrix expanded to zero cases.", file=sys.stderr)
+        sys.exit(1)
+    print(f"[INFO] Expanded sweep matrix to {len(combinations)} case(s).")
+
+    cluster_tasks = get_cluster_total_tasks(cluster_cfg)
+    case_entries = []
+    case_index_file = os.path.join(scheduler_dir, "case_index.tsv")
+
+    for idx, combo in enumerate(combinations):
+        case_id = f"case_{idx:04d}"
+        run_dir = os.path.join(cases_dir, case_id)
+        config_dir = os.path.join(run_dir, "config")
+        os.makedirs(config_dir, exist_ok=True)
+        os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
+        os.makedirs(os.path.join(run_dir, "results"), exist_ok=True)
+
+        case_cfg = copy.deepcopy(base_case)
+        solver_cfg = copy.deepcopy(base_solver)
+        monitor_cfg = copy.deepcopy(base_monitor)
+        post_cfg = copy.deepcopy(base_post)
+        target_map = {"case": case_cfg, "solver": solver_cfg, "monitor": monitor_cfg, "post": post_cfg}
+        for full_key, value in combo.items():
+            root, nested = full_key.split(".", 1)
+            _deep_set(target_map[root], nested, value)
+
+        # Preserve file-based/grid-gen workflows when study cases are materialized
+        # into new directories by rewriting external paths as absolute.
+        absolutize_case_external_paths(case_cfg, base_paths["case"])
+
+        case_path = os.path.join(config_dir, "case.yml")
+        solver_path = os.path.join(config_dir, "solver.yml")
+        monitor_path = os.path.join(config_dir, "monitor.yml")
+        post_path = os.path.join(config_dir, "post.yml")
+        write_yaml_file(case_path, case_cfg)
+        write_yaml_file(solver_path, solver_cfg)
+        write_yaml_file(monitor_path, monitor_cfg)
+        write_yaml_file(post_path, post_cfg)
+
+        validate_solver_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
+        validate_post_config(post_cfg, post_path)
+
+        source_files = {'Case': case_path, 'Solver': solver_path, 'Monitor': monitor_path}
+        whitelist_path = generate_simple_list_file(run_dir, case_id, monitor_cfg, 'logging', 'enabled_functions', 'whitelist.run', source_files)
+        profile_path = generate_simple_list_file(run_dir, case_id, monitor_cfg, 'profiling', 'critical_functions', 'profile.run', source_files)
+        monitor_files = {"whitelist": whitelist_path, "profile": profile_path}
+        configs = {
+            "case": case_cfg, "case_path": case_path,
+            "solver": solver_cfg, "solver_path": solver_path,
+            "monitor": monitor_cfg, "monitor_path": monitor_path
+        }
+        control_file = generate_solver_control_file(run_dir, case_id, configs, cluster_tasks, monitor_files)
+
+        source_dir = resolve_post_source_directory(run_dir, monitor_cfg, post_cfg, strict=False)
+        if 'source_data' not in post_cfg:
+            post_cfg['source_data'] = {}
+        post_cfg['source_data']['directory'] = source_dir
+        output_prefix = post_cfg.get("io", {}).get("output_filename_prefix", "post")
+        post_recipe = generate_post_recipe_file(run_dir, case_id, post_cfg, {'Case': case_path, 'Post-Profile': post_path})
+
+        case_entries.append({
+            "index": idx,
+            "case_id": case_id,
+            "run_dir": os.path.abspath(run_dir),
+            "control_file": control_file,
+            "post_recipe_file": post_recipe,
+            "log_level": str(monitor_cfg.get("logging", {}).get("verbosity", "INFO")).upper(),
+            "post_prefix": output_prefix,
+            "parameters": combo,
+        })
+
+    with open(case_index_file, "w") as f:
+        for entry in case_entries:
+            f.write(
+                "\t".join(
+                    [
+                        str(entry["index"]),
+                        entry["case_id"],
+                        entry["run_dir"],
+                        entry["control_file"],
+                        entry["post_recipe_file"],
+                        entry["log_level"],
+                        entry["post_prefix"],
+                    ]
+                ) + "\n"
+            )
+    print(f"[SUCCESS] Wrote sweep case index: {os.path.relpath(case_index_file)}")
+
+    max_idx = len(case_entries) - 1
+    max_conc = study_cfg.get("execution", {}).get("max_concurrent_array_tasks")
+    array_spec = f"0-{max_idx}"
+    if max_conc:
+        array_spec = f"{array_spec}%{max_conc}"
+
+    solver_exe = os.path.join(BIN_DIR, "picsolver")
+    post_exe = os.path.join(BIN_DIR, "postprocessor")
+    solver_array_script = os.path.join(scheduler_dir, "solver_array.sbatch")
+    post_array_script = os.path.join(scheduler_dir, "post_array.sbatch")
+    render_slurm_array_stage_script(
+        solver_array_script,
+        f"{study_id}_solve",
+        cluster_cfg,
+        array_spec,
+        case_index_file,
+        "solve",
+        solver_exe,
+        post_exe,
+        os.path.join(logs_dir, "solver_%A_%a.out"),
+        os.path.join(logs_dir, "solver_%A_%a.err")
+    )
+    render_slurm_array_stage_script(
+        post_array_script,
+        f"{study_id}_post",
+        cluster_cfg,
+        array_spec,
+        case_index_file,
+        "post",
+        solver_exe,
+        post_exe,
+        os.path.join(logs_dir, "post_%A_%a.out"),
+        os.path.join(logs_dir, "post_%A_%a.err")
+    )
+    print(f"[SUCCESS] Generated Slurm array scripts in {os.path.relpath(scheduler_dir)}")
+
+    submission = {
+        "launch_mode": "slurm",
+        "study_id": study_id,
+        "solver_array": {"script": solver_array_script, "submitted": False},
+        "post_array": {"script": post_array_script, "submitted": False},
+        "no_submit": bool(args.no_submit),
+    }
+    if not args.no_submit:
+        solver_submit = submit_sbatch(solver_array_script)
+        submission["solver_array"].update(solver_submit)
+        submission["solver_array"]["submitted"] = True
+        post_submit = submit_sbatch(post_array_script, dependency=solver_submit["job_id"])
+        submission["post_array"].update(post_submit)
+        submission["post_array"]["submitted"] = True
+        submission["post_array"]["dependency"] = f"afterok:{solver_submit['job_id']}"
+        print(f"[SUCCESS] Submitted solver array job: {solver_submit['job_id']}")
+        print(f"[SUCCESS] Submitted post array job:   {post_submit['job_id']}")
+
+    metrics_csv = aggregate_study_metrics(study_cfg, case_entries, results_dir)
+    plots = generate_study_plots(study_cfg, metrics_csv, os.path.join(results_dir, "plots"))
+
+    summary = {
+        "study_id": study_id,
+        "created_at": datetime.now().isoformat(),
+        "git_commit": get_git_commit(),
+        "study_type": study_cfg.get("study_type"),
+        "num_cases": len(case_entries),
+        "paths": {
+            "study_dir": study_dir,
+            "case_index": case_index_file,
+            "solver_array_script": solver_array_script,
+            "post_array_script": post_array_script,
+            "metrics_table": metrics_csv,
+            "plots_dir": os.path.join(results_dir, "plots"),
+        },
+        "submission": submission,
+    }
+    write_json_file(os.path.join(scheduler_dir, "submission.json"), submission)
+    write_json_file(os.path.join(study_dir, "study_manifest.json"), summary)
+    write_json_file(os.path.join(results_dir, "summary.json"), {"study_id": study_id, "metrics_csv": metrics_csv, "plots": plots})
+
+    print("\n" + "=" * 60)
+    print("                     STUDY SUMMARY")
+    print("=" * 60)
+    print(f"  Study ID        : {study_id}")
+    print(f"  Study directory : {os.path.relpath(study_dir)}")
+    print(f"  Cases generated : {len(case_entries)}")
+    print(f"  Array spec      : {array_spec}")
+    print(f"  Solver script   : {os.path.relpath(solver_array_script)}")
+    print(f"  Post script     : {os.path.relpath(post_array_script)}")
+    if metrics_csv:
+        print(f"  Metrics table   : {os.path.relpath(metrics_csv)}")
+    if plots:
+        print(f"  Plots           : {os.path.relpath(os.path.join(results_dir, 'plots'))}")
+    print("=" * 60)
 
 
 def init_case(args):
@@ -1917,6 +2985,15 @@ if __name__ == "__main__":
     post_group.add_argument('--post', help="Path to the post-processing recipe file (e.g., post.yml).")
     
     p_run.add_argument('-n', '--num-procs', type=int, default=1, help="Number of MPI processes for either stage.")
+    p_run.add_argument('--cluster', help="Path to cluster.yml for Slurm execution mode.")
+    p_run.add_argument('--scheduler', help="Explicit scheduler selector (currently 'slurm').")
+    p_run.add_argument('--no-submit', action='store_true', help="Generate Slurm scripts/manifests but do not call sbatch.")
+
+    # --- 'sweep' command ---
+    p_sweep = subparsers.add_parser('sweep', help="Launch a Slurm-based parameter sweep/study.")
+    p_sweep.add_argument('--study', required=True, help="Path to study.yml defining parameter matrix and metrics.")
+    p_sweep.add_argument('--cluster', required=True, help="Path to cluster.yml defining Slurm resources.")
+    p_sweep.add_argument('--no-submit', action='store_true', help="Generate all study artifacts without submitting jobs.")
 
 # --- 'init' command ---
     p_init = subparsers.add_parser('init', help="Initialize a new case study directory from a template.")
@@ -1933,10 +3010,10 @@ if __name__ == "__main__":
                                     description="Calls the project's build.sh script. Any arguments provided\n"
                                                 "after 'build' will be passed directly to 'make'.\n\n"
                                                 "Examples:\n"
-                                                "  pic-flow build                  (Runs 'make all')\n"
-                                                "  pic-flow build clean-project    (Runs 'make clean-project')\n"
-                                                "  pic-flow build SYSTEM=cluster   (Runs 'make SYSTEM=cluster')\n"
-                                                "  pic-flow build postprocessor    (Runs 'make postprocessor')")
+                                                "  pic.flow build                  (Runs 'make all')\n"
+                                                "  pic.flow build clean-project    (Runs 'make clean-project')\n"
+                                                "  pic.flow build SYSTEM=cluster   (Runs 'make SYSTEM=cluster')\n"
+                                                "  pic.flow build postprocessor    (Runs 'make postprocessor')")
     p_build.add_argument('make_args', nargs=argparse.REMAINDER,
                          help="Arguments to pass directly to the make command (e.g., 'clean-project').")
 
@@ -1950,6 +3027,8 @@ if __name__ == "__main__":
         if args.post_process and not args.post:
             main_parser.error("--post-process requires a --post profile.")
         run_workflow(args)
+    elif args.command == 'sweep':
+        sweep_workflow(args)
     elif args.command == 'init':
         init_case(args)
     elif args.command == 'build':

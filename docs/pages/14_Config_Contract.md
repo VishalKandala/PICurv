@@ -6,13 +6,15 @@ This page is the user-facing source of truth for the configuration contract impl
 
 @section inputs_sec 1. Required Input Roles
 
-PIC-flow composes a run from five logical inputs:
+`pic.flow` composes a standard single-run workflow from five logical inputs, with two additional files for cluster/sweep modes:
 
 1. `case.yml`: physics, grid, BC definitions, run control.
 2. `solver.yml`: numerical strategy and solver parameters.
 3. `monitor.yml`: I/O and logging/profiling controls.
 4. `post.yml`: post-processing recipe.
 5. MPI launch settings (`-n`, executable stage selection).
+6. (Cluster mode) `cluster.yml`: scheduler/resource/launcher contract.
+7. (Sweep mode) `study.yml`: parameter matrix + metrics/plot contract.
 
 You can name files however you want. File names are not hardcoded on the C side; `pic.flow` resolves paths and emits generated artifacts.
 
@@ -59,7 +61,46 @@ For each run, `pic.flow` generates:
 - `io.input_extensions.eulerian/particle` -> `eulerianExt/particleExt` for post input readers
 - `source_data.directory` -> `source_directory`
 
-@section passthrough_sec 7. Escape Hatches and Defaults
+@section cluster_sec 7. Cluster Contract Highlights (`cluster.yml`)
+
+- `scheduler.type` currently supports `slurm` only.
+- `resources.account/nodes/ntasks_per_node/mem/time` are required.
+- `resources.partition` is optional.
+- `notifications.mail_user/mail_type` are optional; email is validated when provided.
+- `execution.module_setup` injects shell lines before launch.
+- `execution.launcher` controls launch style (`srun`, `mpirun`, custom).
+- `execution.launcher_args` provides site-specific launch flags.
+- `execution.extra_sbatch` supports scheduler-specific pass-through flags.
+
+`pic.flow run --cluster ...` generates:
+- `runs/<run_id>/scheduler/solver.sbatch`
+- `runs/<run_id>/scheduler/post.sbatch`
+- `runs/<run_id>/scheduler/submission.json`
+
+@section study_sec 8. Study Contract Highlights (`study.yml`)
+
+- `base_configs` provides case/solver/monitor/post template paths.
+- `study_type` is one of:
+  - `grid_independence`
+  - `timestep_independence`
+  - `sensitivity`
+- `parameters` defines cartesian-product sweeps using keys of form:
+  - `case.<yaml.path>`
+  - `solver.<yaml.path>`
+  - `monitor.<yaml.path>`
+  - `post.<yaml.path>`
+- `metrics` defines CSV/log extractors for aggregate tables.
+- `plotting` controls whether plots are generated and output format.
+- `execution.max_concurrent_array_tasks` maps to Slurm array throttling `%N`.
+
+`pic.flow sweep --study ... --cluster ...` generates:
+- `studies/<study_id>/scheduler/case_index.tsv`
+- `studies/<study_id>/scheduler/solver_array.sbatch`
+- `studies/<study_id>/scheduler/post_array.sbatch`
+- `studies/<study_id>/results/metrics_table.csv`
+- `studies/<study_id>/results/plots/*`
+
+@section passthrough_sec 9. Escape Hatches and Defaults
 
 - Escape hatches stay supported:
   - `case.solver_parameters`
@@ -67,3 +108,5 @@ For each run, `pic.flow` generates:
   - `monitor.solver_monitoring`
 - Default post input/output extension is `dat` unless overridden.
 - Missing optional keys preserve existing C defaults.
+
+For workflow growth patterns (grid generation orchestration, multi-run studies, and ML coupling paths), see **@subpage 17_Workflow_Extensibility**.

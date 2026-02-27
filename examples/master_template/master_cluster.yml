@@ -1,0 +1,46 @@
+# ==============================================================================
+#                 PIC-Flow Master Cluster Configuration (Slurm v1)
+# ==============================================================================
+#
+# This file defines scheduler/resource settings used by:
+#   pic.flow run   --cluster cluster.yml ...
+#   pic.flow sweep --cluster cluster.yml ...
+#
+# In v1, scheduler.type must be "slurm".
+# ==============================================================================
+
+scheduler:
+  type: slurm
+
+resources:
+  account: "my_project_account"
+  partition: "compute"        # optional
+  nodes: 2
+  ntasks_per_node: 32
+  mem: "128G"
+  time: "02:00:00"
+
+notifications:
+  mail_user: "user@example.edu"  # optional, validated when set
+  mail_type: "END,FAIL"          # optional
+
+execution:
+  # Shell lines injected before launch command.
+  module_setup:
+    - "module purge"
+    - "module restore petsc-setup"
+
+  # Launcher and args are site-specific.
+  launcher: "srun"               # alternatives: "mpirun", custom launcher
+  launcher_args: []              # e.g. ["--cpu-bind=cores"]
+
+  # Optional pass-through SBATCH flags.
+  # dict form:
+  # extra_sbatch:
+  #   qos: "high"
+  #   constraint: "zen4"
+  # list form:
+  # extra_sbatch:
+  #   - "--qos=high"
+  #   - "--constraint=zen4"
+

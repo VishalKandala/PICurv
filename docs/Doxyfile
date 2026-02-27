@@ -31,7 +31,7 @@ USE_MDFILE_AS_MAINPAGE = mainpage.md
 WARN_IF_UNDOCUMENTED   = YES
 WARN_IF_DOC_ERROR      = YES
 WARN_NO_PARAMDOC       = YES
-WARN_LOGFILE           = doxygen.warnings
+WARN_LOGFILE           = ../logs/doxygen.warnings
 
 #------------------------- Diagrams ------------------------
 HAVE_DOT               = YES
@@ -51,6 +51,7 @@ HTML_OUTPUT            = html
 HTML_DYNAMIC_MENUS     = YES
 SEARCHENGINE           = YES
 HTML_EXTRA_STYLESHEET  = custom.css
+IMAGE_PATH             = assets .
 VERBATIM_HEADERS      = YES
 #------------------------- LaTeX/PDF (optional) ------------
 GENERATE_LATEX         = NO

@@ -62,3 +62,5 @@ Use this checklist when adding a new particle model constant, source term, or in
 - C parser consumes keys without unknown-key warnings.
 - Runtime behavior changes only when new key is explicitly set.
 - Existing templates/run paths still work with omitted new keys.
+
+See also **@subpage 17_Workflow_Extensibility** for higher-level workflow expansion patterns.

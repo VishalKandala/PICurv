@@ -1,0 +1,51 @@
+# ==============================================================================
+#                 PIC-Flow Master Study Configuration (Sweep)
+# ==============================================================================
+#
+# Used by:
+#   pic.flow sweep --study study.yml --cluster cluster.yml
+#
+# Parameter keys must use:
+#   <target>.<yaml.path>
+# where target is one of: case, solver, monitor, post
+# ==============================================================================
+
+base_configs:
+  case: "../flat_channel/flat_channel.yml"
+  solver: "../flat_channel/Imp-MG-Standard.yml"
+  monitor: "../flat_channel/Standard_Output.yml"
+  post: "../flat_channel/standard_analysis.yml"
+
+study_type: "grid_independence"   # grid_independence | timestep_independence | sensitivity
+
+parameters:
+  case.grid.programmatic_settings.im: [32, 48, 64]
+  case.grid.programmatic_settings.jm: [32, 48, 64]
+  case.grid.programmatic_settings.km: [64, 96, 128]
+
+metrics:
+  # String shorthand:
+  - msd_final
+
+  # Explicit form examples:
+  # - name: final_msd
+  #   source: statistics_csv
+  #   file_glob: "**/*_msd.csv"
+  #   column: "msd"
+  #   reduction: "last"
+  #
+  # - name: residual_floor
+  #   source: log_regex
+  #   file_glob: "logs/*solver*.log"
+  #   regex: "Final residual\\s*=\\s*([0-9.eE+-]+)"
+  #   reduction: "last"
+
+plotting:
+  enabled: true
+  output_format: "png"            # png | pdf | svg
+
+execution:
+  # Optional max number of active array tasks at once.
+  # If omitted, Slurm uses full array width.
+  max_concurrent_array_tasks: 8
+

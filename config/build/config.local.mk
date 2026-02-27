@@ -17,7 +17,7 @@
 SYSTEM_NAME := Local Development Environment (e.g., WSL)
 
 # --- 2. PETSc Integration ---
-include config.petsc.mk
+include config/build/config.petsc.mk
 $(info ------------------------------------------------)
 #$(info DEBUG: Value of PCC_FLAGS is [$(PCC_FLAGS)])
 #$(info DEBUG: Value of CLINKER is [$(CLINKER)])

@@ -8,11 +8,13 @@ Here, you will learn the fundamental skills needed to explore *any* simulation r
 
 @section files_sec 1. Understanding Your Output Files
 
-After a successful run, the post-processor generates visualization files in the `runs/your_run_name/viz/` directory. You will typically find two types of files:
+After a successful run, the post-processor generates visualization files in the run output directory configured by `post.yml -> io.output_directory` (commonly `viz/`).
+
+You will typically find:
 
 -   **Eulerian Grid Data (`.vts` files):** These are VTK Structured Grid files (e.g., `Field_000100.vts`). They contain the computational mesh and any data fields that live on that grid, such as velocity and pressure. When you open them in ParaView, they will be grouped as a time series.
 
--   **Lagrangian Particle Data (`.vtp` files):** These are VTK PolyData files (e.g., `Particle_000100.vtp`). They contain only the coordinates of the Lagrangian particles and any data fields associated with them.
+-   **Lagrangian Particle Data (`.vtp` files):** These are VTK PolyData files (e.g., `Particle_000100.vtp`). They contain particle coordinates and particle fields. These files exist only when `post.yml -> io.output_particles: true`.
 
 @subsection datafields_sec 1.1. Common Data Fields
 
@@ -24,9 +26,7 @@ When you load a `.vts` file, you'll be able to color and analyze several data fi
 
 @section paraview_basics_sec 2. The ParaView Interface
 
-ParaView's interface has three key areas you will interact with constantly:
-
-@image html paraview_interface.png "The ParaView Interface: 1. Pipeline Browser, 2. Properties Panel, 3. 3D View, 4. Toolbar" width=800px
+ParaView's interface has four key areas you will interact with constantly:
 
 1.  **Pipeline Browser (Top Left):** This shows your data and any "filters" you've applied. You click on an item here to make it active.
 2.  **Properties Panel (Bottom Left):** This is where you configure the selected data or filter. **You must click the green "Apply" button** in this panel after making changes.
@@ -74,7 +74,7 @@ To visualize the direction and magnitude of the flow:
 
 @section lagrangian_recipes_sec 4. Recipes for Visualizing Particle Data (`.vtp` files)
 
-Load your `Particle..vtp` time series to visualize the Lagrangian particles.
+Load your `Particle..vtp` time series (if present) to visualize the Lagrangian particles.
 
 1.  **Change Representation:** In the Properties panel, find the **Representation** dropdown. Change it from "Surface" to **Point Gaussian**. This will render the particles as spheres. You can adjust the **Gaussian Radius** to change their size.
 2.  **Color by Velocity:** Use the Coloring dropdown in the toolbar to color the particles by `velocity` and `Magnitude`.
@@ -83,6 +83,14 @@ Load your `Particle..vtp` time series to visualize the Lagrangian particles.
 
 - **To save an image:** Go to `File -> Save Screenshot`.
 - **To save a video:** Go to `File -> Save Animation`. Choose your resolution and frame rate, and ParaView will generate a video file by playing through all the timesteps.
+
+@section practical_notes_sec 5.1 Practical Notes
+
+- File prefixes are configurable in `post.yml` (`output_filename_prefix`, `particle_filename_prefix`), so your series may not always be named `Field_*` and `Particle_*`.
+- If particles were disabled in solver or post (`output_particles: false`), absence of `.vtp` files is expected.
+- Statistics pipeline outputs (e.g., MSD CSV) are analysis files, not ParaView geometry files.
+
+@image html assets/paraview_flat_channel.png "Example ParaView output from a channel case" width=700px
 
 @section next_steps_sec 6. Next Steps
 

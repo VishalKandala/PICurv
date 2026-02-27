@@ -2,22 +2,29 @@
 #                   Monitor Profile: Standard Output
 # ==============================================================================
 # PURPOSE:
-# A standard monitoring profile for production runs. Provides INFO-level
-# progress updates and saves data at a reasonable interval.
+# Production-safe default monitor profile with INFO logging and regular I/O.
 # ==============================================================================
 
-# --- Logging ---
 logging:
   verbosity: INFO
-  enabled_functions: [] # Allow all functions to log (filtered by verbosity)
+  enabled_functions: []
 
-# --- Profiling ---
 profiling:
   critical_functions:
     - AdvanceSimulation
     - Flow_Solver
 
-# --- I/O AND DATA MANAGEMENT ---
 io:
-  data_output_frequency: 100 # -> -tio
-  particle_log_interval: 100  # -> -logfreq (not used, but good to have)
+  data_output_frequency: 100
+  particle_log_interval: 100
+  directories:
+    output: "results"
+    restart: "results"
+    log: "logs"
+    eulerian_subdir: "eulerian"
+    particle_subdir: "particles"
+
+# Optional raw PETSc monitoring switches.
+solver_monitoring:
+  -ps_ksp_pic_monitor_true_residual: false
+  -ps_ksp_converged_reason: false
