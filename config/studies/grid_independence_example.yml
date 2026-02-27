@@ -1,0 +1,23 @@
+base_configs:
+  case: "../../examples/flat_channel/flat_channel.yml"
+  solver: "../../examples/flat_channel/Imp-MG-Standard.yml"
+  monitor: "../../examples/flat_channel/Standard_Output.yml"
+  post: "../../examples/flat_channel/standard_analysis.yml"
+
+study_type: "grid_independence"
+
+parameters:
+  case.grid.programmatic_settings.im: [32, 48, 64]
+  case.grid.programmatic_settings.jm: [32, 48, 64]
+  case.grid.programmatic_settings.km: [64, 96, 128]
+
+metrics:
+  - msd_final
+
+plotting:
+  enabled: true
+  output_format: "png"
+
+execution:
+  max_concurrent_array_tasks: 4
+
