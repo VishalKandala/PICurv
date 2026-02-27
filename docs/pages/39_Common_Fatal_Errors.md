@@ -4,7 +4,7 @@ Use this page to map error output to concrete fix steps.
 
 @tableofcontents
 
-@section structured_sec 1. Structured Validation Errors (`ERROR <CODE>`)
+@section structured_sec 1. Structured Validation Errors (ERROR <CODE>)
 
 Validation and CLI-combination failures use:
 

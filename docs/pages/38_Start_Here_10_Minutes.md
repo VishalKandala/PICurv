@@ -1,16 +1,32 @@
 @page 38_Start_Here_10_Minutes Start Here in 10 Minutes
 
-This is the fastest path from clone to first solver+post output.
+This page is the shortest reliable path from repository clone to a successful solver and post-processing run.
+It intentionally mirrors the beginning of **@subpage 02_Tutorial_Programmatic_Grid**.
+Use this page when you want speed; use the tutorial page when you want deeper explanation.
 
 @tableofcontents
 
-@section step1_sec 1. Install Prerequisites
+@section intent_sec 1. What This Quickstart Covers
 
-Follow **@subpage 01_Installation** for full setup details. For quick local runs you need:
-- PETSc environment (`PETSC_DIR`, `PETSC_ARCH`)
-- MPI, Make, Python 3
+In one pass you will:
 
-@section step2_sec 2. Build Binaries
+1. build binaries,
+2. create a runnable case directory,
+3. validate all YAML files before launch,
+4. run solver and postprocessor,
+5. confirm expected output structure.
+
+@section prereq_sec 2. Minimal Prerequisites
+
+You need:
+
+- PETSc configured (`PETSC_DIR`, `PETSC_ARCH`),
+- MPI runtime,
+- Python 3.
+
+If any of these are missing, follow **@subpage 01_Installation** first.
+
+@section build_sec 3. Build Binaries
 
 From repository root:
 
@@ -18,17 +34,37 @@ From repository root:
 ./scripts/pic.flow build
 ```
 
-Expected artifacts:
+Expected binaries:
+
 - `bin/picsolver`
 - `bin/postprocessor`
 
-@section step3_sec 3. Initialize a Template Case
+If build fails, go to **@subpage 01_Installation** and verify PETSc/MPI toolchain setup.
+
+@section init_sec 4. Initialize a Starter Case
 
 ```bash
 ./scripts/pic.flow init flat_channel --dest my_case
 ```
 
-@section step4_sec 4. Validate Configs (No Run Yet)
+You should get:
+
+```text
+my_case/
+|- flat_channel.yml
+|- Imp-MG-Standard.yml
+|- Standard_Output.yml
+`- standard_analysis.yml
+```
+
+These are the four runtime roles:
+
+- case physics and grid,
+- solver numerics,
+- monitor/logging controls,
+- post-processing pipeline.
+
+@section validate_sec 5. Validate Before Running
 
 ```bash
 ./scripts/pic.flow validate \
@@ -38,7 +74,13 @@ Expected artifacts:
   --post my_case/standard_analysis.yml
 ```
 
-Optional launch preview (no files created):
+Why this matters:
+
+- catches schema and contract errors early,
+- avoids wasting cluster/local runtime on bad config,
+- produces structured error messages with key and file context.
+
+Optional launch preview with no execution:
 
 ```bash
 ./scripts/pic.flow run --solve --post-process \
@@ -49,7 +91,7 @@ Optional launch preview (no files created):
   --dry-run
 ```
 
-@section step5_sec 5. Run Solver + Post
+@section run_sec 6. Run Solver and Post
 
 ```bash
 ./scripts/pic.flow run --solve --post-process -n 4 \
@@ -59,22 +101,31 @@ Optional launch preview (no files created):
   --post my_case/standard_analysis.yml
 ```
 
-@section step6_sec 6. Inspect Outputs
+This command does:
 
-Check generated directories:
-- `runs/<run_id>/config/`
-- `runs/<run_id>/logs/`
-- solver output path from `monitor.yml` (typically `results/`)
-- post output path from `post.yml` (`io.output_directory`)
+1. validate + normalize config,
+2. create `runs/<run_id>/config/` artifacts,
+3. launch `picsolver`,
+4. launch `postprocessor`.
 
-@section step7_sec 7. First Troubleshooting Actions
+@section check_sec 7. Confirm Success
 
-If validation or run fails:
-1. Re-run `pic.flow validate ...` for the same files.
-2. Check structured error lines (`ERROR <CODE> | key=... | file=...`).
-3. Compare against `examples/master_template/*.yml`.
-4. Use **@subpage 39_Common_Fatal_Errors** for mapped fixes.
+Check these locations:
 
-Next:
-- **@subpage 11_User_How_To_Guides**
-- **@subpage 05_The_Conductor_Script**
+- `runs/<run_id>/config/` (generated control artifacts)
+- `runs/<run_id>/logs/` (run logs)
+- `results/` (solver outputs, if configured)
+- `viz/` or configured post output directory (VTK files)
+
+Quick sanity check in ParaView:
+
+- open `Field_*.vts`,
+- add `Slice`,
+- color by `Ucat_nodal`.
+
+@section next_sec 8. Continue With Full Guidance
+
+- Full walkthrough with deeper explanation: **@subpage 02_Tutorial_Programmatic_Grid**
+- File-based-grid tutorial: **@subpage 03_Tutorial_File-Based_Grid**
+- Command/reference guide for orchestration: **@subpage 05_The_Conductor_Script**
+- Troubleshooting map: **@subpage 39_Common_Fatal_Errors**

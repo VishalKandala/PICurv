@@ -1,10 +1,23 @@
 # Study Config Guide
 
-This directory stores reusable `study.yml` sweep definitions for `pic.flow sweep`.
+This directory stores reusable `study.yml` definitions for `pic.flow sweep` workflows.
 
-Use with:
-- `python3 scripts/pic.flow sweep --study <study.yml> --cluster <cluster.yml>`
+## Typical Contents
 
-Reference schema:
+- parameter-space definitions,
+- metric extraction specs,
+- optional plotting controls,
+- execution controls for scheduler arrays.
+
+## How To Use
+
+```bash
+python3 scripts/pic.flow sweep \
+  --study config/studies/grid_independence_example.yml \
+  --cluster <cluster.yml>
+```
+
+## Reference Files
+
 - `examples/master_template/master_study.yml`
-
+- `docs/pages/37_Sweep_Studies_Guide.md`

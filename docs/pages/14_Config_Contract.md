@@ -61,7 +61,7 @@ For each run, `pic.flow` generates:
 - `io.input_extensions.eulerian/particle` -> `eulerianExt/particleExt` for post input readers
 - `source_data.directory` -> `source_directory`
 
-@section cluster_sec 7. Cluster Contract Highlights (`cluster.yml`)
+@section cluster_sec 7. Cluster Contract Highlights (cluster.yml)
 
 - `scheduler.type` currently supports `slurm` only.
 - `resources.account/nodes/ntasks_per_node/mem/time` are required.
@@ -77,7 +77,7 @@ For each run, `pic.flow` generates:
 - `runs/<run_id>/scheduler/post.sbatch`
 - `runs/<run_id>/scheduler/submission.json`
 
-@section study_sec 8. Study Contract Highlights (`study.yml`)
+@section study_sec 8. Study Contract Highlights (study.yml)
 
 - `base_configs` provides case/solver/monitor/post template paths.
 - `study_type` is one of:

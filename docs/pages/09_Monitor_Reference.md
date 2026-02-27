@@ -1,4 +1,4 @@
-@page 09_Monitor_Reference Configuration Reference: `monitor.yml`
+@page 09_Monitor_Reference Configuration Reference: monitor.yml
 
 For the full commented template, see:
 
@@ -8,7 +8,7 @@ For the full commented template, see:
 
 @tableofcontents
 
-@section io_sec 1. `io`
+@section io_sec 1. io
 
 ```yaml
 io:
@@ -31,7 +31,7 @@ Mappings:
 - `directories.eulerian_subdir` -> `-euler_subdir`
 - `directories.particle_subdir` -> `-particle_subdir`
 
-@section logging_sec 2. `logging`
+@section logging_sec 2. logging
 
 ```yaml
 logging:
@@ -52,7 +52,7 @@ Supported verbosity strings:
 - `TRACE`
 - `VERBOSE`
 
-@section profiling_sec 3. `profiling`
+@section profiling_sec 3. profiling
 
 ```yaml
 profiling:
@@ -63,7 +63,7 @@ profiling:
 
 This list is serialized into `profile.run` for critical-path profiling summaries.
 
-@section solver_monitoring_sec 4. `solver_monitoring`
+@section solver_monitoring_sec 4. solver_monitoring
 
 Raw flag passthrough for PETSc monitors/debug options:
 

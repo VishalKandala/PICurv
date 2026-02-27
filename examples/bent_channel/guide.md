@@ -1,10 +1,20 @@
 # Bent Channel Example Guide
 
-This directory is a runnable example template for file-based curvilinear grid flow.
+This example demonstrates file-based curvilinear-grid workflow (`grid.mode: file`).
 
-See details in:
+## Included Files
+
+- `bent_channel.yml`, `Imp-MG-Standard.yml`, `Standard_Output.yml`, `standard_analysis.yml`
+- `bent_channel_coarse.picgrid` and companion metadata files
+- `slurm_cluster.yml` and `timestep_sensitivity_study.yml`
+
+## Recommended Uses
+
+- validating file-grid ingestion path,
+- checking BC behavior on curved geometry,
+- testing timestep sensitivity studies.
+
+## Related Docs
+
 - `bent_channel.md`
-
-Also includes sample cluster/sweep inputs:
-- `slurm_cluster.yml`
-- `timestep_sensitivity_study.yml`
+- `docs/pages/03_Tutorial_File-Based_Grid.md`

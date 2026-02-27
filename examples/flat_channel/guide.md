@@ -1,10 +1,23 @@
 # Flat Channel Example Guide
 
-This directory is a runnable example template for programmatic-grid laminar channel flow.
+This example is the baseline first-run case for PICurv using programmatic grid generation.
 
-See details in:
+## Included Files
+
+- `flat_channel.yml`: case configuration.
+- `Imp-MG-Standard.yml`: solver configuration.
+- `Standard_Output.yml`: monitor/logging settings.
+- `standard_analysis.yml`: postprocessing recipe.
+- `slurm_cluster.yml`: sample cluster scheduler config.
+- `grid_independence_study.yml`: sample sweep study definition.
+
+## Recommended Uses
+
+- first local smoke run,
+- solver/post pipeline validation,
+- baseline for parameter perturbation studies.
+
+## Related Docs
+
 - `flat_channel.md`
-
-Also includes sample cluster/sweep inputs:
-- `slurm_cluster.yml`
-- `grid_independence_study.yml`
+- `docs/pages/02_Tutorial_Programmatic_Grid.md`

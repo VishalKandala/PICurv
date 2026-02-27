@@ -2,61 +2,15 @@
   <navindex>
     <tab type="mainpage" visible="yes" title="PICurv Home"/>
 
-    <tab type="pages" visible="yes" title="Getting Started" intro="For new users.">
-      <page name="Start Here in 10 Minutes" url="@ref 38_Start_Here_10_Minutes"/>
-      <page name="Installation" url="@ref 01_Installation"/>
-      <page name="Tutorial: Flat Channel" url="@ref 02_Tutorial_Programmatic_Grid"/>
-      <page name="Tutorial: Bent Channel" url="@ref 03_Tutorial_File-Based_Grid"/>
-      <page name="Tutorial: Visualizing Results" url="@ref 04_Visualization_Tutorial"/>
-    </tab>
+    <tab type="user" visible="yes" title="Getting Started" url="@ref 41_Getting_Started_Index"/>
+    <tab type="user" visible="yes" title="User Guide" url="@ref 42_User_Guide_Index"/>
+    <tab type="user" visible="yes" title="Developer Portal" url="@ref 43_Developer_Portal_Index"/>
 
-    <tab type="pages" visible="yes" title="User Guide" intro="YAML workflow and run composition.">
-      <page name="The pic.flow Conductor" url="@ref 05_The_Conductor_Script"/>
-      <page name="Cluster Run Guide" url="@ref 36_Cluster_Run_Guide"/>
-      <page name="Sweep and Studies" url="@ref 37_Sweep_Studies_Guide"/>
-      <page name="Anatomy of a Simulation" url="@ref 06_Simulation_Anatomy"/>
-      <page name="Case Configuration" url="@ref 07_Case_Reference"/>
-      <page name="Solver Profiles" url="@ref 08_Solver_Reference"/>
-      <page name="Monitor Profiles" url="@ref 09_Monitor_Reference"/>
-      <page name="Post-Processing Recipes" url="@ref 10_Post_Processing_Reference"/>
-      <page name="User How-To Guides" url="@ref 11_User_How_To_Guides"/>
-      <page name="Common Fatal Errors" url="@ref 39_Common_Fatal_Errors"/>
-      <page name="Testing and Quality Guide" url="@ref 40_Testing_and_Quality_Guide"/>
-      <page name="Capabilities Summary" url="@ref 12_Capabilities_Summary"/>
-      <page name="Non-Dimensionalization" url="@ref 19_Nondimensionalization"/>
-      <page name="Repository Navigation" url="@ref 30_Repository_Navigation"/>
-      <page name="Config Contract" url="@ref 14_Config_Contract"/>
-      <page name="Changelog" url="@ref 18_Changelog"/>
-    </tab>
-
-    <tab type="pages" visible="yes" title="Developer Portal" intro="Architecture, mapping, and extension guides.">
-      <page name="Code Architecture" url="@ref 13_Code_Architecture"/>
-      <page name="Methods Overview" url="@ref 21_Methods_Overview"/>
-      <page name="CurvIB Method" url="@ref 22_CURVIB_Method"/>
-      <page name="Fractional-Step Method" url="@ref 23_Fractional_Step_Method"/>
-      <page name="Dual-Time Picard RK4" url="@ref 24_Dual_Time_Picard_RK4"/>
-      <page name="Pressure Poisson + MG" url="@ref 25_Pressure_Poisson_GMRES_Multigrid"/>
-      <page name="Walking Search" url="@ref 26_Walking_Search_Method"/>
-      <page name="Interpolation + Projection" url="@ref 27_Trilinear_Interpolation_and_Projection"/>
-      <page name="IEM + Averaging" url="@ref 28_IEM_and_Statistical_Averaging"/>
-      <page name="Momentum Solvers" url="@ref 31_Momentum_Solvers"/>
-      <page name="Analytical Solutions" url="@ref 32_Analytical_Solutions"/>
-      <page name="Initial Conditions" url="@ref 33_Initial_Conditions"/>
-      <page name="Particle Models" url="@ref 34_Particle_Model_Overview"/>
-      <page name="Config Ingestion Map" url="@ref 15_Config_Ingestion_Map"/>
-      <page name="Extension Playbook" url="@ref 16_Config_Extension_Playbook"/>
-      <page name="Workflow Extensibility" url="@ref 17_Workflow_Extensibility"/>
-      <page name="Grid Cell Architecture Guide" url="@ref 20_Grid_Cell_Architecture_Guide"/>
-      <page name="API Doc Status" url="@ref 35_API_Documentation_Status"/>
-      <page name="Maintenance Backlog" url="@ref 29_Maintenance_Backlog"/>
-    </tab>
+    <tab type="pages" visible="no" title="All Pages"/>
 
     <tab type="modules" visible="yes" title="API Reference" intro="The complete C API."/>
-    <tab type="files" visible="yes" title="File List"/>
-    <tab type="classes" visible="yes" title="Data Structures">
-      <class text="Struct List" url="@ref annotated"/>
-      <class text="Struct Hierarchy" url="@ref hierarchy"/>
-    </tab>
+    <tab type="files" visible="no" title="File List"/>
+    <tab type="classes" visible="no" title="Data Structures"/>
 
   </navindex>
 </doxygenlayout>

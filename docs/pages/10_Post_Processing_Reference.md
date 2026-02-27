@@ -1,4 +1,4 @@
-@page 10_Post_Processing_Reference Configuration Reference: `post.yml`
+@page 10_Post_Processing_Reference Configuration Reference: post.yml
 
 For the full commented template, see:
 
@@ -47,14 +47,14 @@ io:
   particle_fields: [velocity, SpecificKE]
 ```
 
-@section run_control_sec 2. `run_control`
+@section run_control_sec 2. run_control
 
 Mappings in generated `post.run`:
 - `start_step` -> `startTime`
 - `end_step` -> `endTime`
 - `step_interval` -> `timeStep`
 
-@section source_sec 3. `source_data`
+@section source_sec 3. source_data
 
 - `source_data.directory` -> `source_directory`
 - `<solver_output_dir>` is a supported placeholder resolved by `pic.flow`.
@@ -84,7 +84,7 @@ Mappings:
 - tasks -> `statistics_pipeline`
 - `output_prefix` -> `statistics_output_prefix`
 
-@section io_sec 6. `io`
+@section io_sec 6. io
 
 Mappings:
 - `output_directory` + `output_filename_prefix` -> `output_prefix`

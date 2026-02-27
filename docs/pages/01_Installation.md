@@ -1,50 +1,55 @@
 @page 01_Installation Installation Guide
 
-This guide covers environment setup, dependency installation, and building PICurv with the `pic.flow` conductor.
+This guide covers dependency setup, PETSc configuration, and binary build verification for PICurv.
 
 @tableofcontents
 
 @section prereqs_sec 1. Prerequisites
 
-Install the following first:
+Install these first:
 
 - C compiler (`gcc` or `clang`)
 - MPI implementation (`mpich` or `openmpi`)
 - GNU Make
-- Python 3
+- Python 3 + pip
 - Git
-- PETSc (3.20.3 or newer, with `DMSwarm` support)
+- PETSc 3.20.3+ with `DMSwarm` support
 
 @section install_tools_sec 2. Install Base Toolchain
 
-For Debian/Ubuntu:
+Debian/Ubuntu:
+
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential gfortran mpich python3 python3-pip git
 python3 -m pip install --user pyyaml numpy
 ```
 
-For RHEL/CentOS/Fedora:
+RHEL/CentOS/Fedora:
+
 ```bash
 sudo yum groupinstall -y "Development Tools"
 sudo yum install -y mpich-devel python3 python3-pip git
 python3 -m pip install --user pyyaml numpy
+```
 
-Optional (for sweep plot generation):
+Optional (study plot generation):
+
 ```bash
 python3 -m pip install --user matplotlib
-```
 ```
 
 @section petsc_sec 3. Install PETSc
 
-Recommended from source:
+Recommended source install:
+
 ```bash
 git clone -b v3.20.3 https://gitlab.com/petsc/petsc.git
 cd petsc
 ```
 
 Debug build example:
+
 ```bash
 ./configure --with-cc=mpicc --with-cxx=mpicxx --with-fc=mpif90 \
             --download-fblaslapack --download-metis --download-parmetis \
@@ -53,11 +58,8 @@ make all
 make check
 ```
 
-Official PETSc install documentation:
-- https://petsc.org/release/install/
-- https://petsc.org/release/docs/manual/
-
 Optimized build example:
+
 ```bash
 ./configure --with-cc=mpicc --with-cxx=mpicxx --with-fc=mpif90 \
             --download-fblaslapack --download-metis --download-parmetis \
@@ -67,43 +69,54 @@ make all
 make check
 ```
 
-Set environment variables (`~/.bashrc` or equivalent):
+Official references:
+
+- https://petsc.org/release/install/
+- https://petsc.org/release/docs/manual/
+
+@section env_sec 4. Configure Environment Variables
+
+Add to your shell profile (`~/.bashrc` or equivalent):
+
 ```bash
 export PETSC_DIR=/path/to/petsc
 export PETSC_ARCH=arch-linux-c-debug
 ```
 
-Reload shell and verify:
+Reload and verify:
+
 ```bash
 source ~/.bashrc
 echo "$PETSC_DIR"
 echo "$PETSC_ARCH"
 ```
 
-@section clone_sec 4. Clone PICurv
+@section clone_sec 5. Clone PICurv
 
 ```bash
 git clone https://github.com/VishalKandala/PICurv.git
 cd PICurv
 ```
 
-@section build_sec 5. Build with `pic.flow`
+@section build_sec 6. Build with pic.flow
 
 ```bash
 ./scripts/pic.flow build
 ```
 
-Expected artifacts:
+Expected binaries:
+
 - `bin/picsolver`
 - `bin/postprocessor`
 
 Useful variants:
+
 ```bash
 ./scripts/pic.flow build clean-project
 ./scripts/pic.flow build SYSTEM=cluster
 ```
 
-@section verify_sec 6. Quick Sanity Checks
+@section verify_sec 7. Verify Installation
 
 ```bash
 ./scripts/pic.flow --help
@@ -112,6 +125,18 @@ Useful variants:
 ./scripts/pic.flow validate --help
 ```
 
-@section next_steps_sec 7. Next Steps
+If these commands work and binaries exist, your installation is ready.
 
-Proceed to **@subpage 02_Tutorial_Programmatic_Grid** to run your first simulation.
+@section common_sec 8. Common Installation Failures
+
+- `PETSC_DIR`/`PETSC_ARCH` unset or mismatched with built arch.
+- MPI compiler wrappers unavailable in PATH.
+- PETSc configured without required downloaded dependencies.
+- stale object files after toolchain changes (use `clean-project`).
+
+For runtime-level failures after successful build, see **@subpage 39_Common_Fatal_Errors**.
+
+@section next_steps_sec 9. Next Steps
+
+- Quick path: **@subpage 38_Start_Here_10_Minutes**
+- Full first simulation: **@subpage 02_Tutorial_Programmatic_Grid**

@@ -11,7 +11,7 @@ This page is the developer-oriented map of the current PICurv C codebase.
 
 Both rely on shared setup/context infrastructure from `setup.c`, `io.c`, and `variables.h`.
 
-@section solver_flow_sec 2. Solver Runtime Flow (`picsolver.c`)
+@section solver_flow_sec 2. Solver Runtime Flow (picsolver.c)
 
 High-level stages:
 
@@ -27,7 +27,7 @@ High-level stages:
 5. Time integration via `AdvanceSimulation`
 6. Finalization via profiling teardown + `FinalizeSimulation` + `PetscFinalize`
 
-@section post_flow_sec 3. Postprocessor Runtime Flow (`postprocessor.c`)
+@section post_flow_sec 3. Postprocessor Runtime Flow (postprocessor.c)
 
 - Parse post recipe (`post.run`) into `PostProcessParams`
 - Load requested Eulerian/particle fields by timestep
@@ -36,13 +36,13 @@ High-level stages:
 
 @section contexts_sec 4. Core Context Objects
 
-@subsection simctx_ssec 4.1 `SimCtx`
+@subsection simctx_ssec 4.1 SimCtx
 
 - Declared in `include/variables.h`
 - Holds global run configuration and top-level handles
 - Populated mainly in `CreateSimulationContext`
 
-@subsection userctx_ssec 4.2 `UserCtx`
+@subsection userctx_ssec 4.2 UserCtx
 
 - Block/grid-level state container (`DM`, vectors, metrics, block-local geometry)
 - Used throughout grid, solver, BC, and post kernels
