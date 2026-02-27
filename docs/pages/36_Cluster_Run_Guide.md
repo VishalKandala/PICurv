@@ -1,52 +1,70 @@
 @page 36_Cluster_Run_Guide Cluster Run Guide (Slurm)
 
-This page documents single-case cluster execution using `pic.flow run`.
+This guide documents how `pic.flow` converts case configs into scheduler artifacts for cluster execution.
 
 @tableofcontents
 
-@section cluster_inputs_sec 1. Inputs
+@section inputs_sec 1. Required Inputs
 
-Required files:
+Typical cluster-enabled run uses:
+
 - `case.yml`
 - `solver.yml`
 - `monitor.yml`
-- `post.yml` (if `--post-process`)
-- `cluster.yml`
+- `post.yml`
+- `cluster.yml` (scheduler contract)
 
-Reference template:
-- `examples/master_template/master_cluster.yml`
+Initialize templates from examples, then customize per cluster/account policy.
 
-@section cluster_run_sec 2. Commands
+@section command_sec 2. Core Command Patterns
 
-Generate + submit:
+Generate and submit:
+
 ```bash
-python3 scripts/pic.flow run --solve --post-process \
-  --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml \
-  --cluster cluster.yml
+./scripts/pic.flow run \
+  --case <case.yml> \
+  --solver <solver.yml> \
+  --monitor <monitor.yml> \
+  --post <post.yml> \
+  --cluster <cluster.yml> \
+  --scheduler slurm
 ```
 
-Generate only:
+Generate only (no submission):
+
 ```bash
-python3 scripts/pic.flow run --solve --post-process \
-  --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml \
-  --cluster cluster.yml --no-submit
+./scripts/pic.flow run ... --scheduler slurm --no-submit
 ```
 
-@section cluster_outputs_sec 3. Outputs
+@section artifacts_sec 3. Generated Scheduler Artifacts
 
-In `runs/<run_id>/scheduler/`:
+In run directory, scheduler generation typically produces:
+
 - `solver.sbatch`
 - `post.sbatch`
-- `submission.json`
-
-In `runs/<run_id>/`:
 - `manifest.json`
+- `submission.json` (when submitted)
 
-`post.sbatch` is submitted with `afterok:<solver_jobid>` dependency when both stages are requested and submission is enabled.
+These coexist with standard runtime control artifacts used by solver/postprocessor binaries.
 
-@section cluster_notes_sec 4. Notes
+@section flow_sec 4. Submission Flow
 
-- Slurm is the only scheduler supported in v1.
-- Cluster mode uses `nodes * ntasks_per_node` from `cluster.yml` as effective MPI task count.
-- `--no-submit` is useful for site review and manual `sbatch` execution.
+1. YAML validation and contract checks,
+2. run directory + control artifact generation,
+3. sbatch script rendering from scheduler settings,
+4. optional solver submission,
+5. optional post job with dependency linkage.
 
+This allows consistent local dry-run and cluster production flow from the same inputs.
+
+@section notes_sec 5. Operational Notes
+
+- Prefer `--no-submit` first when validating new scheduler settings.
+- Keep cluster defaults in reusable templates (`examples/master_template/master_cluster.yml`).
+- If queue policies differ by partition/account, encode them in `cluster.yml` instead of editing generated scripts manually.
+
+See also:
+
+- **@subpage 37_Sweep_Studies_Guide**
+- **@subpage 05_The_Conductor_Script**
+- **@subpage 39_Common_Fatal_Errors**

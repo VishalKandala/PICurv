@@ -21,6 +21,7 @@
       <page name="Post-Processing Recipes" url="@ref 10_Post_Processing_Reference"/>
       <page name="User How-To Guides" url="@ref 11_User_How_To_Guides"/>
       <page name="Common Fatal Errors" url="@ref 39_Common_Fatal_Errors"/>
+      <page name="Testing and Quality Guide" url="@ref 40_Testing_and_Quality_Guide"/>
       <page name="Capabilities Summary" url="@ref 12_Capabilities_Summary"/>
       <page name="Non-Dimensionalization" url="@ref 19_Nondimensionalization"/>
       <page name="Repository Navigation" url="@ref 30_Repository_Navigation"/>

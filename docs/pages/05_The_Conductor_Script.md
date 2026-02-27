@@ -148,3 +148,4 @@ Sweep (`sweep`):
 - Extensibility: **@subpage 17_Workflow_Extensibility**
 - First-run path: **@subpage 38_Start_Here_10_Minutes**
 - Troubleshooting map: **@subpage 39_Common_Fatal_Errors**
+- Smoke/CI verification details: **@subpage 40_Testing_and_Quality_Guide**

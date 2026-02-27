@@ -1,34 +1,54 @@
 @page 35_API_Documentation_Status API Documentation Status
 
-This page defines how API-doc quality is checked and where warning output is tracked.
+This page describes current API-doc quality, warning sources, and the expected standard for new changes.
 
 @tableofcontents
 
 @section status_sec 1. Current Status
 
-Function/parameter documentation is partially complete across the codebase.
-There are known mismatches in some headers (duplicate `@param`, stale parameter names, and missing docs for some signatures).
-This should be treated as a known quality gap until a clean Doxygen warning pass is achieved.
+API documentation quality is improving but not yet uniformly clean across all modules.
+Known issues in some headers/source pairs include:
 
-@section warning_log_sec 2. Warning Log Location
+- stale parameter names in Doxygen blocks,
+- duplicate/missing `@param` entries,
+- partial function-level docs on legacy-heavy paths.
 
-Doxygen warning output is configured to:
+Treat these as active maintenance items rather than hidden debt.
+
+@section warning_sec 2. Warning Log and Build Path
+
+Doxygen warnings are written to:
+
 - `logs/doxygen.warnings`
 
-This is controlled by `docs/Doxyfile` (`WARN_LOGFILE = ../logs/doxygen.warnings`).
+Configured in `docs/Doxyfile` via:
 
-@section workflow_sec 3. Verification Workflow
+- `WARN_LOGFILE = ../logs/doxygen.warnings`
 
-1. Run `make build-docs`.
-2. Inspect `logs/doxygen.warnings`.
-3. Fix warnings in small batches by module (`include/*.h` + matching `src/*.c`).
-4. Re-run and track deltas.
+CI currently enforces Markdown-link integrity; Doxygen warning cleanup remains a repository maintenance objective.
 
-@section quality_gate_sec 4. Practical Quality Gate
+@section expected_sec 3. Expected Standard For New APIs
 
-For new/modified APIs:
-- all arguments should have exactly one matching `@param` entry
-- no stale argument names in doc blocks
-- no undocumented public function declarations in `include/`
+For newly added or modified public functions:
 
-This does not enforce full theoretical derivations; it enforces interface correctness and discoverability.
+1. each parameter must have exactly one matching `@param`,
+2. function summary should describe behavior and side effects,
+3. return/CHKERRQ semantics should be documented,
+4. cross-module dependencies should be explicit when non-obvious.
+
+Minimum acceptable quality is interface correctness and discoverability, even when deep theoretical derivation is documented elsewhere.
+
+@section workflow_sec 4. Practical Cleanup Workflow
+
+1. run docs build (`make build-docs`) where available,
+2. inspect `logs/doxygen.warnings`,
+3. patch one module at a time (`include/*.h` + matching `src/*.c`),
+4. re-run warning pass and track net reduction.
+
+Batching by module avoids regressions and keeps review scope manageable.
+
+@section refs_sec 5. Related Pages
+
+- **@subpage 13_Code_Architecture**
+- **@subpage 29_Maintenance_Backlog**
+- **@subpage 40_Testing_and_Quality_Guide**

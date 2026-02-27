@@ -1,38 +1,63 @@
 @page 34_Particle_Model_Overview Particle Model and Coupling Overview
 
-This page maps the particle pipeline: motion, location, coupling, physics update, and statistics.
+This page documents the particle pipeline exactly as orchestrated in the current solver flow.
 
 @tableofcontents
 
-@section pipeline_sec 1. Runtime Pipeline
+@section loop_sec 1. Per-Step Particle Pipeline
 
-Typical per-step flow:
-1. Interpolate Eulerian fields to particles: @ref InterpolateAllFieldsToSwarm
-2. Move particles: @ref UpdateAllParticlePositions
-3. Locate/migrate particles: @ref LocateAllParticlesInGrid
-4. Update particle physics fields: @ref UpdateAllParticleFields
-5. Scatter particle data back to Eulerian fields: @ref ScatterAllParticleFieldsToEulerFields
+Typical order inside coupled step:
 
-@section physics_sec 2. Current Particle Physics
+1. interpolate Eulerian fields to swarm: @ref InterpolateAllFieldsToSwarm
+2. advance particle positions: @ref UpdateAllParticlePositions
+3. locate/migrate particles: @ref LocateAllParticlesInGrid
+4. update particle physics fields: @ref UpdateAllParticleFields
+5. scatter particle fields back to Eulerian storage: @ref ScatterAllParticleFieldsToEulerFields
 
-Current scalar-mixing update is implemented through:
-- @ref UpdateParticleField
-- @ref UpdateFieldForAllParticles
-- @ref UpdateAllParticleFields
+Each stage relies on valid `DMSwarm_CellID`, interpolation weights, and synchronized ghost data.
 
-The present built-in model is IEM-style relaxation for `Psi`.
+@section fields_sec 2. Core Particle Fields In Use
 
-@section stats_sec 3. Statistics Pipeline
+Commonly used swarm fields include:
 
-Post statistics kernel entry currently includes:
+- position (`position`)
+- velocity (`velocity`)
+- cell ID (`DMSwarm_CellID`)
+- location status (`DMSwarm_location_status`)
+- diffusivity and scalar (`Diffusivity`, `Psi`)
+
+Status transitions (`NEEDS_LOCATION`, `ACTIVE_AND_LOCATED`, `MIGRATING_OUT`, `LOST`) determine whether particles are walked, migrated, or skipped in settlement passes.
+
+@section physics_sec 3. Current Built-In Physics
+
+Current scalar model path:
+
+- kernel: @ref UpdateParticleField
+- batch loop: @ref UpdateFieldForAllParticles
+- orchestrator: @ref UpdateAllParticleFields
+
+This presently implements IEM-style relaxation for `Psi`, with model constants sourced from runtime context.
+
+@section statistics_sec 4. Statistics and Diagnostics
+
+Post statistics currently include global kernels such as:
+
 - @ref ComputeParticleMSD
 
-Statistics are emitted as CSV outputs from postprocessing paths.
+Additional health indicators are available from migration counters and settlement-pass counts stored in `SimCtx` fields updated by location logic.
 
-@section extension_sec 4. Data-Driven Closure Extension Path
+@section extension_sec 5. Extending To New Closures
 
-For future data-driven closures:
-1. Add a model selector in schema + control generation.
-2. Add runtime dispatch in particle physics update path.
-3. Keep feature extraction and model I/O isolated from motion/location kernels.
-4. For tightly coupled inference, treat model invocation as a pluggable kernel behind the same `UpdateFieldForAllParticles` entry.
+Recommended extension pattern:
+
+1. add particle model selector to YAML/flags,
+2. branch inside particle physics orchestrator,
+3. isolate model-specific kernels from motion/location kernels,
+4. keep scatter/interpolation interfaces unchanged,
+5. validate with smoke tests and deterministic small cases.
+
+For configuration contract changes, update:
+
+- **@subpage 14_Config_Contract**
+- **@subpage 16_Config_Extension_Playbook**
+- **@subpage 40_Testing_and_Quality_Guide**
