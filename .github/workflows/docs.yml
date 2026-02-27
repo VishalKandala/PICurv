@@ -21,50 +21,9 @@ jobs:
         run: |
           test -f docs/docs_build/html/index.html
           test -f docs/docs_build/html/pages.html
-          if [ ! -f docs/docs_build/html/files.html ]; then
-            echo "::warning::Doxygen did not generate files.html; creating fallback page."
-            cat > docs/docs_build/html/files.html << 'EOF'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>PICurv File List</title>
-            <link href="doxygen.css" rel="stylesheet" />
-            <link href="custom.css" rel="stylesheet" />
-          </head>
-          <body>
-            <div class="header"><div class="title">File List</div></div>
-            <div class="contents">
-              <p>Detailed file index was not generated in this build.</p>
-              <p>Use <a href="pages.html">Documentation</a> and <a href="index.html">Home</a> for navigation.</p>
-            </div>
-          </body>
-          </html>
-          EOF
-          fi
-          if [ ! -f docs/docs_build/html/annotated.html ]; then
-            echo "::warning::Doxygen did not generate annotated.html; creating fallback page."
-            cat > docs/docs_build/html/annotated.html << 'EOF'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>PICurv Data Structures</title>
-            <link href="doxygen.css" rel="stylesheet" />
-            <link href="custom.css" rel="stylesheet" />
-          </head>
-          <body>
-            <div class="header"><div class="title">Data Structures</div></div>
-            <div class="contents">
-              <p>Detailed structure index was not generated in this build.</p>
-              <p>Use <a href="pages.html">Documentation</a> and <a href="index.html">Home</a> for navigation.</p>
-            </div>
-          </body>
-          </html>
-          EOF
-          fi
+          python3 scripts/generate_doxygen_fallback_indexes.py \
+            --repo-root . \
+            --html-dir docs/docs_build/html
 
           cp docs/theme-sync.js docs/docs_build/html/theme-sync.js
           for f in docs/docs_build/html/*.html docs/docs_build/html/search/*.html; do

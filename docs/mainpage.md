@@ -12,12 +12,16 @@ PICurv is a parallel CFD and particle framework for incompressible flow and scal
 
 The user workflow is configuration-first: YAML inputs are validated and translated into generated runtime artifacts consumed by the C solver and postprocessor.
 
-@section get_started_main To Begin, Choose Your Path
+@section get_started_main Documentation Entry Points (Structural)
 
-- **@subpage 41_Getting_Started_Index**: first-run onboarding sequence.
-- **@subpage 42_User_Guide_Index**: operational workflows, config references, and run recipes.
-- **@subpage 43_Developer_Portal_Index**: methods, architecture, and extension docs.
-- **@subpage Documentation_Catalog**: categorized catalog by lifecycle and artifact type.
+Use the structural map first, then jump by artifact type:
+
+- **@subpage Documentation_Catalog**: complete categorized index by workflow, artifact, and runtime layer.
+- **@subpage 06_Simulation_Anatomy**: end-to-end run structure and generated artifacts.
+- **@subpage 14_Config_Contract**: YAML contracts and Python-to-C handoff.
+- **@subpage 21_Methods_Overview**: governing methods and model map.
+- **@subpage 46_C_Runtime_Execution_Map**: solver execution order and C runtime touchpoints.
+- **Data Structures (`annotated.html`)** and **File List (`files.html`)**: direct code reference indices.
 
 @section preview_sec Quick Preview
 
