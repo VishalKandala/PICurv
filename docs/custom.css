@@ -9,6 +9,7 @@
   --pic-link: #b509ac;
   --pic-link-hover: #8e0687;
   --pic-accent: #b509ac;
+  --pic-accent-text: #ffffff;
   --pic-border: rgba(0, 0, 0, 0.12);
   --pic-nav-bg: #ffffff;
   --pic-code-bg: rgba(181, 9, 172, 0.06);
@@ -24,6 +25,7 @@
     --pic-link: #1f738a;
     --pic-link-hover: #2a88a3;
     --pic-accent: #1f738a;
+    --pic-accent-text: #0f2026;
     --pic-border: #424246;
     --pic-nav-bg: #212529;
     --pic-code-bg: #2c3237;
@@ -39,6 +41,7 @@ html[data-theme="dark"] {
   --pic-link: #1f738a;
   --pic-link-hover: #2a88a3;
   --pic-accent: #1f738a;
+  --pic-accent-text: #0f2026;
   --pic-border: #424246;
   --pic-nav-bg: #212529;
   --pic-code-bg: #2c3237;
@@ -53,6 +56,7 @@ html[data-theme="light"] {
   --pic-link: #b509ac;
   --pic-link-hover: #8e0687;
   --pic-accent: #b509ac;
+  --pic-accent-text: #ffffff;
   --pic-border: rgba(0, 0, 0, 0.12);
   --pic-nav-bg: #ffffff;
   --pic-code-bg: rgba(181, 9, 172, 0.06);
@@ -287,7 +291,7 @@ div.memtitle,
 }
 
 table.doxtable th {
-  color: #fff !important;
+  color: var(--pic-accent-text) !important;
   background-color: var(--pic-accent) !important;
 }
 
@@ -314,7 +318,7 @@ span.mlabel,
 .icon {
   background: var(--pic-accent) !important;
   border-color: var(--pic-accent) !important;
-  color: #fff !important;
+  color: var(--pic-accent-text) !important;
 }
 
 .memTemplParams,
@@ -385,12 +389,12 @@ blockquote.DocNodeRTL {
 #nav-tree .selected {
   background-image: none !important;
   background-color: var(--pic-accent) !important;
-  color: #fff !important;
+  color: var(--pic-accent-text) !important;
   text-shadow: none !important;
 }
 
 #nav-tree .selected a {
-  color: #fff !important;
+  color: var(--pic-accent-text) !important;
 }
 
 /* Search controls and search result pages */
@@ -424,13 +428,23 @@ a.SelectItem {
 
 a.SelectItem:hover {
   background-color: var(--pic-accent) !important;
-  color: #fff !important;
+  color: var(--pic-accent-text) !important;
 }
 
 .pages b {
   background-image: none !important;
   background-color: var(--pic-accent) !important;
+  color: var(--pic-accent-text) !important;
   text-shadow: none !important;
+}
+
+#side-nav,
+#splitbar {
+  display: none !important;
+}
+
+#doc-content {
+  margin-left: 0 !important;
 }
 
 .navpath ul,

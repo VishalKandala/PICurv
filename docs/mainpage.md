@@ -16,12 +16,13 @@ The user workflow is configuration-first: YAML inputs are validated and translat
 
 Use the structural map first, then jump by artifact type:
 
-- **@subpage Documentation_Catalog**: complete categorized index by workflow, artifact, and runtime layer.
+- **@subpage Documentation_Map**: complete categorized index by workflow, artifact, and runtime layer.
 - **@subpage 06_Simulation_Anatomy**: end-to-end run structure and generated artifacts.
 - **@subpage 14_Config_Contract**: YAML contracts and Python-to-C handoff.
 - **@subpage 21_Methods_Overview**: governing methods and model map.
 - **@subpage 46_C_Runtime_Execution_Map**: solver execution order and C runtime touchpoints.
-- **Data Structures (`annotated.html`)** and **File List (`files.html`)**: direct code reference indices.
+- **Data Structures (`annotated_structured.html`)** and **File List (`files_structured.html`)**:
+  organized code-reference views by module and file type.
 
 @section preview_sec Quick Preview
 

@@ -8,8 +8,8 @@ OUTPUT_LANGUAGE        = English
 OPTIMIZE_OUTPUT_FOR_C  = YES
 
 #------------------------- Input ---------------------------
-INPUT                  = ../include ../src . pages ../examples
-FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md
+INPUT                  = ../include ../src ../scripts . pages ../examples
+FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md *.py *.sh *.flow
 RECURSIVE              = YES
 EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/* */guide.md */38_Start_Here_10_Minutes.md */examples/*.md */examples/*/*.md */scripts/*.md */README.md
 
@@ -71,7 +71,7 @@ ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = YES
 EXPAND_ONLY_PREDEF     = NO
 ALIASES                = "pagebreak=\n<hr/>"
-GENERATE_TREEVIEW      = YES
+GENERATE_TREEVIEW      = NO
 FULL_PATH_NAMES        = NO
 
 #------------------------- Tag/Graphs Cache ----------------

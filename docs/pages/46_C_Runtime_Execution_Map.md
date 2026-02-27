@@ -11,13 +11,13 @@ High-level startup sequence:
 
 1. `PetscInitialize`
 2. @ref CreateSimulationContext
-3. `SetupSimulationEnvironment`
-4. `SetupGridAndSolvers`
-5. `SetupBoundaryConditions`
-6. `SetupDomainRankInfo`
+3. @ref SetupSimulationEnvironment
+4. @ref SetupGridAndSolvers
+5. @ref SetupBoundaryConditions
+6. @ref SetupDomainRankInfo
 7. @ref InitializeEulerianState
 8. @ref InitializeParticleSwarm (if `np > 0`)
-9. `DisplayBanner`
+9. @ref DisplayBanner
 10. initial settlement/restart finalization
 11. @ref AdvanceSimulation
 
@@ -62,16 +62,22 @@ Per-step sequence:
 1. update `step` and `time`,
 2. reset particle statuses (if particles enabled),
 3. Eulerian step:
-   - `FlowSolver` for solve mode, or load/analytical branch,
+   - @ref FlowSolver for solve mode, or load/analytical branch,
 4. Lagrangian step:
-   - position update,
-   - location/migration,
-   - lost-particle handling,
-   - interpolation of new Eulerian fields to particles,
-   - particle-field updates,
-   - scatter particle fields back to Eulerian grid,
+   - @ref UpdateAllParticlePositions,
+   - @ref LocateAllParticlesInGrid and migration,
+   - @ref CheckAndRemoveLostParticles,
+   - @ref InterpolateAllFieldsToSwarm,
+   - @ref UpdateAllParticleFields,
+   - @ref CalculateParticleCountPerCell and @ref ScatterAllParticleFieldsToEulerFields,
 5. update history vectors,
 6. write outputs on configured cadence.
+
+Concrete output calls in the loop are:
+
+- @ref WriteSimulationFields
+- @ref WriteAllSwarmFields
+- @ref ProfilingLogTimestepSummary
 
 @section boundaries_sec 6. Boundary System Runtime Hooks
 
