@@ -1,15 +1,16 @@
 <doxygenlayout version="1.0">
   <navindex>
-    <tab type="mainpage" visible="yes" title="PICurv Home"/>
-    <tab type="user" visible="yes" url="/projects/" title="Back to Projects"/>
-    <tab type="user" visible="yes" url="Documentation_Catalog.html" title="Documentation Map"/>
+    <tab type="user" visible="yes" url="Documentation_Map.html" title="Documentation Map"/>
     <tab type="user" visible="yes" url="06_Simulation_Anatomy.html" title="Workflow"/>
     <tab type="user" visible="yes" url="14_Config_Contract.html" title="Config Contracts"/>
     <tab type="user" visible="yes" url="21_Methods_Overview.html" title="Methods"/>
     <tab type="user" visible="yes" url="46_C_Runtime_Execution_Map.html" title="Runtime Internals"/>
+    <tab type="user" visible="yes" url="files_structured.html" title="File List"/>
+    <tab type="user" visible="yes" url="annotated_structured.html" title="Data Structures"/>
+    <tab type="user" visible="yes" url="/projects/" title="Projects Home"/>
     <tab type="pages" visible="no" title="Documentation"/>
     <tab type="modules" visible="no" title="API Reference" intro="The complete C API."/>
-    <tab type="files" visible="yes" title="File List"/>
-    <tab type="classes" visible="yes" title="Data Structures"/>
+    <tab type="files" visible="no" title="File List"/>
+    <tab type="classes" visible="no" title="Data Structures"/>
   </navindex>
 </doxygenlayout>

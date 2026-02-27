@@ -43,4 +43,4 @@ You should be able to:
 - Operational run authoring: **@subpage 42_User_Guide_Index**
 - Troubleshooting catalog: **@subpage 39_Common_Fatal_Errors**
 - CI/smoke test contract: **@subpage 40_Testing_and_Quality_Guide**
-- Cross-axis catalog view: **@subpage Documentation_Catalog**
+- Cross-axis map view: **@subpage Documentation_Map**

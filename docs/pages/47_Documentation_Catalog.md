@@ -1,7 +1,7 @@
-@page Documentation_Catalog Documentation Catalog
+@page Documentation_Map Documentation Map
 
-This page is the primary structural entry point for the documentation.
-Use it instead of the raw "all pages" listing.
+This is the primary structural entry point for PICurv documentation.
+Use this page instead of the raw generated page dump.
 
 @tableofcontents
 
@@ -10,7 +10,6 @@ Use it instead of the raw "all pages" listing.
 @subsection lifecycle_design_sec 1.1 Design and Setup
 
 - **@subpage 01_Installation**
-- **@subpage 38_Start_Here_10_Minutes**
 - **@subpage 02_Tutorial_Programmatic_Grid**
 - **@subpage 03_Tutorial_File-Based_Grid**
 - **@subpage 07_Case_Reference**
@@ -82,8 +81,10 @@ Use it instead of the raw "all pages" listing.
 - **@subpage 30_Repository_Navigation**
 - **@subpage 18_Changelog**
 
-@section ref_axis_sec 7. Code Reference Indices
+@section ref_axis_sec 7. Generated Reference Views
 
-- **API landing pages:** `index.html`, `globals.html`, and function/file pages generated from source.
-- **File index:** `files.html`
-- **Structure index:** `annotated.html`
+This section is for maintainers who need code-symbol navigation views instead of prose guides.
+
+- **File List by type (headers/sources/scripts):** `files_structured.html`
+- **Data Structures by solver module:** `annotated_structured.html`
+- **Raw Doxygen indices (unstructured):** `files.html`, `annotated.html`, `globals.html`
