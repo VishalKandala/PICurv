@@ -1,60 +1,63 @@
 @page 37_Sweep_Studies_Guide Sweep and Study Guide
 
-This page documents Slurm array studies using `pic.flow sweep`.
+`pic.flow sweep` orchestrates parameter studies with generated run variants, scheduler arrays, and aggregate metrics.
 
 @tableofcontents
 
-@section sweep_inputs_sec 1. Inputs
+@section inputs_sec 1. Inputs and Templates
 
-Required:
-- `study.yml`
-- `cluster.yml`
+A sweep/study commonly uses:
 
-Reference templates:
-- `examples/master_template/master_study.yml`
-- `examples/master_template/master_cluster.yml`
+- base case/solver/monitor/post templates,
+- `study.yml` defining parameter combinations and metrics,
+- optional cluster scheduler settings for array submission.
 
-@section sweep_cmd_sec 2. Command
+Starter templates are available under `examples/*/*study*.yml` and `examples/master_template/`.
 
-```bash
-python3 scripts/pic.flow sweep \
-  --study study.yml \
-  --cluster cluster.yml
-```
-
-Generate only:
+@section command_sec 2. Core Sweep Command
 
 ```bash
-python3 scripts/pic.flow sweep \
-  --study study.yml \
-  --cluster cluster.yml \
-  --no-submit
+./scripts/pic.flow sweep --study <study.yml> --scheduler slurm
 ```
 
-@section sweep_contract_sec 3. Study Contract
+Typical optional flags include dry-run or no-submit behaviors depending on workflow stage.
 
-- `base_configs` defines base case/solver/monitor/post files.
-- `parameters` expands as a cartesian matrix.
-- keys use `<target>.<yaml.path>` where target is `case|solver|monitor|post`.
-- `metrics` defines file-based extractors (CSV/log).
-- `plotting` controls plot generation.
-- `execution.max_concurrent_array_tasks` maps to Slurm `%N` array throttling.
+@section contract_sec 3. Study Contract Essentials
 
-@section sweep_outputs_sec 4. Outputs
+A study definition usually specifies:
 
-`studies/<study_id>/` contains:
-- `cases/<case_i>/...` materialized run trees
-- `scheduler/case_index.tsv`
-- `scheduler/solver_array.sbatch`
-- `scheduler/post_array.sbatch`
-- `scheduler/submission.json`
-- `results/metrics_table.csv`
-- `results/plots/*` (when plottable metrics are available)
-- `study_manifest.json`
+- parameter space (explicit lists/ranges),
+- mapping from parameter key -> YAML target path,
+- execution controls,
+- metric extraction definitions.
 
-@section sweep_notes_sec 5. Notes
+Each combination yields a generated run with fully materialized config set.
 
-- Post array is submitted with `afterok:<solver_array_jobid>`.
-- Metrics/plots rely on existing post/stat outputs (no C-side changes required in v1).
-- If files are not available yet at generation time, aggregation may produce sparse metrics.
+@section outputs_sec 4. Outputs and Aggregates
 
+Expected study outputs include:
+
+- per-combination run directories,
+- aggregate table (for example `metrics_table.csv`),
+- summary metadata (for example `summary.json`),
+- optional plot outputs in results/plots.
+
+This keeps raw run data and comparative study diagnostics in one reproducible structure.
+
+@section operations_sec 5. Operational Workflow
+
+Recommended workflow:
+
+1. run a tiny subset locally or with `--no-submit`,
+2. verify parameter substitution and metric extraction,
+3. launch full array,
+4. inspect aggregate outputs,
+5. archive the exact study file with results for reproducibility.
+
+For fragile metrics, add smoke tests or fixture-based validation before large queue submissions.
+
+@section refs_sec 6. Related Pages
+
+- **@subpage 36_Cluster_Run_Guide**
+- **@subpage 10_Post_Processing_Reference**
+- **@subpage 40_Testing_and_Quality_Guide**

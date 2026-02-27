@@ -1,29 +1,58 @@
 @page 26_Walking_Search_Method Walking Search for Particle Location
 
-Particle tracking requires robustly determining each particle’s host cell on distributed curvilinear grids. PICurv uses a walking-search based location strategy with migration support.
+PICurv uses a robust locate-and-migrate pipeline so every particle ends each step with a valid owner rank and host cell (or is explicitly marked lost).
 
 @tableofcontents
 
-@section purpose_sec 1. Why Walking Search
+@section concept_sec 1. Core Search Concept
 
-- Particles move continuously while mesh ownership is discrete by rank/block/cell.
-- A local walk from prior host-cell state is more efficient than global brute-force scans.
-- The method supports migration decisions when particles leave local ownership.
+A particle is tested against candidate cell faces using signed distances.
+Search starts from prior cell information when available, then walks to neighboring cells by face-crossing logic until a terminal status is reached.
 
-@section code_sec 2. Code Touchpoints
+This avoids expensive global brute-force lookup and is suitable for distributed curvilinear grids.
 
-- Single-particle locator: @ref LocateParticleInGrid
-- Multi-particle settlement orchestrator: @ref LocateAllParticlesInGrid
-- Migration helpers in motion layer: @ref PerformMigration, @ref PerformSingleParticleMigrationCycle
-- Restart-cell migration path: @ref MigrateRestartParticlesUsingCellID
+@section statuses_sec 2. Settlement Status Model
 
-@section workflow_sec 3. Typical Flow
+Location/migration logic uses `ParticleLocationStatus`:
 
-1. Predict new particle position.
-2. Attempt local walking search from previous cell.
-3. If local ownership fails, determine migration target rank/block.
-4. Migrate, then re-locate and refresh interpolation weights.
+- `NEEDS_LOCATION`
+- `ACTIVE_AND_LOCATED`
+- `MIGRATING_OUT`
+- `LOST`
+- `UNINITIALIZED`
 
-@section refs_sec 4. References
+These statuses drive the iterative migration passes in the orchestrator.
 
-- PETSc DMSwarm background: https://petsc.org/release/manualpages/DMSWARM/
+@section implementation_sec 3. Implementation Touchpoints
+
+- single-particle walking search: @ref LocateParticleInGrid
+- robust locate-or-migrate decision: `LocateParticleOrFindMigrationTarget` (walking-search module)
+- global orchestrator: @ref LocateAllParticlesInGrid
+- rank migration communication: @ref PerformMigration
+- per-particle migration cycle helper: @ref PerformSingleParticleMigrationCycle
+- restart fast-path migration: @ref MigrateRestartParticlesUsingCellID
+
+The current orchestrator includes:
+
+1. PID snapshot,
+2. per-particle locate/guess/verify,
+3. migration,
+4. newcomer flagging,
+5. repeat until no global migrations remain (or safety pass cap).
+
+@section restart_sec 4. Restart Path Specifics
+
+For restart-loaded particles with valid `CellID`, PICurv can skip full walking search and directly resolve owner rank via cell ownership map before migration.
+This is usually much cheaper than full re-location on first restart step.
+
+@section practical_sec 5. Failure Modes and Signals
+
+Watch for:
+
+- excessive migration pass counts,
+- repeated `LOST` particles,
+- non-convergence of settlement loop.
+
+These usually indicate domain-decomposition mismatch, bounding-box mismatch, or invalid particle coordinates.
+
+See **@subpage 39_Common_Fatal_Errors** for troubleshooting commands.

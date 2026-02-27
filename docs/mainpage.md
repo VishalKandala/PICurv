@@ -18,6 +18,7 @@ The user workflow is configuration-first: YAML inputs are validated and translat
 - **@subpage 01_Installation**: install dependencies, build binaries, run first case.
 - **@subpage 05_The_Conductor_Script**: YAML-first workflow and command patterns.
 - **@subpage 39_Common_Fatal_Errors**: map frequent failures to fix commands.
+- **@subpage 40_Testing_and_Quality_Guide**: smoke-test matrix, CI quality gates, and extension rules.
 - **@subpage 13_Code_Architecture**: C-side architecture and extension touchpoints.
 - **@subpage 30_Repository_Navigation**: repository map and per-directory `guide.md` pointers.
 

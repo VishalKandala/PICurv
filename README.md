@@ -78,6 +78,41 @@ export PETSC_ARCH=arch-linux-c-debug
   --cluster my_case/slurm_cluster.yml
 ```
 
+## Smoke and Quality Checks
+
+Manual smoke commands:
+
+```bash
+./scripts/pic.flow --help
+./scripts/pic.flow run --help
+./scripts/pic.flow validate --help
+
+./scripts/pic.flow validate \
+  --case tests/fixtures/valid/case.yml \
+  --solver tests/fixtures/valid/solver.yml \
+  --monitor tests/fixtures/valid/monitor.yml \
+  --post tests/fixtures/valid/post.yml
+
+./scripts/pic.flow run --solve --post-process \
+  --case tests/fixtures/valid/case.yml \
+  --solver tests/fixtures/valid/solver.yml \
+  --monitor tests/fixtures/valid/monitor.yml \
+  --post tests/fixtures/valid/post.yml \
+  --dry-run --format json
+
+python3 scripts/check_markdown_links.py
+```
+
+Automated smoke checks:
+
+- Local (when pytest is available):
+  - `pytest -q`
+- CI:
+  - `.github/workflows/quality.yml`
+
+Detailed guide:
+- `docs/pages/40_Testing_and_Quality_Guide.md`
+
 ## Repository Navigation
 
 Top-level guides:

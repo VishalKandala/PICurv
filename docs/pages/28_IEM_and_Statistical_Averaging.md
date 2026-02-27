@@ -1,34 +1,71 @@
 @page 28_IEM_and_Statistical_Averaging IEM Mixing and Statistical Averaging
 
-This page summarizes two related model/analysis paths: particle scalar mixing via IEM and flow/statistics averaging utilities.
+PICurv currently couples a particle scalar micromixing model (IEM-style) with separate statistics/averaging utilities in solver and post-processing stages.
 
 @tableofcontents
 
-@section iem_sec 1. IEM Particle Mixing
+@section iem_sec 1. IEM Mixing Update In Current Code
 
-PICurv includes an IEM-style particle scalar update path where particle scalar state relaxes toward a local/ensemble mean with model-controlled rate.
+For `Psi`, @ref UpdateParticleField uses:
+
+\f[
+\frac{d\Psi}{dt} = -\Omega(\Psi-\langle\Psi\rangle),
+\qquad
+\Omega = C_{IEM}\,\frac{\Gamma_{eff}}{\Delta^2},
+\qquad
+\Delta^2\approx V^{2/3}.
+\f]
+
+Closed-form update implemented in code:
+
+\f[
+\Psi^{n+1}=\langle\Psi\rangle + (\Psi^n-\langle\Psi\rangle)e^{-\Omega\Delta t}.
+\f]
 
 Code touchpoints:
-- @ref UpdateParticleField
-- @ref UpdateFieldForAllParticles
-- @ref UpdateAllParticleFields
 
-Config touchpoints:
-- particle model controls through case/solver ingestion (current model constants are C-side managed, extensible via schema additions).
+- particle kernel: @ref UpdateParticleField
+- per-field particle loop: @ref UpdateFieldForAllParticles
+- stage wrapper: @ref UpdateAllParticleFields
 
-@section avg_sec 2. Averaging Paths
+@section dataflow_sec 2. Required Dataflow For IEM
 
-- Solver-side statistical averaging toggles (`simCtx->averaging`) write/read dedicated statistical fields.
-- Postprocessing statistics pipeline supports reduction kernels such as MSD.
+IEM update requires:
 
-Code touchpoints:
-- Post statistics kernel: @ref ComputeParticleMSD
-- Particle-grid averaging helper path: @ref ScatterAllParticleFieldsToEulerFields
+- per-particle diffusivity from swarm fields,
+- host-cell IDs for indexing,
+- Eulerian mean field (`user->lPsi`) and Jacobian (`user->lAj`) for volume scaling.
 
-@section note_sec 3. Terminology Note
+This means scatter/interpolation order matters: stale Eulerian means produce stale IEM forcing.
 
-The codebase currently uses "averaging" for several contexts (time/statistical fields, particle-to-grid normalization, post reductions). Configure these explicitly by workflow stage (`solver.yml`/`monitor.yml`/`post.yml`).
+@section stats_sec 3. Statistics Pipeline (Postprocessor)
 
-@section refs_sec 4. References
+Current primary reduction kernel:
 
-- IEM model overview (combustion/mixing context): https://en.wikipedia.org/wiki/Probability_density_function_(turbulence)#Micromixing_models
+- @ref ComputeParticleMSD
+
+Implemented MSD physics includes:
+
+\f[
+D = \frac{1}{Re\,Sc},
+\qquad
+r_{theory} = \sqrt{6Dt},
+\f]
+
+with global MPI reductions and CSV output per statistics call.
+
+@section terminology_sec 4. Averaging Terminology In PICurv
+
+"Averaging" appears in multiple contexts:
+
+- particle->grid count-normalized scatter,
+- solver-side optional field averaging toggles,
+- postprocessing global statistical reductions.
+
+Treat these as distinct workflows with different configuration points.
+
+@section refs_sec 5. Related Pages
+
+- **@subpage 27_Trilinear_Interpolation_and_Projection**
+- **@subpage 34_Particle_Model_Overview**
+- **@subpage 10_Post_Processing_Reference**

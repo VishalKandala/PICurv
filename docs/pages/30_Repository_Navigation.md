@@ -12,8 +12,10 @@ This page is the directory map for the repository and the corresponding `guide.m
 - `include/` -> `include/guide.md`
 - `src/` -> `src/guide.md`
 - `scripts/` -> `scripts/guide.md`
+- `tests/` -> `tests/guide.md`
 - `sandbox/` -> `sandbox/guide.md`
 - `logs/` -> `logs/guide.md`
+- `.github/` -> `.github/guide.md`
 
 Direct links:
 - [config/guide.md](../../config/guide.md)
@@ -22,8 +24,10 @@ Direct links:
 - [include/guide.md](../../include/guide.md)
 - [src/guide.md](../../src/guide.md)
 - [scripts/guide.md](../../scripts/guide.md)
+- [tests/guide.md](../../tests/guide.md)
 - [sandbox/guide.md](../../sandbox/guide.md)
 - [logs/guide.md](../../logs/guide.md)
+- [.github/guide.md](../../.github/guide.md)
 
 @section config_nav_sec 2. Configuration Subdirectories
 

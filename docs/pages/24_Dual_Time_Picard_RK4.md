@@ -1,39 +1,67 @@
 @page 24_Dual_Time_Picard_RK4 Dual-Time Picard RK4 Momentum Solver
 
-PICurv’s current named momentum strategy is a dual-time fixed-point (Picard-style) iteration with RK4 pseudo-time smoothing.
+This page documents the currently active implicit-style momentum strategy in PICurv: dual-time Picard iteration with RK4 pseudo-time smoothing.
 
 @tableofcontents
 
-@section algorithm_sec 1. Core Idea
+@section model_sec 1. Algorithmic Model
 
-For each physical timestep, solve momentum implicitly in pseudo-time:
+The solver enforces the physical-time momentum equation by iterating a pseudo-time equation:
 
-- Iterate pseudo-steps until convergence criteria are met.
-- Use RK4 staged updates to stabilize pseudo-time evolution.
-- Check residual/update norms against absolute/relative/step thresholds.
+\f[
+\frac{\partial \mathbf{U}}{\partial \tau} = -\Big(R_{spatial}(\mathbf{U}) + R_{time}(\mathbf{U})\Big).
+\f]
 
-Pseudo-CFL controls adapt iteration aggressiveness and robustness.
+Implementation details from `ComputeTotalResidual`:
 
-@section cfg_sec 2. User-Facing Controls
+- `R_spatial` comes from @ref ComputeRHS
+- `R_time` uses BDF1/BDF2-style terms from `Ucont`, `Ucont_o`, and `Ucont_rm1`,
+- RK4 stages use coefficients \f$\{1/4,1/3,1/2,1\}\f$.
 
-From `solver.yml`:
-- `strategy.momentum_solver`
-- `tolerances.*`
-- `momentum_solver.dual_time_picard_rk4.*`
+@section convergence_sec 2. Convergence and Backtracking
 
-Mapped to C flags such as:
-- `-mom_max_pseudo_steps`, `-mom_atol`, `-mom_rtol`, `-imp_stol`
-- `-pseudo_cfl`, `-min_pseudo_cfl`, `-max_pseudo_cfl`
-- growth/reduction factors and RK4 residual-noise allowance.
+Per pseudo-iteration, the solver tracks:
 
-@section code_sec 3. Code Touchpoints
+- \f$\|\Delta U\|_\infty\f$,
+- relative solution update \f$\|\Delta U_k\|/\|\Delta U_0\|\f$,
+- residual norms and growth ratios.
 
-- Implemented dual-time solver: @ref MomentumSolver_DualTime_Picard_RK4
-- Explicit RK fallback solver: @ref MomentumSolver_Explicit_RungeKutta4
-- Runtime dispatch: @ref FlowSolver
-- Option ingestion: @ref CreateSimulationContext (via `-mom_solver_type` and related controls)
+Backtracking is triggered when residual and update growth indicate divergence (or NaN), then:
 
-@section refs_sec 4. References
+1. state rolls back to the last accepted pseudo-state,
+2. pseudo-CFL is reduced,
+3. iteration retries from the restored state.
 
-- Classical RK formulations: https://en.wikipedia.org/wiki/Runge%E2%80%93Kutta_methods
-- PETSc TS/KSP ecosystem (general): https://petsc.org/release/docs/manual/
+Pseudo-CFL is also adaptively ramped on successful steps and clamped by configured min/max bounds.
+
+@section config_sec 3. YAML -> Runtime Controls
+
+User-facing configuration (`solver.yml`) maps to:
+
+- `strategy.momentum_solver` -> `-mom_solver_type`
+- `tolerances.max_iterations` -> `-mom_max_pseudo_steps`
+- `tolerances.absolute_tol` -> `-mom_atol`
+- `tolerances.relative_tol` -> `-mom_rtol`
+- `tolerances.step_tol` -> `-imp_stol`
+- `momentum_solver.dual_time_picard_rk4.pseudo_cfl.*` -> pseudo-CFL flags
+- `rk4_residual_noise_allowance_factor` -> `-mom_dt_rk4_residual_norm_noise_allowance_factor`
+
+Parsing and normalization are performed in `scripts/pic.flow`, with final option ingestion in function @ref CreateSimulationContext during setup.
+
+@section touchpoints_sec 4. Core Code Touchpoints
+
+- implementation: @ref MomentumSolver_DualTime_Picard_RK4
+- explicit comparator path: @ref MomentumSolver_Explicit_RungeKutta4
+- runtime dispatch: @ref FlowSolver
+- options ingestion: @ref CreateSimulationContext
+
+@section practical_sec 5. Practical Tuning Guidance
+
+Common stability tuning order:
+
+1. reduce initial pseudo-CFL,
+2. tighten/loosen residual-noise allowance slightly,
+3. adjust pseudo-CFL growth/reduction factors,
+4. revisit grid quality and boundary consistency if instability persists.
+
+For many cases, robust Poisson settings and sane initialization matter as much as dual-time tolerances.

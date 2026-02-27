@@ -57,3 +57,4 @@ Related pages:
 - **@subpage 38_Start_Here_10_Minutes**
 - **@subpage 14_Config_Contract**
 - **@subpage 05_The_Conductor_Script**
+- **@subpage 40_Testing_and_Quality_Guide**
