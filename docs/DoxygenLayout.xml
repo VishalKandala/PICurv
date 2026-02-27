@@ -1,5 +1,6 @@
 <doxygenlayout version="1.0">
   <navindex>
+    <tab type="mainpage" visible="no" title="PICurv Home"/>
     <tab type="user" visible="yes" url="Documentation_Map.html" title="Documentation Map"/>
     <tab type="user" visible="yes" url="06_Simulation_Anatomy.html" title="Workflow"/>
     <tab type="user" visible="yes" url="14_Config_Contract.html" title="Config Contracts"/>

@@ -23,4 +23,20 @@
   window.addEventListener("storage", function (event) {
     if (event.key === "theme") applyTheme(resolveTheme());
   });
+
+  // Make the project title act as "home" navigation without a dedicated navbar tab.
+  function wireProjectTitleHomeLink() {
+    var projectName = document.getElementById("projectname");
+    if (!projectName) return;
+    projectName.style.cursor = "pointer";
+    projectName.addEventListener("click", function () {
+      window.location.href = "index.html";
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", wireProjectTitleHomeLink);
+  } else {
+    wireProjectTitleHomeLink();
+  }
 })();
