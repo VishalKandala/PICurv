@@ -1,4 +1,4 @@
-@page 09_Monitor_Reference Configuration Reference: monitor.yml
+@page 09_Monitor_Reference Configuration Reference: Monitor YAML
 
 For the full commented template, see:
 

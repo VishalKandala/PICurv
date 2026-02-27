@@ -1,64 +1,60 @@
 @page 30_Repository_Navigation Repository Navigation and Directory Guides
 
-This page is the directory map for the repository and the corresponding `guide.md` files.
+This page is the documentation map of the repository layout.
+Use it as the single directory-guide index so internal `guide.md` files do not need to appear as standalone documentation pages.
 
 @tableofcontents
 
-@section top_nav_sec 1. Top-Level Directories
+@section top_nav_sec 1. Top-Level Repository Areas
 
-- `config/` -> `config/guide.md`
-- `docs/` -> `docs/guide.md`
-- `examples/` -> `examples/guide.md`
-- `include/` -> `include/guide.md`
-- `src/` -> `src/guide.md`
-- `scripts/` -> `scripts/guide.md`
-- `tests/` -> `tests/guide.md`
-- `sandbox/` -> `sandbox/guide.md`
-- `logs/` -> `logs/guide.md`
-- `.github/` -> `.github/guide.md`
+- Configuration library: `config/`
+- Documentation source: `docs/`
+- Runnable templates: `examples/`
+- Public headers: `include/`
+- C source implementation: `src/`
+- Automation scripts: `scripts/`
+- Tests and fixtures: `tests/`
+- Developer scratch area: `sandbox/`
+- Logs and warnings: `logs/`
+- GitHub workflow definitions: `.github/`
 
-Direct links:
-- [config/guide.md](../../config/guide.md)
-- [docs/guide.md](../guide.md)
-- [examples/guide.md](../../examples/guide.md)
-- [include/guide.md](../../include/guide.md)
-- [src/guide.md](../../src/guide.md)
-- [scripts/guide.md](../../scripts/guide.md)
-- [tests/guide.md](../../tests/guide.md)
-- [sandbox/guide.md](../../sandbox/guide.md)
-- [logs/guide.md](../../logs/guide.md)
-- [.github/guide.md](../../.github/guide.md)
+@section top_links_sec 2. Top-Level Guide Links
 
-@section config_nav_sec 2. Configuration Subdirectories
+- [Configuration Guide](https://github.com/VishalKandala/PICurv/blob/main/config/guide.md)
+- [Documentation Guide](https://github.com/VishalKandala/PICurv/blob/main/docs/guide.md)
+- [Examples Guide](https://github.com/VishalKandala/PICurv/blob/main/examples/guide.md)
+- [Include Guide](https://github.com/VishalKandala/PICurv/blob/main/include/guide.md)
+- [Source Guide](https://github.com/VishalKandala/PICurv/blob/main/src/guide.md)
+- [Scripts Guide](https://github.com/VishalKandala/PICurv/blob/main/scripts/guide.md)
+- [Tests Guide](https://github.com/VishalKandala/PICurv/blob/main/tests/guide.md)
+- [Sandbox Guide](https://github.com/VishalKandala/PICurv/blob/main/sandbox/guide.md)
+- [Logs Guide](https://github.com/VishalKandala/PICurv/blob/main/logs/guide.md)
+- [GitHub Workflows Guide](https://github.com/VishalKandala/PICurv/blob/main/.github/guide.md)
 
-- `config/build/guide.md`: build-system configuration fragments
-- `config/grids/guide.md`: reusable `grid.gen` profiles
-- `config/monitors/guide.md`: monitor profile library
-- `config/solvers/guide.md`: solver profile library
-- `config/postprocessors/guide.md`: post profile library
-- `config/schedulers/guide.md`: cluster scheduler profiles (`cluster.yml`)
-- `config/studies/guide.md`: reusable study/sweep definitions (`study.yml`)
+@section config_nav_sec 3. Configuration Subdirectory Guides
 
-Direct links:
-- [config/build/guide.md](../../config/build/guide.md)
-- [config/grids/guide.md](../../config/grids/guide.md)
-- [config/monitors/guide.md](../../config/monitors/guide.md)
-- [config/solvers/guide.md](../../config/solvers/guide.md)
-- [config/postprocessors/guide.md](../../config/postprocessors/guide.md)
-- [config/schedulers/guide.md](../../config/schedulers/guide.md)
-- [config/studies/guide.md](../../config/studies/guide.md)
+- [Build Config Guide](https://github.com/VishalKandala/PICurv/blob/main/config/build/guide.md)
+- [Grid Config Library Guide](https://github.com/VishalKandala/PICurv/blob/main/config/grids/guide.md)
+- [Monitor Profiles Guide](https://github.com/VishalKandala/PICurv/blob/main/config/monitors/guide.md)
+- [Solver Profiles Guide](https://github.com/VishalKandala/PICurv/blob/main/config/solvers/guide.md)
+- [Postprocessor Profiles Guide](https://github.com/VishalKandala/PICurv/blob/main/config/postprocessors/guide.md)
+- [Scheduler Profiles Guide](https://github.com/VishalKandala/PICurv/blob/main/config/schedulers/guide.md)
+- [Study Config Guide](https://github.com/VishalKandala/PICurv/blob/main/config/studies/guide.md)
 
-@section docs_nav_sec 3. Documentation Subdirectories
+@section docs_nav_sec 4. Documentation-Local Guides
 
-- `docs/pages/guide.md`: authored Doxygen pages (`@page`)
-- `docs/assets/guide.md`: image and GIF assets for docs
+- [Pages Authoring Guide](https://github.com/VishalKandala/PICurv/blob/main/docs/pages/guide.md)
+- [Assets Guide](https://github.com/VishalKandala/PICurv/blob/main/docs/assets/guide.md)
 
-Direct links:
-- [docs/pages/guide.md](guide.md)
-- [docs/assets/guide.md](../assets/guide.md)
+@section usage_sec 5. Documentation Organization Rules
 
-@section usage_sec 4. Usage Convention
+1. Repository-level conceptual docs should live in `docs/pages/` as `@page` entries.
+2. Directory orientation notes should live in local `guide.md` files.
+3. Directory guides are indexed from this page, not promoted to top-level docs navigation.
+4. When adding a major new directory, add a `guide.md` and add a link here.
 
-- Keep only one repository-level `README.md` at project root.
-- Use `guide.md` for all internal directory-level orientation notes.
-- When adding a new top-level or major subdirectory, add/update its `guide.md` and link it here.
+@section related_sec 6. Related Documentation
+
+- **@subpage 41_Getting_Started_Index**
+- **@subpage 42_User_Guide_Index**
+- **@subpage 43_Developer_Portal_Index**

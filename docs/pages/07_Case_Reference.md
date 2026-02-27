@@ -1,4 +1,4 @@
-@page 07_Case_Reference Configuration Reference: case.yml
+@page 07_Case_Reference Configuration Reference: Case YAML
 
 For the full commented template, see:
 

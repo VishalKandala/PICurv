@@ -1,16 +1,9 @@
 <doxygenlayout version="1.0">
   <navindex>
     <tab type="mainpage" visible="yes" title="PICurv Home"/>
-
-    <tab type="user" visible="yes" title="Getting Started" url="@ref 41_Getting_Started_Index"/>
-    <tab type="user" visible="yes" title="User Guide" url="@ref 42_User_Guide_Index"/>
-    <tab type="user" visible="yes" title="Developer Portal" url="@ref 43_Developer_Portal_Index"/>
-
-    <tab type="pages" visible="no" title="All Pages"/>
-
+    <tab type="pages" visible="yes" title="Documentation"/>
     <tab type="modules" visible="yes" title="API Reference" intro="The complete C API."/>
-    <tab type="files" visible="no" title="File List"/>
-    <tab type="classes" visible="no" title="Data Structures"/>
-
+    <tab type="files" visible="yes" title="File List"/>
+    <tab type="classes" visible="yes" title="Data Structures"/>
   </navindex>
 </doxygenlayout>
