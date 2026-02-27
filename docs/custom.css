@@ -20,8 +20,8 @@
   :root {
     --pic-bg: #1c1c1d;
     --pic-card-bg: #212529;
-    --pic-text: #e5e7eb;
-    --pic-muted: #b4bcc4;
+    --pic-text: #d0d7de;
+    --pic-muted: #9aa6b2;
     --pic-link: #1f738a;
     --pic-link-hover: #2a88a3;
     --pic-accent: #1f738a;
@@ -36,8 +36,8 @@
 html[data-theme="dark"] {
   --pic-bg: #1c1c1d;
   --pic-card-bg: #212529;
-  --pic-text: #e5e7eb;
-  --pic-muted: #b4bcc4;
+  --pic-text: #d0d7de;
+  --pic-muted: #9aa6b2;
   --pic-link: #1f738a;
   --pic-link-hover: #2a88a3;
   --pic-accent: #1f738a;
@@ -478,6 +478,25 @@ dl.reflist dt {
 dl.reflist dd {
   box-shadow: none !important;
   background-image: none !important;
+}
+
+/* Harden contrast for generated API blocks in dark mode. */
+html[data-theme="dark"] .memtitle,
+html[data-theme="dark"] .memproto,
+html[data-theme="dark"] .memdoc,
+html[data-theme="dark"] .mdescLeft,
+html[data-theme="dark"] .mdescRight,
+html[data-theme="dark"] .memItemLeft,
+html[data-theme="dark"] .memItemRight,
+html[data-theme="dark"] .memTemplItemLeft,
+html[data-theme="dark"] .memTemplItemRight,
+html[data-theme="dark"] .memTemplParams,
+html[data-theme="dark"] table.memberdecls td,
+html[data-theme="dark"] table.fieldtable td,
+html[data-theme="dark"] table.fieldtable th {
+  background: var(--pic-card-bg) !important;
+  color: var(--pic-text) !important;
+  border-color: var(--pic-border) !important;
 }
 
 .line.glow,

@@ -14,7 +14,11 @@ The user workflow is configuration-first: YAML inputs are validated and translat
 
 @section get_started_main Documentation Entry Points (Structural)
 
-Use the structural map first, then jump by artifact type:
+Start here first:
+
+- **@subpage 41_Getting_Started_Index**: fast first-run path for installation, first case setup, validation, and first outputs.
+
+Then use the structural map and reference pages:
 
 - **@subpage Documentation_Map**: complete categorized index by workflow, artifact, and runtime layer.
 - **@subpage 06_Simulation_Anatomy**: end-to-end run structure and generated artifacts.
