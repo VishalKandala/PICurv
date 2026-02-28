@@ -90,7 +90,15 @@ Load your `Particle..vtp` time series (if present) to visualize the Lagrangian p
 - If particles were disabled in solver or post (`output_particles: false`), absence of `.vtp` files is expected.
 - Statistics pipeline outputs (e.g., MSD CSV) are analysis files, not ParaView geometry files.
 
-@image html assets/paraview_flat_channel.png "Example ParaView output from a channel case" width=700px
+@htmlonly
+<div style="text-align:center; margin:1rem 0;">
+  <img
+    src="assets/paraview_flat_channel.png"
+    alt="Example ParaView output from a channel case"
+    style="width:100%; max-width:700px; height:auto; display:inline-block;"
+  />
+</div>
+@endhtmlonly
 
 @section next_steps_sec 6. Next Steps
 

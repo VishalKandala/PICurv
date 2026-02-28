@@ -729,6 +729,7 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
     @throws SystemExit on validation failure.
     """
     errors = []
+    warnings = []
 
     # --- case.yml: required top-level sections ---
     required_case_sections = ['properties', 'run_control', 'grid', 'models', 'boundary_conditions']
@@ -742,8 +743,7 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
     # --- case.yml: properties sub-keys ---
     props = case_cfg.get('properties', {})
     for group, keys in [('scaling', ['length_ref', 'velocity_ref']),
-                        ('fluid', ['density', 'viscosity']),
-                        ('initial_conditions', ['u_physical', 'v_physical', 'w_physical'])]:
+                        ('fluid', ['density', 'viscosity'])]:
         sub = props.get(group, {})
         if not sub:
             errors.append(f"  {case_path}: missing 'properties.{group}' section.")
@@ -751,11 +751,6 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             for k in keys:
                 if k not in sub:
                     errors.append(f"  {case_path}: missing key 'properties.{group}.{k}'.")
-            if group == 'initial_conditions' and 'mode' in sub:
-                try:
-                    normalize_field_init_mode(sub.get('mode'))
-                except ValueError as e:
-                    errors.append(f"  {case_path}: {e}")
 
     # --- case.yml: run_control sub-keys ---
     rc = case_cfg.get('run_control', {})
@@ -831,10 +826,35 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                 errors.append(f"  {case_path}: grid.generator.cli_args must be a list of CLI tokens.")
 
     # --- case.yml: boundary_conditions strict validation ---
+    prepared_blocks = None
     try:
-        validate_and_prepare_boundary_conditions(case_cfg)
+        prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
     except ValueError as e:
         errors.append(f"  {case_path}: {e}")
+
+    # --- case.yml: initial_conditions mode-aware validation ---
+    ic = props.get('initial_conditions', {})
+    if not ic:
+        errors.append(f"  {case_path}: missing 'properties.initial_conditions' section.")
+    elif not isinstance(ic, dict):
+        errors.append(f"  {case_path}: 'properties.initial_conditions' must be a mapping.")
+    elif 'mode' not in ic:
+        errors.append(
+            f"  {case_path}: missing key 'properties.initial_conditions.mode'. "
+            "Specify 'Zero', 'Constant', or 'Poiseuille' explicitly."
+        )
+    else:
+        try:
+            finit_code = normalize_field_init_mode(ic['mode'])
+        except ValueError as e:
+            errors.append(f"  {case_path}: {e}")
+        else:
+            try:
+                resolve_initial_velocity_components(ic, finit_code, prepared_blocks=prepared_blocks)
+            except KeyError as e:
+                errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
+            except ValueError as e:
+                errors.append(f"  {case_path}: {e}")
 
     # --- case.yml: particle initialization validation ---
     particles_cfg = case_cfg.get('models', {}).get('physics', {}).get('particles', {})
@@ -853,6 +873,18 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             errors.append(
                 f"  {case_path}: models.physics.particles.restart_mode must be 'init' or 'load' (got '{restart_mode}')."
             )
+        elif 'restart_mode' not in particles_cfg:
+            try:
+                start_step = int(rc.get('start_step', 0))
+                particle_count = int(particles_cfg.get('count', 0) or 0)
+            except (TypeError, ValueError):
+                start_step = 0
+                particle_count = 0
+            if start_step > 0 and particle_count > 0:
+                warnings.append(
+                    f"{case_path}: models.physics.particles.restart_mode is omitted for a particle restart "
+                    "(run_control.start_step > 0, count > 0). C will default to 'load'."
+                )
 
         if pinit_code == 2:
             point_cfg = particles_cfg.get('point_source', {})
@@ -884,12 +916,37 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                 errors.append(f"  {solver_path}: {e}")
 
         op_mode_cfg = solver_cfg.get('operation_mode', {})
+        eulerian_source_mode = "solve"
         if op_mode_cfg is not None and not isinstance(op_mode_cfg, dict):
             errors.append(f"  {solver_path}: 'operation_mode' must be a mapping when provided.")
         elif isinstance(op_mode_cfg, dict):
+            if 'eulerian_field_source' in op_mode_cfg:
+                try:
+                    eulerian_source_mode = normalize_eulerian_field_source(op_mode_cfg.get('eulerian_field_source'))
+                except ValueError as e:
+                    errors.append(f"  {solver_path}: {e}")
+
             analytical_type = op_mode_cfg.get('analytical_type')
-            if analytical_type is not None and not isinstance(analytical_type, str):
-                errors.append(f"  {solver_path}: 'operation_mode.analytical_type' must be a string when provided.")
+            if analytical_type is not None:
+                try:
+                    normalize_analytical_type(analytical_type)
+                except ValueError as e:
+                    errors.append(f"  {solver_path}: {e}")
+
+            if eulerian_source_mode == "analytical":
+                if grid_mode != 'programmatic_c':
+                    errors.append(
+                        f"  {case_path}: grid.mode '{grid_mode}' is not supported when "
+                        "operation_mode.eulerian_field_source is 'analytical'. "
+                        "The current C analytical path consumes only grid.mode = 'programmatic_c'."
+                    )
+                elif isinstance(grid_cfg.get('programmatic_settings'), dict):
+                    missing_dims = [key for key in ('im', 'jm', 'km') if key not in grid_cfg['programmatic_settings']]
+                    if missing_dims:
+                        errors.append(
+                            f"  {case_path}: grid.programmatic_settings must include {missing_dims} when "
+                            "operation_mode.eulerian_field_source is 'analytical'."
+                        )
 
         ms_cfg = solver_cfg.get('momentum_solver', {})
         if ms_cfg is not None and not isinstance(ms_cfg, dict):
@@ -980,6 +1037,8 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
 
     if errors:
         _print_validation_errors(errors)
+    for warning in warnings:
+        print(f"[WARN] {warning}", file=sys.stderr)
 
 
 def validate_post_config(post_cfg: dict, post_path: str):
@@ -1595,6 +1654,163 @@ def normalize_field_init_mode(value: str) -> int:
         )
     return mapped
 
+def normalize_eulerian_field_source(value: str) -> str:
+    """!
+    @brief Normalizes the Eulerian field source selector to the C-side canonical string.
+    @param[in] value Human-readable or enum-like Eulerian field source.
+    @return Canonical string accepted by `-euler_field_source`.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if value is None:
+        raise ValueError("eulerian_field_source cannot be None")
+
+    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "solve": "solve",
+        "load": "load",
+        "analytical": "analytical",
+    }
+    mapped = aliases.get(normalized)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown operation_mode.eulerian_field_source '{value}'. "
+            "Use one of: 'solve', 'load', 'analytical'."
+        )
+    return mapped
+
+def normalize_analytical_type(value: str) -> str:
+    """!
+    @brief Normalizes the analytical solution selector to the C-side canonical string.
+    @param[in] value Human-readable analytical solution selector.
+    @return Canonical string accepted by `-analytical_type`.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if value is None:
+        raise ValueError("analytical_type cannot be None")
+
+    normalized = str(value).strip().upper().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "TGV3D": "TGV3D",
+        "ZERO_FLOW": "ZERO_FLOW",
+        "ZEROFLOW": "ZERO_FLOW",
+    }
+    mapped = aliases.get(normalized)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown operation_mode.analytical_type '{value}'. "
+            "Use one of: 'TGV3D', 'ZERO_FLOW'."
+        )
+    return mapped
+
+def parse_initial_velocity_components(initial_conditions: dict, finit_code: int, *, require_explicit: bool) -> tuple[float, float, float]:
+    """!
+    @brief Parse initial-condition velocity components with mode-aware defaults.
+    @param[in] initial_conditions The `properties.initial_conditions` mapping from case.yml.
+    @param[in] finit_code Normalized `-finit` integer code.
+    @param[in] require_explicit If True, all three component keys must be present.
+    @return Tuple `(u, v, w)` in physical units.
+    @throws KeyError if a required component key is missing.
+    @throws ValueError if a component cannot be converted to float.
+    """
+    component_keys = ("u_physical", "v_physical", "w_physical")
+    components = []
+    for key in component_keys:
+        if key not in initial_conditions:
+            if require_explicit:
+                raise KeyError(key)
+            raw_value = 0.0
+        else:
+            raw_value = initial_conditions[key]
+        try:
+            components.append(float(raw_value))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid value for properties.initial_conditions.{key}: {raw_value!r}. Expected a numeric value."
+            ) from exc
+    return tuple(components)
+
+def infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks: list) -> str | None:
+    """!
+    @brief Infer the unique inlet axis across all blocks using C-side "primary inlet" ordering.
+    @param[in] prepared_blocks Normalized BC blocks from `validate_and_prepare_boundary_conditions`.
+    @return One of `"x"`, `"y"`, `"z"` if unique, `None` if no inlet exists.
+    @throws ValueError if different blocks imply different inlet axes.
+    """
+    face_order = ("-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta")
+    face_axis = {
+        "-Xi": "x", "+Xi": "x",
+        "-Eta": "y", "+Eta": "y",
+        "-Zeta": "z", "+Zeta": "z",
+    }
+
+    inlet_axes = set()
+    for block_bcs in prepared_blocks:
+        face_map = {entry["face"]: entry for entry in block_bcs}
+        for face in face_order:
+            entry = face_map.get(face)
+            if entry and entry["type"] == "INLET":
+                inlet_axes.add(face_axis[face])
+                break
+
+    if not inlet_axes:
+        return None
+    if len(inlet_axes) != 1:
+        raise ValueError(
+            "properties.initial_conditions.peak_velocity_physical requires all blocks to have a primary INLET "
+            f"on the same axis. Found axes: {sorted(inlet_axes)}. Use u_physical/v_physical/w_physical instead."
+        )
+    return next(iter(inlet_axes))
+
+def resolve_initial_velocity_components(initial_conditions: dict, finit_code: int, *, prepared_blocks: list | None = None) -> tuple[float, float, float]:
+    """!
+    @brief Resolve initial-condition velocity inputs to `(u, v, w)` physical components.
+    @param[in] initial_conditions The `properties.initial_conditions` mapping from case.yml.
+    @param[in] finit_code Normalized `-finit` integer code.
+    @param[in] prepared_blocks Optional normalized BC blocks, required for scalar Poiseuille peak velocity.
+    @return Tuple `(u, v, w)` in physical units.
+    @throws KeyError if required explicit component keys are missing.
+    @throws ValueError on invalid combinations or invalid scalar values.
+    """
+    peak_key = "peak_velocity_physical"
+    has_peak_velocity = peak_key in initial_conditions
+
+    if has_peak_velocity and finit_code != 2:
+        raise ValueError(
+            "properties.initial_conditions.peak_velocity_physical is only valid when initial_conditions.mode is 'Poiseuille'."
+        )
+
+    if finit_code == 2 and has_peak_velocity:
+        component_keys = ("u_physical", "v_physical", "w_physical")
+        if any(key in initial_conditions for key in component_keys):
+            raise ValueError(
+                "For Poiseuille mode, use either peak_velocity_physical or u_physical/v_physical/w_physical, not both."
+            )
+        try:
+            peak_velocity = float(initial_conditions[peak_key])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid value for properties.initial_conditions.{peak_key}: {initial_conditions[peak_key]!r}. "
+                "Expected a numeric value."
+            ) from exc
+
+        if prepared_blocks is None:
+            raise ValueError(
+                "properties.initial_conditions.peak_velocity_physical requires valid boundary_conditions so the inlet axis can be inferred."
+            )
+
+        inlet_axis = infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks)
+        if inlet_axis is None:
+            raise ValueError(
+                "properties.initial_conditions.peak_velocity_physical requires at least one INLET face so the inlet axis can be inferred."
+            )
+        if inlet_axis == "x":
+            return (peak_velocity, 0.0, 0.0)
+        if inlet_axis == "y":
+            return (0.0, peak_velocity, 0.0)
+        return (0.0, 0.0, peak_velocity)
+
+    return parse_initial_velocity_components(initial_conditions, finit_code, require_explicit=(finit_code != 0))
+
 def normalize_particle_init_mode(value: str) -> int:
     """!
     @brief Normalizes particle init mode names to C enum/int codes (-pinit).
@@ -1712,9 +1928,11 @@ def parse_solver_config(solver_cfg: dict) -> dict:
     if 'operation_mode' in solver_cfg and isinstance(solver_cfg['operation_mode'], dict):
         op_mode = solver_cfg['operation_mode']
         if 'eulerian_field_source' in op_mode:
-            flags['-euler_field_source'] = f"\"{op_mode.get('eulerian_field_source', 'solve')}\""
+            normalized_source = normalize_eulerian_field_source(op_mode.get('eulerian_field_source'))
+            flags['-euler_field_source'] = f"\"{normalized_source}\""
         if 'analytical_type' in op_mode and op_mode.get('analytical_type') is not None:
-            flags['-analytical_type'] = f"\"{op_mode.get('analytical_type')}\""
+            normalized_analytical_type = normalize_analytical_type(op_mode.get('analytical_type'))
+            flags['-analytical_type'] = f"\"{normalized_analytical_type}\""
 
     selected_solver = None
     if 'strategy' in solver_cfg:
@@ -1834,14 +2052,15 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     try:
         props, run_ctrl = case_cfg['properties'], case_cfg['run_control']
         scales, fluid, ic = props['scaling'], props['fluid'], props['initial_conditions']
+        prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
         L_ref, U_ref, rho, mu = float(scales['length_ref']), float(scales['velocity_ref']), float(fluid['density']), float(fluid['viscosity'])
         reynolds = (rho * U_ref * L_ref) / mu if mu != 0 else float('inf')
         dt_phys = float(run_ctrl['dt_physical'])
         T_ref = L_ref / U_ref if U_ref != 0 else float('inf')
         dt_nondim = dt_phys / T_ref if T_ref != float('inf') else 0.0
-        u, v, w = float(ic['u_physical']), float(ic['v_physical']), float(ic['w_physical'])
-        finit_mode_str = ic.get('mode', 'Constant')
+        finit_mode_str = ic['mode']
         finit_code = normalize_field_init_mode(finit_mode_str)
+        u, v, w = resolve_initial_velocity_components(ic, finit_code, prepared_blocks=prepared_blocks)
         print(f"  - Reynolds Number (Re) = {reynolds:.4f}")
         print(f"  - Non-Dimensional dt*  = {dt_nondim:.6f}")
         print(f"  - Field Initialization Mode: {finit_mode_str} (Code: {finit_code})")

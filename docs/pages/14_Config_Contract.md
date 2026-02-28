@@ -1,6 +1,7 @@
 @page 14_Config_Contract Configuration Contract (YAML -> Generated Artifacts -> Runtime)
 
 This page is the user-facing source of truth for the configuration contract implemented by `pic.flow`.
+It describes the launcher-level contract, which may be stricter or more explicit than the raw C defaults because `pic.flow` validates and normalizes inputs before runtime.
 
 @tableofcontents
 
@@ -20,6 +21,15 @@ This page is the user-facing source of truth for the configuration contract impl
 
 You can name files however you want. File names are not hardcoded on the C side; `pic.flow` resolves paths and emits generated artifacts.
 
+These roles are intentionally modular:
+
+- `case.yml` describes physical setup and geometry contract.
+- `solver.yml` describes numerical strategy.
+- `monitor.yml` describes logging and I/O behavior.
+- `post.yml` describes post-processing outputs.
+
+In normal use, you reuse and mix these files instead of cloning one monolithic config for every run.
+
 @section artifacts_sec 2. Generated Artifacts
 
 For each run, `pic.flow` generates:
@@ -37,6 +47,11 @@ For each run, `pic.flow` generates:
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block MPI decomposition is not currently supported.
 - `boundary_conditions` supports single-block list or multi-block list-of-lists.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
+- `properties.initial_conditions.mode` is required explicitly by the launcher.
+- `properties.initial_conditions.mode: Zero` may omit velocity components.
+- `properties.initial_conditions.mode: Poiseuille` supports:
+  - `peak_velocity_physical` (preferred scalar centerline speed), or
+  - `u_physical/v_physical/w_physical` (legacy explicit component form).
 
 @section solver_sec 4. Solver Contract Highlights
 
@@ -45,6 +60,11 @@ For each run, `pic.flow` generates:
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
 - Solver-specific block support currently includes `momentum_solver.dual_time_picard_rk4`.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.
+
+Analytical-mode compatibility rule:
+
+- when `operation_mode.eulerian_field_source: analytical` is selected, the current launcher contract requires `case.yml -> grid.mode: programmatic_c`.
+- this reflects the current C analytical ingestion path, which does not consume `file`/`grid_gen` geometry in the standard way.
 
 @section monitor_sec 5. Monitor Contract Highlights
 
@@ -109,6 +129,18 @@ For each run, `pic.flow` generates:
   - `solver.petsc_passthrough_options`
   - `monitor.solver_monitoring`
 - Default post input/output extension is `dat` unless overridden.
-- Missing optional keys preserve existing C defaults.
+
+Launcher defaults vs C defaults:
+
+- some omitted keys intentionally preserve C defaults,
+- some omitted keys are now rejected because the launcher requires explicit selection,
+- some omissions produce warnings because the launcher knows the downstream C fallback is important.
+
+Examples:
+
+- omitting `properties.initial_conditions.mode` is rejected at the launcher level,
+- omitting velocity components for `mode: Zero` is accepted and defaults to zero,
+- omitting `models.physics.particles.restart_mode` on a particle restart emits a warning that C will default to `load`.
 
 For workflow growth patterns (grid generation orchestration, multi-run studies, and ML coupling paths), see **@subpage 17_Workflow_Extensibility**.
+For worked examples and profile-composition patterns, see **@subpage 49_Workflow_Recipes_and_Config_Cookbook**.

@@ -28,6 +28,15 @@ properties:
     w_physical: 0.0
 ```
 
+Preferred Poiseuille form:
+
+```yaml
+properties:
+  initial_conditions:
+    mode: "Poiseuille"
+    peak_velocity_physical: 1.5
+```
+
 `pic.flow` mapping:
 
 - `mode` -> `-finit` via `normalize_field_init_mode`:
@@ -35,6 +44,17 @@ properties:
   - `Constant` (or `1`) -> `1`
   - `Poiseuille` (or `2`) -> `2`
 - `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z` after non-dimensionalization by `U_ref`.
+- `peak_velocity_physical` (Poiseuille only) -> `pic.flow` infers the unique inlet axis from `boundary_conditions` and maps the scalar peak speed onto the matching `-ucont_*` component.
+
+Launcher-side contract:
+
+- `mode` should be set explicitly.
+- for `Zero`, velocity components may be omitted and default to zero.
+- for `Constant`, explicit component values are required.
+- for `Poiseuille`, use either:
+  - `peak_velocity_physical`, or
+  - `u_physical/v_physical/w_physical`
+  but not both in the same block.
 
 C-side entry points:
 
@@ -59,6 +79,9 @@ C-side entry points:
 - computes a separable parabolic profile using index-space normalized cross-stream coordinates,
 - applies profile in the two cross-stream directions,
 - clamps small negative roundoff to zero.
+- treats the inlet-aligned input component as the profile peak (`Vmax` / centerline speed), not bulk-average velocity.
+
+This means `peak_velocity_physical` is the clearest user-facing representation for Poiseuille mode.
 
 @section euler_formula_sec 4. Contravariant Initialization Note
 
@@ -104,13 +127,16 @@ After startup, confirm:
 Common pitfalls:
 
 - using `Poiseuille` in strongly non-rectangular topology and expecting textbook cylindrical profile,
+- supplying a bulk/mean velocity to Poiseuille mode when the current implementation expects `Vmax`,
 - forgetting that initialization sets interior only; boundary handlers then overwrite face behavior,
 - comparing `u_physical` directly to `Ucont` without accounting for metric-face scaling.
 
 @section refs_sec 8. Related Pages
 
 - **@subpage 07_Case_Reference**
+- **@subpage 14_Config_Contract**
 - **@subpage 32_Analytical_Solutions**
+- **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 44_Boundary_Conditions_Guide**
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 34_Particle_Model_Overview**

@@ -58,6 +58,154 @@ def test_validate_valid_configs_pass():
     assert "[SUCCESS] Validation completed" in result.stdout
 
 
+def test_validate_zero_mode_case_allows_omitting_velocity_components(tmp_path):
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_zero.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace(
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
+        '    mode: "Zero"\n',
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_pic_flow(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 0
+    assert "[SUCCESS] Validation completed" in result.stdout
+
+
+def test_validate_poiseuille_peak_velocity_option_passes_with_unique_inlet_axis(tmp_path):
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_poiseuille_peak.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace(
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
+        '    mode: "Poiseuille"\n    peak_velocity_physical: 1.25\n',
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_pic_flow(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 0
+    assert "[SUCCESS] Validation completed" in result.stdout
+
+
+def test_validate_initial_condition_mode_must_be_explicit(tmp_path):
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_missing_mode.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace('    mode: "Constant"\n', "")
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_pic_flow(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "properties.initial_conditions.mode" in result.stderr
+
+
+def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_file_grid.yml"
+    solver_path = tmp_path / "solver_analytical.yml"
+
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace(
+        """grid:
+  mode: programmatic_c
+  programmatic_settings:
+    im: 8
+    jm: 8
+    km: 16
+    xMins: 0.0
+    xMaxs: 1.0
+    yMins: 0.0
+    yMaxs: 1.0
+    zMins: 0.0
+    zMaxs: 4.0
+    rxs: 1.0
+    rys: 1.0
+    rzs: 1.0
+    cgrids: 0
+""",
+        f"""grid:\n  mode: file\n  source_file: "{valid / 'case.yml'}"\n""",
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    solver_text = (valid / "solver.yml").read_text(encoding="utf-8")
+    solver_text = solver_text.replace('  eulerian_field_source: "solve"\n', '  eulerian_field_source: "analytical"\n')
+    solver_path.write_text(solver_text, encoding="utf-8")
+
+    result = run_pic_flow(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "grid.mode" in result.stderr
+    assert "programmatic_c" in result.stderr
+
+
+def test_validate_particle_restart_mode_omission_warns_on_restart(tmp_path):
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_restart_warn.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace("  start_step: 0\n", "  start_step: 5\n")
+    case_text = case_text.replace("      count: 0\n", "      count: 10\n")
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_pic_flow(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 0
+    assert "default to 'load'" in result.stderr
+
+
 def test_validate_invalid_case_reports_structured_error():
     valid = FIXTURES / "valid"
     invalid = FIXTURES / "invalid"

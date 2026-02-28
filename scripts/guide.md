@@ -17,6 +17,8 @@ This directory contains Python automation and utility scripts used for build/run
   - `./scripts/pic.flow run ...`
 - study orchestration:
   - `./scripts/pic.flow sweep --study ... --cluster ...`
+- direct grid generation:
+  - `python3 scripts/grid.gen --config config/grids/coarse_square_tube_curved.cfg pipe`
 
 ## Maintenance Rules
 
@@ -27,5 +29,7 @@ This directory contains Python automation and utility scripts used for build/run
 ## Related Docs
 
 - https://vishalkandala.me/picurv-docs/05_The_Conductor_Script.html
+- https://vishalkandala.me/picurv-docs/48_Grid_Generator_Guide.html
 - https://vishalkandala.me/picurv-docs/15_Config_Ingestion_Map.html
+- https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
 - `tests/guide.md`

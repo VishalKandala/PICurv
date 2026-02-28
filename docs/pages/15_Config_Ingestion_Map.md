@@ -58,7 +58,26 @@ These keys are consumed by `pic.flow` orchestration only:
 - `KSPSetFromOptions` in `src/poisson.c` ingests prefixed PETSc options dynamically.
 - `LOG_LEVEL` is environment-driven (`src/logging.c`) and intentionally outside control-file parsing.
 
-@section maintenance_sec 5. Drift Prevention
+@section mode_dependent_sec 5. Mode-Dependent Normalization in `pic.flow`
+
+Some launcher behaviors depend on other config selections before values ever reach C:
+
+- `case.properties.initial_conditions.mode: Zero`
+  allows `u_physical`, `v_physical`, and `w_physical` to be omitted; `pic.flow` writes zeros.
+- `case.properties.initial_conditions.mode: Poiseuille`
+  accepts `peak_velocity_physical` as the preferred YAML input and maps it to the inlet-aligned
+  `-ucont_*` component that C later interprets as `Vmax`.
+- `solver.operation_mode.eulerian_field_source: analytical`
+  currently requires `case.grid.mode: programmatic_c` at launcher validation time because the
+  active C ingestion path for analytical runs does not consume file/grid-gen geometry in the same
+  way as standard solve mode.
+- `case.properties.initial_conditions.mode`
+  is now an explicit launcher requirement even though raw C has its own internal default.
+
+This means the YAML contract is intentionally stricter than "whatever C would do with missing
+options" in several places.
+
+@section maintenance_sec 6. Drift Prevention
 
 - Use `scripts/audit_ingress.py` to compare PETSc option ingress in `setup.c/io.c` with the maintained manifest.
 - Keep this map and the manifest updated whenever new options are introduced.

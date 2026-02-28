@@ -49,6 +49,11 @@ To use another grid:
 3. Re-run.
 
 For generated grids, you can also switch case to `grid.mode: grid_gen` and configure `grid.generator`.
+This makes `bent_channel.yml` a useful bridge case when comparing:
+
+- fixed file-based geometry (`grid.mode: file`),
+- generated file staging (`grid.mode: grid_gen`),
+- shared solver/monitor/post profiles across both approaches.
 
 ## 5. Output Check
 
@@ -80,3 +85,4 @@ Timestep sensitivity sweep:
 - https://vishalkandala.me/picurv-docs/03_Tutorial_File-Based_Grid.html
 - https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
 - https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
+- https://vishalkandala.me/picurv-docs/48_Grid_Generator_Guide.html
