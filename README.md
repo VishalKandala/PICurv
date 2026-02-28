@@ -40,6 +40,9 @@ export PETSC_ARCH=arch-linux-c-debug
 ./scripts/pic.flow init flat_channel --dest my_case
 ```
 
+`pic.flow` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
+You can reuse and recombine them instead of rewriting a monolithic config for every run.
+
 4. Validate configs (no run yet):
 ```bash
 ./scripts/pic.flow validate \
@@ -141,8 +144,10 @@ Detailed guide:
 - 10-minute start: https://vishalkandala.me/picurv-docs/38_Start_Here_10_Minutes.html
 - Installation guide: https://vishalkandala.me/picurv-docs/01_Installation.html
 - Conductor CLI: https://vishalkandala.me/picurv-docs/05_The_Conductor_Script.html
+- Workflow recipes and config cookbook: https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
 - Config contract: https://vishalkandala.me/picurv-docs/14_Config_Contract.html
 - Config ingestion map: https://vishalkandala.me/picurv-docs/15_Config_Ingestion_Map.html
+- Grid generator guide: https://vishalkandala.me/picurv-docs/48_Grid_Generator_Guide.html
 - Extension playbook: https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html
 - Cluster guide: https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
 - Sweep guide: https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html

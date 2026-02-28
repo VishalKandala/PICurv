@@ -16,12 +16,14 @@ Use this page instead of the raw generated page dump.
 - **@subpage 08_Solver_Reference**
 - **@subpage 09_Monitor_Reference**
 - **@subpage 10_Post_Processing_Reference**
+- **@subpage 48_Grid_Generator_Guide**
 - **@subpage 44_Boundary_Conditions_Guide**
 - **@subpage 45_Particle_Initialization_and_Restart**
 
 @subsection lifecycle_run_sec 1.2 Run and Monitor
 
 - **@subpage 05_The_Conductor_Script**
+- **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 06_Simulation_Anatomy**
 - **@subpage 36_Cluster_Run_Guide**
 - **@subpage 37_Sweep_Studies_Guide**
@@ -41,6 +43,8 @@ Use this page instead of the raw generated page dump.
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 17_Workflow_Extensibility**
+- **@subpage 48_Grid_Generator_Guide**
+- **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 
 @subsection artifact_runtime_sec 2.2 Runtime and Artifacts
 

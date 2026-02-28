@@ -16,11 +16,13 @@ Use these as schema references, then copy only needed sections into runnable cas
 
 1. start from template relevant to your role,
 2. trim to minimum required fields,
-3. validate with `pic.flow validate`,
-4. run with `pic.flow run` or `pic.flow sweep`.
+3. keep each role modular instead of merging everything into one custom bundle,
+4. validate with `pic.flow validate`,
+5. run with `pic.flow run` or `pic.flow sweep`.
 
 ## Related Docs
 
 - `master_template.md`
 - https://vishalkandala.me/picurv-docs/14_Config_Contract.html
 - https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html
+- https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html

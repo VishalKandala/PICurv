@@ -1,0 +1,177 @@
+@page 49_Workflow_Recipes_and_Config_Cookbook Workflow Recipes and Config Cookbook
+
+This page is the practical companion to the reference docs.
+Use it when you already understand the config roles and want proven patterns for combining them cleanly.
+
+@tableofcontents
+
+@section idea_sec 1. Core Workflow Idea
+
+PICurv is designed around modular config roles:
+
+- `case.yml`: physics, grid, BCs, run duration
+- `solver.yml`: numerical strategy
+- `monitor.yml`: logging, output cadence, directories
+- `post.yml`: analysis recipe
+- optional `cluster.yml`: scheduler policy
+- optional `study.yml`: parameter sweep definition
+
+The intended UX is:
+
+- keep each file focused on one concern,
+- reuse stable profiles across many runs,
+- only clone and specialize the roles that actually changed.
+
+@section combos_sec 2. Common Mix-and-Match Patterns
+
+Pattern A: same case, different monitoring
+
+- keep one trusted `case.yml`
+- pair it with a lightweight `monitor.yml` for fast iteration
+- switch to a richer `monitor.yml` for production output
+
+Pattern B: same case, different analysis
+
+- run once with a standard monitor profile
+- post-process the same run directory multiple times with different `post.yml` recipes
+
+Pattern C: same solver profile reused across many cases
+
+- keep one validated `solver.yml` for a known momentum strategy
+- pair it with multiple physical cases as long as the strategy is appropriate
+
+Pattern D: same cluster profile across many jobs
+
+- reuse one `cluster.yml` for site policy
+- vary only case/solver/monitor/post inputs
+
+@section recipes_sec 3. Command Recipes
+
+First-time local workflow:
+
+```bash
+python3 scripts/pic.flow init flat_channel --dest my_case
+python3 scripts/pic.flow validate --case my_case/flat_channel.yml --solver my_case/Imp-MG-Standard.yml --monitor my_case/Standard_Output.yml --post my_case/standard_analysis.yml
+python3 scripts/pic.flow run --solve --post-process -n 4 --case my_case/flat_channel.yml --solver my_case/Imp-MG-Standard.yml --monitor my_case/Standard_Output.yml --post my_case/standard_analysis.yml
+```
+
+Solver-only run:
+
+```bash
+python3 scripts/pic.flow run --solve -n 8 --case case.yml --solver solver.yml --monitor monitor.yml
+```
+
+Post-process an existing run with a different recipe:
+
+```bash
+python3 scripts/pic.flow run --post-process --run-dir runs/<run_id> --post alt_analysis.yml
+```
+
+Dry-run planning:
+
+```bash
+python3 scripts/pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run --format json
+```
+
+Cluster generation without submit:
+
+```bash
+python3 scripts/pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit
+```
+
+@section examples_sec 4. Example Config Combinations
+
+Programmatic baseline:
+
+- case: `examples/flat_channel/flat_channel.yml`
+- solver: `examples/flat_channel/Imp-MG-Standard.yml`
+- monitor: `examples/flat_channel/Standard_Output.yml`
+- post: `examples/flat_channel/standard_analysis.yml`
+
+File-grid baseline:
+
+- case: `examples/bent_channel/bent_channel.yml`
+- solver: `examples/bent_channel/Imp-MG-Standard.yml`
+- monitor: `examples/bent_channel/Standard_Output.yml`
+- post: `examples/bent_channel/standard_analysis.yml`
+
+Analytical zero-flow Brownian verification:
+
+- case: `examples/brownian_motion/brownian_motion.yml`
+- solver: `examples/brownian_motion/Analytical-Zero.yml`
+- monitor: `examples/brownian_motion/Standard_Output.yml`
+- post: `examples/brownian_motion/brownian_analysis.yml`
+
+These are examples, not fixed bundles.
+You can intentionally swap roles when the contract makes sense.
+
+@section config_patterns_sec 5. Configuration Patterns Worth Reusing
+
+Minimal zero-flow startup:
+
+```yaml
+properties:
+  initial_conditions:
+    mode: "Zero"
+```
+
+Poiseuille with a clear scalar input:
+
+```yaml
+properties:
+  initial_conditions:
+    mode: "Poiseuille"
+    peak_velocity_physical: 1.25
+```
+
+Generated grid workflow:
+
+```yaml
+grid:
+  mode: grid_gen
+  generator:
+    config_file: config/grids/coarse_square_tube_curved.cfg
+    grid_type: cpipe
+    cli_args: ["--ncells-i", "96", "--ncells-j", "96"]
+```
+
+Restart with explicit particle re-initialization:
+
+```yaml
+run_control:
+  start_step: 200
+
+models:
+  physics:
+    particles:
+      count: 10000
+      restart_mode: "init"
+```
+
+@section choose_sec 6. Which Example To Start From
+
+Choose `flat_channel` when:
+
+- you want the simplest first runnable case,
+- you are learning `programmatic_c`,
+- you want a clean baseline for solver/monitor/post swaps.
+
+Choose `bent_channel` when:
+
+- you need file-based curvilinear geometry,
+- you want to understand `grid.mode: file`,
+- you plan to compare against `grid_gen` later.
+
+Choose `brownian_motion` when:
+
+- you want an analytical zero-flow validation case,
+- you want a particle-focused test with minimal flow complexity,
+- you want a reference for `ZERO_FLOW` analytical mode.
+
+@section next_steps_sec 7. Related Pages
+
+- **@subpage 05_The_Conductor_Script**
+- **@subpage 07_Case_Reference**
+- **@subpage 14_Config_Contract**
+- **@subpage 48_Grid_Generator_Guide**
+- **@subpage 45_Particle_Initialization_and_Restart**

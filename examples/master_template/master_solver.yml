@@ -18,6 +18,8 @@ operation_mode:
   # 'load':  Load pre-computed field data from disk.
   eulerian_field_source: "solve"  # -> -euler_field_source
   # Optional analytical solution selector used when eulerian_field_source = "analytical".
+  # Supported values today: "TGV3D", "ZERO_FLOW".
+  # The current C analytical path expects case.yml to use grid.mode: programmatic_c.
   analytical_type: "TGV3D"        # -> -analytical_type
 
 # ==============================================================================

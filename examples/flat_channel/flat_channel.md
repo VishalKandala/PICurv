@@ -45,6 +45,13 @@ Run solve + post:
 - Grid resolution: `grid.programmatic_settings.im/jm/km`
 - Momentum strategy: `solver.strategy.momentum_solver`
 
+This example is a good base for mix-and-match reuse:
+
+- keep `flat_channel.yml` if the physical setup is still a straight structured channel,
+- swap `Standard_Output.yml` for a lighter/heavier monitor profile,
+- reuse the same solver profile with other simple laminar cases,
+- reuse the same `standard_analysis.yml` on other single-run outputs.
+
 ## 5. Cluster and Sweep Examples
 
 Single run on Slurm:
@@ -75,3 +82,4 @@ Open `runs/<run_id>/viz/Field_*.vts` in ParaView and color by `Ucat_nodal` to in
 - https://vishalkandala.me/picurv-docs/02_Tutorial_Programmatic_Grid.html
 - https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
 - https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
+- https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html

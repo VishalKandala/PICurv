@@ -5,6 +5,7 @@ For the full commented template, see:
 @verbinclude master_template/master_case.yml
 
 `case.yml` defines physical setup, grid source, domain topology, and boundary conditions.
+It is intentionally modular: the same `case.yml` can be paired with different `solver.yml`, `monitor.yml`, and `post.yml` profiles when the combination remains contract-compatible.
 
 @tableofcontents
 
@@ -31,9 +32,19 @@ Key mappings:
 - `fluid.density` and `fluid.viscosity` are used by `pic.flow` to compute Reynolds number -> `-ren`
 - `initial_conditions.mode` -> `-finit` (`Zero`, `Constant`, `Poiseuille`)
 - `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
+- `peak_velocity_physical` (Poiseuille only) -> mapped by `pic.flow` to the inlet-aligned `-ucont_*` component
 
 For the scaling model and conversion logic, see **@subpage 19_Nondimensionalization**.
 For detailed startup behavior of field initialization modes, see **@subpage 33_Initial_Conditions**.
+
+Practical contract notes:
+
+- `initial_conditions.mode` should be set explicitly. The launcher now requires the choice instead of silently inferring it.
+- `mode: "Zero"` may omit velocity components entirely.
+- `mode: "Constant"` requires explicit `u_physical/v_physical/w_physical`.
+- `mode: "Poiseuille"` may use either:
+  - `peak_velocity_physical` for the preferred scalar centerline-speed input, or
+  - `u_physical/v_physical/w_physical` for legacy explicit-component form.
 
 @section run_control_sec 2. run_control
 
@@ -55,6 +66,11 @@ Supported modes:
 - `programmatic_c`
 - `file`
 - `grid_gen`
+
+Mode compatibility note:
+
+- for normal `solve` and `load` workflows, all three grid modes are supported.
+- for `solver.yml -> operation_mode.eulerian_field_source: analytical`, the current contract requires `grid.mode: programmatic_c`.
 
 @subsection grid_prog_ssec 3.1 mode: programmatic_c
 
@@ -89,6 +105,8 @@ grid:
 
 This runs `scripts/grid.gen` before solver launch and stages generated grid artifacts into the run config.
 
+For direct `grid.gen` usage, generator types, and config-file structure, see **@subpage 48_Grid_Generator_Guide**.
+
 @section models_sec 4. models
 
 ```yaml
@@ -117,6 +135,10 @@ Common mappings:
 - `physics.particles.init_mode` -> `-pinit` (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`)
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
 - point source coordinates -> `-psrc_x/-psrc_y/-psrc_z`
+
+Restart note:
+
+- if `run_control.start_step > 0`, particles are enabled, and `restart_mode` is omitted, `pic.flow` warns that C will default to `load`.
 
 For mode-specific particle behavior and restart flow, see **@subpage 45_Particle_Initialization_and_Restart**.
 
@@ -151,13 +173,28 @@ solver_parameters:
 
 Use sparingly and prefer structured keys when available.
 
-@section next_steps_sec 7. Next Steps
+@section modular_sec 7. Mixing With Other Profiles
+
+`case.yml` is designed to be combined with reusable profiles for the other config roles.
+
+Common patterns:
+
+- one `case.yml` + multiple `monitor.yml` files (debug vs production output),
+- one `case.yml` + multiple `post.yml` recipes (quick scalar check vs heavy VTK/statistics),
+- one `solver.yml` reused across many `case.yml` files,
+- one `cluster.yml` reused across many runs and sweeps.
+
+For worked combinations, see **@subpage 49_Workflow_Recipes_and_Config_Cookbook**.
+
+@section next_steps_sec 8. Next Steps
 
 Proceed to **@subpage 08_Solver_Reference**.
 
 Cross-file contract/mapping:
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**
+- **@subpage 48_Grid_Generator_Guide**
+- **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 32_Analytical_Solutions**
 - **@subpage 33_Initial_Conditions**
 - **@subpage 44_Boundary_Conditions_Guide**

@@ -66,7 +66,11 @@ properties:
     #   - "Poiseuille": A parabolic velocity profile (for channel/pipe flow).
     mode: "Constant"  # This will be translated to -finit
 
-    # --- Initial Velocity (for 'Constant' mode) ---
+    # --- Initial Velocity ---
+    # For 'Constant': set u_physical/v_physical/w_physical.
+    # For 'Poiseuille': prefer 'peak_velocity_physical' (scalar Vmax mapped to the
+    # primary inlet axis), or use u_physical/v_physical/w_physical for legacy compatibility.
+    # peak_velocity_physical: 1.0
     # Values are in physical units [m/s].
     u_physical: 0.0
     v_physical: 0.0

@@ -42,9 +42,6 @@ properties:
     viscosity: 0.001        # Pa.s  --> Re = rho*U*L/mu = 1000
   initial_conditions:
     mode: "Zero"            # Zero velocity everywhere (analytical mode overrides anyway)
-    u_physical: 0.0
-    v_physical: 0.0
-    w_physical: 0.0
 
 run_control:
   start_step: 0

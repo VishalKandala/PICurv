@@ -39,10 +39,10 @@ the statistical noise at N = 50000.
 ```bash
 # From project root
 ./scripts/pic.flow run --solve --post-process -n 4 \
-  --case  tests/brownian_motion/brownian_motion.yml \
-  --solver tests/brownian_motion/Analytical-Zero.yml \
-  --monitor tests/brownian_motion/Standard_Output.yml \
-  --post tests/brownian_motion/brownian_analysis.yml
+  --case  examples/brownian_motion/brownian_motion.yml \
+  --solver examples/brownian_motion/Analytical-Zero.yml \
+  --monitor examples/brownian_motion/Standard_Output.yml \
+  --post examples/brownian_motion/brownian_analysis.yml
 ```
 
 Output file: `<run_dir>/output/BrownianStats_msd.csv`
@@ -145,3 +145,18 @@ in x, y, z at a late timestep. A Gaussian fit should match with width
 
 3. This verifies the particle position update chain only. Scalar (Psi/IEM)
    correctness requires a separate micro-mixing test.
+
+---
+
+## Reuse Notes
+
+This example is intentionally modular:
+
+- keep `brownian_motion.yml` when you want the same Brownian particle setup,
+- swap `Analytical-Zero.yml` for another analytical or solve-mode `solver.yml` only if you intentionally want a different carrier-flow model,
+- reuse `brownian_analysis.yml` as a post recipe for other diffusion-focused particle tests.
+
+For broader profile-composition examples, see:
+
+- https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
+- https://vishalkandala.me/picurv-docs/32_Analytical_Solutions.html
