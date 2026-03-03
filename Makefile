@@ -225,7 +225,7 @@ clean-project: cleanobj clean-project-docs clean-project-tags
 cleanobj:
 	@echo "--- Removing object files and compiled executables"
 	@rm -rf $(OBJDIR) 
-	@rm -f $(PICSOLVER_EXE) $(POSTPROCESSOR_EXE)
+	@rm -f $(PICSOLVER_EXE) $(POSTPROCESSOR_EXE) $(CONDUCTOR_EXE)
 
 ## @target clean-project-docs
 ## @brief (Internal) Removes generated documentation.
