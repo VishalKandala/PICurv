@@ -16,6 +16,10 @@ If `bin/picurv` does not exist yet, use `./scripts/picurv build` once to install
 Primary commands:
 - `init`
 - `build`
+- `sync-binaries`
+- `sync-config`
+- `pull-source`
+- `status-source`
 - `run`
 - `sweep`
 - `validate`
@@ -32,6 +36,10 @@ Help:
 ./bin/picurv --help
 ./bin/picurv init --help
 ./scripts/picurv build --help
+./bin/picurv sync-binaries --help
+./bin/picurv sync-config --help
+./bin/picurv pull-source --help
+./bin/picurv status-source --help
 ./bin/picurv run --help
 ./bin/picurv sweep --help
 ./bin/picurv validate --help
@@ -47,9 +55,10 @@ Behavior:
 
 - copies `examples/<template_name>/` into a new working directory,
 - optionally renames the destination via `--dest`,
+- writes `.picurv-origin.json` with the source repo path and template name,
 - copies the full executable set from `bin/` into the new case directory so the case is self-contained,
 - includes `picurv`, `simulator`, and `postprocessor` when they exist in `bin/`,
-- always copies the built executables into the new case directory.
+- copies built executables when they exist in the source repo `bin/`.
 
 Examples:
 
@@ -64,13 +73,15 @@ Use reusable profile libraries directly when you already have your own case dire
 @section build_sec 3. build: Build Project Executables
 
 ```bash
-./scripts/picurv build [MAKE_ARGS...]
+./scripts/picurv build [--source-root <repo>] [--case-dir <case>] [MAKE_ARGS...]
 ```
 
 Behavior:
 
 - calls the top-level `build.sh`,
+- resolves the source repo from `.picurv-origin.json` when run from an initialized case,
 - passes any trailing arguments directly through to the Make/build layer,
+- can rebuild or clean the source repo without leaving a copied case directory,
 - is the recommended command for normal users instead of calling build scripts manually.
 
 Examples:
@@ -80,7 +91,51 @@ Examples:
 ./scripts/picurv build clean-project
 ./scripts/picurv build SYSTEM=cluster
 ./scripts/picurv build postprocessor
+./my_case/picurv build clean-project
 ```
+
+@section sync_sec 3b. sync-binaries / sync-config / pull-source / status-source
+
+These commands are intended for self-contained case directories created by `init`.
+
+`sync-binaries` refreshes the case-local copies of `picurv`, `simulator`, and `postprocessor`
+from the source repo `bin/`:
+
+```bash
+./my_case/picurv sync-binaries
+```
+
+`sync-config` refreshes files from `examples/<template_name>/` into the case directory.
+By default it preserves user-modified files and only copies missing files:
+
+```bash
+./my_case/picurv sync-config
+./my_case/picurv sync-config --overwrite
+./my_case/picurv sync-config --prune
+```
+
+`--prune` is conservative: it removes only files previously recorded as template-managed
+that no longer exist in the source template. User-created case files are not pruned.
+
+`pull-source` runs `git pull --rebase` in the original source repo so you can update code
+without leaving the case directory:
+
+```bash
+./my_case/picurv pull-source
+./my_case/picurv pull-source --no-rebase
+./my_case/picurv pull-source --remote origin --branch main
+```
+
+`status-source` inspects source commit drift, copied binary drift, and template-file drift
+before you decide what to sync:
+
+```bash
+./my_case/picurv status-source
+./my_case/picurv status-source --format json
+```
+
+For older cases that do not yet have `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
+For `sync-config`, also pass `--template-name <example_name>` if the template cannot be inferred.
 
 @section run_sec 4. run: Single-Case Workflow
 

@@ -44,6 +44,8 @@ After build, use the installed conductor from `bin/` for init/validate/run comma
 
 If project binaries are already built, `init` copies the available executables into the new case
 directory so it is self-contained and runnable with `./picurv ...`.
+`init` also writes `.picurv-origin.json`, which records the source repo path so the case-local
+`./picurv` can later rebuild, pull, and resync from the original code directory.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
 
@@ -75,6 +77,26 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
   --post my_case/standard_analysis.yml
 ```
 `-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution.
+
+## Case Maintenance From A Self-Contained Case
+
+After `init`, you can stay inside the case directory and still operate on the original source repo:
+
+```bash
+cd my_case
+./picurv status-source           # inspect code/template drift before syncing
+./picurv build                  # rebuild in the source repo
+./picurv build clean-project    # clean in the source repo
+./picurv pull-source            # git pull --rebase in the source repo
+./picurv sync-binaries          # refresh copied executables in this case
+./picurv sync-config            # copy updated template files, preserve modified files
+./picurv sync-config --overwrite
+./picurv sync-config --prune    # remove stale template-managed files removed upstream
+```
+
+If the case predates `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
+If `sync-config` cannot infer the template, also pass `--template-name <example_name>`.
+`--prune` only removes files previously tracked as template-managed, so user-created files are left alone.
 
 ## Cluster and Sweep Workflow
 

@@ -505,8 +505,12 @@ def test_init_always_copies_full_executable_set(tmp_path):
     fake_root = tmp_path / "fake_root"
     template_dir = fake_root / "examples" / "demo_case"
     bin_dir = fake_root / "bin"
+    (fake_root / "src").mkdir(parents=True)
+    (fake_root / "include").mkdir()
+    (fake_root / "scripts").mkdir()
     template_dir.mkdir(parents=True)
     bin_dir.mkdir(parents=True)
+    (fake_root / "Makefile").write_text("all:\n\t@echo ok\n", encoding="utf-8")
 
     (template_dir / "case.yml").write_text("run_control:\n  start_step: 0\n", encoding="utf-8")
     for exe_name in ("picurv", "simulator", "postprocessor"):
@@ -514,20 +518,24 @@ def test_init_always_copies_full_executable_set(tmp_path):
         exe_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         exe_path.chmod(0o755)
 
-    original_project_root = picurv.PROJECT_ROOT
     original_cwd = Path.cwd()
     work_dir = tmp_path / "work"
     work_dir.mkdir()
 
     try:
-        picurv.PROJECT_ROOT = str(fake_root)
         os.chdir(work_dir)
-        picurv.init_case(SimpleNamespace(template_name="demo_case", dest_name="demo_out"))
+        picurv.init_case(
+            SimpleNamespace(
+                template_name="demo_case",
+                dest_name="demo_out",
+                source_root=str(fake_root),
+            )
+        )
     finally:
         os.chdir(original_cwd)
-        picurv.PROJECT_ROOT = original_project_root
 
     out_dir = work_dir / "demo_out"
+    assert (out_dir / picurv.CASE_ORIGIN_METADATA_FILENAME).is_file()
     for exe_name in ("picurv", "simulator", "postprocessor"):
         exe_path = out_dir / exe_name
         assert exe_path.is_file()
