@@ -10,7 +10,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Particle tracking with PETSc `DMSwarm`
 - Grid-particle interpolation and particle-grid projection
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`)
-- YAML-driven orchestration through the built conductor `./bin/picurv`
+- YAML-driven orchestration through the conductor (`./scripts/picurv`, installed to `./bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Parameter sweep orchestration with Slurm arrays (`study.yml`)
 - Solver and postprocessor executables from one build system
@@ -42,7 +42,8 @@ After build, use the installed conductor from `bin/` for init/validate/run comma
 ./bin/picurv init flat_channel --dest my_case
 ```
 
-`init` now copies the built executables into the new case directory so it is self-contained and runnable with `./picurv ...`.
+If project binaries are already built, `init` copies the available executables into the new case
+directory so it is self-contained and runnable with `./picurv ...`.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
 
@@ -132,8 +133,9 @@ python3 scripts/check_markdown_links.py
 
 Automated smoke checks:
 
-- Local (when pytest is available):
-  - `pytest -q`
+- Local:
+  - `make test`
+  - or `python3 -m pytest -q`
 - CI:
   - `.github/workflows/quality.yml`
 

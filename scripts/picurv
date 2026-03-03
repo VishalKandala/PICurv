@@ -226,6 +226,116 @@ def resolve_path(anchor_file: str, candidate: str) -> str:
     return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(anchor_file)), candidate))
 
 
+POST_RUN_CONTROL_ALIASES = {
+    "start_step": ("start_step", "startTime"),
+    "end_step": ("end_step", "endTime"),
+    "step_interval": ("step_interval", "timeStep"),
+}
+
+
+def _mapping_value_with_aliases(mapping: dict, *keys, default=None):
+    """Return the first defined value from a mapping across alias keys."""
+    if not isinstance(mapping, dict):
+        return default
+    for key in keys:
+        if key in mapping:
+            return mapping.get(key)
+    return default
+
+
+def get_post_run_control_value(post_cfg: dict, canonical_key: str, default=None):
+    """Resolve post run_control values with backwards-compatible legacy aliases."""
+    aliases = POST_RUN_CONTROL_ALIASES.get(canonical_key, (canonical_key,))
+    rc = post_cfg.get("run_control", {})
+    return _mapping_value_with_aliases(rc, *aliases, default=default)
+
+
+def get_post_source_data(post_cfg: dict):
+    """Return source_data as a mapping when valid, else an empty mapping."""
+    source_cfg = post_cfg.get("source_data", {})
+    if isinstance(source_cfg, dict):
+        return source_cfg
+    return {}
+
+
+def get_post_source_directory_template(post_cfg: dict, default: str = "<solver_output_dir>") -> str:
+    """Resolve the source directory template from source_data with a safe default."""
+    return get_post_source_data(post_cfg).get("directory", default)
+
+
+def get_post_input_extensions(post_cfg: dict):
+    """Return post input_extensions, preferring io.* and tolerating legacy source_data.* placement."""
+    io_cfg = post_cfg.get("io", {})
+    io_ext = io_cfg.get("input_extensions") if isinstance(io_cfg, dict) else None
+    if isinstance(io_ext, dict):
+        return io_ext
+
+    source_ext = get_post_source_data(post_cfg).get("input_extensions")
+    if isinstance(source_ext, dict):
+        return source_ext
+
+    return {}
+
+
+def get_post_statistics_task_tokens(post_cfg: dict):
+    """Return normalized statistics pipeline tokens that will be written into post.run."""
+    stats_cfg = post_cfg.get("statistics_pipeline")
+    stats_entries = []
+    if isinstance(stats_cfg, list):
+        stats_entries = stats_cfg
+    elif isinstance(stats_cfg, dict):
+        stats_entries = stats_cfg.get("tasks", [])
+
+    tokens = []
+    for entry in stats_entries:
+        if isinstance(entry, str):
+            task_name = entry
+        elif isinstance(entry, dict):
+            task_name = entry.get("task")
+        else:
+            continue
+        try:
+            tokens.append(normalize_statistics_task(task_name))
+        except ValueError:
+            continue
+    return tokens
+
+
+def get_post_statistics_output_prefix(post_cfg: dict, default: str = "Stats") -> str:
+    """Resolve the statistics CSV prefix, preserving legacy top-level override support."""
+    stats_cfg = post_cfg.get("statistics_pipeline")
+    if isinstance(stats_cfg, dict):
+        prefix = stats_cfg.get("output_prefix")
+        if isinstance(prefix, str) and prefix.strip():
+            return prefix.strip()
+
+    legacy_prefix = post_cfg.get("statistics_output_prefix")
+    if isinstance(legacy_prefix, str) and legacy_prefix.strip():
+        return legacy_prefix.strip()
+
+    return default
+
+
+def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str):
+    """Predict statistics CSV output paths relative to the postprocessor runtime cwd."""
+    token_to_suffix = {
+        "ComputeMSD": "_msd.csv",
+    }
+    prefix = get_post_statistics_output_prefix(post_cfg)
+    if os.path.isabs(prefix):
+        base_path = os.path.abspath(prefix)
+    else:
+        base_path = os.path.abspath(os.path.join(run_dir, prefix))
+
+    output_paths = []
+    for token in get_post_statistics_task_tokens(post_cfg):
+        suffix = token_to_suffix.get(token)
+        if suffix:
+            output_paths.append(base_path + suffix)
+
+    return list(dict.fromkeys(output_paths))
+
+
 def is_restart_execution(case_cfg: dict, solver_cfg: dict) -> bool:
     """Return True when the solver will read restart data."""
     try:
@@ -1118,16 +1228,60 @@ def validate_post_config(post_cfg: dict, post_path: str):
     # --- run_control ---
     if 'run_control' not in post_cfg:
         errors.append(f"  {post_path}: missing required section 'run_control'.")
+    else:
+        rc = post_cfg.get('run_control', {})
+        if not isinstance(rc, dict):
+            errors.append(f"  {post_path}: 'run_control' must be a mapping.")
+        else:
+            for canonical_key, aliases in POST_RUN_CONTROL_ALIASES.items():
+                if not any(alias in rc for alias in aliases):
+                    alias_list = "', '".join(aliases)
+                    errors.append(
+                        f"  {post_path}: missing required key 'run_control.{canonical_key}' "
+                        f"(accepted aliases: '{alias_list}')."
+                    )
+                    continue
+                raw_value = _mapping_value_with_aliases(rc, *aliases)
+                try:
+                    int(raw_value)
+                except (TypeError, ValueError):
+                    alias_name = next((alias for alias in aliases if alias in rc), canonical_key)
+                    errors.append(
+                        f"  {post_path}: 'run_control.{alias_name}' must be an integer-compatible value."
+                    )
 
     # --- io section ---
     io_cfg = post_cfg.get('io', {})
+    source_cfg = post_cfg.get('source_data')
+    if source_cfg is not None and not isinstance(source_cfg, dict):
+        errors.append(f"  {post_path}: 'source_data' must be a mapping when provided.")
+    global_ops = post_cfg.get('global_operations')
+    if global_ops is not None:
+        if not isinstance(global_ops, dict):
+            errors.append(f"  {post_path}: 'global_operations' must be a mapping when provided.")
+        elif 'dimensionalize' in global_ops and not isinstance(global_ops.get('dimensionalize'), bool):
+            errors.append(f"  {post_path}: 'global_operations.dimensionalize' must be a boolean.")
     if not io_cfg:
         errors.append(f"  {post_path}: missing required section 'io'.")
+    elif not isinstance(io_cfg, dict):
+        errors.append(f"  {post_path}: 'io' must be a mapping.")
     else:
         for k in ['output_directory', 'output_filename_prefix']:
             if k not in io_cfg:
                 errors.append(f"  {post_path}: missing required key 'io.{k}'.")
+        for key_name in ('output_directory', 'output_filename_prefix', 'particle_filename_prefix'):
+            if key_name in io_cfg and not isinstance(io_cfg.get(key_name), str):
+                errors.append(f"  {post_path}: 'io.{key_name}' must be a string when provided.")
+        if 'output_particles' in io_cfg and not isinstance(io_cfg.get('output_particles'), bool):
+            errors.append(f"  {post_path}: 'io.output_particles' must be a boolean when provided.")
+        particle_subsampling_frequency = io_cfg.get('particle_subsampling_frequency')
+        if particle_subsampling_frequency is not None:
+            if not isinstance(particle_subsampling_frequency, int) or particle_subsampling_frequency <= 0:
+                errors.append(
+                    f"  {post_path}: 'io.particle_subsampling_frequency' must be a positive integer when provided."
+                )
         input_extensions = io_cfg.get('input_extensions')
+        source_input_extensions = get_post_source_data(post_cfg).get('input_extensions')
         if input_extensions is not None:
             if not isinstance(input_extensions, dict):
                 errors.append(f"  {post_path}: 'io.input_extensions' must be a mapping when provided.")
@@ -1136,16 +1290,99 @@ def validate_post_config(post_cfg: dict, post_path: str):
                     ext_val = input_extensions.get(ext_key)
                     if ext_val is not None and not isinstance(ext_val, str):
                         errors.append(f"  {post_path}: 'io.input_extensions.{ext_key}' must be a string extension.")
+        if source_input_extensions is not None:
+            if not isinstance(source_input_extensions, dict):
+                errors.append(f"  {post_path}: 'source_data.input_extensions' must be a mapping when provided.")
+            else:
+                for ext_key in ('eulerian', 'particle'):
+                    ext_val = source_input_extensions.get(ext_key)
+                    if ext_val is not None and not isinstance(ext_val, str):
+                        errors.append(
+                            f"  {post_path}: 'source_data.input_extensions.{ext_key}' must be a string extension."
+                        )
 
         averaged_fields = io_cfg.get('eulerian_fields_averaged')
         if averaged_fields is not None and not isinstance(averaged_fields, list):
             errors.append(f"  {post_path}: 'io.eulerian_fields_averaged' must be a list when provided.")
+        for list_key in ('eulerian_fields', 'particle_fields'):
+            list_val = io_cfg.get(list_key)
+            if list_val is not None and not isinstance(list_val, list):
+                errors.append(f"  {post_path}: 'io.{list_key}' must be a list when provided.")
 
     # --- Check eulerian_pipeline entries have 'task' key ---
-    for i, entry in enumerate(post_cfg.get('eulerian_pipeline', [])):
+    eulerian_pipeline = post_cfg.get('eulerian_pipeline', [])
+    if eulerian_pipeline is not None and not isinstance(eulerian_pipeline, list):
+        errors.append(f"  {post_path}: 'eulerian_pipeline' must be a list when provided.")
+        eulerian_pipeline = []
+    for i, entry in enumerate(eulerian_pipeline):
         if not isinstance(entry, dict) or 'task' not in entry:
             errors.append(f"  {post_path}: 'eulerian_pipeline[{i}]' is missing the 'task' key. "
                           "Check YAML indentation (each entry needs '- task: ...' with proper spacing).")
+            continue
+        task_name = entry.get('task')
+        if task_name == 'q_criterion':
+            continue
+        if task_name == 'nodal_average':
+            in_field = entry.get('input_field')
+            out_field = entry.get('output_field')
+            if not isinstance(in_field, str) or not in_field.strip():
+                errors.append(f"  {post_path}: 'eulerian_pipeline[{i}].input_field' must be a non-empty string.")
+            if not isinstance(out_field, str) or not out_field.strip():
+                errors.append(f"  {post_path}: 'eulerian_pipeline[{i}].output_field' must be a non-empty string.")
+            if isinstance(in_field, str) and isinstance(out_field, str) and in_field == out_field:
+                errors.append(
+                    f"  {post_path}: 'eulerian_pipeline[{i}]' nodal_average input and output fields must differ."
+                )
+            continue
+        if task_name == 'normalize_field':
+            field = entry.get('field', 'P')
+            if not isinstance(field, str) or not field.strip():
+                errors.append(f"  {post_path}: 'eulerian_pipeline[{i}].field' must be a non-empty string.")
+            elif field != 'P':
+                errors.append(
+                    f"  {post_path}: 'eulerian_pipeline[{i}].field' currently only supports 'P' "
+                    f"(got '{field}')."
+                )
+            reference_point = entry.get('reference_point', [1, 1, 1])
+            if not isinstance(reference_point, (list, tuple)) or len(reference_point) != 3:
+                errors.append(
+                    f"  {post_path}: 'eulerian_pipeline[{i}].reference_point' must be a 3-item list."
+                )
+            else:
+                for rp_idx, coord in enumerate(reference_point):
+                    try:
+                        int(coord)
+                    except (TypeError, ValueError):
+                        errors.append(
+                            f"  {post_path}: 'eulerian_pipeline[{i}].reference_point[{rp_idx}]' "
+                            "must be integer-compatible."
+                        )
+            continue
+        errors.append(
+            f"  {post_path}: unsupported eulerian task '{task_name}' at eulerian_pipeline[{i}]."
+        )
+
+    # --- Check lagrangian_pipeline entries have 'task' key ---
+    lagrangian_pipeline = post_cfg.get('lagrangian_pipeline', [])
+    if lagrangian_pipeline is not None and not isinstance(lagrangian_pipeline, list):
+        errors.append(f"  {post_path}: 'lagrangian_pipeline' must be a list when provided.")
+        lagrangian_pipeline = []
+    for i, entry in enumerate(lagrangian_pipeline):
+        if not isinstance(entry, dict) or 'task' not in entry:
+            errors.append(f"  {post_path}: 'lagrangian_pipeline[{i}]' is missing the 'task' key.")
+            continue
+        task_name = entry.get('task')
+        if task_name == 'specific_ke':
+            in_field = entry.get('input_field')
+            out_field = entry.get('output_field')
+            if not isinstance(in_field, str) or not in_field.strip():
+                errors.append(f"  {post_path}: 'lagrangian_pipeline[{i}].input_field' must be a non-empty string.")
+            if not isinstance(out_field, str) or not out_field.strip():
+                errors.append(f"  {post_path}: 'lagrangian_pipeline[{i}].output_field' must be a non-empty string.")
+            continue
+        errors.append(
+            f"  {post_path}: unsupported lagrangian task '{task_name}' at lagrangian_pipeline[{i}]."
+        )
 
     # --- Check statistics pipeline entries ---
     stats_cfg = post_cfg.get('statistics_pipeline')
@@ -1178,6 +1415,10 @@ def validate_post_config(post_cfg: dict, post_path: str):
                 normalize_statistics_task(task_name)
             except ValueError as e:
                 errors.append(f"  {post_path}: {e}")
+
+    legacy_stats_output_prefix = post_cfg.get('statistics_output_prefix')
+    if legacy_stats_output_prefix is not None and not isinstance(legacy_stats_output_prefix, str):
+        errors.append(f"  {post_path}: 'statistics_output_prefix' must be a string when provided.")
 
     if errors:
         _print_validation_errors(errors)
@@ -2336,10 +2577,9 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     c_config = {}
 
     # --- 1. Process Run Control ---
-    rc = post_cfg.get('run_control', {})
-    c_config['startTime'] = rc.get('start_step', 0)
-    c_config['endTime'] = rc.get('end_step', 10)
-    c_config['timeStep'] = rc.get('step_interval', 1)
+    c_config['startTime'] = get_post_run_control_value(post_cfg, 'start_step', 0)
+    c_config['endTime'] = get_post_run_control_value(post_cfg, 'end_step', 0)
+    c_config['timeStep'] = get_post_run_control_value(post_cfg, 'step_interval', 1)
 
     # --- 2. Process Global Operations ---
     eulerian_pipeline_parts = []
@@ -2381,28 +2621,11 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
         c_config['particle_pipeline'] = ";".join(lagrangian_pipeline_parts)
 
     # --- 4B. Build Statistics Pipeline String ---
-    statistics_pipeline_parts = []
+    statistics_pipeline_parts = get_post_statistics_task_tokens(post_cfg)
     statistics_output_prefix = None
     stats_cfg = post_cfg.get('statistics_pipeline')
-    stats_entries = []
-    if isinstance(stats_cfg, list):
-        stats_entries = stats_cfg
-    elif isinstance(stats_cfg, dict):
-        stats_entries = stats_cfg.get('tasks', [])
+    if isinstance(stats_cfg, dict):
         statistics_output_prefix = stats_cfg.get('output_prefix')
-
-    for entry in stats_entries:
-        if isinstance(entry, str):
-            task_name = entry
-        elif isinstance(entry, dict):
-            task_name = entry.get('task')
-        else:
-            continue
-        try:
-            statistics_pipeline_parts.append(normalize_statistics_task(task_name))
-        except ValueError:
-            # validation should catch this earlier; keep generation tolerant.
-            continue
 
     if statistics_pipeline_parts:
         c_config['statistics_pipeline'] = ";".join(statistics_pipeline_parts)
@@ -2420,7 +2643,7 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     c_config['output_fields_instantaneous'] = ",".join(io.get('eulerian_fields', []))
     c_config['output_fields_averaged'] = ",".join(io.get('eulerian_fields_averaged', []))
     c_config['particle_fields_instantaneous'] = ",".join(io.get('particle_fields', []))
-    input_extensions = io.get('input_extensions', {})
+    input_extensions = get_post_input_extensions(post_cfg)
     if isinstance(input_extensions, dict):
         e_ext = input_extensions.get('eulerian')
         p_ext = input_extensions.get('particle')
@@ -2430,8 +2653,9 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
             c_config['particleExt'] = str(p_ext).strip().lstrip('.')
 
     # --- 6. Add Source Directory ---
-    if 'source_data' in post_cfg and 'directory' in post_cfg['source_data']:
-        c_config['source_directory'] = post_cfg['source_data']['directory']
+    source_directory = get_post_source_directory_template(post_cfg, default=None)
+    if source_directory is not None:
+        c_config['source_directory'] = source_directory
 
     # --- 7. Write the final file ---
     for key, value in c_config.items():
@@ -2525,7 +2749,7 @@ def resolve_post_source_directory(run_dir: str, monitor_cfg: dict, post_cfg: dic
     """Resolve post source directory token and optionally enforce existence."""
     solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
     solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
-    source_dir_template = post_cfg.get('source_data', {}).get('directory', '<solver_output_dir>')
+    source_dir_template = get_post_source_directory_template(post_cfg)
     if source_dir_template == '<solver_output_dir>':
         resolved_source_dir = solver_output_dir_abs
         print(f"[INFO] Post-processor source data: {os.path.relpath(resolved_source_dir)}")
@@ -2878,7 +3102,7 @@ def _resolve_post_source_directory_preview(run_dir: str, monitor_cfg: dict, post
     """Resolve post source directory without side effects or stdout/stderr output."""
     solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
     solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
-    source_dir_template = post_cfg.get('source_data', {}).get('directory', '<solver_output_dir>')
+    source_dir_template = get_post_source_directory_template(post_cfg)
     if source_dir_template == '<solver_output_dir>':
         return solver_output_dir_abs
     return os.path.abspath(os.path.join(run_dir, source_dir_template))
@@ -3086,6 +3310,7 @@ def build_run_dry_plan(args) -> dict:
         post_exe = resolve_runtime_executable("postprocessor")
         post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_path]
         plan["artifacts"].extend([post_recipe_path, output_dir_abs])
+        plan["artifacts"].extend(get_post_statistics_output_artifacts(post_cfg, run_dir))
 
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
@@ -3265,6 +3490,7 @@ def run_workflow(args):
     run_dir = None
     run_id = None
     output_dir_abs = None
+    statistics_output_paths = []
     workflow_start = time.time()
     stages_completed = []
     configs = None
@@ -3454,6 +3680,9 @@ def run_workflow(args):
         output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
         os.makedirs(output_dir_abs, exist_ok=True)
         print(f"[INFO] Post-processor output directory: {os.path.relpath(output_dir_abs)}")
+        statistics_output_paths = get_post_statistics_output_artifacts(post_cfg, run_dir)
+        for stats_path in statistics_output_paths:
+            print(f"[INFO] Statistics CSV output: {os.path.relpath(stats_path)}")
 
         source_files_post = {'Case': case_path, 'Post-Profile': args.post}
         post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_cfg, source_files_post)
@@ -3558,6 +3787,8 @@ def run_workflow(args):
             print(f"  Solver output  : {os.path.relpath(result_dir)}")
         if 'post-process' in stages_completed and output_dir_abs:
             print(f"  Post output    : {os.path.relpath(output_dir_abs)}")
+        for stats_path in statistics_output_paths:
+            print(f"  Stats output   : {os.path.relpath(stats_path)}")
         print(f"  Logs           : {os.path.relpath(os.path.join(run_dir, 'logs'))}")
         if cluster_mode:
             submission_file = os.path.join(run_dir, "scheduler", "submission.json")

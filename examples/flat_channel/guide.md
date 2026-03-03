@@ -27,7 +27,9 @@ This example is the baseline first-run case for PICurv using programmatic grid g
   --post my_case/standard_analysis.yml
 ```
 
-If project binaries are already built (`picurv build`), `init` also links/copies `simulator` and `postprocessor` into the new case directory.
+If project binaries are already built (`picurv build`), `init` also copies the available
+executables from `bin/` into the new case directory, including `picurv`, `simulator`,
+and `postprocessor`.
 
 ## Recommended Uses
 

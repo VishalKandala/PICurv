@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Basic local markdown link checker for README + authored docs pages."""
+"""Basic local markdown link checker for README, docs, and example guides."""
 
 import re
 import sys
@@ -14,6 +14,8 @@ def iter_markdown_files(repo_root: Path):
     for md in sorted((repo_root / "docs").rglob("*.md")):
         if "docs_build" in md.parts:
             continue
+        yield md
+    for md in sorted((repo_root / "examples").rglob("*.md")):
         yield md
 
 
@@ -58,7 +60,7 @@ def main() -> int:
             print(f"  - {src}: '{target}' -> missing '{resolved}'")
         return 1
 
-    print("Markdown link check passed for README.md and docs/**/*.md")
+    print("Markdown link check passed for README.md, docs/**/*.md, and examples/**/*.md")
     return 0
 
 

@@ -24,17 +24,17 @@ source_data:
 
 run_control:
   # (Required) The first timestep to process.
-  # Maps to 'startTime' in the C-side post.cfg.
+  # Maps to 'startTime' in the generated C-side post.run recipe.
   start_step: 0
 
   # (Required) The last timestep to process.
   # A value of -1 means "process up to the last available step".
-  # Maps to 'endTime' in the C-side post.cfg.
+  # Maps to 'endTime' in the generated C-side post.run recipe.
   end_step: -1
 
   # (Optional) The interval for processing steps (e.g., 10 means process
   # steps 0, 10, 20...). Defaults to 1.
-  # Maps to 'timeStep' in the C-side post.cfg.
+  # Maps to 'timeStep' in the generated C-side post.run recipe.
   step_interval: 1
 
 # ==============================================================================
@@ -82,7 +82,7 @@ eulerian_pipeline:
     # The field to normalize. Currently, only "P" is supported by the C code.
     field: 'P'
     # The [i, j, k] grid indices of the reference point. The Python script will
-    # generate 'reference_ip', 'reference_jp', 'reference_kp' keys in post.cfg.
+    # generate 'reference_ip', 'reference_jp', 'reference_kp' keys in post.run.
     reference_point: [1, 1, 1]
 
 # --- Lagrangian (Particle-Based) Pipeline ---
@@ -114,37 +114,36 @@ io:
   # (Required) The directory where output files will be saved, relative to the
   # main run directory (e.g., 'runs/my_run_id/'). The picurv script will
   # create this directory if it does not exist.
-  # Maps to 'output_dir' in post.cfg and is passed as a command-line flag
-  # to the C executable to ensure it has the absolute path.
+  # picurv prepends this path onto the generated 'output_prefix' and
+  # 'particle_output_prefix' entries in post.run.
   output_directory: "visualization/standard_analysis"
 
   # (Required) The base name for the output files. The C code will append
   # the timestep and extension, e.g., "eulerian_data_00100.vts".
-  # Maps to 'output_prefix' in post.cfg for Eulerian files and
-  # 'particle_output_prefix' for particle files.
+  # Combined with output_directory to form 'output_prefix' in post.run.
   output_filename_prefix: "eulerian_data"
 
   # (Required) List of Eulerian fields to save to the output .vts files.
   # You can include original fields ('P', 'Ucat') and newly computed fields
   # from the pipeline ('Qcrit', 'P_nodal', 'Ucat_nodal').
-  # Maps to 'output_fields_instantaneous' in post.cfg.
+  # Maps to 'output_fields_instantaneous' in post.run.
   eulerian_fields:
     - 'Ucat_nodal'
     - 'Qcrit'
     - 'P_nodal'
 
   # (Optional) Reserved for future averaged-field writer support.
-  # Maps to 'output_fields_averaged' in post.cfg.
+  # Maps to 'output_fields_averaged' in post.run.
   eulerian_fields_averaged: []
 
   # (Optional) A master switch for all particle-related output. Defaults to false.
-  # Maps to 'output_particles' in post.cfg.
+  # Maps to 'output_particles' in post.run.
   output_particles: true
 
   # (Optional) List of particle fields to save to the output .vtp files.
   # Can include original fields and newly computed fields like 'specific_ke'.
   # Standard Swarm Fields: 'position', 'velocity', 'pid', 'CellID', 'weight'
-  # Maps to 'particle_fields_instantaneous' in post.cfg.
+  # Maps to 'particle_fields_instantaneous' in post.run.
   particle_fields:
     - 'velocity'
     - 'pid'
@@ -153,11 +152,11 @@ io:
   # (Optional) The frequency for subsampling particles for output.
   # A value of 1 saves every particle. A value of 10 saves every 10th particle.
   # Defaults to 1 if not specified.
-  # Maps to 'particle_output_freq' in post.cfg.
+  # Maps to 'particle_output_freq' in post.run.
   particle_subsampling_frequency: 1
 
   # (Optional) Input file extensions used by the C post reader (without dot preferred).
-  # Maps to 'eulerianExt' and 'particleExt' in post.cfg.
+  # Maps to 'eulerianExt' and 'particleExt' in post.run.
   input_extensions:
     eulerian: "dat"
     particle: "dat"

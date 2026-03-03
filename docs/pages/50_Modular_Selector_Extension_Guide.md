@@ -195,7 +195,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
 - Python hook:
   - `normalize_statistics_task()` in `scripts/picurv`
 - Generated mapping:
-  - `msd` -> `ComputeMSD` in generated `post.run`
+  - `msd` -> `ComputeMSD` token in generated `post.run` (dispatched to `ComputeParticleMSD`)
 - C dispatch:
   - `src/postprocessor.c`
 - Kernel declaration/implementation:

@@ -310,7 +310,8 @@ statistics_pipeline:
 
 Verification:
 
-- check `Stats_msd.csv` in configured output location.
+- check `Stats_msd.csv` in the run directory root, unless `statistics_pipeline.output_prefix`
+  includes an explicit path.
 
 @section sweep_sec 5. Sweep Studies
 
