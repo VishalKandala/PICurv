@@ -50,33 +50,33 @@ Pattern D: same cluster profile across many jobs
 First-time local workflow:
 
 ```bash
-python3 scripts/pic.flow init flat_channel --dest my_case
-python3 scripts/pic.flow validate --case my_case/flat_channel.yml --solver my_case/Imp-MG-Standard.yml --monitor my_case/Standard_Output.yml --post my_case/standard_analysis.yml
-python3 scripts/pic.flow run --solve --post-process -n 4 --case my_case/flat_channel.yml --solver my_case/Imp-MG-Standard.yml --monitor my_case/Standard_Output.yml --post my_case/standard_analysis.yml
+./bin/pic.flow init flat_channel --dest my_case
+./bin/pic.flow validate --case my_case/flat_channel.yml --solver my_case/Imp-MG-Standard.yml --monitor my_case/Standard_Output.yml --post my_case/standard_analysis.yml
+./bin/pic.flow run --solve --post-process -n 4 --case my_case/flat_channel.yml --solver my_case/Imp-MG-Standard.yml --monitor my_case/Standard_Output.yml --post my_case/standard_analysis.yml
 ```
 
 Solver-only run:
 
 ```bash
-python3 scripts/pic.flow run --solve -n 8 --case case.yml --solver solver.yml --monitor monitor.yml
+./bin/pic.flow run --solve -n 8 --case case.yml --solver solver.yml --monitor monitor.yml
 ```
 
 Post-process an existing run with a different recipe:
 
 ```bash
-python3 scripts/pic.flow run --post-process --run-dir runs/<run_id> --post alt_analysis.yml
+./bin/pic.flow run --post-process --run-dir runs/<run_id> --post alt_analysis.yml
 ```
 
 Dry-run planning:
 
 ```bash
-python3 scripts/pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run --format json
+./bin/pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run --format json
 ```
 
 Cluster generation without submit:
 
 ```bash
-python3 scripts/pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit
+./bin/pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit
 ```
 
 @section examples_sec 4. Example Config Combinations

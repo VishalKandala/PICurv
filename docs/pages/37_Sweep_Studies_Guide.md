@@ -17,7 +17,7 @@ Starter templates are available under `examples/*/*study*.yml` and `examples/mas
 @section command_sec 2. Core Sweep Command
 
 ```bash
-./scripts/pic.flow sweep --study <study.yml> --scheduler slurm
+./bin/pic.flow sweep --study <study.yml> --scheduler slurm
 ```
 
 Typical optional flags include dry-run or no-submit behaviors depending on workflow stage.

@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+- Grid contract correction:
+  - `programmatic_c.im/jm/km` are now treated as cell counts as documented.
+  - `pic.flow` now converts those values to node counts before emitting `-im/-jm/-km`.
+  - `grid_gen` remains unchanged: `grid.gen` still accepts cell counts and writes node counts into `.picgrid`.
+  - compatibility note: a historical `programmatic_c` case with `im=32` previously yielded 31 physical cells; it now yields the documented 32 physical cells.
+
 - Workflow launch policy update:
   - `run --num-procs` now applies to solver stage sizing.
   - post stage defaults to single-rank execution in local mode.

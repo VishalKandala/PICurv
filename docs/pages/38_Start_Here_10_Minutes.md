@@ -34,6 +34,8 @@ From repository root:
 ./scripts/pic.flow build
 ```
 
+Once that completes, use `./bin/pic.flow` for the remaining commands in this guide.
+
 Expected binaries:
 
 - `bin/picsolver`
@@ -44,7 +46,7 @@ If build fails, go to **@subpage 01_Installation** and verify PETSc/MPI toolchai
 @section init_sec 4. Initialize a Starter Case
 
 ```bash
-./scripts/pic.flow init flat_channel --dest my_case
+./bin/pic.flow init flat_channel --dest my_case
 ```
 
 You should get:
@@ -67,7 +69,7 @@ These are the four runtime roles:
 @section validate_sec 5. Validate Before Running
 
 ```bash
-./scripts/pic.flow validate \
+./bin/pic.flow validate \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
@@ -83,7 +85,7 @@ Why this matters:
 Optional launch preview with no execution:
 
 ```bash
-./scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
@@ -94,7 +96,7 @@ Optional launch preview with no execution:
 @section run_sec 6. Run Solver and Post
 
 ```bash
-./scripts/pic.flow run --solve --post-process -n 4 \
+./bin/pic.flow run --solve --post-process -n 4 \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \

@@ -17,7 +17,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | YAML / Source Key | Generated Artifact Key | C Ingestion Site | Primary Runtime Consumers |
 | :--- | :--- | :--- | :--- |
 | `case.run_control.*` | `-start_step`, `-totalsteps`, `-dt` | `src/setup.c` (`CreateSimulationContext`) | `src/simulation.c`, setup/timestep logic |
-| `case.grid.programmatic_settings.im/jm/km/...` | `-im/-jm/-km`, bounds, stretch | `src/io.c` (`ReadGridGenerationInputs`, `PopulateFinestUserGridResolutionFromOptions`) | `src/grid.c`, analytical geometry setup |
+| `case.grid.programmatic_settings.im/jm/km/...` | `-im/-jm/-km`, bounds, stretch (`im/jm/km` translated from YAML cell counts to C node counts) | `src/io.c` (`ReadGridGenerationInputs`, `PopulateFinestUserGridResolutionFromOptions`) | `src/grid.c`, analytical geometry setup |
 | `case.grid.programmatic_settings.da_processors_*` | `-da_processors_x/y/z` | `src/setup.c` | `src/grid.c` DMDA creation |
 | `case.models.domain.*` | `-nblk`, periodic flags | `src/setup.c` | `src/grid.c`, BC setup |
 | `case.models.physics.particles.*` | `-numParticles`, `-pinit`, `-particle_restart_mode`, `-psrc_*` | `src/setup.c` | `src/ParticleSwarm.c`, `src/ParticleMotion.c`, statistics kernels |

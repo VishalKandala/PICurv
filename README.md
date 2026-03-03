@@ -10,7 +10,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Particle tracking with PETSc `DMSwarm`
 - Grid-particle interpolation and particle-grid projection
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`)
-- YAML-driven orchestration through `./scripts/pic.flow`
+- YAML-driven orchestration through the built conductor `./bin/pic.flow`
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Parameter sweep orchestration with Slurm arrays (`study.yml`)
 - Solver and postprocessor executables from one build system
@@ -35,9 +35,11 @@ export PETSC_ARCH=arch-linux-c-debug
 ./scripts/pic.flow build
 ```
 
+After build, use the installed conductor from `bin/` for init/validate/run commands.
+
 3. Initialize an example:
 ```bash
-./scripts/pic.flow init flat_channel --dest my_case
+./bin/pic.flow init flat_channel --dest my_case
 ```
 
 `pic.flow` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
@@ -45,7 +47,7 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
 
 4. Validate configs (no run yet):
 ```bash
-./scripts/pic.flow validate \
+./bin/pic.flow validate \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
@@ -54,7 +56,7 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
 
 5. Preview planned launch/artifacts:
 ```bash
-./scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
@@ -64,7 +66,7 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
 
 6. Run solver + post:
 ```bash
-./scripts/pic.flow run --solve --post-process -n 4 \
+./bin/pic.flow run --solve --post-process -n 4 \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
@@ -76,7 +78,7 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
 
 Run on a cluster (Slurm):
 ```bash
-./scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
@@ -86,7 +88,7 @@ Run on a cluster (Slurm):
 
 Launch a sweep study:
 ```bash
-./scripts/pic.flow sweep \
+./bin/pic.flow sweep \
   --study my_case/grid_independence_study.yml \
   --cluster my_case/slurm_cluster.yml
 ```
@@ -107,17 +109,17 @@ Launch a sweep study:
 Manual smoke commands:
 
 ```bash
-./scripts/pic.flow --help
-./scripts/pic.flow run --help
-./scripts/pic.flow validate --help
+./bin/pic.flow --help
+./bin/pic.flow run --help
+./bin/pic.flow validate --help
 
-./scripts/pic.flow validate \
+./bin/pic.flow validate \
   --case tests/fixtures/valid/case.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml \
   --post tests/fixtures/valid/post.yml
 
-./scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case tests/fixtures/valid/case.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml \

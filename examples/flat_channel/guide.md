@@ -14,13 +14,13 @@ This example is the baseline first-run case for PICurv using programmatic grid g
 ## Quick Start
 
 ```bash
-./scripts/pic.flow init flat_channel --dest my_case
-./scripts/pic.flow validate \
+./bin/pic.flow init flat_channel --dest my_case
+./bin/pic.flow validate \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
   --post my_case/standard_analysis.yml
-./scripts/pic.flow run --solve --post-process -n 4 \
+./bin/pic.flow run --solve --post-process -n 4 \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \

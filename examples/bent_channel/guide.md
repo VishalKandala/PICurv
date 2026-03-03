@@ -11,13 +11,13 @@ This example demonstrates file-based curvilinear-grid workflow (`grid.mode: file
 ## Quick Start
 
 ```bash
-./scripts/pic.flow init bent_channel --dest my_bent_case
-./scripts/pic.flow validate \
+./bin/pic.flow init bent_channel --dest my_bent_case
+./bin/pic.flow validate \
   --case my_bent_case/bent_channel.yml \
   --solver my_bent_case/Imp-MG-Standard.yml \
   --monitor my_bent_case/Standard_Output.yml \
   --post my_bent_case/standard_analysis.yml
-./scripts/pic.flow run --solve --post-process -n 4 \
+./bin/pic.flow run --solve --post-process -n 4 \
   --case my_bent_case/bent_channel.yml \
   --solver my_bent_case/Imp-MG-Standard.yml \
   --monitor my_bent_case/Standard_Output.yml \

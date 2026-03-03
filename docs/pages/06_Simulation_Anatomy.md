@@ -26,7 +26,7 @@ You can choose any file names. C binaries do not require fixed YAML names.
 Example solve invocation:
 
 ```bash
-./scripts/pic.flow run --solve -n 16 \
+./bin/pic.flow run --solve -n 16 \
   --case my_cases/channel_case.yml \
   --solver config/solvers/Imp-MG-Standard.yml \
   --monitor config/monitors/Standard_Output.yml

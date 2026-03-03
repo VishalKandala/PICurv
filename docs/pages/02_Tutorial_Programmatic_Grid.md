@@ -19,7 +19,7 @@ By the end of this tutorial you will have:
 From repository root:
 
 ```bash
-./scripts/pic.flow init flat_channel --dest my_first_run
+./bin/pic.flow init flat_channel --dest my_first_run
 ```
 
 Expected files:
@@ -46,7 +46,7 @@ my_first_run/
 @section validate_sec 4. Validate Inputs Before Launch
 
 ```bash
-./scripts/pic.flow validate \
+./bin/pic.flow validate \
   --case my_first_run/flat_channel.yml \
   --solver my_first_run/Imp-MG-Standard.yml \
   --monitor my_first_run/Standard_Output.yml \
@@ -58,7 +58,7 @@ Validation confirms the YAML-to-runtime contract and catches mis-typed keys befo
 @section run_sec 5. Run Solver and Postprocessor
 
 ```bash
-./scripts/pic.flow run \
+./bin/pic.flow run \
   --case my_first_run/flat_channel.yml \
   --solver my_first_run/Imp-MG-Standard.yml \
   --monitor my_first_run/Standard_Output.yml \
