@@ -163,16 +163,16 @@ Example for a debug build on Linux</h1>
 <ol type="1">
 <li><b>Navigate to the Root Directory:</b> Ensure you are in the top-level <code>PICurv/</code> directory.</li>
 <li><p class="startli"><b>Build the Solver and Postprocessor:</b> Use the <code>build</code> command of the <code>pic.flow</code> script.</p>
-<p class="startli">```bash ./bin/pic-flow build ``<code> This command will invoke the</code>Makefile<code>and compile all C source code. If the compilation is successful, you will find the executables</code>picsolver<code>and</code>postprocessor<code>in the</code>bin/` directory.</p>
+<p class="startli">```bash ./bin/pic.flow build ``<code> This command will invoke the</code>Makefile<code>and compile all C source code. If the compilation is successful, you will find the executables</code>picsolver<code>and</code>postprocessor<code>in the</code>bin/` directory.</p>
 </li>
 </ol>
 <h2><a class="anchor" id="advanced_build_sec"></a>
 4.1. Advanced Build Options</h2>
 <p>The <code>build</code> command can pass arguments directly to <code>make</code>. This is useful for cleaning the project or building for different systems.</p>
 <ul>
-<li><b>Clean all build artifacts:</b> <div class="fragment"><div class="line">./bin/pic-flow build clean-project</div>
+<li><b>Clean all build artifacts:</b> <div class="fragment"><div class="line">./bin/pic.flow build clean-project</div>
 </div><!-- fragment --></li>
-<li><b>Build for a specific system (e.g., a cluster environment defined in <code>config.cluster.mk</code>):</b> <div class="fragment"><div class="line">./bin/pic-flow build SYSTEM=cluster</div>
+<li><b>Build for a specific system (e.g., a cluster environment defined in <code>config.cluster.mk</code>):</b> <div class="fragment"><div class="line">./bin/pic.flow build SYSTEM=cluster</div>
 </div><!-- fragment --></li>
 </ul>
 <h1><a class="anchor" id="next_steps_sec"></a>

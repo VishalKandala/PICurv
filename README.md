@@ -42,6 +42,7 @@ After build, use the installed conductor from `bin/` for init/validate/run comma
 ./bin/pic.flow init flat_channel --dest my_case
 ```
 
+`init` now copies the built executables into the new case directory so it is self-contained and runnable with `./pic.flow ...`.
 `pic.flow` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
 

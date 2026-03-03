@@ -148,6 +148,42 @@ models:
       restart_mode: "init"
 ```
 
+Continue a run that ended at step 500 for 1000 more steps:
+
+```yaml
+run_control:
+  start_step: 500
+  total_steps: 1000
+```
+
+```yaml
+operation_mode:
+  eulerian_field_source: "load"
+```
+
+Optional particle choice:
+
+```yaml
+models:
+  physics:
+    particles:
+      restart_mode: "load"   # or "init"
+```
+
+```bash
+./bin/pic.flow run --solve --post-process \
+  --case restart_case/case.yml \
+  --solver restart_case/solver.yml \
+  --monitor restart_case/monitor.yml \
+  --post restart_case/post.yml
+```
+
+Expected step range:
+
+- saved state loaded from step `500`
+- first new step is `501`
+- final step after this run is `1500`
+
 @section choose_sec 6. Which Example To Start From
 
 Choose `flat_channel` when:

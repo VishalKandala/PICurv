@@ -59,6 +59,8 @@ my_case/
 `- standard_analysis.yml
 ```
 
+`init` also copies the built executables into the new case directory, so you can run the case in place with `./pic.flow ...` after build.
+
 These are the four runtime roles:
 
 - case physics and grid,

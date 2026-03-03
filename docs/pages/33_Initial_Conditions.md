@@ -107,6 +107,11 @@ In @ref InitializeEulerianState:
   - `load` source reloads restart fields for the requested step.
   - `analytical` source regenerates analytical field at current `(t, step)`.
 
+Operational note:
+
+- `StartStep` identifies the saved restart state being loaded, not the first new step to compute.
+- If a run completed through step `N`, restart with `start_step: N`; the first newly advanced step will be `N+1`.
+
 @section particle_link_sec 6. Particle Initialization Relation
 
 Particle initialization is configured in `case.yml -> models.physics.particles`, but executed by a separate subsystem.

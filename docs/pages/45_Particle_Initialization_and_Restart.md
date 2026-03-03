@@ -85,6 +85,12 @@ Mode details:
 | `>0` | `init` | initialize new population in restarted flow |
 | `>0` | `load` | load particle fields from restart files |
 
+Operational note:
+
+- For a run completed through step `N`, use `start_step: N`.
+- Choose `restart_mode: load` to continue the existing particle swarm.
+- Choose `restart_mode: init` to reseed a fresh particle population in the restarted flow field.
+
 For loaded particles, fast migration path:
 
 - @ref MigrateRestartParticlesUsingCellID uses stored cell IDs to migrate directly before full walking-search fallback.

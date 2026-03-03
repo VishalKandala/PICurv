@@ -1,8 +1,11 @@
 import importlib.machinery
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -371,6 +374,85 @@ def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
     assert lines[0] == "PICGRID"
     assert lines[1] == "1"
     assert lines[2] == "3 3 3"
+
+
+def test_case_local_symlinked_pic_flow_prefers_local_binaries(tmp_path):
+    valid = FIXTURES / "valid"
+    case_dir = tmp_path / "case_dir"
+    case_dir.mkdir()
+
+    for name in ("case.yml", "solver.yml", "monitor.yml", "post.yml"):
+        shutil.copy2(valid / name, case_dir / name)
+
+    (case_dir / "pic.flow").symlink_to(PIC_FLOW)
+    for exe_name in ("picsolver", "postprocessor"):
+        exe_path = case_dir / exe_name
+        exe_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        exe_path.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            str(case_dir / "pic.flow"),
+            "run",
+            "--solve",
+            "--post-process",
+            "--case",
+            "case.yml",
+            "--solver",
+            "solver.yml",
+            "--monitor",
+            "monitor.yml",
+            "--post",
+            "post.yml",
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=str(case_dir),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["stages"]["solve"]["launch_command"][0] == str(case_dir / "picsolver")
+    assert payload["stages"]["post-process"]["launch_command"][0] == str(case_dir / "postprocessor")
+
+
+def test_init_always_copies_full_executable_set(tmp_path):
+    pic_flow = load_pic_flow_module()
+    fake_root = tmp_path / "fake_root"
+    template_dir = fake_root / "examples" / "demo_case"
+    bin_dir = fake_root / "bin"
+    template_dir.mkdir(parents=True)
+    bin_dir.mkdir(parents=True)
+
+    (template_dir / "case.yml").write_text("run_control:\n  start_step: 0\n", encoding="utf-8")
+    for exe_name in ("pic.flow", "picsolver", "postprocessor"):
+        exe_path = bin_dir / exe_name
+        exe_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        exe_path.chmod(0o755)
+
+    original_project_root = pic_flow.PROJECT_ROOT
+    original_cwd = Path.cwd()
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    try:
+        pic_flow.PROJECT_ROOT = str(fake_root)
+        os.chdir(work_dir)
+        pic_flow.init_case(SimpleNamespace(template_name="demo_case", dest_name="demo_out", copy_binaries=False))
+    finally:
+        os.chdir(original_cwd)
+        pic_flow.PROJECT_ROOT = original_project_root
+
+    out_dir = work_dir / "demo_out"
+    for exe_name in ("pic.flow", "picsolver", "postprocessor"):
+        exe_path = out_dir / exe_name
+        assert exe_path.is_file()
+        assert not exe_path.is_symlink()
 
 
 def test_dry_run_local_solver_vs_post_proc_counts():

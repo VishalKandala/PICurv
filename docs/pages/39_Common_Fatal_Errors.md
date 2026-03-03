@@ -33,7 +33,16 @@ Code reference:
 | `[FATAL] Unsupported scheduler '<x>'. Only Slurm is supported in v1.` | `cluster.yml` has unsupported scheduler type | Set `cluster.yml -> scheduler.type: slurm`. |
 | `[FATAL] In cluster mode, --num-procs applies to the solver stage and must be 1 (auto) or exactly nodes*ntasks_per_node (...)` | Solver MPI count mismatch against cluster resources | Set `-n 1` or set solver `-n` to `nodes * ntasks_per_node`. |
 
-@section workflow_sec 3. Recommended Debug Workflow
+@section restart_sec 3. Restart Mistakes To Check First
+
+| Mistake | Likely result | Fix |
+|---|---|---|
+| Set `start_step: 501` after a run that ended at `500` | Off-by-one mismatch against the saved restart state | Set `start_step: 500`; the first new step will be `501`. |
+| Leave `eulerian_field_source` as `solve` for a restart | Fresh solve path instead of loading saved fields | Set `solver.yml -> operation_mode.eulerian_field_source: load`. |
+| Omit or mis-set `particles.restart_mode` | Unexpected particle reseed/load behavior or warning-driven behavior | Set `restart_mode: load` or `restart_mode: init` explicitly. |
+| Choose a `start_step` that was never written | Runtime file-not-found or missing-data restart failure | Verify the requested restart step exists in the saved output/restart files. |
+
+@section workflow_sec 4. Recommended Debug Workflow
 
 1. Run config-only checks first:
 
