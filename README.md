@@ -128,38 +128,45 @@ Launch a sweep study:
   - `studies/<study_id>/scheduler/` array scripts and submission metadata
   - `studies/<study_id>/results/metrics_table.csv` and plots
 
-## Smoke and Quality Checks
+## Testing
 
-Manual smoke commands:
+PICurv uses an intent-based local testing model so the command name tells you what kind of validation you are running.
+
+Canonical targets:
+
+- `make test-python`: Python-only CLI/config regression suite
+- `make test`: backward-compatible alias to `test-python`
+- `make doctor`: installation and PETSc provisioning validation
+- `make unit`: full isolated C unit/component suite
+- `make unit-geometry`
+- `make unit-solver`
+- `make unit-particles`
+- `make unit-io`
+- `make unit-post`
+- `make smoke`: executable-level simulator/postprocessor smoke checks
+- `make check`: full local validation sweep (`test-python + doctor + unit + smoke`)
+
+Compatibility aliases:
+
+- `make install-check` -> `make doctor`
+- `make ctest` -> `make unit`
+- `make ctest-geometry` -> `make unit-geometry`
+- `make ctest-solver` -> `make unit-solver`
+- `make ctest-particles` -> `make unit-particles`
+- `make ctest-io` -> `make unit-io`
+- `make ctest-post` -> `make unit-post`
+
+Quick-start commands:
 
 ```bash
-./bin/picurv --help
-./bin/picurv run --help
-./bin/picurv validate --help
-
-./bin/picurv validate \
-  --case tests/fixtures/valid/case.yml \
-  --solver tests/fixtures/valid/solver.yml \
-  --monitor tests/fixtures/valid/monitor.yml \
-  --post tests/fixtures/valid/post.yml
-
-./bin/picurv run --solve --post-process \
-  --case tests/fixtures/valid/case.yml \
-  --solver tests/fixtures/valid/solver.yml \
-  --monitor tests/fixtures/valid/monitor.yml \
-  --post tests/fixtures/valid/post.yml \
-  --dry-run --format json
-
-python3 scripts/check_markdown_links.py
+make test
+make doctor
+make unit-io
+make smoke
+make check
 ```
 
-Automated smoke checks:
-
-- Local:
-  - `make test`
-  - or `python3 -m pytest -q`
-- CI:
-  - `.github/workflows/quality.yml`
+Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-*` while iterating on a subsystem. Use `make smoke` to confirm the compiled executables still launch. Use `make check` at the end of a development cycle.
 
 Detailed guide:
 - https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
@@ -179,6 +186,7 @@ Detailed guide:
 - Cluster guide: https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
 - Sweep guide: https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
 - Testing and quality: https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
+- C test suite developer guide: https://vishalkandala.me/picurv-docs/51_C_Test_Suite_Developer_Guide.html
 - Common fatal errors: https://vishalkandala.me/picurv-docs/39_Common_Fatal_Errors.html
 - Repository navigation: https://vishalkandala.me/picurv-docs/30_Repository_Navigation.html
 

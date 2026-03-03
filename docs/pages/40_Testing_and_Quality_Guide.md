@@ -1,199 +1,189 @@
-@page 40_Testing_and_Quality_Guide Testing, Smoke, and Quality Gates Guide
+@page 40_Testing_and_Quality_Guide Testing and Validation Guide
 
-This page explains how to verify the Iteration A CLI features end-to-end, how the smoke tests are structured, and how CI enforces quality gates.
+This page documents PICurv's local testing model. The suite is intentionally split by intent so users can choose the smallest command that answers the question they actually have.
 
 @tableofcontents
 
-@section scope_sec 1. What This Guide Covers
+@section taxonomy_sec 1. Testing Taxonomy
 
-Iteration A introduced:
-- `picurv validate`
-- `picurv run --dry-run` and `--format json`
-- standardized error envelope:
-  - `ERROR <CODE> | key=<...> | file=<...> | message=<...> | hint=<...>`
-- CI workflow for CLI smoke tests and markdown link checks
+PICurv exposes four validation layers plus one aggregate target:
 
-This guide documents:
-1. manual smoke commands for users and maintainers,
-2. automated smoke tests in `tests/test_cli_smoke.py`,
-3. workflow behavior in `.github/workflows/quality.yml`,
-4. extension patterns when adding future CLI features.
+1. Python/control-plane validation
+2. installation and PETSc provisioning validation
+3. isolated C unit/component validation
+4. executable entrypoint smoke validation
+5. full local validation sweep
 
-@section quick_smoke_sec 2. Quick Smoke Matrix (Manual)
+Canonical commands:
 
-Run from repository root.
+- `make test-python`
+- `make doctor`
+- `make unit`
+- `make unit-geometry`
+- `make unit-solver`
+- `make unit-particles`
+- `make unit-io`
+- `make unit-post`
+- `make smoke`
+- `make check`
 
-@subsection help_smoke_ssec 2.1 Command Discovery Smoke
+Compatibility aliases remain available:
 
-```bash
-./bin/picurv --help
-./bin/picurv run --help
-./bin/picurv validate --help
-```
+- `make test` -> `make test-python`
+- `make install-check` -> `make doctor`
+- `make ctest*` -> `make unit*`
 
-Expected:
-- top-level help lists `validate`,
-- run help lists `--dry-run` and `--format {text,json}`,
-- validate help lists file-role flags and `--strict`.
+@section quickstart_sec 2. Quick Start
 
-@subsection validate_smoke_ssec 2.2 Config-Only Validation Smoke
-
-Valid fixture set:
+Fast local checks:
 
 ```bash
-./bin/picurv validate \
-  --case tests/fixtures/valid/case.yml \
-  --solver tests/fixtures/valid/solver.yml \
-  --monitor tests/fixtures/valid/monitor.yml \
-  --post tests/fixtures/valid/post.yml \
-  --cluster tests/fixtures/valid/cluster.yml \
-  --study tests/fixtures/valid/study.yml
+make test
+make doctor
+make unit-io
+make smoke
+make check
 ```
 
-Expected:
-- exit code `0`,
-- `[SUCCESS] Validation completed for ... file(s)`.
+Guidance:
 
-Invalid fixture example:
+- Use `make test` when working on `scripts/picurv`, schemas, or repository metadata.
+- Use `make doctor` after provisioning PETSc on a new machine.
+- Use `make unit-<area>` while changing a subsystem in isolation.
+- Use `make smoke` after building binaries to confirm the entrypoints still launch.
+- Use `make check` at the end of a development cycle.
+
+@section python_sec 3. Python Suite (`test-python`)
+
+Purpose:
+
+- validate `scripts/picurv`
+- validate config translation and contract behavior
+- validate repository-level regression checks
+
+This suite is implemented with `pytest` and does not require PETSc.
+
+Current coverage includes:
+
+- CLI help/validate/dry-run smoke
+- config regression checks
+- case maintenance regressions
+- repository consistency scans
+
+Run locally:
 
 ```bash
-./bin/picurv validate \
-  --case tests/fixtures/invalid/case_missing_properties.yml \
-  --solver tests/fixtures/valid/solver.yml \
-  --monitor tests/fixtures/valid/monitor.yml
+make test-python
 ```
 
-Expected:
-- exit code `1`,
-- at least one structured error line with `ERROR CFG_MISSING_SECTION`.
+@section doctor_sec 4. Installation Validation (`doctor`)
 
-@subsection dryrun_smoke_ssec 2.3 Dry-Run Smoke (No File Writes)
+Purpose:
 
-Human-readable plan:
+- confirm `PETSC_DIR` is present and usable
+- confirm the configured toolchain can compile against PETSc
+- confirm a minimal PETSc-backed binary can initialize and create core PETSc objects
+
+The `doctor` target builds and runs a small C smoke binary under `tests/c/test_install_check.c`.
+
+It validates:
+
+- environment visibility for `PETSC_DIR`
+- `PetscInitialize`
+- `DMDA` creation
+- `Vec` creation
+- `DMSwarm` creation
+- `PetscFinalize`
+
+This target answers: "Is this machine set up correctly for PICurv development?"
+
+Run locally:
 
 ```bash
-./bin/picurv run --solve --post-process \
-  --case tests/fixtures/valid/case.yml \
-  --solver tests/fixtures/valid/solver.yml \
-  --monitor tests/fixtures/valid/monitor.yml \
-  --post tests/fixtures/valid/post.yml \
-  --dry-run
+make doctor
 ```
 
-Machine-readable plan:
+@section unit_sec 5. Isolated C Unit Suites (`unit-*`)
+
+Purpose:
+
+- support kernel and component development in isolation
+- reduce the blast radius while changing numerical code
+
+Current suites:
+
+- `make unit-geometry`
+- `make unit-solver`
+- `make unit-particles`
+- `make unit-io`
+- `make unit-post`
+- `make unit` (all of the above)
+
+The phase-1 suite focuses on representative coverage:
+
+- geometry and interpolation invariants
+- solver utility kernels
+- particle location helpers
+- I/O pathing and field round-trips
+- post-processing/statistics kernels
+
+These tests use real PETSc objects and run single-rank by default.
+
+@section smoke_sec 6. Executable Smoke (`smoke`)
+
+Purpose:
+
+- confirm the compiled binaries still launch successfully
+- catch integration breakage that isolated unit tests may miss
+
+The current phase-1 smoke runner verifies:
+
+- `bin/simulator` launches and responds to `-help`
+- `bin/postprocessor` launches and responds to `-help`
+
+This is intentionally lightweight and fast. The reserved fixture tree under `tests/smoke/` allows future evolution into true tiny case-level runtime smoke tests.
+
+Run locally:
 
 ```bash
-./bin/picurv run --solve --post-process \
-  --case tests/fixtures/valid/case.yml \
-  --solver tests/fixtures/valid/solver.yml \
-  --monitor tests/fixtures/valid/monitor.yml \
-  --post tests/fixtures/valid/post.yml \
-  --dry-run --format json
+make smoke
 ```
 
-Expected:
-- no new run directories/files are created,
-- JSON output parses cleanly and includes `mode`, `launch_mode`, `stages`, and `artifacts`.
+@section aggregate_sec 7. Full Validation (`check`)
 
-@section code_map_sec 3. Code Map (Where Behavior Lives)
+`make check` is the top-level local validation sweep.
 
-Primary implementation in `scripts/picurv`:
-- standardized error emitter: `emit_structured_error(...)`
-- CLI usage failure exit code (`2`): `fail_cli_usage(...)`
-- dry-run plan builder: `build_run_dry_plan(args)`
-- dry-run renderer (text/json): `render_run_dry_plan(plan, output_format=...)`
-- validate command implementation: `validate_workflow(args)`
-- parser composition: `build_main_parser()`
-- dispatch and argument combination checks: `dispatch_command(args)`
+It runs, in order:
 
-Related docs:
-- **@subpage 05_The_Conductor_Script**
-- **@subpage 39_Common_Fatal_Errors**
-- **@subpage 14_Config_Contract**
+1. `make test-python`
+2. `make doctor`
+3. `make unit`
+4. `make smoke`
 
-@section automated_sec 4. Automated Smoke Tests
+Use it when you want maximum local confidence before ending a development cycle.
 
-Automated smoke tests live in:
-- `tests/test_cli_smoke.py`
+@section troubleshooting_sec 8. Common Failure Modes
 
-Fixture packs:
-- valid configs: `tests/fixtures/valid/`
-- invalid configs: `tests/fixtures/invalid/`
+Common issues:
 
-Current test categories:
-1. help output smoke,
-2. validate pass/fail behavior,
-3. structured error presence for invalid inputs,
-4. dry-run no-write guarantee,
-5. dry-run JSON schema sanity,
-6. markdown link checker pass.
+- `PETSC_DIR` is unset:
+  - `make doctor`, `make unit*`, `make smoke`, and `make check` will fail.
+- `PETSC_ARCH` points to the wrong build:
+  - compilation may fail while including PETSc make variables.
+- `mpicc` or MPI runtime wrappers are missing:
+  - PETSc-backed builds may fail even if Python tests still pass.
+- a unit test fails after writing temporary files:
+  - inspect `/tmp/picurv-test-*` for preserved intermediate artifacts.
+- `pytest` is unavailable:
+  - only the Python suite is blocked; PETSc-backed C tests are separate.
 
-Run locally (when `pytest` is available):
+@section extend_sec 9. Extending The Test Suite
 
-```bash
-pytest -q
-```
+When adding new tests:
 
-@section ci_sec 5. CI Quality Gate Behavior
+1. choose the narrowest valid layer (`test-python`, `doctor`, `unit-*`, or `smoke`)
+2. reuse `tests/c/test_support.*` for PETSc-backed fixtures
+3. keep temporary artifacts under `/tmp`
+4. document new user-facing targets or workflows in the README and this guide
 
-Workflow file:
-- `.github/workflows/quality.yml`
-
-Pipeline steps:
-1. checkout,
-2. setup Python,
-3. install `pytest`, `pyyaml`, `numpy`,
-4. run `pytest -q`,
-5. run `python scripts/check_markdown_links.py`.
-
-If either step fails, the workflow fails and blocks merge (for repositories using required checks).
-
-Separate docs build/mirror workflow:
-- `.github/workflows/docs.yml`
-- handles Doxygen generation and docs artifact mirroring.
-
-@section linkcheck_sec 6. Markdown Link Checking
-
-Link checker script:
-- `scripts/check_markdown_links.py`
-
-Coverage:
-- `README.md`
-- `docs/**/*.md` (excluding generated `docs_build/`)
-
-It checks local relative links only and intentionally skips:
-- `http://...`
-- `https://...`
-- `mailto:...`
-- in-page anchors (`#...`)
-
-@section extend_sec 7. How to Extend Smoke Coverage
-
-When adding a new CLI option or subcommand:
-1. add a help-output assertion in `tests/test_cli_smoke.py`,
-2. add one success-path and one failure-path test,
-3. add/update fixtures under `tests/fixtures/`,
-4. document user-facing behavior in **@subpage 05_The_Conductor_Script**,
-5. update this page’s smoke matrix if the command is user-critical.
-
-When adding new docs pages:
-1. add nav entries in `docs/DoxygenLayout.xml`,
-2. run `python scripts/check_markdown_links.py`,
-3. ensure links from at least one entry page (`mainpage`/conductor/how-to).
-
-@section troubleshooting_sec 8. Local Troubleshooting
-
-Common local issues:
-- `pytest: command not found`:
-  - install pytest in your local Python environment,
-  - or run tests in CI where dependencies are provisioned.
-- `No module named pytest`:
-  - use the Python interpreter/environment intended for development.
-- network-restricted environments:
-  - local package install may fail; rely on CI run for authoritative smoke status.
-
-@section refs_sec 9. External References
-
-- Pytest docs: https://docs.pytest.org/
-- GitHub Actions workflow syntax: https://docs.github.com/actions/using-workflows/workflow-syntax-for-github-actions
-- CommonMark link syntax reference: https://spec.commonmark.org/
+For detailed C test maintenance guidance, see **@subpage 51_C_Test_Suite_Developer_Guide**.
