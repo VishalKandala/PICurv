@@ -45,7 +45,7 @@ the statistical noise at N = 50000.
   --post examples/brownian_motion/brownian_analysis.yml
 ```
 
-Output file: `<run_dir>/output/BrownianStats_msd.csv`
+Output file: `<run_dir>/BrownianStats_msd.csv`
 
 ---
 
@@ -57,10 +57,10 @@ Output file: `<run_dir>/output/BrownianStats_msd.csv`
 import numpy as np
 import pandas as pd
 
-df = pd.read_csv("output/BrownianStats_msd.csv")
-# Expected columns: step, time, msd  (or msd_x, msd_y, msd_z, msd_total)
-t   = df["time"].values      # Non-dimensional time
-msd = df["msd"].values       # Total MSD (or msd_x + msd_y + msd_z)
+df = pd.read_csv("BrownianStats_msd.csv")
+# Actual columns include: step, t, N, MSD_x, MSD_y, MSD_z, MSD_total, ...
+t   = df["t"].values             # Non-dimensional time
+msd = df["MSD_total"].values     # Total MSD
 ```
 
 ### Step 2: Linear fit (skip t=0 to avoid IC artefact)
@@ -113,7 +113,7 @@ print(f"Intercept:         {intercept:.6e}")
   and `point_source: {x: 0.5, y: 0.5, z: 0.5}` in case.yml.
 - Initial displacement bias in walking search seeding. Inspect step-0 particle output.
 
-### Anisotropic MSD (if per-component output available)
+### Anisotropic MSD
 - MSD_x ≠ MSD_y ≠ MSD_z with uniform grid is a red flag for a directional
   bias in the noise generator (Box-Muller implementation) or interpolation.
 - Each component should converge to 2 * Γ_eff * t independently.

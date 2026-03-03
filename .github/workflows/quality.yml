@@ -25,5 +25,5 @@ jobs:
       - name: Run CLI and config smoke tests
         run: pytest -q
 
-      - name: Check markdown links (README + docs authored pages)
+      - name: Check markdown links (README + docs + examples)
         run: python scripts/check_markdown_links.py

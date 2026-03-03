@@ -78,7 +78,9 @@ Lagrangian tasks (`lagrangian_pipeline`):
 - list form, or
 - mapping with `tasks` and optional `output_prefix`
 
-Currently supported statistics task is `msd`, which `picurv` translates to the C kernel `ComputeMSD`.
+Currently supported statistics task is `msd`, which `picurv` serializes as the
+`ComputeMSD` pipeline token consumed by the C dispatcher before it calls
+`ComputeParticleMSD`.
 
 Mappings:
 - tasks -> `statistics_pipeline`
@@ -98,6 +100,8 @@ Mappings:
 - `input_extensions.particle` -> `particleExt`
 
 Default post input extension remains `dat` unless overridden.
+`statistics_pipeline.output_prefix` is independent of `io.output_directory`; by default
+the CSV is written relative to the run directory unless you include a path in the prefix.
 
 @section next_steps_sec 7. Next Steps
 

@@ -40,7 +40,7 @@ profiling:
   #   selected -> write only the listed functions
   #   all      -> write every instrumented function that ran that step
   timestep_output:
-    mode: off
+    mode: "off"
     # functions:
     #   - AdvanceSimulation
     #   - Flow_Solver

@@ -5,6 +5,8 @@ This directory contains automated smoke and regression checks for `picurv`.
 ## Layout
 
 - `test_cli_smoke.py`: CLI help/validate/dry-run smoke coverage
+- `test_config_regressions.py`: ingress/schema regression checks for config translation and drift guards
+- `test_repo_consistency.py`: repository-wide example validation and stale-doc contract scans
 - `fixtures/valid/`: canonical valid YAML input sets
 - `fixtures/invalid/`: intentionally broken YAML sets with expected failure patterns
 

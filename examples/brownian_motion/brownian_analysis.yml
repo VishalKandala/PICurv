@@ -21,16 +21,13 @@ run_control:
   # Process all 2000 timesteps in the output window.
   # step 0 = initial condition (all particles at source, MSD = 0)
   # step 2000 = final state (MSD expected ~0.012)
-  startTime: 0
-  endTime: 2000
-  timeStep: 100             # Read every 100-step snapshot (matches data_output_frequency)
+  start_step: 0
+  end_step: 2000
+  step_interval: 100        # Read every 100-step snapshot (matches data_output_frequency)
 
 source_data:
   # picurv will resolve these from the run directory automatically
   # when called with --post-process --run-dir <run_dir>
-  input_extensions:
-    eulerian: "dat"
-    particle: "dat"
 
 # Eulerian pipeline: minimal -- we only care about particles here.
 # Keep nodal_average so Eulerian VTK is valid if inspected in ParaView.
@@ -43,6 +40,9 @@ io:
   output_directory: "viz"
   output_filename_prefix: "Field"
   particle_filename_prefix: "Particle"
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"
   eulerian_fields:
     - Ucat_nodal            # Confirm velocity is identically zero throughout
   output_particles: true    # Write particle VTP for visual sanity check

@@ -1,0 +1,201 @@
+import importlib.machinery
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PICURV = REPO_ROOT / "scripts" / "picurv"
+FIXTURES = REPO_ROOT / "tests" / "fixtures"
+
+
+def run_picurv(args, cwd=REPO_ROOT):
+    cmd = [sys.executable, str(PICURV)] + list(args)
+    return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False)
+
+
+def load_picurv_module():
+    loader = importlib.machinery.SourceFileLoader("picurv_regression_module", str(PICURV))
+    spec = importlib.util.spec_from_loader("picurv_regression_module", loader)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def test_audit_ingress_manifest_matches_c_ingress():
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "audit_ingress.py")],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "[OK] Ingress manifest matches setup/io PETSc option scan." in result.stdout
+
+
+def test_generate_post_recipe_supports_legacy_aliases_and_legacy_input_extensions(tmp_path):
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+
+    post_cfg = {
+        "run_control": {
+            "startTime": 5,
+            "endTime": 15,
+            "timeStep": 2,
+        },
+        "source_data": {
+            "directory": "<solver_output_dir>",
+            "input_extensions": {
+                "eulerian": ".fld",
+                "particle": "prt",
+            },
+        },
+        "statistics_pipeline": {
+            "output_prefix": "stats/BrownianStats",
+            "tasks": [{"task": "msd"}],
+        },
+        "io": {
+            "output_directory": "viz",
+            "output_filename_prefix": "Field",
+            "particle_filename_prefix": "Particle",
+            "output_particles": True,
+            "eulerian_fields": ["Ucat"],
+            "particle_fields": ["velocity"],
+        },
+    }
+
+    recipe_path = Path(
+        picurv.generate_post_recipe_file(
+            str(run_dir),
+            "demo_run",
+            post_cfg,
+            {"Case": "case.yml", "Post-Profile": "post.yml"},
+        )
+    )
+    content = recipe_path.read_text(encoding="utf-8")
+
+    assert "startTime = 5" in content
+    assert "endTime = 15" in content
+    assert "timeStep = 2" in content
+    assert "eulerianExt = fld" in content
+    assert "particleExt = prt" in content
+    assert "statistics_pipeline = ComputeMSD" in content
+    assert "statistics_output_prefix = stats/BrownianStats" in content
+
+
+def test_validate_post_rejects_unsupported_eulerian_task(tmp_path):
+    invalid_post = tmp_path / "post_invalid_task.yml"
+    invalid_post.write_text(
+        "\n".join(
+            [
+                "run_control:",
+                "  start_step: 0",
+                "  end_step: 10",
+                "  step_interval: 1",
+                "eulerian_pipeline:",
+                "  - task: imaginary_kernel",
+                "io:",
+                "  output_directory: viz",
+                "  output_filename_prefix: Field",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_picurv(["validate", "--post", str(invalid_post)])
+
+    assert result.returncode == 1
+    assert "unsupported eulerian task 'imaginary_kernel'" in result.stderr
+
+
+def test_validate_post_rejects_normalize_field_for_non_pressure_field(tmp_path):
+    invalid_post = tmp_path / "post_invalid_normalize.yml"
+    invalid_post.write_text(
+        "\n".join(
+            [
+                "run_control:",
+                "  start_step: 0",
+                "  end_step: 10",
+                "  step_interval: 1",
+                "eulerian_pipeline:",
+                "  - task: normalize_field",
+                "    field: Ucat",
+                "    reference_point: [1, 1, 1]",
+                "io:",
+                "  output_directory: viz",
+                "  output_filename_prefix: Field",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_picurv(["validate", "--post", str(invalid_post)])
+
+    assert result.returncode == 1
+    assert "currently only supports 'P'" in result.stderr
+
+
+def test_statistics_output_artifacts_are_relative_to_run_directory(tmp_path):
+    picurv = load_picurv_module()
+    post_cfg = {
+        "statistics_pipeline": {
+            "output_prefix": "stats/BrownianStats",
+            "tasks": [{"task": "msd"}],
+        },
+        "io": {
+            "output_directory": "viz",
+            "output_filename_prefix": "Field",
+        },
+    }
+
+    stats_paths = picurv.get_post_statistics_output_artifacts(post_cfg, str(tmp_path))
+
+    assert stats_paths == [str((tmp_path / "stats" / "BrownianStats_msd.csv").resolve())]
+
+
+def test_dry_run_json_reports_predicted_statistics_csv_artifact(tmp_path):
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    post_cfg = picurv.read_yaml_file(str(valid / "post.yml"))
+    post_cfg["statistics_pipeline"] = {
+        "output_prefix": "stats/BrownianStats",
+        "tasks": [{"task": "msd"}],
+    }
+
+    post_path = tmp_path / "post_with_stats.yml"
+    picurv.write_yaml_file(str(post_path), post_cfg)
+
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--post-process",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--post",
+            str(post_path),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    expected_stats_path = str((Path(payload["run_dir_preview"]) / "stats" / "BrownianStats_msd.csv").resolve())
+    assert expected_stats_path in payload["artifacts"]
+

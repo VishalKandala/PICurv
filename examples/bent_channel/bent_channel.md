@@ -57,7 +57,8 @@ This makes `bent_channel.yml` a useful bridge case when comparing:
 
 ## 5. Output Check
 
-Open `runs/<run_id>/viz/Field_*.vts` in ParaView and inspect streamlines colored by `Ucat_nodal` magnitude.
+Open `runs/<run_id>/visualization/standard_analysis/eulerian_data_*.vts` in ParaView and
+inspect streamlines colored by `Ucat_nodal` magnitude.
 
 ## 6. Cluster and Sweep Examples
 

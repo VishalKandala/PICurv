@@ -94,6 +94,16 @@ SCRIPTDIR := scripts
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
 SYSTEM ?= local
+NO_CONFIG_GOALS := test audit-ingress build-docs open-docs tags clean-project cleanobj clean-project-docs clean-project-tags
+NEEDS_BUILD_CONFIG := 1
+
+ifneq ($(MAKECMDGOALS),)
+ifeq ($(strip $(filter-out $(NO_CONFIG_GOALS),$(MAKECMDGOALS))),)
+NEEDS_BUILD_CONFIG :=
+endif
+endif
+
+ifdef NEEDS_BUILD_CONFIG
 CONFIG_FILE := config/build/config.$(SYSTEM).mk
 ifneq ("$(wildcard $(CONFIG_FILE))","")
     include $(CONFIG_FILE)
@@ -101,6 +111,7 @@ else
     $(error Cannot find configuration file '$(CONFIG_FILE)'. Please create it or specify a valid SYSTEM.)
 endif
 $(info Building for system: $(SYSTEM_NAME))
+endif
 
 
 # --- 3. Source & Object File Definitions ---
@@ -176,12 +187,17 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: run build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags
+.PHONY: run test build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
 run: $(SIMULATOR_EXE)
 	$(MPI_LAUNCHER) -n $(NPROCS) $< $(ARGS)
+
+## @target test
+## @brief Runs the Python regression test suite.
+test:
+	@python3 -m pytest -q
 
 ## @target build-docs
 ## @brief Generates Doxygen documentation for the project.

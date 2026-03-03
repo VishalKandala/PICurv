@@ -75,7 +75,8 @@ Grid-independence sweep:
 
 ## 6. Output Check
 
-Open `runs/<run_id>/viz/Field_*.vts` in ParaView and color by `Ucat_nodal` to inspect channel profile development.
+Open `runs/<run_id>/visualization/standard_analysis/eulerian_data_*.vts` in ParaView and
+color by `Ucat_nodal` to inspect channel profile development.
 
 ## 7. Live Docs
 
