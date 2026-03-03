@@ -18,7 +18,7 @@ Face names:
 
 Every block must provide all six faces exactly once.
 
-@section supported_sec 2. Supported User-Facing Combinations (`pic.flow`)
+@section supported_sec 2. Supported User-Facing Combinations (`picurv`)
 
 The validator accepts these type/handler pairs:
 
@@ -39,7 +39,7 @@ Notes:
 
 @section nondim_sec 3. Non-Dimensionalization Before C Input
 
-`pic.flow` converts physical BC values to solver-scale values before writing `bcs.run`:
+`picurv` converts physical BC values to solver-scale values before writing `bcs.run`:
 
 \f[
 v^* = \frac{v}{U_{ref}}, \qquad
@@ -77,6 +77,11 @@ C ingestion path:
 3. `ValidateBCHandlerForBCType` enforces type-handler compatibility.
 4. @ref BoundaryCondition_Create maps handler enums to concrete implementations.
 
+`boundary_faces` is the canonical in-memory representation. Do not restore or
+maintain duplicate persistent legacy BC arrays in `UserCtx`. If a future
+low-level integration genuinely needs a translated view, add a narrow
+on-demand adapter only when a concrete consumer exists.
+
 Current factory-wired handlers include:
 
 - wall no-slip,
@@ -95,7 +100,7 @@ Important contributor note:
 
 If you add a new BC mode, update all three layers in one change:
 
-1. Python validator/writer (`scripts/pic.flow`),
+1. Python validator/writer (`scripts/picurv`),
 2. C parser/factory/handler implementation,
 3. docs and tests (fixtures + smoke checks).
 
@@ -167,3 +172,4 @@ boundary_conditions:
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 13_Code_Architecture**
 - **@subpage 39_Common_Fatal_Errors**
+- **@subpage 50_Modular_Selector_Extension_Guide**

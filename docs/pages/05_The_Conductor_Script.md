@@ -1,17 +1,17 @@
-@page 05_The_Conductor_Script The Conductor Script: pic.flow
+@page 05_The_Conductor_Script The Conductor Script: picurv
 
-`pic.flow` is the workflow orchestrator for PICurv. It validates YAML inputs, generates C runtime artifacts, and runs or schedules solver/postprocessing stages.
-It is also the primary user-facing contract layer: many defaults, aliases, and compatibility rules are enforced here before the C solver starts.
+`picurv` is the workflow orchestrator for PICurv. It validates YAML inputs, generates C runtime artifacts, and runs or schedules solver/postprocessing stages.
+It is also the primary user-facing contract layer: many defaults, aliases, and translation rules are enforced here before the C solver starts.
 
 @tableofcontents
 
 @section usage_sec 1. General Usage
 
 ```bash
-./bin/pic.flow [COMMAND] [ARGS...]
+./bin/picurv [COMMAND] [ARGS...]
 ```
 
-If `bin/pic.flow` does not exist yet, use `./scripts/pic.flow build` once to install it.
+If `bin/picurv` does not exist yet, use `./scripts/picurv build` once to install it.
 
 Primary commands:
 - `init`
@@ -29,18 +29,18 @@ Core idea:
 
 Help:
 ```bash
-./bin/pic.flow --help
-./bin/pic.flow init --help
-./scripts/pic.flow build --help
-./bin/pic.flow run --help
-./bin/pic.flow sweep --help
-./bin/pic.flow validate --help
+./bin/picurv --help
+./bin/picurv init --help
+./scripts/picurv build --help
+./bin/picurv run --help
+./bin/picurv sweep --help
+./bin/picurv validate --help
 ```
 
 @section init_sec 2. init: Create A New Case Directory
 
 ```bash
-./bin/pic.flow init <template_name> [--dest <new_dir>] [--copy-binaries]
+./bin/picurv init <template_name> [--dest <new_dir>]
 ```
 
 Behavior:
@@ -48,23 +48,23 @@ Behavior:
 - copies `examples/<template_name>/` into a new working directory,
 - optionally renames the destination via `--dest`,
 - copies the full executable set from `bin/` into the new case directory so the case is self-contained,
-- includes `pic.flow`, `picsolver`, and `postprocessor` when they exist in `bin/`,
-- keeps `--copy-binaries` as a compatibility flag, but copying is now the default and only behavior.
+- includes `picurv`, `simulator`, and `postprocessor` when they exist in `bin/`,
+- always copies the built executables into the new case directory.
 
 Examples:
 
 ```bash
-./bin/pic.flow init flat_channel --dest my_first_case
-./bin/pic.flow init bent_channel --dest my_bent_case --copy-binaries
+./bin/picurv init flat_channel --dest my_first_case
+./bin/picurv init bent_channel --dest my_bent_case
 ```
 
-Use `init` when you want a runnable starting point that you can `cd` into and launch with `./pic.flow ...`.
+Use `init` when you want a runnable starting point that you can `cd` into and launch with `./picurv ...`.
 Use reusable profile libraries directly when you already have your own case directory layout.
 
 @section build_sec 3. build: Build Project Executables
 
 ```bash
-./scripts/pic.flow build [MAKE_ARGS...]
+./scripts/picurv build [MAKE_ARGS...]
 ```
 
 Behavior:
@@ -76,16 +76,16 @@ Behavior:
 Examples:
 
 ```bash
-./scripts/pic.flow build
-./scripts/pic.flow build clean-project
-./scripts/pic.flow build SYSTEM=cluster
-./scripts/pic.flow build postprocessor
+./scripts/picurv build
+./scripts/picurv build clean-project
+./scripts/picurv build SYSTEM=cluster
+./scripts/picurv build postprocessor
 ```
 
 @section run_sec 4. run: Single-Case Workflow
 
 ```bash
-./bin/pic.flow run [STAGES] [INPUTS] [OPTIONS]
+./bin/picurv run [STAGES] [INPUTS] [OPTIONS]
 ```
 
 Stages:
@@ -117,7 +117,7 @@ Preflight options:
 
 Local example:
 ```bash
-./bin/pic.flow run --solve --post-process -n 8 \
+./bin/picurv run --solve --post-process -n 8 \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -127,7 +127,7 @@ In this command, solver runs with 8 ranks; post-processing still defaults to 1 r
 
 Slurm example (generate + submit):
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -137,7 +137,7 @@ Slurm example (generate + submit):
 
 Slurm example (generate only):
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -148,7 +148,7 @@ Slurm example (generate only):
 
 Dry-run example (no file writes):
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -167,7 +167,7 @@ Common `run` use cases:
 @section sweep_sec 5. sweep: Parameter Study via Slurm Arrays
 
 ```bash
-./bin/pic.flow sweep \
+./bin/picurv sweep \
   --study my_study/study.yml \
   --cluster my_study/cluster.yml [--no-submit]
 ```
@@ -182,7 +182,7 @@ Behavior:
 @section validate_sec 6. validate: Config-Only Checks
 
 ```bash
-./bin/pic.flow validate \
+./bin/picurv validate \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -196,7 +196,7 @@ What `validate` is for:
 - check a new profile combination before running,
 - confirm a modified template still satisfies the current schema,
 - catch mode-dependent contract errors before the C runtime,
-- inspect warnings where `pic.flow` preserves a C-side default intentionally.
+- inspect warnings where `picurv` preserves a C-side default intentionally.
 
 @section modular_sec 7. Modular Profile Strategy
 
@@ -217,7 +217,7 @@ Examples:
 - same `case.yml` + multiple `post.yml` recipes for different analysis outputs,
 - same `solver.yml` reused across many cases when the discretization strategy is stable.
 
-This is why `pic.flow` treats these roles as separate inputs instead of one monolithic file.
+This is why `picurv` treats these roles as separate inputs instead of one monolithic file.
 
 For prebuilt reusable profiles, also see the local guides under:
 
@@ -230,7 +230,7 @@ For prebuilt reusable profiles, also see the local guides under:
 @section artifacts_sec 8. Generated Runtime Artifacts
 
 Single run (`run`):
-- `runs/<run_id>/config/*.control`, `bcs*.run`, `whitelist.run`, `profile.run`, `post.run`
+- `runs/<run_id>/config/*.control`, `bcs*.run`, `post.run`, plus optional `whitelist.run` / `profile.run` sidecars when enabled
 - `runs/<run_id>/scheduler/solver.sbatch`, `post.sbatch` (cluster mode)
 - `runs/<run_id>/scheduler/submission.json` (cluster mode)
 - `runs/<run_id>/manifest.json`

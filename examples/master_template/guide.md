@@ -17,8 +17,8 @@ Use these as schema references, then copy only needed sections into runnable cas
 1. start from template relevant to your role,
 2. trim to minimum required fields,
 3. keep each role modular instead of merging everything into one custom bundle,
-4. validate with `pic.flow validate`,
-5. run with `pic.flow run` or `pic.flow sweep`.
+4. validate with `picurv validate`,
+5. run with `picurv run` or `picurv sweep`.
 
 ## Related Docs
 

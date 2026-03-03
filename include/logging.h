@@ -27,7 +27,6 @@
 typedef enum {
     LOG_ERROR = 0,   /**< Critical errors that may halt the program */
     LOG_WARNING,     /**< Non-critical issues that warrant attention */
-    LOG_PROFILE,      /**< Exclusive log level for performance timing and profiling */
     LOG_INFO,        /**< Informational messages about program execution */
     LOG_DEBUG,       /**< Detailed debugging information */
     LOG_TRACE,        /**< Very fine-grained tracing information for in-depth debugging */
@@ -410,21 +409,14 @@ do {                                                                            
         }                                                                     \
     } while (0)
 
-#define LOG_PROFILE_MSG(scope, fmt, ...)                                     \
-    do {                                                                     \
-        if ((int)(LOG_PROFILE) <= (int)get_log_level()) {                    \
-            MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
-            PetscPrintf(comm, "[PROFILE] " fmt, ##__VA_ARGS__);              \
-        }                                                                    \
-    } while (0)
-
 // --------------------- Function Declarations ---------------------
 
 /**
  * @brief Retrieves the current logging level from the environment variable `LOG_LEVEL`.
  *
  * The function checks the `LOG_LEVEL` environment variable and sets the logging level accordingly.
- * Supported levels are "DEBUG", "INFO", "WARNING", and defaults to "ERROR" if not set or unrecognized.
+ * Supported levels are "ERROR", "WARNING", "INFO", "DEBUG", "TRACE", and "VERBOSE".
+ * Unset or unrecognized values default to "ERROR".
  *
  * @return LogLevel The current logging level.
  */
@@ -438,14 +430,15 @@ LogLevel get_log_level();
  * at runtime.
  *
  * The log levels supported are:
- * - `LOG_PROFILE` (0) : Logs performance profiling details.
- * - `LOG_ERROR`   (1) : Logs only critical errors.
- * - `LOG_WARNING` (2) : Logs warnings and errors.
- * - `LOG_INFO`    (3) : Logs general information, warnings, and errors.
- * - `LOG_DEBUG`   (4) : Logs debugging information, info, warnings, and errors.
+ * - `LOG_ERROR`   (0) : Logs only critical errors.
+ * - `LOG_WARNING` (1) : Logs warnings and errors.
+ * - `LOG_INFO`    (2) : Logs general information, warnings, and errors.
+ * - `LOG_DEBUG`   (3) : Logs debugging information, info, warnings, and errors.
+ * - `LOG_TRACE`   (4) : Logs fine-grained trace information.
+ * - `LOG_VERBOSE` (5) : Logs very detailed developer output.
  *
  * @note The log level is determined from the `LOG_LEVEL` environment variable.
- * If `LOG_LEVEL` is not set, it defaults to `LOG_INFO`.
+ * If `LOG_LEVEL` is not set, it defaults to `LOG_ERROR`.
  *
  * @see get_log_level()
  */
@@ -517,6 +510,25 @@ PetscErrorCode LOG_FACE_DISTANCES(PetscReal* d);
  * @return PetscErrorCode Returns 0 on success.
  */
 PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval);
+
+/**
+ * @brief Returns whether periodic particle console snapshots are enabled.
+ *
+ * This checks only the reporting contract (particles exist, cadence is enabled,
+ * and the global log level is at least INFO).
+ */
+PetscBool IsParticleConsoleSnapshotEnabled(const SimCtx *simCtx);
+
+/**
+ * @brief Returns whether a particle console snapshot should be emitted for the
+ *        completed timestep.
+ */
+PetscBool ShouldEmitPeriodicParticleConsoleSnapshot(const SimCtx *simCtx, PetscInt completed_step);
+
+/**
+ * @brief Emits one particle console snapshot into the main solver log.
+ */
+PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscInt step);
 
 /* ------------------------------------------------------------------------- */
 /**
@@ -700,17 +712,20 @@ PetscErrorCode ProfilingResetTimestepCounters(void);
 /**
  * @brief Logs the performance summary for the current timestep and resets timers.
  *
- * Depending on the current log level, this function will print:
- * - LOG_PROFILE: Timings for ALL functions called during the step.
- * - LOG_INFO/LOG_DEBUG: Timings for only the "always log" functions.
+ * Depending on the configured profiling timestep mode, this function writes
+ * per-step profiling rows to the configured profiling log file:
+ * - `off`: writes nothing
+ * - `selected`: writes only functions marked for per-step reporting
+ * - `all`: writes every instrumented function that ran in the timestep
  *
  * It must be called once per timestep, typically at the end of the main loop.
  * After logging, it resets the per-step counters and timers.
  *
+ * @param simCtx The simulation context holding profiling output settings.
  * @param step The current simulation step number, for logging context.
  * @return PetscErrorCode
  */
-PetscErrorCode ProfilingLogTimestepSummary(PetscInt step);
+PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step);
 
 
 /**

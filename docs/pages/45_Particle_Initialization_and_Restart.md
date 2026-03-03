@@ -29,14 +29,14 @@ Mapping to control flags:
 - `restart_mode` -> `-particle_restart_mode`
 - `point_source` -> `-psrc_x/-psrc_y/-psrc_z` (required when `init_mode` is `PointSource`)
 
-@section mode_alias_sec 2. Accepted `init_mode` Aliases
+@section mode_values_sec 2. Accepted `init_mode` Values
 
-`pic.flow` accepts names and numeric forms:
+`picurv` accepts these exact canonical strings:
 
-- surface random: `Surface`, `surface random`, `0`
-- volume: `Volume`, `volumetric`, `1`
-- point source: `PointSource`, `point source`, `2`
-- surface edges: `SurfaceEdges`, `surface edges`, `3`
+- `Surface`
+- `Volume`
+- `PointSource`
+- `SurfaceEdges`
 
 Enum mapping in C (`ParticleInitializationType`):
 
@@ -141,11 +141,13 @@ Typical errors:
 
 If adding a new particle initialization mode:
 
-1. add alias normalization and validation in `scripts/pic.flow`,
+1. add validation and mapping in `scripts/picurv`,
 2. extend `ParticleInitializationType` and parser wiring in C,
 3. implement placement logic in `InitializeParticleBasicProperties` and any inlet reinit path,
 4. update logging string mappings and tests,
 5. update this page and related method references.
+
+For the full selector extension checklist, see **@subpage 50_Modular_Selector_Extension_Guide**.
 
 @section refs_sec 9. Related Pages
 

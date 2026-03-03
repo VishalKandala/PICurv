@@ -3,7 +3,7 @@
 PICurv uses a dimensional-input, non-dimensional-core workflow:
 
 1. Users specify physical quantities in YAML.
-2. `pic.flow` converts/control-maps these to non-dimensional solver inputs.
+2. `picurv` converts/control-maps these to non-dimensional solver inputs.
 3. Solver evolves non-dimensional fields.
 4. Postprocessing can re-dimensionalize outputs for visualization/analysis.
 
@@ -45,7 +45,7 @@ Particle and Eulerian data follow the same scale family so interpolation/project
 
 @section pipeline_sec 4. Where This Happens in the Pipeline
 
-- YAML validation and conversion: `scripts/pic.flow`
+- YAML validation and conversion: `scripts/picurv`
 - Runtime option ingestion: `src/setup.c`
 - Grid/data read-write scaling hooks: `src/io.c`
 - Post re-dimensionalization trigger via `post.yml`:

@@ -29,10 +29,11 @@ strategy:
 ```
 
 Mappings:
-- `momentum_solver` -> `-mom_solver_type` (normalized by `pic.flow`)
+- `momentum_solver` -> `-mom_solver_type` (`picurv` accepts `Explicit RK4` or `Dual Time Picard RK4`)
 - `central_diff` -> `-central`
 
-Named solver values are preferred over legacy boolean toggles.
+Older boolean toggles are not supported; use `strategy.momentum_solver`.
+Only implemented momentum solver values are accepted by `picurv` and the C runtime.
 
 @section tol_sec 3. tolerances
 
@@ -115,3 +116,4 @@ For mapping and extension workflows:
 - **@subpage 31_Momentum_Solvers**
 - **@subpage 24_Dual_Time_Picard_RK4**
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**
+- **@subpage 50_Modular_Selector_Extension_Guide**

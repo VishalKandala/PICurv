@@ -58,6 +58,14 @@ void TrimWhitespace(char *str) {
     }
 }
 
+PetscBool ShouldWriteDataOutput(const SimCtx *simCtx, PetscInt completed_step)
+{
+    if (!simCtx) {
+        return PETSC_FALSE;
+    }
+    return (PetscBool)(simCtx->tiout > 0 && completed_step > 0 && completed_step % simCtx->tiout == 0);
+}
+
 
 #undef __FUNCT__
 #define __FUNCT__ "ReadGridGenerationInputs"
@@ -238,20 +246,15 @@ PetscErrorCode ReadGridFile(UserCtx *user)
             FILE *fd = fopen(simCtx->grid_file, "r");
             if (!fd) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open file: %s", simCtx->grid_file);
 
-            fscanf(fd, "%d\n", &g_nblk_from_file);
-            // ---- Read first token; decide whether it is the header or nblk ----
+            // Read and validate the canonical PICGRID header.
             char firstTok[32] = {0};
             if (fscanf(fd, "%31s", firstTok) != 1)
                 SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Empty grid file: %s", simCtx->grid_file);
-
-            if (strcmp(firstTok, "PICGRID") == 0) {
-                // Header is present – read nblk from the next line
-                if (fscanf(fd, "%d", &g_nblk_from_file) != 1)
-                    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Expected number of blocks after \"PICGRID\" in %s", simCtx->grid_file);
-            } else {
-                // No header – the token we just read is actually nblk
-                g_nblk_from_file = (PetscInt)strtol(firstTok, NULL, 10);
-            }	    
+            if (strcmp(firstTok, "PICGRID") != 0)
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
+                        "Grid file %s must begin with the canonical PICGRID header.", simCtx->grid_file);
+            if (fscanf(fd, "%d", &g_nblk_from_file) != 1)
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Expected number of blocks after \"PICGRID\" in %s", simCtx->grid_file);
             if (g_nblk_from_file != nblk) {
                 SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED, "Mismatch: -nblk is %d but grid file specifies %d blocks.", nblk, g_nblk_from_file);
             }
@@ -474,7 +477,7 @@ PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *valu
  * 4.  It then serializes this configuration and broadcasts it to all other MPI ranks.
  * 5.  All ranks (including rank 0) then deserialize the broadcasted data to populate
  *     their local `user->boundary_faces` array identically.
- * 6.  It also sets legacy fields in UserCtx for compatibility with other modules.
+ * 6.  It also sets the particle inlet lookup fields in `UserCtx`.
  *
  * @param[in,out] user               The main UserCtx struct where the final configuration
  *                                   for all ranks will be stored.
@@ -632,7 +635,7 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
         user->boundary_faces[i].face_id = (BCFace)i; // Ensure face_id is set on all ranks
     }
     
-    // --- Set legacy fields for compatibility with particle system ---
+    // --- Set particle inlet lookup fields used by the particle system ---
     user->inletFaceDefined = PETSC_FALSE;
     for (int i=0; i<6; i++) {
         
@@ -2231,7 +2234,7 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
             ierr = PetscMemcpy(buf, nar, (size_t)nseq * sizeof(PetscScalar)); CHKERRQ(ierr);
 
             ierr = VecRestoreArrayRead(seqNat, &nar); CHKERRQ(ierr);
-            *arrayOut = (double*)buf; /* hand back as double* for drop-in compatibility */
+            *arrayOut = (double*)buf; /* hand back as double* to match the helper signature */
         }
 
         ierr = VecScatterDestroy(&scatNat); CHKERRQ(ierr);

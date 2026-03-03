@@ -1,5 +1,5 @@
 /**
- * @file main.c
+ * @file simulator.c
  * @brief Main driver for the unified CFD and Lagrangian particle solver.
  *
  * This version focuses on establishing the core architecture for a particle-coupled
@@ -13,7 +13,7 @@
  * 3. The `main()` function provides a high-level workflow for the simulation.
  */
 
-#include "simulation.h" // The new, unified header file
+#include "runloop.h" // The run-loop orchestration layer
 
 /*================================================================================*
  *                           MAIN FUNCTION                                        *
@@ -27,7 +27,7 @@ int main(int argc, char **argv)
   SimCtx *simCtx = NULL; // The single, top-level context object
 
   // === I. INITIALIZE =======================================================
-  ierr = PetscInitialize(&argc, &argv, (char *)0, "PIC-Solver"); CHKERRQ(ierr);
+  ierr = PetscInitialize(&argc, &argv, (char *)0, "PICurv Simulator"); CHKERRQ(ierr);
 
   // === II. CONFIGURE =======================================================
   // Create and populate the entire simulation configuration from command line.
@@ -96,7 +96,6 @@ int main(int argc, char **argv)
     //********************PROFILING ROUTINES ****************************
     // Before the first step, clear all counters accumulated during setup
     // to ensure the Timestep 1 profile is clean.
-    ierr = ProfilingLogTimestepSummary(simCtx->step);
     ierr = ProfilingResetTimestepCounters(); CHKERRQ(ierr);
     //*******************************************************************
 

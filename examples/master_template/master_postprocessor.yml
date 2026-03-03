@@ -1,5 +1,5 @@
 # ==============================================================================
-#                 PIC-Flow Master Post-Processing Profile
+#                 PICurv Master Post-Processing Profile
 # ==============================================================================
 #
 # This file is the definitive template for post-processing tasks, derived
@@ -18,7 +18,7 @@ source_data:
   # (Required) The directory containing the input solver data files (.dat).
   #
   # SPECIAL TOKEN: "<solver_output_dir>"
-  #   The pic.flow script replaces this with the solver's output directory.
+  #   The picurv script replaces this with the solver's output directory.
   #   This is the standard and recommended setting.
   directory: "<solver_output_dir>"
 
@@ -52,7 +52,7 @@ global_operations:
 # ==============================================================================
 # SECTION 3: PROCESSING PIPELINE
 # ------------------------------------------------------------------------------
-# Defines a sequence of operations to perform on the loaded data. The pic.flow
+# Defines a sequence of operations to perform on the loaded data. The picurv
 # script will serialize these lists into semicolon-separated strings for the
 # C executable's 'process_pipeline' and 'particle_pipeline' keys.
 # ==============================================================================
@@ -112,7 +112,7 @@ statistics_pipeline:
 # ==============================================================================
 io:
   # (Required) The directory where output files will be saved, relative to the
-  # main run directory (e.g., 'runs/my_run_id/'). The pic.flow script will
+  # main run directory (e.g., 'runs/my_run_id/'). The picurv script will
   # create this directory if it does not exist.
   # Maps to 'output_dir' in post.cfg and is passed as a command-line flag
   # to the C executable to ensure it has the absolute path.

@@ -73,6 +73,12 @@ PetscErrorCode ReadGridFile(UserCtx *user);
 PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool is_optional, const char *description, PetscBool *exists);
 
 /**
+ * @brief Returns whether full field/restart output should be written for the
+ *        completed timestep.
+ */
+PetscBool ShouldWriteDataOutput(const SimCtx *simCtx, PetscInt completed_step);
+
+/**
  * @brief Reads binary field data for velocity, pressure, and other required vectors.
  *
  * Reads contravariant velocity (`Ucont`) from `vfield`, Cartesian velocity (`Ucat`) from `ufield`,
@@ -502,7 +508,7 @@ PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *valu
  * 4.  It then serializes this configuration and broadcasts it to all other MPI ranks.
  * 5.  All ranks (including rank 0) then deserialize the broadcasted data to populate
  *     their local `user->boundary_faces` array identically.
- * 6.  It also sets legacy fields in UserCtx for compatibility with other modules.
+ * 6.  It also sets the particle inlet lookup fields in `UserCtx`.
  *
  * @param[in,out] user               The main UserCtx struct where the final configuration
  *                                   for all ranks will be stored.

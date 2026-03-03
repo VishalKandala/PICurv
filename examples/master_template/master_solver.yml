@@ -1,5 +1,5 @@
 # ==============================================================================
-#                 PIC-Flow Master Solver Configuration Template
+#                 PICurv Master Solver Configuration Template
 # ==============================================================================
 #
 # PURPOSE:
@@ -27,7 +27,7 @@ operation_mode:
 # ==============================================================================
 # --- Main Time-Stepping Scheme ---
 strategy:
-  momentum_solver: "Dual Time Picard RK4" # -> -mom_solver_type (preferred, extensible form)
+  momentum_solver: "Dual Time Picard RK4" # -> -mom_solver_type. Options: "Explicit RK4", "Dual Time Picard RK4"
   central_diff: false # [true/false] -> -central
 
 # --- Convergence Criteria for the Momentum Solver ---
@@ -40,9 +40,6 @@ tolerances:
 # --- Advanced Momentum Solver Controls (optional) ---
 # This section exposes newer dual-time controls directly (no passthrough needed).
 momentum_solver:
-  # Optional fallback selector if strategy.momentum_solver is not set.
-  # type: "DUALTIME_PICARD_RK4"
-
   # Solver-specific controls for Dual Time Picard RK4.
   dual_time_picard_rk4:
     max_pseudo_steps: 50         # -> -mom_max_pseudo_steps

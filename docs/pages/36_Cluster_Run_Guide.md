@@ -1,6 +1,6 @@
 @page 36_Cluster_Run_Guide Cluster Run Guide (Slurm)
 
-This guide documents how `pic.flow` converts case configs into scheduler artifacts for cluster execution.
+This guide documents how `picurv` converts case configs into scheduler artifacts for cluster execution.
 
 @tableofcontents
 
@@ -21,7 +21,7 @@ Initialize templates from examples, then customize per cluster/account policy.
 Generate and submit:
 
 ```bash
-./bin/pic.flow run \
+./bin/picurv run \
   --case <case.yml> \
   --solver <solver.yml> \
   --monitor <monitor.yml> \
@@ -33,7 +33,7 @@ Generate and submit:
 Generate only (no submission):
 
 ```bash
-./bin/pic.flow run ... --scheduler slurm --no-submit
+./bin/picurv run ... --scheduler slurm --no-submit
 ```
 
 @section artifacts_sec 3. Generated Scheduler Artifacts

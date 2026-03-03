@@ -39,12 +39,6 @@
  */
 PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, PetscInt ti);
 
-/* -----------------------------------------------------------------------
- * Future kernels — add declarations here:
- *
- * PetscErrorCode ComputeVelocityPDF(UserCtx *user, const char *stats_prefix, PetscInt ti);
- * PetscErrorCode ComputeConcentrationField(UserCtx *user, const char *stats_prefix, PetscInt ti);
- * PetscErrorCode ComputeResidenceTimeDistribution(UserCtx *user, const char *stats_prefix, PetscInt ti);
- * ----------------------------------------------------------------------- */
+/* Additional global statistics kernels should add declarations here when implemented. */
 
 #endif /* PARTICLE_STATISTICS_H */

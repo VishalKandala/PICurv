@@ -38,7 +38,7 @@ the statistical noise at N = 50000.
 
 ```bash
 # From project root
-./bin/pic.flow run --solve --post-process -n 4 \
+./bin/picurv run --solve --post-process -n 4 \
   --case  examples/brownian_motion/brownian_motion.yml \
   --solver examples/brownian_motion/Analytical-Zero.yml \
   --monitor examples/brownian_motion/Standard_Output.yml \

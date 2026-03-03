@@ -6,8 +6,8 @@ This directory stores reusable `monitor.yml` profiles for solver observability.
 
 Monitor profiles control:
 - logging verbosity and function whitelist,
-- profiling critical-function list,
-- output cadence and directories,
+- profiling timestep-reporting and final-summary behavior,
+- file output cadence, particle console cadence, and directories,
 - raw PETSc monitor passthrough.
 
 ## 2. Included Profiles
@@ -20,7 +20,7 @@ For full schema coverage, use:
 ## 3. How to Use
 
 ```bash
-./scripts/pic.flow run --solve -n 8 \
+./bin/picurv run --solve -n 8 \
   --case my_study/case.yml \
   --solver my_study/solver.yml \
   --monitor config/monitors/Standard_Output.yml
@@ -28,4 +28,4 @@ For full schema coverage, use:
 
 ## 4. Current Verbosity Levels
 
-`ERROR`, `WARNING`, `PROFILE`, `INFO`, `DEBUG`, `TRACE`, `VERBOSE`
+`ERROR`, `WARNING`, `INFO`, `DEBUG`, `TRACE`, `VERBOSE`

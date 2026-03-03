@@ -1,6 +1,6 @@
 @page 37_Sweep_Studies_Guide Sweep and Study Guide
 
-`pic.flow sweep` orchestrates parameter studies with generated run variants, scheduler arrays, and aggregate metrics.
+`picurv sweep` orchestrates parameter studies with generated run variants, scheduler arrays, and aggregate metrics.
 
 @tableofcontents
 
@@ -17,7 +17,7 @@ Starter templates are available under `examples/*/*study*.yml` and `examples/mas
 @section command_sec 2. Core Sweep Command
 
 ```bash
-./bin/pic.flow sweep --study <study.yml> --scheduler slurm
+./bin/picurv sweep --study <study.yml> --scheduler slurm
 ```
 
 Typical optional flags include dry-run or no-submit behaviors depending on workflow stage.

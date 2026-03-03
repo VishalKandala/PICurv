@@ -23,13 +23,13 @@ Default setup:
 Initialize study:
 
 ```bash
-./bin/pic.flow init flat_channel --dest my_channel_case
+./bin/picurv init flat_channel --dest my_channel_case
 ```
 
 Run solve + post:
 
 ```bash
-./bin/pic.flow run \
+./bin/picurv run \
   --case my_channel_case/flat_channel.yml \
   --solver my_channel_case/Imp-MG-Standard.yml \
   --monitor my_channel_case/Standard_Output.yml \
@@ -57,7 +57,7 @@ This example is a good base for mix-and-match reuse:
 Single run on Slurm:
 
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case my_channel_case/flat_channel.yml \
   --solver my_channel_case/Imp-MG-Standard.yml \
   --monitor my_channel_case/Standard_Output.yml \
@@ -68,7 +68,7 @@ Single run on Slurm:
 Grid-independence sweep:
 
 ```bash
-./bin/pic.flow sweep \
+./bin/picurv sweep \
   --study my_channel_case/grid_independence_study.yml \
   --cluster my_channel_case/slurm_cluster.yml
 ```

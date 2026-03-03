@@ -14,20 +14,20 @@ This example is the baseline first-run case for PICurv using programmatic grid g
 ## Quick Start
 
 ```bash
-./bin/pic.flow init flat_channel --dest my_case
-./bin/pic.flow validate \
+./bin/picurv init flat_channel --dest my_case
+./bin/picurv validate \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
   --post my_case/standard_analysis.yml
-./bin/pic.flow run --solve --post-process -n 4 \
+./bin/picurv run --solve --post-process -n 4 \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
   --post my_case/standard_analysis.yml
 ```
 
-If project binaries are already built (`pic.flow build`), `init` also links/copies `picsolver` and `postprocessor` into the new case directory.
+If project binaries are already built (`picurv build`), `init` also links/copies `simulator` and `postprocessor` into the new case directory.
 
 ## Recommended Uses
 

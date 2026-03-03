@@ -1,6 +1,6 @@
 # ==============================================================================
 #
-#                    Makefile for the PIC Solver Project
+#                    Makefile for the PICurv Project
 #
 # ==============================================================================
 #
@@ -95,22 +95,19 @@ SCRIPTDIR := scripts
 # Select and include the appropriate configuration file based on the SYSTEM variable.
 SYSTEM ?= local
 CONFIG_FILE := config/build/config.$(SYSTEM).mk
-LEGACY_CONFIG_FILE := config.$(SYSTEM).mk
 ifneq ("$(wildcard $(CONFIG_FILE))","")
     include $(CONFIG_FILE)
-else ifneq ("$(wildcard $(LEGACY_CONFIG_FILE))","")
-    include $(LEGACY_CONFIG_FILE)
 else
-    $(error Cannot find configuration file '$(CONFIG_FILE)' (or legacy '$(LEGACY_CONFIG_FILE)'). Please create it or specify a valid SYSTEM.)
+    $(error Cannot find configuration file '$(CONFIG_FILE)'. Please create it or specify a valid SYSTEM.)
 endif
 $(info Building for system: $(SYSTEM_NAME))
 
 
 # --- 3. Source & Object File Definitions ---
 # Explicitly list the object files required for each final executable.
-PICSOLVER_OBJS := $(addprefix $(OBJDIR)/, \
-                 picsolver.o setup.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
-                 Boundaries.o BC_Handlers.o wallfunction.o simulation.o walkingsearch.o BodyForces.o\
+SIMULATOR_OBJS := $(addprefix $(OBJDIR)/, \
+                 simulator.o setup.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
+                 Boundaries.o BC_Handlers.o wallfunction.o runloop.o walkingsearch.o BodyForces.o\
                  ParticleSwarm.o ParticleMotion.o ParticlePhysics.o interpolation.o \
                  initialcondition.o rhs.o solvers.o momentumsolvers.o poisson.o\
 				 les.o  Filter.o)
@@ -123,33 +120,33 @@ POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
 
 # --- 4. Executable Definitions ---
 # Define the final paths for the compiled programs.
-PICSOLVER_EXE     := $(BINDIR)/picsolver
+SIMULATOR_EXE     := $(BINDIR)/simulator
 POSTPROCESSOR_EXE := $(BINDIR)/postprocessor
-CONDUCTOR_EXE     := $(BINDIR)/pic.flow
+CONDUCTOR_EXE     := $(BINDIR)/picurv
 
 # ==============================================================================
 # --- 5. Build Targets & Rules ---
 # ==============================================================================
-.PHONY: all picsolver postprocessor conductor dirs
+.PHONY: all simulator postprocessor conductor dirs
 
 ## @target all
 ## @brief Default target. Builds all project executables.
-all: picsolver postprocessor conductor
+all: simulator postprocessor conductor
 
-## @target picsolver
-## @brief Builds the `picsolver` executable.
-picsolver: $(PICSOLVER_EXE)
+## @target simulator
+## @brief Builds the `simulator` executable.
+simulator: $(SIMULATOR_EXE)
 
 ## @target postprocessor
 ## @brief Builds the `postprocessor` executable.
 postprocessor: $(POSTPROCESSOR_EXE)
 
 ## @target conductor
-## @brief Installs the `pic.flow` conductor script.
+## @brief Installs the `picurv` conductor script.
 conductor: $(CONDUCTOR_EXE)
 
 # Explicit rule for linking the main solver.
-$(PICSOLVER_EXE): $(PICSOLVER_OBJS) | dirs
+$(SIMULATOR_EXE): $(SIMULATOR_OBJS) | dirs
 	@echo "--- Linking Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 	@echo "--- Build Complete: $(@) ---"
@@ -161,7 +158,7 @@ $(POSTPROCESSOR_EXE): $(POSTPROCESSOR_OBJS) | dirs
 	@echo "--- Build Complete: $(@) ---"
 
 # This rule copies the source script to the bin directory and makes it executable.
-$(CONDUCTOR_EXE): $(SCRIPTDIR)/pic.flow | dirs
+$(CONDUCTOR_EXE): $(SCRIPTDIR)/picurv | dirs
 	@echo "--- Installing Conductor Script: $(@) ---"
 	@cp $< $@
 	@chmod +x $@
@@ -183,7 +180,7 @@ dirs:
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
-run: $(PICSOLVER_EXE)
+run: $(SIMULATOR_EXE)
 	$(MPI_LAUNCHER) -n $(NPROCS) $< $(ARGS)
 
 ## @target build-docs
@@ -225,7 +222,7 @@ clean-project: cleanobj clean-project-docs clean-project-tags
 cleanobj:
 	@echo "--- Removing object files and compiled executables"
 	@rm -rf $(OBJDIR) 
-	@rm -f $(PICSOLVER_EXE) $(POSTPROCESSOR_EXE) $(CONDUCTOR_EXE)
+	@rm -f $(SIMULATOR_EXE) $(POSTPROCESSOR_EXE) $(CONDUCTOR_EXE)
 
 ## @target clean-project-docs
 ## @brief (Internal) Removes generated documentation.

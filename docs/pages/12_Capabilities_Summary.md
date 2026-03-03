@@ -1,6 +1,6 @@
 @page 12_Capabilities_Summary Capabilities Summary
 
-This page summarizes current capabilities from YAML + `pic.flow` without editing C source.
+This page summarizes current capabilities from YAML + `picurv` without editing C source.
 It is organized by workflow stage rather than just a feature bullet list.
 
 @tableofcontents

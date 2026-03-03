@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This directory stores reusable `post.yml` analysis recipes for `./scripts/pic.flow run --post-process`.
+This directory stores reusable `post.yml` analysis recipes for `./bin/picurv run --post-process`.
 
 A post profile controls:
 - timestep range (`run_control`),
@@ -22,7 +22,7 @@ For full schema coverage, use the master reference:
 Postprocess an existing run:
 
 ```bash
-./scripts/pic.flow run --post-process \
+./bin/picurv run --post-process \
   --run-dir runs/<run_id> \
   --post config/postprocessors/standard_analysis.yml
 ```
@@ -30,7 +30,7 @@ Postprocess an existing run:
 Solve + post in one command:
 
 ```bash
-./scripts/pic.flow run --solve --post-process -n 8 \
+./bin/picurv run --solve --post-process -n 8 \
   --case my_study/case.yml \
   --solver my_study/solver.yml \
   --monitor my_study/monitor.yml \
@@ -40,6 +40,6 @@ Solve + post in one command:
 
 ## 4. Notes on Newer Options
 
-- `statistics_pipeline` is supported (currently `msd` task family).
+- `statistics_pipeline` is supported (currently the canonical `msd` task).
 - `io.input_extensions.eulerian/particle` map to post reader extensions.
 - `io.eulerian_fields_averaged` is accepted as reserved passthrough.

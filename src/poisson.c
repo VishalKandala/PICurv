@@ -900,7 +900,8 @@ PetscErrorCode Projection(UserCtx *user)
  *     operation is `P_new = P_old + Phi`.
  *
  * 2.  **Periodic Boundary Synchronization**: If any of the domain boundaries are
- *     periodic (`bctype == 7`), this function manually updates the pressure values
+ *     periodic (`user->boundary_faces[*].mathematical_type == PERIODIC`), this
+ *     function manually updates the pressure values
  *     in the ghost cells. It copies values from the physical cells on one side of
  *     the domain to the corresponding ghost cells on the opposite side. This ensures
  *     that subsequent calculations involving pressure gradients are correct across

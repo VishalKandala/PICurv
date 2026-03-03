@@ -13,7 +13,7 @@ run_control:
   step_interval: 1
 
 source_data:
-  # Recommended placeholder: resolved by pic.flow to this run's solver output.
+  # Recommended placeholder: resolved by picurv to this run's solver output.
   directory: "<solver_output_dir>"
 
 global_operations:

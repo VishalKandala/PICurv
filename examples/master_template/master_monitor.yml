@@ -1,5 +1,5 @@
 # ==============================================================================
-#                 PIC-Flow Master Monitor Configuration Template
+#                 PICurv Master Monitor Configuration Template
 # ==============================================================================
 #
 # PURPOSE:
@@ -20,12 +20,12 @@
 logging:
   # --- Verbosity Level ---
   # Sets the master LOG_LEVEL for the C-code.
-  # Options: ERROR, WARNING, PROFILE, INFO, DEBUG, TRACE, VERBOSE
+  # Options: ERROR, WARNING, INFO, DEBUG, TRACE, VERBOSE
   verbosity: INFO
 
   # --- Function Allow-List ---
-  # For targeted debugging. If this list is empty, all functions are allowed
-  # to log, filtered only by the 'verbosity' level.
+  # For targeted debugging. If this list is empty, picurv omits the whitelist
+  # file so the C runtime falls back to its built-in default allow-list.
   enabled_functions: []
 
 # ==============================================================================
@@ -33,11 +33,23 @@ logging:
 #    Controls the performance measurement system.
 # ==============================================================================
 profiling:
-  # --- Critical Functions ---
-  # A list of functions whose performance is reported per-timestep at INFO level.
-  critical_functions:
-    - AdvanceSimulation
-    - Flow_Solver
+  # --- Per-Step Profiling Output ---
+  # Controls whether timestep-level profiling rows are written to a dedicated file.
+  # mode:
+  #   off      -> no timestep profiling output
+  #   selected -> write only the listed functions
+  #   all      -> write every instrumented function that ran that step
+  timestep_output:
+    mode: off
+    # functions:
+    #   - AdvanceSimulation
+    #   - Flow_Solver
+    file: "Profiling_Timestep_Summary.csv"
+
+  # --- Final Profiling Summary ---
+  # Controls the end-of-run aggregated profiling summary file.
+  final_summary:
+    enabled: true
 
 # ==============================================================================
 # 3. I/O AND DATA MANAGEMENT
@@ -51,9 +63,14 @@ io:
   # [Integer] -> -tio
   data_output_frequency: 100
 
-  # --- Particle Tracking in Console Log ---
-  # At each data output step (controlled by data_output_frequency), this setting
-  # prints data for every Nth particle to the console log for tracking.
+  # Frequency for printing particle snapshots into the main solver log.
+  # If omitted, picurv uses data_output_frequency. Set to 0 to disable periodic
+  # particle console snapshots entirely.
+  # [Non-negative Integer] -> -particle_console_output_freq
+  particle_console_output_frequency: 100
+
+  # --- Particle Tracking Row Subsampling ---
+  # Within each particle console snapshot, print only every Nth particle row.
   # [Integer] -> -logfreq
   particle_log_interval: 50
 

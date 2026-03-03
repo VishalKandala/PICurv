@@ -31,14 +31,14 @@ If any of these are missing, follow **@subpage 01_Installation** first.
 From repository root:
 
 ```bash
-./scripts/pic.flow build
+./scripts/picurv build
 ```
 
-Once that completes, use `./bin/pic.flow` for the remaining commands in this guide.
+Once that completes, use `./bin/picurv` for the remaining commands in this guide.
 
 Expected binaries:
 
-- `bin/picsolver`
+- `bin/simulator`
 - `bin/postprocessor`
 
 If build fails, go to **@subpage 01_Installation** and verify PETSc/MPI toolchain setup.
@@ -46,7 +46,7 @@ If build fails, go to **@subpage 01_Installation** and verify PETSc/MPI toolchai
 @section init_sec 4. Initialize a Starter Case
 
 ```bash
-./bin/pic.flow init flat_channel --dest my_case
+./bin/picurv init flat_channel --dest my_case
 ```
 
 You should get:
@@ -59,7 +59,7 @@ my_case/
 `- standard_analysis.yml
 ```
 
-`init` also copies the built executables into the new case directory, so you can run the case in place with `./pic.flow ...` after build.
+`init` also copies the built executables into the new case directory, so you can run the case in place with `./picurv ...` after build.
 
 These are the four runtime roles:
 
@@ -71,7 +71,7 @@ These are the four runtime roles:
 @section validate_sec 5. Validate Before Running
 
 ```bash
-./bin/pic.flow validate \
+./bin/picurv validate \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
@@ -87,7 +87,7 @@ Why this matters:
 Optional launch preview with no execution:
 
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
@@ -98,7 +98,7 @@ Optional launch preview with no execution:
 @section run_sec 6. Run Solver and Post
 
 ```bash
-./bin/pic.flow run --solve --post-process -n 4 \
+./bin/picurv run --solve --post-process -n 4 \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
@@ -109,7 +109,7 @@ This command does:
 
 1. validate + normalize config,
 2. create `runs/<run_id>/config/` artifacts,
-3. launch `picsolver`,
+3. launch `simulator`,
 4. launch `postprocessor`.
 
 @section check_sec 7. Confirm Success

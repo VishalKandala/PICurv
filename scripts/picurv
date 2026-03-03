@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """!
-@file pic.flow
-@brief A comprehensive conductor script for the PIC-Flow simulation platform.
+@file picurv
+@brief A comprehensive conductor script for the PICurv simulation platform.
 
 This script acts as the central user interface for running simulations,
 managing configurations, and orchestrating the entire end-to-end workflow.
@@ -63,7 +63,7 @@ ERROR_CODE_CFG_GRID_PARSE = "CFG_GRID_PARSE"
 ERROR_CODE_CFG_INCONSISTENT_COMBO = "CFG_INCONSISTENT_COMBO"
 
 _ERROR_HINTS = {
-    ERROR_CODE_CLI_USAGE_INVALID: "Run 'pic.flow <command> --help' to see valid argument combinations.",
+    ERROR_CODE_CLI_USAGE_INVALID: "Run 'picurv <command> --help' to see valid argument combinations.",
     ERROR_CODE_CFG_MISSING_SECTION: "Add the missing section using examples/master_template/*.yml as reference.",
     ERROR_CODE_CFG_MISSING_KEY: "Add the missing key in the referenced YAML file.",
     ERROR_CODE_CFG_INVALID_TYPE: "Fix the value type to match the documented schema in docs/pages/14_Config_Contract.md.",
@@ -225,6 +225,57 @@ def resolve_path(anchor_file: str, candidate: str) -> str:
         return os.path.abspath(candidate)
     return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(anchor_file)), candidate))
 
+
+def is_restart_execution(case_cfg: dict, solver_cfg: dict) -> bool:
+    """Return True when the solver will read restart data."""
+    try:
+        start_step = int(case_cfg.get("run_control", {}).get("start_step", 0) or 0)
+    except (TypeError, ValueError):
+        start_step = 0
+    eulerian_source = str(
+        (solver_cfg.get("operation_mode", {}) or {}).get("eulerian_field_source", "solve")
+    ).strip().lower()
+    return start_step > 0 or eulerian_source == "load"
+
+
+def resolve_restart_source_from_run_dir(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict, case_path: str, strict: bool = True) -> str:
+    """Resolve an automated restart source directory from a prior run directory."""
+    run_ctrl = case_cfg.get("run_control", {}) or {}
+    restart_from_run_dir = run_ctrl.get("restart_from_run_dir")
+    if not restart_from_run_dir:
+        return None
+
+    if not is_restart_execution(case_cfg, solver_cfg):
+        raise ValueError(
+            "run_control.restart_from_run_dir is set, but this case is not configured to read restart data. "
+            "Set run_control.start_step > 0 or solver.operation_mode.eulerian_field_source: load."
+        )
+
+    restart_run_dir = resolve_path(case_path, restart_from_run_dir)
+    if strict and not os.path.isdir(restart_run_dir):
+        raise ValueError(f"run_control.restart_from_run_dir does not exist: {restart_run_dir}")
+
+    previous_monitor_path = os.path.join(restart_run_dir, "config", "monitor.yml")
+    if strict and not os.path.isfile(previous_monitor_path):
+        raise ValueError(
+            f"restart source run directory is missing config/monitor.yml: {previous_monitor_path}"
+        )
+
+    previous_monitor_cfg = monitor_cfg
+    if os.path.isfile(previous_monitor_path):
+        previous_monitor_cfg = read_yaml_file(previous_monitor_path)
+
+    previous_dirs = previous_monitor_cfg.get("io", {}).get("directories", {}) or {}
+    restart_rel = previous_dirs.get("restart", previous_dirs.get("output", "results"))
+    restart_source_dir = os.path.abspath(os.path.join(restart_run_dir, restart_rel))
+
+    if strict and not os.path.isdir(restart_source_dir):
+        raise ValueError(
+            f"resolved restart source directory does not exist: {restart_source_dir}"
+        )
+
+    return restart_source_dir
+
 def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
     """Convert external grid/generator paths in case config to absolute paths."""
     grid_cfg = case_cfg.get("grid", {})
@@ -273,21 +324,13 @@ def normalize_statistics_task(task_name: str) -> str:
     @return Canonical keyword accepted by C statistics pipeline.
     @throws ValueError if task is unsupported.
     """
+    # Only implemented statistics kernels belong here.
     if task_name is None:
         raise ValueError("statistics task cannot be None")
-    raw = str(task_name).strip()
-    if raw == "ComputeMSD":
-        return raw
-    normalized = raw.lower().replace("-", "_").replace(" ", "_")
-    aliases = {
-        "msd": "ComputeMSD",
-        "compute_msd": "ComputeMSD",
-        "computemsd": "ComputeMSD",
-    }
-    mapped = aliases.get(normalized)
-    if mapped is None:
+    normalized = str(task_name).strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized != "msd":
         raise ValueError(f"Unsupported statistics task '{task_name}'. Currently supported: 'msd'.")
-    return mapped
+    return "ComputeMSD"
 
 def _iter_nonempty_noncomment_lines(file_obj):
     """Yield (lineno, stripped_line) for non-empty, non-comment lines."""
@@ -300,8 +343,8 @@ def _iter_nonempty_noncomment_lines(file_obj):
 def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_ref: float, expected_nblk: int = None) -> dict:
     """!
     @brief Validates PICGRID payload and writes a non-dimensionalized copy.
-    @details Accepts files with or without leading "PICGRID" token. Output is always
-             written in canonical PICGRID format with header and per-block dims.
+    @details Requires canonical PICGRID input with leading "PICGRID" token.
+             Output is always written in canonical PICGRID format with header and per-block dims.
     @param[in] source_grid Input grid file path.
     @param[in] dest_grid Output grid file path.
     @param[in] L_ref Reference length for non-dimensionalization.
@@ -321,13 +364,14 @@ def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_r
         except StopIteration:
             raise ValueError(f"Grid file '{source_grid}' is empty.")
 
-        if first_token == "PICGRID":
-            try:
-                _, nblk_line = next(line_iter)
-            except StopIteration:
-                raise ValueError(f"Grid file '{source_grid}' missing block count after PICGRID header.")
-        else:
-            nblk_line = first_token
+        if first_token != "PICGRID":
+            raise ValueError(
+                f"Grid file '{source_grid}' must begin with the canonical PICGRID header token."
+            )
+        try:
+            _, nblk_line = next(line_iter)
+        except StopIteration:
+            raise ValueError(f"Grid file '{source_grid}' missing block count after PICGRID header.")
 
         try:
             nblk = int(nblk_line)
@@ -488,6 +532,7 @@ BC_FACE_MAP = {
     "+zeta": "+Zeta",
 }
 
+# Canonical BC selector maps. Add new values only with matching C parser/factory support.
 BC_TYPE_MAP = {
     "wall": "WALL",
     "symmetry": "SYMMETRY",
@@ -647,10 +692,10 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
             if not isinstance(params, dict):
                 raise ValueError(f"'params' for block {bi}, face {face} must be a mapping.")
 
-            # Reject legacy structured keys explicitly.
+            # Reject unsupported older structured keys explicitly.
             if "vector" in params or "velocity" in params:
                 raise ValueError(
-                    f"Legacy params key ('vector'/'velocity') found on block {bi}, face {face}. "
+                    f"Unsupported older params key ('vector'/'velocity') found on block {bi}, face {face}. "
                     "Use scalar keys 'vx', 'vy', 'vz'."
                 )
 
@@ -741,6 +786,7 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
     """
     errors = []
     warnings = []
+    eulerian_source_mode = "solve"
 
     # --- case.yml: required top-level sections ---
     required_case_sections = ['properties', 'run_control', 'grid', 'models', 'boundary_conditions']
@@ -917,7 +963,7 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             errors.append(f"  {solver_path}: 'strategy' must be a mapping.")
         elif 'implicit' in strategy_cfg:
             errors.append(
-                f"  {solver_path}: legacy key 'strategy.implicit' is not supported. "
+                f"  {solver_path}: unsupported old key 'strategy.implicit' is not supported. "
                 "Use 'strategy.momentum_solver' with named solver values."
             )
         if isinstance(strategy_cfg, dict) and 'momentum_solver' in strategy_cfg:
@@ -927,7 +973,6 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                 errors.append(f"  {solver_path}: {e}")
 
         op_mode_cfg = solver_cfg.get('operation_mode', {})
-        eulerian_source_mode = "solve"
         if op_mode_cfg is not None and not isinstance(op_mode_cfg, dict):
             errors.append(f"  {solver_path}: 'operation_mode' must be a mapping when provided.")
         elif isinstance(op_mode_cfg, dict):
@@ -963,40 +1008,29 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         if ms_cfg is not None and not isinstance(ms_cfg, dict):
             errors.append(f"  {solver_path}: 'momentum_solver' must be a mapping when provided.")
         elif isinstance(ms_cfg, dict):
-            legacy_flat_keys = {
+            unsupported_flat_keys = {
                 'max_pseudo_steps', 'absolute_tol', 'relative_tol', 'step_tol',
                 'pseudo_cfl', 'rk4_residual_noise_allowance_factor'
             }
-            present_legacy = sorted(legacy_flat_keys.intersection(ms_cfg.keys()))
-            if present_legacy:
+            present_unsupported = sorted(unsupported_flat_keys.intersection(ms_cfg.keys()))
+            if present_unsupported:
                 errors.append(
-                    f"  {solver_path}: legacy flat keys in 'momentum_solver' are not supported: {present_legacy}. "
+                    f"  {solver_path}: unsupported flat keys in 'momentum_solver' are not supported: {present_unsupported}. "
                     "Use solver-specific sub-blocks (e.g., momentum_solver.dual_time_picard_rk4)."
                 )
 
-            if 'type' in ms_cfg:
-                try:
-                    normalize_momentum_solver_type(ms_cfg['type'])
-                except ValueError as e:
-                    errors.append(f"  {solver_path}: {e}")
-
-            allowed_ms_keys = {'type', 'dual_time_picard_rk4'}
+            allowed_ms_keys = {'dual_time_picard_rk4'}
             unknown_ms_keys = sorted(set(ms_cfg.keys()) - allowed_ms_keys)
             if unknown_ms_keys:
                 errors.append(
                     f"  {solver_path}: unsupported momentum_solver blocks/keys: {unknown_ms_keys}. "
-                    "Currently supported: 'dual_time_picard_rk4' (plus optional 'type')."
+                    "Currently supported: 'dual_time_picard_rk4'."
                 )
 
             selected_solver = None
             if isinstance(strategy_cfg, dict) and 'momentum_solver' in strategy_cfg:
                 try:
                     selected_solver = normalize_momentum_solver_type(strategy_cfg['momentum_solver'])
-                except ValueError:
-                    pass
-            if selected_solver is None and 'type' in ms_cfg:
-                try:
-                    selected_solver = normalize_momentum_solver_type(ms_cfg['type'])
                 except ValueError:
                     pass
             if selected_solver is None:
@@ -1042,9 +1076,25 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         freq = io_cfg.get('data_output_frequency')
         if freq is not None and (not isinstance(freq, int) or freq <= 0):
             errors.append(f"  {monitor_path}: 'io.data_output_frequency' must be a positive integer (got {freq}).")
+        particle_console_freq = io_cfg.get('particle_console_output_frequency')
+        if particle_console_freq is not None and (not isinstance(particle_console_freq, int) or particle_console_freq < 0):
+            errors.append(
+                f"  {monitor_path}: 'io.particle_console_output_frequency' must be a non-negative integer "
+                f"(got {particle_console_freq})."
+            )
+        try:
+            resolve_profiling_config(monitor_cfg)
+        except ValueError as e:
+            errors.append(f"  {monitor_path}: {e}")
         solver_mon_cfg = monitor_cfg.get('solver_monitoring')
         if solver_mon_cfg is not None and not isinstance(solver_mon_cfg, dict):
             errors.append(f"  {monitor_path}: 'solver_monitoring' must be a mapping of <flag>: <value>.")
+
+    if not errors:
+        try:
+            resolve_restart_source_from_run_dir(case_cfg, solver_cfg, monitor_cfg, case_path, strict=True)
+        except ValueError as e:
+            errors.append(f"  {case_path}: {e}")
 
     if errors:
         _print_validation_errors(errors)
@@ -1534,6 +1584,90 @@ def generate_simple_list_file(run_dir: str, run_id: str, cfg: dict, section: str
     print(f"[SUCCESS] Generated {filename}: {os.path.relpath(file_path)}")
     return os.path.abspath(file_path)
 
+
+def has_explicit_monitor_whitelist(monitor_cfg: dict) -> bool:
+    """Return True when logging.enabled_functions contains at least one entry."""
+    items = monitor_cfg.get("logging", {}).get("enabled_functions", [])
+    return bool(items)
+
+
+def resolve_profiling_config(monitor_cfg: dict) -> dict:
+    """Resolve profiling reporting config from monitor.yml."""
+    profiling_cfg = monitor_cfg.get("profiling", {}) or {}
+    timestep_cfg = profiling_cfg.get("timestep_output")
+    final_cfg = profiling_cfg.get("final_summary")
+
+    if timestep_cfg is None:
+        mode = "off"
+        functions = []
+        timestep_file = "Profiling_Timestep_Summary.csv"
+    else:
+        if not isinstance(timestep_cfg, dict):
+            raise ValueError("monitor.profiling.timestep_output must be a mapping when provided.")
+        mode = str(timestep_cfg.get("mode", "off")).lower()
+        functions = timestep_cfg.get("functions", [])
+        timestep_file = str(timestep_cfg.get("file", "Profiling_Timestep_Summary.csv"))
+
+    if mode not in {"off", "selected", "all"}:
+        raise ValueError("monitor.profiling.timestep_output.mode must be one of ['off', 'selected', 'all'].")
+    if functions is None:
+        functions = []
+    if not isinstance(functions, list):
+        raise ValueError("monitor.profiling.timestep_output.functions must be a list of function names.")
+    if not all(isinstance(item, str) and item.strip() for item in functions):
+        raise ValueError("monitor.profiling.timestep_output.functions entries must be non-empty strings.")
+    if mode == "selected" and not functions:
+        raise ValueError("monitor.profiling.timestep_output.functions must be non-empty when mode is 'selected'.")
+    if mode != "selected" and functions:
+        raise ValueError("monitor.profiling.timestep_output.functions is only valid when mode is 'selected'.")
+    if not timestep_file:
+        raise ValueError("monitor.profiling.timestep_output.file must be a non-empty string.")
+
+    if final_cfg is None:
+        final_enabled = True
+    elif isinstance(final_cfg, dict):
+        final_enabled = bool(final_cfg.get("enabled", True))
+    else:
+        raise ValueError("monitor.profiling.final_summary must be a mapping when provided.")
+
+    return {
+        "mode": mode,
+        "functions": functions,
+        "timestep_file": timestep_file,
+        "final_summary_enabled": final_enabled,
+    }
+
+
+def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_files: dict) -> dict:
+    """Generate monitor sidecar files and resolve profiling reporting behavior."""
+    print("[INFO] Generating monitoring files...")
+
+    whitelist_path = None
+    if has_explicit_monitor_whitelist(monitor_cfg):
+        whitelist_path = generate_simple_list_file(
+            run_dir, run_id, monitor_cfg, "logging", "enabled_functions", "whitelist.run", source_files
+        )
+    else:
+        print("[INFO] logging.enabled_functions is empty; omitting whitelist.run so the C runtime uses its default allow-list.")
+
+    profiling_cfg = resolve_profiling_config(monitor_cfg)
+
+    profile_path = None
+    if profiling_cfg["mode"] == "selected":
+        profile_path = generate_simple_list_file(
+            run_dir,
+            run_id,
+            {"profiling": {"selected_functions": profiling_cfg["functions"]}},
+            "profiling",
+            "selected_functions",
+            "profile.run",
+            source_files,
+        )
+    else:
+        print(f"[INFO] profiling.timestep_output.mode is '{profiling_cfg['mode']}'; no profile.run function list is needed.")
+
+    return {"whitelist": whitelist_path, "profile": profile_path, "profiling": profiling_cfg}
+
 def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_files: dict) -> list:
     """!
     @brief Parses multi-block BCs from YAML, generates a .run file for each block,
@@ -1607,75 +1741,46 @@ def translate_programmatic_grid_settings(grid_settings: dict) -> dict:
 
 def normalize_momentum_solver_type(value: str) -> str:
     """!
-    @brief Normalizes user-facing momentum solver names to C-enum CLI values.
-    @param[in] value Human-readable or enum-like momentum solver string.
+    @brief Maps canonical user-facing momentum solver names to C-enum CLI values.
+    @param[in] value Canonical momentum solver string from YAML.
     @return Canonical value accepted by -mom_solver_type.
     @throws ValueError if the input cannot be mapped.
     """
+    # Only implemented YAML values belong here. Extend only with matching C enum/parser/dispatch support.
     if value is None:
         raise ValueError("momentum solver type cannot be None")
 
     raw = str(value).strip()
-    direct = {
-        "EXPLICIT_RK",
-        "DUALTIME_PICARD_RK4",
-        "DUALTIME_NK_ARNOLDI",
-        "DUALTIME_NK_ANALYTICAL_JACOBIAN"
-    }
-    if raw in direct:
-        return raw
-
-    normalized = raw.lower().replace("-", " ").replace("_", " ")
-    normalized = " ".join(normalized.split())
-    aliases = {
-        "explicit rk4": "EXPLICIT_RK",
-        "explicit rk": "EXPLICIT_RK",
-        "explicit runge kutta 4": "EXPLICIT_RK",
-        "explicit runge kutta": "EXPLICIT_RK",
-        "dual time picard rk4": "DUALTIME_PICARD_RK4",
-        "dualtime picard rk4": "DUALTIME_PICARD_RK4",
-        "dual time picard": "DUALTIME_PICARD_RK4",
-        "dualtime picard": "DUALTIME_PICARD_RK4",
-        "dual time nk arnoldi": "DUALTIME_NK_ARNOLDI",
-        "dualtime nk arnoldi": "DUALTIME_NK_ARNOLDI",
-        "dual time nk analytical jacobian": "DUALTIME_NK_ANALYTICAL_JACOBIAN",
-        "dualtime nk analytical jacobian": "DUALTIME_NK_ANALYTICAL_JACOBIAN"
-    }
-    mapped = aliases.get(normalized)
+    mapped = {
+        "Explicit RK4": "EXPLICIT_RK",
+        "Dual Time Picard RK4": "DUALTIME_PICARD_RK4",
+    }.get(raw)
     if mapped is None:
         raise ValueError(
             f"Unknown momentum solver '{value}'. Use one of: "
-            "'Explicit RK4', 'Dual Time Picard RK4', 'Dual Time NK Arnoldi', "
-            "'Dual Time NK Analytical Jacobian' (or canonical enum values)."
+            "'Explicit RK4', 'Dual Time Picard RK4'."
         )
     return mapped
 
 def normalize_field_init_mode(value: str) -> int:
     """!
-    @brief Normalizes user-facing field init mode names to C enum/int codes (-finit).
-    @param[in] value Human-readable or enum-like field initialization mode.
+    @brief Maps canonical field init mode names to C enum/int codes (-finit).
+    @param[in] value Canonical field initialization mode.
     @return Canonical integer code accepted by -finit.
     @throws ValueError if the input cannot be mapped.
     """
+    # Canonical selector map for field initialization modes.
     if value is None:
         raise ValueError("field initialization mode cannot be None")
 
-    raw = str(value).strip()
-    direct = {"0": 0, "1": 1, "2": 2}
-    if raw in direct:
-        return direct[raw]
-
-    normalized = raw.lower().replace("-", " ").replace("_", " ")
-    normalized = " ".join(normalized.split())
-    aliases = {
-        "zero": 0,
-        "constant": 1,
-        "poiseuille": 2,
-    }
-    mapped = aliases.get(normalized)
+    mapped = {
+        "Zero": 0,
+        "Constant": 1,
+        "Poiseuille": 2,
+    }.get(str(value).strip())
     if mapped is None:
         raise ValueError(
-            f"Unknown initial_conditions mode '{value}'. Use one of: 'Zero', 'Constant', 'Poiseuille' (or 0/1/2)."
+            f"Unknown initial_conditions mode '{value}'. Use one of: 'Zero', 'Constant', 'Poiseuille'."
         )
     return mapped
 
@@ -1710,22 +1815,17 @@ def normalize_analytical_type(value: str) -> str:
     @return Canonical string accepted by `-analytical_type`.
     @throws ValueError if the input cannot be mapped.
     """
+    # Canonical selector map for analytical solution selectors.
     if value is None:
         raise ValueError("analytical_type cannot be None")
 
     normalized = str(value).strip().upper().replace("-", "_").replace(" ", "_")
-    aliases = {
-        "TGV3D": "TGV3D",
-        "ZERO_FLOW": "ZERO_FLOW",
-        "ZEROFLOW": "ZERO_FLOW",
-    }
-    mapped = aliases.get(normalized)
-    if mapped is None:
+    if normalized not in {"TGV3D", "ZERO_FLOW"}:
         raise ValueError(
             f"Unknown operation_mode.analytical_type '{value}'. "
             "Use one of: 'TGV3D', 'ZERO_FLOW'."
         )
-    return mapped
+    return normalized
 
 def parse_initial_velocity_components(initial_conditions: dict, finit_code: int, *, require_explicit: bool) -> tuple[float, float, float]:
     """!
@@ -1838,37 +1938,25 @@ def resolve_initial_velocity_components(initial_conditions: dict, finit_code: in
 
 def normalize_particle_init_mode(value: str) -> int:
     """!
-    @brief Normalizes particle init mode names to C enum/int codes (-pinit).
-    @param[in] value Human-readable or enum-like particle initialization mode.
+    @brief Maps canonical particle init mode names to C enum/int codes (-pinit).
+    @param[in] value Canonical particle initialization mode.
     @return Canonical integer code accepted by -pinit.
     @throws ValueError if the input cannot be mapped.
     """
+    # Canonical selector map for particle initialization modes.
     if value is None:
         raise ValueError("particle init mode cannot be None")
 
-    raw = str(value).strip()
-    direct = {"0": 0, "1": 1, "2": 2, "3": 3}
-    if raw in direct:
-        return direct[raw]
-
-    normalized = raw.lower().replace("-", " ").replace("_", " ")
-    normalized = " ".join(normalized.split())
-    aliases = {
-        "surface": 0,
-        "surface random": 0,
-        "volume": 1,
-        "volumetric": 1,
-        "point source": 2,
-        "pointsource": 2,
-        "surface edges": 3,
-        "surfaceedges": 3,
-        "surface at edges": 3,
-    }
-    mapped = aliases.get(normalized)
+    mapped = {
+        "Surface": 0,
+        "Volume": 1,
+        "PointSource": 2,
+        "SurfaceEdges": 3,
+    }.get(str(value).strip())
     if mapped is None:
         raise ValueError(
             f"Unknown particle init_mode '{value}'. Use one of: "
-            "'Surface', 'Volume', 'PointSource', 'SurfaceEdges' (or 0/1/2/3)."
+            "'Surface', 'Volume', 'PointSource', 'SurfaceEdges'."
         )
     return mapped
 
@@ -1888,6 +1976,13 @@ def append_passthrough_flags(control_lines: list, options: dict):
                 control_lines.append(str(flag))
             continue
         control_lines.append(f"{flag} {format_flag_value(value)}")
+
+
+def resolve_particle_console_output_frequency(io_cfg: dict) -> int | None:
+    """Return the effective particle-console snapshot cadence from monitor.yml."""
+    if 'particle_console_output_frequency' in io_cfg:
+        return io_cfg['particle_console_output_frequency']
+    return io_cfg.get('data_output_frequency')
 
 def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
     """!
@@ -1971,9 +2066,6 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             raise ValueError("Legacy key 'strategy.implicit' is not supported. Use 'strategy.momentum_solver'.")
 
     ms = solver_cfg.get('momentum_solver', {})
-    if isinstance(ms, dict) and 'type' in ms and selected_solver is None:
-        selected_solver = normalize_momentum_solver_type(ms['type'])
-
     if selected_solver is None:
         selected_solver = "DUALTIME_PICARD_RK4"
     flags['-mom_solver_type'] = f"\"{selected_solver}\""
@@ -2057,7 +2149,7 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                 flags[key] = format_flag_value(value)
     return flags
 
-def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_files):
+def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_files, restart_source_dir=None):
     """!
     @brief Generates the main .control file for the C-solver.
     @details Orchestrates the conversion of all YAML configurations (case, solver, monitor)
@@ -2107,8 +2199,15 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     control_lines.append(f"-bcs_files \"{','.join(bcs_files)}\"")
 
     # --- CORRECTED: Add paths for whitelist and profile files ---
-    control_lines.append(f"-whitelist_config_file {monitor_files['whitelist']}")
-    control_lines.append(f"-profile_config_file {monitor_files['profile']}")
+    if monitor_files.get("whitelist"):
+        control_lines.append(f"-whitelist_config_file {monitor_files['whitelist']}")
+    if monitor_files.get("profile"):
+        control_lines.append(f"-profile_config_file {monitor_files['profile']}")
+    profiling_cfg = monitor_files.get("profiling", {})
+    control_lines.append(f"-profiling_timestep_mode {profiling_cfg.get('mode', 'off')}")
+    if profiling_cfg.get("mode") != "off":
+        control_lines.append(f"-profiling_timestep_file {profiling_cfg.get('timestep_file', 'Profiling_Timestep_Summary.csv')}")
+    control_lines.append(f"-profiling_final_summary {str(bool(profiling_cfg.get('final_summary_enabled', True))).lower()}")
     
     grid_cfg = case_cfg.get('grid', {})
     grid_mode = grid_cfg.get('mode')
@@ -2194,15 +2293,21 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     append_passthrough_flags(control_lines, monitor_cfg.get('solver_monitoring', {}))
     
     io_cfg = monitor_cfg.get('io', {})
+    particle_console_output_freq = resolve_particle_console_output_frequency(io_cfg)
     if 'data_output_frequency' in io_cfg: control_lines.append(f"-tio {io_cfg['data_output_frequency']}")
+    if particle_console_output_freq is not None:
+        control_lines.append(f"-particle_console_output_freq {particle_console_output_freq}")
     if 'particle_log_interval' in io_cfg: control_lines.append(f"-logfreq {io_cfg['particle_log_interval']}")
     if 'directories' in io_cfg:
         dirs = io_cfg['directories']
         if 'output' in dirs: control_lines.append(f"-output_dir {dirs['output']}")
-        if 'restart' in dirs: control_lines.append(f"-restart_dir {dirs['restart']}")
+        if 'restart' in dirs and not restart_source_dir:
+            control_lines.append(f"-restart_dir {dirs['restart']}")
         if 'log' in dirs: control_lines.append(f"-log_dir {dirs['log']}")
         if 'eulerian_subdir' in dirs: control_lines.append(f"-euler_subdir {dirs['eulerian_subdir']}")
         if 'particle_subdir' in dirs: control_lines.append(f"-particle_subdir {dirs['particle_subdir']}")
+    if restart_source_dir:
+        control_lines.append(f"-restart_dir {restart_source_dir}")
         
     final_content = generate_header(run_id, source_files) + "\n".join(control_lines)
     control_file_path = os.path.join(run_dir, "config", f"{run_id}.control")
@@ -2231,11 +2336,10 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     c_config = {}
 
     # --- 1. Process Run Control ---
-    # Accept snake_case names (preferred) with camelCase fallback for backwards compatibility.
     rc = post_cfg.get('run_control', {})
-    c_config['startTime'] = rc.get('start_step', rc.get('startTime', 0))
-    c_config['endTime'] = rc.get('end_step', rc.get('endTime', 10))
-    c_config['timeStep'] = rc.get('step_interval', rc.get('timeStep', 1))
+    c_config['startTime'] = rc.get('start_step', 0)
+    c_config['endTime'] = rc.get('end_step', 10)
+    c_config['timeStep'] = rc.get('step_interval', 1)
 
     # --- 2. Process Global Operations ---
     eulerian_pipeline_parts = []
@@ -2804,6 +2908,7 @@ def build_run_dry_plan(args) -> dict:
     solver_control_path = None
     loaded_case_cfg = None
     loaded_monitor_cfg = None
+    resolved_restart_source_dir = None
 
     if cluster_mode:
         cluster_path = os.path.abspath(args.cluster)
@@ -2855,6 +2960,9 @@ def build_run_dry_plan(args) -> dict:
         solver_cfg = read_yaml_file(solver_path)
         loaded_monitor_cfg = read_yaml_file(monitor_path)
         validate_solver_configs(loaded_case_cfg, solver_cfg, loaded_monitor_cfg, case_path, solver_path, monitor_path)
+        resolved_restart_source_dir = resolve_restart_source_from_run_dir(
+            loaded_case_cfg, solver_cfg, loaded_monitor_cfg, case_path, strict=True
+        )
 
         case_name = os.path.splitext(os.path.basename(case_path))[0]
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -2865,8 +2973,8 @@ def build_run_dry_plan(args) -> dict:
         scheduler_dir = os.path.join(run_dir, "scheduler")
         logs_dir = os.path.join(run_dir, "logs")
         solver_control_path = os.path.join(config_dir, f"{run_id}.control")
-        whitelist_path = os.path.join(config_dir, "whitelist.run")
         profile_path = os.path.join(config_dir, "profile.run")
+        profiling_preview = resolve_profiling_config(loaded_monitor_cfg)
 
         plan["run_id_preview"] = run_id
         plan["run_dir_preview"] = run_dir
@@ -2881,17 +2989,19 @@ def build_run_dry_plan(args) -> dict:
                 os.path.join(config_dir, "case.yml"),
                 os.path.join(config_dir, "solver.yml"),
                 os.path.join(config_dir, "monitor.yml"),
-                whitelist_path,
-                profile_path,
                 solver_control_path,
                 os.path.join(run_dir, "manifest.json"),
             ]
         )
+        if has_explicit_monitor_whitelist(loaded_monitor_cfg):
+            plan["artifacts"].append(os.path.join(config_dir, "whitelist.run"))
+        if profiling_preview["mode"] == "selected":
+            plan["artifacts"].append(profile_path)
         if cluster_mode:
             plan["artifacts"].append(os.path.join(config_dir, "cluster.yml"))
             plan["artifacts"].append(os.path.join(scheduler_dir, "submission.json"))
 
-        solver_exe = resolve_runtime_executable("picsolver")
+        solver_exe = resolve_runtime_executable("simulator")
         solver_args = ["-control_file", solver_control_path]
         if cluster_mode:
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")
@@ -2914,6 +3024,8 @@ def build_run_dry_plan(args) -> dict:
                 "launch_command": solver_cmd,
                 "launch_command_string": _command_to_string(solver_cmd),
             }
+        if resolved_restart_source_dir:
+            plan["stages"]["solve"]["restart_source_directory"] = resolved_restart_source_dir
 
     if args.post_process:
         post_path = os.path.abspath(args.post)
@@ -3060,7 +3172,7 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
 
 
 def validate_workflow(args):
-    """Implements `pic.flow validate` without launching solver/post workflows."""
+    """Implements `picurv validate` without launching solver/post workflows."""
     checked = []
     solver_group_selected = any([args.case, args.solver, args.monitor])
     any_group_selected = solver_group_selected or any([args.post, args.cluster, args.study])
@@ -3068,7 +3180,7 @@ def validate_workflow(args):
     if not any_group_selected:
         fail_cli_usage(
             "validate requires at least one config group. Provide solver trio and/or --post/--cluster/--study.",
-            hint="Example: pic.flow validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml",
+            hint="Example: picurv validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml",
         )
 
     if solver_group_selected and not all([args.case, args.solver, args.monitor]):
@@ -3215,6 +3327,9 @@ def run_workflow(args):
             configs['case'], configs['solver'], configs['monitor'],
             args.case, args.solver, args.monitor
         )
+        resolved_restart_source_dir = resolve_restart_source_from_run_dir(
+            configs["case"], configs["solver"], configs["monitor"], configs["case_path"], strict=True
+        )
         print("[SUCCESS] All configuration files passed validation.\n")
 
         case_name = os.path.splitext(os.path.basename(args.case))[0]
@@ -3235,18 +3350,19 @@ def run_workflow(args):
 
         print("\n" + "="*25 + " SOLVER STAGE " + "="*25)
         source_files = {'Case': args.case, 'Solver': args.solver, 'Monitor': args.monitor}
-        print("[INFO] Generating monitoring files (whitelist.run, profile.run)...")
-        whitelist_path = generate_simple_list_file(
-            run_dir, run_id, configs['monitor'], 'logging', 'enabled_functions', 'whitelist.run', source_files
-        )
-        profile_path = generate_simple_list_file(
-            run_dir, run_id, configs['monitor'], 'profiling', 'critical_functions', 'profile.run', source_files
+        monitor_files = prepare_monitor_files(run_dir, run_id, configs['monitor'], source_files)
+        if resolved_restart_source_dir:
+            print(f"[INFO] Automated restart source: {resolved_restart_source_dir}")
+        control_file = generate_solver_control_file(
+            run_dir,
+            run_id,
+            configs,
+            solver_num_procs_effective,
+            monitor_files,
+            restart_source_dir=resolved_restart_source_dir,
         )
 
-        monitor_files = {'whitelist': whitelist_path, 'profile': profile_path}
-        control_file = generate_solver_control_file(run_dir, run_id, configs, solver_num_procs_effective, monitor_files)
-
-        solver_exe = resolve_runtime_executable("picsolver")
+        solver_exe = resolve_runtime_executable("simulator")
         solver_args = ["-control_file", control_file]
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
@@ -3526,9 +3642,7 @@ def sweep_workflow(args):
         validate_post_config(post_cfg, post_path)
 
         source_files = {'Case': case_path, 'Solver': solver_path, 'Monitor': monitor_path}
-        whitelist_path = generate_simple_list_file(run_dir, case_id, monitor_cfg, 'logging', 'enabled_functions', 'whitelist.run', source_files)
-        profile_path = generate_simple_list_file(run_dir, case_id, monitor_cfg, 'profiling', 'critical_functions', 'profile.run', source_files)
-        monitor_files = {"whitelist": whitelist_path, "profile": profile_path}
+        monitor_files = prepare_monitor_files(run_dir, case_id, monitor_cfg, source_files)
         configs = {
             "case": case_cfg, "case_path": case_path,
             "solver": solver_cfg, "solver_path": solver_path,
@@ -3577,7 +3691,7 @@ def sweep_workflow(args):
     if max_conc:
         array_spec = f"{array_spec}%{max_conc}"
 
-    solver_exe = resolve_runtime_executable("picsolver")
+    solver_exe = resolve_runtime_executable("simulator")
     post_exe = resolve_runtime_executable("postprocessor")
     solver_array_script = os.path.join(scheduler_dir, "solver_array.sbatch")
     post_array_script = os.path.join(scheduler_dir, "post_array.sbatch")
@@ -3689,16 +3803,13 @@ def init_case(args):
     print(f"[SUCCESS] Copied template files to: {dest_path}")
     
     print("[INFO] Copying project binaries for a self-contained case...")
-    if args.copy_binaries:
-        print("[INFO] --copy-binaries is now the default behavior and is kept for compatibility.")
-        
     main_bin_dir = os.path.join(PROJECT_ROOT, "bin")
     
     try:
         if not os.path.isdir(main_bin_dir):
             print(
                 f"[WARNING] Project bin/ directory not found at '{main_bin_dir}'. "
-                "No binaries were copied. Run 'pic.flow build' first if needed.",
+                "No binaries were copied. Run 'picurv build' first if needed.",
                 file=sys.stderr,
             )
             return
@@ -3721,7 +3832,7 @@ def init_case(args):
             print(f"  - Copied '{binary_name}'")
             
         print("[SUCCESS] Binaries are now available in your study directory.")
-        print("          You can now 'cd' into your study and run commands locally (e.g., './pic.flow ...').")
+        print("          You can now 'cd' into your study and run commands locally (e.g., './picurv ...').")
 
     except Exception as e:
         print(f"[ERROR] Failed to process binaries: {e}", file=sys.stderr)
@@ -3770,13 +3881,13 @@ def _add_run_parser(subparsers):
             "  - --num-procs applies to solver stage launches.\n"
             "  - Post-processing defaults to a single MPI rank/task.\n\n"
             "Examples:\n"
-            "  pic.flow run --solve --post-process -n 8 --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
-            "  pic.flow run --post-process --run-dir runs/my_run --post post.yml\n"
-            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
-            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
-            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run --format json"
+            "  picurv run --solve --post-process -n 8 --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
+            "  picurv run --post-process --run-dir runs/my_run --post post.yml\n"
+            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
+            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
+            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run --format json"
         ),
-        epilog="Next: run `pic.flow validate ...` first for config-only checks.",
+        epilog="Next: run `picurv validate ...` first for config-only checks.",
     )
     run_group = p_run.add_argument_group("stages")
     run_group.add_argument("--solve", action="store_true", help="Execute the solver stage (creates a new run directory).")
@@ -3820,8 +3931,8 @@ def _add_sweep_parser(subparsers):
         description=(
             "Launch matrix studies from study.yml + cluster.yml.\n\n"
             "Examples:\n"
-            "  pic.flow sweep --study study.yml --cluster cluster.yml\n"
-            "  pic.flow sweep --study study.yml --cluster cluster.yml --no-submit"
+            "  picurv sweep --study study.yml --cluster cluster.yml\n"
+            "  picurv sweep --study study.yml --cluster cluster.yml --no-submit"
         ),
         epilog="Next: inspect studies/<study_id>/results/metrics_table.csv for aggregated metrics.",
     )
@@ -3839,11 +3950,11 @@ def _add_validate_parser(subparsers):
         description=(
             "Validate one or more config roles. No solver/post execution and no run/study artifact writes.\n\n"
             "Examples:\n"
-            "  pic.flow validate --case case.yml --solver solver.yml --monitor monitor.yml\n"
-            "  pic.flow validate --post post.yml --cluster cluster.yml\n"
-            "  pic.flow validate --study study.yml --cluster cluster.yml --strict"
+            "  picurv validate --case case.yml --solver solver.yml --monitor monitor.yml\n"
+            "  picurv validate --post post.yml --cluster cluster.yml\n"
+            "  picurv validate --study study.yml --cluster cluster.yml --strict"
         ),
-        epilog="Next: run `pic.flow run --dry-run ...` to inspect resolved commands/artifacts.",
+        epilog="Next: run `picurv run --dry-run ...` to inspect resolved commands/artifacts.",
     )
     p_validate.add_argument("--case", help="Path to case.yml")
     p_validate.add_argument("--solver", help="Path to solver.yml")
@@ -3863,21 +3974,16 @@ def _add_init_parser(subparsers):
         description=(
             "Create a study directory from examples/<template_name>.\n\n"
             "Examples:\n"
-            "  pic.flow init flat_channel --dest my_case\n"
-            "  pic.flow init bent_channel --dest my_bent_case --copy-binaries"
+            "  picurv init flat_channel --dest my_case\n"
+            "  picurv init bent_channel --dest my_bent_case"
         ),
-        epilog="Next: run `pic.flow validate --case ... --solver ... --monitor ...` before execution.",
+        epilog="Next: run `picurv validate --case ... --solver ... --monitor ...` before execution.",
     )
     p_init.add_argument("template_name", help="Name of the case template directory to copy (e.g., 'flat_channel').")
     p_init.add_argument(
         "--dest",
         dest="dest_name",
         help="Optional name for the new directory. Defaults to the template name.\nPath is relative to your current working directory.",
-    )
-    p_init.add_argument(
-        "--copy-binaries",
-        action="store_true",
-        help="Deprecated compatibility flag.\ninit now always copies executables into the case directory to create a self-contained case study.",
     )
     return p_init
 
@@ -3891,12 +3997,12 @@ def _add_build_parser(subparsers):
             "Calls the project's build.sh script. Any arguments provided after 'build'\n"
             "are passed directly to make.\n\n"
             "Examples:\n"
-            "  pic.flow build\n"
-            "  pic.flow build clean-project\n"
-            "  pic.flow build SYSTEM=cluster\n"
-            "  pic.flow build postprocessor"
+            "  picurv build\n"
+            "  picurv build clean-project\n"
+            "  picurv build SYSTEM=cluster\n"
+            "  picurv build postprocessor"
         ),
-        epilog="Next: run `pic.flow --help` or `pic.flow run --help` for execution commands.",
+        epilog="Next: run `picurv --help` or `picurv run --help` for execution commands.",
     )
     p_build.add_argument(
         "make_args",
@@ -3909,18 +4015,18 @@ def _add_build_parser(subparsers):
 def build_main_parser():
     """Build and return the top-level CLI parser."""
     parser = argparse.ArgumentParser(
-        description="pic.flow: A comprehensive conductor for the PIC-Flow CFD simulation platform.",
+        description="picurv: A comprehensive conductor for the PICurv simulation platform.",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  pic.flow validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
-            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
-            "  pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
-            "  pic.flow sweep --study study.yml --cluster cluster.yml\n\n"
+            "  picurv validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
+            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
+            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
+            "  picurv sweep --study study.yml --cluster cluster.yml\n\n"
             "Next commands:\n"
-            "  - First run: pic.flow init ... -> pic.flow validate ... -> pic.flow run ...\n"
-            "  - Config debugging: pic.flow validate ...\n"
-            "  - Launch planning: pic.flow run ... --dry-run"
+            "  - First run: picurv init ... -> picurv validate ... -> picurv run ...\n"
+            "  - Config debugging: picurv validate ...\n"
+            "  - Launch planning: picurv run ... --dry-run"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")

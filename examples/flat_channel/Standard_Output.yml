@@ -9,15 +9,15 @@
 # --- Logging ---
 logging:
   verbosity: INFO
-  enabled_functions: [] # Allow all functions to log (filtered by verbosity)
+  enabled_functions: [] # Empty = use the C runtime's default allow-list.
 
 # --- Profiling ---
 profiling:
-  critical_functions:
-    - AdvanceSimulation
-    - Flow_Solver
+  timestep_output:
+    mode: "off"
 
 # --- I/O AND DATA MANAGEMENT ---
 io:
   data_output_frequency: 100 # -> -tio
-  particle_log_interval: 100  # -> -logfreq (not used, but good to have)
+  particle_console_output_frequency: 100 # -> -particle_console_output_freq
+  particle_log_interval: 100  # -> -logfreq (row subsampling within snapshots)

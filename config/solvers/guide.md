@@ -21,7 +21,7 @@ For full schema coverage, use:
 ## 3. How to Use
 
 ```bash
-./scripts/pic.flow run --solve -n 8 \
+./bin/picurv run --solve -n 8 \
   --case my_study/case.yml \
   --solver config/solvers/Imp-MG-Standard.yml \
   --monitor config/monitors/Standard_Output.yml
@@ -29,4 +29,4 @@ For full schema coverage, use:
 
 ## 4. Notes
 
-Prefer named momentum solver selection (`strategy.momentum_solver`) over legacy implicit/explicit booleans.
+Use `strategy.momentum_solver` with the exact values `Explicit RK4` or `Dual Time Picard RK4`.

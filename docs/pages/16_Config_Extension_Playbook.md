@@ -8,7 +8,7 @@ This playbook defines the standard workflow for adding new options/models withou
 
 1. Choose the schema home (`case.yml`, `solver.yml`, `monitor.yml`, or `post.yml`).
 2. Add template documentation in `examples/master_template/*.yml`.
-3. Add validation and normalization in `scripts/pic.flow`.
+3. Add validation and normalization in `scripts/picurv`.
 4. Emit the mapped control/post key into generated artifacts.
 5. Add C-side ingestion default + parser wiring (`setup.c` or `io.c`).
 6. Connect runtime consumer logic in domain module (`grid.c`, `poisson.c`, particle modules, etc.).
@@ -21,7 +21,7 @@ This playbook defines the standard workflow for adding new options/models withou
 @section design_sec 2. Design Rules
 
 - Prefer structured schema first; use passthrough only for advanced/temporary gaps.
-- Keep defaults in one place and preserve backward compatibility when keys are absent.
+- Keep defaults in one place, and prefer explicit rejection over temporary compatibility aliases when contracts change.
 - Reject unsupported shapes early in Python validation (for example, list-vs-scalar contract mismatches).
 - Keep C ingestion concentrated in setup/parsing layers (`setup.c`, `io.c`) unless data is truly file-local to a subsystem.
 
@@ -32,7 +32,7 @@ Use this checklist when adding a new particle model constant, source term, or in
 1. Schema:
    - Add structured keys under `models.physics.particles` (case) or `solver` (if solver-policy).
 2. Generator:
-   - Map to control flags in `scripts/pic.flow`.
+   - Map to control flags in `scripts/picurv`.
    - Add validation for domain/range and mode compatibility.
 3. C ingestion:
    - Add default in `CreateSimulationContext`.
@@ -52,7 +52,7 @@ Use this checklist when adding a new particle model constant, source term, or in
   - Keep C-side ingestion unchanged unless the model must feed back into timestep updates.
 - Tightly coupled inference (next step):
   - Add a runtime-selectable closure model interface in `ParticlePhysics.c` (model type + config + evaluation hook).
-  - Expose model selection and coefficients in YAML (`solver.yml` or `case.yml`), map through `pic.flow`, parse in `setup.c`, and wire runtime consumers.
+  - Expose model selection and coefficients in YAML (`solver.yml` or `case.yml`), map through `picurv`, parse in `setup.c`, and wire runtime consumers.
   - Keep fallback behavior to current deterministic model when no ML model is selected.
 
 @section verification_sec 5. Verification Checklist
@@ -64,3 +64,4 @@ Use this checklist when adding a new particle model constant, source term, or in
 - Existing templates/run paths still work with omitted new keys.
 
 See also **@subpage 17_Workflow_Extensibility** for higher-level workflow expansion patterns.
+For selector-by-selector hook points, use **@subpage 50_Modular_Selector_Extension_Guide**.

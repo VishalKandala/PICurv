@@ -11,6 +11,7 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 14_Config_Contract**: YAML -> generated artifact -> runtime contract.
 - **@subpage 15_Config_Ingestion_Map**: where specific YAML keys enter C/Python paths.
 - **@subpage 16_Config_Extension_Playbook**: adding new keys/features safely.
+- **@subpage 50_Modular_Selector_Extension_Guide**: selector-by-selector hook points for extending current user-facing options.
 - **@subpage 17_Workflow_Extensibility**: extending orchestration beyond current run/sweep modes.
 - **@subpage 46_C_Runtime_Execution_Map**: startup/timestep execution trace across C modules.
 
@@ -36,9 +37,10 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 1. **@subpage 13_Code_Architecture**
 2. **@subpage 14_Config_Contract**
 3. **@subpage 15_Config_Ingestion_Map**
-4. **@subpage 46_C_Runtime_Execution_Map**
-5. **@subpage 21_Methods_Overview**
-6. **@subpage 16_Config_Extension_Playbook**
+4. **@subpage 16_Config_Extension_Playbook**
+5. **@subpage 50_Modular_Selector_Extension_Guide**
+6. **@subpage 46_C_Runtime_Execution_Map**
+7. **@subpage 21_Methods_Overview**
 
 @section developer_outcomes_sec 5. Expected Outcomes
 
@@ -47,4 +49,4 @@ After working through this section, you should be able to:
 - trace a new YAML key from schema to runtime consumer,
 - identify the right C module for a numerical feature change,
 - update docs/tests/validation alongside code changes,
-- preserve compatibility and diagnostics while extending behavior.
+- preserve diagnostics and contract clarity while extending behavior.

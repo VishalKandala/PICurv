@@ -26,13 +26,13 @@ Default setup:
 Initialize study:
 
 ```bash
-./bin/pic.flow init bent_channel --dest my_bent_case
+./bin/picurv init bent_channel --dest my_bent_case
 ```
 
 Run solve + post:
 
 ```bash
-./bin/pic.flow run \
+./bin/picurv run \
   --case my_bent_case/bent_channel.yml \
   --solver my_bent_case/Imp-MG-Standard.yml \
   --monitor my_bent_case/Standard_Output.yml \
@@ -64,7 +64,7 @@ Open `runs/<run_id>/viz/Field_*.vts` in ParaView and inspect streamlines colored
 Single run on Slurm:
 
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case my_bent_case/bent_channel.yml \
   --solver my_bent_case/Imp-MG-Standard.yml \
   --monitor my_bent_case/Standard_Output.yml \
@@ -75,7 +75,7 @@ Single run on Slurm:
 Timestep sensitivity sweep:
 
 ```bash
-./bin/pic.flow sweep \
+./bin/picurv sweep \
   --study my_bent_case/timestep_sensitivity_study.yml \
   --cluster my_bent_case/slurm_cluster.yml
 ```

@@ -10,8 +10,12 @@ io:
   # distinguish linear MSD from startup transients.
   data_output_frequency: 100
 
-  # Particle log at same cadence as field output.
-  # The statistics pipeline reads particle positions at these intervals.
+  # Keep particle console snapshots aligned with the written data cadence.
+  # Set this to 0 to silence periodic particle-state dumps in the main log.
+  particle_console_output_frequency: 100
+
+  # Within each particle console snapshot, print every Nth particle row.
+  # The statistics pipeline still reads particle positions from written files.
   particle_log_interval: 100
 
   directories:
@@ -25,10 +29,11 @@ logging:
   # INFO level gives enough feedback to confirm the run is progressing.
   # Switch to DEBUG and add function allowlists for troubleshooting.
   verbosity: "INFO"
-  enabled_functions: []     # Empty = no function-level filtering
+  enabled_functions: []     # Empty = use the C runtime's default allow-list
 
 profiling:
-  critical_functions: []    # No profiling overhead for this test
+  timestep_output:
+    mode: "off"             # No per-step profiling output for this test
 
 solver_monitoring:
   # Analytical mode skips the Poisson solve, so KSP monitoring is moot.

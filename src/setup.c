@@ -47,6 +47,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     SimCtx *simCtx;
     char control_filename[PETSC_MAX_PATH_LEN] = ""; // Temporary placeholder for control file name.
     PetscBool control_flg; // Temporary placeholder for control file tag existence check flag.
+    PetscBool particle_console_output_freq_flg = PETSC_FALSE;
 
     PetscFunctionBeginUser;
 
@@ -61,9 +62,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Group 2: Simulation Control, Time, and I/O ---
     simCtx->step = 0; simCtx->ti = 0.0; simCtx->StartStep = 0; simCtx->StepsToRun = 10;
-    simCtx->tiout = 10; simCtx->StartTime = 0.0; simCtx->dt = 0.001;
+    simCtx->tiout = 10; simCtx->particleConsoleOutputFreq = simCtx->tiout;
+    simCtx->StartTime = 0.0; simCtx->dt = 0.001;
     simCtx->OnlySetup = PETSC_FALSE;
-    simCtx->logviewer = NULL; simCtx->OutputFreq = simCtx->tiout;
+    simCtx->logviewer = NULL;
     strcpy(simCtx->eulerianSource,"solve");
     strcpy(simCtx->restart_dir,"results");
     strcpy(simCtx->output_dir,"results");
@@ -171,10 +173,13 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->summationRHS = 0.0;
     simCtx->MaxDiv = 0.0;
     simCtx->MaxDivFlatArg = 0; simCtx->MaxDivx = 0; simCtx->MaxDivy = 0; simCtx->MaxDivz = 0;
-    strcpy(simCtx->criticalFuncsFile, "config/profile.run");
-    simCtx->useCriticalFuncsCfg =  PETSC_FALSE;
-    simCtx->criticalFuncs = NULL;
-    simCtx->nCriticalFuncs = 0;
+    strcpy(simCtx->profilingSelectedFuncsFile, "config/profile.run");
+    simCtx->useProfilingSelectedFuncsCfg =  PETSC_FALSE;
+    simCtx->profilingSelectedFuncs = NULL;
+    simCtx->nProfilingSelectedFuncs = 0;
+    strcpy(simCtx->profilingTimestepMode, "selected");
+    strcpy(simCtx->profilingTimestepFile, "Profiling_Timestep_Summary.csv");
+    simCtx->profilingFinalSummary = PETSC_TRUE;
     // --- Group 11: Post-Processing Information ---
     strcpy(simCtx->PostprocessingControlFile, "config/post.run");
     ierr = PetscNew(&simCtx->pps); CHKERRQ(ierr);
@@ -193,8 +198,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
                 "\n\n*** MANDATORY ARGUMENT MISSING ***\n"
                 "The -control_file argument was not provided.\n"
                 "This program must be launched with a configuration file.\n"
-                "Example: mpiexec -n 4 ./picsolver -control_file /path/to/your/config.control\n"
-                "This is typically handled automatically by the 'pic.flow' script.\n");
+                "Example: mpiexec -n 4 ./simulator -control_file /path/to/your/config.control\n"
+                "This is typically handled automatically by the 'picurv' script.\n");
     }
 
     // At this point, we have a valid filename. Attempt to load it.
@@ -217,6 +222,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
             PetscPrintf(PETSC_COMM_SELF, "[%s] WARNING: Failed to load allowed functions from '%s'. Falling back to default list.\n", __func__, simCtx->allowedFile);
             simCtx->useCfg = PETSC_FALSE; // Mark as failed.
             ierr = 0; // Clear the error to allow fallback.
+        } else if (simCtx->nAllowed == 0) {
+            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                    "Whitelist config file '%s' is empty. Omit -whitelist_config_file to use the default allow-list, or list at least one function.",
+                    simCtx->allowedFile);
         }
     }
     if (!simCtx->useCfg) {
@@ -235,23 +244,35 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     print_log_level(); // This will now correctly reflect the LOG_LEVEL environment variable.
    
     // === 3.B Configure Profiling System ========================================
-    ierr = PetscOptionsGetString(NULL, NULL, "-profile_config_file", simCtx->criticalFuncsFile, PETSC_MAX_PATH_LEN, &simCtx->useCriticalFuncsCfg); CHKERRQ(ierr);
-        if (simCtx->useCriticalFuncsCfg) {
-        ierr = LoadAllowedFunctionsFromFile(simCtx->criticalFuncsFile, &simCtx->criticalFuncs, &simCtx->nCriticalFuncs);
-        if (ierr) {
-            PetscPrintf(PETSC_COMM_SELF, "[%s] WARNING: Failed to load critical profiling functions from '%s'. Falling back to default list.\n", __func__, simCtx->criticalFuncsFile);
-            simCtx->useCriticalFuncsCfg = PETSC_FALSE;
-            ierr = 0;
-        }
+    ierr = PetscOptionsGetString(NULL, NULL, "-profiling_timestep_mode", simCtx->profilingTimestepMode, sizeof(simCtx->profilingTimestepMode), NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL, NULL, "-profiling_timestep_file", simCtx->profilingTimestepFile, PETSC_MAX_PATH_LEN, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetBool(NULL, NULL, "-profiling_final_summary", &simCtx->profilingFinalSummary, NULL); CHKERRQ(ierr);
+    if (strcmp(simCtx->profilingTimestepMode, "off") != 0 &&
+        strcmp(simCtx->profilingTimestepMode, "selected") != 0 &&
+        strcmp(simCtx->profilingTimestepMode, "all") != 0) {
+        PetscPrintf(PETSC_COMM_SELF, "[%s] WARNING: Unknown profiling timestep mode '%s'. Falling back to 'selected'.\n", __func__, simCtx->profilingTimestepMode);
+        strcpy(simCtx->profilingTimestepMode, "selected");
     }
-    if (!simCtx->useCriticalFuncsCfg) {
-        // Fallback to a hardcoded default list if no file or loading failed
-        simCtx->nCriticalFuncs = 4;
-        ierr = PetscMalloc1(simCtx->nCriticalFuncs, &simCtx->criticalFuncs); CHKERRQ(ierr);
-        ierr = PetscStrallocpy("FlowSolver", &simCtx->criticalFuncs[0]); CHKERRQ(ierr);
-        ierr = PetscStrallocpy("AdvanceSimulation", &simCtx->criticalFuncs[1]); CHKERRQ(ierr);
-        ierr = PetscStrallocpy("LocateAllParticlesInGrid", &simCtx->criticalFuncs[2]); CHKERRQ(ierr);
-        ierr = PetscStrallocpy("InterpolateAllFieldsToSwarm", &simCtx->criticalFuncs[3]); CHKERRQ(ierr);
+
+    if (strcmp(simCtx->profilingTimestepMode, "selected") == 0) {
+        ierr = PetscOptionsGetString(NULL, NULL, "-profile_config_file", simCtx->profilingSelectedFuncsFile, PETSC_MAX_PATH_LEN, &simCtx->useProfilingSelectedFuncsCfg); CHKERRQ(ierr);
+        if (simCtx->useProfilingSelectedFuncsCfg) {
+            ierr = LoadAllowedFunctionsFromFile(simCtx->profilingSelectedFuncsFile, &simCtx->profilingSelectedFuncs, &simCtx->nProfilingSelectedFuncs);
+            if (ierr) {
+                PetscPrintf(PETSC_COMM_SELF, "[%s] WARNING: Failed to load selected profiling functions from '%s'. Falling back to default list.\n", __func__, simCtx->profilingSelectedFuncsFile);
+                simCtx->useProfilingSelectedFuncsCfg = PETSC_FALSE;
+                ierr = 0;
+            }
+        }
+        if (!simCtx->useProfilingSelectedFuncsCfg) {
+            // Fallback to a hardcoded default list if no file was provided or loading failed.
+            simCtx->nProfilingSelectedFuncs = 4;
+            ierr = PetscMalloc1(simCtx->nProfilingSelectedFuncs, &simCtx->profilingSelectedFuncs); CHKERRQ(ierr);
+            ierr = PetscStrallocpy("FlowSolver", &simCtx->profilingSelectedFuncs[0]); CHKERRQ(ierr);
+            ierr = PetscStrallocpy("AdvanceSimulation", &simCtx->profilingSelectedFuncs[1]); CHKERRQ(ierr);
+            ierr = PetscStrallocpy("LocateAllParticlesInGrid", &simCtx->profilingSelectedFuncs[2]); CHKERRQ(ierr);
+            ierr = PetscStrallocpy("InterpolateAllFieldsToSwarm", &simCtx->profilingSelectedFuncs[3]); CHKERRQ(ierr);
+        }
     }
 
     // Initialize the profiling system with the current updated simulation context.
@@ -269,6 +290,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetBool(NULL, NULL, "-only_setup", &simCtx->OnlySetup, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-dt", &simCtx->dt, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-tio", &simCtx->tiout, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-particle_console_output_freq", &simCtx->particleConsoleOutputFreq, &particle_console_output_freq_flg); CHKERRQ(ierr);
+    if (!particle_console_output_freq_flg) {
+        simCtx->particleConsoleOutputFreq = simCtx->tiout;
+    }
     ierr = PetscOptionsGetString(NULL,NULL,"-euler_field_source",simCtx->eulerianSource,sizeof(simCtx->eulerianSource),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",&simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",&simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
@@ -276,7 +301,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetString(NULL,NULL,"-euler_subdir",&simCtx->euler_subdir,sizeof(simCtx->euler_subdir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-particle_subdir",&simCtx->particle_subdir,sizeof(simCtx->particle_subdir),NULL);CHKERRQ(ierr);
 
-    simCtx->OutputFreq = simCtx->tiout; // backward compatibility related redundancy.
     if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0 && strcmp(simCtx->eulerianSource,"analytical")!=0){
       SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Invalid value for -euler_field_source. Must be 'load','analytical' or 'solve'. You provided '%s'.",simCtx->eulerianSource);
     }
@@ -330,18 +354,14 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL, NULL, "-imp_stol", &simCtx->imp_stol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-central", &simCtx->central, NULL); CHKERRQ(ierr);
 
-    // Map the string input to the enum type only when explicitly provided.
+    // Keep parser acceptance aligned with the enum and FlowSolver dispatch.
     if (mom_solver_type_flg) {
         if(strcmp(mom_solver_type_char, "DUALTIME_PICARD_RK4") == 0) {
             simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4;
-        } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ARNOLDI") == 0) {
-            simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI;
-        } else if (strcmp(mom_solver_type_char, "DUALTIME_NK_ANALYTICAL_JACOBIAN") == 0) {
-            simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN;
         } else if (strcmp(mom_solver_type_char, "EXPLICIT_RK") == 0) {
             simCtx->mom_solver_type = MOMENTUM_SOLVER_EXPLICIT_RK;
         } else {
-            LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_RK4', 'DUALTIME_NK_ARNOLDI', 'DUALTIME_NK_ANALYTICAL_JACOBIAN', 'EXPLICIT_RK'.\n", mom_solver_type_char);
+            LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_RK4', 'EXPLICIT_RK'.\n", mom_solver_type_char);
             SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -mom_solver_type: '%s'.", mom_solver_type_char);
         }
     }
@@ -517,6 +537,17 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Run mode: %s\n", simCtx->OnlySetup ? "SETUP ONLY" : "Full Simulation");
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Time steps: %d (from %d to %d)\n", simCtx->StepsToRun, simCtx->StartStep, simCtx->StartStep + simCtx->StepsToRun);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Time step size (dt): %g\n", simCtx->dt);
+    if (simCtx->tiout > 0) {
+      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Field/restart output cadence: every %d step(s)\n", simCtx->tiout);
+    } else {
+      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Field/restart output cadence: DISABLED\n");
+    }
+    if (simCtx->particleConsoleOutputFreq > 0) {
+      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: every %d step(s)\n", simCtx->particleConsoleOutputFreq);
+    } else {
+      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: DISABLED\n");
+    }
+    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console row subsampling: every %d particle(s)\n", simCtx->LoggingFrequency);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Immersed Boundary: %s\n", simCtx->immersed ? "ENABLED" : "DISABLED");
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particles: %d\n", simCtx->np);
     if (simCtx->StartStep > 0 && simCtx->np > 0) {
@@ -641,8 +672,8 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
     if (simCtx->useCfg) {
         ierr = VerifyPathExistence(simCtx->allowedFile, PETSC_FALSE, PETSC_TRUE, "Whitelist config file", &exists); CHKERRQ(ierr);
     }
-    if (simCtx->useCriticalFuncsCfg) {
-        ierr = VerifyPathExistence(simCtx->criticalFuncsFile, PETSC_FALSE, PETSC_TRUE, "Profiling config file", &exists); CHKERRQ(ierr);
+    if (simCtx->useProfilingSelectedFuncsCfg) {
+        ierr = VerifyPathExistence(simCtx->profilingSelectedFuncsFile, PETSC_FALSE, PETSC_TRUE, "Profiling config file", &exists); CHKERRQ(ierr);
     }
     if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) {
         ierr = VerifyPathExistence(simCtx->PostprocessingControlFile, PETSC_FALSE, PETSC_TRUE, "Post-processing control file", &exists); CHKERRQ(ierr);
@@ -1452,8 +1483,6 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
         //ierr = ParseAllBoundaryConditions(&user_finest[bi],current_bc_filename); CHKERRQ(ierr);
 
         ierr = BoundarySystem_Initialize(&user_finest[bi], current_bc_filename); CHKERRQ(ierr);
-        // Call the adapter to translate into the legacy format
-        ierr = TranslateModernBCsToLegacy(&user_finest[bi]); CHKERRQ(ierr);
     }
 
     // Propogate BC Configuration to coarser levels.
@@ -3354,15 +3383,15 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
     }
 
     // --- Profiling Critical Functions (Array of strings) ---
-    if (simCtx->criticalFuncs) {
-        for (PetscInt i = 0; i < simCtx->nCriticalFuncs; i++) {
-            if (simCtx->criticalFuncs[i]) {
-                ierr = PetscFree(simCtx->criticalFuncs[i]); CHKERRQ(ierr);
+    if (simCtx->profilingSelectedFuncs) {
+        for (PetscInt i = 0; i < simCtx->nProfilingSelectedFuncs; i++) {
+            if (simCtx->profilingSelectedFuncs[i]) {
+                ierr = PetscFree(simCtx->profilingSelectedFuncs[i]); CHKERRQ(ierr);
             }
         }
-        ierr = PetscFree(simCtx->criticalFuncs); CHKERRQ(ierr);
-        simCtx->criticalFuncs = NULL;
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  criticalFuncs array freed (%d functions).\n", simCtx->nCriticalFuncs);
+        ierr = PetscFree(simCtx->profilingSelectedFuncs); CHKERRQ(ierr);
+        simCtx->profilingSelectedFuncs = NULL;
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  profilingSelectedFuncs array freed (%d functions).\n", simCtx->nProfilingSelectedFuncs);
     }
 
     // ============================================================================

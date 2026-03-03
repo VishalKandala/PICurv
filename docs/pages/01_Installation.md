@@ -98,33 +98,33 @@ git clone https://github.com/VishalKandala/PICurv.git
 cd PICurv
 ```
 
-@section build_sec 6. Build with pic.flow
+@section build_sec 6. Build with picurv
 
 ```bash
-./scripts/pic.flow build
+./scripts/picurv build
 ```
 
 Expected binaries:
 
-- `bin/picsolver`
+- `bin/simulator`
 - `bin/postprocessor`
 
 Useful variants:
 
 ```bash
-./scripts/pic.flow build clean-project
-./scripts/pic.flow build SYSTEM=cluster
+./scripts/picurv build clean-project
+./scripts/picurv build SYSTEM=cluster
 ```
 
-After the build creates `bin/pic.flow`, prefer `./bin/pic.flow` for normal help, validation, and run commands.
+After the build creates `bin/picurv`, prefer `./bin/picurv` for normal help, validation, and run commands.
 
 @section verify_sec 7. Verify Installation
 
 ```bash
-./bin/pic.flow --help
-./bin/pic.flow run --help
-./bin/pic.flow sweep --help
-./bin/pic.flow validate --help
+./bin/picurv --help
+./bin/picurv run --help
+./bin/picurv sweep --help
+./bin/picurv validate --help
 ```
 
 If these commands work and binaries exist, your installation is ready.

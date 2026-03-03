@@ -31,7 +31,7 @@ These values set the non-dimensional operating point consumed by solver controls
 
 Quick check:
 
-- rerun `pic.flow validate ...`,
+- rerun `picurv validate ...`,
 - inspect generated `.control` file for updated values.
 
 @subsection twod_ssec 1.2 Run in 2D
@@ -113,7 +113,7 @@ Verification:
 @subsection mpi_ssec 3.1 Run in Parallel and Control DMDA Layout
 
 ```bash
-./bin/pic.flow run -n 16 --solve ...
+./bin/picurv run -n 16 --solve ...
 ```
 
 Optional partition hints:
@@ -132,7 +132,7 @@ Note: `da_processors_*` are scalar globals, not per-block vectors.
 @subsection cluster_run_ssec 3.2 Run on Slurm (Generate and Submit)
 
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -143,7 +143,7 @@ Note: `da_processors_*` are scalar globals, not per-block vectors.
 Generate-only mode:
 
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -162,6 +162,7 @@ Verification:
 run_control:
   start_step: 500
   total_steps: 1000
+  restart_from_run_dir: "../runs/flat_channel_20260303-120000"
 ```
 
 Meaning:
@@ -171,6 +172,7 @@ Meaning:
 - The first new step advanced is step 501.
 - `total_steps` is the number of additional steps to run.
 - In this example, the restarted run advances from step 501 through step 1500.
+- If `restart_from_run_dir` is set, `picurv` automatically resolves the previous run's restart directory from that run's `config/monitor.yml` and injects the correct `-restart_dir` into the new control file.
 
 Typical full field restart (`solver.yml`):
 
@@ -208,7 +210,7 @@ Common combinations:
 Command example:
 
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case restart_case/case.yml \
   --solver restart_case/solver.yml \
   --monitor restart_case/monitor.yml \
@@ -220,11 +222,13 @@ How to think about this workflow:
 - restart uses the normal `run --solve` path; there is no separate restart command,
 - the new run directory is a fresh run artifact,
 - the saved field state is loaded from existing restart/output files referenced by the current restart path contract,
-- the old run directory is not mutated in place by `pic.flow`.
+- `run_control.restart_from_run_dir` is the preferred way to point `picurv` at the old run automatically,
+- the old run directory is not mutated in place by `picurv`.
 
 Before launching a restart, verify:
 
 - the previous run actually wrote solver outputs for the target `start_step`,
+- `run_control.restart_from_run_dir` points to the intended previous run directory (if you use automated restart resolution),
 - `monitor.yml -> io.directories.restart` points to the intended restart directory name,
 - `monitor.yml -> io.directories.output` matches where the prior run wrote field data,
 - restart source files for the requested step exist,
@@ -269,7 +273,7 @@ Prefer narrow function lists to keep logs manageable.
 @subsection post_existing_ssec 4.1 Postprocess an Existing Run
 
 ```bash
-./bin/pic.flow run --post-process \
+./bin/picurv run --post-process \
   --run-dir runs/flat_channel_20240401-153000 \
   --post my_study/standard_analysis.yml
 ```
@@ -311,7 +315,7 @@ Verification:
 @section sweep_sec 5. Sweep Studies
 
 ```bash
-./bin/pic.flow sweep \
+./bin/picurv sweep \
   --study my_study/study.yml \
   --cluster my_study/cluster.yml
 ```

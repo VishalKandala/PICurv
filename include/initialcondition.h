@@ -21,7 +21,7 @@
 #include "AnalyticalSolutions.h" // Analytical Solution for testing
 #include "ParticleMotion.h" // Functions related to motion of particles
 #include "Boundaries.h"     //  Functions related to Boundary condition
-#include "simulation.h"
+#include "runloop.h"
 
 /**
  * @brief Sets the initial values for the INTERIOR of a specified Eulerian field.

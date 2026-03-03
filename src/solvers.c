@@ -103,13 +103,16 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     
     // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
     // ierr = ImpRK(user, NULL, NULL); CHKERRQ(ierr);
+    // Add new momentum solver types here only after wiring the enum, parser, docs, and tests.
     if(simCtx->mom_solver_type == MOMENTUM_SOLVER_DUALTIME_PICARD_RK4) {
         ierr = MomentumSolver_DualTime_Picard_RK4(user,NULL,NULL); CHKERRQ(ierr);
     } else if(simCtx->mom_solver_type == MOMENTUM_SOLVER_EXPLICIT_RK) {   
     // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
     ierr = MomentumSolver_Explicit_RungeKutta4(user, NULL, NULL); CHKERRQ(ierr);
     } else {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "Momentum solver type %d is not currently enabled.\n", simCtx->mom_solver_type);
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                "Unknown momentum solver type %d. Supported values are EXPLICIT_RK and DUALTIME_PICARD_RK4.",
+                simCtx->mom_solver_type);
     }
 // ========================================================================
 //   SECTION: Pressure-Poisson Solver
@@ -122,8 +125,9 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
  if (simCtx->poisson == 0) {
    ierr = PoissonSolver_MG(usermg); CHKERRQ(ierr);
  } else {
-   // Logic for other Poisson solvers (e.g., Hypre) would go here.
-   LOG_ALLOW(GLOBAL, LOG_WARNING, "Poisson solver type %d is not currently enabled.\n", simCtx->poisson);
+   SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+           "Unsupported Poisson solver type %d. The current runtime supports only the multigrid path (poisson = 0).",
+           simCtx->poisson);
  }
     
     // ========================================================================

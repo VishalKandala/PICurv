@@ -17,7 +17,7 @@ make SYSTEM=local
 make SYSTEM=cluster
 ```
 
-or equivalent through `pic.flow build` wrappers.
+or equivalent through `picurv build` wrappers.
 
 ## Maintenance Notes
 

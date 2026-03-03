@@ -37,7 +37,7 @@ After Poisson solve:
 
 @section config_sec 3. YAML Mapping and PETSc Options
 
-From `solver.yml` via `scripts/pic.flow`:
+From `solver.yml` via `scripts/picurv`:
 
 - `pressure_solver.tolerance` -> `-poisson_tol`
 - `pressure_solver.multigrid.levels` -> `-mg_level`

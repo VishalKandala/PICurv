@@ -9,7 +9,7 @@ It covers both user-facing YAML inputs and the C implementation path that applie
 
 Startup sequence:
 
-1. `scripts/pic.flow` converts YAML to control flags (`-finit`, `-ucont_*`, `-pinit`, etc.).
+1. `scripts/picurv` converts YAML to control flags (`-finit`, `-ucont_*`, `-pinit`, etc.).
 2. @ref InitializeEulerianState chooses fresh-start, load, or analytical branch.
 3. For fresh starts, @ref SetInitialInteriorField initializes interior `Ucont`.
 4. Boundary handlers then enforce face values and ghost-cell consistency.
@@ -37,14 +37,14 @@ properties:
     peak_velocity_physical: 1.5
 ```
 
-`pic.flow` mapping:
+`picurv` mapping:
 
 - `mode` -> `-finit` via `normalize_field_init_mode`:
   - `Zero` (or `0`) -> `0`
   - `Constant` (or `1`) -> `1`
   - `Poiseuille` (or `2`) -> `2`
 - `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z` after non-dimensionalization by `U_ref`.
-- `peak_velocity_physical` (Poiseuille only) -> `pic.flow` infers the unique inlet axis from `boundary_conditions` and maps the scalar peak speed onto the matching `-ucont_*` component.
+- `peak_velocity_physical` (Poiseuille only) -> `picurv` infers the unique inlet axis from `boundary_conditions` and maps the scalar peak speed onto the matching `-ucont_*` component.
 
 Launcher-side contract:
 
@@ -146,3 +146,4 @@ Common pitfalls:
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 34_Particle_Model_Overview**
 - **@subpage 39_Common_Fatal_Errors**
+- **@subpage 50_Modular_Selector_Extension_Guide**

@@ -19,7 +19,7 @@ By the end of this tutorial you will have:
 From repository root:
 
 ```bash
-./bin/pic.flow init flat_channel --dest my_first_run
+./bin/picurv init flat_channel --dest my_first_run
 ```
 
 Expected files:
@@ -46,7 +46,7 @@ my_first_run/
 @section validate_sec 4. Validate Inputs Before Launch
 
 ```bash
-./bin/pic.flow validate \
+./bin/picurv validate \
   --case my_first_run/flat_channel.yml \
   --solver my_first_run/Imp-MG-Standard.yml \
   --monitor my_first_run/Standard_Output.yml \
@@ -58,7 +58,7 @@ Validation confirms the YAML-to-runtime contract and catches mis-typed keys befo
 @section run_sec 5. Run Solver and Postprocessor
 
 ```bash
-./bin/pic.flow run \
+./bin/picurv run \
   --case my_first_run/flat_channel.yml \
   --solver my_first_run/Imp-MG-Standard.yml \
   --monitor my_first_run/Standard_Output.yml \
@@ -71,7 +71,7 @@ What happens internally:
 1. all input files are loaded and validated,
 2. run ID directory is created under `runs/`,
 3. C-consumed artifacts are generated (`*.control`, `bcs*.run`, `whitelist.run`, `profile.run`, `post.run`),
-4. `bin/picsolver` is launched,
+4. `bin/simulator` is launched,
 5. `bin/postprocessor` is launched.
 
 @section artifacts_sec 6. Inspect Generated Artifacts
@@ -116,7 +116,7 @@ Expected behavior: smooth channel flow with profile development consistent with 
 
 @section troubleshooting_sec 9. Common First-Run Issues
 
-- Missing binary: rerun `./scripts/pic.flow build` and check PETSc vars.
+- Missing binary: rerun `./scripts/picurv build` and check PETSc vars.
 - Validation failure: compare key paths against examples and **@subpage 14_Config_Contract**.
 - Empty post output: verify `--post-process` flag and `post.yml` output settings.
 

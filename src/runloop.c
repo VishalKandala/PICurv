@@ -1,10 +1,10 @@
 /**
- * @file simulation.c  // code for simulation loop 
+ * @file runloop.c
  * @brief Test program for DMSwarm interpolation using the fdf-curvIB method.
  * Provides the setup to start any simulation with DMSwarm and DMDAs.
  **/
 
-#include "simulation.h"
+#include "runloop.h"
 
 /**
  * @brief Copies the current time step's solution fields into history vectors
@@ -143,20 +143,18 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
         ierr = UpdateSolverHistoryVectors(&user[bi]); CHKERRQ(ierr);
     }
 
-    if (simCtx->OutputFreq > 0 || (simCtx->StepsToRun == 0 && simCtx->StartStep == 0)) {
+    if (simCtx->tiout > 0 || (simCtx->StepsToRun == 0 && simCtx->StartStep == 0)) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initial simulation data.\n", simCtx->ti, simCtx->step);
-        
-        // --- Particle Output (assumes functions operate on the master user context) ---
-        if(get_log_level() == LOG_DEBUG){
-            LOG(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Initial Particle field.\n", simCtx->ti, simCtx->step);
-            ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
-        }
         ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
         
         // --- Eulerian Field Output (MUST loop over all blocks) --- // <<< CHANGED/FIXED
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
         }
+    }
+
+    if (IsParticleConsoleSnapshotEnabled(simCtx)) {
+        ierr = EmitParticleConsoleSnapshot(user, simCtx, simCtx->step); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initial setup complete. Ready for time marching. ---\n");
@@ -221,17 +219,18 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
         ierr = UpdateSolverHistoryVectors(&user[bi]); CHKERRQ(ierr);
     }
 
-    if (simCtx->OutputFreq > 0 || (simCtx->StepsToRun == 0 && simCtx->StartStep == 0)) {
+    if (simCtx->tiout > 0 || (simCtx->StepsToRun == 0 && simCtx->StartStep == 0)) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initial simulation data.\n", simCtx->ti, simCtx->step);
-        
-        // --- Particle Output (assumes functions operate on the master user context) ---
-        if(get_log_level() >=LOG_INFO) ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
         ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
         
         // --- Eulerian Field Output (MUST loop over all blocks) --- // <<< CHANGED/FIXED
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
         }
+    }
+
+    if (IsParticleConsoleSnapshotEnabled(simCtx)) {
+        ierr = EmitParticleConsoleSnapshot(user, simCtx, simCtx->step); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initial setup complete. Ready for time marching. ---\n");
@@ -330,7 +329,6 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     // Retrieve control parameters from SimCtx for clarity
     const PetscInt  StartStep = simCtx->StartStep;
     const PetscInt  StepsToRun = simCtx->StepsToRun;
-    const PetscInt  OutputFreq = simCtx->OutputFreq;
     const PetscReal dt = simCtx->dt;
     
     // Variables for particle removal statistics
@@ -479,24 +477,24 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         //ierr = LOG_UCAT_ANATOMY(&user[0],"Final"); CHKERRQ(ierr);
         
         // Handle periodic file output
-        if (OutputFreq > 0 && (step + 1) % OutputFreq == 0) {
+        if (ShouldWriteDataOutput(simCtx, simCtx->step)) {
             LOG_ALLOW(GLOBAL, LOG_INFO, "Writing output for step %d.\n",simCtx->step);
             for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
                 ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
             }
             if (simCtx->np > 0) {
                 ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
-                if(get_log_level() >= LOG_INFO){
-                LOG(GLOBAL, LOG_INFO, "Particle states at step %d:\n", simCtx->step);
-                LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency);
-                if(strcmp(simCtx->eulerianSource,"analytical") == 0){
+                if (get_log_level() >= LOG_INFO && strcmp(simCtx->eulerianSource,"analytical") == 0) {
                     LOG_INTERPOLATION_ERROR(user);
-                }
                 }
             }
         }
 
-        ProfilingLogTimestepSummary(simCtx->step);
+        if (ShouldEmitPeriodicParticleConsoleSnapshot(simCtx, simCtx->step)) {
+            ierr = EmitParticleConsoleSnapshot(user, simCtx, simCtx->step); CHKERRQ(ierr);
+        }
+
+        ProfilingLogTimestepSummary(simCtx, simCtx->step);
 
         // Update Progress Bar
         if(simCtx->rank == 0) {
