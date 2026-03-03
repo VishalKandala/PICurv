@@ -81,9 +81,11 @@ PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
 
     // --- FINALIZE STEP ---
     if (finalize_needed) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Finalizing new field registrations for particle pipeline.\n");
-        ierr = DMSwarmFinalizeFieldRegister(user->post_swarm); CHKERRQ(ierr);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Finalizing registered particle fields for the post-processing swarm.\n");
+    } else {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "No custom particle fields requested; finalizing an empty post-processing swarm for safe use.\n");
     }
+    ierr = DMSwarmFinalizeFieldRegister(user->post_swarm); CHKERRQ(ierr);
         
     LOG_ALLOW(GLOBAL, LOG_INFO, "Post-Processing DMSwarm setup complete.\n");
 
@@ -530,16 +532,16 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
 
     PROFILE_FUNCTION_BEGIN;
 
+    if (pps->particle_pipeline[0] == '\0') {
+        PetscFunctionReturn(0);
+    }
+
     // --- Timestep Setup: Synchronize post_swarm size ---
     PetscInt n_global_source;
     ierr = DMSwarmGetSize(user->swarm, &n_global_source); CHKERRQ(ierr);
 
     // Resize post_swarm to match source swarm
     ierr = ResizeSwarmGlobally(user->post_swarm, n_global_source); CHKERRQ(ierr);
-
-    if (pps->particle_pipeline[0] == '\0') {
-        PetscFunctionReturn(0);
-    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Particle Data Transformation Pipeline ---\n");
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Particle Pipeline string: [%s]\n", pps->particle_pipeline);
