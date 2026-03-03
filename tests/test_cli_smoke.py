@@ -421,6 +421,51 @@ def test_case_local_symlinked_pic_flow_prefers_local_binaries(tmp_path):
     assert payload["stages"]["post-process"]["launch_command"][0] == str(case_dir / "postprocessor")
 
 
+def test_case_local_copied_pic_flow_prefers_local_binaries(tmp_path):
+    valid = FIXTURES / "valid"
+    case_dir = tmp_path / "copied_case_dir"
+    case_dir.mkdir()
+
+    for name in ("case.yml", "solver.yml", "monitor.yml", "post.yml"):
+        shutil.copy2(valid / name, case_dir / name)
+
+    shutil.copy2(PIC_FLOW, case_dir / "pic.flow")
+    for exe_name in ("picsolver", "postprocessor"):
+        exe_path = case_dir / exe_name
+        exe_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        exe_path.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            str(case_dir / "pic.flow"),
+            "run",
+            "--solve",
+            "--post-process",
+            "--case",
+            "case.yml",
+            "--solver",
+            "solver.yml",
+            "--monitor",
+            "monitor.yml",
+            "--post",
+            "post.yml",
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=str(case_dir),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["stages"]["solve"]["launch_command"][0] == str(case_dir / "picsolver")
+    assert payload["stages"]["post-process"]["launch_command"][0] == str(case_dir / "postprocessor")
+
+
 def test_init_always_copies_full_executable_set(tmp_path):
     pic_flow = load_pic_flow_module()
     fake_root = tmp_path / "fake_root"
