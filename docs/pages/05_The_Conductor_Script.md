@@ -78,11 +78,11 @@ Use reusable profile libraries directly when you already have your own case dire
 
 Behavior:
 
-- calls the top-level `build.sh`,
+- calls the top-level `Makefile` via `make`,
 - resolves the source repo from `.picurv-origin.json` when run from an initialized case,
 - passes any trailing arguments directly through to the Make/build layer,
 - can rebuild or clean the source repo without leaving a copied case directory,
-- is the recommended command for normal users instead of calling build scripts manually.
+- is the recommended command for normal users instead of invoking `make` manually.
 
 Examples:
 

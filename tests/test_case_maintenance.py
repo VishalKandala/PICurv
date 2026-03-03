@@ -38,7 +38,6 @@ def make_fake_source_repo(root: Path) -> Path:
     (root / "bin").mkdir()
 
     (root / "Makefile").write_text("all:\n\t@echo ok\n", encoding="utf-8")
-    (root / "build.sh").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
     (root / "examples" / "demo" / "case.yml").write_text("case: baseline\n", encoding="utf-8")
     (root / "examples" / "demo" / "guide.md").write_text("# demo\n", encoding="utf-8")
     (root / "examples" / "demo" / "nested" / "notes.txt").write_text("nested template file\n", encoding="utf-8")
@@ -93,7 +92,7 @@ def test_build_project_uses_case_origin_source_root(tmp_path):
     finally:
         picurv.execute_command = original_execute
 
-    assert captured["command"] == ["/bin/bash", str(source_root / "build.sh"), "clean-project"]
+    assert captured["command"] == ["make", "clean-project"]
     assert captured["run_dir"] == str(source_root.resolve())
     assert captured["log_filename"] == "build.log"
 

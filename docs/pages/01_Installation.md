@@ -121,13 +121,25 @@ After the build creates `bin/picurv`, prefer `./bin/picurv` for normal help, val
 @section verify_sec 7. Verify Installation
 
 ```bash
-./bin/picurv --help
-./bin/picurv run --help
-./bin/picurv sweep --help
-./bin/picurv validate --help
+make doctor
 ```
 
-If these commands work and binaries exist, your installation is ready.
+Recommended sequence after a successful build:
+
+1. `make doctor`
+2. `make smoke` (stronger executable-level sanity check)
+3. `make check` (full local validation sweep)
+
+What these prove:
+
+- `make doctor` proves the local PETSc installation can build and run a minimal PETSc-backed binary.
+- `make smoke` proves the compiled PICurv executables still launch.
+- `make check` runs Python regressions plus PETSc-backed validation.
+
+What `make doctor` does not prove:
+
+- it does not prove a full solver case is numerically correct
+- it does not replace case-specific validation or convergence testing
 
 @section common_sec 8. Common Installation Failures
 
@@ -137,6 +149,8 @@ If these commands work and binaries exist, your installation is ready.
 - stale object files after toolchain changes (use `clean-project`).
 
 For runtime-level failures after successful build, see **@subpage 39_Common_Fatal_Errors**.
+
+For the full testing model after installation, see **@subpage 40_Testing_and_Quality_Guide**.
 
 @section next_steps_sec 9. Next Steps
 

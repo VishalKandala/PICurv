@@ -4578,9 +4578,10 @@ def pull_source_repo(args):
 def build_project(args):
     """!
     @brief Implements the 'build' command.
-    @details Executes the top-level build.sh script, passing through any
-             additional arguments directly to 'make'. This allows for building,
-             cleaning, and other Makefile targets via the orchestrator.
+    @details Executes the top-level Makefile directly, passing through any
+             additional arguments to `make`. This allows for building,
+             cleaning, and other Makefile targets via the orchestrator
+             without maintaining a separate build wrapper script.
     @param[in] args The command-line arguments parsed by argparse.
     """
 
@@ -4595,16 +4596,14 @@ def build_project(args):
         print(f"[FATAL] {exc}", file=sys.stderr)
         sys.exit(1)
 
-    build_script_path = os.path.join(source_project_root, "build.sh")
+    makefile_path = os.path.join(source_project_root, "Makefile")
 
-    if not os.path.isfile(build_script_path):
-        print(f"[FATAL] Build script not found at expected location: {build_script_path}", file=sys.stderr)
-        print("        Please ensure 'build.sh' exists in the project root directory.", file=sys.stderr)
+    if not os.path.isfile(makefile_path):
+        print(f"[FATAL] Makefile not found at expected location: {makefile_path}", file=sys.stderr)
+        print("        Please ensure the project root contains a valid Makefile.", file=sys.stderr)
         sys.exit(1)
 
-    # The command is the script itself, plus any passthrough arguments for make.
-   # command = [build_script_path] + args.make_args
-    command = ['/bin/bash', build_script_path] + args.make_args
+    command = ["make"] + args.make_args
     # For the build process, we don't have a monitor.yml, so we pass an empty
     # dict to execute_command. The command should be run in the project root.
     execute_command(command, source_project_root, "build.log", {})
@@ -4745,7 +4744,7 @@ def _add_build_parser(subparsers):
         help="Build project executables using the Makefile.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Calls the project's build.sh script. Any arguments provided after 'build'\n"
+            "Calls the project's Makefile directly through `make`. Any arguments provided after 'build'\n"
             "are passed directly to make.\n\n"
             "Examples:\n"
             "  picurv build\n"
