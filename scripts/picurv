@@ -30,6 +30,7 @@ import copy
 import numpy as np
 from datetime import datetime
 import time
+import filecmp
 
 try:
     import matplotlib.pyplot as plt
@@ -44,6 +45,8 @@ if os.path.basename(SCRIPT_PATH) == "bin":
     DEFAULT_BIN_DIR = SCRIPT_PATH
 else:
     DEFAULT_BIN_DIR = os.path.join(PROJECT_ROOT, "bin")
+
+CASE_ORIGIN_METADATA_FILENAME = ".picurv-origin.json"
 
 def resolve_runtime_executable(executable_name: str) -> str:
     """Resolve solver/post executable path, preferring local sibling binaries."""
@@ -216,6 +219,433 @@ def write_json_file(filepath: str, payload: dict):
     with open(filepath, "w") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
         f.write("\n")
+
+
+def is_project_root(candidate: str) -> bool:
+    """Return True when a directory looks like the PICurv source repository root."""
+    if not candidate:
+        return False
+    candidate_abs = os.path.abspath(candidate)
+    return (
+        os.path.isfile(os.path.join(candidate_abs, "Makefile"))
+        and os.path.isdir(os.path.join(candidate_abs, "src"))
+        and os.path.isdir(os.path.join(candidate_abs, "include"))
+        and os.path.isdir(os.path.join(candidate_abs, "scripts"))
+    )
+
+
+def _iter_parent_dirs(start_path: str):
+    """Yield a path and all of its parents up to filesystem root."""
+    current = os.path.abspath(start_path)
+    if os.path.isfile(current):
+        current = os.path.dirname(current)
+    while True:
+        yield current
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+
+def find_project_root_upwards(start_path: str):
+    """Search upward from an anchor and return the first matching project root."""
+    if not start_path:
+        return None
+    for directory in _iter_parent_dirs(start_path):
+        if is_project_root(directory):
+            return directory
+    return None
+
+
+def discover_local_project_root(*extra_anchors):
+    """Best-effort source repo discovery from runtime anchors."""
+    anchors = list(extra_anchors) + [os.getcwd(), INVOKED_SCRIPT_DIR, SCRIPT_PATH, PROJECT_ROOT]
+    seen = set()
+    for anchor in anchors:
+        if not anchor:
+            continue
+        anchor_abs = os.path.abspath(anchor)
+        if anchor_abs in seen:
+            continue
+        seen.add(anchor_abs)
+        project_root = find_project_root_upwards(anchor_abs)
+        if project_root:
+            return project_root
+    return None
+
+
+def find_case_origin_metadata_file(case_dir_hint: str = None):
+    """Find the nearest case-origin metadata file from known runtime anchors."""
+    search_roots = []
+    for candidate in (case_dir_hint, os.getcwd(), INVOKED_SCRIPT_DIR):
+        if not candidate:
+            continue
+        abs_candidate = os.path.abspath(candidate)
+        if abs_candidate not in search_roots:
+            search_roots.append(abs_candidate)
+
+    for root in search_roots:
+        for directory in _iter_parent_dirs(root):
+            metadata_path = os.path.join(directory, CASE_ORIGIN_METADATA_FILENAME)
+            if os.path.isfile(metadata_path):
+                return metadata_path
+    return None
+
+
+def load_case_origin_metadata(case_dir_hint: str = None):
+    """Load case-origin metadata if present, returning (case_dir, metadata_path, payload)."""
+    metadata_path = find_case_origin_metadata_file(case_dir_hint)
+    if not metadata_path:
+        return None, None, None
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if not isinstance(payload, dict):
+            raise ValueError("Case origin metadata must be a JSON object.")
+    except Exception as exc:
+        raise ValueError(f"Failed to read case origin metadata at {metadata_path}: {exc}") from exc
+    return os.path.dirname(metadata_path), metadata_path, payload
+
+
+def get_git_commit(repo_root: str = None) -> str:
+    """Best-effort git commit lookup for run/study manifests and case metadata."""
+    cwd = repo_root or PROJECT_ROOT
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=cwd,
+            text=True,
+            capture_output=True,
+            check=False
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def write_case_origin_metadata(case_dir: str, source_project_root: str, template_name: str = None,
+                               existing: dict = None, template_managed_files=None):
+    """Create or refresh case-origin metadata for repo-aware case maintenance commands."""
+    payload = dict(existing or {})
+    if "initialized_at" not in payload:
+        payload["initialized_at"] = datetime.now().isoformat()
+    payload["source_repo_root"] = os.path.abspath(source_project_root)
+    if template_name:
+        payload["template_name"] = template_name
+    if template_managed_files is not None:
+        payload["template_managed_files"] = sorted(set(str(p) for p in template_managed_files))
+    payload["last_known_source_git_commit"] = get_git_commit(source_project_root)
+    metadata_path = os.path.join(os.path.abspath(case_dir), CASE_ORIGIN_METADATA_FILENAME)
+    write_json_file(metadata_path, payload)
+    return metadata_path, payload
+
+
+def resolve_case_origin_context(case_dir_hint: str = None, source_root_override: str = None, template_name_override: str = None):
+    """Resolve case directory, source repo root, and optional template metadata."""
+    metadata_case_dir, metadata_path, metadata = load_case_origin_metadata(case_dir_hint)
+
+    if metadata_case_dir:
+        case_dir = metadata_case_dir
+    else:
+        case_dir = os.path.abspath(case_dir_hint or os.getcwd())
+
+    source_project_root = source_root_override
+    if source_project_root:
+        source_project_root = os.path.abspath(source_project_root)
+    elif isinstance(metadata, dict) and isinstance(metadata.get("source_repo_root"), str):
+        source_project_root = os.path.abspath(metadata["source_repo_root"])
+    else:
+        source_project_root = discover_local_project_root(case_dir)
+
+    template_name = template_name_override
+    if not template_name and isinstance(metadata, dict):
+        template_name = metadata.get("template_name")
+
+    return {
+        "case_dir": case_dir,
+        "metadata_path": metadata_path,
+        "metadata": metadata or {},
+        "source_project_root": source_project_root,
+        "template_name": template_name,
+    }
+
+
+def require_project_root(candidate: str, purpose: str):
+    """Validate that a source repo root was resolved and is structurally valid."""
+    if not candidate:
+        raise ValueError(
+            f"Could not determine the PICurv source repository for {purpose}. "
+            "Run this command from an initialized case directory or pass --source-root."
+        )
+    candidate_abs = os.path.abspath(candidate)
+    if not is_project_root(candidate_abs):
+        raise ValueError(
+            f"Resolved source repository for {purpose} is not a valid PICurv root: {candidate_abs}"
+        )
+    return candidate_abs
+
+
+def require_existing_case_dir(case_dir: str, purpose: str, source_project_root: str = None):
+    """Validate that a target case directory exists and is not the source repo root."""
+    if not case_dir:
+        raise ValueError(f"Could not determine the case directory for {purpose}. Pass --case-dir.")
+    case_dir_abs = os.path.abspath(case_dir)
+    if not os.path.isdir(case_dir_abs):
+        raise ValueError(f"Case directory for {purpose} does not exist: {case_dir_abs}")
+    if source_project_root and os.path.abspath(source_project_root) == case_dir_abs:
+        raise ValueError(
+            f"Refusing to run {purpose} against the source repository root itself: {case_dir_abs}"
+        )
+    return case_dir_abs
+
+
+def resolve_template_directory(source_project_root: str, template_name: str):
+    """Resolve an example template directory inside the source repository."""
+    if not template_name:
+        raise ValueError(
+            "Template name is required for config sync. Re-run with --template-name or from a case initialized by current picurv."
+        )
+    template_dir = os.path.join(source_project_root, "examples", template_name)
+    if not os.path.isdir(template_dir):
+        raise ValueError(f"Case template '{template_name}' not found at '{template_dir}'")
+    return template_dir
+
+
+def list_template_relative_files(template_dir: str):
+    """List all files in a template directory as case-relative paths."""
+    template_dir_abs = os.path.abspath(template_dir)
+    if not os.path.isdir(template_dir_abs):
+        raise ValueError(f"Template directory not found: {template_dir_abs}")
+    relative_paths = []
+    for root, _, files in os.walk(template_dir_abs):
+        rel_root = os.path.relpath(root, template_dir_abs)
+        for filename in sorted(files):
+            rel_path = filename if rel_root == "." else os.path.join(rel_root, filename)
+            relative_paths.append(rel_path)
+    return relative_paths
+
+
+def list_source_binaries(source_project_root: str):
+    """List binary artifacts currently available in the source repo bin directory."""
+    source_bin_dir = os.path.join(os.path.abspath(source_project_root), "bin")
+    if not os.path.isdir(source_bin_dir):
+        raise ValueError(f"Source bin directory not found: {source_bin_dir}. Run 'picurv build' first.")
+    binaries = sorted(
+        f for f in os.listdir(source_bin_dir)
+        if os.path.isfile(os.path.join(source_bin_dir, f))
+    )
+    if not binaries:
+        raise ValueError(f"Source bin directory contains no files: {source_bin_dir}")
+    if "picurv" in binaries:
+        binaries = [b for b in binaries if b != "picurv"] + ["picurv"]
+    return source_bin_dir, binaries
+
+
+def sync_case_binaries(case_dir: str, source_project_root: str):
+    """Copy current source-repo binaries into a case directory, refreshing picurv last."""
+    case_dir_abs = os.path.abspath(case_dir)
+    os.makedirs(case_dir_abs, exist_ok=True)
+    source_bin_dir, binaries = list_source_binaries(source_project_root)
+    copied = []
+    for binary_name in binaries:
+        source_path = os.path.join(source_bin_dir, binary_name)
+        dest_path = os.path.join(case_dir_abs, binary_name)
+        shutil.copy2(source_path, dest_path)
+        copied.append(dest_path)
+    return copied
+
+
+def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool = False,
+                             prune: bool = False, managed_rel_paths=None):
+    """Sync template files into a case directory, preserving modified files unless overwrite is requested."""
+    case_dir_abs = os.path.abspath(case_dir)
+    template_dir_abs = os.path.abspath(template_dir)
+    if not os.path.isdir(template_dir_abs):
+        raise ValueError(f"Template directory not found: {template_dir_abs}")
+
+    summary = {
+        "copied": [],
+        "overwritten": [],
+        "skipped_modified": [],
+        "unchanged": [],
+        "pruned": [],
+        "prune_requested_without_tracking": False,
+    }
+    current_template_files = list_template_relative_files(template_dir_abs)
+    current_template_set = set(current_template_files)
+
+    for root, _, files in os.walk(template_dir_abs):
+        rel_root = os.path.relpath(root, template_dir_abs)
+        for filename in sorted(files):
+            src_path = os.path.join(root, filename)
+            rel_path = filename if rel_root == "." else os.path.join(rel_root, filename)
+            dest_path = os.path.join(case_dir_abs, rel_path)
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+            if not os.path.exists(dest_path):
+                shutil.copy2(src_path, dest_path)
+                summary["copied"].append(dest_path)
+                continue
+
+            if filecmp.cmp(src_path, dest_path, shallow=False):
+                summary["unchanged"].append(dest_path)
+                continue
+
+            if overwrite:
+                shutil.copy2(src_path, dest_path)
+                summary["overwritten"].append(dest_path)
+            else:
+                summary["skipped_modified"].append(dest_path)
+
+    managed_set = set(managed_rel_paths or [])
+    if prune:
+        if not managed_set:
+            summary["prune_requested_without_tracking"] = True
+        for rel_path in sorted(managed_set - current_template_set):
+            dest_path = os.path.join(case_dir_abs, rel_path)
+            if os.path.isfile(dest_path):
+                os.remove(dest_path)
+                summary["pruned"].append(dest_path)
+
+    summary["template_managed_files"] = current_template_files
+    return summary
+
+
+def compute_case_source_status(case_dir: str, source_project_root: str, template_name: str = None, metadata: dict = None):
+    """Compute source/case drift across commits, binaries, and template-managed files."""
+    case_dir_abs = os.path.abspath(case_dir)
+    source_root_abs = os.path.abspath(source_project_root)
+    metadata = metadata or {}
+    status = {
+        "case_dir": case_dir_abs,
+        "source_repo_root": source_root_abs,
+        "metadata_present": bool(metadata),
+        "template_name": template_name,
+        "last_known_source_git_commit": metadata.get("last_known_source_git_commit"),
+        "current_source_git_commit": get_git_commit(source_root_abs),
+    }
+    status["source_commit_changed"] = (
+        bool(status["last_known_source_git_commit"])
+        and bool(status["current_source_git_commit"])
+        and status["last_known_source_git_commit"] != status["current_source_git_commit"]
+    )
+
+    binary_status = {
+        "source_bin_present": False,
+        "source_bin_missing": [],
+        "case_bin_missing": [],
+        "case_bin_different": [],
+        "case_bin_current": [],
+    }
+    try:
+        source_bin_dir, binaries = list_source_binaries(source_root_abs)
+        binary_status["source_bin_present"] = True
+        for binary_name in binaries:
+            source_path = os.path.join(source_bin_dir, binary_name)
+            case_path = os.path.join(case_dir_abs, binary_name)
+            if not os.path.isfile(case_path):
+                binary_status["case_bin_missing"].append(binary_name)
+            elif filecmp.cmp(source_path, case_path, shallow=False):
+                binary_status["case_bin_current"].append(binary_name)
+            else:
+                binary_status["case_bin_different"].append(binary_name)
+    except ValueError as exc:
+        binary_status["source_bin_missing"].append(str(exc))
+    status["binaries"] = binary_status
+
+    config_status = {
+        "template_available": False,
+        "template_files": [],
+        "case_missing_files": [],
+        "case_modified_files": [],
+        "case_current_files": [],
+        "template_removed_since_last_sync": [],
+        "tracking_available": isinstance(metadata.get("template_managed_files"), list),
+    }
+    if template_name:
+        try:
+            template_dir = resolve_template_directory(source_root_abs, template_name)
+            template_files = list_template_relative_files(template_dir)
+            config_status["template_available"] = True
+            config_status["template_files"] = template_files
+            for rel_path in template_files:
+                src_path = os.path.join(template_dir, rel_path)
+                case_path = os.path.join(case_dir_abs, rel_path)
+                if not os.path.isfile(case_path):
+                    config_status["case_missing_files"].append(rel_path)
+                elif filecmp.cmp(src_path, case_path, shallow=False):
+                    config_status["case_current_files"].append(rel_path)
+                else:
+                    config_status["case_modified_files"].append(rel_path)
+            managed_files = metadata.get("template_managed_files")
+            if isinstance(managed_files, list):
+                config_status["template_removed_since_last_sync"] = sorted(set(managed_files) - set(template_files))
+        except ValueError:
+            pass
+    status["config"] = config_status
+    return status
+
+
+def print_case_source_status(status: dict):
+    """Render human-readable source/case drift details."""
+    print(f"[INFO] Case directory      : {status['case_dir']}")
+    print(f"[INFO] Source repo        : {status['source_repo_root']}")
+    print(f"[INFO] Template           : {status.get('template_name') or '(unknown)'}")
+    if status.get("last_known_source_git_commit"):
+        print(f"[INFO] Last synced commit : {status['last_known_source_git_commit']}")
+    if status.get("current_source_git_commit"):
+        print(f"[INFO] Current src commit : {status['current_source_git_commit']}")
+    print(f"[INFO] Source changed     : {'yes' if status.get('source_commit_changed') else 'no'}")
+
+    binaries = status["binaries"]
+    if binaries["source_bin_present"]:
+        print(
+            f"[INFO] Binaries          : current={len(binaries['case_bin_current'])} "
+            f"changed={len(binaries['case_bin_different'])} missing={len(binaries['case_bin_missing'])}"
+        )
+    else:
+        print("[INFO] Binaries          : source bin/ unavailable")
+
+    config = status["config"]
+    if config["template_available"]:
+        print(
+            f"[INFO] Template files    : current={len(config['case_current_files'])} "
+            f"modified={len(config['case_modified_files'])} missing={len(config['case_missing_files'])}"
+        )
+        if config["tracking_available"]:
+            print(f"[INFO] Prune candidates  : {len(config['template_removed_since_last_sync'])}")
+        else:
+            print("[INFO] Prune candidates  : tracking unavailable")
+    elif status.get("template_name"):
+        print("[INFO] Template files    : template unavailable in source repo")
+
+
+def status_source_command(args):
+    """Report source/case drift for an initialized case directory."""
+    try:
+        context = resolve_case_origin_context(
+            case_dir_hint=getattr(args, "case_dir", None),
+            source_root_override=getattr(args, "source_root", None),
+            template_name_override=getattr(args, "template_name", None),
+        )
+        source_project_root = require_project_root(context["source_project_root"], "status-source")
+        case_dir = require_existing_case_dir(context["case_dir"], "status-source", source_project_root)
+        status = compute_case_source_status(
+            case_dir,
+            source_project_root,
+            template_name=context.get("template_name"),
+            metadata=context.get("metadata"),
+        )
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if getattr(args, "output_format", "text") == "json":
+        print(json.dumps(status, indent=2, sort_keys=True))
+        return
+    print_case_source_status(status)
 
 def resolve_path(anchor_file: str, candidate: str) -> str:
     """Resolve a potentially relative path against a source YAML file path."""
@@ -403,22 +833,6 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
                 val = gen.get(key)
                 if isinstance(val, str):
                     gen[key] = resolve_path(case_anchor_path, val)
-
-def get_git_commit() -> str:
-    """Best-effort git commit lookup for run/study manifests."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=PROJECT_ROOT,
-            text=True,
-            capture_output=True,
-            check=False
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return None
 
 def is_valid_email(email: str) -> bool:
     """Lightweight email validation for scheduler notifications."""
@@ -4017,13 +4431,17 @@ def init_case(args):
              runnable on its own.
     @param[in] args The command-line arguments parsed by argparse.
     """
-    template_path = os.path.join(PROJECT_ROOT, "examples", args.template_name)
+    context = resolve_case_origin_context(source_root_override=getattr(args, "source_root", None))
+    try:
+        source_project_root = require_project_root(context["source_project_root"], "init")
+        template_path = resolve_template_directory(source_project_root, args.template_name)
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
     # The destination path is relative to the current working directory.
     dest_path = os.path.abspath(os.path.join(os.getcwd(), args.dest_name if args.dest_name else args.template_name))
 
-    if not os.path.isdir(template_path):
-        print(f"[FATAL] Case template '{args.template_name}' not found at '{template_path}'", file=sys.stderr)
-        sys.exit(1)
     if os.path.exists(dest_path):
         print(f"[FATAL] Destination directory '{dest_path}' already exists.", file=sys.stderr)
         sys.exit(1)
@@ -4032,42 +4450,130 @@ def init_case(args):
     
     shutil.copytree(template_path, dest_path)
     print(f"[SUCCESS] Copied template files to: {dest_path}")
-    
-    print("[INFO] Copying project binaries for a self-contained case...")
-    main_bin_dir = os.path.join(PROJECT_ROOT, "bin")
-    
+
     try:
-        if not os.path.isdir(main_bin_dir):
-            print(
-                f"[WARNING] Project bin/ directory not found at '{main_bin_dir}'. "
-                "No binaries were copied. Run 'picurv build' first if needed.",
-                file=sys.stderr,
-            )
-            return
+        metadata_path, _ = write_case_origin_metadata(
+            dest_path,
+            source_project_root,
+            template_name=args.template_name,
+            template_managed_files=list_template_relative_files(template_path),
+        )
+        print(f"[INFO] Wrote case origin metadata: {os.path.relpath(metadata_path)}")
+    except Exception as e:
+        print(f"[ERROR] Failed to write case origin metadata: {e}", file=sys.stderr)
 
-        # Always copy the full executable set so the case directory is self-contained.
-        binaries = [
-            f for f in os.listdir(main_bin_dir)
-            if os.path.isfile(os.path.join(main_bin_dir, f))
-        ]
-        if not binaries:
-            print("[WARNING] Main project bin/ directory contains no executables. Nothing to copy.", file=sys.stderr)
-            return
-
-        for binary_name in binaries:
-            source_path_abs = os.path.abspath(os.path.join(main_bin_dir, binary_name))
-            dest_file_path = os.path.join(dest_path, binary_name)
-
-            # Use copy2 to preserve permissions and metadata.
-            shutil.copy2(source_path_abs, dest_file_path)
-            print(f"  - Copied '{binary_name}'")
-            
+    print("[INFO] Copying project binaries for a self-contained case...")
+    try:
+        copied_binaries = sync_case_binaries(dest_path, source_project_root)
+        for dest_file_path in copied_binaries:
+            print(f"  - Copied '{os.path.basename(dest_file_path)}'")
         print("[SUCCESS] Binaries are now available in your study directory.")
         print("          You can now 'cd' into your study and run commands locally (e.g., './picurv ...').")
-
+    except ValueError as exc:
+        print(f"[WARNING] {exc}", file=sys.stderr)
+        print("          No binaries were copied. Run 'picurv build' first if needed.", file=sys.stderr)
     except Exception as e:
         print(f"[ERROR] Failed to process binaries: {e}", file=sys.stderr)
         print("        Your case files were copied, but you will need to run commands from the project root.", file=sys.stderr)
+
+
+def sync_case_binaries_command(args):
+    """Refresh case-local executables from the source repository bin directory."""
+    try:
+        context = resolve_case_origin_context(
+            case_dir_hint=getattr(args, "case_dir", None),
+            source_root_override=getattr(args, "source_root", None),
+        )
+        source_project_root = require_project_root(context["source_project_root"], "sync-binaries")
+        case_dir = require_existing_case_dir(context["case_dir"], "sync-binaries", source_project_root)
+        copied = sync_case_binaries(case_dir, source_project_root)
+        metadata_path, metadata = write_case_origin_metadata(
+            case_dir,
+            source_project_root,
+            template_name=context.get("template_name"),
+            existing=context.get("metadata"),
+        )
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[SUCCESS] Refreshed {len(copied)} binaries in: {case_dir}")
+    for dest_path in copied:
+        print(f"  - {os.path.basename(dest_path)}")
+    print(f"[INFO] Case origin metadata refreshed: {os.path.relpath(metadata_path)}")
+    if metadata.get("last_known_source_git_commit"):
+        print(f"[INFO] Source commit recorded: {metadata['last_known_source_git_commit']}")
+
+
+def sync_case_config_command(args):
+    """Refresh template-managed config/docs files in a case directory."""
+    try:
+        context = resolve_case_origin_context(
+            case_dir_hint=getattr(args, "case_dir", None),
+            source_root_override=getattr(args, "source_root", None),
+            template_name_override=getattr(args, "template_name", None),
+        )
+        source_project_root = require_project_root(context["source_project_root"], "sync-config")
+        case_dir = require_existing_case_dir(context["case_dir"], "sync-config", source_project_root)
+        template_name = context.get("template_name")
+        template_dir = resolve_template_directory(source_project_root, template_name)
+        existing_managed = context.get("metadata", {}).get("template_managed_files")
+        if not isinstance(existing_managed, list):
+            existing_managed = None
+        summary = sync_case_template_files(
+            case_dir,
+            template_dir,
+            overwrite=getattr(args, "overwrite", False),
+            prune=getattr(args, "prune", False),
+            managed_rel_paths=existing_managed,
+        )
+        metadata_path, _ = write_case_origin_metadata(
+            case_dir,
+            source_project_root,
+            template_name=template_name,
+            existing=context.get("metadata"),
+            template_managed_files=summary["template_managed_files"],
+        )
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[SUCCESS] Synced template files from '{template_name}' into: {case_dir}")
+    print(f"[INFO] Copied new files     : {len(summary['copied'])}")
+    print(f"[INFO] Overwritten files   : {len(summary['overwritten'])}")
+    print(f"[INFO] Skipped modified    : {len(summary['skipped_modified'])}")
+    print(f"[INFO] Already unchanged   : {len(summary['unchanged'])}")
+    print(f"[INFO] Pruned stale files  : {len(summary['pruned'])}")
+    if summary.get("prune_requested_without_tracking"):
+        print("[WARNING] Prune tracking unavailable for this case; no removed template files were deleted.", file=sys.stderr)
+    print(f"[INFO] Case origin metadata refreshed: {os.path.relpath(metadata_path)}")
+
+
+def pull_source_repo(args):
+    """Run git pull in the source repository resolved from a case directory."""
+    try:
+        context = resolve_case_origin_context(
+            case_dir_hint=getattr(args, "case_dir", None),
+            source_root_override=getattr(args, "source_root", None),
+        )
+        source_project_root = require_project_root(context["source_project_root"], "pull-source")
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    command = ["git", "pull"]
+    if not getattr(args, "no_rebase", False):
+        command.append("--rebase")
+    remote = getattr(args, "remote", None)
+    branch = getattr(args, "branch", None)
+    if remote:
+        command.append(remote)
+        if branch:
+            command.append(branch)
+    elif branch:
+        command.extend(["origin", branch])
+
+    execute_command(command, source_project_root, "pull-source.log", {})
 
 def build_project(args):
     """!
@@ -4079,7 +4585,17 @@ def build_project(args):
     """
 
     print("\n" + "="*27 + " BUILD STAGE " + "="*27)
-    build_script_path = os.path.join(PROJECT_ROOT, "build.sh")
+    try:
+        context = resolve_case_origin_context(
+            case_dir_hint=getattr(args, "case_dir", None),
+            source_root_override=getattr(args, "source_root", None),
+        )
+        source_project_root = require_project_root(context["source_project_root"], "build")
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    build_script_path = os.path.join(source_project_root, "build.sh")
 
     if not os.path.isfile(build_script_path):
         print(f"[FATAL] Build script not found at expected location: {build_script_path}", file=sys.stderr)
@@ -4091,7 +4607,7 @@ def build_project(args):
     command = ['/bin/bash', build_script_path] + args.make_args
     # For the build process, we don't have a monitor.yml, so we pass an empty
     # dict to execute_command. The command should be run in the project root.
-    execute_command(command, PROJECT_ROOT, "build.log", {})
+    execute_command(command, source_project_root, "build.log", {})
    
 
 
@@ -4216,6 +4732,10 @@ def _add_init_parser(subparsers):
         dest="dest_name",
         help="Optional name for the new directory. Defaults to the template name.\nPath is relative to your current working directory.",
     )
+    p_init.add_argument(
+        "--source-root",
+        help="Optional override for the PICurv source repository root.\nUseful when running from a copied case without metadata.",
+    )
     return p_init
 
 
@@ -4231,9 +4751,18 @@ def _add_build_parser(subparsers):
             "  picurv build\n"
             "  picurv build clean-project\n"
             "  picurv build SYSTEM=cluster\n"
-            "  picurv build postprocessor"
+            "  picurv build postprocessor\n"
+            "  ./picurv build clean-project   # from an initialized case directory"
         ),
         epilog="Next: run `picurv --help` or `picurv run --help` for execution commands.",
+    )
+    p_build.add_argument(
+        "--source-root",
+        help="Optional override for the PICurv source repository root.",
+    )
+    p_build.add_argument(
+        "--case-dir",
+        help="Optional case directory used to resolve .picurv-origin.json when not running from that case.",
     )
     p_build.add_argument(
         "make_args",
@@ -4241,6 +4770,108 @@ def _add_build_parser(subparsers):
         help="Arguments to pass directly to the make command (e.g., 'clean-project').",
     )
     return p_build
+
+
+def _add_sync_binaries_parser(subparsers):
+    p_sync_binaries = subparsers.add_parser(
+        "sync-binaries",
+        help="Refresh a case directory's copied executables from the source repo.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Update case-local copies of picurv/simulator/postprocessor from the source repository.\n\n"
+            "Examples:\n"
+            "  ./picurv sync-binaries\n"
+            "  ./bin/picurv sync-binaries --case-dir my_case\n"
+            "  ./picurv sync-binaries --source-root /path/to/PICurv"
+        ),
+        epilog="Next: run `./picurv build ...` first if the source repo bin/ is out of date.",
+    )
+    p_sync_binaries.add_argument("--case-dir", help="Optional case directory to refresh. Defaults to the current case.")
+    p_sync_binaries.add_argument("--source-root", help="Optional override for the PICurv source repository root.")
+    return p_sync_binaries
+
+
+def _add_sync_config_parser(subparsers):
+    p_sync_config = subparsers.add_parser(
+        "sync-config",
+        help="Refresh template-managed files in a case directory from examples/<template>.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Copy updated example template files into an existing case directory.\n"
+            "Modified files are preserved unless --overwrite is used.\n"
+            "--prune removes only files that were previously tracked as template-managed and\n"
+            "have since been removed from the source template.\n\n"
+            "Examples:\n"
+            "  ./picurv sync-config\n"
+            "  ./picurv sync-config --overwrite\n"
+            "  ./picurv sync-config --prune\n"
+            "  ./bin/picurv sync-config --case-dir my_case --template-name flat_channel"
+        ),
+        epilog="Next: run `picurv validate ...` after syncing configs.",
+    )
+    p_sync_config.add_argument("--case-dir", help="Optional case directory to refresh. Defaults to the current case.")
+    p_sync_config.add_argument("--source-root", help="Optional override for the PICurv source repository root.")
+    p_sync_config.add_argument(
+        "--template-name",
+        help="Optional template name override (e.g., flat_channel). Required when metadata is absent.",
+    )
+    p_sync_config.add_argument("--overwrite", action="store_true", help="Overwrite case files even when they differ from the template.")
+    p_sync_config.add_argument(
+        "--prune",
+        action="store_true",
+        help="Remove stale files that were previously tracked as template-managed but no longer exist in the source template.",
+    )
+    return p_sync_config
+
+
+def _add_pull_source_parser(subparsers):
+    p_pull = subparsers.add_parser(
+        "pull-source",
+        help="Run git pull in the source repo resolved from a case directory.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Update the source repository without leaving an initialized case directory.\n\n"
+            "Examples:\n"
+            "  ./picurv pull-source\n"
+            "  ./picurv pull-source --no-rebase\n"
+            "  ./picurv pull-source --remote origin --branch main"
+        ),
+        epilog="Next: run `./picurv build` and `./picurv sync-binaries` if source changes require rebuilt executables.",
+    )
+    p_pull.add_argument("--case-dir", help="Optional case directory used to resolve .picurv-origin.json.")
+    p_pull.add_argument("--source-root", help="Optional override for the PICurv source repository root.")
+    p_pull.add_argument("--remote", help="Optional git remote name (e.g., origin).")
+    p_pull.add_argument("--branch", help="Optional branch name. If provided without --remote, origin is assumed.")
+    p_pull.add_argument("--no-rebase", action="store_true", help="Use plain git pull instead of git pull --rebase.")
+    return p_pull
+
+
+def _add_status_source_parser(subparsers):
+    p_status = subparsers.add_parser(
+        "status-source",
+        help="Report source/case drift for an initialized case directory.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Inspect whether the source repo, copied binaries, and template-managed files have drifted\n"
+            "from the current case directory.\n\n"
+            "Examples:\n"
+            "  ./picurv status-source\n"
+            "  ./picurv status-source --format json\n"
+            "  ./bin/picurv status-source --case-dir my_case"
+        ),
+        epilog="Next: use `pull-source`, `build`, `sync-binaries`, or `sync-config` based on the reported drift.",
+    )
+    p_status.add_argument("--case-dir", help="Optional case directory used to resolve .picurv-origin.json.")
+    p_status.add_argument("--source-root", help="Optional override for the PICurv source repository root.")
+    p_status.add_argument("--template-name", help="Optional template name override when metadata is absent.")
+    p_status.add_argument(
+        "--format",
+        dest="output_format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text).",
+    )
+    return p_status
 
 
 def build_main_parser():
@@ -4266,6 +4897,10 @@ def build_main_parser():
     _add_validate_parser(subparsers)
     _add_init_parser(subparsers)
     _add_build_parser(subparsers)
+    _add_sync_binaries_parser(subparsers)
+    _add_sync_config_parser(subparsers)
+    _add_pull_source_parser(subparsers)
+    _add_status_source_parser(subparsers)
     return parser
 
 
@@ -4293,6 +4928,18 @@ def dispatch_command(args):
         return
     if args.command == "build":
         build_project(args)
+        return
+    if args.command == "sync-binaries":
+        sync_case_binaries_command(args)
+        return
+    if args.command == "sync-config":
+        sync_case_config_command(args)
+        return
+    if args.command == "pull-source":
+        pull_source_repo(args)
+        return
+    if args.command == "status-source":
+        status_source_command(args)
         return
     fail_cli_usage(f"Unsupported command '{args.command}'.")
 

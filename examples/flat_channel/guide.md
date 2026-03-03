@@ -30,6 +30,8 @@ This example is the baseline first-run case for PICurv using programmatic grid g
 If project binaries are already built (`picurv build`), `init` also copies the available
 executables from `bin/` into the new case directory, including `picurv`, `simulator`,
 and `postprocessor`.
+The initialized case also records its source repo in `.picurv-origin.json`, so you can
+later run `./picurv status-source`, `./picurv build`, `./picurv pull-source`, and sync commands without leaving it.
 
 ## Recommended Uses
 

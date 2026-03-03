@@ -4,7 +4,7 @@ This directory contains Python automation and utility scripts used for build/run
 
 ## Primary Scripts
 
-- `picurv`: main CLI conductor (`init`, `build`, `validate`, `run`, `sweep`).
+- `picurv`: main CLI conductor (`init`, `build`, `sync-binaries`, `sync-config`, `pull-source`, `status-source`, `validate`, `run`, `sweep`).
 - `grid.gen`: structured-grid generation utility.
 - `audit_ingress.py`: checks YAML-to-C option ingress consistency.
 - `check_markdown_links.py`: CI/local markdown link validator for docs.
@@ -15,6 +15,7 @@ This directory contains Python automation and utility scripts used for build/run
   - `./scripts/picurv build`
 - local run lifecycle after build:
   - `./bin/picurv init ...`
+  - `cd my_case && ./picurv status-source && ./picurv build && ./picurv sync-binaries`
   - `./bin/picurv validate ...`
   - `./bin/picurv run ...`
 - study orchestration:
