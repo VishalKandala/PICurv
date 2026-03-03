@@ -7,7 +7,7 @@ This tutorial demonstrates `grid.mode: file` using the `bent_channel` template.
 @section init_sec 1. Initialize a Study
 
 ```bash
-./scripts/pic.flow init bent_channel --dest my_bent_channel_run
+./bin/pic.flow init bent_channel --dest my_bent_channel_run
 ```
 
 Expected files:
@@ -41,7 +41,7 @@ Behavior:
 @section run_sec 3. Run the Case
 
 ```bash
-./scripts/pic.flow run \
+./bin/pic.flow run \
     --case my_bent_channel_run/bent_channel.yml \
     --solver my_bent_channel_run/Imp-MG-Standard.yml \
     --monitor my_bent_channel_run/Standard_Output.yml \

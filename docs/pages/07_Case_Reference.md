@@ -79,6 +79,10 @@ Mode compatibility note:
 - `xMins/xMaxs`, `yMins/yMaxs`, `zMins/zMaxs`
 - `rxs/rys/rzs`
 
+Dimension contract:
+- `im/jm/km` in YAML are cell counts.
+- `pic.flow` converts them to node counts before emitting `-im/-jm/-km` for the C runtime.
+
 Important constraint:
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block processor decomposition is not implemented.
 
@@ -104,6 +108,8 @@ grid:
 ```
 
 This runs `scripts/grid.gen` before solver launch and stages generated grid artifacts into the run config.
+`grid.generator.config_file` is required today; `pic.flow` does not synthesize a temporary grid config.
+`grid.gen` accepts cell-count inputs (`ncells_*` / `--ncells-*`) and writes node counts into the generated `.picgrid` header.
 
 For direct `grid.gen` usage, generator types, and config-file structure, see **@subpage 48_Grid_Generator_Guide**.
 

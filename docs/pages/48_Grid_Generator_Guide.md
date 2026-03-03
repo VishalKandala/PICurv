@@ -98,6 +98,13 @@ grid:
     cli_args: ["--ncells-i", "96", "--ncells-j", "96"]
 ```
 
+Current contract notes:
+
+- `grid.generator.config_file` is required today.
+- `pic.flow` does not generate a temporary `grid.cfg` for `grid.gen`.
+- `grid.gen` input dimensions (`ncells_*`, `--ncells-*`) are cell counts.
+- `grid.gen` converts those to node counts before writing the `.picgrid` header.
+
 Behavior in `pic.flow`:
 
 1. validate generator config path and wrapper settings,

@@ -26,9 +26,9 @@ Run from repository root.
 @subsection help_smoke_ssec 2.1 Command Discovery Smoke
 
 ```bash
-./scripts/pic.flow --help
-./scripts/pic.flow run --help
-./scripts/pic.flow validate --help
+./bin/pic.flow --help
+./bin/pic.flow run --help
+./bin/pic.flow validate --help
 ```
 
 Expected:
@@ -41,7 +41,7 @@ Expected:
 Valid fixture set:
 
 ```bash
-./scripts/pic.flow validate \
+./bin/pic.flow validate \
   --case tests/fixtures/valid/case.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml \
@@ -57,7 +57,7 @@ Expected:
 Invalid fixture example:
 
 ```bash
-./scripts/pic.flow validate \
+./bin/pic.flow validate \
   --case tests/fixtures/invalid/case_missing_properties.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml
@@ -72,7 +72,7 @@ Expected:
 Human-readable plan:
 
 ```bash
-./scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case tests/fixtures/valid/case.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml \
@@ -83,7 +83,7 @@ Human-readable plan:
 Machine-readable plan:
 
 ```bash
-./scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case tests/fixtures/valid/case.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml \

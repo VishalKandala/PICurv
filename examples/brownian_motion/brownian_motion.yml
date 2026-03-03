@@ -13,7 +13,7 @@
 #
 #  L_ref = 1.0 m, U_ref = 1.0 m/s  --> T_ref = 1.0 s
 #  rho   = 1.0 kg/m^3, mu = 0.001 Pa.s  --> Re = rho*U*L/mu = 1000
-#  Sc    = 1.0  (set in solver.yml via petsc_passthrough)
+#  Sc    = 1.0  (current solver default in src/setup.c unless overridden)
 #  --> Gamma_eff (non-dim) = 1 / (Re * Sc) = 1/1000 = 1e-3
 #
 #  dt_phys = 0.001 s  --> dt* = 0.001
@@ -26,9 +26,11 @@
 #    sigma_step = sqrt(2 * 1e-3 * 0.001) = 1.414e-3
 #    3 * sigma_step * sqrt(2000) = 3 * 1.414e-3 * 44.7 ~= 0.19
 #    Point source at (0.5, 0.5, 0.5) --> particles stay in [0.31, 0.69]
-#    Safe inside [0, 1]^3 with all-periodic BCs.
+#    Safe inside [0, 1]^3 even with WALL BCs on every face.
 #
-#  NOTE: All-periodic domain eliminates boundary removal effects.
+#  NOTE: WALL boundaries are acceptable here because the particle cloud remains
+#        far from every boundary over the default run, so removal losses are
+#        negligibly unlikely.
 #  NOTE: Uniform Cartesian grid ensures Gamma is spatially uniform,
 #        so the drift correction term (grad Gamma = 0) vanishes exactly.
 # ==============================================================================
@@ -51,7 +53,8 @@ run_control:
 grid:
   mode: programmatic_c
   programmatic_settings:
-    # Uniform Cartesian 32^3 grid.
+    # Uniform Cartesian 32^3-cell grid.
+    # pic.flow converts these cell counts into 33^3 node counts for the C runtime.
     # Resolution chosen so grid cells are large enough (Δx = 1/32 ≈ 0.031)
     # that many particles occupy each cell for stable MSD bin statistics,
     # but fine enough that the uniform-Gamma assumption holds cleanly.

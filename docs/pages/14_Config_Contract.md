@@ -44,7 +44,9 @@ For each run, `pic.flow` generates:
 
 - `grid.mode` supports: `file`, `programmatic_c`, `grid_gen`.
 - For `programmatic_c`, per-block arrays are supported for geometry (`im/jm/km`, bounds, stretching).
+- `programmatic_c.im/jm/km` are cell counts in YAML; `pic.flow` converts them to node counts before writing `-im/-jm/-km`.
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block MPI decomposition is not currently supported.
+- For `grid_gen`, `grid.generator.config_file` is required today. `grid.gen` consumes cell counts and writes node counts into `.picgrid`.
 - `boundary_conditions` supports single-block list or multi-block list-of-lists.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
 - `properties.initial_conditions.mode` is required explicitly by the launcher.

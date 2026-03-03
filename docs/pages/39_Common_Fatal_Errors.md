@@ -38,19 +38,19 @@ Code reference:
 1. Run config-only checks first:
 
 ```bash
-./scripts/pic.flow validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml
+./bin/pic.flow validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml
 ```
 
 2. Preview launch plan:
 
 ```bash
-./scripts/pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run
+./bin/pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run
 ```
 
 3. If cluster path is used, validate `cluster.yml` separately:
 
 ```bash
-./scripts/pic.flow validate --cluster cluster.yml
+./bin/pic.flow validate --cluster cluster.yml
 ```
 
 Related pages:

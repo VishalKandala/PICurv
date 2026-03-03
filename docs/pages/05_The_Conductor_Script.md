@@ -8,8 +8,10 @@ It is also the primary user-facing contract layer: many defaults, aliases, and c
 @section usage_sec 1. General Usage
 
 ```bash
-python3 scripts/pic.flow [COMMAND] [ARGS...]
+./bin/pic.flow [COMMAND] [ARGS...]
 ```
+
+If `bin/pic.flow` does not exist yet, use `./scripts/pic.flow build` once to install it.
 
 Primary commands:
 - `init`
@@ -27,18 +29,18 @@ Core idea:
 
 Help:
 ```bash
-python3 scripts/pic.flow --help
-python3 scripts/pic.flow init --help
-python3 scripts/pic.flow build --help
-python3 scripts/pic.flow run --help
-python3 scripts/pic.flow sweep --help
-python3 scripts/pic.flow validate --help
+./bin/pic.flow --help
+./bin/pic.flow init --help
+./scripts/pic.flow build --help
+./bin/pic.flow run --help
+./bin/pic.flow sweep --help
+./bin/pic.flow validate --help
 ```
 
 @section init_sec 2. init: Create A New Case Directory
 
 ```bash
-python3 scripts/pic.flow init <template_name> [--dest <new_dir>] [--copy-binaries]
+./bin/pic.flow init <template_name> [--dest <new_dir>] [--copy-binaries]
 ```
 
 Behavior:
@@ -51,8 +53,8 @@ Behavior:
 Examples:
 
 ```bash
-python3 scripts/pic.flow init flat_channel --dest my_first_case
-python3 scripts/pic.flow init bent_channel --dest my_bent_case --copy-binaries
+./bin/pic.flow init flat_channel --dest my_first_case
+./bin/pic.flow init bent_channel --dest my_bent_case --copy-binaries
 ```
 
 Use `init` when you want a runnable starting point.
@@ -61,7 +63,7 @@ Use reusable profile libraries directly when you already have your own case dire
 @section build_sec 3. build: Build Project Executables
 
 ```bash
-python3 scripts/pic.flow build [MAKE_ARGS...]
+./scripts/pic.flow build [MAKE_ARGS...]
 ```
 
 Behavior:
@@ -73,16 +75,16 @@ Behavior:
 Examples:
 
 ```bash
-python3 scripts/pic.flow build
-python3 scripts/pic.flow build clean-project
-python3 scripts/pic.flow build SYSTEM=cluster
-python3 scripts/pic.flow build postprocessor
+./scripts/pic.flow build
+./scripts/pic.flow build clean-project
+./scripts/pic.flow build SYSTEM=cluster
+./scripts/pic.flow build postprocessor
 ```
 
 @section run_sec 4. run: Single-Case Workflow
 
 ```bash
-python3 scripts/pic.flow run [STAGES] [INPUTS] [OPTIONS]
+./bin/pic.flow run [STAGES] [INPUTS] [OPTIONS]
 ```
 
 Stages:
@@ -114,7 +116,7 @@ Preflight options:
 
 Local example:
 ```bash
-python3 scripts/pic.flow run --solve --post-process -n 8 \
+./bin/pic.flow run --solve --post-process -n 8 \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -124,7 +126,7 @@ In this command, solver runs with 8 ranks; post-processing still defaults to 1 r
 
 Slurm example (generate + submit):
 ```bash
-python3 scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -134,7 +136,7 @@ python3 scripts/pic.flow run --solve --post-process \
 
 Slurm example (generate only):
 ```bash
-python3 scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -145,7 +147,7 @@ python3 scripts/pic.flow run --solve --post-process \
 
 Dry-run example (no file writes):
 ```bash
-python3 scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -164,7 +166,7 @@ Common `run` use cases:
 @section sweep_sec 5. sweep: Parameter Study via Slurm Arrays
 
 ```bash
-python3 scripts/pic.flow sweep \
+./bin/pic.flow sweep \
   --study my_study/study.yml \
   --cluster my_study/cluster.yml [--no-submit]
 ```
@@ -179,7 +181,7 @@ Behavior:
 @section validate_sec 6. validate: Config-Only Checks
 
 ```bash
-python3 scripts/pic.flow validate \
+./bin/pic.flow validate \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \

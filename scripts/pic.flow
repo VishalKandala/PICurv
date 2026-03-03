@@ -38,8 +38,11 @@ except ImportError:
 
 # --- Global Path Definitions ---
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
-BIN_DIR = SCRIPT_PATH
-PROJECT_ROOT = os.path.dirname(BIN_DIR)
+PROJECT_ROOT = os.path.dirname(SCRIPT_PATH)
+if os.path.basename(SCRIPT_PATH) == "bin":
+    BIN_DIR = SCRIPT_PATH
+else:
+    BIN_DIR = os.path.join(PROJECT_ROOT, "bin")
 
 # Standardized error codes used for CLI/validation reporting.
 ERROR_CODE_CLI_USAGE_INVALID = "CLI_USAGE_INVALID"
@@ -1580,6 +1583,20 @@ def format_flag_value(value):
         return ",".join(map(str, value))
     return str(value)
 
+def translate_programmatic_grid_settings(grid_settings: dict) -> dict:
+    """Return programmatic-grid settings translated to the C node-count contract."""
+    translated = dict(grid_settings)
+    for dim_key in ("im", "jm", "km"):
+        if dim_key in translated:
+            raw_val = translated[dim_key]
+            if not isinstance(raw_val, int) or raw_val <= 0:
+                raise ValueError(
+                    f"grid.programmatic_settings.{dim_key} must be a positive integer cell count "
+                    f"(got {raw_val!r})."
+                )
+            translated[dim_key] = raw_val + 1
+    return translated
+
 def normalize_momentum_solver_type(value: str) -> str:
     """!
     @brief Normalizes user-facing momentum solver names to C-enum CLI values.
@@ -2112,6 +2129,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         print("[INFO] Grid Mode: Generating external grid via grid.gen...")
         nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
         try:
+            # grid.gen already converts ncells_* inputs into node-count PICGRID dims.
             generated_grid = run_grid_generator(configs['case_path'], run_dir, grid_cfg)
             summary = validate_and_nondimensionalize_picgrid(
                 generated_grid, nondim_grid_path, L_ref, expected_nblk=expected_nblk
@@ -2126,7 +2144,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             sys.exit(1)
     elif grid_mode == 'programmatic_c':
         print("[INFO] Grid Mode: Programmatic C...")
-        grid_settings = dict(grid_cfg.get('programmatic_settings', {}))
+        grid_settings = translate_programmatic_grid_settings(grid_cfg.get('programmatic_settings', {}))
         control_lines.append("-grid")
         px, py, pz = grid_settings.get('da_processors_x'), grid_settings.get('da_processors_y'), grid_settings.get('da_processors_z')
         if any(isinstance(p, (list, tuple)) for p in [px, py, pz] if p is not None):

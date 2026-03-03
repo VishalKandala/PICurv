@@ -16,7 +16,7 @@ These are reference contracts, not intended to be run directly.
 ## 2. Recommended Usage
 
 1. Start with a runnable example:
-   - `./scripts/pic.flow init flat_channel --dest my_study`
+   - `./bin/pic.flow init flat_channel --dest my_study`
 2. Modify study-local YAML files for your case.
 3. Use master templates to discover advanced options and copy validated snippets.
 

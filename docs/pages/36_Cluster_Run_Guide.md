@@ -21,7 +21,7 @@ Initialize templates from examples, then customize per cluster/account policy.
 Generate and submit:
 
 ```bash
-./scripts/pic.flow run \
+./bin/pic.flow run \
   --case <case.yml> \
   --solver <solver.yml> \
   --monitor <monitor.yml> \
@@ -33,7 +33,7 @@ Generate and submit:
 Generate only (no submission):
 
 ```bash
-./scripts/pic.flow run ... --scheduler slurm --no-submit
+./bin/pic.flow run ... --scheduler slurm --no-submit
 ```
 
 @section artifacts_sec 3. Generated Scheduler Artifacts

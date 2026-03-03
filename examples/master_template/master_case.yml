@@ -94,7 +94,7 @@ grid:
   # --- Option B: Grid via Python Grid Generator (scripts/grid.gen) ---
   # Use this for complex curvilinear meshes generated before solver launch.
   # generator:
-  #   config_file: "config/grids/coarse_square_tube_curved.cfg"    # Required. Relative to case.yml or absolute.
+  #   config_file: "config/grids/coarse_square_tube_curved.cfg"    # Required today. Relative to case.yml or absolute.
   #   grid_type: "cpipe"               # Optional override: cpipe | pipe | warp
   #   cli_args:                        # Optional raw CLI token list
   #     - "--ncells-i"
@@ -107,6 +107,8 @@ grid:
 
   # --- Option C: Programmatic Grid Generation in C ---
   # Use this to have the C solver generate a structured Cartesian grid.
+  # `im/jm/km` are cell counts in YAML; pic.flow converts them to node counts
+  # before emitting `-im/-jm/-km` for the C runtime.
   # For MULTI-BLOCK cases, all values must be LISTS of the same length.
   programmatic_settings:
     # --- Cell Counts ---

@@ -113,7 +113,7 @@ Verification:
 @subsection mpi_ssec 3.1 Run in Parallel and Control DMDA Layout
 
 ```bash
-./scripts/pic.flow run -n 16 --solve ...
+./bin/pic.flow run -n 16 --solve ...
 ```
 
 Optional partition hints:
@@ -132,7 +132,7 @@ Note: `da_processors_*` are scalar globals, not per-block vectors.
 @subsection cluster_run_ssec 3.2 Run on Slurm (Generate and Submit)
 
 ```bash
-python3 scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -143,7 +143,7 @@ python3 scripts/pic.flow run --solve --post-process \
 Generate-only mode:
 
 ```bash
-python3 scripts/pic.flow run --solve --post-process \
+./bin/pic.flow run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
@@ -190,7 +190,7 @@ Prefer narrow function lists to keep logs manageable.
 @subsection post_existing_ssec 4.1 Postprocess an Existing Run
 
 ```bash
-./scripts/pic.flow run --post-process \
+./bin/pic.flow run --post-process \
   --run-dir runs/flat_channel_20240401-153000 \
   --post my_study/standard_analysis.yml
 ```
@@ -232,7 +232,7 @@ Verification:
 @section sweep_sec 5. Sweep Studies
 
 ```bash
-python3 scripts/pic.flow sweep \
+./bin/pic.flow sweep \
   --study my_study/study.yml \
   --cluster my_study/cluster.yml
 ```

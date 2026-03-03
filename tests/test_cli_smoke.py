@@ -1,3 +1,5 @@
+import importlib.machinery
+import importlib.util
 import json
 import subprocess
 import sys
@@ -12,6 +14,15 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures"
 def run_pic_flow(args, cwd=REPO_ROOT):
     cmd = [sys.executable, str(PIC_FLOW)] + list(args)
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False)
+
+
+def load_pic_flow_module():
+    loader = importlib.machinery.SourceFileLoader("pic_flow_module", str(PIC_FLOW))
+    spec = importlib.util.spec_from_loader("pic_flow_module", loader)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
 
 
 def test_top_level_help_smoke():
@@ -294,6 +305,72 @@ def test_dry_run_json_output_schema():
     assert payload["post_num_procs_effective"] == 1
     assert payload["stages"]["solve"]["num_procs_effective"] == 1
     assert payload["stages"]["post-process"]["num_procs_effective"] == 1
+
+
+def test_programmatic_grid_cell_counts_translate_to_node_counts(tmp_path):
+    valid = FIXTURES / "valid"
+    pic_flow = load_pic_flow_module()
+    case_cfg = pic_flow.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = pic_flow.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = pic_flow.read_yaml_file(str(valid / "monitor.yml"))
+
+    run_dir = tmp_path / "programmatic_grid_translation"
+    run_dir.mkdir()
+    (run_dir / "config").mkdir()
+
+    control_path = Path(
+        pic_flow.generate_solver_control_file(
+            str(run_dir),
+            "programmatic_grid_translation",
+            {
+                "case": case_cfg,
+                "solver": solver_cfg,
+                "monitor": monitor_cfg,
+                "case_path": str(valid / "case.yml"),
+                "solver_path": str(valid / "solver.yml"),
+                "monitor_path": str(valid / "monitor.yml"),
+            },
+            1,
+            {"whitelist": "whitelist.run", "profile": "profile.run"},
+        )
+    )
+    content = control_path.read_text(encoding="utf-8")
+
+    assert "-im 9" in content
+    assert "-jm 9" in content
+    assert "-km 17" in content
+
+
+def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
+    output_path = tmp_path / "tiny_grid.picgrid"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "grid.gen"),
+            "warp",
+            "--ncells-i",
+            "2",
+            "--ncells-j",
+            "2",
+            "--ncells-k",
+            "2",
+            "--no-show-stats",
+            "--no-write-vtk",
+            "--output",
+            str(output_path),
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    lines = output_path.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "PICGRID"
+    assert lines[1] == "1"
+    assert lines[2] == "3 3 3"
 
 
 def test_dry_run_local_solver_vs_post_proc_counts():

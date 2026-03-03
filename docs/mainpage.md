@@ -8,7 +8,7 @@ PICurv is a parallel CFD and particle framework for incompressible flow and scal
 
 - Eulerian flow solves on curvilinear grids (PETSc `DMDA` based)
 - Lagrangian particle transport (`DMSwarm` based)
-- A YAML-driven run pipeline through `./scripts/pic.flow`
+- A YAML-driven run pipeline through the built conductor `./bin/pic.flow`
 
 The user workflow is configuration-first: YAML inputs are validated and translated into generated runtime artifacts consumed by the C solver and postprocessor.
 Those YAML roles are modular by design: `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` are meant to be recombined instead of rewritten from scratch for every run.

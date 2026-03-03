@@ -116,13 +116,15 @@ Useful variants:
 ./scripts/pic.flow build SYSTEM=cluster
 ```
 
+After the build creates `bin/pic.flow`, prefer `./bin/pic.flow` for normal help, validation, and run commands.
+
 @section verify_sec 7. Verify Installation
 
 ```bash
-./scripts/pic.flow --help
-./scripts/pic.flow run --help
-./scripts/pic.flow sweep --help
-./scripts/pic.flow validate --help
+./bin/pic.flow --help
+./bin/pic.flow run --help
+./bin/pic.flow sweep --help
+./bin/pic.flow validate --help
 ```
 
 If these commands work and binaries exist, your installation is ready.
