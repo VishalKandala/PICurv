@@ -701,7 +701,7 @@ def test_restart_from_run_dir_resolves_previous_restart_directory(tmp_path):
     picurv.write_yaml_file(str(previous_run_dir / "config" / "monitor.yml"), previous_monitor_cfg)
 
     case_cfg["run_control"]["start_step"] = 5
-    case_cfg["run_control"]["restart_from_run_dir"] = "../old_run"
+    case_cfg["run_control"]["restart_from_run_dir"] = "old_run"
     case_path = tmp_path / "case_restart.yml"
     picurv.write_yaml_file(str(case_path), case_cfg)
 
