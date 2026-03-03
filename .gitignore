@@ -5,9 +5,7 @@ __pycache__/
 *.pyc
 /runs/
 /studies/
-
+logs/
 # Large grid/mesh files
 *.vts
 *.grid
-scripts/brownian_grids/
-logs/doxygen.warnings
