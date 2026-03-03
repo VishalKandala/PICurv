@@ -46,9 +46,9 @@ else:
     DEFAULT_BIN_DIR = os.path.join(PROJECT_ROOT, "bin")
 
 def resolve_runtime_executable(executable_name: str) -> str:
-    """Resolve solver/post executable path, preferring case-local sibling binaries."""
+    """Resolve solver/post executable path, preferring local sibling binaries."""
     local_candidate = os.path.join(INVOKED_SCRIPT_DIR, executable_name)
-    if os.path.abspath(INVOKED_SCRIPT_DIR) != os.path.abspath(SCRIPT_PATH) and os.path.isfile(local_candidate):
+    if os.path.isfile(local_candidate):
         return os.path.abspath(local_candidate)
     return os.path.join(DEFAULT_BIN_DIR, executable_name)
 
