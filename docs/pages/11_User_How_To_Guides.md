@@ -160,17 +160,96 @@ Verification:
 
 ```yaml
 run_control:
-  start_step: 1000
-  total_steps: 2000
+  start_step: 500
+  total_steps: 1000
 ```
 
 Meaning:
 
-- run resumes from step 1000 and advances 2000 additional steps.
+- If a run has completed through step 500, set `start_step: 500`.
+- The next run loads the saved state at step 500.
+- The first new step advanced is step 501.
+- `total_steps` is the number of additional steps to run.
+- In this example, the restarted run advances from step 501 through step 1500.
+
+Typical full field restart (`solver.yml`):
+
+```yaml
+operation_mode:
+  eulerian_field_source: "load"
+```
+
+Particle restart choices (`case.yml`):
+
+Full restart of the existing particle swarm:
+
+```yaml
+models:
+  physics:
+    particles:
+      restart_mode: "load"
+```
+
+Restart the flow field but reseed particles from scratch:
+
+```yaml
+models:
+  physics:
+    particles:
+      restart_mode: "init"
+```
+
+Common combinations:
+
+- Full restart: `start_step > 0`, `eulerian_field_source: load`, `restart_mode: load`
+- Flow restart + fresh particles: `start_step > 0`, `eulerian_field_source: load`, `restart_mode: init`
+- Analytical mode is different: `eulerian_field_source: analytical` regenerates the analytical field at the requested `(t, step)` instead of loading restart files.
+
+Command example:
+
+```bash
+./bin/pic.flow run --solve --post-process \
+  --case restart_case/case.yml \
+  --solver restart_case/solver.yml \
+  --monitor restart_case/monitor.yml \
+  --post restart_case/post.yml
+```
+
+How to think about this workflow:
+
+- restart uses the normal `run --solve` path; there is no separate restart command,
+- the new run directory is a fresh run artifact,
+- the saved field state is loaded from existing restart/output files referenced by the current restart path contract,
+- the old run directory is not mutated in place by `pic.flow`.
+
+Before launching a restart, verify:
+
+- the previous run actually wrote solver outputs for the target `start_step`,
+- `monitor.yml -> io.directories.restart` points to the intended restart directory name,
+- `monitor.yml -> io.directories.output` matches where the prior run wrote field data,
+- restart source files for the requested step exist,
+- `start_step` matches an actual saved timestep, not just a desired number.
+
+Common restart mistakes:
+
+- Setting `start_step: 501` after a run that ended at 500. Use `start_step: 500`.
+- Forgetting `solver.yml -> operation_mode.eulerian_field_source: load` for a true field restart.
+- Forgetting to choose `particles.restart_mode: load` or `init` explicitly.
+- Trying to restart from a step that was never written to disk.
 
 Verification:
 
-- confirm restart directory and step indices in run logs.
+- confirm restart directory and step indices in run logs,
+- confirm the banner/load path shows the expected restart step,
+- if particles are enabled, confirm the log shows the intended particle restart mode.
+
+See also:
+
+- **@subpage 09_Monitor_Reference**
+- **@subpage 33_Initial_Conditions**
+- **@subpage 45_Particle_Initialization_and_Restart**
+- **@subpage 39_Common_Fatal_Errors**
+- **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 
 @subsection logging_ssec 3.4 Enable Targeted Debug Logging
 

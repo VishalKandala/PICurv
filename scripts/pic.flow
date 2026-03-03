@@ -37,12 +37,20 @@ except ImportError:
     plt = None
 
 # --- Global Path Definitions ---
+INVOKED_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_PATH)
 if os.path.basename(SCRIPT_PATH) == "bin":
-    BIN_DIR = SCRIPT_PATH
+    DEFAULT_BIN_DIR = SCRIPT_PATH
 else:
-    BIN_DIR = os.path.join(PROJECT_ROOT, "bin")
+    DEFAULT_BIN_DIR = os.path.join(PROJECT_ROOT, "bin")
+
+def resolve_runtime_executable(executable_name: str) -> str:
+    """Resolve solver/post executable path, preferring case-local sibling binaries."""
+    local_candidate = os.path.join(INVOKED_SCRIPT_DIR, executable_name)
+    if os.path.abspath(INVOKED_SCRIPT_DIR) != os.path.abspath(SCRIPT_PATH) and os.path.isfile(local_candidate):
+        return os.path.abspath(local_candidate)
+    return os.path.join(DEFAULT_BIN_DIR, executable_name)
 
 # Standardized error codes used for CLI/validation reporting.
 ERROR_CODE_CLI_USAGE_INVALID = "CLI_USAGE_INVALID"
@@ -2883,7 +2891,7 @@ def build_run_dry_plan(args) -> dict:
             plan["artifacts"].append(os.path.join(config_dir, "cluster.yml"))
             plan["artifacts"].append(os.path.join(scheduler_dir, "submission.json"))
 
-        solver_exe = os.path.join(BIN_DIR, "picsolver")
+        solver_exe = resolve_runtime_executable("picsolver")
         solver_args = ["-control_file", solver_control_path]
         if cluster_mode:
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")
@@ -2963,7 +2971,7 @@ def build_run_dry_plan(args) -> dict:
             )
             sys.exit(1)
         output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
-        post_exe = os.path.join(BIN_DIR, "postprocessor")
+        post_exe = resolve_runtime_executable("postprocessor")
         post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_path]
         plan["artifacts"].extend([post_recipe_path, output_dir_abs])
 
@@ -3238,7 +3246,7 @@ def run_workflow(args):
         monitor_files = {'whitelist': whitelist_path, 'profile': profile_path}
         control_file = generate_solver_control_file(run_dir, run_id, configs, solver_num_procs_effective, monitor_files)
 
-        solver_exe = os.path.join(BIN_DIR, "picsolver")
+        solver_exe = resolve_runtime_executable("picsolver")
         solver_args = ["-control_file", control_file]
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
@@ -3334,7 +3342,7 @@ def run_workflow(args):
         source_files_post = {'Case': case_path, 'Post-Profile': args.post}
         post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_cfg, source_files_post)
 
-        post_exe = os.path.join(BIN_DIR, "postprocessor")
+        post_exe = resolve_runtime_executable("postprocessor")
         post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_file]
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
@@ -3569,8 +3577,8 @@ def sweep_workflow(args):
     if max_conc:
         array_spec = f"{array_spec}%{max_conc}"
 
-    solver_exe = os.path.join(BIN_DIR, "picsolver")
-    post_exe = os.path.join(BIN_DIR, "postprocessor")
+    solver_exe = resolve_runtime_executable("picsolver")
+    post_exe = resolve_runtime_executable("postprocessor")
     solver_array_script = os.path.join(scheduler_dir, "solver_array.sbatch")
     post_array_script = os.path.join(scheduler_dir, "post_array.sbatch")
     render_slurm_array_stage_script(
@@ -3659,9 +3667,9 @@ def sweep_workflow(args):
 def init_case(args):
     """!
     @brief Implements the 'init' command.
-    @details Creates a new case study directory by copying a template. It can then
-             either create relative symbolic links to the project's executables
-             (default) or create a full copy of them for a self-contained study.
+    @details Creates a new case study directory by copying a template and then
+             copies the project's executables into it so the case directory is
+             runnable on its own.
     @param[in] args The command-line arguments parsed by argparse.
     """
     template_path = os.path.join(PROJECT_ROOT, "examples", args.template_name)
@@ -3680,47 +3688,40 @@ def init_case(args):
     shutil.copytree(template_path, dest_path)
     print(f"[SUCCESS] Copied template files to: {dest_path}")
     
+    print("[INFO] Copying project binaries for a self-contained case...")
     if args.copy_binaries:
-        print("[INFO] Copying project binaries for a self-contained case...")
-    else:
-        print("[INFO] Creating symbolic links to project binaries...")
+        print("[INFO] --copy-binaries is now the default behavior and is kept for compatibility.")
         
     main_bin_dir = os.path.join(PROJECT_ROOT, "bin")
-    conductor_names = {"pic.flow", "pic-flow"}
     
     try:
         if not os.path.isdir(main_bin_dir):
             print(
                 f"[WARNING] Project bin/ directory not found at '{main_bin_dir}'. "
-                "No binaries were linked/copied. Run 'pic.flow build' first if needed.",
+                "No binaries were copied. Run 'pic.flow build' first if needed.",
                 file=sys.stderr,
             )
             return
 
-        # Copy/link solver executables only; do not duplicate conductor wrappers.
+        # Always copy the full executable set so the case directory is self-contained.
         binaries = [
             f for f in os.listdir(main_bin_dir)
-            if f not in conductor_names and os.path.isfile(os.path.join(main_bin_dir, f))
+            if os.path.isfile(os.path.join(main_bin_dir, f))
         ]
         if not binaries:
-            print("[WARNING] Main project bin/ directory contains no executables. Nothing to link or copy.", file=sys.stderr)
+            print("[WARNING] Main project bin/ directory contains no executables. Nothing to copy.", file=sys.stderr)
             return
 
         for binary_name in binaries:
             source_path_abs = os.path.abspath(os.path.join(main_bin_dir, binary_name))
             dest_file_path = os.path.join(dest_path, binary_name)
-            
-            if args.copy_binaries:
-                # Use copy2 to preserve permissions and metadata
-                shutil.copy2(source_path_abs, dest_file_path)
-                print(f"  - Copied '{binary_name}'")
-            else:
-                relative_source_path = os.path.relpath(source_path_abs, start=dest_path)
-                os.symlink(relative_source_path, dest_file_path)
-                print(f"  - Linked '{binary_name}'")
+
+            # Use copy2 to preserve permissions and metadata.
+            shutil.copy2(source_path_abs, dest_file_path)
+            print(f"  - Copied '{binary_name}'")
             
         print("[SUCCESS] Binaries are now available in your study directory.")
-        print("          You can now 'cd' into your study and run commands locally (e.g., './picsolver ...').")
+        print("          You can now 'cd' into your study and run commands locally (e.g., './pic.flow ...').")
 
     except Exception as e:
         print(f"[ERROR] Failed to process binaries: {e}", file=sys.stderr)
@@ -3876,7 +3877,7 @@ def _add_init_parser(subparsers):
     p_init.add_argument(
         "--copy-binaries",
         action="store_true",
-        help="Copy executables into the case directory instead of symlinking.\nThis creates a fully portable, self-contained case study.",
+        help="Deprecated compatibility flag.\ninit now always copies executables into the case directory to create a self-contained case study.",
     )
     return p_init
 

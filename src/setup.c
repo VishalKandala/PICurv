@@ -194,7 +194,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
                 "The -control_file argument was not provided.\n"
                 "This program must be launched with a configuration file.\n"
                 "Example: mpiexec -n 4 ./picsolver -control_file /path/to/your/config.control\n"
-                "This is typically handled automatically by the 'pic-flow' script.\n");
+                "This is typically handled automatically by the 'pic.flow' script.\n");
     }
 
     // At this point, we have a valid filename. Attempt to load it.

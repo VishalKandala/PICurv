@@ -47,8 +47,9 @@ Behavior:
 
 - copies `examples/<template_name>/` into a new working directory,
 - optionally renames the destination via `--dest`,
-- by default creates symlinks to project binaries from `bin/`,
-- with `--copy-binaries`, copies solver executables into the new case for a more portable snapshot.
+- copies the full executable set from `bin/` into the new case directory so the case is self-contained,
+- includes `pic.flow`, `picsolver`, and `postprocessor` when they exist in `bin/`,
+- keeps `--copy-binaries` as a compatibility flag, but copying is now the default and only behavior.
 
 Examples:
 
@@ -57,7 +58,7 @@ Examples:
 ./bin/pic.flow init bent_channel --dest my_bent_case --copy-binaries
 ```
 
-Use `init` when you want a runnable starting point.
+Use `init` when you want a runnable starting point that you can `cd` into and launch with `./pic.flow ...`.
 Use reusable profile libraries directly when you already have your own case directory layout.
 
 @section build_sec 3. build: Build Project Executables

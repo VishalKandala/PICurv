@@ -16,7 +16,7 @@ This directory contains runnable case templates used by `./bin/pic.flow init` an
   - `./bin/pic.flow init bent_channel --dest my_case`
 - Validate copied configs before running:
   - `./bin/pic.flow validate --case my_case/<case>.yml --solver my_case/<solver>.yml --monitor my_case/<monitor>.yml --post my_case/<post>.yml`
-- `init` links/copies compiled binaries (`picsolver`, `postprocessor`) when `bin/` exists.
+- `init` copies the compiled executables from `bin/` into the new case directory, including `pic.flow`, so the case is self-contained.
 - Use master templates to discover full schema/options before trimming for production runs.
 - The config roles are modular: you can often reuse a `solver.yml`, `monitor.yml`, or `post.yml` from one example with a different `case.yml` when the contract still makes sense.
 

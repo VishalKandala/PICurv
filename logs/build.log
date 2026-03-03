@@ -826,6 +826,6 @@ include/io.h:321:135: note: expected ‘void **’ but argument is of type ‘Pe
 --- Linking Executable: bin/postprocessor ---
 /root/software/petsc-3.20.3/arch-linux-c-debug/bin/mpicc -Wall -Wwrite-strings -Wno-unknown-pragmas -Wno-lto-type-mismatch -fstack-protector -fvisibility=hidden -g3 -O0  -o bin/postprocessor obj/postprocessor.o obj/setup.o obj/logging.o obj/grid.o obj/io.o obj/Metric.o obj/Boundaries.o obj/wallfunction.o obj/postprocessing_kernels.o obj/vtk_io.o obj/ParticleSwarm.o obj/ParticleMotion.o obj/interpolation.o obj/walkingsearch.o -Wl,-rpath,/root/software/petsc-3.20.3/arch-linux-c-debug/lib -L/root/software/petsc-3.20.3/arch-linux-c-debug/lib -Wl,-rpath,/root/software/petsc-3.20.3/arch-linux-c-debug/lib -L/root/software/petsc-3.20.3/arch-linux-c-debug/lib -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/9 -L/usr/lib/gcc/x86_64-linux-gnu/9 -lpetsc -lflapack -lfblas -lpthread -lm -lX11 -ldl -lmpifort -lmpi -lgfortran -lm -lgfortran -lm -lgcc_s -lquadmath -lstdc++ -ldl
 --- Build Complete: bin/postprocessor ---
---- Installing Conductor Script: bin/pic-flow ---
+--- Installing Conductor Script: bin/pic.flow ---
 make: Leaving directory '/root/PE/PICurv'
 --- Make command finished successfully. ---
