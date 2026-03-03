@@ -1,10 +1,10 @@
 # Scheduler Config Guide
 
-This directory stores reusable scheduler profiles for `pic.flow` cluster runs and sweeps.
+This directory stores reusable scheduler profiles for `picurv` cluster runs and sweeps.
 
 Use with:
-- `./scripts/pic.flow run --cluster config/schedulers/slurm_default.yml ...`
-- `./scripts/pic.flow sweep --cluster config/schedulers/slurm_default.yml ...`
+- `./bin/picurv run --cluster config/schedulers/slurm_default.yml ...`
+- `./bin/picurv sweep --cluster config/schedulers/slurm_default.yml ...`
 
 Reference schema:
 - `examples/master_template/master_cluster.yml`

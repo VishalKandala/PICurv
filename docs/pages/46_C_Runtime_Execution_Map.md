@@ -5,7 +5,7 @@ Use it as a practical companion to architecture and methods pages when modifying
 
 @tableofcontents
 
-@section startup_sec 1. Solver Startup Order (`src/picsolver.c`)
+@section startup_sec 1. Solver Startup Order (`src/simulator.c`)
 
 High-level startup sequence:
 
@@ -23,7 +23,7 @@ High-level startup sequence:
 
 @section ingestion_sec 2. Python-to-C Configuration Boundary
 
-`scripts/pic.flow` is the control-plane generator.
+`scripts/picurv` is the control-plane generator.
 It writes normalized runtime artifacts under `runs/<run_id>/config/` and launches C binaries with `-control_file`.
 
 Core generated files consumed by C:
@@ -112,7 +112,7 @@ High-value checks during development:
 - `DisplayBanner` summary (BCs, modes, solver selection),
 - per-step profile summaries (`ProfilingLogTimestepSummary`),
 - particle metrics and location/migration counters,
-- strict YAML validation through `pic.flow validate` before solver execution.
+- strict YAML validation through `picurv validate` before solver execution.
 
 @section refs_sec 9. Related Pages
 

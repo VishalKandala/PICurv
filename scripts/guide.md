@@ -4,19 +4,21 @@ This directory contains Python automation and utility scripts used for build/run
 
 ## Primary Scripts
 
-- `pic.flow`: main CLI conductor (`init`, `build`, `validate`, `run`, `sweep`).
+- `picurv`: main CLI conductor (`init`, `build`, `validate`, `run`, `sweep`).
 - `grid.gen`: structured-grid generation utility.
 - `audit_ingress.py`: checks YAML-to-C option ingress consistency.
 - `check_markdown_links.py`: CI/local markdown link validator for docs.
 
 ## Typical Usage
 
-- local run lifecycle:
-  - `./scripts/pic.flow init ...`
-  - `./scripts/pic.flow validate ...`
-  - `./scripts/pic.flow run ...`
+- bootstrap/install:
+  - `./scripts/picurv build`
+- local run lifecycle after build:
+  - `./bin/picurv init ...`
+  - `./bin/picurv validate ...`
+  - `./bin/picurv run ...`
 - study orchestration:
-  - `./scripts/pic.flow sweep --study ... --cluster ...`
+  - `./bin/picurv sweep --study ... --cluster ...`
 - direct grid generation:
   - `python3 scripts/grid.gen --config config/grids/coarse_square_tube_curved.cfg pipe`
 

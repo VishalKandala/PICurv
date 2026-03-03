@@ -54,7 +54,7 @@ grid:
   mode: programmatic_c
   programmatic_settings:
     # Uniform Cartesian 32^3-cell grid.
-    # pic.flow converts these cell counts into 33^3 node counts for the C runtime.
+    # picurv converts these cell counts into 33^3 node counts for the C runtime.
     # Resolution chosen so grid cells are large enough (Δx = 1/32 ≈ 0.031)
     # that many particles occupy each cell for stable MSD bin statistics,
     # but fine enough that the uniform-Gamma assumption holds cleanly.

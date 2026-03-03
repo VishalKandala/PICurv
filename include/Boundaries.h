@@ -225,7 +225,6 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
     PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out,
     PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out);
 
-PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user);
 
 /**
  * @brief (Private) A generic routine to copy data for a single, named field across periodic boundaries.

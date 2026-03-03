@@ -6,7 +6,7 @@ Headers in this folder define interfaces consumed by translation units in `src/`
 ## How To Read This Directory
 
 - `variables.h`: core shared types (`SimCtx`, `UserCtx`, enums, BC structs).
-- `setup.h`, `simulation.h`, `solvers.h`: top-level runtime orchestration interfaces.
+- `setup.h`, `runloop.h`, `solvers.h`: top-level runtime orchestration interfaces.
 - `grid.h`, `Metric.h`, `Boundaries.h`, `poisson.h`, `rhs.h`: Eulerian solver subsystems.
 - `ParticleSwarm.h`, `ParticleMotion.h`, `interpolation.h`, `ParticlePhysics.h`: Lagrangian and coupling subsystems.
 - `postprocessor.h`, `postprocessing_kernels.h`, `particle_statistics.h`: postprocessing/statistics APIs.

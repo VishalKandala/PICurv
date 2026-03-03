@@ -1,10 +1,10 @@
 # ==============================================================================
-#                 PIC-Flow Master Cluster Configuration (Slurm v1)
+#                 PICurv Master Cluster Configuration (Slurm v1)
 # ==============================================================================
 #
 # This file defines scheduler/resource settings used by:
-#   pic.flow run   --cluster cluster.yml ...
-#   pic.flow sweep --cluster cluster.yml ...
+#   picurv run   --cluster cluster.yml ...
+#   picurv sweep --cluster cluster.yml ...
 #
 # In v1, scheduler.type must be "slurm".
 # ==============================================================================
@@ -14,7 +14,7 @@ scheduler:
 
 resources:
   # These resources size solver-stage jobs.
-  # pic.flow currently schedules post stage as single-task by default.
+  # picurv currently schedules post stage as single-task by default.
   account: "my_project_account"
   partition: "compute"        # optional
   nodes: 2

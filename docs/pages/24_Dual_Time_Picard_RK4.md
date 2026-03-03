@@ -46,7 +46,9 @@ User-facing configuration (`solver.yml`) maps to:
 - `momentum_solver.dual_time_picard_rk4.pseudo_cfl.*` -> pseudo-CFL flags
 - `rk4_residual_noise_allowance_factor` -> `-mom_dt_rk4_residual_norm_noise_allowance_factor`
 
-Parsing and normalization are performed in `scripts/pic.flow`, with final option ingestion in function @ref CreateSimulationContext during setup.
+Parsing and normalization are performed in `scripts/picurv`, with final option ingestion in function @ref CreateSimulationContext during setup.
+Only the currently implemented momentum solver values are exposed; add new ones
+only when the parser and dispatcher are extended in the same change.
 
 @section touchpoints_sec 4. Core Code Touchpoints
 
@@ -65,3 +67,5 @@ Common stability tuning order:
 4. revisit grid quality and boundary consistency if instability persists.
 
 For many cases, robust Poisson settings and sane initialization matter as much as dual-time tolerances.
+
+For contributor extension steps, see **@subpage 50_Modular_Selector_Extension_Guide**.

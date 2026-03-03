@@ -1,9 +1,9 @@
 # ==============================================================================
-#                 PIC-Flow Master Study Configuration (Sweep)
+#                 PICurv Master Study Configuration (Sweep)
 # ==============================================================================
 #
 # Used by:
-#   pic.flow sweep --study study.yml --cluster cluster.yml
+#   picurv sweep --study study.yml --cluster cluster.yml
 #
 # Parameter keys must use:
 #   <target>.<yaml.path>
@@ -48,4 +48,3 @@ execution:
   # Optional max number of active array tasks at once.
   # If omitted, Slurm uses full array width.
   max_concurrent_array_tasks: 8
-

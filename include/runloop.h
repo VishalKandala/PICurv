@@ -1,5 +1,5 @@
-#ifndef SIMULATION_H
-#define SIMULATION_H
+#ifndef RUNLOOP_H
+#define RUNLOOP_H
 
 #include <petscpf.h>
 #include <petscdmswarm.h>
@@ -116,4 +116,4 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx);
  */
 PetscErrorCode FinalizeRestartState(SimCtx *simCtx);
 
-#endif  // SIMULATION_H
+#endif  // RUNLOOP_H

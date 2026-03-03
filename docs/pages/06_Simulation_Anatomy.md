@@ -26,7 +26,7 @@ You can choose any file names. C binaries do not require fixed YAML names.
 Example solve invocation:
 
 ```bash
-./bin/pic.flow run --solve -n 16 \
+./bin/picurv run --solve -n 16 \
   --case my_cases/channel_case.yml \
   --solver config/solvers/Imp-MG-Standard.yml \
   --monitor config/monitors/Standard_Output.yml
@@ -38,7 +38,7 @@ In practice, users often keep one validated `case.yml`, then compare multiple `s
 
 @section artifacts_sec 3. YAML -> Runtime Artifacts
 
-`pic.flow` validates inputs, then generates C-facing artifacts under `runs/<run_id>/config/`:
+`picurv` validates inputs, then generates C-facing artifacts under `runs/<run_id>/config/`:
 
 - `<run_id>.control`
 - `bcs.run` or `bcs_block*.run`

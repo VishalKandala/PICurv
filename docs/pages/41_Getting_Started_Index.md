@@ -36,7 +36,7 @@ The canonical first-run page is:
 
 You should be able to:
 
-- build `bin/picsolver` and `bin/postprocessor`,
+- build `bin/simulator` and `bin/postprocessor`,
 - generate valid runtime control artifacts from YAML inputs,
 - execute `run --solve --post-process` locally,
 - inspect VTK outputs in ParaView,

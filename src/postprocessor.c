@@ -620,7 +620,7 @@ PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, P
             LOG_ALLOW(GLOBAL, LOG_WARNING,
                       "Unknown statistics keyword '%s'. Skipping.\n", keyword);
         }
-        /* Future kernels: add else-if blocks here */
+        /* Additional kernels should add else-if branches here when implemented. */
 
         step_token = strtok_r(NULL, ";", &step_saveptr);
     }

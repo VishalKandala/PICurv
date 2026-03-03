@@ -3,8 +3,10 @@ logging:
   enabled_functions: []
 
 profiling:
-  critical_functions:
-    - AdvanceSimulation
+  timestep_output:
+    mode: selected
+    functions:
+      - AdvanceSimulation
 
 io:
   data_output_frequency: 2

@@ -29,10 +29,10 @@ properties:
 Key mappings:
 - `scaling.length_ref` -> `-scaling_L_ref`
 - `scaling.velocity_ref` -> `-scaling_U_ref`
-- `fluid.density` and `fluid.viscosity` are used by `pic.flow` to compute Reynolds number -> `-ren`
+- `fluid.density` and `fluid.viscosity` are used by `picurv` to compute Reynolds number -> `-ren`
 - `initial_conditions.mode` -> `-finit` (`Zero`, `Constant`, `Poiseuille`)
 - `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
-- `peak_velocity_physical` (Poiseuille only) -> mapped by `pic.flow` to the inlet-aligned `-ucont_*` component
+- `peak_velocity_physical` (Poiseuille only) -> mapped by `picurv` to the inlet-aligned `-ucont_*` component
 
 For the scaling model and conversion logic, see **@subpage 19_Nondimensionalization**.
 For detailed startup behavior of field initialization modes, see **@subpage 33_Initial_Conditions**.
@@ -43,8 +43,8 @@ Practical contract notes:
 - `mode: "Zero"` may omit velocity components entirely.
 - `mode: "Constant"` requires explicit `u_physical/v_physical/w_physical`.
 - `mode: "Poiseuille"` may use either:
-  - `peak_velocity_physical` for the preferred scalar centerline-speed input, or
-  - `u_physical/v_physical/w_physical` for legacy explicit-component form.
+  - `peak_velocity_physical` for the scalar centerline-speed input, or
+  - `u_physical/v_physical/w_physical` for an explicit component override.
 
 @section run_control_sec 2. run_control
 
@@ -53,12 +53,14 @@ run_control:
   dt_physical: 0.0001
   start_step: 0
   total_steps: 2000
+  restart_from_run_dir: "../runs/flat_channel_20260303-120000"  # optional
 ```
 
 Mappings:
 - `dt_physical` -> `-dt` (non-dimensionalized)
 - `start_step` -> `-start_step`
 - `total_steps` -> `-totalsteps`
+- `restart_from_run_dir` -> `picurv` resolves the prior run's actual restart source directory and emits `-restart_dir <absolute_previous_source>`
 
 @section grid_sec 3. grid
 
@@ -81,7 +83,7 @@ Mode compatibility note:
 
 Dimension contract:
 - `im/jm/km` in YAML are cell counts.
-- `pic.flow` converts them to node counts before emitting `-im/-jm/-km` for the C runtime.
+- `picurv` converts them to node counts before emitting `-im/-jm/-km` for the C runtime.
 
 Important constraint:
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block processor decomposition is not implemented.
@@ -94,7 +96,7 @@ grid:
   source_file: my_grid.picgrid
 ```
 
-`pic.flow` validates existence and prepares normalized grid data for C-side ingestion.
+`picurv` validates existence and prepares normalized grid data for C-side ingestion.
 
 @subsection grid_gen_ssec 3.3 mode: grid_gen
 
@@ -108,7 +110,7 @@ grid:
 ```
 
 This runs `scripts/grid.gen` before solver launch and stages generated grid artifacts into the run config.
-`grid.generator.config_file` is required today; `pic.flow` does not synthesize a temporary grid config.
+`grid.generator.config_file` is required today; `picurv` does not synthesize a temporary grid config.
 `grid.gen` accepts cell-count inputs (`ncells_*` / `--ncells-*`) and writes node counts into the generated `.picgrid` header.
 
 For direct `grid.gen` usage, generator types, and config-file structure, see **@subpage 48_Grid_Generator_Guide**.
@@ -144,7 +146,7 @@ Common mappings:
 
 Restart note:
 
-- if `run_control.start_step > 0`, particles are enabled, and `restart_mode` is omitted, `pic.flow` warns that C will default to `load`.
+- if `run_control.start_step > 0`, particles are enabled, and `restart_mode` is omitted, `picurv` warns that C will default to `load`.
 
 For mode-specific particle behavior and restart flow, see **@subpage 45_Particle_Initialization_and_Restart**.
 

@@ -7,7 +7,7 @@ This tutorial demonstrates `grid.mode: file` using the `bent_channel` template.
 @section init_sec 1. Initialize a Study
 
 ```bash
-./bin/pic.flow init bent_channel --dest my_bent_channel_run
+./bin/picurv init bent_channel --dest my_bent_channel_run
 ```
 
 Expected files:
@@ -34,14 +34,14 @@ grid:
 ```
 
 Behavior:
-- `pic.flow` validates the source grid file exists.
+- `picurv` validates the source grid file exists.
 - Coordinates are non-dimensionalized before C execution using `properties.scaling.length_ref`.
 - Generated normalized grid is staged into run config artifacts.
 
 @section run_sec 3. Run the Case
 
 ```bash
-./bin/pic.flow run \
+./bin/picurv run \
     --case my_bent_channel_run/bent_channel.yml \
     --solver my_bent_channel_run/Imp-MG-Standard.yml \
     --monitor my_bent_channel_run/Standard_Output.yml \

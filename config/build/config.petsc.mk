@@ -1,5 +1,5 @@
 # ==============================================================================
-# config.petsc.mk — PETSc compatibility layer (old + new installs)
+# config.petsc.mk — PETSc environment resolution for supported install layouts
 #
 # Goal: make compilation/linking work on BOTH:
 #   (A) Old-style in-tree PETSc builds that use PETSC_ARCH
@@ -96,4 +96,3 @@ endif
 # $(info PCC_FLAGS=$(PCC_FLAGS))
 # $(info PETSC_CC_INCLUDES=$(PETSC_CC_INCLUDES))
 # $(info PETSC_LIB=$(PETSC_LIB))
-

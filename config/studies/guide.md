@@ -1,6 +1,6 @@
 # Study Config Guide
 
-This directory stores reusable `study.yml` definitions for `pic.flow sweep` workflows.
+This directory stores reusable `study.yml` definitions for `picurv sweep` workflows.
 
 ## Typical Contents
 
@@ -12,7 +12,7 @@ This directory stores reusable `study.yml` definitions for `pic.flow sweep` work
 ## How To Use
 
 ```bash
-./scripts/pic.flow sweep \
+./bin/picurv sweep \
   --study config/studies/grid_independence_example.yml \
   --cluster <cluster.yml>
 ```

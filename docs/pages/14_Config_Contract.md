@@ -1,13 +1,13 @@
 @page 14_Config_Contract Configuration Contract (YAML -> Generated Artifacts -> Runtime)
 
-This page is the user-facing source of truth for the configuration contract implemented by `pic.flow`.
-It describes the launcher-level contract, which may be stricter or more explicit than the raw C defaults because `pic.flow` validates and normalizes inputs before runtime.
+This page is the user-facing source of truth for the configuration contract implemented by `picurv`.
+It describes the launcher-level contract, which may be stricter or more explicit than the raw C defaults because `picurv` validates and normalizes inputs before runtime.
 
 @tableofcontents
 
 @section inputs_sec 1. Required Input Roles
 
-`pic.flow` composes a standard single-run workflow from five logical inputs, with two additional files for cluster/sweep modes:
+`picurv` composes a standard single-run workflow from five logical inputs, with two additional files for cluster/sweep modes:
 
 1. `case.yml`: physics, grid, BC definitions, run control.
 2. `solver.yml`: numerical strategy and solver parameters.
@@ -19,7 +19,7 @@ It describes the launcher-level contract, which may be stricter or more explicit
 6. (Cluster mode) `cluster.yml`: scheduler/resource/launcher contract.
 7. (Sweep mode) `study.yml`: parameter matrix + metrics/plot contract.
 
-You can name files however you want. File names are not hardcoded on the C side; `pic.flow` resolves paths and emits generated artifacts.
+You can name files however you want. File names are not hardcoded on the C side; `picurv` resolves paths and emits generated artifacts.
 
 These roles are intentionally modular:
 
@@ -32,19 +32,19 @@ In normal use, you reuse and mix these files instead of cloning one monolithic c
 
 @section artifacts_sec 2. Generated Artifacts
 
-For each run, `pic.flow` generates:
+For each run, `picurv` generates:
 
 - `<run_id>.control`: master PETSc/control flags for solver/post setup.
 - `bcs.run` or `bcs_block*.run`: boundary condition definitions.
 - `whitelist.run`: logging function allow-list.
-- `profile.run`: profiling critical-function list.
+- `profile.run`: selected per-step profiling function list (only when `profiling.timestep_output.mode: selected`).
 - `post.run`: key=value post-processing recipe consumed by C post parser.
 
 @section case_sec 3. Case Contract Highlights
 
 - `grid.mode` supports: `file`, `programmatic_c`, `grid_gen`.
 - For `programmatic_c`, per-block arrays are supported for geometry (`im/jm/km`, bounds, stretching).
-- `programmatic_c.im/jm/km` are cell counts in YAML; `pic.flow` converts them to node counts before writing `-im/-jm/-km`.
+- `programmatic_c.im/jm/km` are cell counts in YAML; `picurv` converts them to node counts before writing `-im/-jm/-km`.
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block MPI decomposition is not currently supported.
 - For `grid_gen`, `grid.generator.config_file` is required today. `grid.gen` consumes cell counts and writes node counts into `.picgrid`.
 - `boundary_conditions` supports single-block list or multi-block list-of-lists.
@@ -52,8 +52,8 @@ For each run, `pic.flow` generates:
 - `properties.initial_conditions.mode` is required explicitly by the launcher.
 - `properties.initial_conditions.mode: Zero` may omit velocity components.
 - `properties.initial_conditions.mode: Poiseuille` supports:
-  - `peak_velocity_physical` (preferred scalar centerline speed), or
-  - `u_physical/v_physical/w_physical` (legacy explicit component form).
+  - `peak_velocity_physical` (scalar centerline speed), or
+  - `u_physical/v_physical/w_physical` (explicit component override).
 
 @section solver_sec 4. Solver Contract Highlights
 
@@ -71,6 +71,7 @@ Analytical-mode compatibility rule:
 @section monitor_sec 5. Monitor Contract Highlights
 
 - `io.data_output_frequency` -> `-tio`
+- `io.particle_console_output_frequency` -> `-particle_console_output_freq` (defaults to `data_output_frequency` when omitted)
 - `io.particle_log_interval` -> `-logfreq`
 - `io.directories.output/restart/log` -> `-output_dir/-restart_dir/-log_dir`
 - `io.directories.eulerian_subdir/particle_subdir` -> `-euler_subdir/-particle_subdir`
@@ -96,7 +97,7 @@ Analytical-mode compatibility rule:
 - `execution.launcher_args` provides site-specific launch flags.
 - `execution.extra_sbatch` supports scheduler-specific pass-through flags.
 
-`pic.flow run --cluster ...` generates:
+`picurv run --cluster ...` generates:
 - `runs/<run_id>/scheduler/solver.sbatch`
 - `runs/<run_id>/scheduler/post.sbatch`
 - `runs/<run_id>/scheduler/submission.json`
@@ -117,7 +118,7 @@ Analytical-mode compatibility rule:
 - `plotting` controls whether plots are generated and output format.
 - `execution.max_concurrent_array_tasks` maps to Slurm array throttling `%N`.
 
-`pic.flow sweep --study ... --cluster ...` generates:
+`picurv sweep --study ... --cluster ...` generates:
 - `studies/<study_id>/scheduler/case_index.tsv`
 - `studies/<study_id>/scheduler/solver_array.sbatch`
 - `studies/<study_id>/scheduler/post_array.sbatch`
@@ -146,3 +147,4 @@ Examples:
 
 For workflow growth patterns (grid generation orchestration, multi-run studies, and ML coupling paths), see **@subpage 17_Workflow_Extensibility**.
 For worked examples and profile-composition patterns, see **@subpage 49_Workflow_Recipes_and_Config_Cookbook**.
+For selector-specific contributor hook points, see **@subpage 50_Modular_Selector_Extension_Guide**.

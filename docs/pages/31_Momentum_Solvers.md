@@ -6,26 +6,22 @@ This page tracks momentum-solver options accepted by the current configuration a
 
 @section selection_sec 1. Selection and Dispatch
 
-Runtime selection is controlled by `-mom_solver_type`, produced from `solver.yml` (`strategy.momentum_solver` and/or `momentum_solver.type`).
+Runtime selection is controlled by `-mom_solver_type`, produced from `solver.yml` (`strategy.momentum_solver`).
 Dispatch currently happens in function @ref FlowSolver within the step orchestrator.
 
-Accepted canonical values:
+Accepted YAML values:
 
-- `EXPLICIT_RK`
-- `DUALTIME_PICARD_RK4`
-- `DUALTIME_NK_ARNOLDI`
-- `DUALTIME_NK_ANALYTICAL_JACOBIAN`
+- `Explicit RK4` -> `EXPLICIT_RK`
+- `Dual Time Picard RK4` -> `DUALTIME_PICARD_RK4`
 
-Normalization of user aliases is handled in `scripts/pic.flow` (`normalize_momentum_solver_type`).
+Only implemented values are exposed in the enum, parser, and dispatcher. New
+solver values should be added only with a real implementation plus matching
+parser, docs, and test updates.
 
 @section status_sec 2. Implementation Status Matrix
 
 - `EXPLICIT_RK`: implemented by @ref MomentumSolver_Explicit_RungeKutta4
 - `DUALTIME_PICARD_RK4`: implemented by @ref MomentumSolver_DualTime_Picard_RK4
-- `DUALTIME_NK_ARNOLDI`: enum/parser path exists; runtime implementation is placeholder in current dispatch path
-- `DUALTIME_NK_ANALYTICAL_JACOBIAN`: enum/parser path exists; runtime implementation is placeholder in current dispatch path
-
-If an unimplemented enum is selected, dispatch currently logs warning behavior.
 
 @section controls_sec 3. Numerical Controls In Use
 
@@ -46,7 +42,7 @@ Defaults and final option ingestion are in function @ref CreateSimulationContext
 Required steps:
 
 1. define solver implementation function in `src/momentumsolvers.c`,
-2. ensure enum and parser mapping are present (`variables.h`, `setup.c`, `scripts/pic.flow`),
+2. ensure enum and parser mapping are present (`variables.h`, `setup.c`, `scripts/picurv`),
 3. add dispatch branch in function @ref FlowSolver for the new enum value,
 4. expose and document solver-specific YAML options,
 5. add smoke tests and docs updates.
@@ -56,3 +52,4 @@ For user-facing contract updates, also update:
 - **@subpage 08_Solver_Reference**
 - **@subpage 14_Config_Contract**
 - **@subpage 40_Testing_and_Quality_Guide**
+- **@subpage 50_Modular_Selector_Extension_Guide**

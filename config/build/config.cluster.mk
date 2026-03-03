@@ -17,8 +17,8 @@
 SYSTEM_NAME := HPC Cluster Environment
 
 # --- 2. Prerequisite Checks & PETSc Integration ---
-# Verify PETSC_DIR is set, then include a compatibility layer that supports
-# both old-style (PETSC_ARCH) and new-style (installed prefix) PETSc installs.
+# Verify PETSC_DIR is set, then include the shared PETSc environment resolver
+# for both PETSC_ARCH and installed-prefix layouts.
 ifndef PETSC_DIR
     $(error PETSC_DIR is not set. Did you forget to 'module load petsc' or export PETSC_DIR?)
 endif

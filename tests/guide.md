@@ -1,6 +1,6 @@
 # Tests Guide
 
-This directory contains automated smoke and regression checks for `pic.flow`.
+This directory contains automated smoke and regression checks for `picurv`.
 
 ## Layout
 

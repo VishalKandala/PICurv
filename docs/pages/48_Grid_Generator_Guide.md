@@ -1,7 +1,7 @@
 @page 48_Grid_Generator_Guide Grid Generator Guide: scripts/grid.gen
 
 `scripts/grid.gen` is the standalone structured-grid generation utility used by the `grid.mode: grid_gen` workflow.
-This page documents what it can generate directly, how its config files work, and how `pic.flow` wraps it.
+This page documents what it can generate directly, how its config files work, and how `picurv` wraps it.
 
 @tableofcontents
 
@@ -87,7 +87,7 @@ Depending on settings, `grid.gen` can emit:
 
 @section case_sec 6. Using `grid.gen` Through `case.yml`
 
-`pic.flow` wraps the generator through:
+`picurv` wraps the generator through:
 
 ```yaml
 grid:
@@ -101,11 +101,11 @@ grid:
 Current contract notes:
 
 - `grid.generator.config_file` is required today.
-- `pic.flow` does not generate a temporary `grid.cfg` for `grid.gen`.
+- `picurv` does not generate a temporary `grid.cfg` for `grid.gen`.
 - `grid.gen` input dimensions (`ncells_*`, `--ncells-*`) are cell counts.
 - `grid.gen` converts those to node counts before writing the `.picgrid` header.
 
-Behavior in `pic.flow`:
+Behavior in `picurv`:
 
 1. validate generator config path and wrapper settings,
 2. call `scripts/grid.gen`,

@@ -15,7 +15,7 @@ This contract is already explicit in pages 14/15/16 and the ingress audit toolin
 @section grid_sec 2. Grid Workflow Extensions
 
 Supported today:
-- External grid ingestion (`grid.mode: file`) with validation and non-dimensionalization in `pic.flow`
+- External grid ingestion (`grid.mode: file`) with validation and non-dimensionalization in `picurv`
 - Pre-run generation (`grid.mode: grid_gen`) via `scripts/grid.gen`
 
 Extension-friendly next steps:
@@ -25,7 +25,7 @@ Extension-friendly next steps:
 
 @section orchestration_sec 3. Multi-Run Orchestration (Sweeps/Studies)
 
-Implemented in current `pic.flow`:
+Implemented in current `picurv`:
 - `run --cluster <cluster.yml>` for Slurm-backed single-run scheduling
 - `sweep --study <study.yml> --cluster <cluster.yml>` for matrix expansion + array submission
 - post-stage dependency chaining (`afterok`)
@@ -52,7 +52,7 @@ This requires minimal C changes and is ideal for rapid iteration.
 For in-solver inference:
 1. add runtime-selectable closure model interface in `ParticlePhysics.c`,
 2. expose model type and parameters in schema,
-3. map/validate in `pic.flow`,
+3. map/validate in `picurv`,
 4. ingest in `setup.c`,
 5. wire in particle update path.
 

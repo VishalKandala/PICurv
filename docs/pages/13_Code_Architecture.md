@@ -6,12 +6,12 @@ This page is the developer-oriented map of the current PICurv C codebase.
 
 @section entry_sec 1. Executable Entry Points
 
-- Solver executable entry: `src/picsolver.c`
+- Solver executable entry: `src/simulator.c`
 - Postprocessor executable entry: `src/postprocessor.c`
 
 Both rely on shared setup/context infrastructure from `setup.c`, `io.c`, and `variables.h`.
 
-@section solver_flow_sec 2. Solver Runtime Flow (picsolver.c)
+@section solver_flow_sec 2. Solver Runtime Flow (simulator.c)
 
 High-level stages:
 
@@ -88,13 +88,13 @@ Not all option consumption is explicit `PetscOptionsGet*`; PETSc dynamic ingesti
 
 - New user-visible config key:
   1. add schema/template key
-  2. validate/map in `scripts/pic.flow`
+  2. validate/map in `scripts/picurv`
   3. parse in `setup.c` or `io.c`
   4. wire runtime consumer
   5. update docs pages 14/15/16
 - New post kernel:
   - implement in `postprocessing_kernels.c`
-  - expose task mapping in `pic.flow`
+  - expose task mapping in `picurv`
   - document in post reference
 - New particle model:
   - extend `ParticlePhysics.c`/`ParticleMotion.c` interface

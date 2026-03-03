@@ -7,8 +7,8 @@ This page explains how to verify the Iteration A CLI features end-to-end, how th
 @section scope_sec 1. What This Guide Covers
 
 Iteration A introduced:
-- `pic.flow validate`
-- `pic.flow run --dry-run` and `--format json`
+- `picurv validate`
+- `picurv run --dry-run` and `--format json`
 - standardized error envelope:
   - `ERROR <CODE> | key=<...> | file=<...> | message=<...> | hint=<...>`
 - CI workflow for CLI smoke tests and markdown link checks
@@ -26,9 +26,9 @@ Run from repository root.
 @subsection help_smoke_ssec 2.1 Command Discovery Smoke
 
 ```bash
-./bin/pic.flow --help
-./bin/pic.flow run --help
-./bin/pic.flow validate --help
+./bin/picurv --help
+./bin/picurv run --help
+./bin/picurv validate --help
 ```
 
 Expected:
@@ -41,7 +41,7 @@ Expected:
 Valid fixture set:
 
 ```bash
-./bin/pic.flow validate \
+./bin/picurv validate \
   --case tests/fixtures/valid/case.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml \
@@ -57,7 +57,7 @@ Expected:
 Invalid fixture example:
 
 ```bash
-./bin/pic.flow validate \
+./bin/picurv validate \
   --case tests/fixtures/invalid/case_missing_properties.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml
@@ -72,7 +72,7 @@ Expected:
 Human-readable plan:
 
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case tests/fixtures/valid/case.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml \
@@ -83,7 +83,7 @@ Human-readable plan:
 Machine-readable plan:
 
 ```bash
-./bin/pic.flow run --solve --post-process \
+./bin/picurv run --solve --post-process \
   --case tests/fixtures/valid/case.yml \
   --solver tests/fixtures/valid/solver.yml \
   --monitor tests/fixtures/valid/monitor.yml \
@@ -97,7 +97,7 @@ Expected:
 
 @section code_map_sec 3. Code Map (Where Behavior Lives)
 
-Primary implementation in `scripts/pic.flow`:
+Primary implementation in `scripts/picurv`:
 - standardized error emitter: `emit_structured_error(...)`
 - CLI usage failure exit code (`2`): `fail_cli_usage(...)`
 - dry-run plan builder: `build_run_dry_plan(args)`

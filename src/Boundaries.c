@@ -651,30 +651,6 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 
 
 #undef __FUNCT__
-#define __FUNCT__ "TranslateModernBCsToLegacy"
-
-PetscErrorCode TranslateModernBCsToLegacy(UserCtx *user)
-{
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    LOG_ALLOW(GLOBAL,LOG_DEBUG," Translating modern BC config to legacy integer codes...\n");
-
-    for (int i = 0; i < 6; i++) {
-      BCType modern_type = user->boundary_faces[i].mathematical_type;
-      user->bctype[i] = (int)modern_type;
-
-      
-      BCFace current_face = (BCFace)i;
-      const char* face_str  = BCFaceToString(current_face);
-      const char* bc_type_str = BCTypeToString(modern_type);
-      LOG_ALLOW(GLOBAL,LOG_TRACE," for face %s(%d), legacy type = %d & modern type = %s .\n",face_str,i,user->bctype[i],bc_type_str);
-    }
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"    -> Translation complete.\n");
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
 #define __FUNCT__ "EnforceRHSBoundaryConditions"
 /**
  * @brief Enforces boundary conditions on the momentum equation's Right-Hand-Side (RHS) vector.
@@ -1160,7 +1136,7 @@ PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx)
                 user_coarse->boundary_faces[face_i].handler = NULL;
             }
             
-            // Also propagate legacy compatibility fields if needed
+            // Propagate the particle inlet lookup fields to coarse levels as well.
             user_coarse->inletFaceDefined = user_fine->inletFaceDefined;
             user_coarse->identifiedInletBCFace = user_fine->identifiedInletBCFace;
         }
@@ -1585,7 +1561,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         ierr = MPI_Allreduce(&local_outflow_post, &global_outflow_post, 1, MPIU_REAL,
                             MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
         
-        // Store for legacy compatibility and reporting
+        // Store for global reporting.
         user->simCtx->FluxOutSum = global_outflow_post;
         
         // Conservation check (compare total outflow vs total inflow)

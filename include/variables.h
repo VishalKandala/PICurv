@@ -453,12 +453,14 @@ typedef enum {
 //               8. MULTIGRID, SOLVERS AND POST-PROCESSING STRUCTS AND ENUMS
 //--------------------------------------------------------------------------------
 
-/** @brief Enumerator to identify the various momentumsolvers */
+/** @brief Enumerator to identify the implemented momentum solver strategies.
+ *
+ * Add new enum values only when the parser, runtime dispatch, docs, and tests
+ * are updated in the same change.
+ */
 typedef enum{
     MOMENTUM_SOLVER_EXPLICIT_RK = 0,
-    MOMENTUM_SOLVER_DUALTIME_PICARD_RK4 = 1,
-    MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI = 2,
-    MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN = 3
+    MOMENTUM_SOLVER_DUALTIME_PICARD_RK4 = 1
 } MomentumSolverType;
 
 /** @brief Enumerator to identify the particle initialization strategy. */
@@ -517,7 +519,7 @@ typedef struct PostProcessParams {
     PetscInt particle_output_freq;
 
     // --- Statistics Pipeline (global reductions → CSV files) ---
-    char statistics_pipeline[MAX_PIPELINE_LENGTH];      /**< e.g. "ComputeMSD; ComputeVelocityPDF" */
+    char statistics_pipeline[MAX_PIPELINE_LENGTH];      /**< e.g. "ComputeMSD" */
     char statistics_output_prefix[MAX_FILENAME_LENGTH]; /**< basename for CSV output, e.g. "Stats" */
 
     // --- Legacy settings ---
@@ -599,11 +601,11 @@ typedef struct SimCtx {
     PetscInt  StartStep;
     PetscInt  StepsToRun;
     PetscInt  tiout;
+    PetscInt  particleConsoleOutputFreq;
     PetscReal StartTime;
     PetscReal dt;
     PetscBool OnlySetup;
     PetscViewer logviewer;
-    PetscInt    OutputFreq;
     ExecutionMode exec_mode;
     char eulerianSource[PETSC_MAX_PATH_LEN];
     char restart_dir[PETSC_MAX_PATH_LEN];
@@ -710,10 +712,13 @@ typedef struct SimCtx {
     PetscReal MaxDiv;
     PetscInt  MaxDivFlatArg, MaxDivx,MaxDivy,MaxDivz;
     // Profiling 
-    char      criticalFuncsFile[PETSC_MAX_PATH_LEN];
-    PetscBool useCriticalFuncsCfg;
-    char      **criticalFuncs;
-    PetscInt  nCriticalFuncs;
+    char      profilingSelectedFuncsFile[PETSC_MAX_PATH_LEN];
+    PetscBool useProfilingSelectedFuncsCfg;
+    char      **profilingSelectedFuncs;
+    PetscInt  nProfilingSelectedFuncs;
+    char      profilingTimestepMode[32];
+    char      profilingTimestepFile[PETSC_MAX_PATH_LEN];
+    PetscBool profilingFinalSummary;
 
     //================ Group 12: Post-Processing =================================================
     char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];
@@ -753,7 +758,6 @@ typedef struct UserCtx {
     BCFace    identifiedInletBCFace;
     BCS       Bcs;
     Vec       lFriction_Velocity; 
-    PetscInt  bctype[6]; // Legacy BC setup
     PetscReal FluxIntpSum,FluxIntfcSum;
 
     // --- Primary Flow Fields (Global & Local Views) ---

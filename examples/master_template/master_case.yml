@@ -1,5 +1,5 @@
 # ==============================================================================
-#                 PIC-Flow Master Case Configuration Template
+#                 PICurv Master Case Configuration Template
 # ==============================================================================
 #
 # PURPOSE:
@@ -33,6 +33,11 @@ run_control:
   # Total number of timesteps to execute in this run.
   # Total simulation time = total_steps * dt_physical.
   total_steps: 2000
+
+  # Optional: point to a previous run directory to automate restart source
+  # resolution. picurv will inspect <that_run>/config/monitor.yml and map
+  # the old restart directory into the new control file automatically.
+  # restart_from_run_dir: "../runs/flat_channel_20260303-120000"
 
   # The physical time increment for each step, in seconds [s].
   dt_physical: 0.001
@@ -69,7 +74,7 @@ properties:
     # --- Initial Velocity ---
     # For 'Constant': set u_physical/v_physical/w_physical.
     # For 'Poiseuille': prefer 'peak_velocity_physical' (scalar Vmax mapped to the
-    # primary inlet axis), or use u_physical/v_physical/w_physical for legacy compatibility.
+    # primary inlet axis), or use u_physical/v_physical/w_physical as an explicit component override.
     # peak_velocity_physical: 1.0
     # Values are in physical units [m/s].
     u_physical: 0.0
@@ -107,7 +112,7 @@ grid:
 
   # --- Option C: Programmatic Grid Generation in C ---
   # Use this to have the C solver generate a structured Cartesian grid.
-  # `im/jm/km` are cell counts in YAML; pic.flow converts them to node counts
+  # `im/jm/km` are cell counts in YAML; picurv converts them to node counts
   # before emitting `-im/-jm/-km` for the C runtime.
   # For MULTI-BLOCK cases, all values must be LISTS of the same length.
   programmatic_settings:
@@ -161,7 +166,7 @@ models:
 
     particles:
       count: 0             # [Integer] -> -numParticles
-      init_mode: "Surface" # [string] -> -pinit. Options: "Surface"(0), "Volume"(1), "PointSource"(2), "SurfaceEdges"(3)
+      init_mode: "Surface" # [string] -> -pinit. Options: "Surface", "Volume", "PointSource", "SurfaceEdges"
       restart_mode: "init" # [string] -> -particle_restart_mode. Options: "init", "load"
       point_source:        # Required only when init_mode = "PointSource" (maps to -psrc_x/-psrc_y/-psrc_z)
         x: 0.5

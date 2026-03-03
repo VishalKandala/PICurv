@@ -57,7 +57,7 @@ Mappings in generated `post.run`:
 @section source_sec 3. source_data
 
 - `source_data.directory` -> `source_directory`
-- `<solver_output_dir>` is a supported placeholder resolved by `pic.flow`.
+- `<solver_output_dir>` is a supported placeholder resolved by `picurv`.
 
 @section pipelines_sec 4. Processing Pipelines
 
@@ -78,7 +78,7 @@ Lagrangian tasks (`lagrangian_pipeline`):
 - list form, or
 - mapping with `tasks` and optional `output_prefix`
 
-Currently supported task alias set maps to C kernel `ComputeMSD`.
+Currently supported statistics task is `msd`, which `picurv` translates to the C kernel `ComputeMSD`.
 
 Mappings:
 - tasks -> `statistics_pipeline`
@@ -106,3 +106,4 @@ Proceed to **@subpage 11_User_How_To_Guides** for goal-oriented recipes.
 For mapping and extension details:
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
+- **@subpage 50_Modular_Selector_Extension_Guide**

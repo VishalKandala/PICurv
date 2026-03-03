@@ -14,7 +14,7 @@ Code reference:
 
 | Code | Meaning | Typical Fix |
 |---|---|---|
-| `CLI_USAGE_INVALID` | Invalid argument combination | Run `pic.flow <command> --help` and follow required flag groups. |
+| `CLI_USAGE_INVALID` | Invalid argument combination | Run `picurv <command> --help` and follow required flag groups. |
 | `CFG_MISSING_SECTION` | Required YAML section missing | Add section from `examples/master_template/*.yml`. |
 | `CFG_MISSING_KEY` | Required YAML key missing | Add required key at the reported path. |
 | `CFG_INVALID_TYPE` | Wrong YAML value type | Change scalar/list/mapping type per contract docs. |
@@ -27,7 +27,7 @@ Code reference:
 
 | Message fragment | Likely cause | Fix command(s) |
 |---|---|---|
-| `[FATAL] --post-process requires --run-dir when not used with --solve.` | Post-only run missing input run directory | `pic.flow run --post-process --run-dir runs/<run_id> --post post.yml` |
+| `[FATAL] --post-process requires --run-dir when not used with --solve.` | Post-only run missing input run directory | `picurv run --post-process --run-dir runs/<run_id> --post post.yml` |
 | `[FATAL] Could not automatically identify required config files in <run>/config` | Missing/renamed `case.yml`, `monitor.yml`, or `*.control` | Re-run solve stage or restore expected files under `runs/<run_id>/config/`. |
 | `[FATAL] Source data directory for post-processing not found or empty` | Post source data path points to missing/empty solver output | Verify monitor output directory and existing solver output files. |
 | `[FATAL] Unsupported scheduler '<x>'. Only Slurm is supported in v1.` | `cluster.yml` has unsupported scheduler type | Set `cluster.yml -> scheduler.type: slurm`. |
@@ -47,19 +47,19 @@ Code reference:
 1. Run config-only checks first:
 
 ```bash
-./bin/pic.flow validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml
+./bin/picurv validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml
 ```
 
 2. Preview launch plan:
 
 ```bash
-./bin/pic.flow run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run
+./bin/picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run
 ```
 
 3. If cluster path is used, validate `cluster.yml` separately:
 
 ```bash
-./bin/pic.flow validate --cluster cluster.yml
+./bin/picurv validate --cluster cluster.yml
 ```
 
 Related pages:

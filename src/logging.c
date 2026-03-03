@@ -31,7 +31,8 @@ static int gNumAllowed = 0;
  * @brief Retrieves the current logging level from the environment variable `LOG_LEVEL`.
  *
  * The function checks the `LOG_LEVEL` environment variable and sets the logging level accordingly.
- * Supported levels are "DEBUG", "INFO", "WARNING", and defaults to "ERROR" if not set or unrecognized.
+ * Supported levels are "ERROR", "WARNING", "INFO", "DEBUG", "TRACE", and "VERBOSE".
+ * Unrecognized values default to "ERROR".
  * The log level is cached after the first call to avoid repeated environment variable checks.
  *
  * @return LogLevel The current logging level.
@@ -50,9 +51,6 @@ LogLevel get_log_level() {
         }
         else if (strcmp(env, "WARNING") == 0) {
             current_log_level = LOG_WARNING;
-        }
-        else if (strcmp(env, "PROFILE") == 0) {  // <-- New profile level
-            current_log_level = LOG_PROFILE;
         }
         else if (strcmp(env, "VERBOSE") == 0) {
             current_log_level = LOG_VERBOSE;
@@ -75,7 +73,7 @@ LogLevel get_log_level() {
  * at runtime.
  *
  * @note The log level is determined from the `LOG_LEVEL` environment variable.
- *       If `LOG_LEVEL` is not set, it defaults to `LOG_INFO`.
+ *       If `LOG_LEVEL` is not set, it defaults to `LOG_ERROR`.
  *
  * @see get_log_level()
  */
@@ -98,7 +96,7 @@ PetscErrorCode print_log_level(void)
                (level == LOG_DEBUG)   ? "DEBUG"   :
                (level == LOG_VERBOSE) ? "VERBOSE" :
                (level == LOG_TRACE)   ? "TRACE"   :
-               (level == LOG_PROFILE) ? "PROFILE" : "UNKNOWN";
+               "UNKNOWN";
 
   /* print it out */
   ierr = PetscPrintf(PETSC_COMM_SELF,
@@ -116,8 +114,7 @@ PetscErrorCode print_log_level(void)
  * @param count The number of entries in the array.
  *
  * The existing allow-list is cleared and replaced by the new one.
- * If you pass an empty list (count = 0), then no function will be allowed
- * unless you change it later.
+ * If you pass an empty list (count = 0), all functions are allowed.
  */
 void set_allowed_functions(const char** functionList, int count)
 {
@@ -150,9 +147,8 @@ void set_allowed_functions(const char** functionList, int count)
  * @param functionName The name of the function to check.
  * @return PETSC_TRUE if functionName is allowed, otherwise PETSC_FALSE.
  *
- * If no functions are in the list, nothing is allowed by default.
- * You can reverse this logic if you prefer to allow everything
- * unless specified otherwise.
+ * If the internal list is empty, all functions are allowed. Setup is expected
+ * to reject invalid explicit empty whitelist files before reaching this layer.
  */
 PetscBool is_function_allowed(const char* functionName)
 {
@@ -518,6 +514,33 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     return 0;
 }
 
+PetscBool IsParticleConsoleSnapshotEnabled(const SimCtx *simCtx)
+{
+    if (!simCtx) {
+        return PETSC_FALSE;
+    }
+    return (PetscBool)(simCtx->np > 0 &&
+                       simCtx->particleConsoleOutputFreq > 0 &&
+                       get_log_level() >= LOG_INFO);
+}
+
+PetscBool ShouldEmitPeriodicParticleConsoleSnapshot(const SimCtx *simCtx, PetscInt completed_step)
+{
+    return (PetscBool)(IsParticleConsoleSnapshotEnabled(simCtx) &&
+                       completed_step > 0 &&
+                       completed_step % simCtx->particleConsoleOutputFreq == 0);
+}
+
+PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscInt step)
+{
+    PetscErrorCode ierr;
+
+    PetscFunctionBeginUser;
+    LOG(GLOBAL, LOG_INFO, "Particle states at step %d:\n", step);
+    ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
 
 static void trim(char *s)
 {
@@ -708,8 +731,6 @@ const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag)
     switch(SolverFlag){
         case MOMENTUM_SOLVER_EXPLICIT_RK: return "Explicit 4 stage Runge-Kutta ";
         case MOMENTUM_SOLVER_DUALTIME_PICARD_RK4: return "Dual Time Stepping with Picard Iterations and 4 stage Runge-Kutta Smoothing";
-        case MOMENTUM_SOLVER_DUALTIME_NK_ANALYTIC_JACOBIAN: return "Dual Time Stepping with Newton-Krylov Iterations and Analytic Jacobian";
-        case MOMENTUM_SOLVER_DUALTIME_NK_ARNOLDI: return "Dual Time Stepping with Newton-Krylov Arnoldi Iteration Method.";
         default: return "Unknown Momentum Solver Type";
     }
 }
@@ -1018,9 +1039,9 @@ PetscErrorCode ProfilingInitialize(SimCtx *simCtx)
     if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be null for ProfilingInitialize");
 
     // Iterate through the list of critical functions provided in SimCtx
-    for (PetscInt i = 0; i < simCtx->nCriticalFuncs; ++i) {
+    for (PetscInt i = 0; i < simCtx->nProfilingSelectedFuncs; ++i) {
         PetscInt idx;
-        const char *func_name = simCtx->criticalFuncs[i];
+        const char *func_name = simCtx->profilingSelectedFuncs[i];
         PetscErrorCode ierr = _FindOrCreateEntry(func_name, &idx); CHKERRQ(ierr);
         g_profiler_registry[idx].always_log = PETSC_TRUE;
 
@@ -1061,37 +1082,65 @@ PetscErrorCode ProfilingResetTimestepCounters(void)
     PetscFunctionReturn(0);
 }
 
-PetscErrorCode ProfilingLogTimestepSummary(PetscInt step)
+PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
 {
-    LogLevel log_level = get_log_level();
-    PetscBool should_print = PETSC_FALSE;
+    PetscBool should_write = PETSC_FALSE;
+    FILE *f = NULL;
+    char filen[PETSC_MAX_PATH_LEN];
 
     PetscFunctionBeginUser;
+    if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be null for ProfilingLogTimestepSummary");
 
-    // Decide if we should print anything at all
-    if (log_level >= LOG_PROFILE) {
+    if (strcmp(simCtx->profilingTimestepMode, "off") == 0) {
         for (PetscInt i = 0; i < g_profiler_count; ++i) {
-            if (g_profiler_registry[i].current_step_call_count > 0) {
-                 if (log_level == LOG_PROFILE || g_profiler_registry[i].always_log) {
-                    should_print = PETSC_TRUE;
-                    break;
-                 }
-            }
+            g_profiler_registry[i].current_step_time = 0.0;
+            g_profiler_registry[i].current_step_call_count = 0;
+        }
+        PetscFunctionReturn(0);
+    }
+
+    for (PetscInt i = 0; i < g_profiler_count; ++i) {
+        if (g_profiler_registry[i].current_step_call_count <= 0) {
+            continue;
+        }
+        if (strcmp(simCtx->profilingTimestepMode, "all") == 0 || g_profiler_registry[i].always_log) {
+            should_write = PETSC_TRUE;
+            break;
         }
     }
-    
-    if (should_print) {
-        PetscPrintf(PETSC_COMM_SELF, "[PROFILE] ----- Timestep %d Summary -----\n", step);
-        for (PetscInt i = 0; i < g_profiler_count; ++i) {
-            if (g_profiler_registry[i].current_step_call_count > 0) {
-                if (log_level == LOG_PROFILE || g_profiler_registry[i].always_log) {
-                    PetscPrintf(PETSC_COMM_SELF, "[PROFILE]   %-25s: %.6f s (%lld calls)\n",
-                                g_profiler_registry[i].name,
-                                g_profiler_registry[i].current_step_time,
-                                g_profiler_registry[i].current_step_call_count);
-                }
+
+    if (should_write && simCtx->rank == 0) {
+        snprintf(filen, sizeof(filen), "%s/%s", simCtx->log_dir, simCtx->profilingTimestepFile);
+        if (step == simCtx->StartStep + 1) {
+            f = fopen(filen, "w");
+            if (!f) {
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open profiling timestep log file: %s", filen);
+            }
+            PetscFPrintf(PETSC_COMM_SELF, f, "step,function,calls,step_time_s\n");
+        } else {
+            f = fopen(filen, "a");
+            if (!f) {
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open profiling timestep log file: %s", filen);
             }
         }
+
+        for (PetscInt i = 0; i < g_profiler_count; ++i) {
+            if (g_profiler_registry[i].current_step_call_count <= 0) {
+                continue;
+            }
+            if (strcmp(simCtx->profilingTimestepMode, "all") == 0 || g_profiler_registry[i].always_log) {
+                PetscFPrintf(
+                    PETSC_COMM_SELF,
+                    f,
+                    "%d,%s,%lld,%.6f\n",
+                    (int)step,
+                    g_profiler_registry[i].name,
+                    g_profiler_registry[i].current_step_call_count,
+                    g_profiler_registry[i].current_step_time
+                );
+            }
+        }
+        fclose(f);
     }
 
     // Reset per-step counters for the next iteration
@@ -1124,6 +1173,7 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
 {
     PetscInt rank = simCtx->rank;
     PetscFunctionBeginUser;
+    if (!simCtx->profilingFinalSummary) PetscFunctionReturn(0);
     if (!rank) {
         
         const char exec_mode_modifier[MAX_FILENAME_LENGTH]; 
