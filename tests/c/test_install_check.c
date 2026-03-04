@@ -2,12 +2,18 @@
 
 #include <stdlib.h>
 
+#ifdef PETSC_ERR_ENVIRONMENT
+#define PICURV_TEST_ERR_ENVIRONMENT PETSC_ERR_ENVIRONMENT
+#else
+#define PICURV_TEST_ERR_ENVIRONMENT PETSC_ERR_USER_INPUT
+#endif
+
 static PetscErrorCode TestEnvironmentVisible(void)
 {
     const char *petsc_dir = getenv("PETSC_DIR");
 
     PetscFunctionBeginUser;
-    PetscCheck(petsc_dir && petsc_dir[0] != '\0', PETSC_COMM_SELF, PETSC_ERR_ENVIRONMENT,
+    PetscCheck(petsc_dir && petsc_dir[0] != '\0', PETSC_COMM_SELF, PICURV_TEST_ERR_ENVIRONMENT,
                "PETSC_DIR is not set in the environment.");
     PetscFunctionReturn(0);
 }
@@ -34,7 +40,7 @@ static PetscErrorCode TestBasicPetscObjects(void)
     PetscCall(DMSetDimension(swarm, 3));
     PetscCall(DMSwarmSetType(swarm, DMSWARM_BASIC));
     PetscCall(DMSwarmSetCellDM(swarm, da));
-    PetscCall(RegisterSwarmField(swarm, "position", 3, PETSC_REAL));
+    PetscCall(DMSwarmRegisterPetscDatatypeField(swarm, "position", 3, PETSC_REAL));
     PetscCall(DMSwarmFinalizeFieldRegister(swarm));
     PetscCall(DMSwarmSetLocalSizes(swarm, 1, 0));
 
