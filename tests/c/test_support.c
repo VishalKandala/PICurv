@@ -26,6 +26,13 @@ static PetscErrorCode DestroyDMIfSet(DM *dm)
     PetscFunctionReturn(0);
 }
 
+static PetscErrorCode RegisterSwarmFieldForTests(DM swarm, const char *field_name, PetscInt field_dim, PetscDataType dtype)
+{
+    PetscFunctionBeginUser;
+    PetscCall(DMSwarmRegisterPetscDatatypeField(swarm, field_name, field_dim, dtype));
+    PetscFunctionReturn(0);
+}
+
 PetscErrorCode PicurvRunTests(const char *suite_name, const PicurvTestCase *cases, size_t case_count)
 {
     PetscFunctionBeginUser;
@@ -225,10 +232,10 @@ PetscErrorCode PicurvCreateSwarmPair(UserCtx *user, PetscInt nlocal, const char 
     PetscCall(DMSetDimension(user->swarm, 3));
     PetscCall(DMSwarmSetType(user->swarm, DMSWARM_BASIC));
     PetscCall(DMSwarmSetCellDM(user->swarm, user->da));
-    PetscCall(RegisterSwarmField(user->swarm, "position", 3, PETSC_REAL));
-    PetscCall(RegisterSwarmField(user->swarm, "velocity", 3, PETSC_REAL));
-    PetscCall(RegisterSwarmField(user->swarm, "weight", 3, PETSC_REAL));
-    PetscCall(RegisterSwarmField(user->swarm, "Psi", 1, PETSC_REAL));
+    PetscCall(RegisterSwarmFieldForTests(user->swarm, "position", 3, PETSC_REAL));
+    PetscCall(RegisterSwarmFieldForTests(user->swarm, "velocity", 3, PETSC_REAL));
+    PetscCall(RegisterSwarmFieldForTests(user->swarm, "weight", 3, PETSC_REAL));
+    PetscCall(RegisterSwarmFieldForTests(user->swarm, "Psi", 1, PETSC_REAL));
     PetscCall(DMSwarmFinalizeFieldRegister(user->swarm));
     PetscCall(DMSwarmSetLocalSizes(user->swarm, nlocal, 0));
 
@@ -237,7 +244,7 @@ PetscErrorCode PicurvCreateSwarmPair(UserCtx *user, PetscInt nlocal, const char 
     PetscCall(DMSetDimension(user->post_swarm, 3));
     PetscCall(DMSwarmSetType(user->post_swarm, DMSWARM_BASIC));
     PetscCall(DMSwarmSetCellDM(user->post_swarm, user->da));
-    PetscCall(RegisterSwarmField(user->post_swarm, post_field_name, 1, PETSC_REAL));
+    PetscCall(RegisterSwarmFieldForTests(user->post_swarm, post_field_name, 1, PETSC_REAL));
     PetscCall(DMSwarmFinalizeFieldRegister(user->post_swarm));
     PetscCall(DMSwarmSetLocalSizes(user->post_swarm, nlocal, 0));
     PetscFunctionReturn(0);

@@ -4,7 +4,6 @@
 #include <stddef.h>
 
 #include "variables.h"
-#include "ParticleSwarm.h"
 
 typedef PetscErrorCode (*PicurvTestFn)(void);
 

@@ -1,0 +1,34 @@
+# ==============================================================================
+#
+#      Local Wrapper Makefile For Ubuntu/Debian PETSc 3.19 Package Testing
+#
+# ==============================================================================
+#
+# Purpose:
+#   This wrapper preserves the main Makefile's strict PETSc configuration model
+#   for production (for example PETSc 3.20.3 on the cluster), while providing a
+#   convenient local entrypoint for the system PETSc package installed at
+#   /usr/lib/petsc on Ubuntu/Debian machines.
+#
+# Usage:
+#   make -f Makefile.local-petsc19 doctor
+#   make -f Makefile.local-petsc19 unit
+#   make -f Makefile.local-petsc19 simulator
+#
+# Notes:
+#   - This is for local compatibility testing only.
+#   - Production/cluster builds should continue to use the main Makefile and an
+#     explicitly provisioned PETSC_DIR/PETSC_ARCH for PETSc 3.20.3.
+#
+# ==============================================================================
+
+SYSTEM ?= local
+PETSC19_DIR ?= /usr/lib/petsc
+
+.PHONY: all
+
+all:
+	@$(MAKE) -f Makefile SYSTEM=$(SYSTEM) PETSC_DIR="$(PETSC19_DIR)" PETSC_ARCH= all
+
+%:
+	@$(MAKE) -f Makefile SYSTEM=$(SYSTEM) PETSC_DIR="$(PETSC19_DIR)" PETSC_ARCH= $@
