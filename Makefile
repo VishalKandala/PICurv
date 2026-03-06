@@ -96,11 +96,16 @@ TESTBINDIR := $(BINDIR)/tests
 SMOKEDIR := tests/smoke
 SMOKE_RUNNER := $(SMOKEDIR)/run_smoke.sh
 TEST_NPROCS ?= 1
+TEST_MPI_NPROCS ?= 2
+SMOKE_MPI_NPROCS ?= $(TEST_MPI_NPROCS)
+SMOKE_MPI_MATRIX_NPROCS ?= 2 3
+PY_COVERAGE_MIN ?= 30
+C_COVERAGE_MIN ?= 55
 
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
 SYSTEM ?= local
-NO_CONFIG_GOALS := test test-python doctor install-check audit-ingress build-docs open-docs tags clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress build-docs open-docs tags clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 NEEDS_BUILD_CONFIG := 1
 
 ifneq ($(MAKECMDGOALS),)
@@ -119,6 +124,10 @@ endif
 $(info Building for system: $(SYSTEM_NAME))
 endif
 
+ifeq ($(COVERAGE),1)
+CFLAGS_TO_USE += --coverage
+LIBS_TO_USE += --coverage
+endif
 
 # --- 3. Source & Object File Definitions ---
 # Explicitly list the object files required for each final executable.
@@ -151,6 +160,7 @@ UNIT_METRIC_EXE   := $(TESTBINDIR)/unit_metric
 UNIT_BOUNDARIES_EXE := $(TESTBINDIR)/unit_boundaries
 UNIT_POISSON_RHS_EXE := $(TESTBINDIR)/unit_poisson_rhs
 UNIT_RUNTIME_EXE := $(TESTBINDIR)/unit_runtime
+UNIT_MPI_EXE := $(TESTBINDIR)/unit_mpi
 TEST_CFLAGS_TO_USE := $(CFLAGS_TO_USE) -I$(TESTCDIR)
 TEST_SUPPORT_OBJ  := $(TESTOBJDIR)/test_support.o
 DOCTOR_OBJ        := $(TESTOBJDIR)/test_install_check.o
@@ -164,6 +174,7 @@ UNIT_METRIC_OBJ   := $(TESTOBJDIR)/test_metric.o
 UNIT_BOUNDARIES_OBJ := $(TESTOBJDIR)/test_boundaries.o
 UNIT_POISSON_RHS_OBJ := $(TESTOBJDIR)/test_poisson_rhs.o
 UNIT_RUNTIME_OBJ := $(TESTOBJDIR)/test_runtime_kernels.o
+UNIT_MPI_OBJ := $(TESTOBJDIR)/test_mpi_kernels.o
 TEST_COMMON_OBJS  := $(sort $(filter-out $(OBJDIR)/simulator.o $(OBJDIR)/postprocessor.o,$(SIMULATOR_OBJS) $(POSTPROCESSOR_OBJS)))
 
 # ==============================================================================
@@ -259,6 +270,10 @@ $(UNIT_RUNTIME_EXE): $(UNIT_RUNTIME_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS)
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_MPI_EXE): $(UNIT_MPI_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 ## @target dirs
 ## @brief (Internal) Ensures all necessary build directories exist.
 dirs: 
@@ -267,7 +282,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: run test test-python doctor doctor-runner install-check smoke unit unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime ctest ctest-geometry ctest-solver ctest-particles ctest-io ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime check build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix unit unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi ctest ctest-geometry ctest-solver ctest-particles ctest-io ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -282,6 +297,22 @@ test-python:
 ## @target test
 ## @brief Backward-compatible alias for `test-python`.
 test: test-python
+
+## @target coverage-python
+## @brief Runs dependency-free Python line-coverage gate for core runtime scripts.
+coverage-python:
+	@python3 scripts/python_coverage_gate.py --min-line "$(PY_COVERAGE_MIN)" --output-dir "coverage/python"
+
+## @target coverage-c
+## @brief Rebuilds with gcov flags, runs unit+smoke, and enforces C line-coverage threshold.
+coverage-c:
+	@$(MAKE) --no-print-directory cleanobj clean-unit SYSTEM=$(SYSTEM)
+	@$(MAKE) --no-print-directory COVERAGE=1 unit smoke SYSTEM=$(SYSTEM)
+	@python3 scripts/c_coverage_gate.py --src-dir "$(SRCDIR)" --obj-dir "$(OBJDIR)" --output-dir "coverage/c" --min-line "$(C_COVERAGE_MIN)"
+
+## @target coverage
+## @brief Runs Python and C coverage gates.
+coverage: coverage-python coverage-c
 
 ## @target doctor
 ## @brief Validates PETSc provisioning by building and running a minimal PETSc smoke binary.
@@ -356,6 +387,11 @@ unit-poisson-rhs: $(UNIT_POISSON_RHS_EXE)
 unit-runtime: $(UNIT_RUNTIME_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
 
+## @target unit-mpi
+## @brief Runs dedicated multi-rank MPI-focused C unit tests.
+unit-mpi: $(UNIT_MPI_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_MPI_NPROCS) $<
+
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
 unit: unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime
@@ -404,10 +440,28 @@ ctest-poisson-rhs: unit-poisson-rhs
 ## @brief Compatibility alias for `unit-runtime`.
 ctest-runtime: unit-runtime
 
+## @target ctest-mpi
+## @brief Compatibility alias for `unit-mpi`.
+ctest-mpi: unit-mpi
+
 ## @target smoke
-## @brief Runs executable-level end-to-end smoke checks (tiny solve/post/restart flows).
+## @brief Runs executable-level smoke checks (template matrix + tiny flat/bent/brownian runtime flows).
 smoke: simulator postprocessor conductor
 	@bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$(TEST_NPROCS)"
+
+## @target smoke-mpi
+## @brief Runs executable-level multi-rank smoke checks (flat+bent tiny runtime flows).
+smoke-mpi: simulator postprocessor conductor
+	@bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$(SMOKE_MPI_NPROCS)"
+
+## @target smoke-mpi-matrix
+## @brief Runs multi-rank runtime smoke checks across a rank matrix (default 2 and 3).
+smoke-mpi-matrix: simulator postprocessor conductor
+	@set -e; \
+	for n in $(SMOKE_MPI_MATRIX_NPROCS); do \
+		echo "==> smoke-mpi-matrix rank=$$n"; \
+		bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$$n"; \
+	done
 
 ## @target check
 ## @brief Runs the full local validation sweep (Python, doctor, unit, smoke).
@@ -416,6 +470,18 @@ check:
 	@$(MAKE) --no-print-directory doctor-runner SYSTEM=$(SYSTEM)
 	@$(MAKE) --no-print-directory unit SYSTEM=$(SYSTEM)
 	@$(MAKE) --no-print-directory smoke SYSTEM=$(SYSTEM)
+
+## @target check-mpi
+## @brief Runs `check` plus dedicated multi-rank MPI tests.
+check-mpi: check
+	@$(MAKE) --no-print-directory smoke-mpi SYSTEM=$(SYSTEM)
+	@$(MAKE) --no-print-directory unit-mpi SYSTEM=$(SYSTEM)
+
+## @target check-mpi-matrix
+## @brief Runs `check` plus multi-rank matrix smoke and dedicated MPI unit tests.
+check-mpi-matrix: check
+	@$(MAKE) --no-print-directory smoke-mpi-matrix SYSTEM=$(SYSTEM)
+	@$(MAKE) --no-print-directory unit-mpi SYSTEM=$(SYSTEM)
 
 ## @target build-docs
 ## @brief Generates Doxygen documentation for the project.

@@ -6,6 +6,8 @@
 #include "ParticleSwarm.h"
 #include "initialcondition.h"
 #include "les.h"
+#include "runloop.h"
+#include "setup.h"
 #include "wallfunction.h"
 
 static PetscErrorCode TestDistributeParticlesRemainderHandling(void)
@@ -241,6 +243,87 @@ static PetscErrorCode TestComputeSmagorinskyConstantConstantModel(void)
     PetscFunctionReturn(0);
 }
 
+static PetscErrorCode TestUpdateSolverHistoryVectorsShiftsStates(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+
+    PetscCall(DMCreateGlobalVector(user->fda, &user->Ucont_o));
+    PetscCall(DMCreateGlobalVector(user->fda, &user->Ucont_rm1));
+    PetscCall(DMCreateLocalVector(user->fda, &user->lUcont_o));
+    PetscCall(DMCreateLocalVector(user->fda, &user->lUcont_rm1));
+    PetscCall(DMCreateGlobalVector(user->fda, &user->Ucat_o));
+    PetscCall(DMCreateGlobalVector(user->da, &user->P_o));
+
+    PetscCall(VecSet(user->Ucont, 11.0));
+    PetscCall(VecSet(user->Ucont_o, 7.0));
+    PetscCall(VecSet(user->Ucont_rm1, 3.0));
+    PetscCall(VecSet(user->Ucat, 5.0));
+    PetscCall(VecSet(user->Ucat_o, -1.0));
+    PetscCall(VecSet(user->P, 9.0));
+    PetscCall(VecSet(user->P_o, -2.0));
+
+    PetscCall(UpdateSolverHistoryVectors(user));
+
+    PetscCall(PicurvAssertVecConstant(user->Ucont_o, 11.0, 1.0e-12, "Ucont_o should receive current Ucont"));
+    PetscCall(PicurvAssertVecConstant(user->Ucont_rm1, 7.0, 1.0e-12, "Ucont_rm1 should receive prior Ucont_o"));
+    PetscCall(PicurvAssertVecConstant(user->Ucat_o, 5.0, 1.0e-12, "Ucat_o should receive current Ucat"));
+    PetscCall(PicurvAssertVecConstant(user->P_o, 9.0, 1.0e-12, "P_o should receive current P"));
+    PetscCall(PicurvAssertVecConstant(user->lUcont_o, 11.0, 1.0e-12, "lUcont_o ghost sync should match Ucont_o"));
+    PetscCall(PicurvAssertVecConstant(user->lUcont_rm1, 7.0, 1.0e-12, "lUcont_rm1 ghost sync should match Ucont_rm1"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+static PetscErrorCode TestGetOwnedCellRangeSingleRankAccounting(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscInt xs = -1, ys = -1, zs = -1;
+    PetscInt xm = -1, ym = -1, zm = -1;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 6, 4));
+
+    PetscCall(GetOwnedCellRange(&user->info, 0, &xs, &xm));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &ys, &ym));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &zs, &zm));
+
+    PetscCall(PicurvAssertIntEqual(0, xs, "single-rank x cell-start index"));
+    PetscCall(PicurvAssertIntEqual(0, ys, "single-rank y cell-start index"));
+    PetscCall(PicurvAssertIntEqual(0, zs, "single-rank z cell-start index"));
+    PetscCall(PicurvAssertIntEqual(user->info.mx - 2, xm, "single-rank x owned cell count"));
+    PetscCall(PicurvAssertIntEqual(user->info.my - 2, ym, "single-rank y owned cell count"));
+    PetscCall(PicurvAssertIntEqual(user->info.mz - 2, zm, "single-rank z owned cell count"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+static PetscErrorCode TestComputeAndStoreNeighborRanksSingleRank(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(ComputeAndStoreNeighborRanks(user));
+
+    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_xm, "single-rank xm neighbor should be null"));
+    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_xp, "single-rank xp neighbor should be null"));
+    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_ym, "single-rank ym neighbor should be null"));
+    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_yp, "single-rank yp neighbor should be null"));
+    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_zm, "single-rank zm neighbor should be null"));
+    PetscCall(PicurvAssertIntEqual(MPI_PROC_NULL, user->neighbors.rank_zp, "single-rank zp neighbor should be null"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 int main(int argc, char **argv)
 {
     PetscErrorCode ierr;
@@ -256,6 +339,9 @@ int main(int argc, char **argv)
         {"wall-model-scalar-helpers", TestWallModelScalarHelpers},
         {"validate-driven-flow-configuration-no-driven-handlers", TestValidateDrivenFlowConfigurationNoDrivenHandlers},
         {"compute-smagorinsky-constant-constant-model", TestComputeSmagorinskyConstantConstantModel},
+        {"update-solver-history-vectors-shifts-states", TestUpdateSolverHistoryVectorsShiftsStates},
+        {"get-owned-cell-range-single-rank-accounting", TestGetOwnedCellRangeSingleRankAccounting},
+        {"compute-and-store-neighbor-ranks-single-rank", TestComputeAndStoreNeighborRanksSingleRank},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv runtime-kernel tests");
