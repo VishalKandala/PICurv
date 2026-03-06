@@ -1,13 +1,15 @@
 @page 11_User_How_To_Guides User How-To Guides
 
+@anchor _User_How_To_Guides
+
 This page provides operational recipes for common PICurv tasks.
 Each recipe includes what to change, why it matters, and a quick verification action.
 
 @tableofcontents
 
-@section setup_sec 1. Setup and Physics
+@section p11_setup_sec 1. Setup and Physics
 
-@subsection reynolds_ssec 1.1 Change Reynolds Number
+@subsection p11_reynolds_ssec 1.1 Change Reynolds Number
 
 What to change (in `case.yml`):
 
@@ -34,7 +36,7 @@ Quick check:
 - rerun `picurv validate ...`,
 - inspect generated `.control` file for updated values.
 
-@subsection twod_ssec 1.2 Run in 2D
+@subsection p11_twod_ssec 1.2 Run in 2D
 
 ```yaml
 models:
@@ -56,7 +58,7 @@ Quick check:
 
 - confirm generated run uses expected Z resolution.
 
-@subsection gridres_ssec 1.3 Increase Grid Resolution
+@subsection p11_gridres_ssec 1.3 Increase Grid Resolution
 
 - `programmatic_c`: increase `im/jm/km` arrays,
 - `file`: use finer `.picgrid`,
@@ -66,9 +68,9 @@ Verification:
 
 - compare runtime memory/cost and key output metrics across resolutions.
 
-@section bc_sec 2. Boundary Conditions
+@section p11_bc_sec 2. Boundary Conditions
 
-@subsection bc_simple_ssec 2.1 Set a Constant-Velocity Inlet and Walls
+@subsection p11_bc_simple_ssec 2.1 Set a Constant-Velocity Inlet and Walls
 
 ```yaml
 boundary_conditions:
@@ -91,7 +93,7 @@ Verification:
 
 - use `validate` first and check BC generation files under `runs/<run_id>/config/`.
 
-@subsection bc_periodic_ssec 2.2 Enable Periodicity in One Direction
+@subsection p11_bc_periodic_ssec 2.2 Enable Periodicity in One Direction
 
 ```yaml
 models:
@@ -108,9 +110,9 @@ Verification:
 
 - confirm paired-face consistency in validation output.
 
-@section run_sec 3. Running and Monitoring
+@section p11_run_sec 3. Running and Monitoring
 
-@subsection mpi_ssec 3.1 Run in Parallel and Control DMDA Layout
+@subsection p11_mpi_ssec 3.1 Run in Parallel and Control DMDA Layout
 
 ```bash
 ./bin/picurv run -n 16 --solve ...
@@ -129,7 +131,7 @@ grid:
 
 Note: `da_processors_*` are scalar globals, not per-block vectors.
 
-@subsection cluster_run_ssec 3.2 Run on Slurm (Generate and Submit)
+@subsection p11_cluster_run_ssec 3.2 Run on Slurm (Generate and Submit)
 
 ```bash
 ./bin/picurv run --solve --post-process \
@@ -156,7 +158,7 @@ Verification:
 
 - inspect `scheduler/*.sbatch` and `submission.json` in run directory.
 
-@subsection restart_ssec 3.3 Restart from a Saved Step
+@subsection p11_restart_ssec 3.3 Restart from a Saved Step
 
 ```yaml
 run_control:
@@ -255,7 +257,7 @@ See also:
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 
-@subsection logging_ssec 3.4 Enable Targeted Debug Logging
+@subsection p11_logging_ssec 3.4 Enable Targeted Debug Logging
 
 ```yaml
 logging:
@@ -268,9 +270,9 @@ logging:
 Use this for local diagnosis of instability or boundary anomalies.
 Prefer narrow function lists to keep logs manageable.
 
-@section post_sec 4. Post-Processing Recipes
+@section p11_post_sec 4. Post-Processing Recipes
 
-@subsection post_existing_ssec 4.1 Postprocess an Existing Run
+@subsection p11_post_existing_ssec 4.1 Postprocess an Existing Run
 
 ```bash
 ./bin/picurv run --post-process \
@@ -280,7 +282,7 @@ Prefer narrow function lists to keep logs manageable.
 
 Use when solver outputs already exist and you are iterating only on analysis pipeline.
 
-@subsection qcrit_ssec 4.2 Add Q-Criterion to Eulerian Pipeline
+@subsection p11_qcrit_ssec 4.2 Add Q-Criterion to Eulerian Pipeline
 
 ```yaml
 eulerian_pipeline:
@@ -299,7 +301,7 @@ Verification:
 
 - open VTK output and confirm `Qcrit` field is present.
 
-@subsection stats_ssec 4.3 Enable Statistics Output (MSD)
+@subsection p11_stats_ssec 4.3 Enable Statistics Output (MSD)
 
 ```yaml
 statistics_pipeline:
@@ -313,7 +315,7 @@ Verification:
 - check `Stats_msd.csv` in the run directory root, unless `statistics_pipeline.output_prefix`
   includes an explicit path.
 
-@section sweep_sec 5. Sweep Studies
+@section p11_sweep_sec 5. Sweep Studies
 
 ```bash
 ./bin/picurv sweep \
@@ -330,8 +332,31 @@ What you get:
 
 See **@subpage 37_Sweep_Studies_Guide** for full contract details.
 
-@section next_steps_sec 6. Next Steps
+@section p11_next_steps_sec 6. Next Steps
 
 - Full capability map: **@subpage 12_Capabilities_Summary**
 - Config references: **@subpage 07_Case_Reference**, **@subpage 08_Solver_Reference**, **@subpage 09_Monitor_Reference**, **@subpage 10_Post_Processing_Reference**
 - Troubleshooting and quality: **@subpage 39_Common_Fatal_Errors**, **@subpage 40_Testing_and_Quality_Guide**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **User How-To Guides** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

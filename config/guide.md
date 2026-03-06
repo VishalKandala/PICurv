@@ -1,6 +1,8 @@
 # Configuration Guide
 
-This directory contains reusable YAML profiles and build/runtime configuration assets.
+This directory contains reusable YAML profiles and build/runtime configuration assets. It is best treated as a configuration library: stable, versioned building blocks that users compose into case-specific workflows.
+
+For CFD users, the key idea is separation of concerns. Instead of creating one monolithic YAML file, PICurv uses role-oriented contracts (`case`, `solver`, `monitor`, `post`, and optional `cluster`/`study`) so you can change numerical strategy without rewriting geometry definitions, or change post outputs without touching solver controls.
 
 ## Sub-guides
 
@@ -12,10 +14,18 @@ This directory contains reusable YAML profiles and build/runtime configuration a
 - `solvers/guide.md`
 - `studies/guide.md`
 
-## Purpose
+## How To Use This Library Effectively
 
-Use these files as reusable libraries for case setup instead of duplicating boilerplate across run directories.
-When workflow contracts evolve, update library examples and docs together.
+1. Start from an initialized example (`./bin/picurv init ...`) so contracts are already valid.
+2. Replace only the role file you are actively experimenting with.
+3. Validate after each change (`./bin/picurv validate ...`) before launching runs.
+4. Promote stable reusable profiles back into `config/` so team workflows converge.
+
+## Common CFD Iteration Patterns
+
+- Change `solver.yml` while freezing `case.yml` to isolate numerics.
+- Change `case.yml` grid/BC setup while keeping monitor/post constant for comparison.
+- Reuse one monitor/post pair across many solver variants for fair diagnostics.
 
 ## Canonical Contract References
 

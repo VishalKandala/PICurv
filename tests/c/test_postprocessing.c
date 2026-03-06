@@ -1,10 +1,14 @@
+/**
+ * @file test_postprocessing.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
-#include "particle_statistics.h"
 #include "postprocessing_kernels.h"
-
-#include <stdio.h>
-#include <string.h>
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestComputeSpecificKE(void)
 {
@@ -35,60 +39,168 @@ static PetscErrorCode TestComputeSpecificKE(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
-static PetscErrorCode TestComputeParticleMSD(void)
+static PetscErrorCode TestComputeDisplacement(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
-    char tmpdir[PETSC_MAX_PATH_LEN];
-    char csv_prefix[PETSC_MAX_PATH_LEN];
-    char csv_path[PETSC_MAX_PATH_LEN];
-    FILE *file = NULL;
-    char header[512];
-    char row[512];
     PetscReal (*pos_arr)[3] = NULL;
+    PetscScalar *disp_arr = NULL;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    PetscCall(PicurvCreateSwarmPair(user, 2, "ske"));
-    simCtx->dt = 1.0;
-    simCtx->ren = 1.0;
-    simCtx->schmidt_number = 1.0;
-    simCtx->psrc_x = 0.0;
-    simCtx->psrc_y = 0.0;
-    simCtx->psrc_z = 0.0;
+    PetscCall(PicurvCreateSwarmPair(user, 2, "disp"));
 
-    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
-    PetscCall(PetscSNPrintf(csv_prefix, sizeof(csv_prefix), "%s/stats", tmpdir));
-    PetscCall(PetscSNPrintf(csv_path, sizeof(csv_path), "%s_msd.csv", csv_prefix));
+    simCtx->psrc_x = 1.0;
+    simCtx->psrc_y = 2.0;
+    simCtx->psrc_z = 3.0;
 
     PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void *)&pos_arr));
-    pos_arr[0][0] = 1.0; pos_arr[0][1] = 0.0; pos_arr[0][2] = 0.0;
-    pos_arr[1][0] = -1.0; pos_arr[1][1] = 0.0; pos_arr[1][2] = 0.0;
+    pos_arr[0][0] = 1.0; pos_arr[0][1] = 2.0; pos_arr[0][2] = 3.0;
+    pos_arr[1][0] = 4.0; pos_arr[1][1] = 6.0; pos_arr[1][2] = 3.0;
     PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void *)&pos_arr));
 
-    PetscCall(ComputeParticleMSD(user, csv_prefix, 1));
-    PetscCall(PicurvAssertFileExists(csv_path, "ComputeParticleMSD should emit a CSV summary"));
-
-    file = fopen(csv_path, "r");
-    PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to open generated stats CSV '%s'.", csv_path);
-    PetscCheck(fgets(header, sizeof(header), file) != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "CSV header is missing.");
-    PetscCheck(fgets(row, sizeof(row), file) != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "CSV data row is missing.");
-    fclose(file);
-
-    PetscCall(PicurvAssertBool((PetscBool)(strstr(header, "MSD_total") != NULL), "MSD CSV header should contain MSD_total"));
-    PetscCall(PicurvAssertBool((PetscBool)(strstr(row, "2") != NULL), "MSD CSV row should include the particle count"));
+    PetscCall(ComputeDisplacement(user, "disp"));
+    PetscCall(DMSwarmGetField(user->post_swarm, "disp", NULL, NULL, (void *)&disp_arr));
+    PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(disp_arr[0]), 1.0e-12, "ComputeDisplacement first particle"));
+    PetscCall(PicurvAssertRealNear(5.0, PetscRealPart(disp_arr[1]), 1.0e-12, "ComputeDisplacement second particle"));
+    PetscCall(DMSwarmRestoreField(user->post_swarm, "disp", NULL, NULL, (void *)&disp_arr));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestComputeNodalAverageScalar(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    const PetscScalar ***p_nodal_arr = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(VecSet(user->P, 7.0));
+    PetscCall(VecSet(user->P_nodal, -1.0));
+
+    PetscCall(ComputeNodalAverage(user, "P", "P_nodal"));
+
+    PetscCall(DMDAVecGetArrayRead(user->da, user->P_nodal, (void *)&p_nodal_arr));
+    PetscCall(PicurvAssertRealNear(7.0, PetscRealPart(p_nodal_arr[0][0][0]), 1.0e-12, "ComputeNodalAverage interior node"));
+    PetscCall(PicurvAssertRealNear(-1.0, PetscRealPart(p_nodal_arr[3][3][3]), 1.0e-12, "ComputeNodalAverage untouched boundary node"));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->P_nodal, (void *)&p_nodal_arr));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestNormalizeRelativeField(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscInt ref_idx = 0;
+    PetscScalar ref_value = 0.0;
+    PetscReal vmin = 0.0, vmax = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PetscCalloc1(1, &simCtx->pps));
+    simCtx->pps->reference[0] = 1;
+    simCtx->pps->reference[1] = 1;
+    simCtx->pps->reference[2] = 1;
+
+    PetscCall(VecSet(user->P, 10.0));
+    ref_idx = simCtx->pps->reference[2] * (user->IM * user->JM) +
+              simCtx->pps->reference[1] * user->IM +
+              simCtx->pps->reference[0];
+    PetscCall(VecSetValue(user->P, ref_idx, 4.0, INSERT_VALUES));
+    PetscCall(VecAssemblyBegin(user->P));
+    PetscCall(VecAssemblyEnd(user->P));
+
+    PetscCall(NormalizeRelativeField(user, "P"));
+
+    PetscCall(VecGetValues(user->P, 1, &ref_idx, &ref_value));
+    PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(ref_value), 1.0e-12, "NormalizeRelativeField reference value"));
+    PetscCall(VecMin(user->P, NULL, &vmin));
+    PetscCall(VecMax(user->P, NULL, &vmax));
+    PetscCall(PicurvAssertRealNear(0.0, vmin, 1.0e-12, "NormalizeRelativeField minimum"));
+    PetscCall(PicurvAssertRealNear(6.0, vmax, 1.0e-12, "NormalizeRelativeField maximum"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestDimensionalizePressureField(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->scaling.P_ref = 3.0;
+
+    PetscCall(VecSet(user->P, 2.0));
+    PetscCall(DimensionalizeField(user, "P"));
+    PetscCall(PicurvAssertVecConstant(user->P, 6.0, 1.0e-12, "DimensionalizeField should scale pressure by P_ref"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestComputeQCriterionZeroFlow(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+
+    PetscCall(VecDuplicate(user->P, &user->Aj));
+    PetscCall(VecDuplicate(user->lP, &user->lAj));
+    PetscCall(VecSet(user->Aj, 1.0));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Aj, INSERT_VALUES, user->lAj));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Aj, INSERT_VALUES, user->lAj));
+
+    PetscCall(VecSet(user->Ucat, 0.0));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
+
+    PetscCall(ComputeQCriterion(user));
+    PetscCall(PicurvAssertVecConstant(user->Qcrit, 0.0, 1.0e-12, "ComputeQCriterion should be zero for uniform flow"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {
     PetscErrorCode ierr;
     const PicurvTestCase cases[] = {
         {"compute-specific-ke", TestComputeSpecificKE},
-        {"compute-particle-msd", TestComputeParticleMSD},
+        {"compute-displacement", TestComputeDisplacement},
+        {"compute-nodal-average-scalar", TestComputeNodalAverageScalar},
+        {"normalize-relative-field", TestNormalizeRelativeField},
+        {"dimensionalize-pressure-field", TestDimensionalizePressureField},
+        {"compute-qcriterion-zero-flow", TestComputeQCriterionZeroFlow},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv post-processing tests");

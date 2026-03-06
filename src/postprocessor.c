@@ -12,13 +12,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "SetupPostProcessSwarm"
 /**
- * @brief Creates a new, dedicated DMSwarm for post-processing tasks.
- *
- * This function is called once at startup. It creates an empty DMSwarm and
- * associates it with the same grid DM as the primary swarm and registers all the required fields.
- * @param user The UserCtx where user->post_swarm will be created.
- * @param pps The PostProcessParams containing the particle_pipeline string for field registration.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `SetupPostProcessSwarm()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
 {
@@ -59,14 +54,18 @@ PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
 
         if (strcasecmp(keyword, "ComputeSpecificKE") == 0) {
             if (!args_str) SETERRQ(PETSC_COMM_SELF, 1, "Error (ComputeSpecificKE): Missing arguments.");
-            char *inputs_str = strtok(args_str, ">");
+            char *input_field = strtok(args_str, ">");
             char *output_field = strtok(NULL, ">");
             output_field_dimensions = 1;  // SKE is scalar
+            if (!input_field) SETERRQ(PETSC_COMM_SELF, 1, "Error (ComputeSpecificKE): Missing input field in 'in>out' syntax.");
             if (!output_field) SETERRQ(PETSC_COMM_SELF, 1, "Error (ComputeSpecificKE): Missing output field in 'in>out' syntax.");
+            TrimWhitespace(input_field);
             TrimWhitespace(output_field);
+            if (strlen(input_field) == 0) SETERRQ(PETSC_COMM_SELF, 1, "Error (ComputeSpecificKE): Empty input field name.");
+            if (strlen(output_field) == 0) SETERRQ(PETSC_COMM_SELF, 1, "Error (ComputeSpecificKE): Empty output field name.");
             // Register the output field
             ierr = RegisterSwarmField(user->post_swarm, output_field, output_field_dimensions,PETSC_REAL); CHKERRQ(ierr);
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Registered particle field '%s' (ComputeSpecificKE).\n", output_field);
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Registered particle field '%s' (ComputeSpecificKE input='%s').\n", output_field, input_field);
             finalize_needed = PETSC_TRUE;
         } else {
             LOG_ALLOW(GLOBAL, LOG_WARNING, "Warning: Unknown particle transformation keyword '%s'. Skipping.\n", keyword);
@@ -97,17 +96,10 @@ PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
 #undef __FUNCT__
 #define __FUNCT__ "EulerianDataProcessingPipeline"
 /**
- * @brief Parses the processing pipeline string from the config and executes the requested kernels in sequence.
- *
- * This function uses a general-purpose parser to handle a syntax of the form:
- * "Keyword1:in1>out1; Keyword2:in1,in2>out2; Keyword3:arg1;"
- *
- * It tokenizes the pipeline string and dispatches to the appropriate kernel function
- * from processing_kernels.c with the specified field name arguments.
- *
- * @param user The UserCtx containing the data to be transformed.
- * @param pps  The PostProcessParams struct containing the pipeline string.
- * @return PetscErrorCode
+ * @brief Implementation of \ref EulerianDataProcessingPipeline().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessor.h`.
+ * @see EulerianDataProcessingPipeline()
  */
 PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* pps)
 {
@@ -192,29 +184,10 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
 #undef __FUNCT__
 #define __FUNCT__ "WriteEulerianFile"
 /**
- * @brief Writes Eulerian field data to a VTK structured grid file (.vts) for visualization.
- *
- * This function exports instantaneous Eulerian field data (such as pressure, velocity, 
- * Q-criterion, and particle concentration) to a VTK structured grid file for the specified 
- * time step. The output includes subsampled interior grid coordinates and point data fields 
- * as specified in the PostProcessParams configuration.
- *
- * The function performs the following steps:
- * 1. Initializes VTK metadata structure
- * 2. Prepares output coordinates (subsampled interior grid)
- * 3. Gathers and prepares requested field data on rank 0
- * 4. Writes the VTK structured grid file with the naming convention: {prefix}_{ti:05d}.vts
- *
- * Only fields listed in pps->output_fields_instantaneous are written. If the field list is 
- * empty, the function returns immediately without creating a file.
- *
- * @note Fields containing particle data (e.g., Psi_nodal) are automatically skipped when 
- *       no particles are present in the simulation (simCtx->np == 0).
- *
- * @param user  The UserCtx containing simulation data and field vectors to be output.
- * @param pps   The PostProcessParams struct containing output configuration (field list, prefix).
- * @param ti    The time index/step number used for file naming.
- * @return PetscErrorCode indicating success or failure.
+ * @brief Implementation of \ref WriteEulerianFile().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessor.h`.
+ * @see WriteEulerianFile()
  */
 PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt ti)
 {
@@ -493,7 +466,7 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
     } // if rank 0
 
     /* 4) Write the VTS */
-    snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti);
+    ierr = PetscSNPrintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti); CHKERRQ(ierr);
     ierr = CreateVTKFileFromMetadata(filename, &meta, PETSC_COMM_WORLD); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Eulerian File Writing for ti = %" PetscInt_FMT " Complete ---\n", ti);
@@ -505,23 +478,10 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
 #undef __FUNCT__
 #define __FUNCT__ "ParticleDataProcessingPipeline"
 /**
- * @brief Parses and executes the particle pipeline using a robust two-pass approach.
- *
- * This function ensures correctness and efficiency by separating field registration
- * from kernel execution.
- *
- * PASS 1 (Registration): The pipeline string is parsed to identify all new fields
- * that will be created. These fields are registered with the DMSwarm.
- *
- * Finalize: After Pass 1, DMSwarmFinalizeFieldRegister is called exactly once if
- * any new fields were added, preparing the swarm's memory layout.
- *
- * PASS 2 (Execution): The pipeline string is parsed again, and this time the
- * actual compute kernels are executed, filling the now-valid fields.
- *
- * @param user The UserCtx containing the DMSwarm.
- * @param pps  The PostProcessParams struct containing the particle_pipeline string.
- * @return PetscErrorCode
+ * @brief Implementation of \ref ParticleDataProcessingPipeline().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessor.h`.
+ * @see ParticleDataProcessingPipeline()
  */
 PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* pps)
 {
@@ -561,9 +521,16 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
         LOG_ALLOW(GLOBAL, LOG_INFO, "Executing Particle Transformation: '%s' on args: '%s'\n", keyword, args_str ? args_str : "None");
         
         if (strcasecmp(keyword, "ComputeSpecificKE") == 0) {
+            if (!args_str) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ComputeSpecificKE requires 'input_field>output_field' arguments.");
             char *velocity_field = strtok(args_str, ">");
             char *ske_field = strtok(NULL, ">");
+            if (!velocity_field || !ske_field) {
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "ComputeSpecificKE requires 'input_field>output_field' arguments.");
+            }
             TrimWhitespace(velocity_field); TrimWhitespace(ske_field);
+            if (strlen(velocity_field) == 0 || strlen(ske_field) == 0) {
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "ComputeSpecificKE does not allow empty input/output field names.");
+            }
             
             ierr = ComputeSpecificKE(user, velocity_field, ske_field); CHKERRQ(ierr);
         }
@@ -584,12 +551,8 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
 #undef __FUNCT__
 #define __FUNCT__ "GlobalStatisticsPipeline"
 /**
- * @brief Executes the global statistics pipeline over all particles.
- *
- * Parses pps->statistics_pipeline (semicolon-delimited) and dispatches to the
- * appropriate kernel in particle_statistics.c.  Each kernel does its own
- * MPI_Allreduce, appends to its own CSV file, and logs a one-line summary.
- * This function is a no-op if the statistics_pipeline string is empty.
+ * @brief Internal helper implementation: `GlobalStatisticsPipeline()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, PetscInt ti)
 {
@@ -635,7 +598,10 @@ PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, P
 #undef __FUNCT__
 #define __FUNCT__ "WriteParticleFile"
 /**
- * @brief Writes particle data to a VTP file using the Prepare-Write-Cleanup pattern.
+ * @brief Implementation of \ref WriteParticleFile().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessor.h`.
+ * @see WriteParticleFile()
  */
 PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt ti)
 {
@@ -676,7 +642,7 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
                           ii, part_meta.point_data_fields[ii].name, (int)part_meta.point_data_fields[ii].num_components);
             }
 
-            snprintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti);
+            ierr = PetscSNPrintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti); CHKERRQ(ierr);
             ierr = CreateVTKFileFromMetadata(filename, &part_meta, PETSC_COMM_WORLD); CHKERRQ(ierr);
 
         } else {
@@ -692,6 +658,7 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
 
 #undef __FUNCT__
 #define __FUNCT__ "main"
+#ifndef PICURV_POSTPROCESSOR_NO_MAIN
 int main(int argc, char **argv)
 {
     PetscErrorCode    ierr;
@@ -795,3 +762,4 @@ int main(int argc, char **argv)
     ierr = PetscFinalize();
     return ierr;
 }
+#endif

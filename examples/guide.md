@@ -1,29 +1,30 @@
 # Examples Guide
 
-This directory contains runnable case templates used by `./bin/picurv init` and reference configs for sweeps/clusters.
+This directory contains runnable case templates used by `./bin/picurv init` and reference configs for sweeps/clusters. The examples are designed as operational baselines, not just demos: each one exercises a different grid/physics pathway and can be used as a seed for production studies.
 
-## Subdirectories
+## Example Families
 
-- `flat_channel/`: programmatic-grid baseline case.
-- `bent_channel/`: file-grid baseline case.
-- `brownian_motion/`: analytical zero-flow particle-diffusion verification case.
-- `master_template/`: fully annotated reference templates for all config roles.
+- `flat_channel/`: baseline first-run case using programmatic grid generation.
+- `bent_channel/`: file-based curvilinear grid ingestion and curved-geometry BC behavior.
+- `brownian_motion/`: analytical zero-flow particle diffusion verification workflow.
+- `master_template/`: exhaustive reference templates for all config roles.
 
-## How To Use
+## How To Start A New Study
 
-- Initialize a starter case:
-  - `./bin/picurv init flat_channel --dest my_case`
-  - `./bin/picurv init bent_channel --dest my_case`
-- Validate copied configs before running:
-  - `./bin/picurv validate --case my_case/<case>.yml --solver my_case/<solver>.yml --monitor my_case/<monitor>.yml --post my_case/<post>.yml`
-- If project binaries are already built, `init` copies the available executables from `bin/`
-  into the new case directory, including `picurv`, so the case can run self-contained.
-- `init` also writes `.picurv-origin.json`, so from inside that case you can later run
-  `./picurv status-source`, `./picurv build`, `./picurv pull-source`, `./picurv sync-binaries`,
-  and `./picurv sync-config`
-  against the original source repository.
-- Use master templates to discover full schema/options before trimming for production runs.
-- The config roles are modular: you can often reuse a `solver.yml`, `monitor.yml`, or `post.yml` from one example with a different `case.yml` when the contract still makes sense.
+1. Initialize a starter case:
+   - `./bin/picurv init flat_channel --dest my_case`
+   - `./bin/picurv init bent_channel --dest my_case`
+2. Validate copied configs:
+   - `./bin/picurv validate --case ... --solver ... --monitor ... --post ...`
+3. Run dry-run planning, then actual solve/post execution.
+
+If project binaries are already built, `init` copies available executables into the case directory so it can run self-contained. The initializer also writes `.picurv-origin.json`, which enables case-local maintenance commands (`status-source`, `build`, `pull-source`, `sync-binaries`, `sync-config`) against the source repository.
+
+## Composition Guidance
+
+- Treat config roles as modular. You can often reuse a validated `solver.yml`, `monitor.yml`, or `post.yml` across multiple `case.yml` variants.
+- Keep benchmark studies close to example defaults first, then perturb one dimension at a time.
+- Promote stable custom profiles back into `config/` for team-level reuse.
 
 ## Related Docs
 

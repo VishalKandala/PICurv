@@ -22,6 +22,7 @@
 #include "initialcondition.h" // Analytical Solution for testing
 #include "AnalyticalSolutions.h"
 #include "ParticleMotion.h" // Functions related to motion of particles
+#include "ParticlePhysics.h" // Functions related to particle scalar/state updates
 #include "Boundaries.h"     //  Functions related to Boundary conditions
 #include "setup.h"          // Functions  related to setup
 #include "solvers.h"
@@ -59,7 +60,7 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user);
  *  6. Scatters particle data back to Eulerian fields.
  *  7. Outputs data at specified intervals.
  *
- * @param user       Pointer to the UserCtx structure..
+ * @param simCtx     Pointer to the master simulation context.
  * @return PetscErrorCode 0 on success, non-zero on failure.
  */
 PetscErrorCode AdvanceSimulation(SimCtx *simCtx);

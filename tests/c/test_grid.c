@@ -1,8 +1,16 @@
+/**
+ * @file test_grid.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "grid.h"
 
 #include <stdlib.h>
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestComputeLocalBoundingBoxUniformGrid(void)
 {
@@ -24,6 +32,9 @@ static PetscErrorCode TestComputeLocalBoundingBoxUniformGrid(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestGatherAndBroadcastBoundingBoxes(void)
 {
@@ -63,6 +74,9 @@ static PetscErrorCode TestGatherAndBroadcastBoundingBoxes(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

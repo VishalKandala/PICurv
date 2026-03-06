@@ -3,25 +3,10 @@
 #undef __FUNCT__
 #define __FUNCT__ "FlowSolver"
 /**
- * @brief Orchestrates a single time step of the Eulerian fluid solver.
- *
- * This function is the refactored, high-level entry point for advancing the
- * fluid state from time t_n to t_{n+1}. It is a direct adaptation of the
- * legacy FlowSolver, but it now takes the master SimCtx as its primary
- * argument to eliminate dependencies on global variables.
- *
- * The sequence of operations is:
- * 1.  (Optional) Update turbulence models (RANS/LES) to compute eddy viscosity.
- * 2.  Call the core momentum solver (explicit Runge-Kutta or an implicit scheme)
- *     to get an intermediate velocity field.
- * 3.  Call the pressure-Poisson solver to compute the pressure correction.
- * 4.  Call the projection step to correct the velocity field, ensuring it is
- *     divergence-free.
- * 5.  Perform final state updates, diagnostics, and I/O.
- *
- * @param simCtx The master simulation context, containing all solver settings,
- *               multigrid structures, and data vectors.
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref FlowSolver().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/solvers.h`.
+ * @see FlowSolver()
  */
 PetscErrorCode FlowSolver(SimCtx *simCtx)
 {

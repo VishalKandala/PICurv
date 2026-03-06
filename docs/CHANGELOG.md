@@ -1,5 +1,7 @@
 @page 18_Changelog Changelog
 
+@anchor _Changelog
+
 # Changelog
 
 ## Unreleased
@@ -28,7 +30,8 @@
   - removed deprecated numeric and alternate-string selector forms for field initialization, particle initialization, and analytical type selection; docs now use canonical YAML values only.
   - removed deprecated direct/internal momentum solver selector forms; `strategy.momentum_solver` now accepts only `Explicit RK4` and `Dual Time Picard RK4`.
   - removed the exposed placeholder Newton-Krylov momentum solver modes from parser and C runtime enums.
-  - canonical `PICGRID` headers are now required for file-based grids in both `picurv` and the C runtime; convert older grids before use.
+  - canonical `PICGRID` headers are required for file-based grids in C runtime ingestion.
+  - added `grid.gen legacy1d` converter and optional `grid.legacy_conversion` wrapper in `picurv` for headerless 1D-axis legacy payload migration.
 
 - Workflow launch policy update:
   - `run --num-procs` now applies to solver stage sizing.

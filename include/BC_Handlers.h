@@ -48,10 +48,48 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc);
  */
 PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc);
 
+/**
+ * @brief Configures a BoundaryCondition object for a parabolic inlet profile.
+ *
+ * The constructed handler computes inlet velocity as a profile function of
+ * transverse coordinates, typically used for laminar channel/pipe initialization.
+ *
+ * @param bc A pointer to the generic BoundaryCondition object to be configured.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc);
 
+/**
+ * @brief Configures a BoundaryCondition object for conservative outlet treatment.
+ *
+ * The constructed handler applies outlet updates that preserve the solver's
+ * global mass/flux consistency assumptions.
+ *
+ * @param bc A pointer to the generic BoundaryCondition object to be configured.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode Create_OutletConservation(BoundaryCondition *bc);
 
+/**
+ * @brief Configures a BoundaryCondition object for geometric periodic coupling.
+ *
+ * This constructor wires periodic boundary callbacks that exchange values across
+ * opposite faces according to the configured periodic directions.
+ *
+ * @param bc A pointer to the generic BoundaryCondition object to be configured.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode Create_PeriodicGeometric(BoundaryCondition *bc);
+
+/**
+ * @brief Configures a BoundaryCondition object for periodic driven-flow forcing.
+ *
+ * This constructor wires the periodic callbacks that enforce a prescribed driving
+ * strategy (for example constant target flux) on a periodic direction pair.
+ *
+ * @param bc A pointer to the generic BoundaryCondition object to be configured.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc);
 
 #endif // BC_HANDLERS_H

@@ -1,11 +1,13 @@
 @page 43_Developer_Portal_Index Developer Portal
 
+@anchor _Developer_Portal_Index
+
 This section is for maintainers and contributors changing solver behavior, YAML contracts, or workflow logic.
 It emphasizes architecture boundaries, method-level reasoning, and safe extension points.
 
 @tableofcontents
 
-@section architecture_sec 1. Architecture and Contracts
+@section p43_architecture_sec 1. Architecture and Contracts
 
 - **@subpage 13_Code_Architecture**: module boundaries and runtime ownership model.
 - **@subpage 14_Config_Contract**: YAML -> generated artifact -> runtime contract.
@@ -15,7 +17,7 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 17_Workflow_Extensibility**: extending orchestration beyond current run/sweep modes.
 - **@subpage 46_C_Runtime_Execution_Map**: startup/timestep execution trace across C modules.
 
-@section methods_sec 2. Numerical Methods and Models
+@section p43_methods_sec 2. Numerical Methods and Models
 
 - **@subpage 21_Methods_Overview**: entry map across all numerical method pages.
 - **@subpage 22_CURVIB_Method** through **@subpage 28_IEM_and_Statistical_Averaging**: flow solve, pressure solve, coupling, and mixing/statistics internals.
@@ -25,14 +27,14 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 45_Particle_Initialization_and_Restart**: seeding and restart/migration behavior.
 - **@subpage 34_Particle_Model_Overview**: particle lifecycle and projection coupling.
 
-@section maintenance_sec 3. Documentation and Maintenance
+@section p43_maintenance_sec 3. Documentation and Maintenance
 
 - **@subpage 35_API_Documentation_Status**: current API documentation coverage and gaps.
 - **@subpage 20_Grid_Cell_Architecture_Guide**: data-structure contracts in grid/cell storage.
 - **@subpage 29_Maintenance_Backlog**: low-priority but known technical-debt items.
 - **@subpage Documentation_Map**: alternate categorized entry path.
 
-@section contribution_flow_sec 4. Suggested Contributor Read Path
+@section p43_contribution_flow_sec 4. Suggested Contributor Read Path
 
 1. **@subpage 13_Code_Architecture**
 2. **@subpage 14_Config_Contract**
@@ -42,7 +44,7 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 6. **@subpage 46_C_Runtime_Execution_Map**
 7. **@subpage 21_Methods_Overview**
 
-@section developer_outcomes_sec 5. Expected Outcomes
+@section p43_developer_outcomes_sec 5. Expected Outcomes
 
 After working through this section, you should be able to:
 
@@ -50,3 +52,26 @@ After working through this section, you should be able to:
 - identify the right C module for a numerical feature change,
 - update docs/tests/validation alongside code changes,
 - preserve diagnostics and contract clarity while extending behavior.
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Developer Portal** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

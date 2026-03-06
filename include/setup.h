@@ -181,17 +181,16 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx);
 PetscErrorCode Deallocate3DArrayScalar(PetscReal ***array, PetscInt nz, PetscInt ny);
 
 /**
- * @brief Deallocates a 3D array of Cmpnts structures allocated by Allocate3DArrayVector.
+ * @brief Allocates a contiguous 3D array of `Cmpnts` values.
  *
- * This function frees the memory allocated for a 3D array of Cmpnts structures.
- * It assumes the memory was allocated using Allocate3DArrayVector, which created three
- * separate memory blocks: one for the contiguous vector data, one for the row pointers,
- * and one for the layer pointers.
+ * The memory layout mirrors `Allocate3DArrayScalar`: layer pointers, row pointers,
+ * and contiguous payload are allocated such that indexing as `array[k][j][i]` is valid
+ * while keeping payload data contiguous.
  *
- * @param[in] array Pointer to the 3D array to be deallocated.
- * @param[in] nz    Number of layers in the z-direction.
- * @param[in] ny    Number of rows in the y-direction.
- *
+ * @param[out] array Pointer to the 3D vector array to allocate.
+ * @param[in]  nz    Number of layers in the z-direction.
+ * @param[in]  ny    Number of rows in the y-direction.
+ * @param[in]  nx    Number of columns in the x-direction.
  * @return PetscErrorCode 0 on success, nonzero on failure.
  */
  PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny, PetscInt nx);
@@ -221,16 +220,15 @@ PetscErrorCode Deallocate3DArrayVector(Cmpnts ***array, PetscInt nz, PetscInt ny
  *                            (e.g., user->da or user->fda, assuming they have consistent nodal partitioning
  *                            for defining cell origins).
  * @param[in]  dim            The dimension to compute the range for (0 for x/i, 1 for y/j, 2 for z/k).
- * @param[out] xs_cell_global Pointer to store the starting GLOBAL CELL index owned by this process.
- *                            A cell C(i) is defined by nodes N(i) and N(i+1). Its global index is i.
- * @param[out] xm_cell_local  Pointer to store the NUMBER of CELLs owned by this process in this dimension.
+ * @param[out] xs_cell_global_out Pointer to store the starting global cell index owned by this process.
+ * @param[out] xm_cell_local_out  Pointer to store the number of owned cells in this dimension.
  *
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
                                  PetscInt dim,
-                                 PetscInt *xs_cell_global,
-                                 PetscInt *xm_cell_local);
+                                 PetscInt *xs_cell_global_out,
+                                 PetscInt *xm_cell_local_out);
 
 /**
  * @brief Computes and stores the Cartesian neighbor ranks for the DMDA decomposition.
@@ -273,8 +271,7 @@ PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user);
  *
  * The final result is that each rank has access to its immediate neighbors and the bounding box information of all ranks.
  *
- * @param[in,out] user      Pointer to the UserCtx structure (must be initialized).
- * @param[in,out] bboxlist  Pointer to BoundingBox array pointer; after this call, it will point to the broadcasted list.
+ * @param[in,out] simCtx Pointer to initialized simulation context that owns all block UserCtx objects.
  *
  * @return PetscErrorCode Returns 0 on success or non-zero PETSc error code.
  */
@@ -365,6 +362,15 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user);
 PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 key, PetscBool *found);
 
 
+/**
+ * @brief Computes the discrete divergence of the contravariant velocity field.
+ *
+ * This diagnostic/kernel routine evaluates continuity residuals on the local block
+ * and writes the resulting divergence field into the configured output vector(s).
+ *
+ * @param[in,out] user Block-level context containing velocity and metric fields.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode ComputeDivergence(UserCtx *user);
 
 /**

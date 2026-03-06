@@ -30,8 +30,10 @@ static PetscBool g_file_has_been_read = PETSC_FALSE;
 // =============================================================================
 
 /**
- * @brief Trims leading and trailing whitespace from a string in-place.
- * @param str The string to be trimmed.
+ * @brief Implementation of \ref TrimWhitespace().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see TrimWhitespace()
  */
 void TrimWhitespace(char *str) {
     if (!str) return;
@@ -58,6 +60,13 @@ void TrimWhitespace(char *str) {
     }
 }
 
+/**
+ * @brief Implementation of \ref ShouldWriteDataOutput().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see ShouldWriteDataOutput()
+ */
+
 PetscBool ShouldWriteDataOutput(const SimCtx *simCtx, PetscInt completed_step)
 {
     if (!simCtx) {
@@ -70,17 +79,8 @@ PetscBool ShouldWriteDataOutput(const SimCtx *simCtx, PetscInt completed_step)
 #undef __FUNCT__
 #define __FUNCT__ "ReadGridGenerationInputs"
 /**
- * @brief Parses command-line options for a programmatically generated grid for a SINGLE block.
- *
- * This function is responsible for reading all per-block array options related
- * to grid geometry, such as dimensions (`-im`), domain bounds (`-xMins`, `-xMaxs`),
- * and stretching ratios (`-rxs`). It reads the entire array for each option, then
- * uses the block index stored in `user->_this` to select the correct value and
- * populate the fields of the provided `UserCtx` struct.
- *
- * @param user Pointer to the `UserCtx` for a specific block. The function will
- *             populate the geometric fields (`IM`, `Min_X`, `rx`, etc.) within this struct.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `ReadGridGenerationInputs()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
 {
@@ -164,7 +164,8 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
 }
 
 /**
- * @brief Parses grid resolution arrays (`-im`, `-jm`, `-km`) once and applies them to all finest-grid blocks.
+ * @brief Internal helper implementation: `PopulateFinestUserGridResolutionFromOptions()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PopulateFinestUserGridResolutionFromOptions(UserCtx *finest_users, PetscInt nblk)
 {
@@ -212,20 +213,8 @@ PetscErrorCode PopulateFinestUserGridResolutionFromOptions(UserCtx *finest_users
 #undef __FUNCT__
 #define __FUNCT__ "ReadGridFile"
 /**
- * @brief Sets grid dimensions from a file for a SINGLE block using a one-time read cache.
- *
- * This function uses a static-variable pattern to ensure the grid file header
- * is read only once, collectively, by all processes. The first time any process
- * calls this function, it triggers a collective operation where rank 0 reads the
- * file and broadcasts the dimensions for all blocks. This data is stored in
- * static "cached" arrays.
- *
- * On every call (including the first), the function retrieves the dimensions for the
- * specific block (identified by `user->_this`) from the cached arrays and populates
- * the `IM`, `JM`, and `KM` fields of the provided `UserCtx`.
- *
- * @param user Pointer to the `UserCtx` for a specific block.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `ReadGridFile()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadGridFile(UserCtx *user)
 {
@@ -305,8 +294,10 @@ PetscErrorCode ReadGridFile(UserCtx *user)
 //================================================================================
 
 /**
- * @brief Frees the memory allocated for a linked list of BC_Param structs.
- * @param head A pointer to the head of the linked list to be freed.
+ * @brief Implementation of \ref FreeBC_ParamList().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see FreeBC_ParamList()
  */
 void FreeBC_ParamList(BC_Param *head) {
     BC_Param *current = head;
@@ -320,10 +311,8 @@ void FreeBC_ParamList(BC_Param *head) {
 }
 
 /**
- * @brief Converts a string representation of a face to a BCFace enum.
- * @param str The input string (e.g., "-Xi", "+Zeta"). Case-insensitive.
- * @param[out] face_out The resulting BCFace enum.
- * @return 0 on success.
+ * @brief Internal helper implementation: `StringToBCFace()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode StringToBCFace(const char* str, BCFace* face_out) {
     if      (strcasecmp(str, "-Xi")   == 0) *face_out = BC_FACE_NEG_X;
@@ -337,10 +326,8 @@ PetscErrorCode StringToBCFace(const char* str, BCFace* face_out) {
 }
 
 /**
- * @brief Converts a string representation of a BC type to a BCType enum.
- * @param str The input string (e.g., "WALL", "INLET"). Case-insensitive.
- * @param[out] type_out The resulting BCType enum.
- * @return 0 on success.
+ * @brief Internal helper implementation: `StringToBCType()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
     if      (strcasecmp(str, "WALL")      == 0) *type_out = WALL;
@@ -354,10 +341,8 @@ PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
 }
 
 /**
- * @brief Converts a string representation of a handler to a BCHandlerType enum.
- * @param str The input string (e.g., "noslip", "constant_velocity"). Case-insensitive.
- * @param[out] handler_out The resulting BCHandlerType enum.
- * @return 0 on success.
+ * @brief Internal helper implementation: `StringToBCHandlerType()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out) {
     if      (strcasecmp(str, "noslip")              == 0) *handler_out = BC_HANDLER_WALL_NOSLIP;
@@ -373,10 +358,8 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
 }
 
 /**
- * @brief Validates that a specific handler is compatible with a general BC type.
- * @param type The general BCType.
- * @param handler The specific BCHandlerType.
- * @return 0 if compatible, error code otherwise.
+ * @brief Internal helper implementation: `ValidateBCHandlerForBCType()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
     switch (type) {
@@ -398,12 +381,8 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
 }
 
 /**
- * @brief Searches a BC_Param linked list for a key and returns its value as a double.
- * @param params The head of the BC_Param linked list.
- * @param key The key to search for (case-insensitive).
- * @param[out] value_out The found value, converted to a PetscReal.
- * @param[out] found Set to PETSC_TRUE if the key was found, PETSC_FALSE otherwise.
- * @return 0 on success.
+ * @brief Internal helper implementation: `GetBCParamReal()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *value_out, PetscBool *found) {
     *found = PETSC_FALSE;
@@ -423,12 +402,8 @@ PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *valu
 }
 
 /**
- * @brief Searches a BC_Param linked list for a key and returns its value as a bool.
- * @param params The head of the BC_Param linked list.
- * @param key The key to search for (case-insensitive).
- * @param[out] value_out The found value, converted to a PetscBool.
- * @param[out] found Set to PETSC_TRUE if the key was found, PETSC_FALSE otherwise.
- * @return 0 on success.
+ * @brief Internal helper implementation: `GetBCParamBool()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found) {
     *found = PETSC_FALSE;
@@ -466,23 +441,8 @@ PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *valu
 #undef __FUNCT__
 #define __FUNCT__ "ParseAllBoundaryConditions"
 /**
- * @brief Parses the boundary conditions file to configure the type, handler, and
- *        any associated parameters for all 6 global faces of the domain.
- *
- * This function performs the following steps:
- * 1.  On MPI rank 0, it reads the specified configuration file line-by-line.
- * 2.  It parses each line for `<Face> <Type> <Handler> [param=value]...` format.
- * 3.  It validates the parsed strings and stores the configuration, including a
- *     linked list of parameters, in a temporary array.
- * 4.  It then serializes this configuration and broadcasts it to all other MPI ranks.
- * 5.  All ranks (including rank 0) then deserialize the broadcasted data to populate
- *     their local `user->boundary_faces` array identically.
- * 6.  It also sets the particle inlet lookup fields in `UserCtx`.
- *
- * @param[in,out] user               The main UserCtx struct where the final configuration
- *                                   for all ranks will be stored.
- * @param[in]     bcs_input_filename The path to the boundary conditions configuration file.
- * @return PetscErrorCode 0 on success, error code on failure.
+ * @brief Internal helper implementation: `ParseAllBoundaryConditions()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_filename)
 {
@@ -668,27 +628,8 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
 #undef __FUNCT__
 #define __FUNCT__ "DeterminePeriodicity"
 /**
- * @brief Scans all block-specific boundary condition files to determine a globally
- *        consistent periodicity for each dimension.
- *
- * This is a lightweight pre-parser intended to be called before DMDA creation.
- * It ensures that the periodicity setting is consistent across all blocks, which is a
- * physical requirement for the domain.
- *
- * 1. It collectively verifies that the mandatory BCS file for each block exists.
- * 2. On MPI rank 0, it then iterates through the files.
- * 3. It parses each line to extract the first (face) and second (type) tokens,
- *    mimicking the main BC parser's tokenization logic.
- * 4. It performs a direct, case-insensitive string comparison on the "type" token
- *    to check if it is "PERIODIC". Other types are silently ignored.
- * 5. It validates consistency (e.g., -Xi and +Xi match) and ensures all block files
- *    specify the same global periodicity.
- * 6. It broadcasts the final three flags (as integers 0 or 1) to all MPI ranks.
- * 7. All ranks update the i_periodic, j_periodic, and k_periodic fields in their SimCtx.
- *
- * @param[in,out] simCtx The master SimCtx struct, containing the bcs_files list and
- *                       where the final periodicity flags will be stored.
- * @return PetscErrorCode 0 on success, error code on failure.
+ * @brief Internal helper implementation: `DeterminePeriodicity()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
 {
@@ -791,21 +732,8 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
 }
 
 /**
- * @brief A parallel-safe helper to verify the existence of a generic file or directory path.
- *
- * This function centralizes the logic for checking arbitrary paths. Only Rank 0 performs the
- * filesystem check, and the result is broadcast to all other processes. This ensures
- * collective and synchronized decision-making across all ranks. It is intended for
- * configuration files, source directories, etc., where the path is known completely.
- *
- * @param[in]  path         The full path to the file or directory to check.
- * @param[in]  is_dir       PETSC_TRUE if checking for a directory, PETSC_FALSE for a file.
- * @param[in]  is_optional  PETSC_TRUE if the path is optional (results in a warning),
- *                          PETSC_FALSE if mandatory (results in an error).
- * @param[in]  description  A user-friendly description of the path for logging (e.g., "Grid file").
- * @param[out] exists       The result of the check (identical on all ranks).
- *
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `VerifyPathExistence()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool is_optional, const char *description, PetscBool *exists)
 {
@@ -848,19 +776,8 @@ PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool
 }
 
 /**
- * @brief Checks for a data file's existence in a parallel-safe manner.
- * 
- * This function's signature and behavior have been updated to use the
- * "Directory Context Pointer" pattern. The high-level calling function (e.g.,
- * ReadSimulationFields) must set the `simCtx->current_io_directory` context
- * before this function is called.
- *
- * @param[in]  user Pointer to the UserCtx structure to access SimCtx.
- * @param ti The time index of the file.
- * @param fieldName The name of the field.
- * @param ext The file extension.
- * @param fileExists [out] The result, which will be identical on all ranks.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `CheckDataFile()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode CheckDataFile(UserCtx *user, PetscInt ti, const char *fieldName, const char *ext, PetscBool *fileExists)
 {
@@ -899,26 +816,8 @@ static PetscErrorCode CheckDataFile(UserCtx *user, PetscInt ti, const char *fiel
 }
 
 /**
- * @brief Checks for and reads an optional Eulerian field from a file into a Vec.
- *
- * This helper function first checks if the corresponding data file exists in a
- * parallel-safe manner using CheckDataFile().
- * - If the file does not exist, it logs a warning and returns success (0),
- *   gracefully skipping the field. The target Vec is not modified.
- * - If the file exists, it calls ReadFieldData() to read the data into the
- *   provided Vec. Any error during this read operation is considered fatal
- *   (e.g., file is corrupt, permissions issue, or size mismatch), as the
- *   presence of the file implies an intent to load it.
- *
- * @param[in] user        Pointer to the UserCtx structure.
- * @param[in] field_name  Internal name of the field for the filename (e.g., "cs").
- * @param[in] field_label A user-friendly name for logging (e.g., "Smagorinsky Constant").
- * @param[in,out] field_vec The PETSc Vec to load the data into.
- * @param[in] ti          Time index for the file name.
- * @param[in] ext         File extension.
- *
- * @return PetscErrorCode Returns 0 on success or if the optional file was not found.
- *         Returns a non-zero error code on a fatal read error.
+ * @brief Internal helper implementation: `ReadOptionalField()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode ReadOptionalField(UserCtx *user, const char *field_name, const char *field_label, Vec field_vec, PetscInt ti, const char *ext)
 {
@@ -951,24 +850,8 @@ static PetscErrorCode ReadOptionalField(UserCtx *user, const char *field_name, c
 }
 
 /**
- * @brief Checks for and reads an optional DMSwarm field from a file.
- *
- * This helper function first checks if the corresponding data file exists.
- * - If the file does not exist, it logs a warning and returns success (0),
- *   gracefully skipping the field.
- * - If the file exists, it calls ReadSwarmField() to read the data. Any
- *   error during this read operation is considered fatal (e.g., file is
- *   corrupt, permissions issue, or size mismatch), as the presence of the
- *   file implies an intent to load it.
- *
- * @param[in] user        Pointer to the UserCtx structure.
- * @param[in] field_name  Internal name of the DMSwarm field (e.g., "DMSwarm_CellID").
- * @param[in] field_label A user-friendly name for logging (e.g., "Cell ID").
- * @param[in] ti          Time index for the file name.
- * @param[in] ext         File extension.
- *
- * @return PetscErrorCode Returns 0 on success or if the optional file was not found.
- *         Returns a non-zero error code on a fatal read error.
+ * @brief Internal helper implementation: `ReadOptionalSwarmField()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_name, const char *field_label, PetscInt ti, const char *ext)
 {
@@ -1008,38 +891,10 @@ static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_na
 
 #undef __FUNCT__
 #define __FUNCT__ "ReadFieldData"
-/************************************************************************************************
-*  @file   io.c
-*  @brief  Utility for (re-)loading PETSc Vec-based fields written by rank-0 in a previous run
-*          – works in both serial and MPI executions.
-*
-*  The restart files are always written as **one** sequential Vec per field
-*  ( `<path-to-file>/<field_name><step>_0.<ext>` ).  In parallel we therefore
-*  have to:
-*
-*     • let rank-0 read that sequential file into a temporary Vec,
-*     • broadcast the raw array to every rank, and
-*     • copy the local slice into the distributed Vec supplied by the caller.
-*
-*  The function purposely avoids `VecScatterCreateToAll()` because PETSc
-*  chooses an even block-cyclic layout that seldom matches an existing
-*  application layout – that mismatch is the root–cause of the previous
-*  “Scatter sizes of ix and iy don’t match” / “incompatible local lengths”
-*  crashes.  A plain `MPI_Bcast` plus a `memcpy()` into the already
-*  allocated local array is bullet-proof and costs one extra buffer only
-*  on the non-root ranks.
-*
-*  Logging helper used below:
-*      LOG_ALLOW(scope,level,fmt,…)     – your existing macro
-*
-*  @param[in]  user        – application context (unused here but part of original API)
-*  @param[in]  field_name  – base name of the field (“position”, “ufield”, …)
-*  @param[out] field_vec   – **distributed** Vec we have to fill
-*  @param[in]  ti          – time-step index encoded in the filename
-*  @param[in]  ext         – file-name extension (“dat”, “bin”, …)
-*
-*  @returns 0 on success or a PETSc error code.
-************************************************************************************************/
+/**
+ * @brief Internal helper implementation: `ReadFieldData()`.
+ * @details Local to this translation unit.
+ */
 PetscErrorCode ReadFieldData(UserCtx *user,
                              const char *field_name,
                              Vec         field_vec,
@@ -1265,16 +1120,8 @@ PetscErrorCode ReadFieldData(UserCtx *user,
 
 
 /**
- * @brief Reads simulation fields from files into their respective PETSc vectors.
- *
- * This function reads contravariant velocity, Cartesian velocity, pressure, and node state
- * fields from their respective binary files. It also conditionally reads LES, RANS, and
- * statistical fields if they are enabled.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing simulation context.
- * @param[in]     ti          Time index for constructing the file name.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `ReadSimulationFields()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 {
@@ -1350,15 +1197,10 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 }
 
 /**
- * @brief Reads statistical fields for averaging purposes.
- *
- * This function reads data for fields such as Ucat_sum, Ucat_cross_sum, Ucat_square_sum,
- * and P_sum, used for statistical analysis during simulation.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing simulation context.
- * @param[in]     ti          Time index for constructing the file name.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref ReadStatisticalFields().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see ReadStatisticalFields()
  */
 PetscErrorCode ReadStatisticalFields(UserCtx *user,PetscInt ti)
 {
@@ -1381,15 +1223,8 @@ PetscErrorCode ReadStatisticalFields(UserCtx *user,PetscInt ti)
 }
 
 /**
- * @brief Reads LES-related fields.
- *
- * This function reads LES-related fields such as Cs (Smagorinsky constant)
- * into their respective PETSc vectors.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing simulation context.
- * @param[in]     ti          Time index for constructing the file name.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `ReadLESFields()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
 {
@@ -1416,15 +1251,8 @@ PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
 }
 
 /**
- * @brief Reads RANS-related fields.
- *
- * This function reads RANS-related fields such as K_Omega into their respective
- * PETSc vectors.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing simulation context.
- * @param[in]     ti          Time index for constructing the file name.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `ReadRANSFields()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
 {
@@ -1457,20 +1285,8 @@ PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
 
 
 /**
- * @brief Reads data from a file into a specified field of a PETSc DMSwarm.
- *
- * This function is the counterpart to WriteSwarmField(). It creates a global PETSc vector 
- * that references the specified DMSwarm field, uses ReadFieldData() to read the data from 
- * a file, and then destroys the global vector reference.
- *
- * @param[in]  user       Pointer to the UserCtx structure (containing `user->swarm`).
- * @param[in]  field_name Name of the DMSwarm field to read into (must be previously declared/allocated).
- * @param[in]  ti         Time index used to construct the input file name.
- * @param[in]  ext        File extension (e.g., "dat" or "bin").
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- *
- * @note Compatible with PETSc 3.14.x.
+ * @brief Internal helper implementation: `ReadSwarmField()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
 {
@@ -1499,23 +1315,8 @@ PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti
 }
 
 /**
- * @brief Reads integer swarm data by using ReadFieldData and casting the result.
- *
- * This function is the counterpart to WriteSwarmIntField. It reads a file
- * containing floating-point data (that was originally integer) into a temporary
- * Vec and then casts it back to the integer swarm field. It works by:
- * 1. Creating a temporary parallel Vec.
- * 2. Calling the standard ReadFieldData() to populate this Vec.
- * 3. Accessing the local data of both the Vec and the swarm field.
- * 4. Populating the swarm's integer field by casting each PetscScalar back to a PetscInt.
- * 5. Destroying the temporary Vec.
- *
- * @param[in] user       Pointer to the UserCtx structure.
- * @param[in] field_name Name of the integer Swarm field to be read.
- * @param[in] ti         Time index for the input file.
- * @param[in] ext        File extension.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `ReadSwarmIntField()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
 {
@@ -1576,24 +1377,8 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt
 }
 
 /**
- * @brief Reads multiple fields into a DMSwarm, gracefully handling missing optional files.
- *
- * This function reads all necessary and optional fields for a DMSwarm for a given
- * timestep. It assumes the swarm has already been resized to match the particle
- * count in the input files.
- *
- * The 'position' field is considered MANDATORY. If its file is missing or corrupt,
- * the function will return a fatal error.
- *
- * All other fields (velocity, CellID, weight, etc.) are OPTIONAL. If their
- * corresponding files are not found, a warning is logged, and the function
- * continues without error. If an optional file IS found but is corrupt or has a
- * size mismatch, it is treated as a fatal error.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing the DMSwarm (user->swarm).
- * @param[in]     ti   Time index for constructing the file names.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `ReadAllSwarmFields()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 {
@@ -1656,50 +1441,9 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 
 #undef __FUNCT__
 #define __FUNCT__ "WriteFieldData" 
- /**
- * @brief Writes data from a specific PETSc vector to a single, sequential file.
- *
- * This function is now parallel-safe.
- * - In PARALLEL: All processes send their local data to Rank 0. Rank 0 assembles
- *   the data into a temporary sequential vector and writes it to a single file.
- * - In SERIAL: It performs a direct, simple write.
- *
- * This ensures the output file is always in a simple, portable format.
- *
- * @param[in] user       Pointer to the UserCtx structure.
- * @param[in] field_name Name of the field (e.g., "position").
- * @param[in] field_vec  The parallel PETSc vector containing the data to write.
- * @param[in] ti         Time index for constructing the file name.
- * @param[in] ext        File extension (e.g., "dat").
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
 /**
- * @brief Dump a **distributed** PETSc Vec to the *single* sequential file
- *        format used by our restart / post-processing tools.
- *
- * The companion of ReadFieldData(): it always produces **one** file
- * (e.g. `results/ufield00006_0.dat`) regardless of how many MPI ranks
- * are running.
- *
- * **Behaviour**
- *
- * | # MPI ranks | Strategy                                                                  |
- * |-------------|---------------------------------------------------------------------------|
- * |      1      | Direct `VecView()` into the file.                                          |
- * |    > 1      | `VecScatterCreateToZero()` gathers the distributed Vec onto **rank 0**.    |
- * |             | Rank 0 writes the sequential Vec; all other ranks allocate no storage.     |
- *
- * The routine never alters or destroys the parallel Vec passed in; the
- * gather buffer is created and freed internally.
- *
- * @param[in] user        Simulation context (used only for logging).
- * @param[in] field_name  Logical field name (forms part of the filename).
- * @param[in] field_vec   Distributed PETSc Vec to write.
- * @param[in] ti          Timestep index used in the filename.
- * @param[in] ext         File extension (`"dat"` in our workflow).
- *
- * @return `0` on success or a PETSc error code.
+ * @brief Internal helper implementation: `WriteFieldData()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode WriteFieldData(UserCtx *user,
                               const char *field_name,
@@ -1816,15 +1560,10 @@ PetscErrorCode WriteFieldData(UserCtx *user,
 }
 
 /**
- * @brief Writes simulation fields to files.
- *
- * This function writes contravariant velocity, Cartesian velocity, pressure, and node state
- * fields to their respective binary files. It also conditionally writes LES, RANS, and
- * statistical fields if they are enabled.
- *
- * @param[in] user Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref WriteSimulationFields().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see WriteSimulationFields()
  */
 PetscErrorCode WriteSimulationFields(UserCtx *user)
 {
@@ -1880,14 +1619,10 @@ PetscErrorCode WriteSimulationFields(UserCtx *user)
 }
 
 /**
- * @brief Writes statistical fields for averaging purposes.
- *
- * This function writes data for fields such as Ucat_sum, Ucat_cross_sum, Ucat_square_sum,
- * and P_sum to their respective binary files.
- *
- * @param[in] user Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref WriteStatisticalFields().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see WriteStatisticalFields()
  */
 PetscErrorCode WriteStatisticalFields(UserCtx *user)
 {
@@ -1908,14 +1643,8 @@ PetscErrorCode WriteStatisticalFields(UserCtx *user)
 }
 
 /**
- * @brief Writes LES-related fields.
- *
- * This function writes LES-related fields such as Cs (Smagorinsky constant)
- * to their respective binary files.
- *
- * @param[in] user Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `WriteLESFields()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode WriteLESFields(UserCtx *user)
 {
@@ -1942,14 +1671,10 @@ PetscErrorCode WriteLESFields(UserCtx *user)
 }
 
 /**
- * @brief Writes RANS-related fields.
- *
- * This function writes RANS-related fields such as K_Omega to their respective
- * binary files.
- *
- * @param[in] user Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref WriteRANSFields().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see WriteRANSFields()
  */
 PetscErrorCode WriteRANSFields(UserCtx *user)
 {
@@ -1967,23 +1692,10 @@ PetscErrorCode WriteRANSFields(UserCtx *user)
 }
 
 /**
- * @brief Writes data from a specific field in a PETSc Swarm to a file.
- *
- * This function retrieves the Swarm from the UserCtx (i.e., `user->swarm`) and
- * creates a global PETSc vector from the specified Swarm field. It then calls
- * the existing WriteFieldData() function to handle the actual I/O operation.
- * After writing the data, the function destroys the temporary global vector 
- * to avoid memory leaks.
- *
- * @param[in] user       Pointer to the UserCtx structure containing simulation context
- *                       and the PetscSwarm (as `user->swarm`).
- * @param[in] field_name Name of the Swarm field to be written (e.g., "my_field").
- * @param[in] ti         Time index used to construct the output file name.
- * @param[in] ext        File extension (e.g., "dat", "bin").
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- *
- * @note Compatible with PETSc 3.14.4 and newer.
+ * @brief Implementation of \ref WriteSwarmField().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see WriteSwarmField()
  */
 PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
 {
@@ -2037,22 +1749,8 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt t
 }
 
 /**
- * @brief Writes integer swarm data by casting it to a temporary Vec and using WriteFieldData.
- *
- * This function provides a bridge to write integer-based swarm fields (like DMSwarm_CellID)
- * using the existing Vec-based I/O routine (WriteFieldData). It works by:
- * 1. Creating a temporary parallel Vec with the same layout as other swarm fields.
- * 2. Accessing the local integer data from the swarm field.
- * 3. Populating the temporary Vec by casting each integer to a PetscScalar.
- * 4. Calling the standard WriteFieldData() function with the temporary Vec.
- * 5. Destroying the temporary Vec.
- *
- * @param[in] user       Pointer to the UserCtx structure.
- * @param[in] field_name Name of the integer Swarm field to be written.
- * @param[in] ti         Time index for the output file.
- * @param[in] ext        File extension.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `WriteSwarmIntField()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
 {
@@ -2111,20 +1809,8 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscIn
 }
 
 /**
- * @brief Writes a predefined set of PETSc Swarm fields to files.
- *
- * This function iterates through a hardcoded list of common swarm fields 
- * (position, velocity, etc.) and calls the WriteSwarmField() helper function 
- * for each one. This provides a straightforward way to output essential particle 
- * data at a given simulation step.
- *
- * This function will only execute if particles are enabled in the simulation
- * (i.e., `user->simCtx->np > 0` and `user->swarm` is not NULL).
- *
- * @param[in] user Pointer to the UserCtx structure containing the simulation context
- *                 and the PetscSwarm.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `WriteAllSwarmFields()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode WriteAllSwarmFields(UserCtx *user)
 {
@@ -2176,13 +1862,8 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user)
 }
 
 /**
- * @brief Gather a (possibly distributed) PETSc Vec onto rank 0 as a contiguous C array.
- *        If the Vec has a DMDA attached, the gather is performed in DMDA "natural" ordering.
- *
- * @param[in]  inVec     The PETSc Vec (may be distributed).
- * @param[out] N         Global length of the Vec (includes dof).
- * @param[out] arrayOut  On rank 0, newly allocated buffer with the gathered values (PetscScalar-sized).
- *                       On other ranks, set to NULL.
+ * @brief Internal helper implementation: `VecToArrayOnRank0()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
 {
@@ -2266,18 +1947,8 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
 }
 
 /**
- * @brief Gathers any DMSwarm field from all ranks to a single, contiguous array on rank 0.
- *
- * This is a generic, type-aware version of SwarmFieldToArrayOnRank0.
- * It is a COLLECTIVE operation.
- *
- * @param[in]  swarm             The DMSwarm to gather from.
- * @param[in]  field_name        The name of the field to gather.
- * @param[out] n_total_particles (Output on rank 0) Total number of particles in the global swarm.
- * @param[out] n_components      (Output on rank 0) Number of components for the field.
- * @param[out] gathered_array    (Output on rank 0) A newly allocated array containing the full, gathered data.
- *                               The caller is responsible for freeing this memory and for casting it to the correct type.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `SwarmFieldToArrayOnRank0()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name, PetscInt *n_total_particles, PetscInt *n_components, void **gathered_array)
 {
@@ -2286,7 +1957,6 @@ PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name, PetscI
     PetscInt       nlocal, nglobal, bs;
     void           *local_array_void;
     size_t         element_size = 0;
-    MPI_Datatype   mpi_type = MPI_BYTE; // We'll send raw bytes
 
     PetscFunctionBeginUser;
 
@@ -2355,22 +2025,8 @@ PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name, PetscI
 }
 
 /**
- * @brief Displays a structured banner summarizing the simulation configuration.
- *
- * This function prints key simulation parameters to standard output.
- * It is intended to be called ONLY by MPI rank 0.
- * It retrieves global domain bounds from `user->global_domain_bbox` and boundary
- * conditions for all faces from `user->face_bc_types`.
- *
- * @param[in] user         Pointer to `UserCtx` structure.
- * @param[in] StartTime    Initial simulation time.
- * @param[in] StartStep    Starting timestep index.
- * @param[in] StepsToRun   Total number of timesteps to run.
- * @param[in] num_mpi_procs Total number of MPI processes.
- * @param[in] total_num_particles Total number of particles.
- * @param[in] bboxlist     (If rank 0 needed to compute global_domain_bbox here, otherwise NULL)
- *
- * @return PetscErrorCode  Returns `0` on success.
+ * @brief Internal helper implementation: `DisplayBanner()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
 {
@@ -2511,17 +2167,8 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
 #undef __FUNCT__
 #define __FUNCT__ "ParsePostProcessingSettings"
 /**
- * @brief Initializes post-processing settings from a config file and command-line overrides.
- *
- * This function establishes the configuration for a post-processing run by:
- * 1. Setting hardcoded default values in the PostProcessParams struct.
- * 2. Reading a configuration file to override the defaults.
- * 3. Parsing command-line options (-startTime, -endTime, etc.) which can override
- *    both the defaults and the file settings.
- *
- * @param configFile The path to the configuration file to parse.
- * @param pps Pointer to the PostProcessParams struct to be populated.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `ParsePostProcessingSettings()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
 {
@@ -2666,16 +2313,10 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "ParseScalingInformation"
 /**
- * @brief Parses physical scaling parameters from command-line options.
- *
- * This function reads the reference length, velocity, and density from the
- * PETSc options database (provided via -scaling_L_ref, etc.). It populates
- * the simCtx->scaling struct and calculates the derived reference pressure.
- * It sets default values of 1.0 for a fully non-dimensional case if the
- * options are not provided.
- *
- * @param[in,out] simCtx The simulation context whose 'scaling' member will be populated.
- * @return PetscErrorCode
+ * @brief Implementation of \ref ParseScalingInformation().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see ParseScalingInformation()
  */
 PetscErrorCode ParseScalingInformation(SimCtx *simCtx)
 {
@@ -2715,18 +2356,12 @@ PetscErrorCode ParseScalingInformation(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-
-//  ---------------------------------------------------------------------
-//  UTILITY FUNCTIONS NOT USED IN THE MAIN CODE ( NOT  SUPPORTED  ANYMORE,INCLUDED FOR BACKWARD COMPATIBILITY)
-//  ---------------------------------------------------------------------
-
-//=====================================================================
-//   1) ReadDataFileToArray
-
-//   See the function-level comments in io.h for a summary.
-//   This reads one value per line from an ASCII file. Rank 0 does I/O,
-//   broadcasts the data to all ranks.
-//===================================================================== */
+/**
+ * @brief Implementation of \ref ReadDataFileToArray().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see ReadDataFileToArray()
+ */
 PetscInt ReadDataFileToArray(const char   *filename,
                         double      **data_out,
                         PetscInt          *Nout,
@@ -2856,18 +2491,8 @@ PetscInt ReadDataFileToArray(const char   *filename,
 }
 
 /**
- * @brief Reads coordinate data (for particles)  from file into a PETSc Vec, then gathers it to rank 0.
- *
- * This function uses \c ReadFieldData to fill a PETSc Vec with coordinate data,
- * then leverages \c VecToArrayOnRank0 to gather that data into a contiguous array
- * (valid on rank 0 only).
- *
- * @param[in]  timeIndex    The time index used to construct file names.
- * @param[in]  user         Pointer to the user context.
- * @param[out] coordsArray  On rank 0, will point to a newly allocated array holding the coordinates.
- * @param[out] Ncoords      On rank 0, the length of \p coordsArray. On other ranks, 0.
- *
- * @return PetscErrorCode  Returns 0 on success, or non-zero on failures.
+ * @brief Internal helper implementation: `ReadPositionsFromFile()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
                                       UserCtx *user,
@@ -2904,18 +2529,8 @@ PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
 
 
 /**
- * @brief Reads a named field from file into a PETSc Vec, then gathers it to rank 0.
- *
- * This function wraps \c ReadFieldData and \c VecToArrayOnRank0 into a single step.
- * The gathered data is stored in \p scalarArray on rank 0, with its length in \p Nscalars.
- *
- * @param[in]  timeIndex     The time index used to construct file names.
- * @param[in]  fieldName     Name of the field to be read (e.g., "velocity").
- * @param[in]  user          Pointer to the user context.
- * @param[out] scalarArray   On rank 0, a newly allocated array holding the field data.
- * @param[out] Nscalars      On rank 0, length of \p scalarArray. On other ranks, 0.
- *
- * @return PetscErrorCode  Returns 0 on success, or non-zero on failures.
+ * @brief Internal helper implementation: `ReadFieldDataToRank0()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
                                            const char *fieldName,

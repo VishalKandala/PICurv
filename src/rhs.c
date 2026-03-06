@@ -2,6 +2,13 @@
 
 #undef __FUNCT__
 #define __FUNCT__ "Convection"
+/**
+ * @brief Implementation of \ref Convection().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/rhs.h`.
+ * @see Convection()
+ */
+
 PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 {
 
@@ -501,6 +508,13 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 
 #undef __FUNCT__
 #define __FUNCT__ "Viscous"
+/**
+ * @brief Implementation of \ref Viscous().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/rhs.h`.
+ * @see Viscous()
+ */
+
 PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 {
   
@@ -1141,18 +1155,8 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeBodyForces"
 /**
- * @brief General dispatcher for applying all active body forces (momentum sources).
- *
- * This function serves as a central hub for adding momentum source terms to the
- * contravariant right-hand-side (Rct) of the momentum equations. It is called once per RHS
- * evaluation (e.g., once per Runge-Kutta stage).
- *
- * It introspects the simulation configuration to determine which, if any, body
- * forces are active and calls their specific implementation functions.
- *
- * @param user The UserCtx containing the simulation state for a single block.
- * @param Rhs  The PETSc Vec for the contravariant RHS, which will be modified in-place.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ComputeBodyForces()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
 {
@@ -1174,20 +1178,8 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeRHS"
 /**
- * @brief Computes the Right-Hand-Side (RHS) of the momentum equations.
- *
- * This function orchestrates the calculation of the spatial discretization of the
- * convective and diffusive terms. It calls specialized helper functions
- * (`Convection`, `Viscous`) to compute these terms and then combines them with
- * the pressure gradient to form the final RHS vector.
- *
- * This is a minimally-edited version of the legacy kernel. It operates on a
- * single UserCtx (one grid block) and retrieves all global parameters
- * (Re, rans, les, etc.) from the master SimCtx.
- *
- * @param user The UserCtx for the specific block being computed.
- * @param Rhs  The PETSc Vec where the calculated RHS will be stored.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ComputeRHS()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 {
@@ -1207,12 +1199,11 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     PetscInt lxe = (xe==mx) ? xe-1 : xe;
     PetscInt lye = (ye==my) ? ye-1 : ye;
     PetscInt lze = (ze==mz) ? ze-1 : ze;
-    PetscInt mz_end = (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == CHARACTERISTIC_BC) ? mz - 2 : mz - 3;
 
     // --- Array Pointers ---
     Cmpnts ***csi, ***eta, ***zet, ***icsi, ***ieta, ***izet, ***jcsi, ***jeta, ***jzet, ***kcsi, ***keta, ***kzet;
-    PetscReal ***p, ***iaj, ***jaj, ***kaj, ***aj, ***nvert, ***nvert_o;
-    Cmpnts ***rhs, ***rc, ***rct,***ucont;
+    PetscReal ***p, ***iaj, ***jaj, ***kaj, ***aj, ***nvert;
+    Cmpnts ***rhs, ***rc, ***rct;
     
     // --- Temporary Vectors ---
     Vec Conv, Visc, Rc, Rct;
@@ -1957,30 +1948,10 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeEulerianDiffusivity"
 /**
- * @brief Computes the effective diffusivity scalar field ($\Gamma_{eff}$) on the Eulerian grid.
- *
- * This function calculates the total diffusivity used to drive the stochastic 
- * motion of particles (Scalar FDF). It combines molecular diffusion and 
- * turbulent diffusion.
- *
- * **Formula:**
- * \f[
- *    \Gamma_{eff} = \underbrace{\frac{\nu}{Sc}}_{\text{Molecular}} + \underbrace{\frac{\nu_t}{Sc_t}}_{\text{Turbulent}}
- * \f]
- *
- * Where:
- * - \f$ \nu = 1/Re \f$ (Kinematic Viscosity)
- * - \f$ \nu_t \f$ (Eddy Viscosity from LES/RANS model)
- * - \f$ Sc \f$ (Molecular Schmidt Number, user-defined)
- * - \f$ Sc_t \f$ (Turbulent Schmidt Number, user-defined)
- *
- * @note If turbulence models are disabled, \f$ \nu_t \f$ is assumed to be 0.
- * @note This function updates the local ghost values of lDiffusivity at the end 
- *       to ensure gradients can be computed correctly at subdomain boundaries.
- *
- * @param[in,out] user  Pointer to the user context containing grid data and simulation parameters.
- * 
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref ComputeEulerianDiffusivity().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/rhs.h`.
+ * @see ComputeEulerianDiffusivity()
  */
 PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
 {
@@ -2103,14 +2074,8 @@ PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeEulerianDiffusivityGradient"
 /**
- * @brief Computes the gradient of the scalar Diffusivity field (Drift Vector).
- * 
- * Logic:
- * 1. Iterates over the PHYSICAL cell centers [1 ... M-2].
- * 2. Uses 2nd-Order Central Difference for interior cells.
- * 3. Uses 2nd-Order One-Sided Differences at physical boundaries 
- *    (Forward at start, Backward at end) unless the boundary is Periodic.
- * 4. Transforms results to Cartesian coordinates using the Chain Rule.
+ * @brief Internal helper implementation: `ComputeEulerianDiffusivityGradient()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeEulerianDiffusivityGradient(UserCtx *user)
 {

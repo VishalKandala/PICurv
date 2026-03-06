@@ -12,6 +12,7 @@ PICURV = REPO_ROOT / "scripts" / "picurv"
 
 
 def load_picurv_module():
+    """Load picurv module for tests."""
     loader = importlib.machinery.SourceFileLoader("picurv_case_maintenance_module", str(PICURV))
     spec = importlib.util.spec_from_loader("picurv_case_maintenance_module", loader)
     assert spec is not None
@@ -22,6 +23,7 @@ def load_picurv_module():
 
 @contextmanager
 def pushd(path: Path):
+    """Temporarily change working directory within a context manager."""
     previous = Path.cwd()
     os.chdir(path)
     try:
@@ -31,6 +33,7 @@ def pushd(path: Path):
 
 
 def make_fake_source_repo(root: Path) -> Path:
+    """Create fake source repo."""
     (root / "src").mkdir(parents=True)
     (root / "include").mkdir()
     (root / "scripts").mkdir()
@@ -48,6 +51,7 @@ def make_fake_source_repo(root: Path) -> Path:
 
 
 def test_init_case_writes_origin_metadata_and_copies_binaries(tmp_path):
+    """Test that init case writes origin metadata and copies binaries."""
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     workspace = tmp_path / "workspace"
@@ -70,6 +74,7 @@ def test_init_case_writes_origin_metadata_and_copies_binaries(tmp_path):
 
 
 def test_build_project_uses_case_origin_source_root(tmp_path):
+    """Test that build project uses case origin source root."""
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -79,6 +84,7 @@ def test_build_project_uses_case_origin_source_root(tmp_path):
     captured = {}
 
     def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
+        """Helper for fake execute."""
         captured["command"] = command
         captured["run_dir"] = run_dir
         captured["log_filename"] = log_filename
@@ -98,6 +104,7 @@ def test_build_project_uses_case_origin_source_root(tmp_path):
 
 
 def test_sync_case_binaries_command_refreshes_case_and_bootstraps_metadata(tmp_path):
+    """Test that sync case binaries command refreshes case and bootstraps metadata."""
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -116,6 +123,7 @@ def test_sync_case_binaries_command_refreshes_case_and_bootstraps_metadata(tmp_p
 
 
 def test_sync_config_preserves_modified_files_without_overwrite(tmp_path):
+    """Test that sync config preserves modified files without overwrite."""
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -141,6 +149,7 @@ def test_sync_config_preserves_modified_files_without_overwrite(tmp_path):
 
 
 def test_sync_config_overwrite_replaces_modified_files_when_requested(tmp_path):
+    """Test that sync config overwrite replaces modified files when requested."""
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -161,6 +170,7 @@ def test_sync_config_overwrite_replaces_modified_files_when_requested(tmp_path):
 
 
 def test_sync_config_prune_removes_only_tracked_stale_template_files(tmp_path):
+    """Test that sync config prune removes only tracked stale template files."""
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -195,6 +205,7 @@ def test_sync_config_prune_removes_only_tracked_stale_template_files(tmp_path):
 
 
 def test_compute_case_source_status_reports_binary_and_template_drift(tmp_path):
+    """Test that compute case source status reports binary and template drift."""
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -231,6 +242,7 @@ def test_compute_case_source_status_reports_binary_and_template_drift(tmp_path):
 
 
 def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
+    """Test that pull source repo uses git pull rebase by default."""
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -240,6 +252,7 @@ def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
     captured = {}
 
     def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
+        """Helper for fake execute."""
         captured["command"] = command
         captured["run_dir"] = run_dir
         captured["log_filename"] = log_filename

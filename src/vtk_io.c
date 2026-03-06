@@ -115,15 +115,20 @@ static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, Pets
 
 static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta)
 {
+    (void)meta;
     fprintf(fp, "\n  </AppendedData>\n");
     fprintf(fp, "</VTKFile>\n");
     return 0;
 }
 
 
-//================================================================================
-//                 PUBLIC VTK WRITER FUNCTION
-//================================================================================
+
+/**
+ * @brief Implementation of \ref CreateVTKFileFromMetadata().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/vtk_io.h`.
+ * @see CreateVTKFileFromMetadata()
+ */
 
 PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData *meta, MPI_Comm comm)
 {
@@ -204,21 +209,8 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
 //================================================================================
 
 /**
- * @brief Creates a C array of coordinates corresponding to a subsampled (legacy-style) grid.
- *
- * This function gathers the full, distributed grid coordinates onto rank 0. On rank 0,
- * it then allocates a new, smaller C array and copies only the coordinates for the
- * nodes within the range [0..IM-2, 0..JM-2, 0..KM-2]. This produces a contiguous
- * array of points for a grid of size (IM-1)x(JM-1)x(KM-1), matching the legacy output.
- * The output arrays are only allocated and valid on rank 0.
- *
- * @param[in]  user        The UserCtx containing the grid information (DM, IM/JM/KM).
- * @param[out] out_coords  On rank 0, a pointer to the newly allocated C array for coordinate data. NULL on other ranks.
- * @param[out] out_nx      The number of points in the x-dimension for the new grid (IM-1).
- * @param[out] out_ny      The number of points in the y-dimension for the new grid (JM-1).
- * @param[out] out_nz      The number of points in the z-dimension for the new grid (KM-1).
- * @param[out] out_npoints The total number of points in the new grid.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `PrepareOutputCoordinates()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords, PetscInt* out_nx, PetscInt* out_ny, PetscInt* out_nz, PetscInt* out_npoints)
 {
@@ -280,9 +272,13 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
     PetscFunctionReturn(0);
 }
 
-//================================================================================
-//               PUBLIC FIELD PREPARATION FUNCTION
-//================================================================================
+
+/**
+ * @brief Implementation of \ref PrepareOutputEulerianFieldData().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/vtk_io.h`.
+ * @see PrepareOutputEulerianFieldData()
+ */
 
 PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, PetscInt num_components, PetscScalar** out_data)
 {
@@ -390,33 +386,8 @@ PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, Pets
 }
 
 /**
- * @brief Gathers, merges, subsamples, and prepares particle data for VTK output.
- *
- * This function orchestrates the preparation of particle data for writing. It is a
- * COLLECTIVE operation that all MPI ranks must enter, though the primary work of
- * data aggregation and preparation is performed on rank 0.
- *
- * The function follows a "merge-and-prepare" strategy:
- * 1.  It treats `user->swarm` as the read-only source of primary data (e.g., positions, velocity)
- *     that was loaded from disk.
- * 2.  It treats `user->pp_swarm` as the source of derived data (e.g., specific_ke) that
- *     was computed by the post-processing pipeline.
- * 3.  **On Rank 0 only**:
- *     a. It gathers the full particle coordinates from the source swarm. This determines
- *        the total number of particles before any subsampling.
- *     b. It parses the `pps->particle_fields` list. For each requested field, it
- *        determines whether to source it from `user->swarm` or `user->pp_swarm`.
- *     c. It gathers the full data for each requested field from its appropriate source into a generic buffer.
- *     d. It performs strided subsampling. During this step, any integer fields (like pid, CellID)
- *        are CAST to PetscScalar, so that all output arrays are of the same floating-point type.
- *     e. It populates the VTKMetaData struct with the final, subsampled, scalar-only data arrays,
- *        making it ready for the file writer.
- *
- * @param[in]  user      The UserCtx, containing both user->swarm and user->pp_swarm.
- * @param[in]  pps       The PostProcessParams struct for configuration (field list, frequency).
- * @param[out] meta      A pointer to the VTKMetaData struct to be populated (on rank 0).
- * @param[out] p_n_total A pointer to store the total number of particles before subsampling (on rank 0).
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `PrepareOutputParticleData()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, VTKMetaData* meta, PetscInt* p_n_total)
 {
@@ -435,7 +406,7 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
     PetscScalar *full_coords_arr = NULL;
     // NOTE: This assumes SwarmFieldToArrayOnRank0 exists and works for PetscScalar fields.
     // If not, it may need to be generalized like the logic below.
-    ierr = SwarmFieldToArrayOnRank0(user->swarm, "position", &n_total_particles, &n_components, &full_coords_arr); CHKERRQ(ierr);
+    ierr = SwarmFieldToArrayOnRank0(user->swarm, "position", &n_total_particles, &n_components, (void**)&full_coords_arr); CHKERRQ(ierr);
 
     // --- Step 2: Prepare and Subsample Data (Rank 0 Only) ---
     if (user->simCtx->rank == 0) {

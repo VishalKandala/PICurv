@@ -9,20 +9,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "Validate_DrivenFlowConfiguration"
 /**
- * @brief (Private) Validates all consistency rules for a driven flow (channel/pipe) setup.
- *
- * This function enforces a strict set of rules to ensure a driven flow simulation is
- * configured correctly. It is called by the main `BoundarySystem_Validate` dispatcher.
- *
- * The validation rules are checked in a specific order:
- * 1.  Detect if any `DRIVEN_` handler is active. If not, the function returns immediately.
- * 2.  Ensure that no `INLET`, `OUTLET`, or `FARFIELD` boundary conditions exist anywhere in the
- *     domain, as they are physically incompatible with a pressure-driven flow model.
- * 3.  Verify that both faces in the driven direction are of `mathematical_type PERIODIC`.
- * 4.  Verify that both faces in the driven direction use the exact same `DRIVEN_` handler type.
- *
- * @param user The UserCtx for a single block.
- * @return PetscErrorCode 0 on success, non-zero PETSc error code on failure.
+ * @brief Internal helper implementation: `Validate_DrivenFlowConfiguration()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user)
 {
@@ -118,16 +106,10 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx);
 #undef __FUNCT__
 #define __FUNCT__ "Create_WallNoSlip"
 /**
- * @brief (Handler Constructor) Populates a BoundaryCondition object with No-Slip Wall behavior.
- *
- * A no-slip wall is simple and requires only the `Apply` method:
- *  - No special initialization needed (`Initialize` is NULL)
- *  - Does not contribute to global mass balance (`PreStep` and `PostStep` are NULL)
- *  - Enforces zero velocity at the wall (`Apply`)
- *  - Allocates no private data (`Destroy` is NULL)
- *
- * @param bc A pointer to the generic BoundaryCondition object to be configured.
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref Create_WallNoSlip().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/BC_Handlers.h`.
+ * @see Create_WallNoSlip()
  */
 PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc)
 {
@@ -156,18 +138,8 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "Apply_WallNoSlip"
 /**
- * @brief (Handler Action) Applies the no-slip wall condition to a specified face.
- *
- * This function enforces zero velocity at the wall by:
- *   1. Setting contravariant flux (ucont) to zero (no penetration)
- *   2. Setting boundary velocity (ubcs) to zero (no slip)
- *   
- * NOTE: Unlike the legacy code, this does NOT set ucat[ghost]. The orchestrator's
- * UpdateDummyCells function handles ghost cell extrapolation uniformly for all BC types.
- *
- * @param self The BoundaryCondition object (unused for this simple handler)
- * @param ctx  BCContext containing UserCtx and face_id
- * @return PetscErrorCode 0 on success
+ * @brief Internal helper implementation: `Apply_WallNoSlip()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
 {
@@ -342,9 +314,12 @@ typedef struct{
 
 #undef __FUNCT__
 #define __FUNCT__ "Create_InletConstantVelocity"
-/*
-* @brief (Handler Constructor) Populates a BoundaryCondition object with Constant Velocity Inlet behavior.
-*/
+/**
+ * @brief Implementation of \ref Create_InletConstantVelocity().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/BC_Handlers.h`.
+ * @see Create_InletConstantVelocity()
+ */
 PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc)
 {
     PetscErrorCode ierr;
@@ -371,11 +346,8 @@ PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "Initialize_InletConstantVelocity"
 /**
- * @brief (Handler Action) Initializes the constant velocity inlet handler.
- *
- * Parses the appropriate velocity component ('vx', 'vy', or 'vz') from bcs.dat
- * based on the face orientation and sets the initial state on the boundary face
- * by calling the Apply function.
+ * @brief Internal helper implementation: `Initialize_InletConstantVelocity()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx)
 {
@@ -424,14 +396,8 @@ static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, 
 #undef __FUNCT__
 #define __FUNCT__ "PreStep_InletConstantVelocity"
 /**
- * @brief (Handler PreStep) No preparation needed for constant velocity inlet.
- *
- * For constant velocity inlets, all parameters are parsed during Initialize
- * and stored in the handler's private data. There is nothing to prepare before
- * Apply, so this function is a no-op.
- *
- * NOTE: Other inlet types (parabolic, time-varying, file-based) DO use PreStep
- * for profile calculation, file I/O, or data preparation.
+ * @brief Internal helper implementation: `PreStep_InletConstantVelocity()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode PreStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx,
                                                      PetscReal *local_inflow_contribution,
@@ -453,14 +419,8 @@ static PetscErrorCode PreStep_InletConstantVelocity(BoundaryCondition *self, BCC
 #undef __FUNCT__
 #define __FUNCT__ "Apply_InletConstantVelocity"
 /**
- * @brief (Handler Action) Applies the constant velocity inlet condition.
- *
- * This function enforces a constant normal velocity on its assigned face by:
- * 1.  Iterating over all owned nodes on the specified boundary face.
- * 2.  For each valid fluid node (not covered by a solid), setting the contravariant
- *     velocity component (Ucont) to achieve the desired normal velocity.
- * 3.  Calculating and setting the corresponding Cartesian velocity components (Ubc)
- *     in the ghost cells adjacent to the boundary face.
+ * @brief Internal helper implementation: `Apply_InletConstantVelocity()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Apply_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx)
 {
@@ -595,7 +555,8 @@ static PetscErrorCode Apply_InletConstantVelocity(BoundaryCondition *self, BCCon
 #undef __FUNCT__
 #define __FUNCT__ "PostStep_InletConstantVelocity"
 /**
- * @brief (Handler PostStep) Measures actual inflow flux through the constant velocity inlet face.
+ * @brief Internal helper implementation: `PostStep_InletConstantVelocity()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx,
                                                       PetscReal *local_inflow_contribution,
@@ -689,7 +650,8 @@ static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BC
 #undef __FUNCT__
 #define __FUNCT__ "Destroy_InletConstantVelocity"
 /**
- * @brief (Handler Destructor) Frees memory for the Constant Velocity Inlet.
+ * @brief Internal helper implementation: `Destroy_InletConstantVelocity()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Destroy_InletConstantVelocity(BoundaryCondition *self)
 {
@@ -751,13 +713,10 @@ typedef struct {
 #undef __FUNCT__
 #define __FUNCT__ "Create_InletParabolicProfile"
 /**
- * @brief (Handler Constructor) Populates a BoundaryCondition object with Parabolic Inlet behavior.
- *
- * Allocates the private data structure and wires all lifecycle function pointers.
- * Actual parameter parsing and geometry computation are deferred to Initialize.
- *
- * @param bc The BoundaryCondition object to populate.
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref Create_InletParabolicProfile().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/BC_Handlers.h`.
+ * @see Create_InletParabolicProfile()
  */
 PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc)
 {
@@ -785,20 +744,8 @@ PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "Initialize_InletParabolicProfile"
 /**
- * @brief (Handler Action) Initializes the parabolic inlet handler.
- *
- * Parses 'v_max' (peak centerline velocity) from the boundary condition parameters,
- * determines the two cross-stream directions based on face orientation, and
- * pre-computes the center and half-width in index space for each cross-stream direction.
- *
- * Cross-stream direction mapping:
- *   - X-faces (i-normal): cs1 = j (JM nodes), cs2 = k (KM nodes)
- *   - Y-faces (j-normal): cs1 = i (IM nodes), cs2 = k (KM nodes)
- *   - Z-faces (k-normal): cs1 = i (IM nodes), cs2 = j (JM nodes)
- *
- * The interior node width in each cross-stream direction is (dim - 2), since
- * indices 0 and (dim-1) are ghost/boundary layers. The parabolic profile spans
- * from index 1 to (dim-2), centered at 1.0 + (dim-2)/2.0.
+ * @brief Internal helper implementation: `Initialize_InletParabolicProfile()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx)
 {
@@ -863,10 +810,8 @@ static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, 
 #undef __FUNCT__
 #define __FUNCT__ "PreStep_InletParabolicProfile"
 /**
- * @brief (Handler PreStep) No preparation needed for parabolic inlet.
- *
- * The parabolic profile is time-invariant. All geometry and parameters are
- * computed once during Initialize and stored in the handler's private data.
+ * @brief Internal helper implementation: `PreStep_InletParabolicProfile()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
                                                      PetscReal *local_inflow_contribution,
@@ -885,19 +830,8 @@ static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCC
 #undef __FUNCT__
 #define __FUNCT__ "Apply_InletParabolicProfile"
 /**
- * @brief (Handler Action) Applies the parabolic velocity inlet condition.
- *
- * Enforces a Poiseuille (parabolic) velocity profile on the assigned inlet face:
- * 1.  Iterates over all owned nodes on the boundary face.
- * 2.  For each fluid node, computes the local velocity from the parabolic profile:
- *     v_local = v_max * max(0, 1 - cs1_norm^2) * max(0, 1 - cs2_norm^2).
- * 3.  Sets the contravariant velocity (Ucont) using the local velocity and face
- *     area metric.
- * 4.  Sets the Cartesian velocity (Ubcs) in the ghost cells from the metric
- *     decomposition.
- *
- * The profile evaluates to v_max at the face center and zero at the walls,
- * matching a fully-developed rectangular channel Poiseuille solution.
+ * @brief Internal helper implementation: `Apply_InletParabolicProfile()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Apply_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx)
 {
@@ -1054,12 +988,8 @@ static PetscErrorCode Apply_InletParabolicProfile(BoundaryCondition *self, BCCon
 #undef __FUNCT__
 #define __FUNCT__ "PostStep_InletParabolicProfile"
 /**
- * @brief (Handler PostStep) Measures actual inflow flux through the parabolic inlet face.
- *
- * Sums the contravariant velocity (ucont) over all owned nodes on the inlet face
- * to compute the volumetric flux contribution from this MPI rank. This is identical
- * to the constant velocity inlet's PostStep, since flux measurement is independent
- * of how the velocity was set.
+ * @brief Internal helper implementation: `PostStep_InletParabolicProfile()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
                                                       PetscReal *local_inflow_contribution,
@@ -1152,7 +1082,8 @@ static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BC
 #undef __FUNCT__
 #define __FUNCT__ "Destroy_InletParabolicProfile"
 /**
- * @brief (Handler Destructor) Frees memory for the Parabolic Velocity Inlet.
+ * @brief Internal helper implementation: `Destroy_InletParabolicProfile()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Destroy_InletParabolicProfile(BoundaryCondition *self)
 {
@@ -1190,7 +1121,10 @@ static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCCon
 #undef __FUNCT__
 #define __FUNCT__ "Create_OutletConservation"
 /**
- * @brief (Handler Constructor) Populates a BoundaryCondition object with Outlet Conservation behavior.
+ * @brief Implementation of \ref Create_OutletConservation().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/BC_Handlers.h`.
+ * @see Create_OutletConservation()
  */
 PetscErrorCode Create_OutletConservation(BoundaryCondition *bc)
 {
@@ -1218,32 +1152,8 @@ PetscErrorCode Create_OutletConservation(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "PreStep_OutletConservation"                                     
 /**
- * @brief (Handler Action) Measures the current, uncorrected flux passing through a SINGLE outlet face.
- *
- * This function is called during the PreStep phase of the boundary condition cycle. It is a direct,
- * high-fidelity port of the flux measurement logic from the legacy function for
- * outlet-type boundaries.
- *
- * Its primary responsibility is to calculate the total volumetric flux that is currently passing
- * *out* of the domain through the specified outlet face, before any mass-conservation corrections
- * are applied.
- *
- * The calculation is performed by taking the dot product of the interior cell-centered Cartesian
- * velocity (`ucat`) with the corresponding face area vectors (`csi`, `eta`, or `zet`). To ensure
- * bit-for-bit identical behavior with the legacy code, this function respects the convention of
- * excluding domain corners and edges from the main face loops by using shrunk loop bounds
- * (`lxs`, `lxe`, etc.).
- *
- * The result from this rank's portion of the face is added to the `local_outflow_contribution`
- * accumulator, which is later summed across all MPI ranks to obtain the global uncorrected outflow.
- *
- * @param self A pointer to the BoundaryCondition object (unused in this specific handler).
- * @param ctx  The context for this execution, providing access to the `UserCtx` and, critically,
- *             the `face_id` that this function call should operate on.
- * @param local_inflow_contribution  Accumulator for inflow flux (unused by this handler).
- * @param[out] local_outflow_contribution Accumulator for outflow flux. This function will ADD its
- *                                        calculated flux to this value.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `PreStep_OutletConservation()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCContext *ctx,
                                      PetscReal *local_inflow_contribution, PetscReal *local_outflow_contribution)
@@ -1380,9 +1290,11 @@ static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCCont
  *
  * This function calculates a global correction factor based on the total inflow and outflow fluxes
  * and applies it to the contravariant velocity (`ucont`) on the outlet face to ensure mass conservation.
- */static PetscErrorCode Apply_OutletConservation(BoundaryCondition *self, BCContext *ctx)
+ */
+static PetscErrorCode Apply_OutletConservation(BoundaryCondition *self, BCContext *ctx)
 {
     PetscErrorCode ierr;
+    (void)self;
     UserCtx*       user = ctx->user;
     BCFace         face_id = ctx->face_id;
     DMDALocalInfo* info = &user->info;
@@ -1589,11 +1501,8 @@ static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCCont
 #undef __FUNCT__
 #define __FUNCT__ "PostStep_OutletConservation"
 /**
- * @brief (Handler PostStep) Measures corrected outflow flux for verification.
- *
- * After Apply has set the corrected ucont values, this function measures
- * the actual flux passing through the outlet face by summing the ucont
- * components. Only fluid cells (nvert < 0.1) are included in the sum.
+ * @brief Internal helper implementation: `PostStep_OutletConservation()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCContext *ctx,
                                                    PetscReal *local_inflow_contribution,
@@ -1726,9 +1635,13 @@ static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCCon
     PetscFunctionReturn(0);
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
-///////// Geometric Periodic BC Handler
-/////////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * @brief Implementation of \ref Create_PeriodicGeometric().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/BC_Handlers.h`.
+ * @see Create_PeriodicGeometric()
+ */
 
 PetscErrorCode Create_PeriodicGeometric(BoundaryCondition *bc){
     PetscFunctionBeginUser;
@@ -1780,21 +1693,8 @@ typedef struct {
 #undef __FUNCT__
 #define __FUNCT__ "Create_PeriodicDrivenConstant"
 /**
- * @brief (Handler Constructor) Creates and configures a BoundaryCondition object for a driven periodic
- *        flow with a constant, user-defined target flux.
- *
- * This function acts as the factory entry point for the `BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX` type.
- * It performs the following steps:
- * 1.  Allocates memory for the generic `BoundaryCondition` object (done by the factory caller).
- * 2.  Allocates memory for its own private `DrivenConstantData` struct.
- * 3.  Sets the execution priority to `BC_PRIORITY_INLET` to ensure the controller's `PreStep`
- *     runs before other flux-measuring handlers.
- * 4.  Assigns the function pointers (`Initialize`, `PreStep`, `Apply`, `Destroy`) to the
- *     specific static implementations defined in this file. Other methods are set to NULL
- *     as they are not needed by this handler.
- *
- * @param bc A pointer to the generic BoundaryCondition object to be configured.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `Create_PeriodicDrivenConstant()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
 {
@@ -1837,28 +1737,8 @@ PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "Initialize_PeriodicDrivenConstant"
 /**
- * @brief (Handler Initialize) Initializes the handler by validating its configuration and parsing parameters.
- *
- * This method is called once at simulation startup. It performs the following critical setup tasks:
- *
- * 1.  **Validation:** It verifies that this handler has been correctly applied to a face with
- *     `mathematical_type = PERIODIC`. If not, it halts the simulation with a clear error message.
- *
- * 2.  **Role Assignment:** It determines its operational direction ('X', 'Y', or 'Z') based on
- *     the `face_id` it is attached to. It also designates the handler on the "negative" face
- *     (e.g., BC_FACE_NEG_X) as the "master controller". This ensures that computationally
- *     expensive, domain-wide calculations in the `PreStep` method are only executed once
- *     per direction.
- *
- * 3.  **Parameter Parsing:** If this instance is the master controller, it parses the required
- *     `target_flux` parameter from the boundary condition configuration file. It will halt
- *     with an error if this parameter is missing. The parsed value is stored in the handler's
- *     private data and also copied to a shared location in the `UserCtx` for other parts of
- *     the solver (like the "Enforcer" function) to access.
- *
- * @param self The `BoundaryCondition` object containing the handler's state.
- * @param ctx  The `BCContext`, providing access to the `UserCtx` and `face_id`.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `Initialize_PeriodicDrivenConstant()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self, BCContext *ctx)
 {
@@ -1925,31 +1805,8 @@ static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self,
 #undef __FUNCT__
 #define __FUNCT__ "PreStep_PeriodicDrivenConstant"
 /**
- * @brief (Handler PreStep) Measures current fluxes and calculates the correction terms for the timestep.
- *
- * This method executes the main "Strategist" logic of the driven flow controller. It is
- * called once per timestep during the `PreStep` phase of the boundary condition cycle.
- *
- * The logic is executed *only* by the "master" handler (the one on the negative face)
- * to ensure domain-wide calculations are performed just once per direction.
- *
- * The function performs the following steps:
- * 1.  Reads the globally-set `targetVolumetricFlux` from the `SimCtx`.
- * 2.  Measures the `globalAveragePlanarVolumetricFlux` by averaging the flux across all
- *     cross-sectional planes. This provides a stable, noise-filtered signal.
- * 3.  Measures the `globalCurrentBoundaryFlux` at the single periodic boundary plane.
- *     This provides a fast, responsive signal.
- * 4.  Calculates `bulkVelocityCorrection` using the stable, averaged flux and stores it in
- *     the `SimCtx` for the `ApplyDrivenChannelFlowSource` function to use.
- * 5.  Calculates `boundaryVelocityCorrection` using the fast, boundary-specific flux and
- *     stores it in the handler's private data for its own `Apply` method to use for the
- *     "Boundary Trim".
- *
- * @param self The `BoundaryCondition` object containing the handler's state.
- * @param ctx  The `BCContext`, providing access to the `UserCtx`.
- * @param local_inflow_contribution  (Not used by this handler)
- * @param local_outflow_contribution (Not used by this handler)
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `PreStep_PeriodicDrivenConstant()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BCContext *ctx,
                                                      PetscReal *local_inflow_contribution,
@@ -2130,23 +1987,8 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
 #undef __FUNCT__
 #define __FUNCT__ "Apply_PeriodicDrivenConstant"
 /**
- * @brief (Handler Apply) Applies the immediate "Boundary Trim" velocity correction to the periodic face.
- *
- * This method executes the fast, tactical part of the control loop. It is called during the
- * `Apply` phase of the boundary condition cycle for each of the two periodic faces that have
- * this handler.
- *
- * It reads the `boundaryVelocityCorrection` value (which was computed for the entire boundary
- * by the master controller's `PreStep` method) from its private data. It then applies this
- * correction directly to the contravariant velocity (`ucont`) field on the face it manages.
- *
- * This action serves to immediately correct any flux deviation at the periodic "seam",
- * preventing errors from propagating into the domain in the subsequent timestep. The correction
- * value is also stored in the `uch` vector for diagnostic purposes.
- *
- * @param self The `BoundaryCondition` object containing the handler's state.
- * @param ctx  The `BCContext`, providing access to the `UserCtx` and `face_id`.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `Apply_PeriodicDrivenConstant()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCContext *ctx)
 {
@@ -2249,16 +2091,8 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
 #undef __FUNCT__
 #define __FUNCT__ "Destroy_PeriodicDrivenConstant"
 /**
- * @brief (Handler Destructor) Frees the memory allocated for the handler's private data.
- *
- * This method is called once at the end of the simulation by `BoundarySystem_Destroy`.
- * Its only job is to free the `DrivenConstantData` struct that was allocated in the
- * `Create_PeriodicDrivenConstantFlux` constructor.
- *
- * This is a critical step to ensure there are no memory leaks.
- *
- * @param self The `BoundaryCondition` object containing the private data to be freed.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `Destroy_PeriodicDrivenConstant()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode Destroy_PeriodicDrivenConstant(BoundaryCondition *self)
 {

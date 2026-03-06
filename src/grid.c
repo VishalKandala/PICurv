@@ -8,16 +8,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "ParseAndSetGridInputs"
 /**
- * @brief Determines the grid source and calls the appropriate parsing routine.
- *
- * This function acts as a router. It checks the global `simCtx->generate_grid`
- * flag (accessed via the `user->simCtx` back-pointer) to decide whether to
- * call the parser for a programmatically generated grid or for a grid defined
- * in a file.
- *
- * @param user Pointer to the `UserCtx` for a specific block. The function will
- *             populate the geometric fields within this struct.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `ParseAndSetGridInputs()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
 {
@@ -55,22 +47,8 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "DefineAllGridDimensions"
 /**
- * @brief Orchestrates the parsing and setting of grid dimensions for all blocks.
- *
- * This function serves as the high-level entry point for defining the geometric
- * properties of each grid block in the simulation. It iterates through every
- * block defined by `simCtx->block_number`.
- *
- * For each block, it performs two key actions:
- * 1.  It explicitly sets the block's index (`_this`) in the corresponding `UserCtx`
- *     struct for the finest multigrid level. This makes the context "self-aware".
- * 2.  It calls a helper function (`ParseAndSetGridInputs`) to handle the detailed
- *     work of parsing options or files to populate the rest of the geometric
- *     properties for that specific block (e.g., `IM`, `Min_X`, `rx`).
- *
- * @param simCtx The master SimCtx, which contains the number of blocks and the
- *               UserCtx hierarchy to be configured.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `DefineAllGridDimensions()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
 {
@@ -119,20 +97,8 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "InitializeSingleGridDM"
 /**
- * @brief Creates the DMDA objects (da and fda) for a single UserCtx.
- *
- * This function is a direct adaptation of the core logic in `MGDACreate`. It
- * creates the scalar (`da`) and vector (`fda`) DMs for a single grid level.
- *
- * If a `coarse_user` context is provided, it performs the critical processor
- * alignment calculation from the legacy code. This ensures the new (fine) DM
- * aligns with the coarse DM for multigrid efficiency. If `coarse_user` is NULL,
- * it creates the DM with a default PETSc decomposition, intended for the
- * coarsest grid level.
- *
- * @param user The UserCtx for which the DMs will be created. Its IM, JM, KM fields must be pre-populated.
- * @param coarse_user The UserCtx of the next-coarser grid level, or NULL if `user` is the coarsest level.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `InitializeSingleGridDM()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user)
 {
@@ -259,17 +225,8 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
 #undef __FUNCT__
 #define __FUNCT__ "InitializeAllGridDMs"
 /**
- * @brief Orchestrates the creation of DMDA objects for every block and multigrid level.
- *
- * This function systematically builds the entire DMDA hierarchy. It first
- * calculates the dimensions (IM, JM, KM) for all coarse grids based on the
- * finest grid's dimensions and the semi-coarsening flags. It then iterates
- * from the coarsest to the finest level, calling a powerful helper function
- * (`InitializeSingleGridDM`) to create the DMs for each block, ensuring that
- * finer grids are properly aligned with their coarser parents for multigrid efficiency.
- *
- * @param simCtx The master SimCtx, containing the configured UserCtx hierarchy.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `InitializeAllGridDMs()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
 {
@@ -350,22 +307,8 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
 #undef __FUNCT__
 #define __FUNCT__ "AssignAllGridCoordinates"
 /**
- * @brief Orchestrates the assignment of physical coordinates to all DMDA objects.
- *
- * This function manages the entire process of populating the coordinate vectors
- * for every DMDA across all multigrid levels and blocks. It follows a two-part
- * strategy that is essential for multigrid methods:
- *
- * 1.  **Populate Finest Level:** It first loops through each block and calls a
- *     helper (`SetFinestLevelCoordinates`) to set the physical coordinates for
- *     the highest-resolution grid (the finest multigrid level).
- * 2.  **Restrict to Coarser Levels:** It then iterates downwards from the finest
- *     level, calling a helper (`RestrictCoordinates`) to copy the coordinate
- *     values from the fine grid nodes to their corresponding parent nodes on the
- *     coarser grids. This ensures all levels represent the exact same geometry.
- *
- * @param simCtx The master SimCtx, containing the configured UserCtx hierarchy.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `AssignAllGridCoordinates()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
 {
@@ -400,7 +343,7 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
             ierr = RestrictCoordinates(coarse_user, fine_user); CHKERRQ(ierr);
 
             LOG_ALLOW(GLOBAL,LOG_TRACE,"Coordinates restricted to block %d level %d.\n",bi,level);
-            if(get_log_level==LOG_VERBOSE && is_function_allowed(__FUNCT__)==true) {
+            if(get_log_level()==LOG_VERBOSE && is_function_allowed(__FUNCT__)==true) {
                 ierr = LOG_FIELD_MIN_MAX(coarse_user,"Coordinates");
             }
         }
@@ -417,19 +360,8 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetFinestLevelCoordinates"
 /**
- * @brief A router that populates the coordinates for a single finest-level DMDA.
- *
- * This function orchestrates the coordinate setting for one block. It checks the
- * global `generate_grid` flag and calls the appropriate helper for either
- * programmatic generation or reading from a file.
- *
- * After the local coordinate vector is populated by a helper, this function
- * performs the necessary DMLocalToGlobal and DMGlobalToLocal scatters to ensure
- * that the ghost node coordinate values are correctly communicated and updated
- * across all MPI ranks.
- *
- * @param user The UserCtx for a specific block on the finest level.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `SetFinestLevelCoordinates()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
 {
@@ -493,34 +425,9 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Computes a stretched coordinate along one dimension.
- *
- * This function computes a coordinate based on a geometric stretching ratio.
- * If the ratio (r) is 1.0, a uniform distribution is used:
- *     x(i) = L * (i/N)
- *
- * If r != 1.0, a geometric stretching is applied:
- *     x(i) = L * [ (r^(i/N) - 1 ) / (r - 1) ]
- *
- * Here:
- * - i   : The current index along the dimension.
- * - N   : The total number of divisions along that dimension.
- * - L   : The length of the domain along that dimension.
- * - r   : The stretching ratio. r > 1.0 stretches the grid in a geometric fashion
- *         increasing spacing away from the start, whereas 0 < r < 1.0 would
- *         cluster points near the start.
- *
- * @param[in] i Current index (0 <= i <= N).
- * @param[in] N Number of segments along the dimension.
- * @param[in] L Total length of the domain.
- * @param[in] r Stretching ratio.
- *
- * @return PetscReal The computed coordinate at index i.
- *
- * @note This function does not return a PetscErrorCode because it
- *       does not allocate memory or call PETSc routines that can fail.
- *       It is just a helper calculation function.
- **/
+ * @brief Internal helper implementation: `ComputeStretchedCoord()`.
+ * @details Local to this translation unit.
+ */
 static inline PetscReal ComputeStretchedCoord(PetscInt i, PetscInt N, PetscReal L, PetscReal r)
 {
     if (N <=1) return 0.0;
@@ -535,14 +442,8 @@ static inline PetscReal ComputeStretchedCoord(PetscInt i, PetscInt N, PetscReal 
 #undef __FUNCT__
 #define __FUNCT__ "GenerateAndSetCoordinates"
 /**
- * @brief Programmatically generates and sets grid coordinates based on user parameters.
- *
- * This function populates the local coordinate vector of the provided `UserCtx`
- * using the geometric properties (`Min_X`, `Max_X`, `rx`, etc.) that were parsed
- * from command-line options. It supports non-linear grid stretching.
- *
- * @param user The UserCtx for a specific block.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `GenerateAndSetCoordinates()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 {
@@ -611,26 +512,8 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ReadAndSetCoordinates"
 /**
- * @brief Reads physical coordinates from a file and populates the DMDA for a specific block.
- *
- * This function handles the collective read of an interleaved (X Y Z per line)
- * multi-block grid file. It assumes the file header (nblk, dimensions) has
- * already been processed by ReadGridFile.
- *
- * The process is robust for parallel execution:
- * 1.  Rank 0 opens the grid file.
- * 2.  It intelligently skips past the header section and the coordinate data
- *     for all blocks *preceding* the current block being processed (`user->_this`).
- * 3.  It then reads the entire coordinate data for the *current* block into
- *     a single contiguous buffer `gc`.
- * 4.  This global buffer `gc` is broadcast to all other MPI ranks.
- * 5.  Each rank then loops through its local (owned + ghost) node indices,
- *     calculates the corresponding index in the global `gc` array, and copies
- *     the (x,y,z) coordinates into its local PETSc coordinate vector.
- *
- * @param user The UserCtx for a specific block. Its `_this` field must be set,
- *             and its IM, JM, KM fields must be correctly pre-populated.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `ReadAndSetCoordinates()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
 {
@@ -707,17 +590,8 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
 #undef __FUNCT__
 #define __FUNCT__ "RestrictCoordinates"
 /**
- * @brief Populates coarse grid coordinates by restricting from a fine grid.
- *
- * This function is a direct adaptation of the coordinate restriction loop
- * from the legacy `MG_Initial` function. It ensures that the physical location
- * of a coarse grid node is identical to its corresponding parent node on the
- * fine grid. The mapping from coarse to fine index (`i` -> `ih`) is determined
- * by the semi-coarsening flags (`isc`, `jsc`, `ksc`) stored in the `UserCtx`.
- *
- * @param coarse_user The UserCtx for the coarse grid (destination).
- * @param fine_user The UserCtx for the fine grid (source).
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `RestrictCoordinates()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_user)
 {
@@ -793,23 +667,10 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
 #undef __FUNCT__
 #define __FUNCT__ "ComputeLocalBoundingBox"
 /**
- * @brief Computes the local bounding box of the grid on the current process.
- *
- * This function calculates the minimum and maximum coordinates (x, y, z) of the
- * local grid points owned by the current MPI process. It iterates over the local
- * portion of the grid, examines each grid point's coordinates, and updates the
- * minimum and maximum values accordingly.
- *
- * The computed bounding box is stored in the provided `localBBox` structure,
- * and the `user->bbox` field is also updated with this bounding box for
- * consistency within the user context.
- *
- * @param[in]  user      Pointer to the user-defined context containing grid information.
- *                       This context must be properly initialized before calling this function.
- * @param[out] localBBox Pointer to the BoundingBox structure where the computed local bounding box will be stored.
- *                       The structure should be allocated by the caller.
- *
- * @return PetscErrorCode Returns `0` on success, non-zero on failure.
+ * @brief Implementation of \ref ComputeLocalBoundingBox().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/grid.h`.
+ * @see ComputeLocalBoundingBox()
  */
 PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
 {
@@ -948,16 +809,10 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
 #define __FUNCT__ "GatherAllBoundingBoxes"
 
 /**
- * @brief Gathers local bounding boxes from all MPI processes to rank 0.
- *
- * Each rank computes its local bounding box, then all ranks
- * participate in an MPI_Gather to send their BoundingBox to rank 0.
- * Rank 0 allocates the result array and returns it via allBBoxes.
- *
- * @param[in]  user       Pointer to UserCtx (must be non-NULL).
- * @param[out] allBBoxes  On rank 0, receives malloc’d array of size `size`.
- *                        On other ranks, set to NULL.
- * @return PetscErrorCode
+ * @brief Implementation of \ref GatherAllBoundingBoxes().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/grid.h`.
+ * @see GatherAllBoundingBoxes()
  */
 PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
 {
@@ -1018,18 +873,13 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
 #define __FUNCT__ "BroadcastAllBoundingBoxes"
 
 /**
- * @brief Broadcasts the bounding box list from rank 0 to all ranks.
- *
- * After GatherAllBoundingBoxes, rank 0 has an array of `size` boxes.
- * This routine makes sure every rank ends up with its own malloc’d copy.
- *
- * @param[in]  user      Pointer to UserCtx (unused here, but kept for signature).
- * @param[in,out] bboxlist  On entry: rank 0’s array; on exit: every rank’s array.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `BroadcastAllBoundingBoxes()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
 {
   PetscErrorCode ierr;
+  (void)user;
   PetscMPIInt    rank, size;
 
   PetscFunctionBeginUser;
@@ -1071,14 +921,10 @@ PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
 #undef __FUNCT__
 #define __FUNCT__ "CalculateInletProperties"
 /**
- * @brief Calculates the center and area of the primary INLET face.
- *
- * This function identifies the primary INLET face from the boundary face
- * configurations, computes its geometric center and total area using a
- * generic utility function, and stores these results in the simulation context.
- *
- * @param user Pointer to the UserCtx containing boundary face information.
- * @return PetscErrorCode
+ * @brief Implementation of \ref CalculateInletProperties().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/grid.h`.
+ * @see CalculateInletProperties()
  */
 PetscErrorCode CalculateInletProperties(UserCtx *user)
 {
@@ -1118,7 +964,7 @@ PetscErrorCode CalculateInletProperties(UserCtx *user)
 
     LOG_ALLOW(GLOBAL, LOG_INFO,
               "Rank[%d] Inlet Center: (%.6f, %.6f, %.6f), Area: %.6f\n",
-              inlet_center.x, inlet_center.y, inlet_center.z, inlet_area);
+              user->simCtx->rank, inlet_center.x, inlet_center.y, inlet_center.z, inlet_area);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -1128,13 +974,10 @@ PetscErrorCode CalculateInletProperties(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "CalculateOutletProperties"
 /**
- * @brief Calculates the center and area of the primary OUTLET face.
- *
- * This function identifies the primary OUTLET face from the boundary face
- * configurations, computes its geometric center and total area using a
- * generic utility function, and stores these results in the simulation context.
- * @param user Pointer to the UserCtx containing boundary face information.
- * @return PetscErrorCode
+ * @brief Implementation of \ref CalculateOutletProperties().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/grid.h`.
+ * @see CalculateOutletProperties()
  */
 PetscErrorCode CalculateOutletProperties(UserCtx *user)
 {
@@ -1174,118 +1017,10 @@ PetscErrorCode CalculateOutletProperties(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "CalculateFaceCenterAndArea"
 /**
- * @brief Calculates the geometric center and total area of a specified boundary face.
- *
- * This function computes two key properties of a boundary face in the computational domain:
- * 1. **Geometric Center**: The average (x,y,z) position of all physical nodes on the face
- * 2. **Total Area**: The sum of face area vector magnitudes from all non-solid cells adjacent to the face
- *
- * @section architecture Indexing Architecture
- * 
- * The solver uses different indexing conventions for different field types:
- * 
- * **Node-Centered Fields (Coordinates):**
- * - Direct indexing: Node n stored at coor[n]
- * - For mx=26: Physical nodes [0-24], Dummy at [25]
- * - For mz=98: Physical nodes [0-96], Dummy at [97]
- * 
- * **Face-Centered Fields (Metrics: csi, eta, zet):**
- * - Direct indexing: Face n stored at csi/eta/zet[n]
- * - For mx=26: Physical faces [0-24], Dummy at [25]
- * - For mz=98: Physical faces [0-96], Dummy at [97]
- * - Face at index k bounds cells k-1 and k
- * 
- * **Cell-Centered Fields (nvert):**
- * - Shifted indexing: Physical cell c stored at nvert[c+1]
- * - For mx=26 (25 cells): Cell 0→nvert[1], Cell 23→nvert[24]
- * - For mz=98 (96 cells): Cell 0→nvert[1], Cell 95→nvert[96]
- * - nvert[0] and nvert[mx-1] are ghost values
- *
- * @section face_geometry Face-to-Index Mapping
- * 
- * Example for a domain with mx=26, my=26, mz=98:
- * 
- * | Face ID       | Node Index | Face Metric      | Adjacent Cell (shifted) | Physical Extent |
- * |---------------|------------|------------------|-------------------------|-----------------|
- * | BC_FACE_NEG_X | i=0        | csi[k][j][0]     | nvert[k][j][1] (Cell 0) | j∈[0,24], k∈[0,96] |
- * | BC_FACE_POS_X | i=24       | csi[k][j][24]    | nvert[k][j][24] (Cell 23)| j∈[0,24], k∈[0,96] |
- * | BC_FACE_NEG_Y | j=0        | eta[k][0][i]     | nvert[k][1][i] (Cell 0) | i∈[0,24], k∈[0,96] |
- * | BC_FACE_POS_Y | j=24       | eta[k][24][i]    | nvert[k][24][i] (Cell 23)| i∈[0,24], k∈[0,96] |
- * | BC_FACE_NEG_Z | k=0        | zet[0][j][i]     | nvert[1][j][i] (Cell 0) | i∈[0,24], j∈[0,24] |
- * | BC_FACE_POS_Z | k=96       | zet[96][j][i]    | nvert[96][j][i] (Cell 95)| i∈[0,24], j∈[0,24] |
- *
- * @section algorithm Algorithm
- * 
- * The function performs two separate computations with different loop bounds:
- * 
- * **1. Center Calculation (uses ALL physical nodes):**
- * - Loop over all physical nodes on the face (excluding dummy indices)
- * - Accumulate coordinate sums: Σx, Σy, Σz
- * - Count number of nodes
- * - Average: center = (Σx/n, Σy/n, Σz/n)
- * 
- * **2. Area Calculation (uses INTERIOR cells only):**
- * - Loop over interior cell range to avoid accessing ghost values in nvert
- * - For each face adjacent to a fluid cell (nvert < 0.1):
- *   - Compute area magnitude: |csi/eta/zet| = √(x² + y² + z²)
- *   - Accumulate to total area
- * 
- * @section loop_bounds Loop Bound Details
- * 
- * **Why different bounds for center vs. area?**
- * 
- * For BC_FACE_NEG_X at i=0 with my=26, mz=98:
- * 
- * *Center calculation (coordinates):*
- * - j ∈ [ys, j_max): Includes j=[0,24] (25 nodes), excludes dummy at j=25
- * - k ∈ [zs, k_max): Includes k=[0,96] (97 nodes), excludes dummy at k=97
- * - Total: 25 × 97 = 2,425 nodes
- * 
- * *Area calculation (nvert checks):*
- * - j ∈ [lys, lye): j=[1,24] (24 values), excludes boundaries
- * - k ∈ [lzs, lze): k=[1,96] (96 values), excludes boundaries
- * - Why restricted?
- *   - At j=0: nvert[k][0][1] is ghost (no cell at j=-1)
- *   - At j=25: nvert[k][25][1] is ghost (no cell at j=24, index 25 is dummy)
- *   - At k=0: nvert[0][j][1] is ghost (no cell at k=-1)
- *   - At k=97: nvert[97][j][1] is ghost (no cell at k=96, index 97 is dummy)
- * - Total: 24 × 96 = 2,304 interior cells adjacent to face
- *
- * @section area_formulas Area Calculation Formulas
- * 
- * Face area contributions are computed from metric tensor magnitudes:
- * - **i-faces (±Xi)**: Area = |csi| = √(csi_x² + csi_y² + csi_z²)
- * - **j-faces (±Eta)**: Area = |eta| = √(eta_x² + eta_y² + eta_z²)
- * - **k-faces (±Zeta)**: Area = |zet| = √(zet_x² + zet_y² + zet_z²)
- *
- * @param[in]  user        Pointer to UserCtx containing grid info, DMs, and field vectors
- * @param[in]  face_id     Enum identifying which boundary face to analyze (BC_FACE_NEG_X, etc.)
- * @param[out] face_center Pointer to Cmpnts structure to store computed geometric center (x,y,z)
- * @param[out] face_area   Pointer to PetscReal to store computed total face area
- *
- * @return PetscErrorCode Returns 0 on success, non-zero PETSc error code on failure
- *
- * @note This function uses MPI_Allreduce, so it must be called collectively by all ranks
- * @note Only ranks that own the specified boundary face contribute to the calculation
- * @note Center calculation includes ALL physical nodes on the face
- * @note Area calculation ONLY includes faces adjacent to fluid cells (nvert < 0.1)
- * @note Dummy/unused indices (e.g., k=97, j=25 for standard test case) are excluded
- *
- * @warning Assumes grid and field arrays have been properly initialized
- * @warning Incorrect face_id values will result in zero contribution from all ranks
- *
- * @see CanRankServiceFace() for determining rank ownership of boundary faces
- * @see BCFace enum for valid face_id values
- * @see LOG_FIELD_ANATOMY() for debugging field indexing
- *
- * @par Example Usage:
- * @code
- * Cmpnts inlet_center;
- * PetscReal inlet_area;
- * ierr = CalculateFaceCenterAndArea(user, BC_FACE_NEG_Z, &inlet_center, &inlet_area);
- * PetscPrintf(PETSC_COMM_WORLD, "Inlet center: (%.4f, %.4f, %.4f), Area: %.6f\n",
- *             inlet_center.x, inlet_center.y, inlet_center.z, inlet_area);
- * @endcode
+ * @brief Implementation of \ref CalculateFaceCenterAndArea().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/grid.h`.
+ * @see CalculateFaceCenterAndArea()
  */
 PetscErrorCode CalculateFaceCenterAndArea(UserCtx *user, BCFace face_id, 
                                           Cmpnts *face_center, PetscReal *face_area)
@@ -1310,7 +1045,6 @@ PetscErrorCode CalculateFaceCenterAndArea(UserCtx *user, BCFace face_id,
     // ========================================================================
     // Grid information and array pointers
     // ========================================================================
-    DM             da = user->da;
     info = user->info;
     
     // Rank's owned range in global indices

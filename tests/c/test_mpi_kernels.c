@@ -1,9 +1,17 @@
+/**
+ * @file test_mpi_kernels.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "ParticleSwarm.h"
 #include "grid.h"
 
 #include <stdlib.h>
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestDistributeParticlesCollectiveConsistency(void)
 {
@@ -34,6 +42,9 @@ static PetscErrorCode TestDistributeParticlesCollectiveConsistency(void)
     PetscCall(PicurvAssertIntEqual(remainder_min, remainder_max, "all ranks should report the same remainder"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestBoundingBoxCollectivesMultiRank(void)
 {
@@ -74,6 +85,9 @@ static PetscErrorCode TestBoundingBoxCollectivesMultiRank(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

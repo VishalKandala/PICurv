@@ -17,10 +17,12 @@ DEFAULT_TARGETS = [
 
 
 def normalize_path(path: str | Path) -> str:
+    """Normalize path."""
     return str(Path(path).resolve())
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse args."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--min-line", type=float, default=70.0, help="minimum required weighted line coverage percent")
     parser.add_argument(
@@ -40,6 +42,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_trace_ignoredirs() -> list[str]:
+    """Build trace ignoredirs."""
     ignoredirs = {
         normalize_path(sys.prefix),
         normalize_path(sys.exec_prefix),
@@ -58,6 +61,7 @@ def build_trace_ignoredirs() -> list[str]:
 
 
 def collect_counts(results: trace.CoverageResults) -> dict[str, dict[int, int]]:
+    """Collect counts."""
     counts_by_file: dict[str, dict[int, int]] = {}
     for (filename, lineno), count in results.counts.items():
         file_key = normalize_path(filename)
@@ -66,6 +70,7 @@ def collect_counts(results: trace.CoverageResults) -> dict[str, dict[int, int]]:
 
 
 def compute_file_coverage(target: Path, counts_by_file: dict[str, dict[int, int]]) -> tuple[int, int, float]:
+    """Compute file coverage."""
     finder = getattr(trace, "find_executable_linenos", None)
     if finder is None:
         finder = trace._find_executable_linenos  # type: ignore[attr-defined]
@@ -82,6 +87,7 @@ def compute_file_coverage(target: Path, counts_by_file: dict[str, dict[int, int]
 
 
 def main() -> int:
+    """Entry point for this script."""
     args = parse_args()
     output_dir = (REPO_ROOT / args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

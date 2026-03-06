@@ -1,5 +1,7 @@
 @page 08_Solver_Reference Configuration Reference: Solver YAML
 
+@anchor _Solver_Reference
+
 For the full commented template, see:
 
 @verbinclude master_template/master_solver.yml
@@ -8,7 +10,7 @@ For the full commented template, see:
 
 @tableofcontents
 
-@section opmode_sec 1. operation_mode
+@section p08_opmode_sec 1. operation_mode
 
 ```yaml
 operation_mode:
@@ -20,7 +22,7 @@ Mappings:
 - `eulerian_field_source` -> `-euler_field_source` (`solve`, `load`, `analytical`)
 - `analytical_type` -> `-analytical_type`
 
-@section strategy_sec 2. strategy
+@section p08_strategy_sec 2. strategy
 
 ```yaml
 strategy:
@@ -35,7 +37,7 @@ Mappings:
 Older boolean toggles are not supported; use `strategy.momentum_solver`.
 Only implemented momentum solver values are accepted by `picurv` and the C runtime.
 
-@section tol_sec 3. tolerances
+@section p08_tol_sec 3. tolerances
 
 ```yaml
 tolerances:
@@ -51,7 +53,7 @@ Mappings:
 - `relative_tol` -> `-mom_rtol`
 - `step_tol` -> `-imp_stol`
 
-@section msolver_sec 4. momentum_solver (Solver-Specific Block)
+@section p08_msolver_sec 4. momentum_solver (Solver-Specific Block)
 
 ```yaml
 momentum_solver:
@@ -76,7 +78,7 @@ Mappings include:
 
 Rule: solver-specific blocks must match selected momentum solver type.
 
-@section pressure_sec 5. pressure_solver
+@section p08_pressure_sec 5. pressure_solver
 
 ```yaml
 pressure_solver:
@@ -94,7 +96,7 @@ Mappings:
 - `multigrid.post_sweeps` -> `-mg_post_it`
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
 
-@section petsc_sec 6. petsc_passthrough_options
+@section p08_petsc_sec 6. petsc_passthrough_options
 
 Advanced escape hatch for raw PETSc flags:
 
@@ -106,7 +108,7 @@ petsc_passthrough_options:
 
 These are passed into PETSc options DB and consumed by runtime calls like `KSPSetFromOptions`.
 
-@section next_steps_sec 7. Next Steps
+@section p08_next_steps_sec 7. Next Steps
 
 Proceed to **@subpage 09_Monitor_Reference**.
 
@@ -117,3 +119,26 @@ For mapping and extension workflows:
 - **@subpage 24_Dual_Time_Picard_RK4**
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**
 - **@subpage 50_Modular_Selector_Extension_Guide**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Configuration Reference: Solver YAML** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

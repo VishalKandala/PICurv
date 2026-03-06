@@ -1,87 +1,130 @@
 # Tests Guide
 
-PICurv now exposes a layered local testing model:
+PICurv testing is intentionally layered: Python control-plane validation, PETSc installation checks, focused C unit suites, executable smoke runs, MPI variants, and coverage gates. Choose the narrowest layer that answers your current question.
 
-- `make test-python`: Python-only CLI/config regression suite
-- `make test`: backward-compatible alias to `test-python`
-- `make coverage-python`: dependency-free Python line-coverage gate for core runtime scripts
-- `make coverage-c`: gcov-backed C line-coverage gate (`unit + smoke` with coverage flags)
-- `make coverage`: runs Python and C coverage gates
-- `make doctor`: installation and PETSc provisioning validation
-- `make unit`: all isolated C unit/component suites
-- `make unit-geometry`
-- `make unit-solver`
-- `make unit-particles`
-- `make unit-io`
-- `make unit-post`
-- `make unit-grid`
-- `make unit-metric`
-- `make unit-boundaries`
-- `make unit-poisson-rhs`
-- `make unit-runtime`
-- `make unit-mpi`: dedicated multi-rank MPI consistency tests (default 2 ranks)
-- `make smoke`: executable end-to-end smoke checks (template matrix + tiny runtime sequences, including flat/bent/brownian)
-- `make smoke-mpi`: multi-rank runtime smoke checks for tiny flat+bent solve/post plus flat particle+restart workflows
-- `make smoke-mpi-matrix`: multi-rank runtime smoke checks across a rank matrix (`SMOKE_MPI_MATRIX_NPROCS`)
-- `make check`: full local validation sweep
-- `make check-mpi`: `make check` plus multi-rank MPI tests
-- `make check-mpi-matrix`: `make check` plus rank-matrix MPI smoke and `unit-mpi`
+## Canonical Targets
 
-## Layout
+- Python and coverage:
+  - `make test-python` (`make test` alias)
+  - `make coverage-python`
+  - `make coverage-c`
+  - `make coverage`
+- installation/toolchain:
+  - `make doctor` (`make install-check` alias)
+- C unit suites:
+  - `make unit`
+  - `make unit-geometry`
+  - `make unit-solver`
+  - `make unit-particles`
+  - `make unit-io`
+  - `make unit-logging`
+  - `make unit-post`
+  - `make unit-grid`
+  - `make unit-metric`
+  - `make unit-boundaries`
+  - `make unit-poisson-rhs`
+  - `make unit-runtime`
+  - `make unit-mpi`
+- smoke/integration:
+  - `make smoke`
+  - `make smoke-mpi`
+  - `make smoke-mpi-matrix`
+- aggregate gates:
+  - `make check`
+  - `make check-mpi`
+  - `make check-mpi-matrix`
+  - `make check-full`
 
-- `test_cli_smoke.py`: CLI help/validate/dry-run smoke coverage for `scripts/picurv`
-- `test_case_maintenance.py`: case-origin and sync/build maintenance regressions
-- `test_config_regressions.py`: ingress/schema drift guards
-- `test_repo_consistency.py`: example validation and repository-wide consistency checks
-- `tests/c/`: PETSc-backed C unit binaries used by `make doctor` and `make unit-*`
-- `tests/smoke/`: executable smoke runner for template matrix init/validate/dry-run plus tiny end-to-end solve/post/restart/analytical workflows
-- `fixtures/valid/`: canonical valid YAML input sets
-- `fixtures/invalid/`: intentionally broken YAML input sets
+## Python Test Files (`tests/test_*.py`)
 
-## Canonical Commands
+- `test_cli_smoke.py`
+  - CLI help and argument contract checks
+  - dry-run plan schema checks (text/json)
+  - restart path resolution checks
+  - cluster no-submit manifest/script checks
+  - grid-gen/PICGRID header and node-count translation checks
+  - case-local binary preference behavior for copied/symlinked `picurv`
+- `test_case_maintenance.py`
+  - `init` origin metadata behavior
+  - source-root resolution for build/sync/pull commands
+  - template sync behavior (`overwrite`, `prune`)
+  - source/case drift reporting (`status-source`)
+- `test_config_regressions.py`
+  - ingress-manifest drift checks
+  - post recipe alias compatibility
+  - post validation guards and statistics artifact pathing
+- `test_repo_consistency.py`
+  - validates example bundles and study bundles via `picurv validate`
+  - scans docs/examples/tests for stale/forbidden contract literals
 
-Python-only:
+## C Unit Files (`tests/c/test_*.c`)
 
-```bash
-make test
-make coverage-python
-```
+- `test_install_check.c`: PETSc environment and basic object viability (`doctor`)
+- `test_geometry.c`: interpolation and geometric signed-distance helpers
+- `test_solver_kernels.c`: LES filter/analytical source helpers
+- `test_particle_kernels.c`: walking-search helper kernels
+- `test_io.c`: I/O path checks, parser helpers, and scaling-ingestion contracts
+- `test_logging.c`: log-level/allow-list/snapshot-cadence contracts
+- `test_postprocessing.c`: post-processing kernel contracts (specific-KE, displacement, nodal average, normalization, dimensionalization, Q-criterion)
+- `test_vtk_io.c`: VTK writer and data-preparation contracts (coordinates, field gather/subsampling, particle prep)
+- `test_postprocessor.c`: postprocessing orchestration contracts (swarm setup, pipeline dispatch, eulerian/particle output, statistics dispatch)
+- `test_statistics.c`: statistics kernel contracts (MSD CSV output and empty-swarm behavior)
+- `test_grid.c`: local/global bounding-box helpers
+- `test_metric.c`: metric inversion, contravariant velocity, face geometry helpers
+- `test_boundaries.c`: boundary factory and face-service matrix checks
+- `test_poisson_rhs.c`: pressure update, RHS, body-force and diffusivity helpers
+- `test_runtime_kernels.c`: setup/runloop/particle/wall/LES helper contracts
+- `test_mpi_kernels.c`: multi-rank particle distribution and bbox collective behavior
+- shared fixture layer:
+  - `test_support.c`
+  - `test_support.h`
 
-Installation validation:
+## Smoke Harness (`tests/smoke/run_smoke.sh`)
 
-```bash
-make doctor
-```
+Single-rank smoke (`make smoke`) verifies:
 
-Subsystem-only C tests:
+- binary `-help` launch viability (`simulator`, `postprocessor`)
+- `picurv init` self-contained case creation and metadata
+- template matrix `init + validate + dry-run` checks (`flat_channel`, `bent_channel`, `brownian_motion`)
+- dry-run plan schema and restart-source resolution
+- tiny real solve+post for flat and bent channels
+- tiny particle solve+post and restart branches (`load`, `init`)
+- restart-equivalence continuity check
+- tiny analytical Brownian run with VTP + MSD CSV checks
 
-```bash
-make unit-io
-make unit-particles
-make unit-runtime
-make unit-mpi
-```
+Multi-rank smoke (`make smoke-mpi`, `make smoke-mpi-matrix`) additionally verifies:
 
-Everything:
+- rank-dependent runtime launch behavior
+- flat/bent multi-rank tiny solves
+- particle restart branches under multi-rank execution
 
-```bash
-make check
-```
+Useful env knobs:
 
-Coverage + exhaustive-gate checks:
+- `TEST_MPI_NPROCS` for `unit-mpi`
+- `SMOKE_MPI_NPROCS` for `smoke-mpi`
+- `SMOKE_MPI_MATRIX_NPROCS` for `smoke-mpi-matrix`
+- `KEEP_SMOKE_TMP=1` to preserve smoke temp workspace for debugging
 
-```bash
-make coverage
-```
+## Suggested Command Cadence
+
+- editing `scripts/picurv` or YAML contracts:
+  - `make test-python`
+- editing one C subsystem:
+  - targeted `make unit-<area>`
+- editing runtime orchestration, restart, or output contracts:
+  - `make smoke` plus MPI variant if rank behavior is involved
+- pre-merge:
+  - `make check` (or `make check-mpi`)
+- pre-release:
+  - `make check-full`
+  - `make coverage`
 
 ## Notes
 
-- The Python suite does not require PETSc.
-- `doctor`, `unit-*`, `unit`, `smoke`, `smoke-mpi`, `smoke-mpi-matrix`, `check`, `check-mpi`, `check-mpi-matrix`, and `coverage-c` assume a working PETSc/MPI toolchain.
-- Compatibility aliases such as `make install-check` and `make ctest-*` remain available, but the canonical user-facing names are `doctor` and `unit-*`.
-- `make check` is the gate command for pre-merge confidence; `make unit-<area>` commands are the development-loop commands for isolated subsystem work.
-- `make check-mpi` is the extended gate command when MPI multi-rank behavior is in scope.
-- `make coverage` is the line-coverage gate for the core Python runtime scripts and C solver sources.
+- Python tests do not require PETSc.
+- `doctor`, `unit-*`, `smoke*`, `check*`, and `coverage-c` require PETSc/MPI tooling.
+- `check-full` is the single-command comprehensive gate (`check` + `unit-mpi` + `smoke-mpi` + `smoke-mpi-matrix`).
+- compatibility aliases (`install-check`, `ctest-*`) still exist, but canonical names are preferred in docs and CI.
 
 ## Authoritative Docs
 

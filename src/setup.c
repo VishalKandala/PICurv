@@ -10,40 +10,16 @@
 #define __FUNCT__ "CreateSimulationContext"
 
 /**
- * @brief Allocates and populates the master SimulationContext object.
- *
- * This function serves as the single, authoritative entry point for all
- * simulation configuration. It merges the setup logic from both the legacy
- * FSI/IBM solver and the modern particle solver into a unified, robust
- * process.
- *
- * The function follows a strict sequence:
- * 1.  **Allocate Context & Set Defaults:** It first allocates the `SimulationContext`
- *     and populates every field with a sane, hardcoded default value. This
- *     ensures the simulation starts from a known, predictable state.
- * 2.  **Configure Logging System:** It configures the custom logging framework. It
- *     parses the `-func_config_file` option to load a list of function names
- *     allowed to produce log output. This configuration (the file path and the
- *     list of function names) is stored within the `SimulationContext` for
- *     later reference and cleanup.
- * 3.  **Parse All Options:** It performs a comprehensive pass of `PetscOptionsGet...`
- *     calls for every possible command-line flag, overriding the default
- *     values set in step 1.
- * 4.  **Log Summary:** After all options are parsed, it uses the now-active
- *     logging system to print a summary of the key simulation parameters.
- *
- * @param[in]  argc      Argument count passed from `main`.
- * @param[in]  argv      Argument vector passed from `main`.
- * @param[out] p_simCtx  On success, this will point to the newly created and
- *                       fully configured `SimulationContext` pointer. The caller
- *                       is responsible for eventually destroying this object by
- *                       calling `FinalizeSimulation()`.
- *
- * @return PetscErrorCode Returns 0 on success, or a non-zero PETSc error code on failure.
+ * @brief Implementation of \ref CreateSimulationContext().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see CreateSimulationContext()
  */
 PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 {
     PetscErrorCode ierr;
+    (void)argc;
+    (void)argv;
     SimCtx *simCtx;
     char control_filename[PETSC_MAX_PATH_LEN] = ""; // Temporary placeholder for control file name.
     PetscBool control_flg; // Temporary placeholder for control file tag existence check flag.
@@ -295,11 +271,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
         simCtx->particleConsoleOutputFreq = simCtx->tiout;
     }
     ierr = PetscOptionsGetString(NULL,NULL,"-euler_field_source",simCtx->eulerianSource,sizeof(simCtx->eulerianSource),NULL);CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",&simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",&simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",&simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-euler_subdir",&simCtx->euler_subdir,sizeof(simCtx->euler_subdir),NULL);CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-particle_subdir",&simCtx->particle_subdir,sizeof(simCtx->particle_subdir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-euler_subdir",simCtx->euler_subdir,sizeof(simCtx->euler_subdir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-particle_subdir",simCtx->particle_subdir,sizeof(simCtx->particle_subdir),NULL);CHKERRQ(ierr);
 
     if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0 && strcmp(simCtx->eulerianSource,"analytical")!=0){
       SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Invalid value for -euler_field_source. Must be 'load','analytical' or 'solve'. You provided '%s'.",simCtx->eulerianSource);
@@ -566,14 +542,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "PetscMkdirRecursive"
 /**
- * @brief Creates a directory path recursively, similar to `mkdir -p`.
- *
- * This function is designed to be called by Rank 0 only. It takes a full path,
- * parses it, and creates each directory component in sequence.
- *
- * @param[in] path The full directory path to create.
- *
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `PetscMkdirRecursive()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode PetscMkdirRecursive(const char *path)
 {
@@ -624,23 +594,8 @@ static PetscErrorCode PetscMkdirRecursive(const char *path)
 #undef __FUNCT__
 #define __FUNCT__ "SetupSimulationEnvironment"
 /**
- * @brief Verifies and prepares the complete I/O environment for a simulation run.
- *
- * This function performs a comprehensive series of checks and setup actions to
- * ensure a valid and clean environment. It is parallel-safe; all filesystem
- * operations and checks are performed by Rank 0, with collective error handling.
- *
- * The function's responsibilities include:
- * 1.  **Checking Mandatory Inputs:** Verifies existence of grid and BCs files.
- * 2.  **Checking Optional Inputs:** Warns if optional config files (whitelist, profile) are missing.
- * 3.  **Validating Run Mode Paths:** Ensures `restart_dir` or post-processing source directories exist when needed.
- * 4.  **Preparing Log Directory:** Creates the log directory and cleans it of previous logs.
- * 5.  **Preparing Output Directories:** Creates the main output directory and its required subdirectories.
- *
- * @param[in] simCtx The fully configured SimulationContext object.
- *
- * @return PetscErrorCode Returns 0 on success, or a non-zero error code if a
- *         mandatory file/directory is missing or a critical operation fails.
+ * @brief Internal helper implementation: `SetupSimulationEnvironment()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
 {
@@ -797,22 +752,8 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "AllocateContextHeirarchy"
 /**
- * @brief Allocates the memory for the UserMG and UserCtx hierarchy.
- *
- * This function performs the foundational memory allocation for the solver's
- * data structures. It reads the number of multigrid levels and grid blocks
- * from the master SimulationContext, then allocates the arrays for MGCtx and
- * UserCtx.
- *
- * It performs three critical tasks:
- * 1.  Allocates the MGCtx array within the UserMG struct.
- * 2.  For each level, allocates the UserCtx array for all blocks.
- * 3.  Sets the `simCtx` back-pointer in every single UserCtx, linking it to the
- *     master configuration.
- *
- * @param simCtx The master SimulationContext, which contains configuration and
- *               will store the resulting allocated hierarchy in its `usermg` member.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `AllocateContextHierarchy()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
 {
@@ -940,8 +881,10 @@ static PetscErrorCode SetupSolverParameters(SimCtx *simCtx){
 #undef __FUNCT__
 #define __FUNCT__ "SetupGridAndSolvers"
 /**
- * @brief The main orchestrator for setting up all grid-related components.
- * (Implementation of the orchestrator function itself)
+ * @brief Implementation of \ref SetupGridAndSolvers().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see SetupGridAndSolvers()
  */
 PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
 {
@@ -976,15 +919,8 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "CreateAndInitializeAllVectors"
 /**
- * @brief Creates and initializes all PETSc Vec objects for all fields.
- *
- * This function iterates through every UserCtx in the multigrid and multi-block
- * hierarchy. For each context, it creates the comprehensive set of global and
- * local PETSc Vecs required by the flow solver (e.g., Ucont, P, Nvert, metrics,
- * turbulence fields, etc.). Each vector is initialized to zero.
- *
- * @param simCtx The master SimCtx, containing the configured UserCtx hierarchy.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `CreateAndInitializeAllVectors()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 {
@@ -1176,19 +1112,8 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "UpdateLocalGhosts"
 /**
- * @brief Updates the local vector (including ghost points) from its corresponding global vector.
- *
- * This function identifies the correct global vector, local vector, and DM based on the
- * provided fieldName and performs the standard PETSc DMGlobalToLocalBegin/End sequence.
- * Includes optional debugging output (max norms before/after).
- *
- * @param user       The UserCtx structure containing the vectors and DMs.
- * @param fieldName  The name of the field to update ("Ucat", "Ucont", "P", "Nvert", etc.).
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
- *
- * @note This function assumes the global vector associated with fieldName has already
- *       been populated with the desired data (including any boundary conditions).
+ * @brief Internal helper implementation: `UpdateLocalGhosts()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
 {
@@ -1459,7 +1384,8 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
 #undef __FUNCT__
 #define __FUNCT__ "SetupBoundaryConditions"
 /**
- * @brief (Orchestrator) Sets up all boundary conditions for the simulation.
+ * @brief Internal helper implementation: `SetupBoundaryConditions()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
 {
@@ -1514,26 +1440,8 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
 }
 
 /**
- * @brief Allocates a 3D array of PetscReal values using PetscCalloc.
- *
- * This function dynamically allocates memory for a 3D array of PetscReal values
- * with dimensions nz (layers) x ny (rows) x nx (columns). It uses PetscCalloc1
- * to ensure the memory is zero-initialized.
- *
- * The allocation is done in three steps:
- *  1. Allocate an array of nz pointers (one for each layer).
- *  2. Allocate a contiguous block for nz*ny row pointers and assign each layer’s row pointers.
- *  3. Allocate a contiguous block for all nz*ny*nx PetscReal values.
- *
- * This setup allows the array to be accessed as array[k][j][i], and the memory
- * for the data is contiguous, which improves cache efficiency.
- *
- * @param[out] array Pointer to the 3D array to be allocated.
- * @param[in]  nz    Number of layers (z-direction).
- * @param[in]  ny    Number of rows (y-direction).
- * @param[in]  nx    Number of columns (x-direction).
- *
- * @return PetscErrorCode 0 on success, nonzero on failure.
+ * @brief Internal helper implementation: `Allocate3DArrayScalar()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode Allocate3DArrayScalar(PetscReal ****array, PetscInt nz, PetscInt ny, PetscInt nx)
 {
@@ -1567,22 +1475,14 @@ PetscErrorCode Allocate3DArrayScalar(PetscReal ****array, PetscInt nz, PetscInt 
 }
 
 /**
- * @brief Deallocates a 3D array of PetscReal values allocated by Allocate3DArrayScalar.
- *
- * This function frees the memory allocated for a 3D array of PetscReal values.
- * It assumes the memory was allocated using Allocate3DArrayScalar, which allocated
- * three separate memory blocks: one for the contiguous data, one for the row pointers,
- * and one for the layer pointers.
- *
- * @param[in] array Pointer to the 3D array to be deallocated.
- * @param[in] nz    Number of layers (z-direction).
- * @param[in] ny    Number of rows (y-direction).
- *
- * @return PetscErrorCode 0 on success, nonzero on failure.
+ * @brief Internal helper implementation: `Deallocate3DArrayScalar()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode Deallocate3DArrayScalar(PetscReal ***array, PetscInt nz, PetscInt ny)
 {
   PetscErrorCode ierr;
+  (void)nz;
+  (void)ny;
 
   PetscFunctionBegin;
    if (!array || !array[0] || !array[0][0] ) { // Added more robust check
@@ -1616,26 +1516,10 @@ PetscErrorCode Deallocate3DArrayScalar(PetscReal ***array, PetscInt nz, PetscInt
 }
 
 /**
- * @brief Allocates a 3D array of Cmpnts structures using PetscCalloc.
- *
- * This function dynamically allocates memory for a 3D array of Cmpnts (vector) structures
- * with dimensions nz (layers) x ny (rows) x nx (columns). It uses PetscCalloc1 to ensure
- * that all allocated memory is zero-initialized.
- *
- * The allocation procedure is similar to Allocate3DArrayScalar:
- *  1. Allocate an array of nz pointers (one for each layer).
- *  2. Allocate a contiguous block for nz*ny row pointers.
- *  3. Allocate one contiguous block for nz*ny*nx Cmpnts structures.
- *
- * After allocation, the array can be accessed as array[k][j][i] and each element
- * (a Cmpnts structure) will have its x, y, and z fields initialized to 0.0.
- *
- * @param[out] array Pointer to the 3D array to be allocated.
- * @param[in]  nz    Number of layers in the z-direction.
- * @param[in]  ny    Number of rows in the y-direction.
- * @param[in]  nx    Number of columns in the x-direction.
- *
- * @return PetscErrorCode 0 on success, nonzero on failure.
+ * @brief Implementation of \ref Allocate3DArrayVector().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see Allocate3DArrayVector()
  */
 PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny, PetscInt nx)
 {
@@ -1682,22 +1566,16 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
 }
 
 /**
- * @brief Deallocates a 3D array of Cmpnts structures allocated by Allocate3DArrayVector.
- *
- * This function frees the memory allocated for a 3D array of Cmpnts structures.
- * It assumes the memory was allocated using Allocate3DArrayVector, which created three
- * separate memory blocks: one for the contiguous vector data, one for the row pointers,
- * and one for the layer pointers.
- *
- * @param[in] array Pointer to the 3D array to be deallocated.
- * @param[in] nz    Number of layers in the z-direction.
- * @param[in] ny    Number of rows in the y-direction.
- *
- * @return PetscErrorCode 0 on success, nonzero on failure.
+ * @brief Implementation of \ref Deallocate3DArrayVector().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see Deallocate3DArrayVector()
  */
  PetscErrorCode Deallocate3DArrayVector(Cmpnts ***array, PetscInt nz, PetscInt ny)
 {
   PetscErrorCode ierr;
+  (void)nz;
+  (void)ny;
 
   PetscFunctionBegin;
   // If array is NULL or hasn't been allocated properly, just return.
@@ -1756,36 +1634,8 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
 #undef __FUNCT__
 #define __FUNCT__ "GetOwnedCellRange"
 /**
- * @brief Gets the global starting index of cells owned by this rank and the number of such cells.
- *
- * A cell's global index is considered the same as its origin node's global index.
- * This function assumes a node-centered DMDA where `info_nodes` provides all necessary
- * information:
- *  - `info_nodes->xs, ys, zs`: Global starting index of the first node owned by this rank (excluding ghosts).
- *  - `info_nodes->xm, ym, zm`: Number of nodes owned by this rank in each dimension (excluding ghosts).
- *  - `info_nodes->mx, my, mz`: Total number of global nodes in each dimension for the entire domain.
- *
- * A cell `C_k` (0-indexed) is defined by its origin node `N_k` and extends to node `N_{k+1}`.
- * Thus, the last node in the global domain cannot be an origin for a cell. The last possible
- * cell origin node index is `PhysicalGlobalNodesInDim - 2`.
- *
- * @warning THIS FUNCTION MAKES A CRITICAL ASSUMPTION: It assumes the DMDA it
- *          receives information from was created with dimensions of
- *          (physical_nodes_x + 1), (physical_nodes_y + 1), etc., where the `+1`
- *          node is a "user-defined ghost" not meant for physical calculations.
- *          It will internally subtract 1 from the global dimensions (mx, my, mz)
- *          before calculating the number of cells.
- *
- * @param[in] info_nodes Pointer to the DMDALocalInfo struct for the current rank.
- *                       This struct contains local ownership information (xs, xm, etc.)
- *                       and global domain dimensions (mx, my, mz for nodes).
- * @param[in] dim        The dimension for which to get the cell range (0 for i/x, 1 for j/y, 2 for k/z).
- * @param[out] xs_cell_global_out Pointer to store the global index of the first cell whose origin node
- *                                is owned by this rank.
- * @param[out] xm_cell_local_out  Pointer to store the number of cells for which this rank owns the
- *                                origin node.
- *
- * @return PetscErrorCode 0 on success, or an error code on failure.
+ * @brief Internal helper implementation: `GetOwnedCellRange()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
                                  PetscInt dim,
@@ -1881,18 +1731,8 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
 #undef __FUNCT__
 #define __FUNCT__ "ComputeAndStoreNeighborRanks"
 /**
- * @brief Computes and stores the Cartesian neighbor ranks for the DMDA decomposition.
- *
- * This function retrieves the neighbor information from the primary DMDA (user->da)
- * and stores the face neighbors (xm, xp, ym, yp, zm, zp) in the user->neighbors structure.
- * It assumes a standard PETSc ordering for the neighbors array returned by DMDAGetNeighbors.
- * If DMDAGetNeighbors returns a negative rank that is not MPI_PROC_NULL (which can happen
- * in some PETSc/MPI configurations for non-periodic boundaries if not fully standard),
- * this function will sanitize it to MPI_PROC_NULL to prevent issues.
- *
- * @param[in,out] user Pointer to the UserCtx structure where neighbor info will be stored.
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `ComputeAndStoreNeighborRanks()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 {
@@ -2007,19 +1847,8 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "SetDMDAProcLayout"
 /**
- * @brief Sets the processor layout for a given DMDA based on PETSc options.
- *
- * Reads the desired number of processors in x, y, and z directions using
- * PETSc options (e.g., -dm_processors_x, -dm_processors_y, -dm_processors_z).
- * If an option is not provided for a direction, PETSC_DECIDE is used for that direction.
- * Applies the layout using DMDASetNumProcs.
- *
- * Also stores the retrieved/decided values in user->procs_x/y/z if user context is provided.
- *
- * @param dm   The DMDA object to configure the layout for.
- * @param user Pointer to the UserCtx structure (optional, used to store layout values).
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `SetDMDAProcLayout()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user)
 {
@@ -2094,16 +1923,10 @@ PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "SetupDomainRankInfo"
 /**
- * @brief Sets up the full rank communication infrastructure for all blocks.
- *
- * This function orchestrates the setup of the parallel communication map. It uses the
- * existing helper functions to sequentially gather and broadcast the bounding box
- * information for each computational block. All ranks participate in each step,
- * assembling the final, unified multi-block list in parallel.
- *
- * @param[in,out] simCtx The master simulation context. After this call,
- *                       simCtx->bboxlist and the relevant user->neighbors fields
- *                       will be populated on all ranks.
+ * @brief Implementation of \ref SetupDomainRankInfo().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see SetupDomainRankInfo()
  */
 PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx)
 {
@@ -2175,38 +1998,8 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "Contra2Cart"
 /**
- * @brief Reconstructs Cartesian velocity (Ucat) at cell centers from contravariant
- *        velocity (Ucont) defined on cell faces.
- *
- * This function performs the transformation from a contravariant velocity representation
- * (which is natural on a curvilinear grid) to a Cartesian (x,y,z) representation.
- * For each interior computational cell owned by the rank, it performs the following:
- *
- * 1.  It averages the contravariant velocity components (U¹, U², U³) from the
- *     surrounding faces to get an estimate of the contravariant velocity at the cell center.
- * 2.  It averages the metric vectors (Csi, Eta, Zet) from the surrounding faces
- *     to get an estimate of the metric tensor at the cell center. This tensor forms
- *     the transformation matrix.
- * 3.  It solves the linear system `[MetricTensor] * [ucat] = [ucont]` for the
- *     Cartesian velocity vector `ucat = (u,v,w)` using Cramer's rule.
- * 4.  The computed Cartesian velocity is stored in the global `user->Ucat` vector.
- *
- * The function operates on local, ghosted versions of the input vectors (`user->lUcont`,
- * `user->lCsi`, etc.) to ensure stencils are valid across processor boundaries.
- *
- * @param[in,out] user      Pointer to the UserCtx structure. The function reads from
- *                          `user->lUcont`, `user->lCsi`, `user->lEta`, `user->lZet`, `user->lNvert`
- *                          and writes to the global `user->Ucat` vector.
- *
- * @return PetscErrorCode 0 on success.
- *
- * @note
- *  - This function should be called AFTER `user->lUcont` and all local metric vectors
- *    (`user->lCsi`, etc.) have been populated with up-to-date ghost values via `UpdateLocalGhosts`.
- *  - It only computes `Ucat` for interior cells (not on physical boundaries) and for
- *    cells not marked as solid/blanked by `user->lNvert`.
- *  - The caller is responsible for subsequently applying boundary conditions to `user->Ucat`
- *    and calling `UpdateLocalGhosts(user, "Ucat")` to populate `user->lUcat`.
+ * @brief Internal helper implementation: `Contra2Cart()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode Contra2Cart(UserCtx *user)
 {
@@ -2341,30 +2134,8 @@ PetscErrorCode Contra2Cart(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "SetupDomainCellDecompositionMap"
 /**
- * @brief Creates and distributes a map of the domain's cell decomposition to all ranks.
- * @ingroup DomainInfo
- *
- * This function is a critical part of the simulation setup. It determines the global
- * cell ownership for each MPI rank and makes this information available to all
- * other ranks. This "decomposition map" is essential for the robust "Walk and Handoff"
- * particle migration strategy, allowing any rank to quickly identify the owner of a
- * target cell.
- *
- * The process involves:
- * 1. Each rank gets its own node ownership information from the DMDA.
- * 2. It converts this node information into cell ownership ranges using the
- *    `GetOwnedCellRange` helper function.
- * 3. It participates in an `MPI_Allgather` collective operation to build a complete
- *    array (`user->RankCellInfoMap`) containing the ownership information for every rank.
- *
- * This function should be called once during initialization after the primary DMDA
- * (user->da) has been set up.
- *
- * @param[in,out] user Pointer to the UserCtx structure. The function will allocate and
- *                     populate `user->RankCellInfoMap` and set `user->num_ranks`.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
- *         Errors can occur if input pointers are NULL or if MPI communication fails.
+ * @brief Internal helper implementation: `SetupDomainCellDecompositionMap()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
 {
@@ -2426,21 +2197,10 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "BinarySearchInt64"
 /**
- * @brief Performs a binary search for a key in a sorted array of PetscInt64.
- *
- * This is a standard binary search algorithm implemented as a PETSc-style helper function.
- * It efficiently determines if a given `key` exists within a `sorted` array.
- *
- * @param[in]  n      The number of elements in the array.
- * @param[in]  arr    A pointer to the sorted array of PetscInt64 values to be searched.
- * @param[in]  key    The PetscInt64 value to search for.
- * @param[out] found  A pointer to a PetscBool that will be set to PETSC_TRUE if the key
- *                    is found, and PETSC_FALSE otherwise.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
- *
- * @note The input array `arr` **must** be sorted in ascending order for the algorithm
- *       to work correctly.
+ * @brief Implementation of \ref BinarySearchInt64().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see BinarySearchInt64()
  */
 PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 key, PetscBool *found)
 {
@@ -2501,6 +2261,13 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 
 #undef __FUNCT__
 #define __FUNCT__ "ComputeDivergence"
+/**
+ * @brief Implementation of \ref ComputeDivergence().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see ComputeDivergence()
+ */
+
 PetscErrorCode ComputeDivergence(UserCtx *user )
 {
   DM		da = user->da, fda = user->fda;
@@ -2662,16 +2429,10 @@ PetscErrorCode ComputeDivergence(UserCtx *user )
 #define __FUNCT__ "InitializeRandomGenerators"
 
 /**
- * @brief Initializes random number generators for assigning particle properties.
- *
- * This function creates and configures separate PETSc random number generators for the x, y, and z coordinates.
- *
- * @param[in,out] user    Pointer to the UserCtx structure containing simulation context.
- * @param[out]    randx    Pointer to store the RNG for the x-coordinate.
- * @param[out]    randy    Pointer to store the RNG for the y-coordinate.
- * @param[out]    randz    Pointer to store the RNG for the z-coordinate.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref InitializeRandomGenerators().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see InitializeRandomGenerators()
  */
 PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, PetscRandom *randy, PetscRandom *randz) {
     PetscErrorCode ierr;  // Error code for PETSc functions
@@ -2711,18 +2472,8 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
 #undef __FUNCT__
 #define __FUNCT__ "InitializeLogicalSpaceRNGs"
 /**
- * @brief Initializes random number generators for logical space operations [0.0, 1.0).
- *
- * This function creates and configures three separate PETSc random number generators,
- * one for each logical dimension (i, j, k or xi, eta, zeta equivalent).
- * Each RNG is configured to produce uniformly distributed real numbers in the interval [0.0, 1.0).
- * These are typically used for selecting owned cells or generating intra-cell logical coordinates.
- *
- * @param[out]   rand_logic_i Pointer to store the RNG for the i-logical dimension.
- * @param[out]   rand_logic_j Pointer to store the RNG for the j-logical dimension.
- * @param[out]   rand_logic_k Pointer to store the RNG for the k-logical dimension.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `InitializeLogicalSpaceRNGs()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k) {
     PetscErrorCode ierr;
@@ -2765,11 +2516,8 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
 #undef __FUNCT__
 #define __FUNCT__ "InitializeBrownianRNG"
 /**
- * @brief Initializes a single master RNG for time-stepping physics (Brownian motion).
- *        Configures it for Uniform [0, 1) which is required for Box-Muller transformation.
- *
- * @param[in,out] simCtx  Pointer to the Simulation Context.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `InitializeBrownianRNG()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx) {
     PetscErrorCode ierr;
@@ -2805,10 +2553,10 @@ PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx) {
 #undef __FUNCT__
 #define __FUNCT__ "TransformScalarDerivativesToPhysical"
 /**
- * @brief Transforms scalar derivatives from computational space to physical space 
- *        using the chain rule.
- * 
- * Formula: dPhi/dx = J * ( dPhi/dCsi * dCsi/dx + dPhi/dEta * dEta/dx + ... )
+ * @brief Implementation of \ref TransformScalarDerivativesToPhysical().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see TransformScalarDerivativesToPhysical()
  */
  void TransformScalarDerivativesToPhysical(PetscReal jacobian, 
                                                  Cmpnts csi_metrics, 
@@ -2832,7 +2580,8 @@ PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx) {
 #undef __FUNCT__
 #define __FUNCT__ "TransformDerivativesToPhysical"
 /**
- * @brief Transforms derivatives from computational space to physical space using the chain rule.
+ * @brief Internal helper implementation: `TransformDerivativesToPhysical()`.
+ * @details Local to this translation unit.
  */
 static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metrics, Cmpnts eta_metrics, Cmpnts zet_metrics,
                                            Cmpnts deriv_csi, Cmpnts deriv_eta, Cmpnts deriv_zet,
@@ -2855,13 +2604,8 @@ static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metric
 #undef __FUNCT__
 #define __FUNCT__ "ComputeScalarFieldDerivatives"
 /**
- * @brief Computes the gradient of a cell-centered SCALAR field at a specific grid point.
- *
- * @param user       The user context.
- * @param i, j, k    The grid indices.
- * @param field_data 3D array pointer to the scalar field (PetscReal***).
- * @param grad       Output: A Cmpnts struct storing [dPhi/dx, dPhi/dy, dPhi/dz].
- * @return           PetscErrorCode
+ * @brief Internal helper implementation: `ComputeScalarFieldDerivatives()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, 
                                              PetscReal ***field_data, Cmpnts *grad)
@@ -2903,19 +2647,8 @@ PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
 #undef __FUNCT__
 #define __FUNCT__ "ComputeVectorFieldDerivatives"
 /**
- * @brief Computes the derivatives of a cell-centered vector field at a specific grid point.
- *
- * This function orchestrates the calculation of spatial derivatives. It first computes
- * the derivatives in computational space (d/dcsi, d/deta, d/dzet) using a central
- * difference scheme and then transforms them into physical space (d/dx, d/dy, d/dz).
- *
- * @param user      The user context for the current computational block.
- * @param i, j, k   The grid indices of the cell center where derivatives are required.
- * @param field_data A 3D array pointer to the raw local data of the vector field (e.g., from lUcat).
- * @param dudx      Output: A Cmpnts struct storing [du/dx, du/dy, du/dz].
- * @param dvdx      Output: A Cmpnts struct storing [dv/dx, dv/dy, dv/dz].
- * @param dwdx      Output: A Cmpnts struct storing [dw/dx, dw/dy, dw/dz].
- * @return          PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ComputeVectorFieldDerivatives()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, Cmpnts ***field_data,
                                              Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx)
@@ -2968,14 +2701,8 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
 #undef __FUNCT__
 #define __FUNCT__ "DestroyUserVectors"
 /**
- * @brief Destroys all Vec objects in a UserCtx structure.
- *
- * This function systematically destroys all PETSc Vec objects allocated in a UserCtx,
- * with proper conditional checks for vectors that are only allocated under certain
- * conditions (finest level, turbulence models, particles, postprocessor mode, etc.).
- *
- * @param user The UserCtx structure whose vectors should be destroyed.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `DestroyUserVectors()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode DestroyUserVectors(UserCtx *user)
 {
@@ -3109,23 +2836,8 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "DestroyUserContext"
 /**
- * @brief Destroys all resources allocated within a single UserCtx structure.
- *
- * This function cleans up all memory and PETSc objects associated with a single
- * UserCtx (grid level). It calls the helper functions and destroys remaining objects
- * in the proper dependency order:
- *   1. Boundary conditions (handlers and their data)
- *   2. All PETSc vectors (via DestroyUserVectors)
- *   3. Matrix and solver objects (A, C, MR, MP, ksp, nullsp)
- *   4. Application ordering (AO)
- *   5. Distributed mesh objects (DMs) - most derived first
- *   6. Raw PetscMalloc'd arrays (RankCellInfoMap, KSKE)
- *
- * This function should be called for each UserCtx in the multigrid hierarchy.
- *
- * @param[in,out] user Pointer to the UserCtx to be destroyed.
- *
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `DestroyUserContext()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode DestroyUserContext(UserCtx *user)
 {
@@ -3221,26 +2933,10 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "FinalizeSimulation"
 /**
- * @brief Main cleanup function for the entire simulation context.
- *
- * This function is responsible for destroying ALL memory and PETSc objects allocated
- * during the simulation, including:
- *   - All UserCtx structures in the multigrid hierarchy (via DestroyUserContext)
- *   - The multigrid management structures (UserMG, MGCtx array)
- *   - All SimCtx-level objects (logviewer, dm_swarm, bboxlist, string arrays, etc.)
- *
- * This function should be called ONCE at the end of the simulation, after all
- * computation is complete, but BEFORE PetscFinalize().
- *
- * Call order in main:
- *   1. [Simulation runs]
- *   2. ProfilingFinalize(simCtx);
- *   3. FinalizeSimulation(simCtx);  <- This function
- *   4. PetscFinalize();
- *
- * @param[in,out] simCtx Pointer to the master SimulationContext to be destroyed.
- *
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref FinalizeSimulation().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see FinalizeSimulation()
  */
 PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
 {

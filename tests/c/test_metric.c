@@ -1,6 +1,14 @@
+/**
+ * @file test_metric.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "Metric.h"
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestInvertCovariantMetricTensorDiagonal(void)
 {
@@ -18,6 +26,9 @@ static PetscErrorCode TestInvertCovariantMetricTensorDiagonal(void)
     PetscCall(PicurvAssertRealNear(0.0625, contravariant[2][2], 1.0e-12, "inverse(2,2)"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestMetricVelocityContravariantIdentity(void)
 {
@@ -36,6 +47,9 @@ static PetscErrorCode TestMetricVelocityContravariantIdentity(void)
     PetscCall(PicurvAssertRealNear(4.0, uc[2], 1.0e-12, "identity map uc[2]"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestMetricVelocityContravariantScaledAxes(void)
 {
@@ -54,6 +68,9 @@ static PetscErrorCode TestMetricVelocityContravariantScaledAxes(void)
     PetscCall(PicurvAssertRealNear(1.0, uc[2], 1.0e-12, "scaled map uc[2]"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestCalculateFaceNormalAndAreaAxisAligned(void)
 {
@@ -81,6 +98,9 @@ static PetscErrorCode TestCalculateFaceNormalAndAreaAxisAligned(void)
     PetscCall(PicurvAssertRealNear(1.0, nk[2], 1.0e-12, "nk.z"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestComputeCellCharacteristicLengthScaleAxisAligned(void)
 {
@@ -96,6 +116,9 @@ static PetscErrorCode TestComputeCellCharacteristicLengthScaleAxisAligned(void)
     PetscCall(PicurvAssertRealNear(0.25, dz, 1.0e-12, "dz"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

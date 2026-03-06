@@ -43,7 +43,7 @@ import argparse
 import configparser
 import os
 import sys
-from typing import Tuple, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -753,6 +753,7 @@ def export_stats_to_file(filename: str, stats: dict) -> None:
         print(f"Error: Could not write stats to file '{filename}'.\n{e}", file=sys.stderr)
 
 def export_grid_to_picgrid(filename: str, X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> None:
+    """Perform export grid to picgrid."""
     IM, JM, KM = X.shape
     try:
         with open(filename, 'w') as f:
@@ -763,7 +764,199 @@ def export_grid_to_picgrid(filename: str, X: np.ndarray, Y: np.ndarray, Z: np.nd
         print(f"Grid successfully exported to PICGRID file: '{filename}'")
     except IOError as e: print(f"Error: Could not write to file '{filename}'.\n{e}", file=sys.stderr)
 
+
+def _iter_legacy_payload_lines(path: str):
+    """Yield (lineno, stripped_line) for non-empty, non-comment legacy input lines."""
+    with open(path, "r", encoding="utf-8") as f:
+        for lineno, raw in enumerate(f, start=1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            yield lineno, line
+
+
+def _parse_axis_value(tokens: List[str], preferred_col: int, axis_name: str, path: str, lineno: int) -> float:
+    """Parse one axis value from a legacy axis line with column-preference fallback."""
+    if preferred_col < 0:
+        raise ValueError(f"{axis_name}: preferred column index must be >= 0 (got {preferred_col}).")
+
+    if preferred_col < len(tokens):
+        try:
+            return float(tokens[preferred_col])
+        except ValueError:
+            pass
+
+    for token in tokens:
+        try:
+            return float(token)
+        except ValueError:
+            continue
+
+    raise ValueError(
+        f"Could not parse a numeric {axis_name}-axis value at {path}:{lineno} from line: '{' '.join(tokens)}'."
+    )
+
+
+def _read_legacy_1d_axes(
+    filename: str,
+    axis_columns: Tuple[int, int, int] = (0, 1, 2),
+    strict_trailing: bool = True,
+) -> Dict[str, Any]:
+    """!
+    @brief Read a legacy 1D-axis grid file and return structured axis blocks.
+    @details Supported legacy contract:
+             1) first payload line: integer block count (`nblk`)
+             2) per block: one `IM JM KM` line
+             3) then `IM` x-axis rows, `JM` y-axis rows, `KM` z-axis rows
+             4) axis rows may contain one or more numeric columns; `axis_columns`
+                controls the preferred column per axis with fallback to first numeric token.
+    @param[in] filename Path to legacy grid input.
+    @param[in] axis_columns Preferred (x_col, y_col, z_col) indices.
+    @param[in] strict_trailing If true, reject trailing payload rows.
+    @return Dict with keys `nblk` and `blocks`, where blocks contain dims and axis arrays.
+    @throws ValueError if payload is malformed.
+    """
+    payload = list(_iter_legacy_payload_lines(filename))
+    if not payload:
+        raise ValueError(f"Legacy grid file '{filename}' is empty.")
+
+    first_line = payload[0][1]
+    if first_line == "PICGRID":
+        raise ValueError(
+            f"Legacy converter received canonical PICGRID file '{filename}'. "
+            "Use this file directly with grid.mode=file."
+        )
+
+    try:
+        nblk = int(first_line)
+    except ValueError as exc:
+        raise ValueError(
+            f"Legacy grid file '{filename}' must start with block count integer; got '{first_line}'."
+        ) from exc
+    if nblk <= 0:
+        raise ValueError(f"Legacy grid file '{filename}' has non-positive block count: {nblk}.")
+
+    cursor = 1
+    blocks: List[Dict[str, Any]] = []
+    x_col, y_col, z_col = axis_columns
+
+    for bi in range(nblk):
+        if cursor >= len(payload):
+            raise ValueError(
+                f"Legacy grid file '{filename}' missing dimension line for block {bi}."
+            )
+        dim_lineno, dim_line = payload[cursor]
+        cursor += 1
+        dim_parts = dim_line.split()
+        if len(dim_parts) != 3:
+            raise ValueError(
+                f"Invalid dimensions line at {filename}:{dim_lineno}. "
+                f"Expected 'IM JM KM', got '{dim_line}'."
+            )
+        try:
+            im, jm, km = (int(dim_parts[0]), int(dim_parts[1]), int(dim_parts[2]))
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid non-integer dimensions at {filename}:{dim_lineno}: '{dim_line}'."
+            ) from exc
+        if im <= 0 or jm <= 0 or km <= 0:
+            raise ValueError(
+                f"Invalid non-positive block dimensions at {filename}:{dim_lineno}: ({im}, {jm}, {km})."
+            )
+
+        if cursor + im + jm + km > len(payload):
+            raise ValueError(
+                f"Legacy grid file '{filename}' ended early while reading axis rows for block {bi}."
+            )
+
+        x_axis = np.zeros(im, dtype=float)
+        y_axis = np.zeros(jm, dtype=float)
+        z_axis = np.zeros(km, dtype=float)
+
+        for i in range(im):
+            lineno, row = payload[cursor]
+            cursor += 1
+            x_axis[i] = _parse_axis_value(row.split(), x_col, "x", filename, lineno)
+        for j in range(jm):
+            lineno, row = payload[cursor]
+            cursor += 1
+            y_axis[j] = _parse_axis_value(row.split(), y_col, "y", filename, lineno)
+        for k in range(km):
+            lineno, row = payload[cursor]
+            cursor += 1
+            z_axis[k] = _parse_axis_value(row.split(), z_col, "z", filename, lineno)
+
+        blocks.append({"dims": (im, jm, km), "x_axis": x_axis, "y_axis": y_axis, "z_axis": z_axis})
+
+    if strict_trailing and cursor < len(payload):
+        trailing_lineno, trailing_line = payload[cursor]
+        raise ValueError(
+            f"Legacy grid file '{filename}' has trailing payload at {trailing_lineno}: '{trailing_line}'. "
+            "Pass --allow-trailing to ignore extra rows."
+        )
+
+    return {"nblk": nblk, "blocks": blocks}
+
+
+def _axes_to_structured_grid(x_axis: np.ndarray, y_axis: np.ndarray, z_axis: np.ndarray) -> GridCoords:
+    """Build structured node-coordinate arrays from 1D axes (ij-indexed)."""
+    X = np.broadcast_to(x_axis[:, np.newaxis, np.newaxis], (len(x_axis), len(y_axis), len(z_axis))).copy()
+    Y = np.broadcast_to(y_axis[np.newaxis, :, np.newaxis], (len(x_axis), len(y_axis), len(z_axis))).copy()
+    Z = np.broadcast_to(z_axis[np.newaxis, np.newaxis, :], (len(x_axis), len(y_axis), len(z_axis))).copy()
+    return X, Y, Z
+
+
+def convert_legacy_1d_to_picgrid(
+    input_file: str,
+    output_file: str,
+    axis_columns: Tuple[int, int, int] = (0, 1, 2),
+    strict_trailing: bool = True,
+) -> Dict[str, Any]:
+    """!
+    @brief Convert legacy 1D-axis grid payload into canonical PICGRID format.
+    @param[in] input_file Path to legacy grid payload.
+    @param[in] output_file Destination path for canonical PICGRID.
+    @param[in] axis_columns Preferred source columns for x/y/z axis rows.
+    @param[in] strict_trailing If true, reject trailing payload after expected rows.
+    @return Summary dict containing `nblk`, `dims`, `total_nodes`, and optional first-block arrays.
+    """
+    parsed = _read_legacy_1d_axes(
+        input_file,
+        axis_columns=axis_columns,
+        strict_trailing=strict_trailing,
+    )
+    nblk = parsed["nblk"]
+    blocks = parsed["blocks"]
+    dims = [block["dims"] for block in blocks]
+    total_nodes = sum(im * jm * km for (im, jm, km) in dims)
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_file)) or ".", exist_ok=True)
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("PICGRID\n")
+        f.write(f"{nblk}\n")
+        for (im, jm, km) in dims:
+            f.write(f"{im} {jm} {km}\n")
+
+        for block in blocks:
+            x_axis = block["x_axis"]
+            y_axis = block["y_axis"]
+            z_axis = block["z_axis"]
+            for k in range(len(z_axis)):
+                for j in range(len(y_axis)):
+                    for i in range(len(x_axis)):
+                        f.write(f"{x_axis[i]:.8e} {y_axis[j]:.8e} {z_axis[k]:.8e}\n")
+
+    summary: Dict[str, Any] = {"nblk": nblk, "dims": dims, "total_nodes": total_nodes}
+    if blocks:
+        x_axis = blocks[0]["x_axis"]
+        y_axis = blocks[0]["y_axis"]
+        z_axis = blocks[0]["z_axis"]
+        X, Y, Z = _axes_to_structured_grid(x_axis, y_axis, z_axis)
+        summary["first_block_arrays"] = (X, Y, Z)
+    return summary
+
 def export_grid_to_vts_manual(filename: str, X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> None:
+    """Perform export grid to vts manual."""
     IM, JM, KM = X.shape
     x_flat, y_flat, z_flat = X.flatten(order='F'), Y.flatten(order='F'), Z.flatten(order='F')
     try:
@@ -809,6 +1002,9 @@ python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --stretch-i 2.5 --str
 
 # Generate a cpipe grid with specific first cell dimensions
 python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 0.01 --first-cell-j-start 0.01
+
+# Convert legacy 1D-axis grid payload to canonical PICGRID
+python3 scripts/grid.gen legacy1d --input legacy.grid --output legacy.picgrid --no-write-vtk
 """
     
     parser = argparse.ArgumentParser(description=prog_description, formatter_class=argparse.RawDescriptionHelpFormatter, epilog=prog_epilog)
@@ -845,10 +1041,17 @@ python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 
             'first_cell_i_start': None, 'first_cell_i_end': None,
             'first_cell_j_start': None, 'first_cell_j_end': None,
             'first_cell_k_start': None, 'first_cell_k_end': None,
+        },
+        'legacy1d': {
+            'show_stats': False,
+            'write_vtk': False,
+            'axis_columns': [0, 1, 2],
+            'strict_trailing': True,
         }
     }
 
     def add_arg(p, *args, **kwargs):
+        """Perform add arg."""
         p.add_argument(*args, default=argparse.SUPPRESS, **kwargs)
 
     parent = argparse.ArgumentParser(add_help=False)
@@ -909,6 +1112,62 @@ python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 
     add_arg(p_warp, '--amp-B',type=float)
     add_arg(p_warp, '--amp-C',type=float)
 
+    p_legacy = subparsers.add_parser(
+        'legacy1d',
+        help='Convert legacy 1D-axis grid payload to canonical PICGRID.',
+    )
+    add_arg(p_legacy, '--vts', type=str, help="Output filename for VTK (.vts) format.")
+    add_arg(p_legacy, '--output', type=str, help="Output filename for PICGRID format.")
+    add_arg(p_legacy, '--stats-file', type=str, help="Output filename for grid quality statistics report.")
+    legacy_stats_group = p_legacy.add_mutually_exclusive_group()
+    legacy_stats_group.add_argument(
+        '--show-stats',
+        action='store_true',
+        dest='show_stats',
+        default=argparse.SUPPRESS,
+        help="Print quality stats for the first block (if available).",
+    )
+    legacy_stats_group.add_argument(
+        '--no-show-stats',
+        action='store_false',
+        dest='show_stats',
+        default=argparse.SUPPRESS,
+        help="Suppress printing quality stats.",
+    )
+    legacy_vtk_group = p_legacy.add_mutually_exclusive_group()
+    legacy_vtk_group.add_argument(
+        '--write-vtk',
+        action='store_true',
+        dest='write_vtk',
+        default=argparse.SUPPRESS,
+        help="Write VTK output for the first block.",
+    )
+    legacy_vtk_group.add_argument(
+        '--no-write-vtk',
+        action='store_false',
+        dest='write_vtk',
+        default=argparse.SUPPRESS,
+        help="Disable VTK output.",
+    )
+    add_arg(p_legacy, '--input', type=str, help='Input legacy grid path.')
+    add_arg(p_legacy, '--axis-columns', type=int, nargs=3, metavar=('XCOL', 'YCOL', 'ZCOL'),
+            help='Preferred source column index for X/Y/Z axis rows.')
+    trailing_group = p_legacy.add_mutually_exclusive_group()
+    trailing_group.add_argument(
+        '--strict-trailing',
+        action='store_true',
+        dest='strict_trailing',
+        default=argparse.SUPPRESS,
+        help='Fail when extra payload rows are present after expected legacy content.',
+    )
+    trailing_group.add_argument(
+        '--allow-trailing',
+        action='store_false',
+        dest='strict_trailing',
+        default=argparse.SUPPRESS,
+        help='Ignore trailing payload rows after expected legacy content.',
+    )
+
     # --- Parameter precedence logic (UNCHANGED) ---
     cli_args = parser.parse_args()
     grid_type = cli_args.grid_type
@@ -950,6 +1209,7 @@ python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 
     
     # --- MODIFIED: Pass new stretch arguments and first cell arguments to generator functions ---
     X, Y, Z = None, None, None
+    handled_output = False
     if args.grid_type == 'cpipe':
         X, Y, Z = cartesian_pipe_grid(
             ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
@@ -984,21 +1244,60 @@ python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 
             first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
             first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end
         )
+    elif args.grid_type == 'legacy1d':
+        input_file = getattr(args, 'input', None)
+        if not input_file:
+            parser.error("'legacy1d' requires --input <legacy-grid-file>.")
+        if not os.path.isfile(input_file):
+            parser.error(f"Legacy grid input file not found: {input_file}")
 
-    if X is None:
+        output_file = getattr(args, 'output', None)
+        if not output_file:
+            base, _ = os.path.splitext(input_file)
+            output_file = base + ".picgrid"
+            args.output = output_file
+
+        axis_columns = tuple(int(v) for v in args.axis_columns)
+        summary = convert_legacy_1d_to_picgrid(
+            input_file=input_file,
+            output_file=output_file,
+            axis_columns=axis_columns,
+            strict_trailing=bool(args.strict_trailing),
+        )
+        handled_output = True
+        print(
+            "Legacy conversion complete: "
+            f"nblk={summary['nblk']}, total_nodes={summary['total_nodes']}, output='{output_file}'"
+        )
+        if summary.get("first_block_arrays") is not None:
+            X, Y, Z = summary["first_block_arrays"]
+
+    if X is None and args.grid_type != 'legacy1d':
         print(f"Error: Grid generation failed for type '{args.grid_type}'.", file=sys.stderr)
         sys.exit(1)
 
     if args.show_stats or hasattr(args, 'stats_file'):
-        stats_data = analyze_grid_quality(X, Y, Z)
-        if args.show_stats:
-            print_stats_to_console(stats_data)
-        if hasattr(args, 'stats_file'):
-            export_stats_to_file(args.stats_file, stats_data)
+        if X is None:
+            print(
+                "Warning: stats output requires a structured grid array in memory; skipping stats export.",
+                file=sys.stderr,
+            )
+        else:
+            stats_data = analyze_grid_quality(X, Y, Z)
+            if args.show_stats:
+                print_stats_to_console(stats_data)
+            if hasattr(args, 'stats_file'):
+                export_stats_to_file(args.stats_file, stats_data)
 
-    if hasattr(args, 'output'):
+    if hasattr(args, 'output') and not handled_output:
         export_grid_to_picgrid(args.output, X, Y, Z)    
     if args.write_vtk:
+        if X is None:
+            print(
+                "Warning: VTK output requires a structured grid array in memory; skipping VTK export.",
+                file=sys.stderr,
+            )
+            sys.exit(0)
         vts_filename = getattr(args, 'vts', None)
         if not vts_filename:
             if hasattr(args, 'output'):

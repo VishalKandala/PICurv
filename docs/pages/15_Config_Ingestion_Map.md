@@ -1,10 +1,12 @@
 @page 15_Config_Ingestion_Map Developer Ingestion Map
 
+@anchor _Config_Ingestion_Map
+
 This page maps configuration flow from YAML schema to generated artifacts and C ingestion/use sites.
 
 @tableofcontents
 
-@section pipeline_sec 1. End-to-End Flow
+@section p15_pipeline_sec 1. End-to-End Flow
 
 1. `picurv` validates YAML inputs.
 2. `picurv` generates `*.control`, `bcs*.run`, and `post.run`, plus optional `whitelist.run` / `profile.run` sidecars when those features are enabled.
@@ -12,7 +14,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 4. Secondary file parsers ingest BC/post/logging profile inputs.
 5. Runtime modules consume parsed values during setup, solve, and postprocess.
 
-@section map_sec 2. Mapping Matrix
+@section p15_map_sec 2. Mapping Matrix
 
 | YAML / Source Key | Generated Artifact Key | C Ingestion Site | Primary Runtime Consumers |
 | :--- | :--- | :--- | :--- |
@@ -38,7 +40,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `post.io.eulerian_fields_averaged` | `output_fields_averaged` in `post.run` | `src/io.c` | reserved/no-op in current writer path |
 | `post.statistics_pipeline.*` | `statistics_pipeline`, `statistics_output_prefix` | `src/io.c` | `GlobalStatisticsPipeline` dispatch |
 
-@section python_only_sec 3. Python-Only Orchestration Mapping (No C Ingestion)
+@section p15_python_only_sec 3. Python-Only Orchestration Mapping (No C Ingestion)
 
 These keys are consumed by `picurv` orchestration only:
 
@@ -55,13 +57,13 @@ These keys are consumed by `picurv` orchestration only:
 | `study.metrics` | `metrics_table.csv` extraction contract | `scripts/picurv` metric extractors | study aggregation/reporting |
 | `study.plotting` | `results/plots/*` output controls | `scripts/picurv` plotting pipeline | study reporting |
 
-@section exceptions_sec 4. Important Exceptions
+@section p15_exceptions_sec 4. Important Exceptions
 
 - PETSc runtime option consumption is not only explicit `PetscOptionsGet*`.
 - `KSPSetFromOptions` in `src/poisson.c` ingests prefixed PETSc options dynamically.
 - `LOG_LEVEL` is environment-driven (`src/logging.c`) and intentionally outside control-file parsing.
 
-@section mode_dependent_sec 5. Mode-Dependent Normalization in `picurv`
+@section p15_mode_dependent_sec 5. Mode-Dependent Normalization in `picurv`
 
 Some launcher behaviors depend on other config selections before values ever reach C:
 
@@ -80,7 +82,7 @@ Some launcher behaviors depend on other config selections before values ever rea
 This means the YAML contract is intentionally stricter than "whatever C would do with missing
 options" in several places.
 
-@section maintenance_sec 6. Drift Prevention
+@section p15_maintenance_sec 6. Drift Prevention
 
 - Use `scripts/audit_ingress.py` to compare PETSc option ingress in `setup.c/io.c` with the maintained manifest.
 - Keep this map and the manifest updated whenever new options are introduced.
@@ -90,3 +92,26 @@ options" in several places.
 
 For roadmap-oriented workflow extensions built on this contract, see **@subpage 17_Workflow_Extensibility**.
 For selector-specific contributor hook points, see **@subpage 50_Modular_Selector_Extension_Guide**.
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Developer Ingestion Map** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

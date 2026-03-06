@@ -352,7 +352,6 @@ PetscErrorCode ReportSearchOutcome(const Particle *particle,
  * @param[out] idx  Pointer to the i-index of the cell to be updated.
  * @param[out] idy  Pointer to the j-index of the cell to be updated.
  * @param[out] idz  Pointer to the k-index of the cell to be updated.
- * @param[in]  info DMDALocalInfo structure that holds local & global domain bounds.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */

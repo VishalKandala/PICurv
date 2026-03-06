@@ -8,10 +8,11 @@ OUTPUT_LANGUAGE        = English
 OPTIMIZE_OUTPUT_FOR_C  = YES
 
 #------------------------- Input ---------------------------
-INPUT                  = ../include ../src ../scripts . pages ../examples
+INPUT                  = include src scripts docs docs/pages examples tests/c tests/guide.md
 FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md *.py *.sh *.flow
 RECURSIVE              = YES
 EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/* */guide.md */38_Start_Here_10_Minutes.md */examples/*.md */examples/*/*.md */scripts/*.md */README.md
+EXAMPLE_PATH           = examples examples/master_template
 
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = NO
@@ -25,7 +26,7 @@ JAVADOC_AUTOBRIEF      = YES
 MULTILINE_CPP_IS_BRIEF = YES
 QT_AUTOBRIEF           = YES
 MARKDOWN_SUPPORT       = YES
-USE_MDFILE_AS_MAINPAGE = mainpage.md
+USE_MDFILE_AS_MAINPAGE = docs/mainpage.md
 USE_MATHJAX           = YES
 MATHJAX_FORMAT        = SVG
 
@@ -33,7 +34,7 @@ MATHJAX_FORMAT        = SVG
 WARN_IF_UNDOCUMENTED   = YES
 WARN_IF_DOC_ERROR      = YES
 WARN_NO_PARAMDOC       = YES
-WARN_LOGFILE           = ../logs/doxygen.warnings
+WARN_LOGFILE           = logs/doxygen.warnings
 
 #------------------------- Diagrams ------------------------
 HAVE_DOT               = YES
@@ -52,9 +53,9 @@ GENERATE_HTML          = YES
 HTML_OUTPUT            = html
 HTML_DYNAMIC_MENUS     = YES
 SEARCHENGINE           = YES
-HTML_EXTRA_STYLESHEET  = custom.css
-HTML_EXTRA_FILES       = theme-sync.js
-IMAGE_PATH             = assets .
+HTML_EXTRA_STYLESHEET  = docs/custom.css
+HTML_EXTRA_FILES       = docs/theme-sync.js
+IMAGE_PATH             = docs/assets docs
 VERBATIM_HEADERS      = YES
 #------------------------- LaTeX/PDF (optional) ------------
 GENERATE_LATEX         = NO
@@ -79,4 +80,4 @@ DOT_GRAPH_MAX_NODES    = 80
 DOT_TRANSPARENT        = YES
 
 #------------------------- Layout File -------------------
-LAYOUT_FILE            = DoxygenLayout.xml
+LAYOUT_FILE            = docs/DoxygenLayout.xml

@@ -7,13 +7,10 @@
 #undef __FUNCT__
 #define __FUNCT__ "InitializeSwarm"
 /**
- * @brief Initializes the DMSwarm object within the UserCtx structure.
- *
- * This function creates the DMSwarm, sets its type and dimension, and configures basic swarm properties.
- *
- * @param[in,out] user    Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref InitializeSwarm().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleSwarm.h`.
+ * @see InitializeSwarm()
  */
 PetscErrorCode InitializeSwarm(UserCtx* user) {
     PetscErrorCode ierr;  // Error code for PETSc functions
@@ -35,17 +32,8 @@ PetscErrorCode InitializeSwarm(UserCtx* user) {
 #define __FUNCT__ "RegisterSwarmField"
 
 /**
- * @brief Registers a swarm field without finalizing registration.
- *
- * This function calls DMSwarmRegisterPetscDatatypeField for the given field,
- * but does not finalize the registration. The finalization is deferred until
- * all fields have been registered.
- *
- * @param swarm      [in]  The DMSwarm object.
- * @param fieldName  [in]  Name of the field to register.
- * @param fieldDim   [in]  Dimension of the field (1 for scalar, 3 for vector, etc.).
- * @param dtype      [in]  The datatype of the swarm field being registered.
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `RegisterSwarmField()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode RegisterSwarmField(DM swarm, const char *fieldName, PetscInt fieldDim, PetscDataType dtype)
 {
@@ -64,13 +52,10 @@ PetscErrorCode RegisterSwarmField(DM swarm, const char *fieldName, PetscInt fiel
 #define __FUNCT__ "RegisterParticleFields"
 
 /**
- * @brief Registers necessary particle fields within the DMSwarm.
- *
- * This function registers fields such as position, velocity, CellID, and weight for each particle.
- *
- * @param[in,out] swarm   The DMSwarm object managing the particle swarm.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref RegisterParticleFields().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleSwarm.h`.
+ * @see RegisterParticleFields()
  */
 
 PetscErrorCode RegisterParticleFields(DM swarm)
@@ -113,42 +98,8 @@ PetscErrorCode RegisterParticleFields(DM swarm)
 #undef __FUNCT__
 #define __FUNCT__ "DetermineVolumetricInitializationParameters"
 /**
- * @brief Determines cell selection and intra-cell logical coordinates for volumetric initialization (Mode 1).
- *
- * This function is called when `simCtx->ParticleInitialization == 1`. It randomly selects
- * an *owned cell* on the current MPI rank and then generates random intra-cell logical
- * coordinates `[0,1)^3` within that chosen cell.
- *
- * The process involves:
- * 1. Checking if the current MPI rank owns any 3D cells.
- * 2. If it does, it randomly selects an *owned cell index* in each logical direction (i, j, k)
- *    by scaling a `[0,1)` random number with the number of owned cells in that direction.
- * 3. These local owned cell indices are then converted to the *local node indices*
- *    (`ci/cj/ck_metric_lnode_out`) corresponding to the origin of the selected cell,
- *    for use with `MetricLogicalToPhysical`. This conversion uses `xs/ys/zs_gnode`.
- * 4. All three intra-cell logical coordinates (`xi/eta/zta_metric_logic_out`) for
- *    `MetricLogicalToPhysical` are chosen randomly within the `[0,1)` range.
- * 5. A flag (`can_place_in_volume_out`) indicates if a valid placement could be determined.
- *
- * **Important Note on `DMDALocalInfo info` members (same as for surface init):**
- *   - `info->xs, info->ys, info->ks`: Global starting indices of *owned cells*.
- *   - `info->mx, info->my, info->mz`: Number of *grid points (nodes)* in each local dimension on this process.
- *     Therefore, the number of *owned cells* in a dimension is `info->mX - 1` (if `info->mX > 0`).
- *
- * @param[in]  user Pointer to `UserCtx`. (Currently not used in this specific helper, but kept for API consistency).
- * @param[in]  info Pointer to `DMDALocalInfo` for the current rank's grid portion.
- * @param[in]  xs_gnode, ys_gnode, zs_gnode Local indices (in the ghosted array) of the first *owned node*.
- * @param[in]  rand_logic_i_ptr Pointer to the RNG for i-dimension tasks [0,1).
- * @param[in]  rand_logic_j_ptr Pointer to the RNG for j-dimension tasks [0,1).
- * @param[in]  rand_logic_k_ptr Pointer to the RNG for k-dimension tasks [0,1).
- * @param[out] ci_metric_lnode_out Pointer to store the local i-node index of the selected cell's origin.
- * @param[out] cj_metric_lnode_out Pointer to store the local j-node index of the selected cell's origin.
- * @param[out] ck_metric_lnode_out Pointer to store the local k-node index of the selected cell's origin.
- * @param[out] xi_metric_logic_out Pointer to store the intra-cell logical xi-coordinate [0,1).
- * @param[out] eta_metric_logic_out Pointer to store the intra-cell logical eta-coordinate [0,1).
- * @param[out] zta_metric_logic_out Pointer to store the intra-cell logical zeta-coordinate [0,1).
- * @param[out] can_place_in_volume_out PETSC_TRUE if placement parameters were successfully determined, PETSC_FALSE otherwise.
- * @return PetscErrorCode 0 on success, or a PETSc error code.
+ * @brief Internal helper implementation: `DetermineVolumetricInitializationParameters()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode DetermineVolumetricInitializationParameters(
     UserCtx *user, DMDALocalInfo *info,
@@ -159,6 +110,7 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
     PetscBool *can_place_in_volume_out)
 {
     PetscErrorCode ierr = 0;
+    (void)user;
     PetscReal      r_val; // Temporary for random numbers from [0,1) RNGs
     PetscInt       local_owned_cell_idx_i, local_owned_cell_idx_j, local_owned_cell_idx_k;
     PetscMPIInt    rank_for_logging; // For logging if needed
@@ -247,30 +199,8 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
 #define __FUNCT__ "InitializeParticleBasicProperties"
 
 /**
- * @brief Initializes basic properties for particles on the local process.
- *
- * This function assigns initial physical positions, Particle IDs (PIDs), and placeholder
- * cell IDs to particles. The method of position initialization depends on
- * `simCtx->ParticleInitialization`:
- * - Mode 0 (Surface): Particles are placed on a designated inlet surface if the
- *   current rank services that surface. Otherwise, they are placed at (0,0,0)
- *   to be migrated to the correct rank later.
- * - Mode 1 (Volumetric): Particles are placed randomly within a cell owned by
- *   the current rank.
- *
- * The logical coordinates for placement are generated using provided random number
- * generators. These logical coordinates are then transformed to physical coordinates
- * using `MetricLogicalToPhysical`.
- *
- * @param user Pointer to the UserCtx structure, containing simulation settings and grid information.
- * @param particlesPerProcess The number of particles to initialize on this MPI rank.
- * @param rand_logic_i Pointer to a PetscRandom generator for the xi logical coordinate.
- * @param rand_logic_j Pointer to a PetscRandom generator for the eta logical coordinate.
- * @param rand_logic_k Pointer to a PetscRandom generator for the zeta logical coordinate.
- * @param bboxlist (Unused in this function for placement) Pointer to the bounding box list;
- *                 provided for API consistency but not used for determining initial positions here.
- *                 Particle positions are determined by logical-to-physical mapping based on rank's owned cells.
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `InitializeParticleBasicProperties()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                                                 PetscInt particlesPerProcess,
@@ -280,6 +210,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                                                 BoundingBox *bboxlist) // bboxlist unused for placement
 {
     PetscErrorCode ierr;
+    (void)bboxlist;
     DM             swarm = user->swarm;
     PetscReal      *positions_field = NULL; // Pointer to swarm field for physical positions (x,y,z)
     PetscInt64     *particleIDs = NULL;     // Pointer to swarm field for Particle IDs
@@ -476,18 +407,8 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
 #undef __FUNCT__
 #define __FUNCT__ "InitializeSwarmFieldValue"
 /**
- * @brief Helper function to Initialize a given particle’s field value.
- *
- * This function performs conditional, point-level Initialization for a swarm field based on its name.
- * For example, you might want to initialize the "velocity" field to 0.0, but the "temperature"
- * field to a nonzero default (e.g., 300.0). This function can be extended for other fields.
- *
- * @param[in] fieldName  Name of the swarm field.
- * @param[in] p          Particle index.
- * @param[in] fieldDim   Dimension of the field.
- * @param[out] fieldData Pointer to the field’s data array.
- *
- * @return PetscErrorCode Returns 0 on success.
+ * @brief Internal helper implementation: `InitializeSwarmFieldValue()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode InitializeSwarmFieldValue(const char *fieldName, PetscInt p, PetscInt fieldDim, PetscReal *fieldData)
 {
@@ -529,17 +450,8 @@ static PetscErrorCode InitializeSwarmFieldValue(const char *fieldName, PetscInt 
 #undef __FUNCT__
 #define __FUNCT__ "AssignInitialFieldToSwarm"
 /**
- * @brief Initializes a generic swarm field with point-level updates.
- *
- * This field-agnostic function retrieves the specified swarm field (which may be
- * scalar or multi-component) and initializes each particle's entry using a helper
- * that performs conditional updates based on the field name.
- *
- * @param[in,out] user       Pointer to the UserCtx structure containing the swarm.
- * @param[in]     fieldName  Name of the swarm field to initialize.
- * @param[in]     fieldDim   Dimension of the field (e.g., 1 for scalar, 3 for vector).
- *
- * @return PetscErrorCode    Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `AssignInitialFieldToSwarm()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, const char *fieldName, PetscInt fieldDim)
 {
@@ -585,31 +497,8 @@ static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, const char *field
 #define __FUNCT__ "AssignInitialPropertiesToSwarm"
 
 /**
- * @brief Initializes all particle properties in the swarm.
- *
- * This function orchestrates the initialization of particle properties.
- * It first determines the inlet face if surface initialization (Mode 0) is selected
- * by parsing "bcs.dat".
- * Then, it initializes basic particle properties (physical position, Particle ID,
- * and placeholder Cell IDs) by calling `InitializeParticleBasicProperties`. This call
- * uses the provided `rand_logic_i/j/k` RNGs, which must be pre-initialized for [0,1).
- * The `rand_phys_x/y/z` RNGs (physically bounded) are passed but may not be used by
- * `InitializeParticleBasicProperties` for position setting if all initialization paths
- * use logical-to-physical mapping.
- * Finally, it calls helper functions to initialize other registered swarm fields
- * like "velocity", "weight", and "Psi" (scalar) to default values.
- *
- * @param[in,out] user               Pointer to the `UserCtx` structure.
- * @param[in]     particlesPerProcess Number of particles assigned to this MPI process.
- * @param[in]     rand_phys_x        RNG for physical x-coordinates (from `InitializeRandomGenerators`).
- * @param[in]     rand_phys_y        RNG for physical y-coordinates (from `InitializeRandomGenerators`).
- * @param[in]     rand_phys_z        RNG for physical z-coordinates (from `InitializeRandomGenerators`).
- * @param[in]     rand_logic_i       RNG for i-logical dimension tasks [0,1) (from `InitializeLogicalSpaceRNGs`).
- * @param[in]     rand_logic_j       RNG for j-logical dimension tasks [0,1) (from `InitializeLogicalSpaceRNGs`).
- * @param[in]     rand_logic_k       RNG for k-logical dimension tasks [0,1) (from `InitializeLogicalSpaceRNGs`).
- * @param[in]     bboxlist           Array of BoundingBox structures (potentially unused by IPBP).
- *
- * @return PetscErrorCode            Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `AssignInitialPropertiesToSwarm()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
                                             PetscInt particlesPerProcess,
@@ -698,18 +587,10 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
 #undef __FUNCT__
 #define __FUNCT__ "DistributeParticles"
 /**
- * @brief Distributes particles evenly across MPI processes, handling any remainders.
- *
- * This function calculates the number of particles each MPI process should handle,
- * distributing the remainder particles to the first few ranks if necessary.
- *
- * @param[in]     numParticles       Total number of particles to create across all MPI processes.
- * @param[in]     rank               MPI rank of the current process.
- * @param[in]     size               Total number of MPI processes.
- * @param[out]    particlesPerProcess Number of particles assigned to the current MPI process.
- * @param[out]    remainder           Remainder particles when dividing numParticles by size.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref DistributeParticles().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleSwarm.h`.
+ * @see DistributeParticles()
  */
 PetscErrorCode DistributeParticles(PetscInt numParticles, PetscMPIInt rank, PetscMPIInt size, PetscInt* particlesPerProcess, PetscInt* remainder) {
 
@@ -736,18 +617,10 @@ PetscErrorCode DistributeParticles(PetscInt numParticles, PetscMPIInt rank, Pets
 #undef __FUNCT__
 #define __FUNCT__ "FinalizeSwarmSetup"
 /**
- * @brief Finalizes the swarm setup by destroying random generators and logging completion.
- *
- * This function cleans up resources by destroying random number generators and LOG_ALLOWs the completion of swarm setup.
- *
- * @param[in]     randx             Random number generator for the x-coordinate.
- * @param[in]     randy             Random number generator for the y-coordinate.
- * @param[in]     randz             Random number generator for the z-coordinate.
- * @param[in]     rand_logic_i      Random number generator for the xi-coordinate.
- * @param[in]     rand_logic_j      Random number generator for the eta-coordinate.
- * @param[in]     rand_logic_k      Random number generator for the zeta-coordinate.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref FinalizeSwarmSetup().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleSwarm.h`.
+ * @see FinalizeSwarmSetup()
  */
 PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscRandom *randz, PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k) {
     PetscErrorCode ierr;  // Error code for PETSc functions
@@ -772,29 +645,12 @@ PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscR
 #undef __FUNCT__
 #define __FUNCT__ "CreateParticleSwarm"
 /**
- * @brief Creates and initializes a Particle Swarm.
- *
- * This function sets up a DMSwarm within the provided UserCtx structure, initializes
- * particle fields, and distributes particles across MPI processes. It ensures that
- * the number of particles is evenly divided among the available MPI ranks. If the total
- * number of particles isn't divisible by the number of processes, the remainder is distributed
- * to the first few ranks.
- *.
-*
-* @param[in,out] user          Pointer to the UserCtx structure containing the simulation context.
-* @param[in]     numParticles  Total number of particles to create across all MPI processes.
-* @param[in]     bboxlist      Pointer to an array of BoundingBox structures, one per rank.
-*
-* @param[in]     particlesPerProcess   
-* @return PetscErrorCode Returns 0 on success, non-zero on failure.
-*
-* @note
-* - Ensure that `numParticles` is a positive integer.
-* - The `control.dat` file should contain necessary PETSc options.
-* - The `bboxlist` array should be properly populated before calling this function.
-*/
+ * @brief Internal helper implementation: `CreateParticleSwarm()`.
+ * @details Local to this translation unit.
+ */
 PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess, BoundingBox *bboxlist) {
     PetscErrorCode ierr;                      // PETSc error handling variable
+    (void)bboxlist;
     PetscMPIInt rank, size;                   // Variables to store MPI rank and size
     PetscInt remainder = 0;                   // Remainder of particles after division
     
@@ -858,23 +714,10 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
 #define __FUNCT__ "UnpackSwarmFields"
 
 /**
- * @brief Initializes a Particle struct with data from DMSwarm fields.
- *
- * This helper function populates a Particle structure using data retrieved from DMSwarm fields.
- *
- * @param[in]     i            Index of the particle in the DMSwarm.
- * @param[in]     PIDs         Pointer to the array of particle IDs.
- * @param[in]     weights      Pointer to the array of particle weights.
- * @param[in]     positions    Pointer to the array of particle positions.
- * @param[in]     cellIndices  Pointer to the array of particle cell indices.
- * @param[in]     velocities   Pointer to the array of particle velocities.
- * @param[in]     LocStatus    Pointer to the array of cell location status indicators.
- * @param[in]     diffusivity  Pointer to the array of particle diffusivities.
- * @param[in]     diffusivitygradient Pointer to the array of particle diffusivity gradients.
- * @param[in]     psi          Pointer to the array of particle psi values.
- * @param[out]    particle     Pointer to the Particle struct to initialize.
- *
- * @return PetscErrorCode  Returns `0` on success, non-zero on failure.
+ * @brief Implementation of \ref UnpackSwarmFields().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleSwarm.h`.
+ * @see UnpackSwarmFields()
  */
 PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const PetscReal *weights,
                 const PetscReal *positions, const PetscInt *cellIndices,
@@ -999,24 +842,8 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
 #undef __FUNCT__
 #define __FUNCT__ "UpdateSwarmFields"
 /**
- * @brief Updates DMSwarm data arrays from a Particle struct.
- *
- * This function writes data from the `Particle` struct back into the raw DMSwarm arrays.
- * It is robust: if any array pointer is NULL, that specific field is skipped.
- * This allows selective updating (e.g., update position but not velocity).
- *
- * @param[in]     i            Index of the particle in the local swarm arrays.
- * @param[in]     particle     Pointer to the Particle struct containing updated data.
- * @param[in,out] positions    (Optional) Array of particle positions (size 3*n).
- * @param[in,out] velocities   (Optional) Array of particle velocities (size 3*n).
- * @param[in,out] weights      (Optional) Array of particle weights (size 3*n).
- * @param[in,out] cellIndices  (Optional) Array of particle cell indices (size 3*n).
- * @param[in,out] status       (Optional) Array of location status (size 1*n).
- * @param[in,out] diffusivity  (Optional) Array of diffusivity values (size 1*n).
- * @param[in,out] diffusivitygradient (Optional) Array of diffusivity gradient values (size 3*n).
- * @param[in,out] psi          (Optional) Array of scalar Psi values (size 1*n).
- *
- * @return PetscErrorCode Returns 0 on success.
+ * @brief Internal helper implementation: `UpdateSwarmFields()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
                                  PetscReal *positions, 
@@ -1092,24 +919,8 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
 #undef __FUNCT__
 #define __FUNCT__ "IsParticleInsideBoundingBox"
 /**
- * @brief Checks if a particle's location is within a specified bounding box.
- *
- * This function determines whether the given particle's location lies inside the provided bounding box.
- * It performs an axis-aligned bounding box (AABB) check by comparing the particle's coordinates to the
- * minimum and maximum coordinates of the bounding box in each dimension (x, y, z).
- *
- * logging statements are included to provide detailed information about the function's execution.
- *
- * @param[in]  bbox     Pointer to the BoundingBox structure containing minimum and maximum coordinates.
- * @param[in]  particle Pointer to the Particle structure containing the particle's location and identifier.
- *
- * @return PetscBool    Returns `PETSC_TRUE` if the particle is inside the bounding box, `PETSC_FALSE` otherwise.
- *
- * @note
- * - The function assumes that the `bbox` and `particle` pointers are valid and non-NULL.
- * - The function includes logging statements that start with the function name.
- * - The `LOG_ALLOW_SCOPE` variable is used to distinguish between `GLOBAL` and `LOCAL` LOG_ALLOW outputs.
- * - Be cautious when logging in performance-critical code sections, especially if the function is called frequently.
+ * @brief Internal helper implementation: `IsParticleInsideBoundingBox()`.
+ * @details Local to this translation unit.
  */
 PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *particle)
 {
@@ -1159,15 +970,8 @@ PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *p
 #undef __FUNCT__
 #define __FUNCT__ "UpdateParticleWeights"
 /**
- * @brief Updates a particle's interpolation weights based on distances to cell faces.
- *
- * This function computes interpolation weights using distances to the six
- * cell faces (`d`) and updates the `weight` field of the provided particle.
- *
- * @param[in]  d        Pointer to an array of distances to the six cell faces.
- * @param[out] particle Pointer to the Particle structure whose weights are to be updated.
- *
- * @return PetscErrorCode Returns 0 on success, or a non-zero error code on failure.
+ * @brief Internal helper implementation: `UpdateParticleWeights()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
 
@@ -1235,6 +1039,13 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
  */
 #undef __FUNCT__
 #define __FUNCT__ "InitializeParticleSwarm"
+/**
+ * @brief Implementation of \ref InitializeParticleSwarm().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleSwarm.h`.
+ * @see InitializeParticleSwarm()
+ */
+
 PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
@@ -1297,4 +1108,3 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
-

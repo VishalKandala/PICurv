@@ -7,8 +7,42 @@
 
 // Function prototypes for post-processing kernels
 
+/**
+ * @brief Interpolates a cell-centered field to nodal locations using local stencil averaging.
+ *
+ * The kernel reads the input field by name, computes nodal values, and stores the
+ * output in the named destination field. Both fields must already exist in the
+ * current `UserCtx`.
+ *
+ * @param[in,out] user           Block-level context that owns the source and destination vectors.
+ * @param[in]     in_field_name  Name of the input field to sample.
+ * @param[in]     out_field_name Name of the output field to populate.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, const char* out_field_name);
+
+/**
+ * @brief Computes the Q-criterion diagnostic from the local velocity-gradient tensor.
+ *
+ * This kernel evaluates rotational versus strain-rate dominance and writes the
+ * result into the configured Q-criterion output vector for visualization and flow
+ * feature identification.
+ *
+ * @param[in,out] user Block-level context containing velocity fields and target output storage.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode ComputeQCriterion(UserCtx* user);
+
+/**
+ * @brief Normalizes a relative scalar field using the configured reference pressure scale.
+ *
+ * This is primarily used for pressure-normalized outputs in post-processing.
+ * The operation is in-place on the selected field.
+ *
+ * @param[in,out] user                Block-level context containing scaling information.
+ * @param[in]     relative_field_name Name of the field to normalize.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_name);
 
 // Add more post-processing kernel prototypes as needed

@@ -10,14 +10,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "GenerateGaussianNoise"
 /**
- * @brief Generates two independent standard normal random variables N(0,1) 
- *        using the Box-Muller transform.
- * 
- * @param[in]  rnd  The PETSc Random context (Uniform [0,1)).
- * @param[out] n1   First Gaussian number.
- * @param[out] n2   Second Gaussian number.
- * 
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `GenerateGaussianNoise()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode GenerateGaussianNoise(PetscRandom rnd, PetscReal *n1, PetscReal *n2)
 {
@@ -56,21 +50,15 @@ PetscErrorCode GenerateGaussianNoise(PetscRandom rnd, PetscReal *n1, PetscReal *
 #undef __FUNCT__
 #define __FUNCT__ "CalculateBrownianDisplacement"
 /**
- * @brief Calculates the stochastic displacement vector (Brownian motion) for a single particle.
- *        Equation: dX_stoch = sqrt(2 * Gamma_eff * dt) * N(0,1)
- *
- * @param[in]  user          Pointer to UserCtx (access to dt and BrownianMotionRNG).
- * @param[in]  diff_eff      The effective diffusivity (Gamma + Gamma_t) at the particle's location.
- * @param[out] displacement  Pointer to a Cmpnts struct to store the resulting (dx, dy, dz).
- *
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `CalculateBrownianDisplacement()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscReal diff_eff, Cmpnts *displacement)
 {
     PetscErrorCode ierr;
     PetscReal      dt = user->simCtx->dt;
     PetscReal      sigma;
-    PetscReal      n_x, n_y, n_z, n_unused;
+    PetscReal      n_x, n_y, n_z, gaussian_dummy;
 
     PetscFunctionBeginUser;
 
@@ -96,8 +84,8 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscReal diff_eff, 
     // Get noise for X and Y
     ierr = GenerateGaussianNoise(user->simCtx->BrownianMotionRNG, &n_x, &n_y); CHKERRQ(ierr);
     
-    // Get noise for Z (n_unused is discarded, but cheap to generate)
-    ierr = GenerateGaussianNoise(user->simCtx->BrownianMotionRNG, &n_z, &n_unused); CHKERRQ(ierr);
+    // Get noise for Z (second sample is intentionally discarded here).
+    ierr = GenerateGaussianNoise(user->simCtx->BrownianMotionRNG, &n_z, &gaussian_dummy); CHKERRQ(ierr);
 
     // 5. Calculate final stochastic displacement
     displacement->x = sigma * n_x;
@@ -110,12 +98,8 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscReal diff_eff, 
 #undef __FUNCT__ 
 #define __FUNCT__ "UpdateParticlePosition"
 /**
- * @brief Updates a particle's position based on its velocity and the timestep dt (stored in user->dt).
- *
- * @param[in]     user     Pointer to your UserCtx (must contain user->dt).
- * @param[in,out] particle Pointer to the particle struct (contains, pos,vel,diffusivity etc).
- *
- * @return PetscErrorCode  Returns 0 on success, or an error code on failure.
+ * @brief Internal helper implementation: `UpdateParticlePosition()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
 {
@@ -143,11 +127,8 @@ PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
 #undef __FUNCT__
 #define __FUNCT__ "UpdateAllParticlePositions"
 /**
- * @brief Loops over all local particles in the DMSwarm, updating their positions
- *        based on velocity and the global timestep user->dt. 
- * @param[in,out] user    Pointer to UserCtx (must contain dt).
- *
- * @return PetscErrorCode Returns 0 on success, or an error code on failure.
+ * @brief Internal helper implementation: `UpdateAllParticlePositions()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
 {
@@ -157,12 +138,12 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
   PetscReal        *pos = NULL;
   PetscReal        *vel = NULL;
   PetscReal        *diffusivity = NULL;
-  PetscReal        *diffusivitygradient = NULL; 
+  Cmpnts           *diffusivitygradient = NULL; 
   PetscReal        *psi = NULL;
   PetscReal        *weights = NULL;
   PetscInt         *cell = NULL;
   PetscInt         *status = NULL;
-  PetscInt         *pid = NULL;
+  PetscInt64       *pid = NULL;
   PetscMPIInt rank;
  
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
@@ -188,7 +169,7 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
   ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
   ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pid); CHKERRQ(ierr);
 
-  LOG_ALLOW(GLOBAL,LOG_DEBUG," [Rank %d] No.of Particles to update: %d.\n",rank,nLocal);
+  LOG_ALLOW(GLOBAL,LOG_DEBUG," [Rank %d] No.of Particles to update: %" PetscInt_FMT ".\n",rank,nLocal);
 
   // 3) Loop over all local particles, updating each position by velocity * dt
   for (p = 0; p < nLocal; p++) {
@@ -226,12 +207,8 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
 
 
 /**
- * @brief Checks if a particle position is within the bounds of a given bounding box.
- *
- * @param bbox Pointer to the BoundingBox structure.
- * @param pos  Pointer to the particle's position (Cmpnts).
- *
- * @return PetscBool PETSC_TRUE if the particle is inside or on the boundary, PETSC_FALSE otherwise.
+ * @brief Internal helper implementation: `IsParticleInBox()`.
+ * @details Local to this translation unit.
  */
 static inline PetscBool IsParticleInBox(const BoundingBox *bbox, const Cmpnts *pos) {
     return (pos->x >= bbox->min_coords.x && pos->x <= bbox->max_coords.x &&
@@ -244,39 +221,8 @@ static inline PetscBool IsParticleInBox(const BoundingBox *bbox, const Cmpnts *p
 #define __FUNCT__ "CheckAndRemoveOutOfBoundsParticles"
 
 /**
- * @brief Checks for particles outside the global physical domain and removes them.
- *
- * This function iterates through all particles local to the current MPI rank. It determines
- * if a particle's physical position is outside of ALL subdomains owned by the MPI processes.
- * To perform this check, it requires a list of the bounding boxes for every MPI rank's
- * subdomain.
- *
- * If a particle is not found within any of the subdomains, it is considered "out of bounds"
- * and is permanently removed from the simulation using DMSwarmRemovePointAtIndex().
- *
- * The function is carefully designed to handle modifications to the DMSwarm during iteration
- * safely. It does this by:
- *   1. Iterating BACKWARDS through the local particle list, so removing an element at
- *      index 'p' does not affect the indices of subsequent elements to be checked (p-1, p-2, ...).
- *   2. Using a robust "Restore-Remove-Reacquire" pattern. When a particle is removed,
- *      all pointers to swarm data are first restored, the removal operation is performed,
- *      and then the pointers are re-acquired for the remainder of the loop.
- *
- * @warning This function contains a collective MPI operation (MPI_Allreduce) at the end.
- *          To avoid deadlocks, it MUST be called by ALL ranks in the communicator, even if
- *          a rank has no local particles. Do not place this call inside rank-specific
- *          conditional logic in your main loop.
- *
- * @note This function can be redundant as the robust particle location scheme (e.g., one that
- *       sets a `LOST` status) and a corresponding cleanup function are already in use.
- *
- * @param[in,out]  user             Pointer to the UserCtx structure containing the swarm and MPI info.
- * @param[out]     removedCountLocal Pointer to an integer that will store the number of particles removed on THIS rank.
- * @param[out]     removedCountGlobal Pointer to an integer that will store the total number of particles removed ACROSS ALL ranks.
- * @param[in]      bboxlist         An array of BoundingBox structures for ALL MPI ranks, indexed 0 to (size-1).
- *                                  This array must be up-to-date and available on every rank.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ * @brief Internal helper implementation: `CheckAndRemoveOutOfBoundsParticles()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
                                               PetscInt *removedCountLocal,
@@ -383,34 +329,8 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
 #undef __FUNCT__
 #define __FUNCT__ "CheckAndRemoveLostParticles"
 /**
- * @brief Removes particles that have been definitively flagged as LOST by the location algorithm.
- *
- * This function is the designated cleanup utility for particles that have exited the
- * physical domain or could not be located for any other reason. It should be called
- * after a particle location and migration phase is complete.
- *
- * It iterates through all locally owned particles and checks their `DMSwarm_location_status`
- * field. If a particle's status is `LOST`, it is permanently removed from the simulation
- * using `DMSwarmRemovePointAtIndex`.
- *
- * The function is carefully designed to handle modifications to the DMSwarm during iteration
- * safely. It does this by:
- *   1. Iterating BACKWARDS through the local particle list, so removing an element at
- *      index 'p' does not affect the indices of subsequent elements to be checked (p-1, p-2, ...).
- *   2. Using a robust "Restore-Remove-Reacquire" pattern. When a particle is removed,
- *      all pointers to swarm data are first restored, the removal operation is performed,
- *      and then the pointers are re-acquired for the remainder of the loop.
- *
- * @warning This function contains a collective MPI operation (MPI_Allreduce) at the end.
- *          To avoid deadlocks, it MUST be called by ALL ranks in the communicator, even if
- *          a rank has no local particles. Do not place this call inside rank-specific
- *          conditional logic in your main loop.
- *
- * @param[in,out]  user              Pointer to the UserCtx structure containing the swarm.
- * @param[out]     removedCountLocal Pointer to an integer that will store the number of particles removed on THIS rank.
- * @param[out]     removedCountGlobal Pointer to an integer that will store the total number of particles removed ACROSS ALL ranks.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ * @brief Internal helper implementation: `CheckAndRemoveLostParticles()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
                                            PetscInt *removedCountLocal,
@@ -513,13 +433,8 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
 #undef __FUNCT__
 #define __FUNCT__ "SetMigrationRanks"
 /**
- * @brief Sets the target rank field (DMSwarmPICField_rank) for particles scheduled for migration.
- *
- * @param user           Pointer to UserCtx pa(contains swarm).
- * @param migrationList  Array of MigrationInfo structs containing local indices and target ranks.
- * @param migrationCount Number of particles in the migrationList.
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `SetMigrationRanks()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode SetMigrationRanks(UserCtx* user, const MigrationInfo *migrationList, PetscInt migrationCount)
 {
@@ -549,14 +464,10 @@ PetscErrorCode SetMigrationRanks(UserCtx* user, const MigrationInfo *migrationLi
 #define __FUNCT__ "PerformMigration"
 
 /**
- * @brief Performs particle migration based on the pre-populated DMSwarmPICField_rank field.
- *
- * Assumes SetMigrationRanks has already been called to mark particles with their target ranks.
- * Calls DMSwarmMigrate to execute the communication and removal of un-migrated particles.
- *
- * @param user Pointer to the UserCtx structure containing the swarm.
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Implementation of \ref PerformMigration().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleMotion.h`.
+ * @see PerformMigration()
  */
 PetscErrorCode PerformMigration(UserCtx *user)
 {
@@ -585,18 +496,10 @@ PetscErrorCode PerformMigration(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "CalculateParticleCountPerCell"
 /**
- * @brief Counts particles in each cell of the DMDA 'da' and stores the result in user->ParticleCount.
- * @ingroup scatter_module
- *
- * Zeros the user->ParticleCount vector, then iterates through local particles.
- * Reads the **GLOBAL** cell index (I, J, K) stored in the "DMSwarm_CellID" field.
- * Uses DMDAVecGetArray to access the local portion of the count vector and increments
- * the count at the global index (I, J, K) if it belongs to the local patch (including ghosts).
- *
- * @param[in,out] user Pointer to the UserCtx structure containing da, swarm, and ParticleCount.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
-
+ * @brief Implementation of \ref CalculateParticleCountPerCell().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see CalculateParticleCountPerCell()
  */
 PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     PetscErrorCode ierr;
@@ -623,7 +526,10 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     // Check DOF of da
     PetscInt count_dof;
     ierr = DMDAGetInfo(da, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &count_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
-     if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %d.", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
+    if (count_dof != 1) {
+        PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %" PetscInt_FMT ".", count_dof);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg);
+    }
 
     // --- Zero the local count vector ---
     ierr = VecSet(localcountVec, 0.0); CHKERRQ(ierr);
@@ -643,7 +549,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     ierr = DMDAGetGhostCorners(da, &gxs, &gys, &gzs, &gxm, &gym, &gzm); CHKERRQ(ierr);
 
     // --- Accumulate Counts Locally ---
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateParticleCountPerCell (Rank %d): Processing %d local particles using GLOBAL CellIDs.\n",rank,nlocal);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateParticleCountPerCell (Rank %d): Processing %" PetscInt_FMT " local particles using GLOBAL CellIDs.\n",rank,nlocal);
     for (p = 0; p < nlocal; p++) {
         // Read the GLOBAL indices stored for this particle
         PetscInt i_geom = global_cell_id_arr[p * 3 + 0]; // Global i index
@@ -660,7 +566,9 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
         // A preliminary check might still be wise if global IDs could be wild.
         // We rely on LocateAllParticles to provide valid global indices [0..IM-1] etc.
  
-	    LOG_LOOP_ALLOW(LOCAL,LOG_VERBOSE,p,100,"[Rank %d] Read CellID for p=%d, PID = %ld: (%ld, %ld, %ld)\n", rank, p,PID_arr[p],i, j, k);
+        LOG_LOOP_ALLOW(LOCAL, LOG_VERBOSE, p, 100,
+                       "[Rank %d] Read CellID for p=%" PetscInt_FMT ", PID = %" PetscInt64_FMT ": (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ")\n",
+                       rank, p, PID_arr[p], i, j, k);
     
         // Check if the global index (i,j,k) falls within the local + ghost range
         if (i >= gxs && i < gxs + gxm  && 
@@ -675,10 +583,12 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
          } else {
               // This particle's global ID is likely outside the range this rank handles (even ghosts)
               // note: this is not necessarily an error if the particle is legitimately outside the local+ghost region
-              LOG_ALLOW(LOCAL, LOG_VERBOSE, "(Rank %d): Skipping particle %ld with global CellID (%ld, %ld, %ld) - likely outside local+ghost range.\n",rank, PID_arr[p] , i, j, k);
+              LOG_ALLOW(LOCAL, LOG_VERBOSE,
+                        "(Rank %d): Skipping particle %" PetscInt64_FMT " with global CellID (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") - likely outside local+ghost range.\n",
+                        rank, PID_arr[p], i, j, k);
 	}
     }
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "(Rank %d): Local counting finished. Processed %d particles locally.\n", rank, particles_counted_locally);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "(Rank %d): Local counting finished. Processed %" PetscInt_FMT " particles locally.\n", rank, particles_counted_locally);
 
     // --- Restore Access ---
     ierr = DMDAVecRestoreArray(da, localcountVec, &count_arr_3d); CHKERRQ(ierr);
@@ -753,8 +663,13 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
 
 #undef __FUNCT__
 #define __FUNCT__ "ResizeSwarmGlobally"
-// --- Helper function to resize swarm globally (add or remove) ---
-// This assumes removing excess particles means removing the globally last ones.
+/**
+ * @brief Implementation of \ref ResizeSwarmGlobally().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleMotion.h`.
+ * @see ResizeSwarmGlobally()
+ */
+
 PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target)
 {
     PetscErrorCode ierr;
@@ -841,18 +756,8 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target)
 #undef __FUNCT__
 #define __FUNCT__ "PreCheckAndResizeSwarm"
 /**
- * @brief Checks particle count from a saved file and resizes the swarm globally.
- *
- * This function uses a robust parallel pattern: only Rank 0 reads the reference
- * position file to determine the total number of particles saved (`N_file`).
- * This count is then broadcast to all other ranks. Finally, each rank compares
- * N_file with the current swarm size and participates in resizing if necessary.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing the DMSwarm.
- * @param[in]     ti   Time index for constructing the file name.
- * @param[in]     ext  File extension (e.g., "dat").
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `PreCheckAndResizeSwarm()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
                                       PetscInt ti,
@@ -972,18 +877,8 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
 #undef __FUNCT__
 #define __FUNCT__ "ReinitializeParticlesOnInletSurface"
 /**
- * @brief Re-initializes the positions of particles currently on this rank if this rank owns
- *        part of the designated inlet surface.
- *
- * This function is intended for `user->ParticleInitialization == 0 or 3` (Surface Initialization modes)
- * and is typically called after an initial migration step (e.g., in `PerformInitialSetup`).
- * It ensures that all particles that should originate from the inlet surface and are now
- * on the correct MPI rank are properly distributed across that rank's portion of the inlet.
- *
- * @param user Pointer to the UserCtx structure, containing simulation settings and grid information.
- * @param currentTime Current simulation time (used for logging).
- * @param step Current simulation step number (used for logging).
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `ReinitializeParticlesOnInletSurface()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal currentTime, PetscInt step)
 {
@@ -1193,37 +1088,11 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     PetscFunctionReturn(0);
 }
 
-// Comparison function needed for qsort
-static int compare_PetscInt64(const void *a, const void *b) {
-    PetscInt64 val_a = *(const PetscInt64*)a;
-    PetscInt64 val_b = *(const PetscInt64*)b;
-    if (val_a < val_b) return -1;
-    if (val_a > val_b) return 1;
-    return 0;
-}
-
 #undef __FUNCT__
 #define __FUNCT__ "GetLocalPIDSnapshot"
 /**
- * @brief Creates a sorted snapshot of all Particle IDs (PIDs) from a raw data array.
- * @ingroup ParticleUtils
- *
- * This function is a crucial helper for the migration process. It captures the state of
- * which particles are on the current MPI rank *before* migration occurs by taking a
- * pointer to the swarm's raw PID data array. The resulting sorted array can then be used
- * with an efficient binary search to quickly identify newcomer particles after migration.
- *
- * This function does NOT call DMSwarmGetField/RestoreField. It is the caller's
- * responsibility to acquire the `pid_field` pointer before calling and restore it afterward.
- *
- * @param[in]  pid_field         A read-only pointer to the raw array of PIDs for the local swarm.
- * @param[in]  n_local           The number of particles currently on the local rank.
- * @param[out] pids_snapshot_out A pointer to a `PetscInt64*` array. This function will
- *                               allocate memory for this array, and the caller is
- *                               responsible for freeing it with `PetscFree()` when it
- *                               is no longer needed.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ * @brief Internal helper implementation: `GetLocalPIDSnapshot()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode GetLocalPIDSnapshot(const PetscInt64 pid_field[], 
                                    PetscInt n_local, 
@@ -1277,25 +1146,8 @@ PetscErrorCode GetLocalPIDSnapshot(const PetscInt64 pid_field[],
 #undef __FUNCT__
 #define __FUNCT__ "AddToMigrationList"
 /**
- * @brief Safely adds a new migration task to a dynamically sized list.
- *
- * This utility function manages a dynamic array of MigrationInfo structs. It appends
- * a new entry to the list and automatically doubles the array's capacity using
- * `PetscRealloc` if the current capacity is exceeded. This prevents buffer overflows
- * and avoids the need to know the number of migrating particles in advance.
- *
- * @param[in,out] migration_list_p  A pointer to the MigrationInfo array pointer. The function
- *                                  will update this pointer if the array is reallocated.
- * @param[in,out] capacity_p        A pointer to an integer holding the current allocated
- *                                  capacity of the list (in number of elements). This will be
- *                                  updated upon reallocation.
- * @param[in,out] count_p           A pointer to an integer holding the current number of
- *                                  items in the list. This will be incremented by one.
- * @param[in]     particle_local_idx The local index (from 0 to nlocal-1) of the particle
- *                                  that needs to be migrated.
- * @param[in]     destination_rank   The target MPI rank for the particle.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure (e.g., from memory allocation).
+ * @brief Internal helper implementation: `AddToMigrationList()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
                                   PetscInt *capacity_p,
@@ -1352,32 +1204,8 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
 #undef __FUNCT__
 #define __FUNCT__ "FlagNewComersForLocation"
 /**
- * @brief Identifies newly arrived particles after migration and flags them for a location search.
- * @ingroup ParticleMotion
- *
- * This function is a critical component of the iterative migration process managed by
- * the main particle settlement orchestrator (e.g., `LocateAllParticlesInGrid`). After a
- * `DMSwarmMigrate` call, each rank's local particle list is a new mix of resident
- * particles and newly received ones. This function's job is to efficiently identify
- * these "newcomers" and set their `DMSwarm_location_status` field to `NEEDS_LOCATION`.
- *
- * This ensures that in the subsequent pass of the migration `do-while` loop, only the
- * newly arrived particles are processed by the expensive location algorithm, preventing
- * redundant work on particles that are already settled on the current rank.
- *
- * The identification is done by comparing the PIDs of particles currently on the rank
- * against a "snapshot" of PIDs taken *before* the migration occurred.
- *
- * @param[in] swarm            The DMSwarm object, which has just completed a migration.
- * @param[in] n_local_before   The number of particles that were on this rank *before* the
- *                             migration was performed.
- * @param[in] pids_before      A pre-sorted array of the PIDs that were on this rank before
- *                             the migration. This is used for fast lookups.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
- *
- * @note This function assumes the `pids_before` array is sorted in ascending order to
- *       enable the use of an efficient binary search.
+ * @brief Internal helper implementation: `FlagNewcomersForLocation()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode FlagNewcomersForLocation(DM swarm,
                                         PetscInt n_local_before,
@@ -1469,26 +1297,8 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
 #undef __FUNCT__
 #define __FUNCT__ "MigrateRestartParticlesUsingCellID"
 /**
- * @brief Fast-path migration for restart particles using preloaded Cell IDs.
- *
- * This function provides an optimized migration path specifically for particles
- * loaded from restart files. Unlike the standard `LocateAllParticlesInGrid()`
- * which performs expensive walking searches, this function leverages the fact that
- * restart particles already have valid global Cell IDs loaded from disk.
- *
- * **How It Works:**
- * 1. Iterates through all local particles.
- * 2. For each particle with a valid Cell ID (ci, cj, ck):
- *    - Calls `FindOwnerOfCell(ci, cj, ck)` to determine the correct rank.
- *    - If owner differs from current rank, adds to migration list.
- *    - If owner matches current rank, the existing `ACTIVE_AND_LOCATED` status is preserved.
- * 3. Uses existing `SetMigrationRanks()` and `PerformMigration()` infrastructure.
- * 4. Achieves **single-pass direct migration** (no multi-hop, no walking searches).
- *
- * @param[in,out] user Pointer to UserCtx containing the swarm and RankCellInfoMap.
- *                     The function updates particle status fields and performs migration.
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `MigrateRestartParticlesUsingCellID()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
 {
@@ -1567,33 +1377,13 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "GuessParticleOwnerWithBBox"
 /**
- * @brief Provides a fast, heuristic-based guess for a particle's owner rank using bounding boxes.
- * @ingroup ParticleLocation
- *
- * This function is part of the "Guess and Verify" strategy, called only for "lost"
- * particles. It attempts to find a candidate owner by checking which rank's bounding box
- * contains the particle's physical position.
- *
- * To optimize the search, it uses the particle's position relative to the local
- * bounding box to intelligently check the most likely neighboring ranks first.
- * For example, if a particle's x-coordinate is less than the local minimum x, it
- * will check the -X neighbor first. If no owner is found in the immediate neighbors,
- * it performs a full search of all other ranks as a fallback.
- *
- * @param[in]  user             Pointer to the UserCtx, which must contain the pre-computed
- *                              `bbox` (local), `neighbors` struct, and the global `bboxlist`.
- * @param[in]  particle         A pointer to the particle whose owner is being guessed.
- * @param[in]  bboxlist       An array of BoundingBox structures for ALL MPI ranks, indexed 0 to (size-1).
- *                                This array must be up-to-date and available on all ranks.
- * @param[out] guess_rank_out   A pointer to a PetscMPIInt. Set to the candidate owner's rank
- *                              if found, otherwise set to -1 (or MPI_PROC_NULL).
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ * @brief Internal helper implementation: `GuessParticleOwnerWithBBox()`.
+ * @details Local to this translation unit.
  */
-PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user, 
-                                          const Particle *particle,
-					  const BoundingBox *bboxlist,
-                                          PetscMPIInt *guess_rank_out)
+static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
+                                                 const Particle *particle,
+                                                 const BoundingBox *bboxlist,
+                                                 PetscMPIInt *guess_rank_out)
 {
     PetscErrorCode  ierr;
     PetscMPIInt     rank, size;
@@ -1703,36 +1493,10 @@ PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
 #undef __FUNCT__
 #define __FUNCT__ "LocateAllParticlesInGrid"
 /**
- * @brief Orchestrates the complete particle location and migration process for one timestep.
- * @ingroup ParticleLocation
- *
- * This function is the master orchestrator for ensuring every particle is on its correct
- * MPI rank and has a valid host cell index. It is designed to be called once per
- * timestep after particle positions have been updated.
- *
- * The function uses a robust, iterative "Guess and Verify" strategy within a
- * do-while loop to handle complex particle motion across processor boundaries,
- * especially on curvilinear grids.
- *
- * 1.  **State Snapshot:** At the start of each pass, it captures a list of all Particle IDs (PIDs)
- *     on the current rank.
- * 2.  **"Guess" (Heuristic):** For particles that are "lost" (no valid host cell),
- *     it first attempts a fast, bounding-box-based guess to find a potential new owner rank.
- * 3.  **"Verify" (Robust Walk):** For all other particles, or if the guess fails,
- *     it uses a robust cell-walking algorithm (`LocateParticleOrFindMigrationTarget`)
- *     that determines the particle's status: located locally, needs migration, or is lost.
- * 4.  **Migration:** After identifying all migrating particles on a pass, it performs the
- *     MPI communication using the `SetMigrationRanks` and `PerformMigration` helpers.
- * 5.  **Newcomer Flagging:** After migration, it uses the PID snapshot from step 1 to
- *     efficiently identify newly arrived particles and flag them for location on the next pass.
- * 6.  **Iteration:** The process repeats in a `do-while` loop until a pass occurs where
- *     no particles migrate, ensuring the entire swarm is in a stable, consistent state.
- *
- * @param[in,out] user Pointer to the UserCtx, containing the swarm and all necessary
- *                     domain topology information (bboxlist, RankCellInfoMap, etc.).
- * @param[in] bboxlist  An array of BoundingBox structures for ALL MPI ranks, indexed 0 to (size-1).
- *                      This array must be up-to-date and available on all ranks.
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ * @brief Implementation of \ref LocateAllParticlesInGrid().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleMotion.h`.
+ * @see LocateAllParticlesInGrid()
  */
 PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 {
@@ -1951,16 +1715,10 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 #undef __FUNCT__
 #define __FUNCT__ "ResetAllParticleStatuses"
 /**
- * This function is designed to be called at the end of a full timestep, after all
- * particle-based calculations are complete. It prepares the swarm for the next
- * timestep by ensuring that after the next position update, every particle will be
- * re-evaluated by the LocateAllParticlesInGrid orchestrator.
- *
- * It iterates through all locally owned particles and sets their
- * `DMSwarm_location_status` field to `NEEDS_LOCATION`.
- *
- * @param[in,out] user Pointer to the UserCtx containing the swarm.
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ * @brief Implementation of \ref ResetAllParticleStatuses().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleMotion.h`.
+ * @see ResetAllParticleStatuses()
  */
 PetscErrorCode ResetAllParticleStatuses(UserCtx *user)
 {

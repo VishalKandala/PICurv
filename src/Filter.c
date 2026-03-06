@@ -16,20 +16,8 @@
  *================================================================================*/
 
 /**
- * @brief (Internal) Applies a 2D homogeneous test filter in the i-k plane using Simpson's rule.
- *
- * This is a specialized, high-accuracy filter designed for flow cases that are statistically
- * homogeneous in two directions (e.g., the streamwise and spanwise directions of a channel flow).
- * It uses a fixed-weight stencil based on Simpson's rule for numerical integration, which
- * offers better spectral properties than a simple box filter. The weights are constant and
- * do not depend on cell volume, assuming a uniform grid in the homogeneous plane.
- *
- * @ref Morinishi, Kera, & Vasilyev, "Skew-symmetric formulation for large eddy simulation
- * of compressible turbulent flows," Journal of Computational Physics, 2004.
- *
- * @param values The 3x3x3 array of scalar values from the local stencil. For this 2D filter,
- *               only the central j-plane (j-index = 1) is utilized.
- * @return The filtered scalar value.
+ * @brief Internal helper implementation: `ApplySimpsonRuleHomogeneousFilter()`.
+ * @details Local to this translation unit.
  */
 static double ApplySimpsonRuleHomogeneousFilter(double values[3][3][3])
 {
@@ -45,19 +33,8 @@ static double ApplySimpsonRuleHomogeneousFilter(double values[3][3][3])
 
 
 /**
- * @brief (Internal) Applies a volume-weighted 3D box filter to a 3x3x3 stencil.
- *
- * This is the general-purpose filter for non-uniform, curvilinear grids. To correctly
- * average a quantity over a space with varying cell sizes, the contribution of each
- * point must be weighted by its associated volume (or, equivalently, 1/Jacobian).
- *
- * The logic calculates a weighted average over eight 2x2x2 sub-cubes (or "octants")
- * that surround the central node of the 3x3x3 stencil. This produces a filtered value
- * representative of the larger volume covered by the test filter.
- *
- * @param values The 3x3x3 array of scalar values at the stencil points.
- * @param weights The 3x3x3 array of weights, where weight = 1.0 / cell_volume (i.e., the Jacobian).
- * @return The volume-weighted filtered scalar value.
+ * @brief Internal helper implementation: `ApplyVolumeWeightedBoxFilter()`.
+ * @details Local to this translation unit.
  */
 static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weights[3][3][3])
 {
@@ -140,7 +117,8 @@ static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weight
 #undef __FUNCT__
 #define __FUNCT__ "ApplyLESTestFilter"
 /**
- * @brief Public interface for applying the LES test filter.
+ * @brief Internal helper implementation: `ApplyLESTestFilter()`.
+ * @details Local to this translation unit.
  */
 double ApplyLESTestFilter(const SimCtx *simCtx, double values[3][3][3], double weights[3][3][3])
 {

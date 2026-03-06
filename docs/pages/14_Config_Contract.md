@@ -1,11 +1,13 @@
 @page 14_Config_Contract Configuration Contract (YAML -> Generated Artifacts -> Runtime)
 
+@anchor _Config_Contract
+
 This page is the user-facing source of truth for the configuration contract implemented by `picurv`.
 It describes the launcher-level contract, which may be stricter or more explicit than the raw C defaults because `picurv` validates and normalizes inputs before runtime.
 
 @tableofcontents
 
-@section inputs_sec 1. Required Input Roles
+@section p14_inputs_sec 1. Required Input Roles
 
 `picurv` composes a standard single-run workflow from five logical inputs, with two additional files for cluster/sweep modes:
 
@@ -30,7 +32,7 @@ These roles are intentionally modular:
 
 In normal use, you reuse and mix these files instead of cloning one monolithic config for every run.
 
-@section artifacts_sec 2. Generated Artifacts
+@section p14_artifacts_sec 2. Generated Artifacts
 
 For each run, `picurv` generates:
 
@@ -40,13 +42,14 @@ For each run, `picurv` generates:
 - `profile.run`: selected per-step profiling function list (only when `profiling.timestep_output.mode: selected`).
 - `post.run`: key=value post-processing recipe consumed by C post parser.
 
-@section case_sec 3. Case Contract Highlights
+@section p14_case_sec 3. Case Contract Highlights
 
 - `grid.mode` supports: `file`, `programmatic_c`, `grid_gen`.
 - For `programmatic_c`, per-block arrays are supported for geometry (`im/jm/km`, bounds, stretching).
 - `programmatic_c.im/jm/km` are cell counts in YAML; `picurv` converts them to node counts before writing `-im/-jm/-km`.
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block MPI decomposition is not currently supported.
 - For `grid_gen`, `grid.generator.config_file` is required today. `grid.gen` consumes cell counts and writes node counts into `.picgrid`.
+- For `file`, optional `grid.legacy_conversion` can call `grid.gen legacy1d` to convert headerless 1D-axis legacy payloads before standard validation/non-dimensionalization.
 - `boundary_conditions` supports single-block list or multi-block list-of-lists.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
 - `properties.initial_conditions.mode` is required explicitly by the launcher.
@@ -55,7 +58,7 @@ For each run, `picurv` generates:
   - `peak_velocity_physical` (scalar centerline speed), or
   - `u_physical/v_physical/w_physical` (explicit component override).
 
-@section solver_sec 4. Solver Contract Highlights
+@section p14_solver_sec 4. Solver Contract Highlights
 
 - `operation_mode.eulerian_field_source` -> `-euler_field_source`
 - `operation_mode.analytical_type` -> `-analytical_type`
@@ -68,7 +71,7 @@ Analytical-mode compatibility rule:
 - when `operation_mode.eulerian_field_source: analytical` is selected, the current launcher contract requires `case.yml -> grid.mode: programmatic_c`.
 - this reflects the current C analytical ingestion path, which does not consume `file`/`grid_gen` geometry in the standard way.
 
-@section monitor_sec 5. Monitor Contract Highlights
+@section p14_monitor_sec 5. Monitor Contract Highlights
 
 - `io.data_output_frequency` -> `-tio`
 - `io.particle_console_output_frequency` -> `-particle_console_output_freq` (defaults to `data_output_frequency` when omitted)
@@ -77,7 +80,7 @@ Analytical-mode compatibility rule:
 - `io.directories.eulerian_subdir/particle_subdir` -> `-euler_subdir/-particle_subdir`
 - `solver_monitoring` maps raw flags directly into control output.
 
-@section post_sec 6. Post Contract Highlights
+@section p14_post_sec 6. Post Contract Highlights
 
 - Pipelines are serialized into semicolon-delimited C pipeline strings.
 - `io.eulerian_fields` -> `output_fields_instantaneous`
@@ -86,7 +89,7 @@ Analytical-mode compatibility rule:
 - `io.input_extensions.eulerian/particle` -> `eulerianExt/particleExt` for post input readers
 - `source_data.directory` -> `source_directory`
 
-@section cluster_sec 7. Cluster Contract Highlights (cluster.yml)
+@section p14_cluster_sec 7. Cluster Contract Highlights (cluster.yml)
 
 - `scheduler.type` currently supports `slurm` only.
 - `resources.account/nodes/ntasks_per_node/mem/time` are required.
@@ -102,7 +105,7 @@ Analytical-mode compatibility rule:
 - `runs/<run_id>/scheduler/post.sbatch`
 - `runs/<run_id>/scheduler/submission.json`
 
-@section study_sec 8. Study Contract Highlights (study.yml)
+@section p14_study_sec 8. Study Contract Highlights (study.yml)
 
 - `base_configs` provides case/solver/monitor/post template paths.
 - `study_type` is one of:
@@ -125,7 +128,7 @@ Analytical-mode compatibility rule:
 - `studies/<study_id>/results/metrics_table.csv`
 - `studies/<study_id>/results/plots/*`
 
-@section passthrough_sec 9. Escape Hatches and Defaults
+@section p14_passthrough_sec 9. Escape Hatches and Defaults
 
 - Escape hatches stay supported:
   - `case.solver_parameters`
@@ -148,3 +151,25 @@ Examples:
 For workflow growth patterns (grid generation orchestration, multi-run studies, and ML coupling paths), see **@subpage 17_Workflow_Extensibility**.
 For worked examples and profile-composition patterns, see **@subpage 49_Workflow_Recipes_and_Config_Cookbook**.
 For selector-specific contributor hook points, see **@subpage 50_Modular_Selector_Extension_Guide**.
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Configuration Contract (YAML -> Generated Artifacts -> Runtime)** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

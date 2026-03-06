@@ -7,18 +7,8 @@
 #include "runloop.h"
 
 /**
- * @brief Copies the current time step's solution fields into history vectors
- *        (e.g., U(t_n) -> U_o, U_o -> U_rm1) for the next time step's calculations.
- *
- * This function is critical for multi-step time integration schemes (like BDF2)
- * used by the legacy solver. It must be called at the end of every time step,
- * after the new solution has been fully computed.
- *
- * The order of operations is important to avoid overwriting data prematurely.
- *
- * @param user The UserCtx for a single block. The function modifies the history
- *             vectors (Ucont_o, Ucont_rm1, etc.) within this context.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `UpdateSolverHistoryVectors()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user)
 {
@@ -78,19 +68,8 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "PerformInitialSetup"
 /**
- * @brief Finalizes the simulation setup at t=0, ensuring a consistent state before time marching.
- *
- * This function is called from main() after the initial Eulerian and Lagrangian states have been
- * created but before the main time loop begins. Its responsibilities are:
- *
- * 1.  Settling the particle swarm: Migrates particles to their correct owner ranks and finds their
- *     initial host cells. This includes handling special surface initializations.
- * 2.  Coupling the fields: Interpolates the initial Eulerian fields to the settled particle locations.
- * 3.  Preparing for the first step: Scatters particle data back to the grid.
- * 4.  Writing the initial output for step 0.
- *
- * @param simCtx Pointer to the main simulation context structure.
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `PerformInitializedParticleSetup()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
 {
@@ -164,19 +143,8 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "PerformLoadedParticleSetup"
 /**
- * @brief Finalizes the simulation state after particle and fluid data have been loaded from a restart.
- *
- * This helper function performs the critical sequence of operations required to ensure
- * the loaded Lagrangian and Eulerian states are fully consistent and the solver is
- * ready to proceed. This includes:
- * 1. Verifying particle locations in the grid and building runtime links.
- * 2. Synchronizing particle velocity with the authoritative grid velocity via interpolation.
- * 3. Scattering particle source terms (e.g., volume fraction) back to the grid.
- * 4. Updating the solver's history vectors with the final, fully-coupled state.
- * 5. Writing the complete, consistent state to output files for the restart step.
- *
- * @param simCtx The main simulation context.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `PerformLoadedParticleSetup()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
 {
@@ -240,20 +208,8 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "FinalizeRestartState"
 /**
- * @brief Performs post-load/post-init consistency checks for a restarted simulation.
- *
- * This function is called from main() ONLY when a restart is being performed
- * (i.e., StartStep > 0). It inspects the particle restart mode to determine the
- * correct finalization procedure for the Lagrangian swarm.
- *
- * - If particles were loaded from a file (`mode == "load"`), it verifies their
- *   locations within the grid to establish necessary runtime links.
- * - If new particles were initialized into the restarted flow (`mode == "init"`),
- *   it runs the full `PerformInitialSetup` sequence to migrate, locate, and
- *   couple the new particles with the existing fluid state.
- *
- * @param simCtx The main simulation context.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `FinalizeRestartState()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 {
@@ -298,27 +254,8 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "AdvanceSimulation"
 /**
- * @brief Executes the main time-marching loop for the coupled Euler-Lagrange simulation.
- *
- * This function orchestrates the advancement of the simulation from the configured
- * StartStep to the final step. It does NOT perform the initial t=0 setup, as that
- * is handled by InitializeEulerianState and PerformInitialSetup in main().
- *
- * For each timestep, it performs the following sequence:
- *  1.  **Pre-Solver Actions:** Updates time-dependent boundary conditions (e.g., fluxin)
- *      and resets particle states for the new step.
- *  2.  **Eulerian Solve:** Calls the refactored legacy FlowSolver to advance the
- *      entire fluid field by one time step.
- *  3.  **Lagrangian Update:** Executes the full particle workflow: advection based
- *      on the previous step's velocity, followed by settling (location/migration)
- *      in the new grid, and finally interpolation of the new fluid velocity.
- *  4.  **Two-Way Coupling:** Scatters particle data back to the grid to act as source
- *      terms for the subsequent time step.
- *  5.  **History & I/O:** Updates the solver's history vectors and writes output files
- *      at the specified frequency.
- *
- * @param user       Array of UserCtx structures for the finest grid level.
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `AdvanceSimulation()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 {

@@ -36,6 +36,7 @@
  *
  * @param[in,out] user          Pointer to the UserCtx structure containing the simulation context.
  * @param[in]     numParticles  Total number of particles to create across all MPI processes.
+ * @param[out]    particlesPerProcess Number of particles assigned to the local rank.
  * @param[in]     bboxlist      Pointer to an array of BoundingBox structures, one per rank.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
@@ -241,25 +242,16 @@ PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *p
 PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle);
 
 /**
- * @brief Perform particle swarm initialization, particle-grid interaction, and related operations.
+ * @brief High-level particle initialization orchestrator for a simulation run.
  *
- * This function handles the following tasks:
- * 1. Initializes the particle swarm using the provided bounding box list (bboxlist) to determine initial placement
- *    if ParticleInitialization is 0.
- * 2. Locates particles within the computational grid.
- * 3. Updates particle positions based on grid interactions (if such logic exists elsewhere in the code).
- * 4. Interpolates particle velocities from grid points using trilinear interpolation.
+ * This routine drives end-to-end swarm setup from the top-level simulation context:
+ * creation/registration of particle fields, initial placement according to configured
+ * mode, initial localization on the Eulerian grid, and startup interpolation needed
+ * before entering the main run loop.
  *
- * @param[in,out] user     Pointer to the UserCtx structure containing grid and particle swarm information.
- * @param[in]     np       Number of particles to initialize in the swarm.
- * @param[in]     bboxlist Pointer to an array of BoundingBox structures, one per MPI rank.
+ * @param[in,out] simCtx Master simulation context containing all blocks and run settings.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- *
- * @note
- * - Ensure that `np` (number of particles) is positive.
- * - The `bboxlist` array must be correctly computed and passed in before calling this function.
- * - If ParticleInitialization == 0, particles will be placed at the midpoint of the local bounding box.
  */
 PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx);
 

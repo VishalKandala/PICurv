@@ -827,6 +827,11 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
         source_file = grid_cfg.get("source_file")
         if isinstance(source_file, str):
             grid_cfg["source_file"] = resolve_path(case_anchor_path, source_file)
+        legacy_cfg = grid_cfg.get("legacy_conversion", {})
+        if isinstance(legacy_cfg, dict):
+            script_path = legacy_cfg.get("script")
+            if isinstance(script_path, str):
+                legacy_cfg["script"] = resolve_path(case_anchor_path, script_path)
     elif mode == "grid_gen":
         gen = grid_cfg.get("generator", {})
         if isinstance(gen, dict):
@@ -1045,6 +1050,118 @@ def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict) -> str:
 
     if not os.path.isfile(output_file):
         raise ValueError(f"grid.gen did not produce expected output file: {output_file}")
+
+    return output_file
+
+
+def convert_legacy_grid_with_gridgen(case_path: str, run_dir: str, grid_cfg: dict, source_grid: str) -> str:
+    """!
+    @brief Optionally convert a legacy file-grid payload to canonical PICGRID using grid.gen.
+    @details Activated only when `grid.legacy_conversion.enabled` is true in case.yml.
+             The converted output remains dimensional; standard nondimensionalization still
+             occurs via validate_and_nondimensionalize_picgrid().
+    @param[in] case_path Path to case.yml (for relative path resolution).
+    @param[in] run_dir Current run directory.
+    @param[in] grid_cfg Grid section from case.yml.
+    @param[in] source_grid Absolute or relative path to the original grid file.
+    @return Grid path that should be fed into validate_and_nondimensionalize_picgrid().
+    @throws ValueError on invalid converter settings or failed conversion.
+    """
+    legacy_cfg = grid_cfg.get("legacy_conversion")
+    if not isinstance(legacy_cfg, dict):
+        return source_grid
+
+    enabled = legacy_cfg.get("enabled", True)
+    if enabled is False:
+        return source_grid
+    if not isinstance(enabled, bool):
+        raise ValueError("grid.legacy_conversion.enabled must be a boolean.")
+
+    raw_format = str(legacy_cfg.get("format", "legacy1d")).strip().lower()
+    format_aliases = {
+        "legacy1d": "legacy1d",
+        "legacy_1d": "legacy1d",
+        "les_flat_1d": "legacy1d",
+        "les-flat-1d": "legacy1d",
+    }
+    command = format_aliases.get(raw_format)
+    if command is None:
+        raise ValueError(
+            "grid.legacy_conversion.format must be one of "
+            "['legacy1d', 'legacy_1d', 'les_flat_1d', 'les-flat-1d']."
+        )
+
+    case_dir = os.path.dirname(os.path.abspath(case_path))
+    gridgen_script = legacy_cfg.get("script", os.path.join(SCRIPT_PATH, "grid.gen"))
+    if not isinstance(gridgen_script, str) or not gridgen_script.strip():
+        raise ValueError("grid.legacy_conversion.script must be a non-empty string when provided.")
+    if not os.path.isabs(gridgen_script):
+        gridgen_script = os.path.abspath(os.path.join(case_dir, gridgen_script))
+    if not os.path.isfile(gridgen_script):
+        raise ValueError(f"grid.legacy_conversion.script not found: {gridgen_script}")
+
+    output_file = legacy_cfg.get("output_file", os.path.join("config", "grid.converted.picgrid"))
+    if not isinstance(output_file, str) or not output_file.strip():
+        raise ValueError("grid.legacy_conversion.output_file must be a non-empty string when provided.")
+    if not os.path.isabs(output_file):
+        output_file = os.path.abspath(os.path.join(run_dir, output_file))
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+    axis_columns = legacy_cfg.get("axis_columns", [0, 1, 2])
+    if not isinstance(axis_columns, list) or len(axis_columns) != 3:
+        raise ValueError("grid.legacy_conversion.axis_columns must be a 3-item list of non-negative integers.")
+    try:
+        axis_columns = [int(v) for v in axis_columns]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("grid.legacy_conversion.axis_columns must contain integers.") from exc
+    if any(v < 0 for v in axis_columns):
+        raise ValueError("grid.legacy_conversion.axis_columns values must be >= 0.")
+
+    strict_trailing = legacy_cfg.get("strict_trailing", True)
+    if not isinstance(strict_trailing, bool):
+        raise ValueError("grid.legacy_conversion.strict_trailing must be a boolean.")
+
+    cli_args = legacy_cfg.get("cli_args", [])
+    if cli_args is None:
+        cli_args = []
+    if not isinstance(cli_args, list):
+        raise ValueError("grid.legacy_conversion.cli_args must be a list of CLI tokens.")
+
+    cmd = [
+        sys.executable,
+        gridgen_script,
+        command,
+        "--input",
+        source_grid,
+        "--output",
+        output_file,
+        "--axis-columns",
+        str(axis_columns[0]),
+        str(axis_columns[1]),
+        str(axis_columns[2]),
+        "--no-write-vtk",
+    ]
+    if strict_trailing:
+        cmd.append("--strict-trailing")
+    else:
+        cmd.append("--allow-trailing")
+    cmd.extend(str(token) for token in cli_args)
+
+    print(f"[INFO] Legacy grid conversion command: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        details = stderr if stderr else stdout
+        raise ValueError(
+            f"legacy grid conversion failed with exit code {result.returncode}. Details:\n{details}"
+        )
+    if result.stdout:
+        print(result.stdout.strip())
+    if result.stderr:
+        print(result.stderr.strip())
+    if not os.path.isfile(output_file):
+        raise ValueError(f"legacy grid conversion did not produce expected output file: {output_file}")
 
     return output_file
 
@@ -1368,6 +1485,57 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             source_abs = source_file if os.path.isabs(source_file) else os.path.abspath(os.path.join(os.path.dirname(case_path), source_file))
             if not os.path.isfile(source_abs):
                 errors.append(f"  {case_path}: grid.source_file does not exist: {source_abs}")
+
+        legacy_cfg = grid_cfg.get("legacy_conversion")
+        if legacy_cfg is not None:
+            if not isinstance(legacy_cfg, dict):
+                errors.append(f"  {case_path}: grid.legacy_conversion must be a mapping when provided.")
+            else:
+                enabled = legacy_cfg.get("enabled", True)
+                if not isinstance(enabled, bool):
+                    errors.append(f"  {case_path}: grid.legacy_conversion.enabled must be a boolean.")
+
+                fmt = legacy_cfg.get("format")
+                if fmt is not None:
+                    normalized_fmt = str(fmt).strip().lower()
+                    allowed_formats = {"legacy1d", "legacy_1d", "les_flat_1d", "les-flat-1d"}
+                    if normalized_fmt not in allowed_formats:
+                        errors.append(
+                            f"  {case_path}: grid.legacy_conversion.format must be one of "
+                            f"{sorted(allowed_formats)} (got '{fmt}')."
+                        )
+
+                script_path = legacy_cfg.get("script")
+                if script_path is not None:
+                    if not isinstance(script_path, str) or not script_path.strip():
+                        errors.append(f"  {case_path}: grid.legacy_conversion.script must be a non-empty string.")
+                    else:
+                        script_abs = script_path if os.path.isabs(script_path) else os.path.abspath(os.path.join(os.path.dirname(case_path), script_path))
+                        if not os.path.isfile(script_abs):
+                            errors.append(f"  {case_path}: grid.legacy_conversion.script does not exist: {script_abs}")
+
+                output_file = legacy_cfg.get("output_file")
+                if output_file is not None and (not isinstance(output_file, str) or not output_file.strip()):
+                    errors.append(f"  {case_path}: grid.legacy_conversion.output_file must be a non-empty string when provided.")
+
+                axis_columns = legacy_cfg.get("axis_columns")
+                if axis_columns is not None:
+                    if not isinstance(axis_columns, list) or len(axis_columns) != 3:
+                        errors.append(f"  {case_path}: grid.legacy_conversion.axis_columns must be a 3-item integer list.")
+                    else:
+                        for idx, value in enumerate(axis_columns):
+                            if not isinstance(value, int) or value < 0:
+                                errors.append(
+                                    f"  {case_path}: grid.legacy_conversion.axis_columns[{idx}] must be a non-negative integer (got {value})."
+                                )
+
+                strict_trailing = legacy_cfg.get("strict_trailing")
+                if strict_trailing is not None and not isinstance(strict_trailing, bool):
+                    errors.append(f"  {case_path}: grid.legacy_conversion.strict_trailing must be a boolean when provided.")
+
+                cli_args = legacy_cfg.get("cli_args")
+                if cli_args is not None and not isinstance(cli_args, list):
+                    errors.append(f"  {case_path}: grid.legacy_conversion.cli_args must be a list of CLI tokens.")
     elif grid_mode == 'programmatic_c':
         grid_settings = grid_cfg.get('programmatic_settings')
         if not grid_settings:
@@ -2018,10 +2186,12 @@ def expand_parameter_matrix(parameters: dict) -> list:
     return combos
 
 def get_cluster_total_tasks(cluster_cfg: dict) -> int:
+    """Return cluster total tasks."""
     resources = cluster_cfg.get("resources", {})
     return int(resources.get("nodes", 1)) * int(resources.get("ntasks_per_node", 1))
 
 def normalize_extension(ext: str) -> str:
+    """Normalize extension."""
     if ext is None:
         return None
     return str(ext).strip().lstrip(".")
@@ -2739,6 +2909,7 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                 flags[flag] = t[key]
 
     def _append_dualtime_options(cfg: dict):
+        """Append dualtime options."""
         if 'max_pseudo_steps' in cfg:
             flags['-mom_max_pseudo_steps'] = cfg['max_pseudo_steps']
         if 'absolute_tol' in cfg:
@@ -2875,10 +3046,21 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         source_grid = grid_cfg['source_file']
         if not os.path.isabs(source_grid):
             source_grid = os.path.abspath(os.path.join(case_file_dir, source_grid))
+        grid_for_validation = source_grid
+        legacy_cfg = grid_cfg.get("legacy_conversion")
+        if isinstance(legacy_cfg, dict):
+            if legacy_cfg.get("enabled", True):
+                print("[INFO] Grid file legacy conversion enabled; converting with grid.gen...")
+            grid_for_validation = convert_legacy_grid_with_gridgen(
+                configs['case_path'],
+                run_dir,
+                grid_cfg,
+                source_grid,
+            )
         nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
         try:
             summary = validate_and_nondimensionalize_picgrid(
-                source_grid, nondim_grid_path, L_ref, expected_nblk=expected_nblk
+                grid_for_validation, nondim_grid_path, L_ref, expected_nblk=expected_nblk
             )
             print(
                 f"[SUCCESS] Validated and non-dimensionalized grid: {os.path.relpath(nondim_grid_path)} "
@@ -3270,6 +3452,7 @@ def render_slurm_array_stage_script(
 
     # Keep shell variables unresolved inside sbatch script.
     def _token(tok: str) -> str:
+        """Perform token."""
         if tok.startswith("$"):
             return tok
         return shlex.quote(str(tok))
@@ -4671,6 +4854,7 @@ def _add_run_parser(subparsers):
 
 
 def _add_sweep_parser(subparsers):
+    """Perform add sweep parser."""
     p_sweep = subparsers.add_parser(
         "sweep",
         help="Launch a Slurm-based parameter sweep/study.",
@@ -4690,6 +4874,7 @@ def _add_sweep_parser(subparsers):
 
 
 def _add_validate_parser(subparsers):
+    """Perform add validate parser."""
     p_validate = subparsers.add_parser(
         "validate",
         help="Validate config files without launching solver/post.",
@@ -4714,6 +4899,7 @@ def _add_validate_parser(subparsers):
 
 
 def _add_init_parser(subparsers):
+    """Perform add init parser."""
     p_init = subparsers.add_parser(
         "init",
         help="Initialize a new case study directory from a template.",
@@ -4740,6 +4926,7 @@ def _add_init_parser(subparsers):
 
 
 def _add_build_parser(subparsers):
+    """Perform add build parser."""
     p_build = subparsers.add_parser(
         "build",
         help="Build project executables using the Makefile.",
@@ -4773,6 +4960,7 @@ def _add_build_parser(subparsers):
 
 
 def _add_sync_binaries_parser(subparsers):
+    """Perform add sync binaries parser."""
     p_sync_binaries = subparsers.add_parser(
         "sync-binaries",
         help="Refresh a case directory's copied executables from the source repo.",
@@ -4792,6 +4980,7 @@ def _add_sync_binaries_parser(subparsers):
 
 
 def _add_sync_config_parser(subparsers):
+    """Perform add sync config parser."""
     p_sync_config = subparsers.add_parser(
         "sync-config",
         help="Refresh template-managed files in a case directory from examples/<template>.",
@@ -4825,6 +5014,7 @@ def _add_sync_config_parser(subparsers):
 
 
 def _add_pull_source_parser(subparsers):
+    """Perform add pull source parser."""
     p_pull = subparsers.add_parser(
         "pull-source",
         help="Run git pull in the source repo resolved from a case directory.",
@@ -4847,6 +5037,7 @@ def _add_pull_source_parser(subparsers):
 
 
 def _add_status_source_parser(subparsers):
+    """Perform add status source parser."""
     p_status = subparsers.add_parser(
         "status-source",
         help="Report source/case drift for an initialized case directory.",

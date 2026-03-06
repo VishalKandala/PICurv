@@ -1,10 +1,12 @@
 @page 01_Installation Installation Guide
 
+@anchor _Installation
+
 This guide covers dependency setup, PETSc configuration, and binary build verification for PICurv.
 
 @tableofcontents
 
-@section prereqs_sec 1. Prerequisites
+@section p01_prereqs_sec 1. Prerequisites
 
 Install these first:
 
@@ -15,7 +17,7 @@ Install these first:
 - Git
 - PETSc 3.20.3+ with `DMSwarm` support
 
-@section automated_sec 2. Automated Install (Recommended)
+@section p01_automated_sec 2. Automated Install (Recommended)
 
 From the PICurv repo root:
 
@@ -37,7 +39,7 @@ The script installs system and Python dependencies, verifies PETSc/DMSwarm visib
 - `bin/postprocessor`
 - `bin/picurv`
 
-@section install_tools_sec 3. Install Base Toolchain (Manual Path)
+@section p01_install_tools_sec 3. Install Base Toolchain (Manual Path)
 
 Debian/Ubuntu:
 
@@ -62,7 +64,7 @@ Optional (study plot generation):
 python3 -m pip install --user matplotlib
 ```
 
-@section petsc_sec 4. Install PETSc
+@section p01_petsc_sec 4. Install PETSc
 
 Recommended source install:
 
@@ -97,7 +99,7 @@ Official references:
 - https://petsc.org/release/install/
 - https://petsc.org/release/docs/manual/
 
-@section env_sec 5. Configure Environment Variables
+@section p01_env_sec 5. Configure Environment Variables
 
 Add to your shell profile (`~/.bashrc` or equivalent):
 
@@ -121,14 +123,14 @@ test -f "$PETSC_DIR/include/petscdmswarm.h" && echo "DMSwarm header found"
 test -f "$PETSC_DIR/$PETSC_ARCH/include/petscconf.h" && echo "PETSc arch config found"
 ```
 
-@section clone_sec 6. Clone PICurv
+@section p01_clone_sec 6. Clone PICurv
 
 ```bash
 git clone https://github.com/VishalKandala/PICurv.git
 cd PICurv
 ```
 
-@section build_sec 7. Build with picurv
+@section p01_build_sec 7. Build with picurv
 
 ```bash
 ./scripts/picurv build
@@ -148,7 +150,7 @@ Useful variants:
 
 After the build creates `bin/picurv`, prefer `./bin/picurv` for normal help, validation, and run commands.
 
-@section verify_sec 8. Verify Installation
+@section p01_verify_sec 8. Verify Installation
 
 ```bash
 make doctor
@@ -159,19 +161,21 @@ Recommended sequence after a successful build:
 1. `make doctor`
 2. `make smoke` (stronger executable-level sanity check)
 3. `make check` (full local validation sweep)
+4. `make check-full` (comprehensive MPI-inclusive validation sweep)
 
 What these prove:
 
 - `make doctor` proves the local PETSc installation can build and run a minimal PETSc-backed binary.
 - `make smoke` proves the compiled PICurv executables still launch.
 - `make check` runs Python regressions plus PETSc-backed validation.
+- `make check-full` additionally validates dedicated MPI unit coverage, fixed-size multi-rank smoke, and rank-matrix smoke in one pass.
 
 What `make doctor` does not prove:
 
 - it does not prove a full solver case is numerically correct
 - it does not replace case-specific validation or convergence testing
 
-@section common_sec 9. Common Installation Failures
+@section p01_common_sec 9. Common Installation Failures
 
 - `PETSC_DIR`/`PETSC_ARCH` unset or mismatched with built arch.
 - MPI compiler wrappers unavailable in PATH.
@@ -184,6 +188,28 @@ For runtime-level failures after successful build, see **@subpage 39_Common_Fata
 
 For the full testing model after installation, see **@subpage 40_Testing_and_Quality_Guide**.
 
-@section next_steps_sec 10. Next Steps
+@section p01_next_steps_sec 10. Next Steps
 
 - First simulation walkthrough: **@subpage 02_Tutorial_Programmatic_Grid**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Installation Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

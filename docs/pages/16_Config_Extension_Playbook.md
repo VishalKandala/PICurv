@@ -1,10 +1,12 @@
 @page 16_Config_Extension_Playbook Configuration Extension Playbook
 
+@anchor _Config_Extension_Playbook
+
 This playbook defines the standard workflow for adding new options/models without breaking YAML->C contract consistency.
 
 @tableofcontents
 
-@section workflow_sec 1. Standard Extension Workflow
+@section p16_workflow_sec 1. Standard Extension Workflow
 
 1. Choose the schema home (`case.yml`, `solver.yml`, `monitor.yml`, or `post.yml`).
 2. Add template documentation in `examples/master_template/*.yml`.
@@ -18,14 +20,14 @@ This playbook defines the standard workflow for adding new options/models withou
 8. Update `scripts/audit_ingress_manifest.json` when PETSc ingress changes.
 9. Verify with a config-generation run and static ingress audit.
 
-@section design_sec 2. Design Rules
+@section p16_design_sec 2. Design Rules
 
 - Prefer structured schema first; use passthrough only for advanced/temporary gaps.
 - Keep defaults in one place, and prefer explicit rejection over temporary compatibility aliases when contracts change.
 - Reject unsupported shapes early in Python validation (for example, list-vs-scalar contract mismatches).
 - Keep C ingestion concentrated in setup/parsing layers (`setup.c`, `io.c`) unless data is truly file-local to a subsystem.
 
-@section particle_sec 3. ParticlePhysics Extension Checklist
+@section p16_particle_sec 3. ParticlePhysics Extension Checklist
 
 Use this checklist when adding a new particle model constant, source term, or initialization mode.
 
@@ -45,7 +47,7 @@ Use this checklist when adding a new particle model constant, source term, or in
 6. Docs and audit:
    - Update contract/map pages and audit manifest.
 
-@section data_driven_sec 4. Data-Driven Closure Model Note
+@section p16_data_driven_sec 4. Data-Driven Closure Model Note
 
 - Offline integration (recommended first):
   - Treat solver/post outputs as the canonical data contract and run ML training/inference in external Python workflows.
@@ -55,7 +57,7 @@ Use this checklist when adding a new particle model constant, source term, or in
   - Expose model selection and coefficients in YAML (`solver.yml` or `case.yml`), map through `picurv`, parse in `setup.c`, and wire runtime consumers.
   - Keep fallback behavior to current deterministic model when no ML model is selected.
 
-@section verification_sec 5. Verification Checklist
+@section p16_verification_sec 5. Verification Checklist
 
 - Scalar/list and type validation works as expected.
 - Generated control/post artifacts contain intended keys.
@@ -65,3 +67,26 @@ Use this checklist when adding a new particle model constant, source term, or in
 
 See also **@subpage 17_Workflow_Extensibility** for higher-level workflow expansion patterns.
 For selector-by-selector hook points, use **@subpage 50_Modular_Selector_Extension_Guide**.
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Configuration Extension Playbook** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

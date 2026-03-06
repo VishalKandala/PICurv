@@ -1,10 +1,12 @@
 @page 37_Sweep_Studies_Guide Sweep and Study Guide
 
+@anchor _Sweep_Studies_Guide
+
 `picurv sweep` orchestrates parameter studies with generated run variants, scheduler arrays, and aggregate metrics.
 
 @tableofcontents
 
-@section inputs_sec 1. Inputs and Templates
+@section p37_inputs_sec 1. Inputs and Templates
 
 A sweep/study commonly uses:
 
@@ -14,37 +16,56 @@ A sweep/study commonly uses:
 
 Starter templates are available under `examples/*/*study*.yml` and `examples/master_template/`.
 
-@section command_sec 2. Core Sweep Command
+@section p37_command_sec 2. Core Sweep Command
 
 ```bash
-./bin/picurv sweep --study <study.yml> --scheduler slurm
+./bin/picurv sweep --study <study.yml> --cluster <cluster.yml>
 ```
 
-Typical optional flags include dry-run or no-submit behaviors depending on workflow stage.
+Optional generation-only mode:
 
-@section contract_sec 3. Study Contract Essentials
+```bash
+./bin/picurv sweep --study <study.yml> --cluster <cluster.yml> --no-submit
+```
+
+There is no dedicated `--dry-run` flag on `sweep`; use `--no-submit` for non-submitting artifact generation.
+
+@section p37_contract_sec 3. Study Contract Essentials
 
 A study definition usually specifies:
 
-- parameter space (explicit lists/ranges),
-- mapping from parameter key -> YAML target path,
-- execution controls,
-- metric extraction definitions.
+- `base_configs`:
+  - `case`, `solver`, `monitor`, `post` paths (all required)
+- `study_type`:
+  - one of `grid_independence`, `timestep_independence`, `sensitivity`
+- `parameters`:
+  - non-empty mapping of `<target>.<yaml.path>` -> non-empty list of values
+  - `<target>` must be one of `case`, `solver`, `monitor`, `post`
+- `metrics` (optional):
+  - list of metric specs or metric names for aggregation
+- `plotting` (optional):
+  - output controls (`enabled`, `output_format`)
+- `execution` (optional):
+  - controls like `max_concurrent_array_tasks` for Slurm array throttling
 
 Each combination yields a generated run with fully materialized config set.
 
-@section outputs_sec 4. Outputs and Aggregates
+@section p37_outputs_sec 4. Outputs and Aggregates
 
 Expected study outputs include:
 
-- per-combination run directories,
-- aggregate table (for example `metrics_table.csv`),
-- summary metadata (for example `summary.json`),
-- optional plot outputs in results/plots.
+- `studies/<study_id>/cases/case_####/` per-combination run directories
+- `studies/<study_id>/scheduler/case_index.tsv`
+- `studies/<study_id>/scheduler/solver_array.sbatch`
+- `studies/<study_id>/scheduler/post_array.sbatch`
+- `studies/<study_id>/scheduler/submission.json` (when jobs are submitted)
+- `studies/<study_id>/results/metrics_table.csv`
+- `studies/<study_id>/results/plots/*` (when plotting is enabled and matplotlib is available)
+- `studies/<study_id>/study_manifest.json`
 
 This keeps raw run data and comparative study diagnostics in one reproducible structure.
 
-@section operations_sec 5. Operational Workflow
+@section p37_operations_sec 5. Operational Workflow
 
 Recommended workflow:
 
@@ -56,8 +77,37 @@ Recommended workflow:
 
 For fragile metrics, add smoke tests or fixture-based validation before large queue submissions.
 
-@section refs_sec 6. Related Pages
+Implementation details worth knowing:
+
+- case expansion uses cartesian product over all `parameters.*` lists.
+- generated case configs are revalidated through the same solver/post validators used by `picurv run`.
+- post array submission depends on solver array completion (`afterok:<jobid>`) unless `--no-submit` is used.
+- generator/file grid external paths are rewritten to absolute paths during case materialization so they remain valid in `studies/<study_id>/cases/...`.
+
+@section p37_refs_sec 6. Related Pages
 
 - **@subpage 36_Cluster_Run_Guide**
 - **@subpage 10_Post_Processing_Reference**
 - **@subpage 40_Testing_and_Quality_Guide**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Sweep and Study Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

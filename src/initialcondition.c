@@ -8,26 +8,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "SetInitialInteriorField"
 /**
- * @brief Sets the initial values for the INTERIOR of a specified Eulerian field.
- *
- * This function initializes the interior nodes of `Ucont` based on a profile selected
- * by `user->FieldInitialization`. It explicitly skips any node that lies on a global
- * boundary, as those values are set by the Boundary System's `Initialize` methods.
- *
- * The initialization is directional, aligned with the primary INLET face that was
- * identified by the parser. This ensures the initial flow is physically meaningful.
- *
- * Supported `user->FieldInitialization` profiles for "Ucont":
- *  - 0: Zero Velocity. All interior components of Ucont are set to 0.
- *  - 1: Constant Normal Velocity. The contravariant velocity component normal to the
- *       inlet direction is set such that the physical velocity normal to those grid
- *       planes is a constant `uin`. Other contravariant components are zero.
- *  - 2: Poiseuille Normal Velocity. The contravariant component normal to the
- *       inlet direction is set with a parabolic profile.
- *
- * @param user      The main UserCtx struct, containing all simulation data and configuration.
- * @param fieldName A string ("Ucont" or "P") identifying which field to initialize.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `SetInitialInteriorField()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
 {
@@ -91,7 +73,6 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
     ierr = DMDAVecGetArray(fieldDM, fieldVec, &ucont_arr); CHKERRQ(ierr);
     
     PetscInt i, j, k;
-    const PetscInt mx = info.mx, my = info.my, mz = info.mz; // Global node dimensions
     const PetscInt xs = info.xs, xe = info.xs + info.xm;
     const PetscInt ys = info.ys, ye = info.ys + info.ym;
     const PetscInt zs = info.zs, ze = info.zs + info.zm;
@@ -257,8 +238,8 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
 #undef __FUNCT__
 #define __FUNCT__ "FinalizeBlockState"
 /**
- * @brief (HELPER) Finalizes a block's state by applying BCs, converting to Cartesian,
- * and synchronizing ghost regions.
+ * @brief Internal helper implementation: `FinalizeBlockState()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode FinalizeBlockState(UserCtx *user)
 {
@@ -291,11 +272,8 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "SetInitialFluidState_FreshStart"
 /**
- * @brief (HELPER) Sets the t=0 fluid state for all blocks.
- *
- * This function replicates the initialization sequence for a fresh start from
- * the legacy code. It sets an initial guess for the interior, establishes the
- * boundary conditions, and ensures the final state is consistent across MPI ranks.
+ * @brief Internal helper implementation: `SetInitialFluidState_FreshStart()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
 {
@@ -340,7 +318,8 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetInitialFluidState_Load"
 /**
- * @brief (HELPER) Reads fluid state for all blocks from restart files.
+ * @brief Internal helper implementation: `SetInitialFluidState_Load()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
 {
@@ -375,13 +354,8 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "InitializeEulerianState"
 /**
- * @brief High-level orchestrator to set the complete initial state of the Eulerian solver.
- *
- * This function is called once from main() before the time loop begins. It inspects
- * the simulation context to determine whether to perform a fresh start (t=0) or
- * restart from saved files. It then delegates to the appropriate helper function.
- * Finally, it initializes the solver's history vectors (Ucont_o, P_o, etc.)
- * to ensure the first time step has the necessary data.
+ * @brief Internal helper implementation: `InitializeEulerianState()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
 {

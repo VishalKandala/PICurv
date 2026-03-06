@@ -1,23 +1,24 @@
 # PICurv Post-Processing Profiles Library
 
-## 1. Purpose
+This directory stores reusable `post.yml` analysis recipes for `./bin/picurv run --post-process`. A post profile defines what data is read, what transforms/statistics are computed, and what artifacts are written for inspection or downstream analysis.
 
-This directory stores reusable `post.yml` analysis recipes for `./bin/picurv run --post-process`.
+## 1. What A Post Profile Controls
 
-A post profile controls:
-- timestep range (`run_control`),
-- source location (`source_data`),
-- Eulerian/Lagrangian/statistics pipelines,
-- output field selection and file naming (`io`).
+- timestep window selection (`run_control`),
+- input-source location and extension mapping (`source_data`, `io.input_extensions`),
+- Eulerian field operations,
+- Lagrangian particle operations,
+- statistics pipeline tasks,
+- output naming and directory policy.
 
 ## 2. Included Profiles
 
-- `standard_analysis.yml`: baseline Eulerian analysis (dimensionalize, nodal fields, Q-criterion).
+- `standard_analysis.yml`: baseline Eulerian analysis (dimensionalization, nodal fields, Q-criterion).
 
-For full schema coverage, use the master reference:
+For full schema coverage, use:
 - `examples/master_template/master_postprocessor.yml`
 
-## 3. How to Use
+## 3. How To Use
 
 Postprocess an existing run:
 
@@ -27,7 +28,7 @@ Postprocess an existing run:
   --post config/postprocessors/standard_analysis.yml
 ```
 
-Solve + post in one command:
+Solve and postprocess in one command:
 
 ```bash
 ./bin/picurv run --solve --post-process -n 8 \
@@ -36,10 +37,17 @@ Solve + post in one command:
   --monitor my_study/monitor.yml \
   --post config/postprocessors/standard_analysis.yml
 ```
-`-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution.
+
+`-n/--num-procs` applies to solver execution. Postprocessing defaults to single-rank execution.
 
 ## 4. Notes on Newer Options
 
-- `statistics_pipeline` is supported (currently the canonical `msd` task).
-- `io.input_extensions.eulerian/particle` map to post reader extensions.
+- `statistics_pipeline` is supported (canonical task: `msd`).
+- `io.input_extensions.eulerian/particle` map reader expectations to generated filenames.
 - `io.eulerian_fields_averaged` is accepted as reserved passthrough.
+
+## 5. Validation Tips
+
+- Start with a small timestep window when adding a new post operation.
+- Validate output file count and naming before long batch processing.
+- Keep post profiles under version control beside study definitions for reproducibility.

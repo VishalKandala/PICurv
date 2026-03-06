@@ -20,6 +20,13 @@ const double LES_EPSILON = 1.0e-12;
 
 #undef __FUNCT__
 #define __FUNCT__ "ComputeSmagorinskyConstant"
+/**
+ * @brief Implementation of \ref ComputeSmagorinskyConstant().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/les.h`.
+ * @see ComputeSmagorinskyConstant()
+ */
+
 PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
 {
     PetscErrorCode ierr;
@@ -298,6 +305,13 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
 
 #undef __FUNCT__
 #define __FUNCT__ "ComputeEddyViscosityLES"
+/**
+ * @brief Implementation of \ref ComputeEddyViscosityLES().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/les.h`.
+ * @see ComputeEddyViscosityLES()
+ */
+
 PetscErrorCode ComputeEddyViscosityLES(UserCtx *user)
 {
     PetscErrorCode ierr;

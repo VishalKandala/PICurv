@@ -1,7 +1,8 @@
 # Master Template Guide
 
-This directory provides fully commented template files for all major YAML roles.
-Use these as schema references, then copy only needed sections into runnable case directories.
+This directory provides fully commented template files for all major YAML roles. These files are designed as contract references and onboarding aids, not direct production inputs.
+
+A practical pattern is: initialize a runnable example first, then use these templates to discover advanced options and copy only the relevant blocks into your case-local configs.
 
 ## Template Files
 
@@ -14,11 +15,17 @@ Use these as schema references, then copy only needed sections into runnable cas
 
 ## Suggested Workflow
 
-1. start from template relevant to your role,
-2. trim to minimum required fields,
-3. keep each role modular instead of merging everything into one custom bundle,
-4. validate with `picurv validate`,
-5. run with `picurv run` or `picurv sweep`.
+1. Start from a template matching the role you want to extend.
+2. Copy minimal required blocks into runnable case-local YAML.
+3. Keep each role modular rather than merging all settings into one large file.
+4. Validate with `picurv validate` after each change.
+5. Execute with `picurv run` or `picurv sweep`.
+
+## Why This Matters For CFD Teams
+
+- It reduces configuration drift between projects.
+- It makes solver/monitor/post strategy comparisons explicit and reproducible.
+- It lowers onboarding cost for users new to the PICurv contract model.
 
 ## Related Docs
 
