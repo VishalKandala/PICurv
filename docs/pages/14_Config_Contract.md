@@ -96,8 +96,8 @@ Analytical-mode compatibility rule:
 - `resources.partition` is optional.
 - `notifications.mail_user/mail_type` are optional; email is validated when provided.
 - `execution.module_setup` injects shell lines before launch.
-- `execution.launcher` controls launch style (`srun`, `mpirun`, custom).
-- `execution.launcher_args` provides site-specific launch flags.
+- `execution.launcher` controls launch style (`srun`, `mpirun`, custom). A multi-word launcher string is accepted for site compatibility, but keeping the executable here and extra flags in `execution.launcher_args` is the preferred portable form.
+- `execution.launcher_args` provides site-specific launch flags and is appended after any inline tokens parsed from `execution.launcher`.
 - `execution.extra_sbatch` supports scheduler-specific pass-through flags.
 
 `picurv run --cluster ...` generates:

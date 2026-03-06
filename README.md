@@ -87,7 +87,7 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
   --monitor my_case/Standard_Output.yml \
   --post my_case/standard_analysis.yml
 ```
-`-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution.
+`-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution. For local multi-rank runs on cluster login nodes, `picurv` uses this priority order: `PICURV_MPI_LAUNCHER`, then `MPI_LAUNCHER`, then nearest `.picurv-local.yml`, then the default `mpiexec`. See [config/runtime/local_execution.example.yml](/root/PE/PICurv/config/runtime/local_execution.example.yml) for the editable file format.
 
 ## Case Maintenance From A Self-Contained Case
 

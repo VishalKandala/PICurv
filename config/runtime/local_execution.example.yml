@@ -1,0 +1,13 @@
+local_execution:
+  # Optional replacement for the default local multi-rank launcher (`mpiexec`).
+  launcher: "mpirun"
+  launcher_args:
+    - -mca
+    - pml
+    - ucx
+    - -mca
+    - btl
+    - ^uct,ofi
+    - -mca
+    - mtl
+    - ^ofi

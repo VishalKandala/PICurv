@@ -15,6 +15,7 @@ valid_fixtures_dir="${repo_root}/tests/fixtures/valid"
 tmp_root="$(mktemp -d)"
 LAST_RUN_DIR=""
 LAST_RUN_LOG=""
+declare -a mpi_launcher_cmd=()
 
 cleanup() {
   if [[ "${KEEP_SMOKE_TMP:-0}" == "1" ]]; then
@@ -75,6 +76,37 @@ require_file_contains() {
   fi
 }
 
+parse_mpi_launcher() {
+  local launcher="$1"
+  local token=""
+
+  mpi_launcher_cmd=()
+  while IFS= read -r token; do
+    mpi_launcher_cmd+=("${token}")
+  done < <(
+    python3 - "${launcher}" <<'PY'
+import shlex
+import sys
+
+launcher = sys.argv[1]
+parts = shlex.split(launcher)
+if not parts:
+    raise SystemExit(1)
+
+for part in parts:
+    print(part)
+PY
+  ) || die "failed to parse MPI launcher '${launcher}'."
+
+  if [[ ${#mpi_launcher_cmd[@]} -eq 0 ]]; then
+    die "parsed empty MPI launcher from '${launcher}'."
+  fi
+}
+
+run_with_mpi_launcher() {
+  "${mpi_launcher_cmd[@]}" -n "${nprocs}" "$@"
+}
+
 compare_continuity_max_divergence() {
   local first_log="$1"
   local second_log="$2"
@@ -125,7 +157,7 @@ run_help_smoke() {
   local banner="$2"
   local out_file="${tmp_root}/$(basename "${exe}").help.out"
   set +e
-  "${mpi_launcher}" -n "${nprocs}" "${exe}" -help >"${out_file}" 2>&1
+  run_with_mpi_launcher "${exe}" -help >"${out_file}" 2>&1
   local rc=$?
   set -e
 
@@ -1029,6 +1061,7 @@ run_multi_rank_runtime_smoke() {
 require_executable "${simulator_exe}" "simulator"
 require_executable "${postprocessor_exe}" "postprocessor"
 require_executable "${picurv_exe}" "picurv conductor"
+parse_mpi_launcher "${mpi_launcher}"
 python3 -c "import yaml" >/dev/null 2>&1 || die "python dependency 'pyyaml' is required for smoke profile mutation."
 
 echo "==> PICurv smoke: simulator help"

@@ -12,3 +12,4 @@ __pycache__/
 *.grid
 scripts/brownian_grids/
 logs/doxygen.warnings
+.picurv-local.yml
