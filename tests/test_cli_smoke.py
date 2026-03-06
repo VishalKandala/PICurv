@@ -413,6 +413,67 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
     assert manifest["stages_completed_or_submitted"] == ["post-process"]
 
 
+def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    case_cfg["run_control"]["start_step"] = 3
+    case_cfg["run_control"]["restart_from_run_dir"] = "does_not_exist"
+    solver_cfg.setdefault("operation_mode", {})
+    solver_cfg["operation_mode"]["eulerian_field_source"] = "load"
+
+    case_path = tmp_path / "case_restart_missing.yml"
+    solver_path = tmp_path / "solver_restart_missing.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--post-process",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--post",
+            str(valid / "post.yml"),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 1
+    assert "restart_from_run_dir does not exist" in result.stderr
+
+
+def test_post_process_run_dir_missing_config_inputs_fails(tmp_path):
+    valid = FIXTURES / "valid"
+    run_dir = tmp_path / "broken_run"
+    (run_dir / "config").mkdir(parents=True)
+
+    result = run_picurv(
+        [
+            "run",
+            "--post-process",
+            "--run-dir",
+            str(run_dir),
+            "--post",
+            str(valid / "post.yml"),
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 1
+    assert "Could not automatically identify required config files" in result.stderr
+
+
 def test_programmatic_grid_cell_counts_translate_to_node_counts(tmp_path):
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()

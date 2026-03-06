@@ -147,6 +147,9 @@ Canonical targets:
 
 - `make test-python`: Python-only CLI/config regression suite
 - `make test`: backward-compatible alias to `test-python`
+- `make coverage-python`: dependency-free Python line-coverage gate for core runtime scripts
+- `make coverage-c`: gcov-backed C line-coverage gate (`unit + smoke` with `COVERAGE=1`)
+- `make coverage`: runs `coverage-python` then `coverage-c`
 - `make doctor`: installation and PETSc provisioning validation
 - `make unit`: full isolated C unit/component suite
 - `make unit-geometry`
@@ -159,8 +162,13 @@ Canonical targets:
 - `make unit-boundaries`
 - `make unit-poisson-rhs`
 - `make unit-runtime`
-- `make smoke`: executable-level end-to-end smoke checks (tiny solve/post + restart branches)
+- `make unit-mpi`: dedicated multi-rank MPI consistency tests (`TEST_MPI_NPROCS`, default 2)
+- `make smoke`: executable-level end-to-end smoke checks (template matrix + flat/bent/brownian tiny runtime sequences)
+- `make smoke-mpi`: multi-rank runtime smoke checks for tiny flat+bent solve/post plus flat particle+restart workflows (`SMOKE_MPI_NPROCS`, default 2)
+- `make smoke-mpi-matrix`: multi-rank runtime smoke across a rank matrix (`SMOKE_MPI_MATRIX_NPROCS`, default `2 3`)
 - `make check`: full local validation sweep (`test-python + doctor + unit + smoke`)
+- `make check-mpi`: `make check` plus multi-rank MPI tests
+- `make check-mpi-matrix`: `make check` plus rank-matrix MPI smoke and `unit-mpi`
 
 Compatibility aliases:
 
@@ -176,6 +184,7 @@ Compatibility aliases:
 - `make ctest-boundaries` -> `make unit-boundaries`
 - `make ctest-poisson-rhs` -> `make unit-poisson-rhs`
 - `make ctest-runtime` -> `make unit-runtime`
+- `make ctest-mpi` -> `make unit-mpi`
 
 Quick-start commands:
 
@@ -183,11 +192,13 @@ Quick-start commands:
 make test
 make doctor
 make unit-io
+make unit-mpi
+make coverage-python
 make smoke
 make check
 ```
 
-Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-*` while iterating on a subsystem. Use `make smoke` to run tiny real solve/post/restart workflows (including analytical + particle paths). Use `make check` at the end of a development cycle.
+Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-*` while iterating on a subsystem. Use `make smoke` to run template-matrix init/validate/dry-run coverage across `flat_channel`, `bent_channel`, and `brownian_motion` plus tiny real runtime workflows (flat with/without particles, bent-channel solve/post, restart `load/init`, restart-equivalence split-vs-continuous, analytical Brownian). Use `make smoke-mpi` for multi-rank runtime smoke on flat+bent plus flat particle/restart branches, and `make smoke-mpi-matrix` for rank-sweep runtime smoke. Use `make coverage` for line-coverage gates. Use `make check` at the end of a development cycle, and `make check-mpi`/`make check-mpi-matrix` when multi-rank assertions are in scope.
 
 Detailed guide:
 - https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html

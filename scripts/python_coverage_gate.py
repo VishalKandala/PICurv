@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Run pytest under stdlib trace and enforce a line-coverage threshold."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import trace
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_TARGETS = [
+    "scripts/picurv",
+]
+
+
+def normalize_path(path: str | Path) -> str:
+    return str(Path(path).resolve())
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--min-line", type=float, default=70.0, help="minimum required weighted line coverage percent")
+    parser.add_argument(
+        "--target",
+        action="append",
+        default=[],
+        help="repo-relative target file to include (repeatable). Defaults to core runtime scripts.",
+    )
+    parser.add_argument("--output-dir", default="coverage/python", help="directory for coverage artifacts")
+    parser.add_argument(
+        "--pytest-args",
+        nargs=argparse.REMAINDER,
+        default=["-q"],
+        help="arguments passed to pytest (prefix with --pytest-args -- ...)",
+    )
+    return parser.parse_args()
+
+
+def build_trace_ignoredirs() -> list[str]:
+    ignoredirs = {
+        normalize_path(sys.prefix),
+        normalize_path(sys.exec_prefix),
+        normalize_path(Path(sys.prefix) / "lib"),
+    }
+    for raw in list(sys.path):
+        if not raw:
+            continue
+        path = Path(raw)
+        if not path.exists():
+            continue
+        resolved = normalize_path(path)
+        if "/site-packages" in resolved or "/dist-packages" in resolved:
+            ignoredirs.add(resolved)
+    return sorted(ignoredirs)
+
+
+def collect_counts(results: trace.CoverageResults) -> dict[str, dict[int, int]]:
+    counts_by_file: dict[str, dict[int, int]] = {}
+    for (filename, lineno), count in results.counts.items():
+        file_key = normalize_path(filename)
+        counts_by_file.setdefault(file_key, {})[lineno] = count
+    return counts_by_file
+
+
+def compute_file_coverage(target: Path, counts_by_file: dict[str, dict[int, int]]) -> tuple[int, int, float]:
+    finder = getattr(trace, "find_executable_linenos", None)
+    if finder is None:
+        finder = trace._find_executable_linenos  # type: ignore[attr-defined]
+    executable = finder(str(target))
+    executable_lines = set(executable.keys())
+    total = len(executable_lines)
+    if total == 0:
+        return 0, 0, 100.0
+
+    observed = counts_by_file.get(normalize_path(target), {})
+    covered = sum(1 for line in executable_lines if observed.get(line, 0) > 0)
+    percent = (100.0 * covered) / total
+    return covered, total, percent
+
+
+def main() -> int:
+    args = parse_args()
+    output_dir = (REPO_ROOT / args.output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    targets_raw = args.target if args.target else DEFAULT_TARGETS
+    targets = [Path(REPO_ROOT / rel).resolve() for rel in targets_raw]
+    for target in targets:
+        if not target.exists():
+            raise SystemExit(f"[coverage-python] target not found: {target}")
+
+    pytest_args = list(args.pytest_args)
+    if pytest_args and pytest_args[0] == "--":
+        pytest_args = pytest_args[1:]
+    if not pytest_args:
+        pytest_args = ["-q"]
+
+    ignoredirs = build_trace_ignoredirs()
+
+    import pytest
+
+    tracer = trace.Trace(count=True, trace=False, ignoredirs=ignoredirs)
+    exit_code = tracer.runfunc(pytest.main, pytest_args)
+    results = tracer.results()
+
+    counts_by_file = collect_counts(results)
+
+    print("[coverage-python] per-file line coverage")
+    print("[coverage-python] -----------------------------------------------")
+
+    total_cov = 0
+    total_exec = 0
+    for target in targets:
+        covered, executable, percent = compute_file_coverage(target, counts_by_file)
+        total_cov += covered
+        total_exec += executable
+        rel = target.relative_to(REPO_ROOT)
+        print(f"[coverage-python] {rel}: {covered}/{executable} ({percent:.2f}%)")
+
+    overall = 100.0 if total_exec == 0 else (100.0 * total_cov) / total_exec
+    print("[coverage-python] -----------------------------------------------")
+    print(f"[coverage-python] weighted total: {total_cov}/{total_exec} ({overall:.2f}%)")
+    print(f"[coverage-python] minimum required: {args.min_line:.2f}%")
+
+    summary_path = output_dir / "summary.txt"
+    summary_path.write_text(
+        "\n".join(
+            [
+                f"weighted_total={overall:.4f}",
+                f"covered_lines={total_cov}",
+                f"executable_lines={total_exec}",
+                f"minimum_required={args.min_line:.4f}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    if int(exit_code) != 0:
+        print(f"[coverage-python] pytest failed with exit code {exit_code}.", file=sys.stderr)
+        return int(exit_code)
+    if overall < args.min_line:
+        print(
+            f"[coverage-python] FAIL: coverage {overall:.2f}% is below required {args.min_line:.2f}%.",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

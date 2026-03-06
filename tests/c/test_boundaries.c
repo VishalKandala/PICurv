@@ -90,6 +90,165 @@ static PetscErrorCode TestBoundaryConditionFactoryAssignments(void)
     PetscFunctionReturn(0);
 }
 
+static PetscErrorCode TestBoundaryConditionFactoryImplementedHandlerMatrix(void)
+{
+    struct HandlerExpectation {
+        BCHandlerType handler;
+        BCPriorityType priority;
+        PetscBool expect_apply;
+        PetscBool expect_initialize;
+    };
+    const struct HandlerExpectation expectations[] = {
+        {BC_HANDLER_WALL_NOSLIP, BC_PRIORITY_WALL, PETSC_TRUE, PETSC_FALSE},
+        {BC_HANDLER_INLET_CONSTANT_VELOCITY, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
+        {BC_HANDLER_INLET_PARABOLIC, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
+        {BC_HANDLER_OUTLET_CONSERVATION, BC_PRIORITY_OUTLET, PETSC_TRUE, PETSC_FALSE},
+        {BC_HANDLER_PERIODIC_GEOMETRIC, BC_PRIORITY_WALL, PETSC_FALSE, PETSC_FALSE},
+        {BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
+    };
+
+    PetscFunctionBeginUser;
+    for (size_t i = 0; i < sizeof(expectations) / sizeof(expectations[0]); ++i) {
+        BoundaryCondition *bc = NULL;
+        PetscCall(BoundaryCondition_Create(expectations[i].handler, &bc));
+        PetscCall(PicurvAssertBool((PetscBool)(bc != NULL), "factory should allocate a handler object"));
+        PetscCall(PicurvAssertIntEqual(expectations[i].priority, bc->priority, "handler priority should match expectation"));
+        PetscCall(PicurvAssertBool((PetscBool)((bc->Apply != NULL) == expectations[i].expect_apply), "Apply hook expectation mismatch"));
+        PetscCall(PicurvAssertBool((PetscBool)((bc->Initialize != NULL) == expectations[i].expect_initialize), "Initialize hook expectation mismatch"));
+        PetscCall(DestroyBoundaryHandler(&bc));
+    }
+    PetscFunctionReturn(0);
+}
+
+static PetscErrorCode TestBoundaryConditionFactoryRejectsUnsupportedHandler(void)
+{
+    BoundaryCondition *bc = NULL;
+    PetscErrorCode ierr_create;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    ierr_create = BoundaryCondition_Create(BC_HANDLER_OUTLET_PRESSURE, &bc);
+    PetscCall(PetscPopErrorHandler());
+
+    PetscCall(PicurvAssertBool((PetscBool)(ierr_create != 0), "unsupported handler should return a non-zero error code"));
+    if (bc) {
+        PetscCall(PetscFree(bc));
+    }
+    PetscFunctionReturn(0);
+}
+
+static PetscErrorCode TestGetDeterministicFaceGridLocationFaceMatrix(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 8, 8));
+    simCtx->np = 128;
+
+    for (BCFace face = BC_FACE_NEG_X; face <= BC_FACE_POS_Z; ++face) {
+        PetscInt ci = -1, cj = -1, ck = -1;
+        PetscReal xi = -1.0, eta = -1.0, zta = -1.0;
+        PetscBool placed = PETSC_FALSE;
+
+        user->identifiedInletBCFace = face;
+        PetscCall(GetDeterministicFaceGridLocation(
+            user, &user->info,
+            user->info.xs, user->info.ys, user->info.zs,
+            user->info.mx, user->info.my, user->info.mz,
+            0,
+            &ci, &cj, &ck, &xi, &eta, &zta, &placed));
+
+        PetscCall(PicurvAssertBool(placed, "single-rank deterministic face placement should succeed"));
+        PetscCall(PicurvAssertBool((PetscBool)(ci >= user->info.xs && ci < user->info.xs + user->info.xm), "ci must map to owned node window"));
+        PetscCall(PicurvAssertBool((PetscBool)(cj >= user->info.ys && cj < user->info.ys + user->info.ym), "cj must map to owned node window"));
+        PetscCall(PicurvAssertBool((PetscBool)(ck >= user->info.zs && ck < user->info.zs + user->info.zm), "ck must map to owned node window"));
+        PetscCall(PicurvAssertBool((PetscBool)(xi >= 0.0 && xi < 1.0), "xi should be in [0,1)"));
+        PetscCall(PicurvAssertBool((PetscBool)(eta >= 0.0 && eta < 1.0), "eta should be in [0,1)"));
+        PetscCall(PicurvAssertBool((PetscBool)(zta >= 0.0 && zta < 1.0), "zta should be in [0,1)"));
+
+        if (face == BC_FACE_NEG_X || face == BC_FACE_POS_X) {
+            PetscCall(PicurvAssertRealNear(0.5, xi, 1.0e-10, "deterministic x-face placement should sit halfway into boundary-adjacent cell"));
+        } else if (face == BC_FACE_NEG_Y || face == BC_FACE_POS_Y) {
+            PetscCall(PicurvAssertRealNear(0.5, eta, 1.0e-10, "deterministic y-face placement should sit halfway into boundary-adjacent cell"));
+        } else {
+            PetscCall(PicurvAssertRealNear(0.5, zta, 1.0e-10, "deterministic z-face placement should sit halfway into boundary-adjacent cell"));
+        }
+    }
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+static PetscErrorCode TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscRandom rand_i = NULL, rand_j = NULL, rand_k = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 8, 8));
+
+    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &rand_i));
+    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &rand_j));
+    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &rand_k));
+    PetscCall(PetscRandomSetInterval(rand_i, 0.0, 1.0));
+    PetscCall(PetscRandomSetInterval(rand_j, 0.0, 1.0));
+    PetscCall(PetscRandomSetInterval(rand_k, 0.0, 1.0));
+    PetscCall(PetscRandomSetFromOptions(rand_i));
+    PetscCall(PetscRandomSetFromOptions(rand_j));
+    PetscCall(PetscRandomSetFromOptions(rand_k));
+
+    for (BCFace face = BC_FACE_NEG_X; face <= BC_FACE_POS_Z; ++face) {
+        PetscInt ci = -1, cj = -1, ck = -1;
+        PetscReal xi = -1.0, eta = -1.0, zta = -1.0;
+        const PetscReal boundary_eps = 5.0e-4;
+
+        user->identifiedInletBCFace = face;
+        PetscCall(GetRandomCellAndLogicalCoordsOnInletFace(
+            user, &user->info,
+            user->info.xs, user->info.ys, user->info.zs,
+            user->info.mx, user->info.my, user->info.mz,
+            &rand_i, &rand_j, &rand_k,
+            &ci, &cj, &ck,
+            &xi, &eta, &zta));
+
+        PetscCall(PicurvAssertBool((PetscBool)(ci >= user->info.xs && ci < user->info.xs + user->info.xm), "ci must map to owned node window"));
+        PetscCall(PicurvAssertBool((PetscBool)(cj >= user->info.ys && cj < user->info.ys + user->info.ym), "cj must map to owned node window"));
+        PetscCall(PicurvAssertBool((PetscBool)(ck >= user->info.zs && ck < user->info.zs + user->info.zm), "ck must map to owned node window"));
+        PetscCall(PicurvAssertBool((PetscBool)(xi >= 0.0 && xi <= 1.0), "xi should be in [0,1]"));
+        PetscCall(PicurvAssertBool((PetscBool)(eta >= 0.0 && eta <= 1.0), "eta should be in [0,1]"));
+        PetscCall(PicurvAssertBool((PetscBool)(zta >= 0.0 && zta <= 1.0), "zta should be in [0,1]"));
+
+        switch (face) {
+            case BC_FACE_NEG_X:
+                PetscCall(PicurvAssertBool((PetscBool)(xi <= boundary_eps), "NEG_X should pin xi near 0"));
+                break;
+            case BC_FACE_POS_X:
+                PetscCall(PicurvAssertBool((PetscBool)(xi >= 1.0 - boundary_eps), "POS_X should pin xi near 1"));
+                break;
+            case BC_FACE_NEG_Y:
+                PetscCall(PicurvAssertBool((PetscBool)(eta <= boundary_eps), "NEG_Y should pin eta near 0"));
+                break;
+            case BC_FACE_POS_Y:
+                PetscCall(PicurvAssertBool((PetscBool)(eta >= 1.0 - boundary_eps), "POS_Y should pin eta near 1"));
+                break;
+            case BC_FACE_NEG_Z:
+                PetscCall(PicurvAssertBool((PetscBool)(zta <= boundary_eps), "NEG_Z should pin zta near 0"));
+                break;
+            case BC_FACE_POS_Z:
+                PetscCall(PicurvAssertBool((PetscBool)(zta >= 1.0 - boundary_eps), "POS_Z should pin zta near 1"));
+                break;
+        }
+    }
+
+    PetscCall(PetscRandomDestroy(&rand_i));
+    PetscCall(PetscRandomDestroy(&rand_j));
+    PetscCall(PetscRandomDestroy(&rand_k));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 int main(int argc, char **argv)
 {
     PetscErrorCode ierr;
@@ -97,6 +256,10 @@ int main(int argc, char **argv)
         {"can-rank-service-face-matches-inlet-when-defined", TestCanRankServiceFaceMatchesInletWhenDefined},
         {"can-rank-service-inlet-face-requires-definition", TestCanRankServiceInletFaceRequiresDefinition},
         {"boundary-condition-factory-assignments", TestBoundaryConditionFactoryAssignments},
+        {"boundary-condition-factory-implemented-handler-matrix", TestBoundaryConditionFactoryImplementedHandlerMatrix},
+        {"boundary-condition-factory-rejects-unsupported-handler", TestBoundaryConditionFactoryRejectsUnsupportedHandler},
+        {"deterministic-face-grid-location-matrix", TestGetDeterministicFaceGridLocationFaceMatrix},
+        {"random-inlet-face-location-matrix", TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv boundary tests");
