@@ -9,7 +9,7 @@ This page documents how the PETSc-backed C testing layer is structured and how t
 Key directories:
 
 - `tests/c/`: C test sources and shared fixture helpers
-- `tests/smoke/`: executable smoke runner for help/init/dry-run/restart workflow checks
+- `tests/smoke/`: executable smoke runner for tiny end-to-end solve/post/restart/analytical workflows
 - `tests/fixtures/`: Python/control-plane YAML fixtures
 
 Current C files:
@@ -26,6 +26,7 @@ Current C files:
 - `test_metric.c`
 - `test_boundaries.c`
 - `test_poisson_rhs.c`
+- `test_runtime_kernels.c`
 
 @section targets_sec 2. Canonical Targets
 
@@ -42,6 +43,7 @@ Canonical user-facing targets:
 - `make unit-metric`
 - `make unit-boundaries`
 - `make unit-poisson-rhs`
+- `make unit-runtime`
 - `make smoke`
 - `make check`
 

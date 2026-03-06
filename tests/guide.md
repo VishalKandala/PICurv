@@ -15,7 +15,8 @@ PICurv now exposes a layered local testing model:
 - `make unit-metric`
 - `make unit-boundaries`
 - `make unit-poisson-rhs`
-- `make smoke`: executable help/init/dry-run/restart orchestration smoke checks
+- `make unit-runtime`
+- `make smoke`: executable end-to-end smoke checks (tiny solve/post + restart + analytical branches)
 - `make check`: full local validation sweep
 
 ## Layout
@@ -25,7 +26,7 @@ PICurv now exposes a layered local testing model:
 - `test_config_regressions.py`: ingress/schema drift guards
 - `test_repo_consistency.py`: example validation and repository-wide consistency checks
 - `tests/c/`: PETSc-backed C unit binaries used by `make doctor` and `make unit-*`
-- `tests/smoke/`: executable smoke runner for help/init/dry-run/restart workflow checks
+- `tests/smoke/`: executable smoke runner for tiny end-to-end solve/post/restart/analytical workflows
 - `fixtures/valid/`: canonical valid YAML input sets
 - `fixtures/invalid/`: intentionally broken YAML input sets
 
@@ -48,6 +49,7 @@ Subsystem-only C tests:
 ```bash
 make unit-io
 make unit-particles
+make unit-runtime
 ```
 
 Everything:
@@ -61,6 +63,7 @@ make check
 - The Python suite does not require PETSc.
 - `doctor`, `unit-*`, `unit`, `smoke`, and `check` assume a working PETSc/MPI toolchain.
 - Compatibility aliases such as `make install-check` and `make ctest-*` remain available, but the canonical user-facing names are `doctor` and `unit-*`.
+- `make check` is the gate command for pre-merge confidence; `make unit-<area>` commands are the development-loop commands for isolated subsystem work.
 
 ## Authoritative Docs
 

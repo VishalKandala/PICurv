@@ -344,6 +344,75 @@ def test_dry_run_json_output_schema():
     assert payload["stages"]["post-process"]["num_procs_effective"] == 1
 
 
+def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+
+    run_dir = tmp_path / "existing_run"
+    config_dir = run_dir / "config"
+    logs_dir = run_dir / "logs"
+    results_dir = run_dir / "results"
+    config_dir.mkdir(parents=True)
+    logs_dir.mkdir()
+    results_dir.mkdir()
+    (results_dir / "dummy.dat").write_text("0\n", encoding="utf-8")
+
+    shutil.copy2(valid / "case.yml", config_dir / "case.yml")
+    shutil.copy2(valid / "monitor.yml", config_dir / "monitor.yml")
+    (config_dir / "existing_run.control").write_text("# control placeholder\n", encoding="utf-8")
+
+    post_cfg = picurv.read_yaml_file(str(valid / "post.yml"))
+    post_cfg["source_data"] = None
+    post_cfg["io"]["output_directory"] = "viz/null_source_data"
+    post_path = tmp_path / "post_null_source_data.yml"
+    picurv.write_yaml_file(str(post_path), post_cfg)
+
+    calls = []
+
+    def fake_resolve_runtime_executable(name):
+        return f"/tmp/fake/{name}"
+
+    def fake_execute_command(command, run_dir_arg, log_filename, monitor_cfg=None):
+        calls.append(
+            {
+                "command": command,
+                "run_dir": run_dir_arg,
+                "log_filename": log_filename,
+            }
+        )
+
+    original_resolve = picurv.resolve_runtime_executable
+    original_execute = picurv.execute_command
+    picurv.resolve_runtime_executable = fake_resolve_runtime_executable
+    picurv.execute_command = fake_execute_command
+
+    try:
+        args = SimpleNamespace(
+            dry_run=False,
+            cluster=None,
+            scheduler=None,
+            num_procs=1,
+            solve=False,
+            post_process=True,
+            run_dir=str(run_dir),
+            post=str(post_path),
+            case=None,
+            solver=None,
+            monitor=None,
+            no_submit=False,
+        )
+        picurv.run_workflow(args)
+    finally:
+        picurv.resolve_runtime_executable = original_resolve
+        picurv.execute_command = original_execute
+
+    assert len(calls) == 1
+    assert calls[0]["command"][0].endswith("/postprocessor")
+    assert (config_dir / "post.run").is_file()
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["stages_completed_or_submitted"] == ["post-process"]
+
+
 def test_programmatic_grid_cell_counts_translate_to_node_counts(tmp_path):
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()

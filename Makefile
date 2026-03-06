@@ -150,6 +150,7 @@ UNIT_GRID_EXE     := $(TESTBINDIR)/unit_grid
 UNIT_METRIC_EXE   := $(TESTBINDIR)/unit_metric
 UNIT_BOUNDARIES_EXE := $(TESTBINDIR)/unit_boundaries
 UNIT_POISSON_RHS_EXE := $(TESTBINDIR)/unit_poisson_rhs
+UNIT_RUNTIME_EXE := $(TESTBINDIR)/unit_runtime
 TEST_CFLAGS_TO_USE := $(CFLAGS_TO_USE) -I$(TESTCDIR)
 TEST_SUPPORT_OBJ  := $(TESTOBJDIR)/test_support.o
 DOCTOR_OBJ        := $(TESTOBJDIR)/test_install_check.o
@@ -162,6 +163,7 @@ UNIT_GRID_OBJ     := $(TESTOBJDIR)/test_grid.o
 UNIT_METRIC_OBJ   := $(TESTOBJDIR)/test_metric.o
 UNIT_BOUNDARIES_OBJ := $(TESTOBJDIR)/test_boundaries.o
 UNIT_POISSON_RHS_OBJ := $(TESTOBJDIR)/test_poisson_rhs.o
+UNIT_RUNTIME_OBJ := $(TESTOBJDIR)/test_runtime_kernels.o
 TEST_COMMON_OBJS  := $(sort $(filter-out $(OBJDIR)/simulator.o $(OBJDIR)/postprocessor.o,$(SIMULATOR_OBJS) $(POSTPROCESSOR_OBJS)))
 
 # ==============================================================================
@@ -253,6 +255,10 @@ $(UNIT_POISSON_RHS_EXE): $(UNIT_POISSON_RHS_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMM
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_RUNTIME_EXE): $(UNIT_RUNTIME_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 ## @target dirs
 ## @brief (Internal) Ensures all necessary build directories exist.
 dirs: 
@@ -261,7 +267,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: run test test-python doctor doctor-runner install-check smoke unit unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs ctest ctest-geometry ctest-solver ctest-particles ctest-io ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs check build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: run test test-python doctor doctor-runner install-check smoke unit unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime ctest ctest-geometry ctest-solver ctest-particles ctest-io ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime check build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -345,9 +351,14 @@ unit-boundaries: $(UNIT_BOUNDARIES_EXE)
 unit-poisson-rhs: $(UNIT_POISSON_RHS_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
 
+## @target unit-runtime
+## @brief Runs focused runtime-kernel C unit tests.
+unit-runtime: $(UNIT_RUNTIME_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
-unit: unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs
+unit: unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime
 
 ## @target ctest
 ## @brief Compatibility alias for `unit`.
@@ -389,9 +400,13 @@ ctest-boundaries: unit-boundaries
 ## @brief Compatibility alias for `unit-poisson-rhs`.
 ctest-poisson-rhs: unit-poisson-rhs
 
+## @target ctest-runtime
+## @brief Compatibility alias for `unit-runtime`.
+ctest-runtime: unit-runtime
+
 ## @target smoke
-## @brief Runs lightweight executable-level simulator/postprocessor smoke checks.
-smoke: simulator postprocessor
+## @brief Runs executable-level end-to-end smoke checks (tiny solve/post/restart flows).
+smoke: simulator postprocessor conductor
 	@bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$(TEST_NPROCS)"
 
 ## @target check

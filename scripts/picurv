@@ -4080,7 +4080,7 @@ def run_workflow(args):
 
         strict_source_check = not (cluster_mode and args.solve)
         resolved_source_dir = resolve_post_source_directory(run_dir, monitor_cfg, post_cfg, strict=strict_source_check)
-        if 'source_data' not in post_cfg:
+        if not isinstance(post_cfg.get('source_data'), dict):
             post_cfg['source_data'] = {}
         post_cfg['source_data']['directory'] = resolved_source_dir
 
@@ -4297,7 +4297,7 @@ def sweep_workflow(args):
         control_file = generate_solver_control_file(run_dir, case_id, configs, cluster_tasks, monitor_files)
 
         source_dir = resolve_post_source_directory(run_dir, monitor_cfg, post_cfg, strict=False)
-        if 'source_data' not in post_cfg:
+        if not isinstance(post_cfg.get('source_data'), dict):
             post_cfg['source_data'] = {}
         post_cfg['source_data']['directory'] = source_dir
         output_prefix = post_cfg.get("io", {}).get("output_filename_prefix", "post")
