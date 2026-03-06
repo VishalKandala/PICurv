@@ -453,11 +453,7 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
     }
 
     // Set the result based on flags
-    if(isInside) {
-        *result = 0; // Inside the cell
-        LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is inside the cell.\n");
-    }
-    else if(isOnBoundary) {
+    if(isInside && isOnBoundary) {
       if(IntersectionCount == 1){ 
           *result = 1; // on face
           LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is on a face of the cell.\n");
@@ -470,6 +466,10 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
           *result = 3; // on corner
           LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is on a corner of the cell.\n");
       }
+    }
+    else if(isInside) {
+        *result = 0; // Inside the cell
+        LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is inside the cell.\n");
     }
     else {
         *result = -1; // Outside the cell
