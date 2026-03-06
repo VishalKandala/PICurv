@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This directory contains fully commented reference templates for:
+This directory contains fully commented reference templates for all major workflow roles:
 
 - `master_case.yml`
 - `master_solver.yml`
@@ -11,22 +11,31 @@ This directory contains fully commented reference templates for:
 - `master_cluster.yml`
 - `master_study.yml`
 
-These are reference contracts, not intended to be run directly.
+These files are intended to document contract breadth and option interactions. They are not meant to be executed directly as-is.
 
-## 2. Recommended Usage
+## 2. Recommended Usage Pattern
 
-1. Start with a runnable example:
+1. Initialize a runnable example:
    - `./bin/picurv init flat_channel --dest my_study`
-2. Modify study-local YAML files for your case.
+2. Keep edits in study-local YAML files.
 3. Use master templates to discover advanced options and copy validated snippets.
+4. Re-run `picurv validate` after each copied block.
 
-## 3. Best Practices
+## 3. How To Read A Master Template Efficiently
+
+- Read the role purpose first (`case`, `solver`, `monitor`, `post`, `cluster`, `study`).
+- Identify required fields and defaults.
+- Mark optional blocks relevant to your scenario (for example restart, sweep, or cluster paths).
+- Copy the smallest meaningful block and test before adding more options.
+
+## 4. Best Practices
 
 - Keep reusable solver/monitor/post profiles in `config/solvers`, `config/monitors`, and `config/postprocessors`.
-- Keep case-specific physics/geometries in study-local files.
-- Prefer structured schema keys over passthrough flags when both exist.
+- Keep geometry-specific and study-specific physics choices in case-local files.
+- Prefer explicit schema keys over passthrough flags when both exist.
+- Document non-default assumptions in the case directory for reproducibility.
 
-## 4. Contract and Mapping Docs
+## 5. Contract and Mapping Docs
 
 - User contract: https://vishalkandala.me/picurv-docs/14_Config_Contract.html
 - Developer ingestion map: https://vishalkandala.me/picurv-docs/15_Config_Ingestion_Map.html

@@ -1,22 +1,29 @@
 # Include Guide
 
-This directory contains public header files for PICurv solver and postprocessor modules.
-Headers in this folder define interfaces consumed by translation units in `src/`.
+This directory contains public header files for PICurv solver and postprocessor modules. Headers in this folder define cross-module interfaces and are the contract between translation units in `src/`.
+
+For maintainers, this directory is a stability boundary: changes here can impact many modules, tests, and documentation pages simultaneously.
 
 ## How To Read This Directory
 
-- `variables.h`: core shared types (`SimCtx`, `UserCtx`, enums, BC structs).
-- `setup.h`, `runloop.h`, `solvers.h`: top-level runtime orchestration interfaces.
-- `grid.h`, `Metric.h`, `Boundaries.h`, `poisson.h`, `rhs.h`: Eulerian solver subsystems.
-- `ParticleSwarm.h`, `ParticleMotion.h`, `interpolation.h`, `ParticlePhysics.h`: Lagrangian and coupling subsystems.
-- `postprocessor.h`, `postprocessing_kernels.h`, `particle_statistics.h`: postprocessing/statistics APIs.
+- `variables.h`: shared core types (`SimCtx`, `UserCtx`, enums, BC structs).
+- `setup.h`, `runloop.h`, `solvers.h`: top-level runtime orchestration APIs.
+- `grid.h`, `Metric.h`, `Boundaries.h`, `poisson.h`, `rhs.h`: Eulerian solver subsystem APIs.
+- `ParticleSwarm.h`, `ParticleMotion.h`, `interpolation.h`, `ParticlePhysics.h`: Lagrangian/coupling subsystem APIs.
+- `postprocessor.h`, `postprocessing_kernels.h`, `particle_statistics.h`: post/statistics interfaces.
 
 ## Maintenance Rules
 
-1. Keep function signatures in headers synchronized with definitions in `src/*.c`.
-2. Keep Doxygen `@param` names exact; mismatches produce warning noise.
-3. Put cross-module shared enums/structs in `variables.h` unless module-local.
-4. When adding a new public API, document call order assumptions and ownership semantics.
+1. Keep function signatures synchronized with definitions in `src/*.c`.
+2. Keep Doxygen `@param` names exact to avoid warning noise and stale docs.
+3. Place cross-module shared enums/structs in `variables.h` unless module-local.
+4. Document call-order assumptions and ownership semantics for every new public API.
+
+## API Change Guidance
+
+- Prefer additive changes over breaking signature rewrites when possible.
+- If a signature must change, update all call sites and related docs in one commit.
+- Include migration notes in changelog/docs when behavior changes are user-visible.
 
 ## Related Docs
 

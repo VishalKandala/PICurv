@@ -19,21 +19,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "InterpolateFieldFromCornerToCenter_Vector"
 /**
- * @brief Interpolates a vector field from corner nodes to cell centers, respecting application conventions.
- *
- * For each interior computational cell (k,j,i), this function calculates the cell-centered value
- * as the arithmetic average of the values at its 8 surrounding corner nodes.
- *
- * This function adheres to the convention that the valid computational domain for cell-centered
- * quantities excludes the first and last indices in each direction (e.g., cells at i=0 and i=IM).
- * The loop bounds are constructed to match this, making it a direct counterpart to
- * functions like ComputeCellCentersAndSpacing.
- *
- * @param[in]  field_arr      Input: Ghosted 3D array of corner-node data, accessed via GLOBAL indices.
- * @param[out] centfield_arr  Output: 3D array for interpolated cell-center values, accessed via GLOBAL indices.
- * @param[in]  user           User context containing DMDA information.
- *
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `InterpolateFieldFromCornerToCenter_Vector()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
     Cmpnts ***field_arr,     /* Input: Ghosted local array view from user->fda (global node indices) */
@@ -93,20 +80,8 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
 #undef __FUNCT__
 #define __FUNCT__ "InterpolateFieldFromCornerToCenter_Scalar"
 /**
- * @brief Interpolates a scalar field from corner nodes to cell centers, respecting application conventions.
- *
- * For each interior computational cell (k,j,i), this function calculates the cell-centered value
- * as the arithmetic average of the values at its 8 surrounding corner nodes.
- *
- * This function adheres to the convention that the valid computational domain for cell-centered
- * quantities excludes the first and last indices in each direction (e.g., cells at i=0 and i=IM).
- * The loop bounds are constructed to match this.
- *
- * @param[in]  field_arr      Input: Ghosted 3D array of corner-node data, accessed via GLOBAL indices.
- * @param[out] centfield_arr  Output: 3D array for interpolated cell-center values, accessed via GLOBAL indices.
- * @param[in]  user           User context containing DMDA information.
- *
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `InterpolateFieldFromCornerToCenter_Scalar()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
     PetscReal ***field_arr,     /* Input: Ghosted local array view from user->fda (global node indices) */
@@ -156,21 +131,8 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
 #undef __FUNCT__
 #define __FUNCT__ "TestCornerToCenterInterpolation"
 /**
- * @brief Tests the InterpolateFieldFromCornerToCenter function by reproducing the Cent vector.
- *
- * This function serves as a unit test. It performs the following steps:
- * 1. Takes the corner-centered nodal coordinates (from DMGetCoordinatesLocal) as input.
- * 2. Uses the `InterpolateFieldFromCornerToCenter` macro to interpolate these coordinates to
- *    the cell centers, storing the result in a new temporary vector.
- * 3. Compares this new vector with the `user->Cent` vector, which is assumed to have been
- *    computed by `ComputeCellCentersAndSpacing` and serves as the ground truth.
- * 4. A 2-norm of the difference is computed. If it is below a small tolerance, the test passes.
- *
- * @note This function should be called immediately after `ComputeCellCentersAndSpacing` has
- *       been successfully executed.
- *
- * @param user The UserCtx for a specific grid level.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `TestCornerToCenterInterpolation()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode TestCornerToCenterInterpolation(UserCtx *user)
 {
@@ -228,15 +190,8 @@ PetscErrorCode TestCornerToCenterInterpolation(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "InterpolateFieldFromCenterToCorner_Vector"
 /**
- * @brief Interpolates a vector field from cell centers to corner nodes.
- *
- *
- * @param[in]  centfield_arr  Input: 3D array (ghosted) of cell-centered data, accessed via GLOBAL indices.
- * @param[out] corner_arr     Output: 3D array where interpolated node values are stored,
- *                            also accessed via GLOBAL indices for the owned part.
- * @param[in]  user           User context containing DMDA information.
- *
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `InterpolateFieldFromCenterToCorner_Vector()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
     Cmpnts ***centfield_arr, /* Input: Ghosted local array from Vec (read) */
@@ -264,15 +219,6 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
     PetscInt IM = info.mx - 1; // Total nodes in i-direction
     PetscInt JM = info.my - 1; // Total nodes in j-direction
     PetscInt KM = info.mz - 1; // Total nodes in k-direction
-
-    // Ghosted array starting indices (from the same info struct)
-    PetscInt gxs = info.gxs;
-    PetscInt gys = info.gys;
-    PetscInt gzs = info.gzs;
-
-    PetscInt xs = info.xs;
-    PetscInt ys = info.ys;
-    PetscInt zs = info.zs;
 
     LOG_ALLOW_SYNC(GLOBAL,LOG_VERBOSE,
         "[Rank %d] Starting -- Node ownership k=%d..%d, j=%d..%d, i=%d..%d\n",
@@ -379,15 +325,8 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
 #undef __FUNCT__
 #define __FUNCT__ "InterpolateFieldFromCenterToCorner_Scalar"
 /**
- * @brief Interpolates a scalar field from cell centers to corner nodes.
- *
- *
- * @param[in]  centfield_arr  Input: 3D array (ghosted) of cell-centered data, accessed via GLOBAL indices.
- * @param[out] corner_arr     Output: 3D array where interpolated node values are stored,
- *                            also accessed via GLOBAL indices for the owned part.
- * @param[in]  user           User context containing DMDA information.
- *
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `InterpolateFieldFromCenterToCorner_Scalar()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
     PetscReal ***centfield_arr, /* Input: Ghosted local array from Vec (read) */
@@ -415,15 +354,6 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
     PetscInt IM = info.mx - 1; // Total nodes in i-direction
     PetscInt JM = info.my - 1; // Total nodes in j-direction
     PetscInt KM = info.mz - 1; // Total nodes in k-direction
-
-    // Ghosted array starting indices (from the same info struct)
-    PetscInt gxs = info.gxs;
-    PetscInt gys = info.gys;
-    PetscInt gzs = info.gzs;
-
-    PetscInt xs = info.xs;
-    PetscInt ys = info.ys;
-    PetscInt zs = info.zs;
 
     LOG_ALLOW_SYNC(GLOBAL,LOG_VERBOSE,
         "[Rank %d] Starting -- Node ownership k=%d..%d, j=%d..%d, i=%d..%d\n",
@@ -526,17 +456,8 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
 #undef __FUNCT
 #define __FUNCT "PiecWiseLinearInterpolation_Scalar"
 /**
- * @brief Retrieves the scalar value at the cell (iCell, jCell, kCell).
- *
- * This function does a simple piecewise (zeroth‐order) interpolation
- * by returning fieldScal[kCell][jCell][iCell], ignoring any fractional coordinates.
- *
- * @param[in]  fieldName  A string identifying the field (e.g. "temperature").
- * @param[in]  fieldScal  3D array of PetscReal (indexed as [k][j][i]).
- * @param[in]  iCell, jCell, kCell  Integral cell indices to sample.
- * @param[out] val        Pointer to a PetscReal that receives the sampled scalar.
- *
- * @return PetscErrorCode  0 on success
+ * @brief Internal helper implementation: `PieceWiseLinearInterpolation_Scalar()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PieceWiseLinearInterpolation_Scalar(
     const char   *fieldName,
@@ -560,20 +481,8 @@ PetscErrorCode PieceWiseLinearInterpolation_Scalar(
 #undef __FUNCT
 #define __FUNCT "PiecWiseLinearInterpolation_Vector"
 /**
- * @brief Retrieves the vector (Cmpnts) at the cell (iCell, jCell, kCell).
- *
- * This function simply sets:
- *   vec->x = fieldVec[kCell][jCell][iCell].x
- *   vec->y = fieldVec[kCell][jCell][iCell].y
- *   vec->z = fieldVec[kCell][jCell][iCell].z
- * effectively a nearest‐cell or piecewise approach.
- *
- * @param[in]  fieldName  String identifying the field (e.g. "velocity").
- * @param[in]  fieldVec   3D array of Cmpnts (indexed as [k][j][i]).
- * @param[in]  iCell, jCell, kCell  Integral cell indices to sample.
- * @param[out] vec        Pointer to a Cmpnts struct that receives the sampled vector.
- *
- * @return PetscErrorCode  0 on success
+ * @brief Internal helper implementation: `PieceWiseLinearInterpolation_Vector()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PieceWiseLinearInterpolation_Vector(
     const char   *fieldName,
@@ -601,19 +510,8 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
 #define __FUNCT "ComputeTrilinearWeights"
 
 /**
- * @brief Computes the trilinear interpolation weights from the interpolation coefficients.
- *
- * This function computes the weights for trilinear interpolation at the eight corners of a cell
- * using the interpolation coefficients provided along the x, y, and z directions.
- *
- * @param[in]  a1 Interpolation coefficient along the x-direction (normalized coordinate within the cell).
- * @param[in]  a2 Interpolation coefficient along the y-direction (normalized coordinate within the cell).
- * @param[in]  a3 Interpolation coefficient along the z-direction (normalized coordinate within the cell).
- * @param[out] w  Array of 8 weights, each corresponding to one corner of the cell.
- *
- * @note
- * - The coefficients `a1`, `a2`, and `a3` should be in the range [0, 1].
- * - The order of weights corresponds to the eight corners of a hexahedral cell.
+ * @brief Internal helper implementation: `ComputeTrilinearWeights()`.
+ * @details Local to this translation unit.
  */
 static inline void ComputeTrilinearWeights(PetscReal a1, PetscReal a2, PetscReal a3, PetscReal *w) {
     LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Computing weights for a1=%f, a2=%f, a3=%f.\n", a1, a2, a3);
@@ -646,17 +544,8 @@ static inline void ComputeTrilinearWeights(PetscReal a1, PetscReal a2, PetscReal
 #define __FUNCT "TrilinearInterpolation_Scalar"
 
 /**
- * @brief Computes the trilinear Interpolateted scalar at a given point.
- *
- * @param[in]  fieldName A string representing the name of the scalar field (e.g., "temperature").
- * @param[in]  fieldScal 3D array of the field from a DMDA (indexed as [k][j][i]),
- *                      each cell a PetscReal.
- * @param[in]  i, j, k   Integral cell indices (the "lower" corner in each dimension).
- * @param[in]  a1, a2, a3 Normalized coordinates within the cell ([0,1] range).
- * @param[out] val       Pointer to a PetscReal that will store the Interpolateted scalar.
- *
- * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
- * If a different scheme is desired, implement a new function with the same PetscInterface.
+ * @brief Internal helper implementation: `TrilinearInterpolation_Scalar()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode TrilinearInterpolation_Scalar(
     const char   *fieldName,
@@ -719,24 +608,8 @@ PetscErrorCode TrilinearInterpolation_Scalar(
 #undef __FUNCT
 #define __FUNCT "TrilinearInterpolation_Vector"
 /**
- * @brief Computes the trilinear Interpolateted vector (e.g., velocity) at a given point.
- *
- * @param[in]  fieldName  A string representing the name of the vector field (e.g., "velocity").
- * @param[in]  fieldVec   3D array of the field from a DMDA (indexed as [k][j][i]),
- *                        each cell of type Cmpnts.
- * @param[in]  i, j, k    Integral cell indices (the "lower" corner in each dimension).
- * @param[in]  a1, a2, a3 Normalized coordinates within the cell ([0,1] range).
- * @param[out] vec        Pointer to a Cmpnts struct that will store the Interpolateted vector (x, y, z).
- *
- * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
- * If a different scheme is desired, implement a new function with the same PetscInterface.
- */
-/**
- * @brief Computes the trilinear Interpolateted vector at a given point, with partial weighting if corners go out of range.
- *
- * If any of the 8 corners (i or i+1, j or j+1, k or k+1) is out of [0..mx), [0..my), [0..mz),
- * that corner is skipped and the corresponding weight is omitted. The total is normalized
- * by the sum of used weights, so we get a partial interpolation near boundaries.
+ * @brief Internal helper implementation: `TrilinearInterpolation_Vector()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode TrilinearInterpolation_Vector(
     const char   *fieldName,
@@ -829,32 +702,8 @@ PetscErrorCode TrilinearInterpolation_Vector(
 #undef __FUNCT
 #define __FUNCT "InterpolateEulerFieldToSwarmForParticle"
 /**
- * @brief Interpolates a single field (scalar or vector) for one particle, storing the result in a swarm array.
- *
- * This helper function is used inside a larger loop over local particles.
- *
- * @param[in]  fieldName   A string identifying the field (e.g. "velocity", "temperature", etc.).
- * @param[in]  fieldPtr    A Pointer to the local DMDA array for the field:
- *                         - (PetscReal ***) if scalar (blockSize = 1)
- *                         - (Cmpnts    ***) if vector (blockSize = 3)
- * @param[in]  particle    A Pointer to the Particle struct containing cell ID and weight information.
- * @param[out] swarmOut     A Pointer to the DMSwarm output array:
- *                            - (PetscReal*) if scalar dof=1
- *                            - (PetscReal*) if vector dof=3 (storing x,y,z in consecutive reals)
- *                            - or (Cmpnts*) if you store the result as a Cmpnts struct
- * @param[in]  p            The local particle index (used to compute the correct offset in swarmOut).
- * @param[in]  blockSize    The number of degrees of freedom (1 => scalar, 3 => vector).
- *
- * This routine demonstrates a switch between:
- *  - PiecewiseLinearInterpolation (zeroth order / nearest cell)
- *  - TrilinearInterpolation (8-corner weighted).
- *
- * By default, PiecewiseLinearInterpolation is active, while the TrilinearInterpolation calls are commented out.
- * To switch to trilinear, simply comment/uncomment appropriately.
- *
- * Logging calls are provided (LOG_ALLOW) that you can adapt to your existing logging system.
- *
- * @return PetscErrorCode 0 on success, non-zero on error.
+ * @brief Internal helper implementation: `InterpolateEulerFieldToSwarmForParticle()`.
+ * @details Local to this translation unit.
  */
 static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
     const char  *fieldName,
@@ -965,34 +814,8 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
 #define __FUNCT__ "InterpolateEulerFieldToSwarm"
 
 /**
- * @brief Interpolates a cell-centered field (scalar or vector) onto DMSwarm particles,
- *        using a robust, PETSc-idiomatic two-stage process.
- *
- * This function first converts the cell-centered input data to corner-node data,
- * storing this intermediate result in a PETSc Vec to correctly handle the communication
- * of ghost-point information across parallel ranks. It then performs a final trilinear
- * interpolation from the ghosted corner data to each particle's location.
- *
- * Workflow:
- *   1.  Create temporary PETSc Vecs (`cornerGlobal`, `cornerLocal`) to manage the
- *       intermediate corner-node data, using the existing nodal DMDA (`user->fda`).
- *   2.  Call a dispatch macro that uses the runtime block size (`bs`) to select the
- *       correct underlying center-to-corner function, writing results into `cornerGlobal`.
- *   3.  Perform a ghost-point exchange (`DMGlobalToLocal`) to transfer the boundary
- *       data from `cornerGlobal` into the ghost regions of `cornerLocal`.
- *   4.  Loop over all local particles. For each particle:
- *       a. Convert its global cell index to a local index relative to the ghosted array.
- *       b. Check if the particle's interpolation stencil is fully contained within
- *          the owned+ghost region. If not, log a warning and set the result to zero.
- *       c. Perform the final trilinear interpolation using the ghosted `cornerLocal` data.
- *   5.  Restore all PETSc objects to prevent memory leaks.
- *
- * @param[in]  user                     User context with DMDA, DMSwarm, etc.
- * @param[in]  fieldlocal_cellCentered  Vec (from fda) with cell-centered data (e.g., Ucat).
- * @param[in]  fieldName                Human-readable field name for logging (e.g., "Ucat").
- * @param[in]  swarmOutFieldName        Name of the DMSwarm field where interpolation results go.
- *
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `InterpolateEulerFieldToSwarm()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InterpolateEulerFieldToSwarm(
     UserCtx    *user,
@@ -1299,24 +1122,9 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
 
 #undef __FUNCT__
 #define __FUNCT__ "InterpolateAllFieldsToSwarm"
- /**
- * @brief Interpolates all relevant fields from the DMDA to the DMSwarm.
- *
- * Currently, it Interpolatetes:
- *   - user->Ucat (vector field) into the DMSwarm field "swarmVelocity".
- *
- * To add more fields, duplicate the call to InterpolateOneFieldOverSwarm and provide:
- *   - The global Vec for that field (e.g. user->Tcat for temperature),
- *   - A human-readable field name (for logging),
- *   - A DMSwarm output field name (e.g. "swarmTemperature").
- *
- * @param[in,out] user Pointer to a UserCtx containing:
- *                     - user->da (DM for the grid),
- *                     - user->swarm (DMSwarm for particles),.
- *                     - user->Ucat (Vec for the vector field),
- *                     - possibly more fields like user->Tcat, user->Pcat, etc.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+/**
+ * @brief Internal helper implementation: `InterpolateAllFieldsToSwarm()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
 {
@@ -1406,23 +1214,7 @@ PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
 
 #undef __FUNCT__
 #define __FUNCT__ "GetScatterTargetInfo"
-/**
- * @brief Determines the target Eulerian DM and expected DOF for scattering a given particle field.
- *
- * Based on hardcoded rules mapping particle field names ("P", "Nvert", "Ucat", "Ucont")
- * to user context DMs (`user->da` or `user->fda`). This function encapsulates the
- * policy of where different fields should be scattered. Modify this function to
- * add rules for custom fields.
- *
- * @param[in] user             Pointer to the UserCtx containing required DMs (`da`, `fda`).
- * @param[in] particleFieldName Name of the particle field.
- * @param[out] targetDM        Pointer to store the determined target DM (`user->da` or `user->fda`).
- * @param[out] expected_dof    Pointer to store the expected DOF (1 or 3) for this field.
- *
- * @return PetscErrorCode Returns 0 on success. Error codes:
- *         - `PETSC_ERR_ARG_NULL` if required inputs are NULL.
- *         - `PETSC_ERR_ARG_WRONG` if `particleFieldName` is not recognized.
- */
+/* Implementation for GetScatterTargetInfo declared in include/interpolation.h. */
 PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName,
                                     DM *targetDM, PetscInt *expected_dof)
 {
@@ -1463,7 +1255,7 @@ PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName
         // Format the error message manually
         PetscSNPrintf(msg, sizeof(msg), "Field name '%s' is not recognized for automatic DM selection.", particleFieldName);
         // Use SETERRQ with the formatted message and appropriate error code
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); // Use WRONG argument error code
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg); // Use WRONG argument error code
     }
 
     PROFILE_FUNCTION_END;
@@ -1474,12 +1266,8 @@ PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName
 #undef __FUNCT__
 #define __FUNCT__ "GetPersistentLocalVector"
 /**
- * @brief Retrieves the persistent local vector (e.g., lPsi, lUcat) for a given field name.
- * 
- * @param user          User context containing the persistent vectors.
- * @param fieldName     Name of the field ("Psi", "Ucat", etc.).
- * @param localVec      Output pointer to the vector.
- * @return PetscErrorCode 
+ * @brief Internal helper implementation: `GetPersistentLocalVector()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode GetPersistentLocalVector(UserCtx *user, const char *fieldName, Vec *localVec)
 {
@@ -1507,7 +1295,7 @@ PetscErrorCode GetPersistentLocalVector(UserCtx *user, const char *fieldName, Ve
     else {
         char msg[ERROR_MSG_BUFFER_SIZE];
         PetscSNPrintf(msg, sizeof(msg), "Field '%s' does not have a mapped persistent local vector.", fieldName);
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg);
     }
 
     PetscFunctionReturn(0);
@@ -1515,25 +1303,10 @@ PetscErrorCode GetPersistentLocalVector(UserCtx *user, const char *fieldName, Ve
 
 #undef __FUNCT__
 #define __FUNCT__ "AccumulateParticleField"
-/**
- * @brief Accumulates particle field values into a ghosted Local Vector.
- *
- * This function iterates over local particles and sums their specified field property
- * into the provided grid vector. It supports both scalar (DOF=1) and vector (DOF=3) fields.
- *
- * **CRITICAL USAGE NOTES:**
- * 1. `localAccumulatorVec` MUST be a Local Vector (obtained via DMGetLocalVector or DMCreateLocalVector).
- *    It must have memory allocated for ghost slots. Passing a Global Vector will trigger an error.
- * 2. The vector is NOT zeroed internally. The caller must zero it if fresh accumulation is desired.
- * 3. This function performs pure accumulation. It does NOT communicate ghost values to owners.
- *    The caller is responsible for calling DMLocalToGlobalBegin/End afterwards.
- *
- * @param[in] swarm               The DMSwarm object containing the particles.
- * @param[in] particleFieldName   The name of the particle field to accumulate (e.g., "Psi", "Ucat").
- * @param[in] gridSumDM           The DMDA defining the grid topology.
- * @param[in,out] localAccumulatorVec The ghosted local vector to accumulate into.
- *
- * @return PetscErrorCode 0 on success.
+/*
+ * Internal implementation detail for public API `AccumulateParticleField`.
+ * Documentation is maintained in include/interpolation.h to keep a single source
+ * of truth for Doxygen output.
  */
 PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
                                        DM gridSumDM, Vec localAccumulatorVec)
@@ -1578,7 +1351,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
                 "Vector dimension mismatch! Expected Ghosted Local Vector size %d (gxm*gym*gzm*dof), got %d. "
                 "Did you pass a Global Vector instead of a Local Vector?", 
                 expectedLocalSize, vecSize);
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg);
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg);
         }
     }
 
@@ -1596,7 +1369,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
         ierr = DMDAVecGetArrayDOF(gridSumDM, localAccumulatorVec, &arr_3d); CHKERRQ(ierr);
     } else {
          PetscSNPrintf(msg, sizeof(msg), "Unsupported DOF=%d. AccumulateParticleField supports DOF 1 or 3.", dof);
-         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP, msg);
+         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP, "%s", msg);
     }
 
     // --- 5. Accumulate Loop ---
@@ -1645,153 +1418,10 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     PetscFunctionReturn(0);
 }
 
-//#undef __FUNCT__
-//#define __FUNCT__ "AccumulateParticleField"
-
-/**
- * @brief Accumulates a particle field (scalar or vector) into a target grid sum vector.
- *
- * This function iterates through local particles, identifies their cell using the
- * `"DMSwarm_CellID"` field, and adds the particle's field value (`particleFieldName`)
- * to the corresponding cell location in the `gridSumVec`. It handles both scalar
- * (DOF=1) and vector (DOF=3) fields automatically based on the DOF of `gridSumDM`.
- *
- * IMPORTANT: The caller must ensure `gridSumVec` is zeroed before calling this
- * function if a fresh sum calculation is desired.
- *
- * @param[in] swarm           The DMSwarm containing particles.
- * @param[in] particleFieldName Name of the field on the particles (must match DOF of `gridSumDM`).
- * @param[in] gridSumDM       The DMDA associated with `gridSumVec`. Its DOF determines
- *                            how many components are accumulated.
- * @param[in,out] gridSumVec  The Vec (associated with `gridSumDM`) to accumulate sums into.
- *
- * @return PetscErrorCode 0 on success. Errors if fields don't exist, DMs are incompatible,
- *         or memory access fails.
- */
-/*
- PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
-                                       DM gridSumDM, Vec gridSumVec)
-{
-    PetscErrorCode    ierr;
-    PetscInt          dof;                   // DOF determined from gridSumDM
-    PetscInt          nlocal, p;             // Local particle count and loop index
-    const PetscReal   *particle_arr = NULL;  // Pointer to particle field data array (assuming Real)
-    const PetscInt  *cell_id_arr = NULL;   // Pointer to particle cell ID array ("DMSwarm_CellID", Int)
-    //PetscScalar       *sum_arr_ptr = NULL;   // Pointer to grid sum vector data array (Scalar)
-    PetscScalar       ***arr_1d = NULL;   // Pointer to grid sum vector data array (for DOF=1)
-    PetscScalar       ****arr_3d = NULL;  // Pointer to grid sum vector data array (for DOF=3)
-    PetscInt          gxs, gys, gzs;         // Start indices of local ghosted patch (often 0)
-    PetscInt          gxm, gym, gzm;         // Dimensions of local ghosted patch (including ghosts)
-    PetscMPIInt       rank;                  // MPI rank for logging
-    char              msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
-
-    PetscFunctionBeginUser;
-
-    PROFILE_FUNCTION_BEGIN;
-
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-
-    // --- Get DOF from the target grid DM ---
-    ierr = DMDAGetInfo(gridSumDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
-    // Validate that the DOF is supported (currently 1 or 3)
-    if (dof != 1 && dof != 3) {
-        PetscSNPrintf(msg, sizeof(msg), "gridSumDM DOF must be 1 or 3, got %d.", dof);
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg);
-    }
-
-    // --- Get Particle Data Arrays ---
-    // DMSwarmGetField will return an error if the field doesn't exist, caught by CHKERRQ.
-    ierr = DMSwarmGetField(swarm, particleFieldName, NULL, NULL, (void **)&particle_arr); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_id_arr); CHKERRQ(ierr);
-
-    // Get number of local particles *after* successfully getting field pointers
-    ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
-
-    // --- Get Grid Sum Vector Array & Dimensions ---
-    if(dof == 1){
-        ierr = DMDAVecGetArray(gridSumVec, &sum_arr_ptr); CHKERRQ(ierr);    
-    }
-    
-    // Get dimensions needed for calculating flat index within the local ghosted array
-    ierr = DMDAGetGhostCorners(gridSumDM, &gxs, &gys, &gzs, &gxm, &gym, &gzm); CHKERRQ(ierr);
-
-    // --- Accumulate Locally ---
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "(Rank %d): Accumulating '%s' (DOF=%d) from %d particles using CellID field 'DMSwarm_CellID'.\n", rank, particleFieldName, dof, nlocal);
-    // Loop over all particles owned by this process
-    for (p = 0; p < nlocal; ++p) {
-        // Extract local cell indices (relative to start of ghosted patch, [0..gxm-1], etc.)
-        // Assumes DMSwarm_CellID stores (i, j, k) contiguously for each particle.
-        PetscInt pidx_geom = cell_id_arr[p * 3 + 0]; // Local i-index
-        PetscInt pidy_geom = cell_id_arr[p * 3 + 1]; // Local j-index
-        PetscInt pidz_geom = cell_id_arr[p * 3 + 2]; // Local k-index
-
-        // Apply the index shift to convert from geometric to cell-centered field indexing
-        PetscInt pidx_field = pidx_geom + 1;
-        PetscInt pidy_field = pidy_geom + 1;
-        PetscInt pidz_field = pidz_geom + 1; 
-
-        // Bounds Check: Ensure the particle's cell index is within the valid local ghosted region
-        if (pidx_field >= 0 && pidx_field < gxm && pidy_field >= 0 && pidy_field < gym && pidz_field >= 0 && pidz_field < gzm)
-        {
-             // Calculate the flat 1D index for this cell within the linear ghosted array
-             // Uses PETSc's standard C-style row-major ordering (k-slowest, j-middle, i-fastest)
-             // Corrected: k (slowest), j, i (fastest)
-              PetscInt cell_flat_idx = (pidz_field * gym + pidy_field) * gxm + pidx_field;
-
-             // Calculate the base index for this particle's data in particle_arr
-             PetscInt particle_base_idx = p * dof;
-             // Calculate the base index for this cell's data in sum_arr_ptr
-             PetscInt grid_base_idx = cell_flat_idx * dof;
-
-             // Add particle components to the grid sum vector components
-             for (PetscInt c = 0; c < dof; ++c) {
-                 sum_arr_ptr[grid_base_idx + c] += particle_arr[particle_base_idx + c];
-             }
-        } else {
-             // Log a warning if a particle's CellID is outside the expected local region.
-             // This might indicate particles needing migration or boundary issues.
-             LOG_ALLOW(LOCAL, LOG_WARNING, "(Rank %d): Particle %d (field '%s') has out-of-bounds CellID (%d, %d, %d). Ghosted dims: %dx%dx%d. Skipping.\n",
-                      rank, p, particleFieldName, pidx_field, pidy_field, pidz_field, gxm, gym, gzm);
-        }
-    } // End of particle loop
-
-    // --- Restore Access to Arrays ---
-    ierr = VecRestoreArray(gridSumVec, &sum_arr_ptr); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, particleFieldName, NULL, NULL, (void **)&particle_arr); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_id_arr); CHKERRQ(ierr);
-
-    // --- Assemble Global Sum Vector ---
-    // Crucial for parallel execution: sums contributions for cells shared across process boundaries.
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Assembling global sum vector for '%s'.\n", particleFieldName);
-    ierr = VecAssemblyBegin(gridSumVec); CHKERRQ(ierr);
-    ierr = VecAssemblyEnd(gridSumVec); CHKERRQ(ierr);
-
-    PROFILE_FUNCTION_END;
-
-    PetscFunctionReturn(0);
-}
-*/
-
 #undef __FUNCT__
 #define __FUNCT__ "NormalizeGridVectorByCount"
 
-/**
- * @brief Normalizes a grid vector of sums by a grid vector of counts to produce an average.
- *
- * Calculates `avgVec[i] = sumVec[i] / countVec[i]` for each component of each
- * cell owned by the current process, provided `countVec[i] > 0`. Otherwise, sets `avgVec[i] = 0`.
- * Handles both scalar (DOF=1) and vector (DOF=3) data fields based on the DOF of `dataDM`.
- * Uses DMDA multi-dimensional array accessors (`DMDAVecGetArray...`) for safe and convenient indexing.
- *
- * @param[in] countDM    The DMDA associated with `countVec` (must have DOF=1).
- * @param[in] countVec   The Vec containing particle counts per cell (read-only).
- * @param[in] dataDM     The DMDA associated with `sumVec` and `avgVec` (must have DOF=1 or DOF=3).
- * @param[in] sumVec     The Vec containing the accumulated sums per cell (read-only).
- * @param[in,out] avgVec The Vec where the calculated averages will be stored (overwritten). Must be
- *                       associated with `dataDM`.
- *
- * @return PetscErrorCode 0 on success. Errors on incompatible DMs or memory access failure.
- */
+/* Implementation for NormalizeGridVectorByCount declared in include/interpolation.h. */
 PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
                                           DM dataDM, Vec sumVec, Vec avgVec)
 {
@@ -1818,8 +1448,8 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
     // --- Validation ---
     ierr = DMDAGetInfo(countDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &count_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
     ierr = DMDAGetInfo(dataDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &data_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
-    if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %d.", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
-    if (data_dof != 1 && data_dof != 3) { PetscSNPrintf(msg, sizeof(msg), "dataDM DOF must be 1 or 3, got %d.", data_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, msg); }
+    if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %d.", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg); }
+    if (data_dof != 1 && data_dof != 3) { PetscSNPrintf(msg, sizeof(msg), "dataDM DOF must be 1 or 3, got %d.", data_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg); }
 
     // --- Get Array Access using appropriate DMDA accessors ---
     ierr = DMDAVecGetArrayRead(countDM, countVec, &count_arr_3d); CHKERRQ(ierr);
@@ -1905,21 +1535,8 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
 #undef __FUNCT__
 #define __FUNCT__   "ScatterParticleFieldToEulerField_Internal"
 /**
- * @brief Internal helper function to orchestrate the scatter operation (accumulate + normalize).
- * @ingroup scatter_module_internal
- *
- * Manages the temporary sum vector and calls the accumulation and normalization
- * functions. Assumes caller determined target DM and DOF. Checks for particle field existence.
- * NOTE: If DMSwarmGetField fails, the subsequent SETERRQ will overwrite the original error.
- *
- * @param[in] user                 Pointer to UserCtx containing swarm, ParticleCount, da.
- * @param[in] particleFieldName    Name of the field in the DMSwarm.
- * @param[in] targetDM             The DMDA where the final average and intermediate sum reside.
- * @param[in] expected_dof         The expected DOF (1 or 3) for the targetDM and field.
- * @param[in,out] eulerFieldAverageVec The pre-created Vec associated with targetDM to store the result.
- *
- * @return PetscErrorCode 0 on success. Errors if particle field doesn't exist or
- *         underlying helpers fail.
+ * @brief Internal helper implementation: `ScatterParticleFieldToEulerField_Internal()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
                                                          const char *particleFieldName,
@@ -1928,6 +1545,7 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
                                                          Vec eulerFieldAverageVec)
 {
     PetscErrorCode ierr;
+    PetscInt       target_dof = 0;
     Vec            globalsumVec = NULL;
     Vec            localsumVec = NULL;
     char           msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
@@ -1938,6 +1556,14 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
 
     if (!user || !user->swarm || !user->ParticleCount || !particleFieldName || !targetDM || !eulerFieldAverageVec)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "NULL input provided to ScatterParticleFieldToEulerField_Internal.");
+
+    ierr = DMDAGetInfo(targetDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &target_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+    if (target_dof != expected_dof) {
+        PetscSNPrintf(msg, sizeof(msg),
+                      "Field '%s' expects DOF %d but targetDM reports DOF %d.",
+                      particleFieldName, expected_dof, target_dof);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "%s", msg);
+    }
     
     // --- Check if Particle Field Exists ---
     // Attempt a GetField call; if it fails, the field doesn't exist.
@@ -1997,28 +1623,7 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
 #undef __FUNCT__
 #define __FUNCT__ "ScatterParticleFieldToEulerField"
 
-/**
- * @brief Scatters a particle field (scalar or vector) to the corresponding Eulerian field average.
- * @ingroup scatter_module
- *
- * This is the primary user-facing function for scattering a single field.
- * It determines the target Eulerian DM (`user->da` or `user->fda`) based on the
- * `particleFieldName`, validates that the provided `eulerFieldAverageVec` is compatible
- * with that target DM, and then orchestrates the scatter operation by calling
- * an internal helper function. The final averaged result is stored IN-PLACE in
- * the `eulerFieldAverageVec`.
- *
- * @param[in] user                 Pointer to UserCtx containing `da`, `fda`, `swarm`, `ParticleCount`.
- * @param[in] particleFieldName    Name of the field in the DMSwarm (e.g., "Psi", "Ucat").
- * @param[in,out] eulerFieldAverageVec Pre-created Vec associated with the correct target DM
- *                                 (implicitly `da` or `fda`). Result stored here.
- *                                 This vector should be zeroed by the caller if desired
- *                                 before this function (e.g., using `VecSet`). The wrapper
- *                                 `ScatterAllParticleFieldsToEulerFields` handles this zeroing.
- *
- * @return PetscErrorCode 0 on success. Errors on NULL input, unrecognized field name,
- *         incompatible target vector, or if the particle field doesn't exist.
- */
+/* Implementation for ScatterParticleFieldToEulerField declared in include/interpolation.h. */
 PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
                                                 const char *particleFieldName,
                                                 Vec eulerFieldAverageVec)
@@ -2050,7 +1655,7 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     ierr = VecGetDM(eulerFieldAverageVec, &vec_dm); CHKERRQ(ierr);
     if (!vec_dm) {
          PetscSNPrintf(msg, sizeof(msg), "Provided eulerFieldAverageVec for field '%s' does not have an associated DM.", particleFieldName);
-         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, msg);
+         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "%s", msg);
     }
     // Get the block size (DOF) of the provided vector
     ierr = VecGetBlockSize(eulerFieldAverageVec, &vec_dof); CHKERRQ(ierr);
@@ -2061,12 +1666,12 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
         PetscObjectGetName((PetscObject)targetDM, &target_dm_name);
         PetscObjectGetName((PetscObject)vec_dm, &vec_dm_name);
         PetscSNPrintf(msg, sizeof(msg), "Provided eulerFieldAverageVec associated with DM '%s', but field '%s' requires scatter to DM '%s'.", vec_dm_name, particleFieldName, target_dm_name);
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, msg);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "%s", msg);
     }
     // Compare the vector's DOF with the one expected for the field name
     if (vec_dof != expected_dof) {
          PetscSNPrintf(msg, sizeof(msg), "Field '%s' requires DOF %d, but provided eulerFieldAverageVec has DOF %d.", particleFieldName, expected_dof, vec_dof);
-         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, msg);
+         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "%s", msg);
     }
 
     // --- Perform Scatter using Internal Helper ---
@@ -2088,26 +1693,7 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
 
 #undef __FUNCT__
 #define __FUNCT__ "ScatterAllParticleFieldsToEulerFields"
-/**
- * @brief Scatters a predefined set of particle fields to their corresponding Eulerian fields.
- * @ingroup scatter_module
- *
- * This convenience function calls the unified `ScatterParticleFieldToEulerField`
- * for a standard set of fields (currently just "Psi", others commented out). It assumes
- * the target Eulerian Vec objects (e.g., `user->Psi`, `user->Ucat`) exist in the
- * UserCtx structure and are correctly associated with their respective DMs (`user->da`
- * or `user->fda`).
- *
- * **IMPORTANT:** It zeros the target Vecs before scattering. Ensure `user->ParticleCount`
- * has been computed accurately *before* calling this function, reflecting the current
- * particle distribution.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing all required DMs,
- *                     Vecs (`ParticleCount`, target Eulerian fields like `P`, `Ucat`), and `swarm`.
- *
- * @return PetscErrorCode 0 on success. Errors if prerequisites (like ParticleCount)
- *         are missing or if underlying scatter calls fail (e.g., particle field missing).
- */
+/* Implementation for ScatterAllParticleFieldsToEulerFields declared in include/interpolation.h. */
 PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
 {
     PetscErrorCode ierr;
@@ -2209,21 +1795,8 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
 #define __FUNCT__ "InterpolateCornerToFaceCenter_Scalar"
 
 /**
- * @brief Interpolates a scalar field from corner nodes to all face centers.
- *
- * This routine computes the average of the four corner-node values
- * defining each face of a hexahedral cell:
- *   - X-faces (perpendicular to X): face between (i-1,i) in X-dir
- *   - Y-faces (perpendicular to Y): face between (j-1,j) in Y-dir
- *   - Z-faces (perpendicular to Z): face between (k-1,k) in Z-dir
- *
- * @param[in]  corner_arr  Ghosted node-centered array (global indexing) from user->fda.
- * @param[out] faceX_arr   Local array for X-faces sized [zm][ym][xm+1].
- * @param[out] faceY_arr   Local array for Y-faces sized [zm][ym+1][xm].
- * @param[out] faceZ_arr   Local array for Z-faces sized [zm+1][ym][xm].
- * @param[in]  user        User context containing DMDA 'fda' and GetOwnedCellRange.
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `InterpolateCornerToFaceCenter_Scalar()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InterpolateCornerToFaceCenter_Scalar(
     PetscReal ***corner_arr,
@@ -2312,18 +1885,8 @@ PetscErrorCode InterpolateCornerToFaceCenter_Scalar(
 #define __FUNCT__ "InterpolateCornerToFaceCenter_Vector"
 
 /**
- * @brief Interpolates a vector field from corner nodes to all face centers.
- *
- * Identical to the scalar version, except it averages each component of the
- * Cmpnts struct at the four corner-nodes per face.
- *
- * @param[in]  corner_arr  Ghosted 3-component array (global node indices).
- * @param[out] faceX_arr   Local array of Cmpnts for X-faces sized [zm][ym][xm+1].
- * @param[out] faceY_arr   Local array of Cmpnts for Y-faces sized [zm][ym+1][xm].
- * @param[out] faceZ_arr   Local array of Cmpnts for Z-faces sized [zm+1][ym][xm].
- * @param[in]  user        User context containing DMDA 'fda'.
- *
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `InterpolateCornerToFaceCenter_Vector()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InterpolateCornerToFaceCenter_Vector(
     Cmpnts ***corner_arr,

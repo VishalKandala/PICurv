@@ -154,7 +154,11 @@ UNIT_GEOMETRY_EXE := $(TESTBINDIR)/unit_geometry
 UNIT_SOLVER_EXE   := $(TESTBINDIR)/unit_solver
 UNIT_PARTICLES_EXE := $(TESTBINDIR)/unit_particles
 UNIT_IO_EXE       := $(TESTBINDIR)/unit_io
+UNIT_LOGGING_EXE  := $(TESTBINDIR)/unit_logging
 UNIT_POST_EXE     := $(TESTBINDIR)/unit_post
+UNIT_POST_VTK_EXE := $(TESTBINDIR)/unit_post_vtk
+UNIT_POSTPROCESSOR_EXE := $(TESTBINDIR)/unit_postprocessor
+UNIT_POST_STATISTICS_EXE := $(TESTBINDIR)/unit_post_statistics
 UNIT_GRID_EXE     := $(TESTBINDIR)/unit_grid
 UNIT_METRIC_EXE   := $(TESTBINDIR)/unit_metric
 UNIT_BOUNDARIES_EXE := $(TESTBINDIR)/unit_boundaries
@@ -168,7 +172,12 @@ UNIT_GEOMETRY_OBJ := $(TESTOBJDIR)/test_geometry.o
 UNIT_SOLVER_OBJ   := $(TESTOBJDIR)/test_solver_kernels.o
 UNIT_PARTICLES_OBJ := $(TESTOBJDIR)/test_particle_kernels.o
 UNIT_IO_OBJ       := $(TESTOBJDIR)/test_io.o
+UNIT_LOGGING_OBJ  := $(TESTOBJDIR)/test_logging.o
 UNIT_POST_OBJ     := $(TESTOBJDIR)/test_postprocessing.o
+UNIT_POST_VTK_OBJ := $(TESTOBJDIR)/test_vtk_io.o
+UNIT_POSTPROCESSOR_OBJ := $(TESTOBJDIR)/test_postprocessor.o
+UNIT_POST_STATISTICS_OBJ := $(TESTOBJDIR)/test_statistics.o
+TEST_POSTPROCESSOR_IMPL_OBJ := $(TESTOBJDIR)/postprocessor_no_main.o
 UNIT_GRID_OBJ     := $(TESTOBJDIR)/test_grid.o
 UNIT_METRIC_OBJ   := $(TESTOBJDIR)/test_metric.o
 UNIT_BOUNDARIES_OBJ := $(TESTOBJDIR)/test_boundaries.o
@@ -226,6 +235,11 @@ $(TESTOBJDIR)/%.o: $(TESTCDIR)/%.c | dirs
 	@echo "--- Compiling Test: $< ---"
 	$(CC_TO_USE) $(TEST_CFLAGS_TO_USE) -c $< -o $@
 
+# Test-only object build for postprocessor orchestration APIs without the executable main().
+$(TEST_POSTPROCESSOR_IMPL_OBJ): $(SRCDIR)/postprocessor.c | dirs
+	@echo "--- Compiling Test Support Source: $< (no main) ---"
+	$(CC_TO_USE) $(TEST_CFLAGS_TO_USE) -DPICURV_POSTPROCESSOR_NO_MAIN -c $< -o $@
+
 $(DOCTOR_EXE): $(DOCTOR_OBJ) $(TEST_SUPPORT_OBJ) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
@@ -246,7 +260,23 @@ $(UNIT_IO_EXE): $(UNIT_IO_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_LOGGING_EXE): $(UNIT_LOGGING_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 $(UNIT_POST_EXE): $(UNIT_POST_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
+$(UNIT_POST_VTK_EXE): $(UNIT_POST_VTK_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
+$(UNIT_POSTPROCESSOR_EXE): $(UNIT_POSTPROCESSOR_OBJ) $(TEST_POSTPROCESSOR_IMPL_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
+$(UNIT_POST_STATISTICS_EXE): $(UNIT_POST_STATISTICS_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
@@ -282,7 +312,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix unit unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi ctest ctest-geometry ctest-solver ctest-particles ctest-io ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix unit unit-geometry unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi ctest ctest-geometry ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -357,10 +387,18 @@ unit-particles: $(UNIT_PARTICLES_EXE)
 unit-io: $(UNIT_IO_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
 
-## @target unit-post
-## @brief Runs the post-processing/statistics C unit tests.
-unit-post: $(UNIT_POST_EXE)
+## @target unit-logging
+## @brief Runs the logging infrastructure C unit tests.
+unit-logging: $(UNIT_LOGGING_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
+## @target unit-post
+## @brief Runs post-processing kernels, VTK I/O, postprocessor orchestration, and statistics C unit tests.
+unit-post: $(UNIT_POST_EXE) $(UNIT_POST_VTK_EXE) $(UNIT_POSTPROCESSOR_EXE) $(UNIT_POST_STATISTICS_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $(UNIT_POST_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $(UNIT_POST_VTK_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $(UNIT_POSTPROCESSOR_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $(UNIT_POST_STATISTICS_EXE)
 
 ## @target unit-grid
 ## @brief Runs the grid utility C unit tests.
@@ -394,7 +432,7 @@ unit-mpi: $(UNIT_MPI_EXE)
 
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
-unit: unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime
+unit: unit-geometry unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime
 
 ## @target ctest
 ## @brief Compatibility alias for `unit`.
@@ -415,6 +453,10 @@ ctest-particles: unit-particles
 ## @target ctest-io
 ## @brief Compatibility alias for `unit-io`.
 ctest-io: unit-io
+
+## @target ctest-logging
+## @brief Compatibility alias for `unit-logging`.
+ctest-logging: unit-logging
 
 ## @target ctest-post
 ## @brief Compatibility alias for `unit-post`.
@@ -482,6 +524,13 @@ check-mpi: check
 check-mpi-matrix: check
 	@$(MAKE) --no-print-directory smoke-mpi-matrix SYSTEM=$(SYSTEM)
 	@$(MAKE) --no-print-directory unit-mpi SYSTEM=$(SYSTEM)
+
+## @target check-full
+## @brief Runs `check` plus all MPI validation layers (`unit-mpi`, `smoke-mpi`, `smoke-mpi-matrix`).
+check-full: check
+	@$(MAKE) --no-print-directory unit-mpi SYSTEM=$(SYSTEM)
+	@$(MAKE) --no-print-directory smoke-mpi SYSTEM=$(SYSTEM)
+	@$(MAKE) --no-print-directory smoke-mpi-matrix SYSTEM=$(SYSTEM)
 
 ## @target build-docs
 ## @brief Generates Doxygen documentation for the project.

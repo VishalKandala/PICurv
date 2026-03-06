@@ -57,7 +57,7 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
 /**
  * @brief Parses the processing pipeline string and executes the requested kernels.
  * @param user The UserCtx containing the data to be transformed.
- * @param config The PostProcessConfig containing the pipeline string.
+ * @param pps The PostProcessParams containing the pipeline string.
  * @return PetscErrorCode
  */
 PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* pps);
@@ -105,4 +105,3 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
 PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, PetscInt ti);
 
 #endif /* POSTPROCESSOR_H */
-

@@ -95,7 +95,7 @@ PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user);
  * @param user The UserCtx containing grid and field data.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user);
+PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user);
 
 /**
  * @brief Applies periodic boundary corrections to j-face centers (Centy).
@@ -183,7 +183,7 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user);
  * @note  Call **immediately after** `ComputeCellCenteredJacobianInverse()` and
  *        before any routine that differentiates or applies BCs.
  *
- * @author <your name>
+ * @note Author metadata intentionally omitted in API docs.
  */
 PetscErrorCode CheckAndFixGridOrientation(UserCtx *user);
 

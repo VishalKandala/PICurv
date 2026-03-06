@@ -1,7 +1,15 @@
+/**
+ * @file test_poisson_rhs.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "poisson.h"
 #include "rhs.h"
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode EnsurePoissonAndRhsVectors(UserCtx *user)
 {
@@ -14,6 +22,9 @@ static PetscErrorCode EnsurePoissonAndRhsVectors(UserCtx *user)
     if (!user->lDiffusivity) PetscCall(DMCreateLocalVector(user->da, &user->lDiffusivity));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestUpdatePressureAddsPhi(void)
 {
@@ -32,6 +43,9 @@ static PetscErrorCode TestUpdatePressureAddsPhi(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestPoissonRHSZeroDivergence(void)
 {
@@ -63,6 +77,9 @@ static PetscErrorCode TestPoissonRHSZeroDivergence(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestComputeBodyForcesDispatcher(void)
 {
@@ -94,6 +111,9 @@ static PetscErrorCode TestComputeBodyForcesDispatcher(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestComputeEulerianDiffusivityMolecularOnly(void)
 {
@@ -119,6 +139,9 @@ static PetscErrorCode TestComputeEulerianDiffusivityMolecularOnly(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

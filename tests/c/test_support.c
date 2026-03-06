@@ -1,3 +1,8 @@
+/**
+ * @file test_support.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include <errno.h>
@@ -7,6 +12,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode DestroyVecIfSet(Vec *vec)
 {
@@ -16,6 +24,9 @@ static PetscErrorCode DestroyVecIfSet(Vec *vec)
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode DestroyDMIfSet(DM *dm)
 {
@@ -25,6 +36,9 @@ static PetscErrorCode DestroyDMIfSet(DM *dm)
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode RegisterSwarmFieldForTests(DM swarm, const char *field_name, PetscInt field_dim, PetscDataType dtype)
 {
@@ -32,6 +46,9 @@ static PetscErrorCode RegisterSwarmFieldForTests(DM swarm, const char *field_nam
     PetscCall(DMSwarmRegisterPetscDatatypeField(swarm, field_name, field_dim, dtype));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvRunTests(const char *suite_name, const PicurvTestCase *cases, size_t case_count)
 {
@@ -47,6 +64,9 @@ PetscErrorCode PicurvRunTests(const char *suite_name, const PicurvTestCase *case
     PetscCall(PetscPrintf(PETSC_COMM_WORLD, "==> %s complete\n", suite_name));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvEnsureDir(const char *path)
 {
@@ -56,6 +76,9 @@ PetscErrorCode PicurvEnsureDir(const char *path)
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvMakeTempDir(char *path, size_t path_len)
 {
@@ -70,6 +93,9 @@ PetscErrorCode PicurvMakeTempDir(char *path, size_t path_len)
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_out, PetscInt mx, PetscInt my, PetscInt mz)
 {
@@ -173,6 +199,9 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     *user_out = user;
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user)
 {
@@ -219,6 +248,9 @@ PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user)
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Cent, INSERT_VALUES, user->lCent));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvCreateSwarmPair(UserCtx *user, PetscInt nlocal, const char *post_field_name)
 {
@@ -249,6 +281,9 @@ PetscErrorCode PicurvCreateSwarmPair(UserCtx *user, PetscInt nlocal, const char 
     PetscCall(DMSwarmSetLocalSizes(user->post_swarm, nlocal, 0));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_ptr)
 {
@@ -326,6 +361,9 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
 
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvAssertRealNear(PetscReal expected, PetscReal actual, PetscReal tol, const char *context)
 {
@@ -338,6 +376,9 @@ PetscErrorCode PicurvAssertRealNear(PetscReal expected, PetscReal actual, PetscR
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvAssertIntEqual(PetscInt expected, PetscInt actual, const char *context)
 {
@@ -350,6 +391,9 @@ PetscErrorCode PicurvAssertIntEqual(PetscInt expected, PetscInt actual, const ch
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvAssertBool(PetscBool value, const char *context)
 {
@@ -360,6 +404,9 @@ PetscErrorCode PicurvAssertBool(PetscBool value, const char *context)
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvAssertFileExists(const char *path, const char *context)
 {
@@ -373,6 +420,9 @@ PetscErrorCode PicurvAssertFileExists(const char *path, const char *context)
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Shared test-support routine.
+ */
 
 PetscErrorCode PicurvAssertVecConstant(Vec vec, PetscScalar expected, PetscReal tol, const char *context)
 {

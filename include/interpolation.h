@@ -105,6 +105,50 @@
   )(fieldName, fieldPtr, i, j, k, outPtr)
 
 /**
+ * @brief Returns the scalar value from the input cell index without blending.
+ *
+ * This is a first-order piecewise-constant lookup helper used in workflows that
+ * intentionally disable trilinear blending.
+ *
+ * @param[in]  fieldName Field label used for diagnostics.
+ * @param[in]  fieldScal Scalar field array indexed as [k][j][i].
+ * @param[in]  iCell Cell i-index.
+ * @param[in]  jCell Cell j-index.
+ * @param[in]  kCell Cell k-index.
+ * @param[out] val Output scalar value.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode PieceWiseLinearInterpolation_Scalar(
+    const char *fieldName,
+    PetscReal ***fieldScal,
+    PetscInt iCell,
+    PetscInt jCell,
+    PetscInt kCell,
+    PetscReal *val);
+
+/**
+ * @brief Returns the vector value from the input cell index without blending.
+ *
+ * This is a first-order piecewise-constant lookup helper used in workflows that
+ * intentionally disable trilinear blending.
+ *
+ * @param[in]  fieldName Field label used for diagnostics.
+ * @param[in]  fieldVec Vector field array indexed as [k][j][i].
+ * @param[in]  iCell Cell i-index.
+ * @param[in]  jCell Cell j-index.
+ * @param[in]  kCell Cell k-index.
+ * @param[out] vec Output vector value.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode PieceWiseLinearInterpolation_Vector(
+    const char *fieldName,
+    Cmpnts ***fieldVec,
+    PetscInt iCell,
+    PetscInt jCell,
+    PetscInt kCell,
+    Cmpnts *vec);
+
+/**
  * @brief Macro that calls either the scalar or vector trilinear interpolation function
  *        based on the type of the `fieldPtr` parameter (3D array).
  *
@@ -133,8 +177,12 @@
  * @param[in]  fieldName A string representing the name of the scalar field (e.g., "temperature").
  * @param[in]  fieldScal 3D array of the field from a DMDA (indexed as [k][j][i]),
  *                      each cell a PetscReal.
- * @param[in]  i, j, k   Integral cell indices (the "lower" corner in each dimension).
- * @param[in]  a1, a2, a3 Normalized coordinates within the cell ([0,1] range).
+ * @param[in]  i Integral i-index of the interpolation cell.
+ * @param[in]  j Integral j-index of the interpolation cell.
+ * @param[in]  k Integral k-index of the interpolation cell.
+ * @param[in]  a1 Normalized xi coordinate within the cell ([0,1]).
+ * @param[in]  a2 Normalized eta coordinate within the cell ([0,1]).
+ * @param[in]  a3 Normalized zta coordinate within the cell ([0,1]).
  * @param[out] val       Pointer to a PetscReal that will store the interpolated scalar.
  *
  * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
@@ -157,8 +205,12 @@ PetscErrorCode TrilinearInterpolation_Scalar(
  * @param[in]  fieldName  A string representing the name of the vector field (e.g., "velocity").
  * @param[in]  fieldVec   3D array of the field from a DMDA (indexed as [k][j][i]),
  *                        each cell of type Cmpnts.
- * @param[in]  i, j, k    Integral cell indices (the "lower" corner in each dimension).
- * @param[in]  a1, a2, a3 Normalized coordinates within the cell ([0,1] range).
+ * @param[in]  i Integral i-index of the interpolation cell.
+ * @param[in]  j Integral j-index of the interpolation cell.
+ * @param[in]  k Integral k-index of the interpolation cell.
+ * @param[in]  a1 Normalized xi coordinate within the cell ([0,1]).
+ * @param[in]  a2 Normalized eta coordinate within the cell ([0,1]).
+ * @param[in]  a3 Normalized zta coordinate within the cell ([0,1]).
  * @param[out] vec        Pointer to a Cmpnts struct that will store the interpolated vector (x, y, z).
  *
  * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
@@ -199,7 +251,7 @@ PetscErrorCode TrilinearInterpolation_Vector(
  *   5.  Restore all PETSc objects to prevent memory leaks.
  *
  * @param[in]  user                     User context with DMDA, DMSwarm, etc.
- * @param[in]  fieldGlobal_cellCentered Vec (from fda) with cell-centered data (e.g., Ucat).
+ * @param[in]  fieldLocal_cellCentered Ghosted local Vec with cell-centered data (e.g., Ucat).
  * @param[in]  fieldName                Human-readable field name for logging (e.g., "Ucat").
  * @param[in]  swarmOutFieldName        Name of the DMSwarm field where interpolation results go.
  *
@@ -253,8 +305,8 @@ PetscErrorCode InterpolateParticleVelocities(UserCtx *user);
  * The coordinate DM (da) is built on corners (IM+1 x JM+1 x KM+1) while the cell-centered DM (fda)
  * covers the physical cells (IM x JM x KM). Index offsets are adjusted via DMDAGetLocalInfo.
  *
- * @param[in]  field     3D array of corner-based scalar data (from user->da).
- * @param[out] centfield 3D array for the interpolated cell-center scalar data (for user->fda).
+ * @param[in]  field_arr     3D array of corner-based scalar data (from user->da).
+ * @param[out] centfield_arr 3D array for interpolated cell-center scalar data (for user->fda).
  * @param[in]  user      User context containing:
  *                       - da  : DM for the coordinate (corner) data.
  *                       - fda : DM for the cell-centered data.
@@ -262,8 +314,8 @@ PetscErrorCode InterpolateParticleVelocities(UserCtx *user);
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
-    PetscReal ***field,
-    PetscReal ***centfield,
+    PetscReal ***field_arr,
+    PetscReal ***centfield_arr,
     UserCtx *user);
 
 /**
@@ -275,8 +327,8 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
  * (da) is built on corners (IM+1 x JM+1 x KM+1) while the cell-centered DM (fda) covers
  * the physical cells (IM x JM x KM). Index offsets are adjusted using DMDAGetLocalInfo.
  *
- * @param[in]  field     3D array of corner-based vector data (from user->da).
- * @param[out] centfield 3D array for the interpolated cell-center vector data (for user->fda).
+ * @param[in]  field_arr     3D array of corner-based vector data (from user->da).
+ * @param[out] centfield_arr 3D array for interpolated cell-center vector data (for user->fda).
  * @param[in]  user      User context containing:
  *                       - da  : DM for the coordinate (corner) data.
  *                       - fda : DM for the cell-centered data.
@@ -284,8 +336,8 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
-    Cmpnts ***field,
-    Cmpnts ***centfield,
+    Cmpnts ***field_arr,
+    Cmpnts ***centfield_arr,
     UserCtx *user);
 
 /**
@@ -501,4 +553,3 @@ PetscErrorCode InterpolateCornerToFaceCenter_Vector(
     UserCtx *user);
 
 #endif // INTERPOLATION_H
-

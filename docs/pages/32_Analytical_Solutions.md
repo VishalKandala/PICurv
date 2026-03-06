@@ -1,10 +1,12 @@
 @page 32_Analytical_Solutions Analytical Solution Modes
 
+@anchor _Analytical_Solutions
+
 Analytical mode bypasses the normal momentum/Poisson time advancement and directly sets Eulerian fields from closed-form expressions.
 
 @tableofcontents
 
-@section activation_sec 1. Activation Path
+@section p32_activation_sec 1. Activation Path
 
 Analytical mode is selected by:
 
@@ -24,7 +26,7 @@ Current launcher contract:
 - `picurv` now validates this explicitly before runtime
 - this avoids misleading combinations where `file` or `grid_gen` looks valid in YAML but is not consumed by the current C analytical grid path
 
-@section types_sec 2. Supported Types In Current Code
+@section p32_types_sec 2. Supported Types In Current Code
 
 - `TGV3D`
 - `ZERO_FLOW`
@@ -35,7 +37,7 @@ Implementation touchpoints:
 - analytical geometry assignment: @ref SetAnalyticalGridInfo
 - state setter dispatch: @ref AnalyticalSolutionEngine
 
-@section tgv_sec 3. TGV3D Details
+@section p32_tgv_sec 3. TGV3D Details
 
 Current `TGV3D` implementation sets fields with decaying Taylor-Green style forms in non-dimensional coordinates. Representative form:
 
@@ -52,7 +54,7 @@ Geometry behavior for `TGV3D` in function @ref SetAnalyticalGridInfo follows:
 - multi-block: requires perfect-square block count for XY decomposition.
 - the analytical geometry logic assigns the domain itself; the launcher-side programmatic grid inputs primarily provide resolution (`im/jm/km`)
 
-@section zero_sec 4. ZERO_FLOW Details
+@section p32_zero_sec 4. ZERO_FLOW Details
 
 `ZERO_FLOW` sets a quiescent background state while preserving the same analytical-mode control path.
 It is useful for controlled particle-motion or postprocessing validation scenarios.
@@ -63,11 +65,11 @@ Grid behavior:
 - so `programmatic_settings` still matters,
 - but the flow field itself is imposed analytically as zero everywhere.
 
-@section particles_sec 5. Particle Consistency
+@section p32_particles_sec 5. Particle Consistency
 
 Particle-side analytical initialization hooks exist via @ref SetAnalyticalSolutionForParticles so particle fields can remain consistent with analytical Eulerian state when desired.
 
-@section extension_sec 6. Adding A New Analytical Type
+@section p32_extension_sec 6. Adding A New Analytical Type
 
 1. add a new branch in function @ref AnalyticalSolutionEngine for the new type,
 2. define geometry policy in function @ref AnalyticalTypeRequiresCustomGeometry for that type,
@@ -80,3 +82,26 @@ Also update:
 - **@subpage 08_Solver_Reference**
 - **@subpage 48_Grid_Generator_Guide**
 - **@subpage 40_Testing_and_Quality_Guide**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Analytical Solution Modes** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

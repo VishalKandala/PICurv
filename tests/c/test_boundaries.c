@@ -1,6 +1,14 @@
+/**
+ * @file test_boundaries.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "Boundaries.h"
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode DestroyBoundaryHandler(BoundaryCondition **bc_ptr)
 {
@@ -16,6 +24,9 @@ static PetscErrorCode DestroyBoundaryHandler(BoundaryCondition **bc_ptr)
     *bc_ptr = NULL;
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestCanRankServiceFaceMatchesInletWhenDefined(void)
 {
@@ -44,6 +55,9 @@ static PetscErrorCode TestCanRankServiceFaceMatchesInletWhenDefined(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestCanRankServiceInletFaceRequiresDefinition(void)
 {
@@ -64,6 +78,9 @@ static PetscErrorCode TestCanRankServiceInletFaceRequiresDefinition(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestBoundaryConditionFactoryAssignments(void)
 {
@@ -89,6 +106,9 @@ static PetscErrorCode TestBoundaryConditionFactoryAssignments(void)
 
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestBoundaryConditionFactoryImplementedHandlerMatrix(void)
 {
@@ -119,6 +139,9 @@ static PetscErrorCode TestBoundaryConditionFactoryImplementedHandlerMatrix(void)
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestBoundaryConditionFactoryRejectsUnsupportedHandler(void)
 {
@@ -136,6 +159,9 @@ static PetscErrorCode TestBoundaryConditionFactoryRejectsUnsupportedHandler(void
     }
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestGetDeterministicFaceGridLocationFaceMatrix(void)
 {
@@ -179,6 +205,9 @@ static PetscErrorCode TestGetDeterministicFaceGridLocationFaceMatrix(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix(void)
 {
@@ -248,6 +277,9 @@ static PetscErrorCode TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

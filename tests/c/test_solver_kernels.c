@@ -1,8 +1,16 @@
+/**
+ * @file test_solver_kernels.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "AnalyticalSolutions.h"
 #include "BodyForces.h"
 #include "Filter.h"
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestLESTestFilterPaths(void)
 {
@@ -40,6 +48,9 @@ static PetscErrorCode TestLESTestFilterPaths(void)
                                    "box filter should return zero when all weights are zero"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestAnalyticalGeometrySelection(void)
 {
@@ -62,6 +73,9 @@ static PetscErrorCode TestAnalyticalGeometrySelection(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestDrivenChannelFlowSource(void)
 {
@@ -96,6 +110,9 @@ static PetscErrorCode TestDrivenChannelFlowSource(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

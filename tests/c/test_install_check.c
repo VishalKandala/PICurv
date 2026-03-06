@@ -1,3 +1,8 @@
+/**
+ * @file test_install_check.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include <stdlib.h>
@@ -7,6 +12,9 @@
 #else
 #define PICURV_TEST_ERR_ENVIRONMENT PETSC_ERR_USER_INPUT
 #endif
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestEnvironmentVisible(void)
 {
@@ -17,6 +25,9 @@ static PetscErrorCode TestEnvironmentVisible(void)
                "PETSC_DIR is not set in the environment.");
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestBasicPetscObjects(void)
 {
@@ -49,6 +60,9 @@ static PetscErrorCode TestBasicPetscObjects(void)
     PetscCall(DMDestroy(&da));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

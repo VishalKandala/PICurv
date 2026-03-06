@@ -1,11 +1,13 @@
 @page 45_Particle_Initialization_and_Restart Particle Initialization and Restart Guide
 
+@anchor _Particle_Initialization_and_Restart
+
 This page documents particle seeding, restart behavior, and early-step migration/settling logic.
 It is written for both case authors and contributors working in `src/ParticleSwarm.c` and `src/ParticleMotion.c`.
 
 @tableofcontents
 
-@section contract_sec 1. User Contract in `case.yml`
+@section p45_contract_sec 1. User Contract in `case.yml`
 
 Particle controls live in:
 
@@ -29,7 +31,7 @@ Mapping to control flags:
 - `restart_mode` -> `-particle_restart_mode`
 - `point_source` -> `-psrc_x/-psrc_y/-psrc_z` (required when `init_mode` is `PointSource`)
 
-@section mode_values_sec 2. Accepted `init_mode` Values
+@section p45_mode_values_sec 2. Accepted `init_mode` Values
 
 `picurv` accepts these exact canonical strings:
 
@@ -45,7 +47,7 @@ Enum mapping in C (`ParticleInitializationType`):
 - `2`: `PARTICLE_INIT_POINT_SOURCE`
 - `3`: `PARTICLE_INIT_SURFACE_EDGES`
 
-@section mode_behavior_sec 3. Mode Behavior in C
+@section p45_mode_behavior_sec 3. Mode Behavior in C
 
 Main setup flow:
 
@@ -75,7 +77,7 @@ Mode details:
 
 - all particles start at fixed coordinates `(psrc_x, psrc_y, psrc_z)`.
 
-@section restart_matrix_sec 4. Restart Behavior Matrix
+@section p45_restart_matrix_sec 4. Restart Behavior Matrix
 
 `InitializeParticleSwarm` behavior depends on `StartStep` and restart mode:
 
@@ -95,7 +97,7 @@ For loaded particles, fast migration path:
 
 - @ref MigrateRestartParticlesUsingCellID uses stored cell IDs to migrate directly before full walking-search fallback.
 
-@section settle_sec 5. Early-Step Settlement and Coupling
+@section p45_settle_sec 5. Early-Step Settlement and Coupling
 
 For initialized particles (`StartStep == 0` path):
 
@@ -111,7 +113,7 @@ For loaded particles:
 2. `LocateAllParticlesInGrid` resolves invalid/missing cases,
 3. interpolation/scatter synchronize coupling state before stepping.
 
-@section fields_sec 6. Swarm Fields Initialized at Startup
+@section p45_fields_sec 6. Swarm Fields Initialized at Startup
 
 After position/PID/cell placeholders, initialization sets defaults for:
 
@@ -123,7 +125,7 @@ After position/PID/cell placeholders, initialization sets defaults for:
 
 Cell IDs start at `-1` until location confirms host cells.
 
-@section diagnostics_sec 7. Diagnostics and Sanity Checks
+@section p45_diagnostics_sec 7. Diagnostics and Sanity Checks
 
 Check banner/log output for:
 
@@ -137,7 +139,7 @@ Typical errors:
 - missing `point_source.{x,y,z}` for point source mode,
 - restart mode not in `{init, load}`.
 
-@section extension_sec 8. Contributor Extension Points
+@section p45_extension_sec 8. Contributor Extension Points
 
 If adding a new particle initialization mode:
 
@@ -149,10 +151,33 @@ If adding a new particle initialization mode:
 
 For the full selector extension checklist, see **@subpage 50_Modular_Selector_Extension_Guide**.
 
-@section refs_sec 9. Related Pages
+@section p45_refs_sec 9. Related Pages
 
 - **@subpage 33_Initial_Conditions**
 - **@subpage 34_Particle_Model_Overview**
 - **@subpage 26_Walking_Search_Method**
 - **@subpage 27_Trilinear_Interpolation_and_Projection**
 - **@subpage 39_Common_Fatal_Errors**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Particle Initialization and Restart Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

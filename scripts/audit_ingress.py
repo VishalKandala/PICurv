@@ -23,6 +23,7 @@ OPTION_RE = re.compile(
 
 
 def scan_petsc_options(paths: Iterable[pathlib.Path]) -> Set[str]:
+    """Perform scan petsc options."""
     flags: Set[str] = set()
     for path in paths:
         text = path.read_text(encoding="utf-8")
@@ -32,6 +33,7 @@ def scan_petsc_options(paths: Iterable[pathlib.Path]) -> Set[str]:
 
 
 def load_manifest(path: pathlib.Path) -> Set[str]:
+    """Load manifest."""
     data = json.loads(path.read_text(encoding="utf-8"))
     options = data.get("known_petsc_options")
     if not isinstance(options, list):
@@ -43,6 +45,7 @@ def load_manifest(path: pathlib.Path) -> Set[str]:
 
 
 def main() -> int:
+    """Entry point for this script."""
     parser = argparse.ArgumentParser(description="Audit PETSc option ingress against manifest.")
     parser.add_argument(
         "--manifest",

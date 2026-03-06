@@ -1,7 +1,15 @@
+/**
+ * @file test_geometry.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "interpolation.h"
 #include "walkingsearch.h"
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestScalarInterpolationConstantField(void)
 {
@@ -29,6 +37,9 @@ static PetscErrorCode TestScalarInterpolationConstantField(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestVectorInterpolationConstantField(void)
 {
@@ -58,6 +69,9 @@ static PetscErrorCode TestVectorInterpolationConstantField(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestSignedDistanceAndClassification(void)
 {
@@ -86,6 +100,9 @@ static PetscErrorCode TestSignedDistanceAndClassification(void)
     PetscCall(PicurvAssertIntEqual(-1, result, "negative face distance should classify as outside"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

@@ -22,18 +22,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "ComputeParticleMSD"
 /**
- * @brief Computes the mean-squared displacement (MSD) of the particle cloud.
- *
- * Two-pass algorithm:
- *   Pass 1 — accumulate per-component squared displacements and centre-of-mass sums.
- *   MPI reduction — allreduce 7 values (6 sums + count) to get global MSD and COM.
- *   Compute scalars — MSD_total, r_rms_meas, r_rms_theory, rel_err_pct.
- *   Pass 2 — count particles inside 1σ/2σ/3σ theoretical shells; allreduce counts.
- *   Output (rank 0) — append one row to {stats_prefix}_msd.csv; LOG_INFO summary.
- *
- * Physics:  D = 1/(Re·Sc),  t = ti·dt,  r_theory = sqrt(6·D·t).
- * Expected fractions inside r_theory / 2·r_theory / 3·r_theory ≈ 61%/97%/99.9%
- * for a 3D Maxwell-Boltzmann distribution.
+ * @brief Internal helper implementation: `ComputeParticleMSD()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, PetscInt ti)
 {
@@ -64,7 +54,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
     const PetscReal (*pos_arr)[3];
 
     ierr = DMSwarmGetLocalSize(user->swarm, &n_local); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(user->swarm, "position", NULL, NULL, (const void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->swarm, "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
     PetscReal local_sq_x = 0.0, local_sq_y = 0.0, local_sq_z = 0.0;
     PetscReal local_sx   = 0.0, local_sy   = 0.0, local_sz   = 0.0;
@@ -81,7 +71,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
         local_sz   += dz;
     }
 
-    ierr = DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (const void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
     /* ------------------------------------------------------------------ *
      * MPI reduction — 7 doubles + count                                   *
@@ -90,7 +80,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
                                 local_sx,   local_sy,   local_sz,
                                 (PetscReal)n_local };
     PetscReal global_buf[7] = {0};
-    MPI_Allreduce(local_buf, global_buf, 7, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+    ierr = MPI_Allreduce(local_buf, global_buf, 7, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
     const PetscReal N_total  = global_buf[6];
     if (N_total < 1.0) PetscFunctionReturn(0); /* no particles */
@@ -112,7 +102,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
     /* ------------------------------------------------------------------ *
      * Pass 2: fraction inside σ-shells                                    *
      * ------------------------------------------------------------------ */
-    ierr = DMSwarmGetField(user->swarm, "position", NULL, NULL, (const void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->swarm, "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
     PetscInt local_n1 = 0, local_n2 = 0, local_n3 = 0;
     const PetscReal r1 = r_theory;
@@ -129,13 +119,13 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
         if (r < r3) local_n3++;
     }
 
-    ierr = DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (const void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
     PetscReal local_counts[3] = { (PetscReal)local_n1,
                                    (PetscReal)local_n2,
                                    (PetscReal)local_n3 };
     PetscReal global_counts[3] = {0};
-    MPI_Allreduce(local_counts, global_counts, 3, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD);
+    ierr = MPI_Allreduce(local_counts, global_counts, 3, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
     const PetscReal frac_1s = global_counts[0] / N_total * 100.0;
     const PetscReal frac_2s = global_counts[1] / N_total * 100.0;

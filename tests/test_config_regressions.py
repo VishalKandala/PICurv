@@ -12,11 +12,13 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 
 def run_picurv(args, cwd=REPO_ROOT):
+    """Run picurv."""
     cmd = [sys.executable, str(PICURV)] + list(args)
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False)
 
 
 def load_picurv_module():
+    """Load picurv module for tests."""
     loader = importlib.machinery.SourceFileLoader("picurv_regression_module", str(PICURV))
     spec = importlib.util.spec_from_loader("picurv_regression_module", loader)
     assert spec is not None
@@ -26,6 +28,7 @@ def load_picurv_module():
 
 
 def test_audit_ingress_manifest_matches_c_ingress():
+    """Test that audit ingress manifest matches c ingress."""
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "audit_ingress.py")],
         cwd=str(REPO_ROOT),
@@ -40,6 +43,7 @@ def test_audit_ingress_manifest_matches_c_ingress():
 
 
 def test_generate_post_recipe_supports_legacy_aliases_and_legacy_input_extensions(tmp_path):
+    """Test that generate post recipe supports legacy aliases and legacy input extensions."""
     picurv = load_picurv_module()
     run_dir = tmp_path / "run"
     (run_dir / "config").mkdir(parents=True)
@@ -91,6 +95,7 @@ def test_generate_post_recipe_supports_legacy_aliases_and_legacy_input_extension
 
 
 def test_validate_post_rejects_unsupported_eulerian_task(tmp_path):
+    """Test that validate post rejects unsupported eulerian task."""
     invalid_post = tmp_path / "post_invalid_task.yml"
     invalid_post.write_text(
         "\n".join(
@@ -117,6 +122,7 @@ def test_validate_post_rejects_unsupported_eulerian_task(tmp_path):
 
 
 def test_validate_post_rejects_normalize_field_for_non_pressure_field(tmp_path):
+    """Test that validate post rejects normalize field for non pressure field."""
     invalid_post = tmp_path / "post_invalid_normalize.yml"
     invalid_post.write_text(
         "\n".join(
@@ -145,6 +151,7 @@ def test_validate_post_rejects_normalize_field_for_non_pressure_field(tmp_path):
 
 
 def test_statistics_output_artifacts_are_relative_to_run_directory(tmp_path):
+    """Test that statistics output artifacts are relative to run directory."""
     picurv = load_picurv_module()
     post_cfg = {
         "statistics_pipeline": {
@@ -163,6 +170,7 @@ def test_statistics_output_artifacts_are_relative_to_run_directory(tmp_path):
 
 
 def test_dry_run_json_reports_predicted_statistics_csv_artifact(tmp_path):
+    """Test that dry run json reports predicted statistics csv artifact."""
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     post_cfg = picurv.read_yaml_file(str(valid / "post.yml"))

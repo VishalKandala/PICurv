@@ -205,7 +205,7 @@ typedef struct {
     } while (0)
 
 
-/** ------- DEBUG ------------------------------------------
+/* ------- DEBUG ------------------------------------------
 #define LOG_ALLOW(scope, level, fmt, ...) \
     do { \
         MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
@@ -249,20 +249,6 @@ typedef struct {
  * LOG_ALLOW_SYNC(GLOBAL, LOG_INFO,  "Synchronized info in %s\n", __func__);
  * \endcode
  */
-/*
-#define LOG_ALLOW_SYNC(scope,level, fmt, ...)                                 \
-    do {                                                                       \
-        if ((scope != LOCAL && scope != GLOBAL)) {                             \
-            fprintf(stderr, "LOG_ALLOW_SYNC ERROR: Invalid scope at %s:%d\n",  \
-                    __FILE__, __LINE__);                                       \
-        } else if (is_function_allowed(__func__) &&                            \
-                  (int)(level) <= (int)get_log_level()) {                      \
-            MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
-            PetscSynchronizedPrintf(comm, "[%s] " fmt, __func__, ##__VA_ARGS__); \
-        }
-	PetscSynchronizedFlush(comm, PETSC_STDOUT); 					\
-    } while (0)
-*/
 #define LOG_ALLOW_SYNC(scope, level, fmt, ...)                                     \
 do {                                                                               \
     /* ------------------------------------------------------------------ */      \
@@ -342,6 +328,7 @@ do {                                                                            
  * @param level   The logging level.
  * @param var     The variable to check (e.g., a loop counter 'k').
  * @param val     The value that triggers the log (e.g., 6). The log prints if var == val.
+ * @param fmt     A printf-style format string.
  * @param ...     A printf-style format string and its corresponding arguments.
  */
 #define LOG_LOOP_ALLOW_EXACT(scope, level, var, val, fmt, ...)                  \
@@ -581,28 +568,28 @@ const char* BCFaceToString(BCFace face);
 
 /**
  * @brief Helper function to convert FieldInitialization to a string representation.
- * @param[in] PetscInt The FieldInitialization value.
+ * @param[in] FieldInitialization The FieldInitialization value.
  * @return Pointer to a constant string representing the FieldInitialization.
  */
 const char* FieldInitializationToString(PetscInt FieldInitialization);
 
 /**
  * @brief Helper function to convert ParticleInitialization to a string representation.
- * @param[in] PetscInt The ParticleInitialization value.
+ * @param[in] ParticleInitialization The ParticleInitialization enum value.
  * @return Pointer to a constant string representing the FieldInitialization.
  */
 const char* ParticleInitializationToString(ParticleInitializationType ParticleInitialization);
 
 /**
  * @brief Helper function to convert LES Flag to a string representation.
- * @param[in] LESModelType The LES flag value.
+ * @param[in] LESFlag The LES flag value.
  * @return Pointer to a constant string representing the LES Flag.
  */
 const char* LESModelToString(LESModelType LESFlag);
 
 /**
  * @brief Helper function to convert Momentum Solver flag to a string representation.
- * @param[in] MomentumSolverType The Momentum Solver flag value.
+ * @param[in] SolverFlag The Momentum Solver flag value.
  * @return Pointer to a constant string representing the MomentumSolverType.
  */
 const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag);
@@ -646,7 +633,7 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx);
  *
  * This function is passed to KSPMonitorSet to ensure the viewer is
  * properly destroyed and the context memory is freed when the KSP is destroyed.
- * @param Ctx a pointer to the context pointer to be destroyed
+ * @param ctx a pointer to the context pointer to be destroyed
  * @return PetscErrorCode
  */
 PetscErrorCode DualMonitorDestroy(void **ctx);
@@ -707,6 +694,14 @@ void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, Pe
  */
 PetscErrorCode ProfilingInitialize(SimCtx *simCtx);
 
+/**
+ * @brief Resets per-timestep profiling counters for the next solver step.
+ *
+ * This clears transient counters without discarding cumulative totals used by
+ * final profiling summaries.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode ProfilingResetTimestepCounters(void);
 
 /**
@@ -739,7 +734,9 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx);
 
 // --- Internal functions, do not call directly ---
 // These are called by the macros below.
+/** @brief Internal profiling hook invoked by `PROFILE_FUNCTION_BEGIN`. */
 void _ProfilingStart(const char *func_name);
+/** @brief Internal profiling hook invoked by `PROFILE_FUNCTION_END`. */
 void _ProfilingEnd(const char *func_name);
 
 
@@ -837,7 +834,8 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user);
  *    timestep metrics to "Particle_Metrics.log".
  *
  * @param user      A pointer to the UserCtx.
- * @param stageName A descriptive string for the initialization stage (ignored in timestep mode).
+ * @param stageName A descriptive label recorded in the metrics log (for example,
+ *                  initialization stage name or "Timestep Metrics").
  * @return          PetscErrorCode 0 on success.
  */
 PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName);

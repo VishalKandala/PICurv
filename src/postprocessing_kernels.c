@@ -4,18 +4,10 @@
 #undef __FUNCT__
 #define __FUNCT__ "DimensionalizeField"
 /**
- * @brief Scales a specified field from non-dimensional to dimensional units in-place.
- *
- * This function acts as a dispatcher. It takes the string name of a field,
- * identifies the corresponding PETSc Vec object and the correct physical
- * scaling factor (e.g., U_ref for velocity, P_ref for pressure), and then
- * performs an in-place VecScale operation. It correctly handles the different
- * physical dimensions of Cartesian velocity vs. contravariant volume flux.
- *
- * @param[in,out] user        The UserCtx containing the PETSc Vecs to be modified.
- * @param[in]     field_name  The case-insensitive string name of the field to dimensionalize
- *                            (e.g., "Ucat", "P", "Ucont", "Coordinates", "ParticlePosition", "ParticleVelocity").
- * @return PetscErrorCode
+ * @brief Implementation of \ref DimensionalizeField().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessing_kernels.h`.
+ * @see DimensionalizeField()
  */
 PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
 {
@@ -105,15 +97,8 @@ PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
 #undef __FUNCT__
 #define __FUNCT__ "DimensionalizeAllLoadedFields"
 /**
- * @brief Orchestrates the dimensionalization of all relevant fields loaded from a file.
- *
- * This function is intended to be called in the post-processor immediately after
- * all solver output has been read into memory. It calls DimensionalizeField() for each of the core
- * physical quantities to convert the entire loaded state from non-dimensional to
- * dimensional units, preparing it for analysis and visualization.
- *
- * @param[in,out] user The UserCtx containing all the fields to be dimensionalized.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `DimensionalizeAllLoadedFields()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user)
 {
@@ -150,18 +135,10 @@ PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeNodalAverage"
 /**
- * @brief Computes node-centered data by averaging 8 surrounding cell-centered values,
- *        exactly replicating the legacy code's indexing and boundary handling.
- *
- * This kernel uses a stencil that averages the 8 cells from the corner (i,j,k) to
- * (i+1, j+1, k+1) and stores the result at the output node (i,j,k). This matches
- * the legacy code's behavior. It operates on the full range of output nodes necessary
- * for the subsampled grid, preventing zero-padding at the boundaries.
- *
- * @param user The UserCtx, providing access to DMs and Vecs.
- * @param in_field_name The string name of the source Vec (e.g., "P", "Ucat").
- * @param out_field_name The string name of the destination Vec (e.g., "P_nodal").
- * @return PetscErrorCode
+ * @brief Implementation of \ref ComputeNodalAverage().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessing_kernels.h`.
+ * @see ComputeNodalAverage()
  */
 PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, const char* out_field_name)
 {
@@ -252,14 +229,10 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
 #undef __FUNCT__
 #define __FUNCT__ "ComputeQCriterion"
 /**
- * @brief Computes the Q-Criterion, a scalar value identifying vortex cores.
- *
- * This function is self-contained. It ensures all its required input data
- * (Ucat and grid metrics) have up-to-date ghost values before proceeding with
- * the calculation. The result is stored in the global vector user->Qcrit.
- *
- * @param user The UserCtx, providing access to all necessary data.
- * @return PetscErrorCode
+ * @brief Implementation of \ref ComputeQCriterion().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessing_kernels.h`.
+ * @see ComputeQCriterion()
  */
 PetscErrorCode ComputeQCriterion(UserCtx* user)
 {
@@ -386,16 +359,10 @@ PetscErrorCode ComputeQCriterion(UserCtx* user)
 #undef __FUNCT__
 #define __FUNCT__ "NormalizeRelativeField"
 /**
- * @brief Normalizes a relative field by subtracting a reference value.
- *
- * This kernel finds the relative field at a specific grid point (i,j,k) and subtracts
- * this value from the entire field. The reference point is configurable via
- * command-line options (-ip, -jp, -kp). The operation is performed in-place
- * on the provided relative field vector.
- *
- * @param user The UserCtx, providing access to DMs and Vecs.
- * @param relative_field_name The string name of the relative field Vec to normalize (e.g., "P").
- * @return PetscErrorCode
+ * @brief Implementation of \ref NormalizeRelativeField().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessing_kernels.h`.
+ * @see NormalizeRelativeField()
  */
 PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_name)
 {
@@ -479,16 +446,8 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
 #undef __FUNCT__
 #define __FUNCT__ "ComputeSpecificKE"
 /**
- * @brief Computes the specific kinetic energy (KE per unit mass) for each particle.
- *
- * This kernel calculates SKE = 0.5 * |velocity|^2. It requires that the
- * velocity field exists and will populate the specific kinetic energy field.
- * The output field must be registered before this kernel is called.
- *
- * @param user           The UserCtx containing the DMSwarm.
- * @param velocity_field The name of the input vector field for particle velocity.
- * @param ske_field      The name of the output scalar field to store specific KE.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `ComputeSpecificKE()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, const char* ske_field)
 {
@@ -506,7 +465,7 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
     if (n_local == 0) PetscFunctionReturn(0);
 
     // Get read-only access to velocity and write access to the output field
-    ierr = DMSwarmGetField(user->swarm, velocity_field, NULL, NULL, (const void**)&vel_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->swarm, velocity_field, NULL, NULL, (void**)&vel_arr); CHKERRQ(ierr);
     ierr = DMSwarmGetField(user->post_swarm, ske_field, NULL, NULL, (void**)&ske_arr); CHKERRQ(ierr);
 
     // Main computation loop
@@ -519,7 +478,7 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
     }
 
     // Restore arrays
-    ierr = DMSwarmRestoreField(user->swarm, velocity_field, NULL, NULL, (const void**)&vel_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->swarm, velocity_field, NULL, NULL, (void**)&vel_arr); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(user->post_swarm, ske_field, NULL, NULL, (void**)&ske_arr); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
@@ -529,16 +488,8 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
 #undef __FUNCT__
 #define __FUNCT__ "ComputeDisplacement"
 /**
- * @brief Computes displacement magnitude |r_i - r_0| for each particle (per-particle VTK kernel).
- *
- * Reference point r_0 is taken from simCtx->psrc_x/y/z.  Reads the "position" field from
- * user->swarm and writes the scalar distance to user->post_swarm[disp_field].
- *
- * This is a visualisation kernel — for quantitative statistics use ComputeParticleMSD.
- *
- * @param user       The UserCtx containing the DMSwarms.
- * @param disp_field Name of the output scalar field in post_swarm.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `ComputeDisplacement()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field)
 {
@@ -559,7 +510,7 @@ PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field)
     const PetscReal y0 = simCtx->psrc_y;
     const PetscReal z0 = simCtx->psrc_z;
 
-    ierr = DMSwarmGetField(user->swarm,      "position", NULL, NULL, (const void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->swarm,      "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
     ierr = DMSwarmGetField(user->post_swarm, disp_field, NULL, NULL, (void**)&disp_out);       CHKERRQ(ierr);
 
     for (PetscInt p = 0; p < n_local; p++) {
@@ -569,10 +520,9 @@ PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field)
         disp_out[p] = PetscSqrtReal(dx*dx + dy*dy + dz*dz);
     }
 
-    ierr = DMSwarmRestoreField(user->swarm,      "position", NULL, NULL, (const void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->swarm,      "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(user->post_swarm, disp_field, NULL, NULL, (void**)&disp_out);       CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
-

@@ -15,11 +15,13 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 
 def run_picurv(args, cwd=REPO_ROOT):
+    """Run picurv."""
     cmd = [sys.executable, str(PICURV)] + list(args)
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False)
 
 
 def load_picurv_module():
+    """Load picurv module for tests."""
     loader = importlib.machinery.SourceFileLoader("picurv_module", str(PICURV))
     spec = importlib.util.spec_from_loader("picurv_module", loader)
     assert spec is not None
@@ -28,7 +30,30 @@ def load_picurv_module():
     return module
 
 
+def write_legacy_1d_grid(path: Path) -> Path:
+    """Write a minimal legacy 1D-axis grid payload for conversion tests."""
+    path.write_text(
+        "\n".join(
+            [
+                "1",
+                "3 2 2",
+                "0.0 0 0",
+                "0.5 0 0",
+                "1.0 0 0",
+                "0 0.0 0",
+                "0 1.0 0",
+                "0 0 0.0",
+                "0 0 2.0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_top_level_help_smoke():
+    """Test that top level help smoke."""
     result = run_picurv(["--help"])
     assert result.returncode == 0
     assert "validate" in result.stdout
@@ -36,6 +61,7 @@ def test_top_level_help_smoke():
 
 
 def test_run_help_smoke():
+    """Test that run help smoke."""
     result = run_picurv(["run", "--help"])
     assert result.returncode == 0
     assert "--dry-run" in result.stdout
@@ -43,6 +69,7 @@ def test_run_help_smoke():
 
 
 def test_validate_help_smoke():
+    """Test that validate help smoke."""
     result = run_picurv(["validate", "--help"])
     assert result.returncode == 0
     assert "--case" in result.stdout
@@ -50,6 +77,7 @@ def test_validate_help_smoke():
 
 
 def test_removed_selector_aliases_are_rejected():
+    """Test that removed selector aliases are rejected."""
     picurv = load_picurv_module()
 
     rejected = [
@@ -70,6 +98,7 @@ def test_removed_selector_aliases_are_rejected():
 
 
 def test_picgrid_validation_requires_canonical_header(tmp_path):
+    """Test that picgrid validation requires canonical header."""
     picurv = load_picurv_module()
     source = tmp_path / "legacy.grid"
     source.write_text("1\n3 3 3\n0 0 0\n", encoding="utf-8")
@@ -84,6 +113,7 @@ def test_picgrid_validation_requires_canonical_header(tmp_path):
 
 
 def test_validate_valid_configs_pass():
+    """Test that validate valid configs pass."""
     valid = FIXTURES / "valid"
     result = run_picurv(
         [
@@ -107,6 +137,7 @@ def test_validate_valid_configs_pass():
 
 
 def test_validate_zero_mode_case_allows_omitting_velocity_components(tmp_path):
+    """Test that validate zero mode case allows omitting velocity components."""
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_zero.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
@@ -133,6 +164,7 @@ def test_validate_zero_mode_case_allows_omitting_velocity_components(tmp_path):
 
 
 def test_validate_poiseuille_peak_velocity_option_passes_with_unique_inlet_axis(tmp_path):
+    """Test that validate poiseuille peak velocity option passes with unique inlet axis."""
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_poiseuille_peak.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
@@ -159,6 +191,7 @@ def test_validate_poiseuille_peak_velocity_option_passes_with_unique_inlet_axis(
 
 
 def test_validate_initial_condition_mode_must_be_explicit(tmp_path):
+    """Test that validate initial condition mode must be explicit."""
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_missing_mode.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
@@ -182,6 +215,7 @@ def test_validate_initial_condition_mode_must_be_explicit(tmp_path):
 
 
 def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
+    """Test that validate analytical mode requires programmatic grid."""
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_file_grid.yml"
     solver_path = tmp_path / "solver_analytical.yml"
@@ -231,6 +265,7 @@ def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
 
 
 def test_validate_particle_restart_mode_omission_warns_on_restart(tmp_path):
+    """Test that validate particle restart mode omission warns on restart."""
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_restart_warn.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
@@ -255,6 +290,7 @@ def test_validate_particle_restart_mode_omission_warns_on_restart(tmp_path):
 
 
 def test_validate_invalid_case_reports_structured_error():
+    """Test that validate invalid case reports structured error."""
     valid = FIXTURES / "valid"
     invalid = FIXTURES / "invalid"
     result = run_picurv(
@@ -274,6 +310,7 @@ def test_validate_invalid_case_reports_structured_error():
 
 
 def test_validate_invalid_cluster_and_study_fail():
+    """Test that validate invalid cluster and study fail."""
     invalid = FIXTURES / "invalid"
     cluster_result = run_picurv(["validate", "--cluster", str(invalid / "cluster_bad_scheduler.yml")])
     assert cluster_result.returncode == 1
@@ -285,6 +322,7 @@ def test_validate_invalid_cluster_and_study_fail():
 
 
 def test_dry_run_does_not_create_run_directories():
+    """Test that dry run does not create run directories."""
     valid = FIXTURES / "valid"
     runs_dir = REPO_ROOT / "runs"
     before = {p.name for p in runs_dir.iterdir()} if runs_dir.exists() else set()
@@ -313,6 +351,7 @@ def test_dry_run_does_not_create_run_directories():
 
 
 def test_dry_run_json_output_schema():
+    """Test that dry run json output schema."""
     valid = FIXTURES / "valid"
     result = run_picurv(
         [
@@ -345,6 +384,7 @@ def test_dry_run_json_output_schema():
 
 
 def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
+    """Test that post process run dir accepts null source data mapping."""
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
 
@@ -370,9 +410,11 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
     calls = []
 
     def fake_resolve_runtime_executable(name):
+        """Helper for fake resolve runtime executable."""
         return f"/tmp/fake/{name}"
 
     def fake_execute_command(command, run_dir_arg, log_filename, monitor_cfg=None):
+        """Helper for fake execute command."""
         calls.append(
             {
                 "command": command,
@@ -414,6 +456,7 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
 
 
 def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):
+    """Test that dry run restart from missing run dir fails."""
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
 
@@ -454,6 +497,7 @@ def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):
 
 
 def test_post_process_run_dir_missing_config_inputs_fails(tmp_path):
+    """Test that post process run dir missing config inputs fails."""
     valid = FIXTURES / "valid"
     run_dir = tmp_path / "broken_run"
     (run_dir / "config").mkdir(parents=True)
@@ -475,6 +519,7 @@ def test_post_process_run_dir_missing_config_inputs_fails(tmp_path):
 
 
 def test_programmatic_grid_cell_counts_translate_to_node_counts(tmp_path):
+    """Test that programmatic grid cell counts translate to node counts."""
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -509,6 +554,7 @@ def test_programmatic_grid_cell_counts_translate_to_node_counts(tmp_path):
 
 
 def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
+    """Test that grid gen exports node counts from cell inputs."""
     output_path = tmp_path / "tiny_grid.picgrid"
     result = subprocess.run(
         [
@@ -540,7 +586,41 @@ def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
     assert lines[2] == "3 3 3"
 
 
+def test_grid_gen_legacy1d_conversion_writes_canonical_picgrid(tmp_path):
+    """Test that grid.gen legacy1d converts headerless 1D-axis payload to canonical PICGRID."""
+    legacy_input = write_legacy_1d_grid(tmp_path / "legacy.grid")
+    output_path = tmp_path / "converted.picgrid"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "grid.gen"),
+            "legacy1d",
+            "--input",
+            str(legacy_input),
+            "--output",
+            str(output_path),
+            "--no-show-stats",
+            "--no-write-vtk",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    lines = output_path.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "PICGRID"
+    assert lines[1] == "1"
+    assert lines[2] == "3 2 2"
+    assert len(lines[3:]) == 12
+    assert lines[3].split() == ["0.00000000e+00", "0.00000000e+00", "0.00000000e+00"]
+    assert lines[-1].split() == ["1.00000000e+00", "1.00000000e+00", "2.00000000e+00"]
+
+
 def test_case_local_symlinked_picurv_prefers_local_binaries(tmp_path):
+    """Test that case local symlinked picurv prefers local binaries."""
     valid = FIXTURES / "valid"
     case_dir = tmp_path / "case_dir"
     case_dir.mkdir()
@@ -586,6 +666,7 @@ def test_case_local_symlinked_picurv_prefers_local_binaries(tmp_path):
 
 
 def test_case_local_copied_picurv_prefers_local_binaries(tmp_path):
+    """Test that case local copied picurv prefers local binaries."""
     valid = FIXTURES / "valid"
     case_dir = tmp_path / "copied_case_dir"
     case_dir.mkdir()
@@ -631,6 +712,7 @@ def test_case_local_copied_picurv_prefers_local_binaries(tmp_path):
 
 
 def test_init_always_copies_full_executable_set(tmp_path):
+    """Test that init always copies full executable set."""
     picurv = load_picurv_module()
     fake_root = tmp_path / "fake_root"
     template_dir = fake_root / "examples" / "demo_case"
@@ -673,6 +755,7 @@ def test_init_always_copies_full_executable_set(tmp_path):
 
 
 def test_empty_enabled_functions_omits_whitelist_and_uses_c_default(tmp_path):
+    """Test that empty enabled functions omits whitelist and uses c default."""
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -713,7 +796,65 @@ def test_empty_enabled_functions_omits_whitelist_and_uses_c_default(tmp_path):
     assert "-profile_config_file" in content
 
 
+def test_generate_solver_control_file_converts_legacy_grid_when_enabled(tmp_path):
+    """Test that file-grid mode can convert legacy payloads via grid.gen before staging grid.run."""
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    legacy_input = write_legacy_1d_grid(tmp_path / "legacy_input.grid")
+    case_cfg["grid"] = {
+        "mode": "file",
+        "source_file": str(legacy_input),
+        "legacy_conversion": {
+            "enabled": True,
+            "format": "legacy1d",
+        },
+    }
+    case_path = tmp_path / "case_legacy_file.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    run_dir = tmp_path / "run_legacy_file"
+    (run_dir / "config").mkdir(parents=True)
+    source_files = {
+        "Case": str(case_path),
+        "Solver": str(valid / "solver.yml"),
+        "Monitor": str(valid / "monitor.yml"),
+    }
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo_run",
+        {
+            "case": case_cfg,
+            "case_path": str(case_path),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        1,
+        monitor_files,
+    )
+
+    grid_run_path = run_dir / "config" / "grid.run"
+    converted_path = run_dir / "config" / "grid.converted.picgrid"
+    assert grid_run_path.is_file()
+    assert converted_path.is_file()
+    lines = grid_run_path.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "PICGRID"
+    assert lines[1] == "1"
+    assert lines[2] == "3 2 2"
+    assert len(lines[3:]) == 12
+
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert f"-grid_file {grid_run_path}" in content
+
+
 def test_particle_console_output_frequency_defaults_to_data_output_frequency(tmp_path):
+    """Test that particle console output frequency defaults to data output frequency."""
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -749,6 +890,7 @@ def test_particle_console_output_frequency_defaults_to_data_output_frequency(tmp
 
 
 def test_validate_rejects_negative_particle_console_output_frequency(tmp_path):
+    """Test that validate rejects negative particle console output frequency."""
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
@@ -773,7 +915,40 @@ def test_validate_rejects_negative_particle_console_output_frequency(tmp_path):
     assert "particle_console_output_frequency" in result.stderr
 
 
+def test_validate_rejects_unknown_legacy_grid_conversion_format(tmp_path):
+    """Test that validate rejects unsupported grid.legacy_conversion.format values."""
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    case_cfg["grid"] = {
+        "mode": "file",
+        "source_file": str(valid / "case.yml"),
+        "legacy_conversion": {
+            "enabled": True,
+            "format": "unknown_legacy_mode",
+        },
+    }
+    case_path = tmp_path / "case_invalid_legacy_format.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "grid.legacy_conversion.format" in result.stderr
+
+
 def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
+    """Test that new profiling config emits explicit timestep flags."""
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -819,6 +994,7 @@ def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
 
 
 def test_restart_from_run_dir_resolves_previous_restart_directory(tmp_path):
+    """Test that restart from run dir resolves previous restart directory."""
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -881,6 +1057,7 @@ def test_restart_from_run_dir_resolves_previous_restart_directory(tmp_path):
 
 
 def test_dry_run_local_solver_vs_post_proc_counts():
+    """Test that dry run local solver vs post proc counts."""
     valid = FIXTURES / "valid"
     result = run_picurv(
         [
@@ -912,6 +1089,7 @@ def test_dry_run_local_solver_vs_post_proc_counts():
 
 
 def test_dry_run_cluster_post_is_single_task(tmp_path):
+    """Test that dry run cluster post is single task."""
     valid = FIXTURES / "valid"
     cluster_override = tmp_path / "cluster_tmp_ntasks4.yml"
     cluster_override.write_text(
@@ -974,6 +1152,7 @@ def test_dry_run_cluster_post_is_single_task(tmp_path):
 
 
 def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_path):
+    """Test that cluster no submit manifest and scripts use stage specific counts."""
     valid = FIXTURES / "valid"
     cluster_override = tmp_path / "cluster_tmp_ntasks4.yml"
     cluster_override.write_text(
@@ -1050,6 +1229,7 @@ def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_pa
 
 
 def test_markdown_link_checker_passes():
+    """Test that markdown link checker passes."""
     checker = REPO_ROOT / "scripts" / "check_markdown_links.py"
     result = subprocess.run(
         [sys.executable, str(checker)],

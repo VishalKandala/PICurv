@@ -1,10 +1,12 @@
 @page 31_Momentum_Solvers Momentum Solver Implementations
 
+@anchor _Momentum_Solvers
+
 This page tracks momentum-solver options accepted by the current configuration and their runtime implementation status.
 
 @tableofcontents
 
-@section selection_sec 1. Selection and Dispatch
+@section p31_selection_sec 1. Selection and Dispatch
 
 Runtime selection is controlled by `-mom_solver_type`, produced from `solver.yml` (`strategy.momentum_solver`).
 Dispatch currently happens in function @ref FlowSolver within the step orchestrator.
@@ -18,12 +20,12 @@ Only implemented values are exposed in the enum, parser, and dispatcher. New
 solver values should be added only with a real implementation plus matching
 parser, docs, and test updates.
 
-@section status_sec 2. Implementation Status Matrix
+@section p31_status_sec 2. Implementation Status Matrix
 
 - `EXPLICIT_RK`: implemented by @ref MomentumSolver_Explicit_RungeKutta4
 - `DUALTIME_PICARD_RK4`: implemented by @ref MomentumSolver_DualTime_Picard_RK4
 
-@section controls_sec 3. Numerical Controls In Use
+@section p31_controls_sec 3. Numerical Controls In Use
 
 Main controls consumed by implemented solvers:
 
@@ -37,7 +39,7 @@ Main controls consumed by implemented solvers:
 
 Defaults and final option ingestion are in function @ref CreateSimulationContext during startup parsing.
 
-@section extension_sec 4. Adding A New Momentum Solver
+@section p31_extension_sec 4. Adding A New Momentum Solver
 
 Required steps:
 
@@ -53,3 +55,26 @@ For user-facing contract updates, also update:
 - **@subpage 14_Config_Contract**
 - **@subpage 40_Testing_and_Quality_Guide**
 - **@subpage 50_Modular_Selector_Extension_Guide**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Momentum Solver Implementations** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

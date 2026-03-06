@@ -1,6 +1,8 @@
 # Bent Channel Example Guide
 
-This example demonstrates file-based curvilinear-grid workflow (`grid.mode: file`).
+This example demonstrates the file-based curvilinear-grid workflow (`grid.mode: file`) and is the baseline template for users who need to run on externally generated/curated grids.
+
+Compared with programmatic-grid examples, this case is useful for understanding grid ingestion, metadata consistency, and curved-geometry boundary behavior in a realistic setup.
 
 ## Included Files
 
@@ -24,13 +26,20 @@ This example demonstrates file-based curvilinear-grid workflow (`grid.mode: file
   --post my_bent_case/standard_analysis.yml
 ```
 
-This case expects `grid.source_file: bent_channel_coarse.picgrid`, which is bundled in the template.
+This case expects `grid.source_file: bent_channel_coarse.picgrid`, which is bundled with the template.
 
 ## Recommended Uses
 
-- validating file-grid ingestion path,
+- validating the file-grid ingestion path,
 - checking BC behavior on curved geometry,
-- testing timestep sensitivity studies.
+- testing timestep sensitivity studies,
+- establishing a reference for imported production grids.
+
+## Common Pitfalls
+
+- Moving YAML files without moving associated `.picgrid`/metadata files.
+- Changing decomposition or dimensions inconsistently with grid metadata.
+- Interpreting pressure/projection instability as purely solver-tolerance issues when grid quality is the root cause.
 
 ## Related Docs
 

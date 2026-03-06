@@ -92,7 +92,7 @@ typedef struct VTKFieldInfo VTKFieldInfo;
 typedef struct VTKMetaData VTKMetaData;
 typedef struct IBMInfo IBMInfo;
 typedef struct SurfElmtInfo SurfElmtInfo;
-typedef struct ScalingCtx; 
+typedef struct ScalingCtx ScalingCtx;
 
 // --- Foundational Geometric and Data Types ---
 
@@ -284,7 +284,7 @@ typedef struct BoundaryCondition {
     PetscErrorCode (*Initialize)(BoundaryCondition *self, BCContext *ctx);
     PetscErrorCode (*PreStep)(BoundaryCondition *self, BCContext *ctx, PetscReal *local_inflow, PetscReal *local_outflow);
     PetscErrorCode (*Apply)(BoundaryCondition *self, BCContext *ctx);
-    PetscErrorCode (*PostStep)(BoundaryCondition *self, BCContext *ctx, ...);
+    PetscErrorCode (*PostStep)(BoundaryCondition *self, BCContext *ctx, PetscReal *local_inflow, PetscReal *local_outflow);
     PetscErrorCode (*UpdateUbcs)(BoundaryCondition *self,BCContext *ctx);
     PetscErrorCode (*Destroy)(BoundaryCondition *self);
 } BoundaryCondition;

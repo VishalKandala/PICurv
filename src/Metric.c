@@ -18,17 +18,17 @@
 #define __FUNCT__ "MetricGetCellVertices"
 /* ------------------------------------------------------------------------- */
 /**
- * @brief Extract the eight vertex coordinates of the hexahedral cell (i,j,k).
- *
- * Vertices are returned in the standard trilinear ordering: bit 0 → x-corner,
- * bit 1 → y-corner, bit 2 → z-corner.  (000 = origin of the cell, 111 = far
- * corner.)
+ * @brief Implementation of \ref MetricGetCellVertices().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricGetCellVertices()
  */
 PetscErrorCode MetricGetCellVertices(UserCtx *user,
                                      const Cmpnts ***X,   /* coord array */
                                      PetscInt i,PetscInt j,PetscInt k,
                                      Cmpnts V[8])
 {
+  (void)user;
   PetscFunctionBeginUser;
   for (PetscInt c = 0; c < 8; ++c) {
     PetscInt ii = i + ((c & 1) ? 1 : 0);
@@ -45,11 +45,8 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
 
 /* ------------------------------------------------------------------------- */
 /**
- * @brief Map logical coordinates to physical space using trilinear basis.
- *
- * @param[in]   V   Array of the eight vertex coordinates (MetricGetCellVertices).
- * @param[in]   xi,eta,zta  Logical coordinates in [0,1].
- * @param[out]  Xp  Physical coordinate.
+ * @brief Internal helper implementation: `TrilinearBlend()`.
+ * @details Local to this translation unit.
  */
 static inline void TrilinearBlend(const Cmpnts V[8],
                                   PetscReal xi,PetscReal eta,PetscReal zta,
@@ -68,11 +65,14 @@ static inline void TrilinearBlend(const Cmpnts V[8],
 }
 
 
-#undef _FUNCT__
+#undef __FUNCT__
 #define __FUNCT__ "MetricLogicalToPhysical"
 /* ------------------------------------------------------------------------- */
 /**
- * @brief Public wrapper: map (cell index, ξ,η,ζ) to (x,y,z).
+ * @brief Implementation of \ref MetricLogicalToPhysical().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricLogicalToPhysical()
  */
 PetscErrorCode MetricLogicalToPhysical(UserCtx  *user,
                                        const Cmpnts ***X,
@@ -98,14 +98,10 @@ PetscErrorCode MetricLogicalToPhysical(UserCtx  *user,
 #define __FUNCT__ "MetricJacobian"
 /* ------------------------------------------------------------------------- */
 /**
- * @brief Compute Jacobian matrix and its determinant at (xi,eta,zta).
- *
- *        J = [ x_ξ  x_η  x_ζ ]
- *            [ y_ξ  y_η  y_ζ ]
- *            [ z_ξ  z_η  z_ζ ]
- *
- * This is handy for converting physical velocities (u,v,w) into contravariant
- * components and for volume weighting.
+ * @brief Implementation of \ref MetricJacobian().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricJacobian()
  */
 PetscErrorCode MetricJacobian(UserCtx *user,
                               const Cmpnts ***X,
@@ -162,7 +158,10 @@ PetscErrorCode MetricJacobian(UserCtx *user,
 #define __FUNCT__ "MetricVelocityContravariant"
 /* ------------------------------------------------------------------------- */
 /**
- * @brief Convert physical velocity (u,v,w) to contravariant components (u^xi, u^eta, u^zta).
+ * @brief Implementation of \ref MetricVelocityContravariant().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricVelocityContravariant()
  */
 PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3], PetscReal detJ,
                                            const PetscReal u[3], PetscReal uc[3])
@@ -198,16 +197,8 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3], PetscReal de
 #undef __FUNCT__
 #define __FUNCT__ "InvertCovariantMetricTensor"
 /**
- * @brief Inverts the 3x3 covariant metric tensor to obtain the contravariant metric tensor.
- *
- * In curvilinear coordinates, the input matrix `g` contains the dot products of the
- * covariant basis vectors (e.g., g_ij = e_i . e_j). Its inverse, `G`, is the
- * contravariant metric tensor, which is essential for transforming vectors and tensors
- * between coordinate systems.
- *
- * @param covariantTensor   Input: A 3x3 matrix representing the covariant metric tensor.
- * @param contravariantTensor Output: A 3x3 matrix where the inverted result is stored.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `InvertCovariantMetricTensor()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double contravariantTensor[3][3])
 {
@@ -240,19 +231,8 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
 #undef __FUNCT__
 #define __FUNCT__ "CalculateFaceNormalAndArea"
 /**
- * @brief Computes the unit normal vectors and areas of the three faces of a computational cell.
- *
- * Given the metric vectors (csi, eta, zet), this function calculates the geometric
- * properties of the cell faces aligned with the i, j, and k directions.
- *
- * @param csi, eta, zet  The metric vectors at the cell center.
- * @param ni  Output: A 3-element array for the unit normal vector of the i-face.
- * @param nj  Output: A 3-element array for the unit normal vector of the j-face.
- * @param nk  Output: A 3-element array for the unit normal vector of the k-face.
- * @param Ai  Output: Pointer to store the area of the i-face.
- * @param Aj  Output: Pointer to store the area of the j-face.
- * @param Ak  Output: Pointer to store the area of the k-face.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `CalculateFaceNormalAndArea()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak)
 {
@@ -297,18 +277,8 @@ PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, do
 #undef __FUNCT__
 #define __FUNCT__ "ComputeCellCharacteristicLengthScale"
 /**
- * @brief Computes characteristic length scales (dx, dy, dz) for a curvilinear cell.
- *
- * For a non-uniform, non-orthogonal cell, there is no single "dx". This function
- * computes an effective length scale in each Cartesian direction based on the cell
- * volume and the areas of its faces.
- *
- * @param ajc       The Jacobian of the grid transformation (1 / cell volume).
- * @param csi, eta, zet  The metric vectors at the cell center.
- * @param dx             Output: Pointer to store the characteristic length in the x-direction.
- * @param dy             Output: Pointer to store the characteristic length in the y-direction.
- * @param dz             Output: Pointer to store the characteristic length in the z-direction.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ComputeCellCharacteristicLengthScale()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz)
 {
@@ -338,32 +308,8 @@ PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, C
 #define __FUNCT__ "CheckAndFixGridOrientation"
 /* -------------------------------------------------------------------------- */
 /**
- * @brief Ensure a **right-handed** metric basis (`Csi`, `Eta`, `Zet`) and a
- *        **positive Jacobian** (`Aj`) over the whole domain.
- *
- * The metric-generation kernels are completely algebraic, so they will happily
- * deliver a *left-handed* basis if the mesh file enumerates nodes in the
- * opposite ζ-direction.  
- * This routine makes the orientation explicit and—if needed—repairs it
- * **once per run**:
- *
- * | Step | Action |
- * |------|--------|
- * | 1 | Compute global `Aj_min`, `Aj_max`.                          |
- * | 2 | **Mixed signs** (`Aj_min < 0 && Aj_max > 0`) &rarr; abort: the mesh is topologically inconsistent. |
- * | 3 | **All negative** (`Aj_max < 0`) &rarr; flip <br>`Csi`, `Eta`, `Zet`, `Aj` & update local ghosts. |
- * | 4 | Store `user->orientation = ±1` so BC / IC routines can apply sign-aware logic if they care about inlet direction. |
- *
- * @param[in,out] user  Fully initialised #UserCtx that already contains  
- *                      `Csi`, `Eta`, `Zet`, `Aj`, their **local** ghosts, and
- *                      valid distributed DMs.
- *
- * @return `0` on success or a PETSc error code on failure.
- *
- * @note  Call **immediately after** `ComputeCellCenteredJacobianInverse()` and
- *        before any routine that differentiates or applies BCs.
- *
- * @author vishal kandala
+ * @brief Internal helper implementation: `CheckAndFixGridOrientation()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
 {
@@ -440,14 +386,8 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ApplyPeriodicCorrectionsToCellCentersAndSpacing"
 /**
- * @brief Applies periodic boundary corrections to cell centers (Cent) and grid spacing (GridSpace).
- *
- * This function handles the special logic needed when periodic boundaries are present.
- * For coarse grids (cgrid), it directly copies from ghost regions. For fine grids,
- * it calculates the boundary values using the GridSpace information.
- *
- * @param user The UserCtx containing grid and field data.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToCellCentersAndSpacing()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user)
 {
@@ -645,13 +585,8 @@ PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ApplyPeriodicCorrectionsToIFaceCenter"
 /**
- * @brief Applies periodic boundary corrections to i-face centers (Centx).
- *
- * Only X-direction periodicity affects Centx. This function must be called
- * after Centx has been initially computed but before it's used for metric calculations.
- *
- * @param user The UserCtx containing grid and field data.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToIFaceCenter()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
 {
@@ -659,7 +594,6 @@ PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
     DMDALocalInfo  info = user->info;
     PetscInt       xs = info.xs, xe = info.xs + info.xm;
     PetscInt       mx = info.mx;
-    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
     PetscInt       gys = info.gys, gye = info.gys + info.gym;
     PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
     Cmpnts       ***centx, ***gs;
@@ -731,13 +665,8 @@ PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ApplyPeriodicCorrectionsToJFaceCenter"
 /**
- * @brief Applies periodic boundary corrections to j-face centers (Centy).
- *
- * Only Y-direction periodicity affects Centy. This function must be called
- * after Centy has been initially computed but before it's used for metric calculations.
- *
- * @param user The UserCtx containing grid and field data.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToJFaceCenter()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
 {
@@ -746,7 +675,6 @@ PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
     PetscInt       ys = info.ys, ye = info.ys + info.ym;
     PetscInt       my = info.my;
     PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
-    PetscInt       gys = info.gys, gye = info.gys + info.gym;
     PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
     Cmpnts       ***centy, ***gs;
 
@@ -817,13 +745,8 @@ PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ApplyPeriodicCorrectionsToKFaceCenter"
 /**
- * @brief Applies periodic boundary corrections to k-face centers (Centz).
- *
- * Only Z-direction periodicity affects Centz. This function must be called
- * after Centz has been initially computed but before it's used for metric calculations.
- *
- * @param user The UserCtx containing grid and field data.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToKFaceCenter()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
 {
@@ -833,7 +756,6 @@ PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
     PetscInt       mz = info.mz;
     PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
     PetscInt       gys = info.gys, gye = info.gys + info.gym;
-    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
     Cmpnts       ***centz, ***gs;
 
     PetscFunctionBeginUser;
@@ -902,56 +824,8 @@ PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeFaceMetrics"
 /**
- * @brief Computes the primary face metric components (Csi, Eta, Zet), including
- *        boundary extrapolation, and stores them in the corresponding global Vec
- *        members of the UserCtx structure (user->Csi, user->Eta, user->Zet).
- *
- *        This is a self-contained routine that performs the following steps:
- *        1. Obtains local ghosted nodal coordinates using DMGetCoordinatesLocal.
- *        2. Calculates metrics for INTERIOR faces where finite difference stencils are valid.
- *        3. EXTRAPOLATES metrics for faces on the physical domain boundaries by copying
- *           from the nearest computed interior face.
- *        4. Assembles the global `user->Csi`, `user->Eta`, `user->Zet` Vecs.
- *        5. Updates the local ghosted `user->lCsi`, `user->lEta`, `user->lZet` Vecs.
- * * @details
- * This function calculates the face area vectors, which are fundamental to the finite volume
- * method on a curvilinear grid. The process is performed in two main stages to ensure
- * robustness and correctness across the entire domain, including physical boundaries.
- *
- * **Stage 1: Interior Face Calculation**
- * The core of the function uses centered finite-difference stencils on the nodal coordinates (`coor`)
- * to compute the metric terms. For example, `csi` at a node `(k,j,i)` is calculated using a
- * 2x2 stencil of nodes in the J-K plane.
- *
- * Crucially, these stencils are only valid for **interior nodes/faces** where all required neighboring
- * nodes exist. The loops are intentionally constructed (e.g., `i_loop_start = 1`) to skip the
- * calculation directly on the domain's physical boundaries (e.g., at i=0, j=0, etc.), as the
- * stencil would require out-of-bounds data.
- *
- * **Stage 2: Boundary Face Extrapolation**
- * After the interior metrics are computed, the values for the faces lying on the physical
- * boundaries of the domain are populated. This is done via zero-order extrapolation, which
- * simply means **copying the values from the nearest valid interior face layer.**
- *
- * For example, on a rank owning the global `i=0` boundary, `zet_arr[k][j][0]` is explicitly set to
- * be equal to `zet_arr[k][j][1]`. Similarly, on a rank owning the `i=mx-1` boundary,
- * `zet_arr[k][j][mx-1]` is set to `zet_arr[k][j][mx-2]`.
- *
- * This two-stage approach ensures that every node in the physical domain, including the
- * boundaries, has a valid metric value associated with it.
- *
- * The function concludes by assembling the global PETSc vectors and updating the local ghosted
- * versions, making the computed metrics ready for use by the solver.
- *
- * @param[in,out] user             Pointer to the UserCtx structure.
- *
- * @return PetscErrorCode 0 on success.
- *
- * @note
- *  - This function is a complete "compute and make ready" unit for Csi, Eta, and Zet.
- *  - It's recommended to call `VecZeroEntries` on user->Csi, Eta, Zet before this
- *    if they might contain old data.
- * - Csi,Eta,Zeta are face centered quantities which represent the surface area in magnitude and the direction of positive computational coordinate increase in direction.
+ * @brief Internal helper implementation: `ComputeFaceMetrics()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeFaceMetrics(UserCtx *user)
 {
@@ -1160,13 +1034,10 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeCellCenteredJacobianInverse"
 /**
- * @brief Calculates the cell-centered inverse Jacobian determinant (1/J), including
- *        boundary extrapolation, stores it in `user->Aj`, assembles `user->Aj`, and
- *        updates `user->lAj`.
- *
- * @param[in,out] user             Pointer to the UserCtx structure.
- *
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref ComputeCellCenteredJacobianInverse().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see ComputeCellCenteredJacobianInverse()
  */
 PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
 {
@@ -1309,19 +1180,8 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeCellCentersAndSpacing"
 /**
- * @brief Computes the physical location of cell centers and the spacing between them.
- *
- * This function calculates two key geometric properties from the nodal coordinates:
- * 1.  `Cent`: A vector field storing the (x,y,z) coordinates of the center of each grid cell.
- * 2.  `GridSpace`: A vector field storing the physical distance between adjacent
- *     cell centers in the i, j, and k computational directions.
- *
- * It is a direct adaptation of the corresponding logic from the legacy `FormMetrics`.
- *
- * @param user The UserCtx for a specific grid level. The function populates `user->Cent` and `user->GridSpace`.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
- * 
- * @note Grid Spacing represents the vector connecting two adjacent grid cell faces. It is a vector whose magnitude gives the distance between two faces and direction is from one face center to the other.
+ * @brief Internal helper implementation: `ComputeCellCentersAndSpacing()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
 {
@@ -1423,29 +1283,8 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeIFaceMetrics"
 /**
- * @brief Computes metrics centered on constant-i faces (i-faces).
- *
- * This function calculates the metric terms (`ICsi`, `IEta`, `IZet`) and the
- * inverse Jacobian (`IAj`) located at the geometric center of each constant-i
- * face. This is a critical step for staggered-grid finite difference schemes.
- *
- * The process is a direct and faithful refactoring of the corresponding logic
- * from the legacy `FormMetrics` function:
- * 1.  It first calculates the physical (x,y,z) coordinates of the center of
- *     each i-face and stores them in the `user->Centx` vector.
- * 2.  It then uses a boundary-aware, second-order finite difference stencil on
- *     the `Centx` field to compute the derivatives (e.g., d(x)/d(csi)).
- *     - Central differences are used in the grid interior.
- *     - One-sided differences are used at the physical domain boundaries.
- * 3.  Finally, these derivatives are used to compute the final metric terms and
- *     the inverse Jacobian, which are stored in their respective `Vec` objects.
- *
- * @param user The UserCtx for a specific grid level. This function populates
- *             the `user->ICsi`, `user->IEta`, `user->IZet`, and `user->IAj` vectors.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
- * 
- * @note Icsi,Ieta,Izet represent the computational coordinate gradients scaled by local volume inverse ((Iaj)
- *       
+ * @brief Internal helper implementation: `ComputeIFaceMetrics()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 {
@@ -1473,11 +1312,10 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     PetscInt gys = info.gys, gye = info.gys + info.gym;
     PetscInt gzs = info.gzs, gze = info.gzs + info.gzm;
     
-    PetscInt lxs = xs; PetscInt lxe = xe;
+    PetscInt lxe = xe;
     PetscInt lys = ys; PetscInt lye = ye;
     PetscInt lzs = zs; PetscInt lze = ze;
 
-    if (xs==0) lxs = xs+1;
     if (ys==0) lys = ys+1;
     if (zs==0) lzs = zs+1;
 
@@ -1667,27 +1505,8 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeJFaceMetrics"
 /**
- * @brief Computes metrics centered on constant-j faces (j-faces).
- *
- * This function calculates the metric terms (`JCsi`, `JEta`, `JZet`) and the
- * inverse Jacobian (`JAj`) located at the geometric center of each constant-j
- * face. This is a critical step for staggered-grid finite difference schemes.
- *
- * The process is a direct and faithful refactoring of the corresponding logic
- * from the legacy `FormMetrics` function:
- * 1.  It first calculates the physical (x,y,z) coordinates of the center of
- *     each i-face and stores them in the `user->Centy` vector.
- * 2.  It then uses a boundary-aware, second-order finite difference stencil on
- *     the `Centy` field to compute the derivatives (e.g., d(x)/d(csi)).
- *     - Central differences are used in the grid interior.
- *     - One-sided differences are used at the physical domain boundaries.
- * 3.  Finally, these derivatives are used to compute the final metric terms and
- *     the inverse Jacobian, which are stored in their respective `Vec` objects.
- *
- * @param user The UserCtx for a specific grid level. This function populates
- *             the `user->JCsi`, `user->JEta`, `user->JZet`, and `user->JAj` vectors.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
- * @note Jcsi,Jeta,Jzet represent the computational coordinate gradients scaled by local volume inverse ((Jaj)
+ * @brief Internal helper implementation: `ComputeJFaceMetrics()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
 {
@@ -1716,11 +1535,10 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     PetscInt gzs = info.gzs, gze = info.gzs + info.gzm;
     
     PetscInt lxs = xs; PetscInt lxe = xe;
-    PetscInt lys = ys; PetscInt lye = ye;
+    PetscInt lye = ye;
     PetscInt lzs = zs; PetscInt lze = ze;
 
     if (xs==0) lxs = xs+1;
-    if (ys==0) lys = ys+1;
     if (zs==0) lzs = zs+1;
 
     if (xe==mx) lxe=xe-1;
@@ -1895,27 +1713,8 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeJFaceMetrics"
 /**
- * @brief Computes metrics centered on constant-k faces (k-faces).
- *
- * This function calculates the metric terms (`KCsi`, `KEta`, `KZet`) and the
- * inverse Jacobian (`KAj`) located at the geometric center of each constant-k
- * face. This is a critical step for staggered-grid finite difference schemes.
- *
- * The process is a direct and faithful refactoring of the corresponding logic
- * from the legacy `FormMetrics` function:
- * 1.  It first calculates the physical (x,y,z) coordinates of the center of
- *     each i-face and stores them in the `user->Centz` vector.
- * 2.  It then uses a boundary-aware, second-order finite difference stencil on
- *     the `Centz` field to compute the derivatives (e.g., d(x)/d(csi)).
- *     - Central differences are used in the grid interior.
- *     - One-sided differences are used at the physical domain boundaries.
- * 3.  Finally, these derivatives are used to compute the final metric terms and
- *     the inverse Jacobian, which are stored in their respective `Vec` objects.
- *
- * @param user The UserCtx for a specific grid level. This function populates
- *             the `user->KCsi`, `user->KEta`, `user->KZet`, and `user->KAj` vectors.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
- * @note Kcsi,Keta,Kzet represent the computational coordinate gradients scaled by local volume inverse ((Kaj)
+ * @brief Internal helper implementation: `ComputeKFaceMetrics()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
 {
@@ -1945,11 +1744,10 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     
     PetscInt lxs = xs; PetscInt lxe = xe;
     PetscInt lys = ys; PetscInt lye = ye;
-    PetscInt lzs = zs; PetscInt lze = ze;
+    PetscInt lze = ze;
 
     if (xs==0) lxs = xs+1;
     if (ys==0) lys = ys+1;
-    if (zs==0) lzs = zs+1;
 
     if (xe==mx) lxe=xe-1;
     if (ye==my) lye=ye-1;
@@ -1963,8 +1761,6 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
 
     // Loop over the ghosted region to calculate all local face centers
     // To ensure we don't mistakenly calculate unused/dummy elements along non-dominant directions.
-    PetscInt i_end = (xe == mx)? mx - 1:gxe;
-    PetscInt j_end = (ye == my)? my - 1:gye;
     for (PetscInt k = gzs; k < gze; k++) {
         for (PetscInt j = gys; j < gye; j++) {
             for (PetscInt i = gxs + 1; i < gxe; i++) {
@@ -2138,16 +1934,8 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeMetricsDivergence"
 /**
- * @brief Computes the divergence of the grid metrics and identifies the maximum value.
- *
- * This function serves as a diagnostic tool to assess the quality of the grid
- * metrics. It calculates the divergence of the face metrics (Csi, Eta, Zet)
- * and scales it by the inverse of the cell Jacobian. The maximum divergence
- * value is then located, and its grid coordinates are printed to the console,
- * helping to pinpoint areas of potential grid quality issues.
- *
- * @param user The UserCtx, containing all necessary grid data.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `ComputeMetricsDivergence()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
 {
@@ -2208,9 +1996,9 @@ PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
 
   DMDAVecRestoreArray(da, Div, &div);
 
-  PetscReal MaxFlatIndex;
+  PetscInt MaxFlatIndex = -1;
   VecMax(Div, &MaxFlatIndex, &maxdiv);
-  LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence is %e at flat index %d.\n",maxdiv,MaxFlatIndex);
+  LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence is %e at flat index %" PetscInt_FMT ".\n",maxdiv,MaxFlatIndex);
 
   for (k=zs; k<ze; k++) {
     for (j=ys; j<ye; j++) {
@@ -2238,13 +2026,8 @@ PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeMetricNorms"
 /**
- * @brief Computes the max-min values of the grid metrics.
- *
- * This function serves as a diagnostic tool to assess the quality of the grid
- * metrics. It calculates the bounds of the face metrics (Csi, Eta, Zet).
- *
- * @param user The UserCtx, containing all necessary grid data.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `ComputeMetricNorms()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeMetricNorms(UserCtx *user)
 {
@@ -2375,15 +2158,8 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeAllGridMetrics"
 /**
- * @brief Orchestrates the calculation of all grid metrics.
- *
- * This function iterates through every UserCtx in the multigrid and multi-block
- * hierarchy. For each context, it calls a series of modern, modular helper
- * functions to compute the face metrics (Csi, Eta, Zet), the cell-centered
- * inverse Jacobian (Aj), and to validate the grid's orientation.
- *
- * @param simCtx The master SimCtx, containing the configured UserCtx hierarchy.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `CalculateAllGridMetrics()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
 {
@@ -2432,4 +2208,3 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
 }
 /* ------------------------------------------------------------------------- */
 /* End of Metric.c */
-

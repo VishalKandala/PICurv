@@ -10,6 +10,7 @@ LINK_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)|\[[^\]]*\
 
 
 def iter_markdown_files(repo_root: Path):
+    """Perform iter markdown files."""
     yield repo_root / "README.md"
     for md in sorted((repo_root / "docs").rglob("*.md")):
         if "docs_build" in md.parts:
@@ -20,6 +21,7 @@ def iter_markdown_files(repo_root: Path):
 
 
 def should_skip_link(target: str) -> bool:
+    """Perform should skip link."""
     lower = target.lower()
     return (
         lower.startswith("http://")
@@ -30,11 +32,13 @@ def should_skip_link(target: str) -> bool:
 
 
 def normalize_target(raw_target: str) -> str:
+    """Normalize target."""
     cleaned = raw_target.strip().strip("<>").split("#", 1)[0].split("?", 1)[0]
     return cleaned
 
 
 def main() -> int:
+    """Entry point for this script."""
     repo_root = Path(__file__).resolve().parents[1]
     failures = []
 

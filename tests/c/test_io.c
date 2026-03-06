@@ -1,8 +1,17 @@
+/**
+ * @file test_io.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "io.h"
 
 #include <stdio.h>
+#include <string.h>
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestShouldWriteDataOutput(void)
 {
@@ -17,6 +26,9 @@ static PetscErrorCode TestShouldWriteDataOutput(void)
     PetscCall(PicurvAssertBool(ShouldWriteDataOutput(&simCtx, 10), "cadence-aligned step should trigger output"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestVerifyPathExistence(void)
 {
@@ -41,6 +53,9 @@ static PetscErrorCode TestVerifyPathExistence(void)
     PetscCall(PicurvAssertBool(exists, "VerifyPathExistence should find the temp file"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestWriteAndReadSimulationFields(void)
 {
@@ -76,6 +91,9 @@ static PetscErrorCode TestWriteAndReadSimulationFields(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestParsePostProcessingSettings(void)
 {
@@ -112,6 +130,101 @@ static PetscErrorCode TestParsePostProcessingSettings(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestTrimWhitespace(void)
+{
+    char value_a[] = "   inlet_value   ";
+    char value_b[] = "   ";
+
+    PetscFunctionBeginUser;
+    TrimWhitespace(value_a);
+    PetscCall(PicurvAssertBool((PetscBool)(strcmp(value_a, "inlet_value") == 0),
+                               "TrimWhitespace should remove leading and trailing whitespace"));
+
+    TrimWhitespace(value_b);
+    PetscCall(PicurvAssertBool((PetscBool)(strcmp(value_b, "") == 0),
+                               "TrimWhitespace should reduce all-whitespace strings to empty"));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestBoundaryConditionStringParsers(void)
+{
+    BCFace face = BC_FACE_NEG_X;
+    BCType type = WALL;
+    BCHandlerType handler = BC_HANDLER_WALL_NOSLIP;
+
+    PetscFunctionBeginUser;
+    PetscCall(StringToBCFace("+Zeta", &face));
+    PetscCall(PicurvAssertIntEqual(BC_FACE_POS_Z, face, "StringToBCFace should parse +Zeta"));
+
+    PetscCall(StringToBCType("periodic", &type));
+    PetscCall(PicurvAssertIntEqual(PERIODIC, type, "StringToBCType should parse PERIODIC case-insensitively"));
+
+    PetscCall(StringToBCHandlerType("constant_flux", &handler));
+    PetscCall(PicurvAssertIntEqual(BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX, handler,
+                                   "StringToBCHandlerType should parse constant_flux"));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestValidateBCHandlerForBCType(void)
+{
+    PetscFunctionBeginUser;
+    PetscCall(PicurvAssertBool((PetscBool)(ValidateBCHandlerForBCType(WALL, BC_HANDLER_WALL_NOSLIP) == 0),
+                               "WALL + noslip should be a valid combination"));
+    PetscCall(PicurvAssertBool((PetscBool)(ValidateBCHandlerForBCType(PERIODIC, BC_HANDLER_PERIODIC_GEOMETRIC) == 0),
+                               "PERIODIC + geometric should be a valid combination"));
+    PetscCall(PicurvAssertBool((PetscBool)(ValidateBCHandlerForBCType(INLET, BC_HANDLER_WALL_NOSLIP) != 0),
+                               "INLET + noslip should be rejected"));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestParseScalingInformation(void)
+{
+    SimCtx simCtx;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
+
+    PetscCall(PetscOptionsClearValue(NULL, "-scaling_L_ref"));
+    PetscCall(PetscOptionsClearValue(NULL, "-scaling_U_ref"));
+    PetscCall(PetscOptionsClearValue(NULL, "-scaling_rho_ref"));
+
+    PetscCall(ParseScalingInformation(&simCtx));
+    PetscCall(PicurvAssertRealNear(1.0, simCtx.scaling.L_ref, 1.0e-12, "Default scaling_L_ref should be 1.0"));
+    PetscCall(PicurvAssertRealNear(1.0, simCtx.scaling.U_ref, 1.0e-12, "Default scaling_U_ref should be 1.0"));
+    PetscCall(PicurvAssertRealNear(1.0, simCtx.scaling.rho_ref, 1.0e-12, "Default scaling_rho_ref should be 1.0"));
+    PetscCall(PicurvAssertRealNear(1.0, simCtx.scaling.P_ref, 1.0e-12, "Default scaling_P_ref should be 1.0"));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-scaling_L_ref", "2.5"));
+    PetscCall(PetscOptionsSetValue(NULL, "-scaling_U_ref", "4.0"));
+    PetscCall(PetscOptionsSetValue(NULL, "-scaling_rho_ref", "1.2"));
+
+    PetscCall(ParseScalingInformation(&simCtx));
+    PetscCall(PicurvAssertRealNear(2.5, simCtx.scaling.L_ref, 1.0e-12, "scaling_L_ref should honor options"));
+    PetscCall(PicurvAssertRealNear(4.0, simCtx.scaling.U_ref, 1.0e-12, "scaling_U_ref should honor options"));
+    PetscCall(PicurvAssertRealNear(1.2, simCtx.scaling.rho_ref, 1.0e-12, "scaling_rho_ref should honor options"));
+    PetscCall(PicurvAssertRealNear(19.2, simCtx.scaling.P_ref, 1.0e-12, "scaling_P_ref should be rho_ref*U_ref^2"));
+
+    PetscCall(PetscOptionsClearValue(NULL, "-scaling_L_ref"));
+    PetscCall(PetscOptionsClearValue(NULL, "-scaling_U_ref"));
+    PetscCall(PetscOptionsClearValue(NULL, "-scaling_rho_ref"));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {
@@ -121,6 +234,10 @@ int main(int argc, char **argv)
         {"verify-path-existence", TestVerifyPathExistence},
         {"write-and-read-simulation-fields", TestWriteAndReadSimulationFields},
         {"parse-post-processing-settings", TestParsePostProcessingSettings},
+        {"trim-whitespace", TestTrimWhitespace},
+        {"bc-string-parsers", TestBoundaryConditionStringParsers},
+        {"validate-bc-handler-for-type", TestValidateBCHandlerForBCType},
+        {"parse-scaling-information", TestParseScalingInformation},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv I/O tests");

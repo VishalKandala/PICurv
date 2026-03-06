@@ -1,19 +1,26 @@
 # Logs Guide
 
-This directory stores generated logs and warning outputs used during development and CI checks.
+This directory stores generated logs and warning outputs used during development and CI diagnostics. It is primarily a troubleshooting workspace for documentation/tooling warnings rather than a location for solver runtime outputs.
 
 ## What Lives Here
 
 - `logs/doxygen.warnings`: Doxygen warning output configured by `docs/Doxyfile`.
 - ad-hoc local logs created by scripts/tools during diagnostics.
 
-Most solver/postprocessor runtime logs are generated under run/study directories rather than here.
+Most solver/postprocessor runtime logs are generated under run/study directories (`runs/`, `studies/`) rather than here.
 
 ## Recommended Workflow
 
-1. Regenerate docs or run tooling.
+1. Regenerate docs or rerun failing tooling.
 2. Inspect warning/log files in this directory.
-3. Fix root causes in source/docs rather than suppressing warnings.
+3. Fix root causes in source/docs/scripts instead of suppressing warnings.
+4. Re-run the generating command to verify warning reduction.
+
+## Log Hygiene Rules
+
+- Do not commit transient local debug logs unless explicitly needed for diagnosis.
+- Keep warning logs interpretable and free of stale, unrelated noise when possible.
+- If a warning class is expected, document why in the relevant guide or changelog.
 
 ## Related Docs
 

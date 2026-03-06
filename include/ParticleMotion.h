@@ -163,8 +163,18 @@ PetscErrorCode IdentifyMigratingParticles(UserCtx *user,
                                         PetscInt *migrationCount,
 					  PetscInt *listCapacity);
 
-// --- Helper function to set migration rank field ---
-// This needs to be called AFTER identifying migrating particles
+/**
+ * @brief Writes migration destinations into the DMSwarm rank field for marked particles.
+ *
+ * This helper consumes the migration list produced by `IdentifyMigratingParticles`
+ * and updates each selected particle's destination rank so that a subsequent
+ * `PerformMigration` call can transfer ownership correctly.
+ *
+ * @param[in,out] user           Context containing the swarm and migration rank field.
+ * @param[in]     migrationList  Array of migration directives (local index + destination rank).
+ * @param[in]     migrationCount Number of valid entries in `migrationList`.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode SetMigrationRanks(UserCtx* user, const MigrationInfo *migrationList, PetscInt migrationCount);
 
 /**
@@ -191,8 +201,17 @@ PetscErrorCode PerformMigration(UserCtx *user);
  */
 PetscErrorCode CalculateParticleCountPerCell(UserCtx *user);
 
-// --- Helper function to resize swarm globally (add or remove) ---
-// This assumes removing excess particles means removing the globally last ones.
+/**
+ * @brief Resizes a swarm collectively to a target global particle count.
+ *
+ * If particles are removed, the current implementation trims from the global tail
+ * ordering. If particles are added, new entries are created according to PETSc
+ * DMSwarm resize semantics.
+ *
+ * @param[in,out] swarm    Swarm object to resize.
+ * @param[in]     N_target Target global particle count.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target);
 
 /**
@@ -204,15 +223,11 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target);
  * resizes the swarm globally (adds or removes particles) to match `N_file`.
  * Removal assumes excess particles are the globally last ones.
  *
- * @param[in,out] user      Pointer to the UserCtx structure containing the DMSwarm.
- * @param[in]     fieldName Name of the reference field (e.g., "position").
- * @param[in]     ti        Time index for constructing the file name.
- * @param[in]     ext       File extension (e.g., "dat").
- * @param[out]    skipStep  Pointer to boolean flag, set to PETSC_TRUE if the step
- *                          should be skipped (e.g., file not found), PETSC_FALSE otherwise.
+ * @param[in,out] user Pointer to the UserCtx structure containing the DMSwarm.
+ * @param[in]     ti   Time index for constructing the file name.
+ * @param[in]     ext  File extension (e.g., "dat").
  *
  * @return PetscErrorCode 0 on success, non-zero on critical failure.
- *         If the reference file is not found, returns 0 and sets skipStep = PETSC_TRUE.
  */
 PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user, PetscInt ti, const char *ext);
 
@@ -409,6 +424,8 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user);
 PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist);
 
 /**
+ * @brief Marks all local particles as `NEEDS_LOCATION` for the next settlement pass.
+ *
  * This function is designed to be called at the end of a full timestep, after all
  * particle-based calculations are complete. It prepares the swarm for the next
  * timestep by ensuring that after the next position update, every particle will be

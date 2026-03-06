@@ -19,40 +19,18 @@
 #include "walkingsearch.h"  // Walking search function for particle migration 
 
 /**
- * @brief Updates a single particle's field based on its state and the specified field name.
- *
- * This function serves as a switchboard for various particle property calculations.
- * Given a particle's data, it computes a new value for the specified field.
- *
- * Currently supported fields:
- *  - "Psi": Calculates the particle's kinetic energy (0.5 * |v|^2).
- *
- * @param[in]     fieldName   The name of the field to update (e.g., "Psi").
- * @param[in]     t           The current simulation time.
- * @param[in]     pos         The particle's physical position.
- * @param[in]     vel         The particle's velocity.
- * @param[in,out] psi_io      A pointer to the particle's current Psi value (used for accumulation if needed).
- *
- * @return PetscErrorCode 0 on success.
- */
-//PetscErrorCode UpdateParticleField(const char *fieldName,
-//                                                 PetscReal t,
-//                                                 Cmpnts pos,
-//                                                 Cmpnts vel,
-//                                                 PetscReal *psi_io);
-/**
  * @brief Updates a single particle's field based on its state and physics model.
  *
  * Implements the IEM (Interaction by Exchange with the Mean) model for scalar mixing.
  * 
- * Physics: dPsi/dt = -Omega * (Psi - <Psi>)
- * Solution: Psi_new = <Psi> + (Psi_old - <Psi>) * exp(-Omega * dt)
+ * Physics: dPsi/dt = -Omega * (Psi - Psi_mean)
+ * Solution: Psi_new = Psi_mean + (Psi_old - Psi_mean) * exp(-Omega * dt)
  *
  * @param[in]     fieldName   Name of the field (e.g., "Psi").
  * @param[in]     dt          Time step size.
  * @param[in,out] psi_io      Pointer to the particle's scalar value (Psi).
  * @param[in]     diffusivity Particle diffusivity (Gamma + Gamma_t).
- * @param[in]     mean_val    Local Eulerian mean value (<Psi>).
+ * @param[in]     mean_val    Local Eulerian mean scalar value (Psi_mean).
  * @param[in]     cell_vol    Volume of the host cell (1/Jacobian).
  * @param[in]     C_model     Model constant (C_IEM).
  */

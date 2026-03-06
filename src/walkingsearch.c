@@ -14,14 +14,10 @@
 #undef __FUNCT__
 #define __FUNCT__ "GetCellCharacteristicSize"
 /**
- * @brief Estimates a characteristic length of the cell for threshold scaling.
- *
- * For a hexahedral cell with vertices cell->vertices[0..7], we approximate
- * the cell size by some measure—e.g. average edge length or diagonal.
- * @param[in]  cell A pointer to the Cell structure
- * @param[out] cellSize A pointer to a PetscReal where the characteristic size is stored.
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Implementation of \ref GetCellCharacteristicSize().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see GetCellCharacteristicSize()
  */
 PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize)
 {
@@ -66,45 +62,8 @@ PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeSignedDistanceToPlane"
 /**
- * @brief Computes the signed distance from a point to the plane approximating a quadrilateral face.
- *
- * This function calculates the signed distance from a given point `p_target` to the plane
- * approximating a quadrilateral face defined by points `v1`, `v2`, `v3`, and `v4`.
- * The plane's initial normal is determined using two edge vectors emanating from `v1`
- * (i.e., `v2-v1` and `v4-v1`).
- *
- * **Normal Orientation:**
- * The initial normal's orientation is checked against the cell's interior.
- * A vector from the face centroid to the cell centroid (`vec_face_to_cell_centroid`) is computed.
- * If the dot product of the initial normal and `vec_face_to_cell_centroid` is positive,
- * it means the initial normal is pointing towards the cell's interior (it's an inward normal
- * relative to the cell). In this case, the normal is flipped to ensure it points outward.
- *
- * **Signed Distance Convention:**
- * The signed distance is the projection of the vector from `p_target` to the face's centroid
- * onto the (now guaranteed) outward-pointing plane's normal vector.
- *   - `d_signed < 0`: `p_target` is "outside" and "beyond" the face, in the direction of the outward normal.
- *                     This is the primary case indicating the particle has crossed this face.
- *   - `d_signed > 0`: `p_target` is "outside" but "behind" the face (on the same side as the cell interior
- *                     relative to this face plane).
- *   - `d_signed = 0`: `p_target` is on the face plane (within threshold).
- *
- * @param[in]  v1            First vertex defining the face (used as origin for initial normal calculation).
- * @param[in]  v2            Second vertex defining the face (used for first edge vector: v2-v1).
- * @param[in]  v3            Third vertex defining the face (used for face centroid calculation).
- * @param[in]  v4            Fourth vertex defining the face (used for second edge vector: v4-v1).
- * @param[in]  cell_centroid The centroid of the 8-vertex cell to which this face belongs.
- * @param[in]  p_target      The point from which the distance to the plane is calculated.
- * @param[out] d_signed      Pointer to store the computed signed distance.
- * @param[in]  threshold     The threshold below which the absolute distance is considered zero.
- *
- * @note
- * - The order of vertices `v1, v2, v3, v4` is used for calculating the face centroid.
- *   The order of `v1, v2, v4` is used for the initial normal calculation.
- * - The `cell_centroid` is crucial for robustly determining the outward direction of the normal.
- *
- * @return PetscErrorCode Returns 0 on success, PETSC_ERR_ARG_NULL if `d_signed` is NULL,
- *                        or PETSC_ERR_USER if a degenerate plane (near-zero normal) is detected.
+ * @brief Internal helper implementation: `ComputeSignedDistanceToPlane()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, const Cmpnts v4,
                                             const Cmpnts cell_centroid,const Cmpnts p_target,
@@ -239,45 +198,10 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
 #undef __FUNCT__
 #define __FUNCT__ "CalculateDistancesToCellFaces"
 /**
- * @brief Computes the signed distances from a point to each face of a cubic cell.
- *
- * This function calculates the signed distances from a specified point `p` to each of the six
- * faces of a cubic cell. The cell is defined by its eight vertices, and the distances are
- * stored in the memory location pointed to by `d`. Each distance corresponds to a specific
- * face of the cell, as enumerated by the `Face` enumeration. A threshold value is used to
- * determine when a distance should be considered effectively zero, accounting for floating-point
- * precision limitations.
- *
- * @param[in]  p         The target point in 3D space for which distances to the cell's faces
- *                       are to be calculated. Represented by the `Cmpnts` structure.
- * @param[in]  cell      A pointer to a `Cell` structure that defines the cubic cell via its
- *                       eight vertices. The vertices must be ordered consistently to
- *                       ensure correct normal directions for each face.
- * @param[out] d         A pointer to an array of six `PetscReal` values where the computed
- *                       signed distances will be stored. Each index in the array corresponds
- *                       to a specific face as defined by the `Face` enumeration:
- *                       - d[LEFT]: Distance to the Left Face of the cell.
- *                       - d[RIGHT]: Distance to the Right Face of the cell.
- *                       - d[BOTTOM]: Distance to the Bottom Face of the cell.
- *                       - d[TOP]: Distance to the Top Face of the cell.
- *                       - d[FRONT]: Distance to the Front Face of the cell.
- *                       - d[BACK]: Distance to the Back Face of the cell.
- * @param[in] threshold A `PetscReal` value that specifies the minimum distance below which
- *                       a computed distance is considered to be zero. This helps in
- *                       mitigating issues arising from floating-point arithmetic inaccuracies.
- *
- * @return PetscErrorCode Returns 0 if the function executes successfully. If an error occurs,
- *                        a non-zero error code is returned, indicating the type of failure.
- *
- * @note
- * - The vertices of the cell must be ordered in a counter-clockwise manner when viewed from
- *   outside the cell. This ordering ensures that the normal vectors computed for each face
- *   point outward, which is essential for correctly determining the sign of the distances.
- * - All four vertices defining a face must lie on a non-degenerate (i.e., non-flat) plane.
- *   Degenerate planes can lead to undefined normal vectors and incorrect distance calculations.
- * - The `threshold` parameter provides flexibility in handling cases where the point `p` is
- *   extremely close to a face, allowing the user to define what constitutes "close enough" to
- *   be treated as zero distance based on the specific requirements of their application.
+ * @brief Implementation of \ref CalculateDistancesToCellFaces().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see CalculateDistancesToCellFaces()
  */
 PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, PetscReal *d, const PetscReal threshold)
 {
@@ -406,20 +330,10 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 #undef __FUNCT__
 #define __FUNCT__ "DeterminePointPosition"
 /**
- * @brief Classifies a point based on precomputed face distances.
- *
- * Given an array of six distances d[NUM_FACES] from the point to each face
- * of a hexahedral cell, this function determines:
- *    0 => inside
- *    1 => on a single face
- *    2 => on an edge (2 faces = 0)
- *    3 => on a corner (3+ faces = 0)
- *   -1 => outside
- *
- * @param[in]  d        Array of six face distances.
- * @param[out] result   Pointer to an integer classification: {0,1,2,3,-1}.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref DeterminePointPosition().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see DeterminePointPosition()
  */
 PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
 {
@@ -483,61 +397,10 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
 #undef __FUNCT__
 #define __FUNCT__ "GetCellVerticesFromGrid"
 /**
- * @brief Retrieves the coordinates of the eight vertices of a cell based on grid indices.
- *
- * This function populates the `cell` structure with the coordinates of the eight vertices
- * of a hexahedral cell given its grid indices `(idx, idy, idz)`. The vertex numbering follows
- * the convention depicted in the provided figure:
- *
- * ```
- *               (i,j+1,k)
- *              3---------------------------2(i+1,j+1,k)
- *             /|                          /|
- *            / |                         / |
- *           /  |                        /  |
- *          /   |                       /   |
- *         /    |                      /    |
- *        /     |                     /     |
- *       /      |                    /      |
- *      4-------|------------------5        |
- *      |       |                   |       |
- *      |(i,j+1,k+1)                |       |       
- *      |       |                   |       |
- *      |       0-------------------|-------1 (i+1,j,k)
- *      |       /                   |      /
- *      |      /                    |     /
- *      |     /                     |    /
- *      |    /                      |   /
- *      |   /                       |  /
- *      |  /                        | /
- *      | /                         |/
- *      7---------------------------6
- *      (i,j,k+1)                  (i+1,j,k+1)
- * ```
- *
- * **Vertex Numbering and Positions:**
- * - **Vertex 0**: `(i,   j,   k)`       → `cell->vertices[0]`
- * - **Vertex 1**: `(i+1, j,   k)`       → `cell->vertices[1]`
- * - **Vertex 2**: `(i+1, j+1, k)`       → `cell->vertices[2]`
- * - **Vertex 3**: `(i,   j+1, k)`       → `cell->vertices[3]`
- * - **Vertex 4**: `(i,   j+1, k+1)`     → `cell->vertices[4]`
- * - **Vertex 5**: `(i+1, j+1, k+1)`     → `cell->vertices[5]`
- * - **Vertex 6**: `(i+1, j,   k+1)`     → `cell->vertices[6]`
- * - **Vertex 7**: `(i,   j,   k+1)`     → `cell->vertices[7]`
- *
- * @param[in]  coor   Pointer to a 3D array of `Cmpnts` structures representing the grid coordinates.
- * @param[in]  idx    The i-index of the cell.
- * @param[in]  idy    The j-index of the cell.
- * @param[in]  idz    The k-index of the cell.
- * @param[out] cell   Pointer to a `Cell` structure to store the cell's vertices.
- *
- * @return PetscErrorCode Returns 0 to indicate successful execution. Non-zero on failure.
- *
- * @note
- * - It is assumed that the grid indices `(idx, idy, idz)` are within valid bounds.
- * - The `coor` array should be properly initialized with accurate coordinates for all grid points.
- * - The function assumes unit spacing between grid points. Modify the coordinate assignments if your grid spacing differs.
- * - The boundary checks have been removed as they are performed before calling this function.
+ * @brief Implementation of \ref GetCellVerticesFromGrid().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see GetCellVerticesFromGrid()
  */
 PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt idy, PetscInt idz,
                                        Cell *cell)
@@ -575,24 +438,10 @@ PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt id
 #undef __FUNCT__
 #define __FUNCT__ "InitializeTraversalParameters"
 /**
- * @brief Initializes traversal parameters for locating a particle.
- *
- * This function sets the initial cell indices for the grid search.
- * - If the particle has valid previous cell indices (not -1,-1,-1), the search
- *   starts from that previous cell.
- * - Otherwise (e.g., first time locating the particle), the search starts
- *   from the beginning corner (xs, ys, zs) of the local grid domain owned
- *   by the current process.
- * It also initializes the traversal step counter.
- *
- * @param[in]  user            Pointer to the user-defined context containing grid information.
- * @param[in]  particle        Pointer to the Particle structure containing its location and previous cell (if any).
- * @param[out] idx             Pointer to store the initial i-index of the cell.
- * @param[out] idy             Pointer to store the initial j-index of the cell.
- * @param[out] idz             Pointer to store the initial k-index of the cell.
- * @param[out] traversal_steps Pointer to store the initial traversal step count.
- *
- * @return PetscErrorCode     Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref InitializeTraversalParameters().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see InitializeTraversalParameters()
  */
 PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, PetscInt *idx, PetscInt *idy, PetscInt *idz, PetscInt *traversal_steps)
 {
@@ -732,23 +581,10 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
 #undef __FUNCT__
 #define __FUNCT__ "CheckCellWithinLocalGrid"
 /**
- * @brief Checks if the current GLOBAL CELL indices are within the LOCAL GHOSTED grid boundaries
- *        accessible by this MPI process.
- *
- * This function determines if the provided global cell indices (idx, idy, idz) fall within the
- * range of cells covered by the current process's owned and ghost NODES.
- * A cell C(i,j,k) (origin N(i,j,k)) is considered within this ghosted region if its origin node N(i,j,k)
- * is within the rank's ghosted nodal region, AND node N(i+1,j+1,k+1) is also within it (to ensure
- * the entire cell extent is covered by available node data). More simply, we check if the cell's
- * origin node is within the range of nodes that can form the start of a ghosted cell.
- *
- * @param[in]  user       Pointer to the user-defined context (needs user->fda for node info).
- * @param[in]  idx        The global i-index of the cell's origin node.
- * @param[in]  idy        The global j-index of the cell's origin node.
- * @param[in]  idz        The global k-index of the cell's origin node.
- * @param[out] is_within  Pointer to a PetscBool that will be set to PETSC_TRUE if within ghosted bounds, else PETSC_FALSE.
- *
- * @return PetscErrorCode  Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref CheckCellWithinLocalGrid().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see CheckCellWithinLocalGrid()
  */
 PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt idy, PetscInt idz, PetscBool *is_within)
 {
@@ -815,15 +651,10 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
 #undef __FUNCT__
 #define __FUNCT__ "RetrieveCurrentCell"
 /**
- * @brief Retrieves the coordinates of the eight vertices of the current cell.
- *
- * @param[in]  user  Pointer to the user-defined context containing grid information.
- * @param[in]  idx   The i-index of the current cell.
- * @param[in]  idy   The j-index of the current cell.
- * @param[in]  idz   The k-index of the current cell.
- * @param[out] cell  Pointer to a Cell structure to store the cell's vertices.
- *
- * @return PetscErrorCode  Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref RetrieveCurrentCell().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see RetrieveCurrentCell()
  */
 PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, PetscInt idz, Cell *cell)
 {
@@ -876,49 +707,10 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
 #undef __FUNCT__
 #define __FUNCT__ "EvaluateParticlePosition"
 /**
- * @brief Determines the spatial relationship of a particle relative to a cubic cell.
- *
- * This function evaluates whether a particle located at a specific point `p` in 3D space
- * is positioned inside the cell, on the boundary of the cell, or outside the cell. The
- * determination is based on the signed distances from the particle to each of the six
- * faces of the cell. The function utilizes the computed distances to ascertain the particle's
- * position with respect to the cell boundaries, considering a threshold to account for
- * floating-point precision.
- *
- * @param[in]  cell      A pointer to a `Cell` structure that defines the cubic cell via its
- *                       vertices. The cell's geometry is essential for accurately computing
- *                       the distances to each face.
- * @param[in]  d         A pointer to an array of six `PetscReal` values that store the
- *                       signed distances from the particle to each face of the cell. These
- *                       distances are typically computed using the `CalculateDistancesToCellFaces`
- *                       function.
- * @param[in]  p         The location of the particle in 3D space, represented by the `Cmpnts`
- *                       structure. This point is the reference for distance calculations to the
- *                       cell's faces.
- * @param[out] position  A pointer to an integer that will be set based on the particle's position
- *                       relative to the cell:
- *                       - `0`: The particle is inside the cell.
- *                       - `1`: The particle is on the boundary of the cell.
- *                       - `-1`: The particle is outside the cell.
- * @param[in]  threshold A `PetscReal` value that defines the minimum distance below which a
- *                       computed distance is considered to be zero. This threshold helps in
- *                       mitigating inaccuracies due to floating-point arithmetic, especially
- *                       when determining if the particle lies exactly on the boundary.
- *
- * @return PetscErrorCode Returns `0` if the function executes successfully. If an error occurs,
- *                        a non-zero error code is returned, indicating the type of failure.
- *
- * @note
- * - It is assumed that the `d` array has been properly allocated and contains valid distance
- *   measurements before calling this function.
- * - The function relies on `CalculateDistancesToCellFaces` to accurately compute the signed
- *   distances to each face. Any inaccuracies in distance calculations can affect the
- *   determination of the particle's position.
- * - The `threshold` parameter should be chosen based on the specific precision requirements
- *   of the application to balance between sensitivity and robustness against floating-point
- *   errors.
- * - The function includes a debug statement that prints the face distances, which can be useful
- *   for verifying the correctness of distance computations during development or troubleshooting.
+ * @brief Implementation of \ref EvaluateParticlePosition().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see EvaluateParticlePosition()
  */
 PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cmpnts p, PetscInt *position, const PetscReal threshold)
 {
@@ -976,25 +768,8 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
 #undef __FUNCT__
 #define __FUNCT__ "UpdateCellIndicesBasedOnDistances"
 /**
- * @brief Updates the cell indices based on the signed distances to each face.
- *
- * This function modifies the cell indices (`idx`, `idy`, `idz`) to move towards the direction
- * where the particle is likely to be located, based on positive distances indicating
- * that the particle is outside in that particular direction.
- *
- * @param[in]  d    An array of six `PetscReal` values representing the signed distances to each face:
- *                  - d[LEFT]: Left Face
- *                  - d[RIGHT]: Right Face
- *                  - d[BOTTOM]: Bottom Face
- *                  - d[TOP]: Top Face
- *                  - d[FRONT]: Front Face
- *                  - d[BACK]: Back Face
- * @param[out] idx  Pointer to the i-index of the cell to be updated.
- * @param[out] idy  Pointer to the j-index of the cell to be updated.
- * @param[out] idz  Pointer to the k-index of the cell to be updated.
- * @param[in]  info DMDALocalInfo structure that holds local & global domain bounds.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `UpdateCellIndicesBasedOnDistances()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscInt *idx, PetscInt *idy, PetscInt *idz)
 {
@@ -1082,20 +857,10 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
 #undef __FUNCT__
 #define __FUNCT__ "FinalizeTraversal"
 /**
- * @brief Finalizes the traversal by reporting the results.
- *
- * This function prints the outcome of the traversal, indicating whether the particle
- * was found within a cell or not, and updates the particle's cell indices accordingly.
- *
- * @param[in]  user           Pointer to the user-defined context containing grid information.
- * @param[out] particle       Pointer to the Particle structure to update with cell indices.
- * @param[in]  traversal_steps The number of traversal steps taken.
- * @param[in]  cell_found      Flag indicating whether the particle was found within a cell.
- * @param[in]  idx             The i-index of the found cell.
- * @param[in]  idy             The j-index of the found cell.
- * @param[in]  idz             The k-index of the found cell.
- *
- * @return PetscErrorCode     Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref FinalizeTraversal().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see FinalizeTraversal()
  */
 PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt traversal_steps, PetscBool cell_found, PetscInt idx, PetscInt idy, PetscInt idz)
 {
@@ -1127,27 +892,8 @@ PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt tra
 #undef __FUNCT__
 #define __FUNCT__ "FindOwnerOfCell"
 /**
- * @brief Finds the MPI rank that owns a given global cell index.
- * @ingroup DomainInfo
- *
- * This function performs a linear search through the pre-computed decomposition map
- * (`user->RankCellInfoMap`) to determine which process is responsible for the cell
- * with global indices (i, j, k). It is the definitive method for resolving cell
- * ownership in the "Walk and Handoff" migration algorithm.
- *
- * If the provided indices are outside the range of any rank (e.g., negative or
- * beyond the global domain), the function will not find an owner and `owner_rank`
- * will be set to -1.
- *
- * @param[in]  user       Pointer to the UserCtx structure, which must contain the
- *                        initialized `RankCellInfoMap` and `num_ranks`.
- * @param[in]  i          Global i-index of the cell to find.
- * @param[in]  j          Global j-index of the cell to find.
- * @param[in]  k          Global k-index of the cell to find.
- * @param[out] owner_rank Pointer to a `PetscMPIInt` where the resulting owner rank will
- *                        be stored. It is set to -1 if no owner is found.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ * @brief Internal helper implementation: `FindOwnerOfCell()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, PetscMPIInt *owner_rank)
 {
@@ -1203,25 +949,10 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
 #define __FUNCT__ "LocateParticleOrFindMigrationTarget"
 
 /**
- * @brief Locates a particle's host cell or identifies its migration target using a robust walk search.
- * @ingroup ParticleLocation
- *
- * This is the core search engine. It starts from a guess cell and walks through
- * the grid. It returns a definitive, actionable status indicating the outcome:
- * - `ACTIVE_AND_LOCATED`: The particle was found in a cell on the current rank.
- * - `MIGRATING_OUT`: The particle was found to belong to another rank. `particle->destination_rank` is set.
- * - `LOST`: The search failed to find the particle within the global domain.
- *
- * This function is globally aware and can walk across MPI rank boundaries. It contains
- * robust checks for global domain boundaries and a tie-breaker for numerically "stuck"
- * particles on cell faces.
- *
- * @param[in]     user         Pointer to the UserCtx containing all grid and domain info.
- * @param[in,out] particle     Pointer to the Particle struct. Its fields are updated based
- *                             on the search outcome.
- * @param[out]    status_out   The final, actionable status of the particle after the search.
- *
- * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ * @brief Implementation of \ref LocateParticleOrFindMigrationTarget().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see LocateParticleOrFindMigrationTarget()
  */
 PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                                                         Particle *particle,
@@ -1410,7 +1141,10 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
 #undef __FUNCT__
 #define __FUNCT__ "ReportSearchOutcome"
 /**
- * @brief Logs the final outcome of the particle location search.
+ * @brief Implementation of \ref ReportSearchOutcome().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see ReportSearchOutcome()
  */
 PetscErrorCode ReportSearchOutcome(const Particle *particle,
                                           ParticleLocationStatus status,

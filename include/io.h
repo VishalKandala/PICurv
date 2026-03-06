@@ -86,7 +86,7 @@ PetscBool ShouldWriteDataOutput(const SimCtx *simCtx, PetscInt completed_step);
  * from binary files. Logs missing files but continues execution.
  *
  * @param[in,out] user Pointer to the UserCtx structure containing the simulation context.
- * @param[in]     The timestep at which the simulation field data needs to be read.
+ * @param[in]     ti   Timestep index used to construct restart file names.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
@@ -117,7 +117,7 @@ PetscErrorCode ReadFieldData(UserCtx *user, const char *field_name, Vec field_ve
  * fields to zero if files are unavailable.
  *
  * @param[in,out] user Pointer to the UserCtx structure containing the simulation context.
- * @param[in]     The timestep at which the simulation field data needs to be read.
+ * @param[in]     ti   Timestep index used to construct statistics file names.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
@@ -453,11 +453,9 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
  *
  * This function prints key simulation parameters to standard output.
  * It is intended to be called ONLY by MPI rank 0.
- * It retrieves global domain bounds from `user->global_domain_bbox` and boundary
- * conditions for all faces from `user->face_bc_types`.
+ * It retrieves global domain bounds and block metadata from `simCtx`.
  *
- * @param[in] user         Pointer to `UserCtx` structure.
- * @param[in] bboxlist     (If rank 0 needed to compute global_domain_bbox here, otherwise NULL)
+ * @param[in] simCtx Pointer to the master simulation context.
  *
  * @return PetscErrorCode  Returns `0` on success.
  */
@@ -467,13 +465,49 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx);
 // --- Conversion and Validation Utilities ---
 // These are now public and can be used by other parts of the application.
 
+/**
+ * @brief Converts a face-token string (e.g., "-Xi", "+Eta") to the internal `BCFace` enum.
+ *
+ * @param[in]  str      Input token from configuration.
+ * @param[out] face_out Parsed enum value on success.
+ * @return PetscErrorCode 0 on success, non-zero for invalid tokens or null pointers.
+ */
 PetscErrorCode StringToBCFace(const char* str, BCFace* face_out);
+
+/**
+ * @brief Converts a mathematical BC type string (e.g., "PERIODIC", "WALL") to `BCType`.
+ *
+ * @param[in]  str      Input token from configuration.
+ * @param[out] type_out Parsed enum value on success.
+ * @return PetscErrorCode 0 on success, non-zero for invalid tokens or null pointers.
+ */
 PetscErrorCode StringToBCType(const char* str, BCType* type_out);
+
+/**
+ * @brief Converts a BC handler token (implementation strategy) to `BCHandlerType`.
+ *
+ * @param[in]  str         Input handler token from configuration.
+ * @param[out] handler_out Parsed enum value on success.
+ * @return PetscErrorCode 0 on success, non-zero for invalid tokens or null pointers.
+ */
 PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out);
+
+/**
+ * @brief Validates that a selected handler is compatible with a mathematical BC type.
+ *
+ * @param[in] type    Mathematical BC type (e.g., WALL, PERIODIC).
+ * @param[in] handler Selected handler implementation enum.
+ * @return PetscErrorCode 0 if compatible, non-zero if the combination is invalid.
+ */
 PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler);
 
 // --- Memory Management ---
 
+/**
+ * @brief Frees an entire linked list of boundary-condition parameters.
+ *
+ * @param[in,out] head Head pointer of the `BC_Param` list to destroy.
+ */
 void FreeBC_ParamList(BC_Param *head);
 
 /**

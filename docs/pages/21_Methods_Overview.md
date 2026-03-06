@@ -1,11 +1,13 @@
 @page 21_Methods_Overview Methods and Models Overview
 
+@anchor _Methods_Overview
+
 This section maps PICurv's numerical methods to the code paths that execute each step.
 It is intended as the bridge between theory-level terminology and what the current codebase actually does.
 
 @tableofcontents
 
-@section governing_sec 1. Governing Model Snapshot
+@section p21_governing_sec 1. Governing Model Snapshot
 
 PICurv advances incompressible flow in non-dimensional form on curvilinear grids:
 
@@ -23,7 +25,7 @@ Operationally, the solver uses a projection workflow:
 4. project velocity to divergence-free space,
 5. execute particle coupling (if enabled).
 
-@section runtime_map_sec 2. Runtime Execution Order
+@section p21_runtime_map_sec 2. Runtime Execution Order
 
 At runtime, the top-level sequence is:
 
@@ -34,7 +36,7 @@ At runtime, the top-level sequence is:
 
 The method pages below document each major stage in detail.
 
-@section method_map_sec 3. Method Map
+@section p21_method_map_sec 3. Method Map
 
 - **@subpage 22_CURVIB_Method**: curvilinear grid/metric framework and immersed-boundary context.
 - **@subpage 23_Fractional_Step_Method**: predictor/projection incompressible update.
@@ -51,7 +53,18 @@ The method pages below document each major stage in detail.
 - **@subpage 45_Particle_Initialization_and_Restart**: detailed particle seeding/restart/migration behavior.
 - **@subpage 46_C_Runtime_Execution_Map**: code-level startup and timestep execution map.
 
-@section usage_sec 4. How To Read These Pages
+@section p21_references_sec 4. External Method References
+
+For readers connecting PICurv implementation to the CURVIB literature, these are the primary starting references:
+
+- Borazjani I, Ge L, Sotiropoulos F. "Curvilinear immersed boundary method for simulating fluid structure interaction with complex 3D rigid bodies." *Journal of Computational Physics* 227(16), 7587-7620 (2008). DOI: `10.1016/j.jcp.2008.04.024`.
+- Borazjani I, Di Achille P, D'Souza RM, et al. "The functional role of left atrial flow in ventricular filling and flow evolution in the left ventricle." *Annals of Biomedical Engineering* 41(6), 1265-1275 (2013). DOI: `10.1007/s10439-013-0758-9`.
+
+Project context:
+
+- PICurv project page: `https://vishalkandala.me/projects/Picurv/`
+
+@section p21_usage_sec 5. How To Read These Pages
 
 Use each page with two goals:
 
@@ -59,3 +72,25 @@ Use each page with two goals:
 2. implementation alignment (which function actually executes it now).
 
 When behavior differs from classical textbook formulations, the implementation notes take precedence for this repository.
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Methods and Models Overview** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

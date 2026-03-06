@@ -28,14 +28,10 @@ static int gNumAllowed = 0;
 // --------------------- Function Implementations ---------------------
 
 /**
- * @brief Retrieves the current logging level from the environment variable `LOG_LEVEL`.
- *
- * The function checks the `LOG_LEVEL` environment variable and sets the logging level accordingly.
- * Supported levels are "ERROR", "WARNING", "INFO", "DEBUG", "TRACE", and "VERBOSE".
- * Unrecognized values default to "ERROR".
- * The log level is cached after the first call to avoid repeated environment variable checks.
- *
- * @return LogLevel The current logging level.
+ * @brief Implementation of \ref get_log_level().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see get_log_level()
  */
 LogLevel get_log_level() {
     if (current_log_level == -1) { // Log level not set yet
@@ -66,16 +62,8 @@ LogLevel get_log_level() {
 }
 
 /**
- * @brief Prints the current logging level to the console.
- *
- * This function retrieves the log level using `get_log_level()` and prints 
- * the corresponding log level name. It helps verify the logging configuration 
- * at runtime.
- *
- * @note The log level is determined from the `LOG_LEVEL` environment variable.
- *       If `LOG_LEVEL` is not set, it defaults to `LOG_ERROR`.
- *
- * @see get_log_level()
+ * @brief Internal helper implementation: `print_log_level()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode print_log_level(void)
 {
@@ -108,13 +96,10 @@ PetscErrorCode print_log_level(void)
 }
 
 /**
- * @brief Sets the global list of function names that are allowed to log.
- *
- * @param functionList An array of function name strings (e.g., {"foo", "bar"}).
- * @param count The number of entries in the array.
- *
- * The existing allow-list is cleared and replaced by the new one.
- * If you pass an empty list (count = 0), all functions are allowed.
+ * @brief Implementation of \ref set_allowed_functions().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see set_allowed_functions()
  */
 void set_allowed_functions(const char** functionList, int count)
 {
@@ -142,13 +127,10 @@ void set_allowed_functions(const char** functionList, int count)
 }
 
 /**
- * @brief Checks if the given function name is in the allow-list.
- *
- * @param functionName The name of the function to check.
- * @return PETSC_TRUE if functionName is allowed, otherwise PETSC_FALSE.
- *
- * If the internal list is empty, all functions are allowed. Setup is expected
- * to reject invalid explicit empty whitelist files before reaching this layer.
+ * @brief Implementation of \ref is_function_allowed().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see is_function_allowed()
  */
 PetscBool is_function_allowed(const char* functionName)
 {
@@ -167,18 +149,10 @@ PetscBool is_function_allowed(const char* functionName)
 }
 
 /**
- * @brief Prints the coordinates of a cell's vertices.
- *
- * This function iterates through the eight vertices of a given cell and prints their
- * coordinates. It is primarily used for debugging purposes to verify the correctness
- * of cell vertex assignments.
- *
- * @param[in]  cell     Pointer to a `Cell` structure representing the cell, containing its vertices.
- * @param[in]  rank     MPI rank for identification (useful in parallel environments).
- * @return PetscErrorCode Returns 0 to indicate successful execution. Non-zero on failure.
- *
- * @note
- * - Ensure that the `cell` pointer is not `NULL` before calling this function..
+ * @brief Implementation of \ref LOG_CELL_VERTICES().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LOG_CELL_VERTICES()
  */
 PetscErrorCode LOG_CELL_VERTICES(const Cell *cell, PetscMPIInt rank)
 {
@@ -200,25 +174,10 @@ PetscErrorCode LOG_CELL_VERTICES(const Cell *cell, PetscMPIInt rank)
 
 
 /**
- * @brief Prints the signed distances to each face of the cell.
- *
- * This function iterates through the six signed distances from a point to each face of a given cell
- * and prints their values. It is primarily used for debugging purposes to verify the correctness
- * of distance calculations.
- *
- * @param[in]  d        An array of six `PetscReal` values representing the signed distances.
- *                      The indices correspond to:
- *                      - d[LEFT]: Left Face
- *                      - d[RIGHT]: Right Face
- *                      - d[BOTTOM]: Bottom Face
- *                      - d[TOP]: Top Face
- *                      - d[FRONT]: Front Face
- *                      - d[BACK]: Back Face
- *
- * @return PetscErrorCode Returns 0 to indicate successful execution. Non-zero on failure.
- *
- * @note
- * - Ensure that the `d` array is correctly populated with signed distances before calling this function.
+ * @brief Implementation of \ref LOG_FACE_DISTANCES().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LOG_FACE_DISTANCES()
  */
 PetscErrorCode LOG_FACE_DISTANCES(PetscReal* d)
 {
@@ -382,16 +341,10 @@ static void BuildHeaderString(char *headerStr, size_t bufSize, PetscMPIInt wRank
 }
 
 /**
- * @brief Prints particle fields in a table that automatically adjusts its column widths.
- *
- * This function retrieves data from the particle swarm and prints a table where the
- * width of each column is determined by the maximum width needed to display the data.
- * Only every 'printInterval'-th particle is printed.
- *
- * @param[in] user           Pointer to the UserCtx structure.
- * @param[in] printInterval  Only every printInterval‑th particle is printed.
- *
- * @return PetscErrorCode Returns 0 on success.
+ * @brief Implementation of \ref LOG_PARTICLE_FIELDS().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LOG_PARTICLE_FIELDS()
  */
 PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
 {
@@ -514,6 +467,13 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     return 0;
 }
 
+/**
+ * @brief Implementation of \ref IsParticleConsoleSnapshotEnabled().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see IsParticleConsoleSnapshotEnabled()
+ */
+
 PetscBool IsParticleConsoleSnapshotEnabled(const SimCtx *simCtx)
 {
     if (!simCtx) {
@@ -524,12 +484,26 @@ PetscBool IsParticleConsoleSnapshotEnabled(const SimCtx *simCtx)
                        get_log_level() >= LOG_INFO);
 }
 
+/**
+ * @brief Implementation of \ref ShouldEmitPeriodicParticleConsoleSnapshot().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see ShouldEmitPeriodicParticleConsoleSnapshot()
+ */
+
 PetscBool ShouldEmitPeriodicParticleConsoleSnapshot(const SimCtx *simCtx, PetscInt completed_step)
 {
     return (PetscBool)(IsParticleConsoleSnapshotEnabled(simCtx) &&
                        completed_step > 0 &&
                        completed_step % simCtx->particleConsoleOutputFreq == 0);
 }
+
+/**
+ * @brief Implementation of \ref EmitParticleConsoleSnapshot().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see EmitParticleConsoleSnapshot()
+ */
 
 PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscInt step)
 {
@@ -562,29 +536,10 @@ static void trim(char *s)
 
 /* ------------------------------------------------------------------------- */
 /**
- * @brief Load function names from a text file.
- *
- * The file is expected to contain **one identifier per line**.  Blank lines and
- * lines whose first non‑blank character is a <tt>#</tt> are silently skipped so
- * the file can include comments.  Example:
- *
- * @code{.txt}
- * # Allowed function list
- * main
- * InitializeSimulation
- * InterpolateAllFieldsToSwarm  # inline comments are OK, too
- * @endcode
- *
- * The routine allocates memory as needed (growing an internal buffer with
- * @c PetscRealloc()) and returns the resulting array and its length to the
- * caller.  Use FreeAllowedFunctions() to clean up when done.
- *
- * @param[in]  filename  Path of the configuration file to read.
- * @param[out] funcsOut  On success, points to a freshly‑allocated array of
- *                       <tt>char*</tt> (size @p nOut).
- * @param[out] nOut      Number of valid entries in @p funcsOut.
- *
- * @return 0 on success, or a PETSc error code on failure (e.g. I/O error, OOM).
+ * @brief Implementation of \ref LoadAllowedFunctionsFromFile().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LoadAllowedFunctionsFromFile()
  */
 PetscErrorCode LoadAllowedFunctionsFromFile(const char   filename[],
                                             char      ***funcsOut,
@@ -637,13 +592,8 @@ PetscErrorCode LoadAllowedFunctionsFromFile(const char   filename[],
 
 /* ------------------------------------------------------------------------- */
 /**
- * @brief Free an array previously returned by LoadAllowedFunctionsFromFile().
- *
- * @param[in,out] funcs Array of strings to release (may be @c NULL).
- * @param[in]     n     Number of entries in @p funcs.  Ignored if @p funcs is
- *                      @c NULL.
- *
- * @return 0 on success or a PETSc error code.
+ * @brief Internal helper implementation: `FreeAllowedFunctions()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode FreeAllowedFunctions(char **funcs, PetscInt n)
 {
@@ -659,9 +609,10 @@ PetscErrorCode FreeAllowedFunctions(char **funcs, PetscInt n)
 }
 
 /**
- * @brief Helper function to convert BCFace enum to a string representation.
- * @param[in] face The BCFace enum value.
- * @return Pointer to a constant string representing the face.
+ * @brief Implementation of \ref BCFaceToString().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see BCFaceToString()
  */
 const char* BCFaceToString(BCFace face) {
     switch (face) {
@@ -676,9 +627,10 @@ const char* BCFaceToString(BCFace face) {
 }
 
 /**
- * @brief Helper function to convert FieldInitialization to a string representation.
- * @param[in] PetscInt The FieldInitialization value.
- * @return Pointer to a constant string representing the FieldInitialization.
+ * @brief Implementation of \ref FieldInitializationToString().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see FieldInitializationToString()
  */
 const char* FieldInitializationToString(PetscInt FieldInitialization)
 {
@@ -691,9 +643,10 @@ const char* FieldInitializationToString(PetscInt FieldInitialization)
 }
 
 /**
- * @brief Helper function to convert ParticleInitialization to a string representation.
- * @param[in] ParticleInitializationType The ParticleInitialization value.
- * @return Pointer to a constant string representing the ParticleInitialization.
+ * @brief Implementation of \ref ParticleInitializationToString().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see ParticleInitializationToString()
  */
 const char* ParticleInitializationToString(ParticleInitializationType ParticleInitialization)
 {
@@ -707,9 +660,10 @@ const char* ParticleInitializationToString(ParticleInitializationType ParticleIn
 }
 
 /**
- * @brief Helper function to convert LES Flag to a string representation.
- * @param[in] LESModelType The LES flag value.
- * @return Pointer to a constant string representing the LES Model Type.
+ * @brief Implementation of \ref LESModelToString().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LESModelToString()
  */
 const char* LESModelToString(LESModelType LESFlag)
 {
@@ -722,9 +676,10 @@ const char* LESModelToString(LESModelType LESFlag)
 }
 
 /**
- * @brief Helper function to convert Momentum Solver flag to a string representation.
- * @param[in] MomentumSolverType The Momentum Solver flag value.
- * @return Pointer to a constant string representing the MomentumSolverType.
+ * @brief Implementation of \ref MomentumSolverTypeToString().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see MomentumSolverTypeToString()
  */
 const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag)
 {
@@ -736,9 +691,10 @@ const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag)
 }
 
 /**
- * @brief Helper function to convert BCType enum to a string representation.
- * @param[in] type The BCType enum value.
- * @return Pointer to a constant string representing the BC type.
+ * @brief Implementation of \ref BCTypeToString().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see BCTypeToString()
  */
 const char* BCTypeToString(BCType type) {
     switch (type) {
@@ -757,14 +713,8 @@ const char* BCTypeToString(BCType type) {
 }
 
 /**
- * @brief Converts a BCHandlerType enum to its string representation.
- *
- * Provides a descriptive string for a specific boundary condition implementation strategy.
- * This is crucial for logging the exact behavior configured for a face.
- *
- * @param handler_type The BCHandlerType enum value (e.g., BC_HANDLER_WALL_NOSLIP).
- * @return A constant character string corresponding to the enum. Returns
- *         "UNKNOWN_HANDLER" if the enum value is not recognized.
+ * @brief Internal helper implementation: `BCHandlerTypeToString()`.
+ * @details Local to this translation unit.
  */
 const char* BCHandlerTypeToString(BCHandlerType handler_type) {
     switch (handler_type) {
@@ -798,12 +748,10 @@ const char* BCHandlerTypeToString(BCHandlerType handler_type) {
 }
 
 /**
- * @brief Destroys the DualMonitorCtx.
- *
- * This function is passed to KSPMonitorSet to ensure the viewer is
- * properly destroyed and the context memory is freed when the KSP is destroyed.
- * @param Ctx a pointer to the context pointer to be destroyed
- * @return PetscErrorCode
+ * @brief Implementation of \ref DualMonitorDestroy().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see DualMonitorDestroy()
  */
 PetscErrorCode DualMonitorDestroy(void **ctx)
 {
@@ -837,6 +785,13 @@ PetscErrorCode DualMonitorDestroy(void **ctx)
  */
 #undef __FUNCT__
 #define __FUNCT__ "DualKSPMonitor"
+/**
+ * @brief Implementation of \ref DualKSPMonitor().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see DualKSPMonitor()
+ */
+
 PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
 {
     DualMonitorCtx *monctx = (DualMonitorCtx*)ctx;
@@ -897,6 +852,13 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
  */
 #undef __FUNCT__
 #define __FUNCT__ "LOG_CONTINUITY_METRICS"
+/**
+ * @brief Implementation of \ref LOG_CONTINUITY_METRICS().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LOG_CONTINUITY_METRICS()
+ */
+
 PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
 {
     PetscErrorCode ierr;
@@ -911,8 +873,8 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
     // Only rank 0 performs file I/O.
     if (!rank) {
         FILE *f;
-        char filen[128];
-        sprintf(filen, "%s/Continuity_Metrics.log",simCtx->log_dir);
+        char filen[PETSC_MAX_PATH_LEN + 64];
+        ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Continuity_Metrics.log", simCtx->log_dir); CHKERRQ(ierr);
 
         // Open the log file in append mode.
         f = fopen(filen, "a");
@@ -951,10 +913,10 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
 }
 
 /**
- * @brief A function that outputs the name of the current level in the ParticleLocation enum.
- * @param level The ParticleLocation enum value.
- * @return A constant character string corresponding to the enum. Returns
- *        "UNKNOWN_LEVEL" if the enum value is not recognized.
+ * @brief Implementation of \ref ParticleLocationStatusToString().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see ParticleLocationStatusToString()
  */
 const char* ParticleLocationStatusToString(ParticleLocationStatus level) 
 {
@@ -1020,18 +982,8 @@ static PetscErrorCode _FindOrCreateEntry(const char *func_name, PetscInt *idx)
 
 // --- Public API Implementation ---
 /**
- * @brief Initializes the custom profiling system using configuration from SimCtx.
- *
- * This function sets up the internal data structures for tracking function
- * performance. It reads the list of "critical functions" from the provided
- * SimCtx and marks them for per-step logging at LOG_INFO level.
- *
- * It should be called once at the beginning of the application, after
- * CreateSimulationContext() but before the main time loop.
- *
- * @param simCtx The master simulation context, which contains the list of
- *               critical function names to always log.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `ProfilingInitialize()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ProfilingInitialize(SimCtx *simCtx)
 {
@@ -1050,12 +1002,26 @@ PetscErrorCode ProfilingInitialize(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Implementation of \ref _ProfilingStart().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see _ProfilingStart()
+ */
+
 void _ProfilingStart(const char *func_name)
 {
     PetscInt idx;
     if (_FindOrCreateEntry(func_name, &idx) != 0) return; // Fail silently
     PetscTime(&g_profiler_registry[idx].start_time);
 }
+
+/**
+ * @brief Implementation of \ref _ProfilingEnd().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see _ProfilingEnd()
+ */
 
 void _ProfilingEnd(const char *func_name)
 {
@@ -1072,6 +1038,13 @@ void _ProfilingEnd(const char *func_name)
     g_profiler_registry[idx].current_step_call_count++;
 }
 
+/**
+ * @brief Implementation of \ref ProfilingResetTimestepCounters().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see ProfilingResetTimestepCounters()
+ */
+
 PetscErrorCode ProfilingResetTimestepCounters(void)
 {
     PetscFunctionBeginUser;
@@ -1082,11 +1055,18 @@ PetscErrorCode ProfilingResetTimestepCounters(void)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Implementation of \ref ProfilingLogTimestepSummary().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see ProfilingLogTimestepSummary()
+ */
+
 PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
 {
     PetscBool should_write = PETSC_FALSE;
     FILE *f = NULL;
-    char filen[PETSC_MAX_PATH_LEN];
+    char filen[(2 * PETSC_MAX_PATH_LEN) + 16];
 
     PetscFunctionBeginUser;
     if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be null for ProfilingLogTimestepSummary");
@@ -1163,26 +1143,26 @@ static int _CompareProfiledFunctions(const void *a, const void *b)
 }
 
 /**
- * @brief the profiling excercise and build a profiling summary which is then printed to a log file.
- * 
- * @param simCtx  The Simulation Context Structure that can contains all the data regarding the simulation.
- * 
- * @return        PetscErrorCode 0 on success.
+ * @brief Implementation of \ref ProfilingFinalize().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see ProfilingFinalize()
  */
 PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
 {
+    PetscErrorCode ierr;
     PetscInt rank = simCtx->rank;
     PetscFunctionBeginUser;
     if (!simCtx->profilingFinalSummary) PetscFunctionReturn(0);
     if (!rank) {
         
-        const char exec_mode_modifier[MAX_FILENAME_LENGTH]; 
-        if(simCtx->exec_mode == EXEC_MODE_SOLVER) strcpy(exec_mode_modifier,"Solver");
-        else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) strcpy(exec_mode_modifier,"PostProcessor");
+        char exec_mode_modifier[32] = "Unknown";
+        if(simCtx->exec_mode == EXEC_MODE_SOLVER) PetscCall(PetscStrncpy(exec_mode_modifier, "Solver", sizeof(exec_mode_modifier)));
+        else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) PetscCall(PetscStrncpy(exec_mode_modifier, "PostProcessor", sizeof(exec_mode_modifier)));
         //--- Step 0: Create a file viewer for log file
         FILE *f;
-        char filen[128];
-        sprintf(filen, "%s/ProfilingSummary_%s.log",simCtx->log_dir,exec_mode_modifier);
+        char filen[PETSC_MAX_PATH_LEN + 128];
+        ierr = PetscSNPrintf(filen, sizeof(filen), "%s/ProfilingSummary_%s.log",simCtx->log_dir,exec_mode_modifier); CHKERRQ(ierr);
 
         // Open the log file in write mode.
         f = fopen(filen,"w");
@@ -1263,16 +1243,8 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
  *================================================================================*/
 
 /**
- * @brief Prints a progress bar to the console.
- *
- * This function should only be called by the root process (rank 0). It uses
- * a carriage return `\r` to overwrite the same line in the terminal, creating
- * a dynamic progress bar.
- *
- * @param step           The current step index from the loop (e.g., from 0 to N-1).
- * @param startStep      The global starting step number of the simulation.
- * @param totalSteps     The total number of steps to be run in this simulation instance.
- * @param currentTime    The current simulation time to display.
+ * @brief Internal helper implementation: `PrintProgressBar()`.
+ * @details Local to this translation unit.
  */
 void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, PetscReal currentTime)
 {
@@ -1304,7 +1276,7 @@ void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, Pe
     }
 
     // Print percentage, step count, and current time
-    PetscPrintf(PETSC_COMM_SELF, "] %3d%% (Step %ld/%ld, t=%.4f)",
+    PetscPrintf(PETSC_COMM_SELF, "] %3d%% (Step %" PetscInt_FMT "/%" PetscInt_FMT ", t=%.4f)",
                 (int)(progress * 100.0),
                 step + 1,
                 startStep + totalSteps,
@@ -1317,28 +1289,9 @@ void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, Pe
 #undef __FUNCT__
 #define __FUNCT__ "LOG_FIELD_MIN_MAX"
 /**
- * @brief Computes and logs the local and global min/max values of a specified field,
- *        respecting the solver's data layout architecture.
- *
- * This utility function inspects a PETSc Vec and calculates the minimum and maximum
- * values for its components, both locally and globally.
- *
- * It is "architecture-aware" and adjusts its iteration range to only include
- * physically meaningful data points:
- *
- * - **Cell-Centered Fields ("Ucat", "P"):** It uses the "Shifted Index Architecture,"
- *   iterating from index 1 to N-1 to exclude the ghost/tool values at indices 0 and N.
- * - **Node-Centered Fields ("Coordinates"):** It iterates from index 0 to N-1, covering all
- *   physical nodes.
- * - **Face-Centered Fields ("Ucont"):** It iterates from index 0 to N-1, covering all
- *   physical faces.
- *
- * The results are printed to the standard output in a formatted, easy-to-read table.
- *
- * @param[in] user      Pointer to the user-defined context.
- * @param[in] fieldName A string descriptor for the field being analyzed.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref LOG_FIELD_MIN_MAX().
+ * @details Full API contract is documented with the header declaration in `include/logging.h`.
+ * @see LOG_FIELD_MIN_MAX()
  */
 PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
 {
@@ -1469,7 +1422,7 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
         }
 
     } else {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "LogFieldStatistics only supports fields with 1 or 3 components, but field '%s' has %D.", fieldName, dof);
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "LogFieldStatistics only supports fields with 1 or 3 components, but field '%s' has %" PetscInt_FMT ".", fieldName, dof);
     }
 
     // --- 5. Final barrier for clean output ordering ---
@@ -1484,28 +1437,9 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
 #undef __FUNCT__
 #define __FUNCT__ "LOG_FIELD_ANATOMY"
 /**
- * @brief Logs the anatomy of a specified field at key boundary locations,
- *        respecting the solver's specific grid and variable architecture.
- *
- * This intelligent diagnostic function inspects a PETSc Vec and prints its values
- * at critical boundary locations (-Xi/+Xi, -Eta/+Eta, -Zeta/+Zeta). It is "architecture-aware":
- *
- * - **Cell-Centered Fields ("Ucat", "P"):** Correctly applies the "Shifted Index Architecture,"
- *   where the value for geometric `Cell i` is stored at array index `i+1`.
- * - **Face-Centered Fields ("Ucont", "Csi"):** Recognizes the staggered nature. For example, an
- *   X-face-centered field is treated as node-centered in the I-direction but cell-centered
- *   in the J and K directions. For vector fields like "Ucont", each component is handled
- *   with its appropriate directional anatomy.
- * - **Node-Centered Fields ("Coordinates"):** Uses a direct index mapping, where the value for
- *   `Node i` is stored at index `i`.
- *
- * The output is synchronized across MPI ranks and focuses on a slice through the center of
- * the domain to be concise.
- *
- * @param user       A pointer to the UserCtx structure containing the DMs and Vecs.
- * @param field_name A string identifier for the field to log (e.g., "Ucat", "P", "Ucont", "Coordinates").
- * @param stage_name A string identifier for the current simulation stage (e.g., "After Advection").
- * @return           PetscErrorCode Returns 0 on success, non-zero on failure.
+ * @brief Implementation of \ref LOG_FIELD_ANATOMY().
+ * @details Full API contract is documented with the header declaration in `include/logging.h`.
+ * @see LOG_FIELD_ANATOMY()
  */
 PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const char *stage_name)
 {
@@ -1772,8 +1706,11 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
 #undef __FUNCT__
 #define __FUNCT__ "LOG_INTERPOLATION_ERROR"
 /**
-@brief Logs the interpolation error between the analytical and computed solutions.
-*/
+ * @brief Implementation of \ref LOG_INTERPOLATION_ERROR().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LOG_INTERPOLATION_ERROR()
+ */
 PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
 {
     SimCtx *simCtx = user->simCtx;
@@ -1825,17 +1762,8 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "CalculateAdvancedParticleMetrics"
 /**
- * @brief Computes advanced particle statistics and stores them in SimCtx.
- *
- * This function calculates:
- * - Particle load imbalance across MPI ranks.
- * - The total number of grid cells occupied by at least one particle.
- *
- * It requires that CalculateParticleCountPerCell() has been called prior to its
- * execution. It uses collective MPI operations and must be called by all ranks.
- *
- * @param user Pointer to the UserCtx.
- * @return     PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `CalculateAdvancedParticleMetrics()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
 {
@@ -1886,46 +1814,39 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "LOG_PARTICLE_METRICS"
 /**
- * @brief Logs particle swarm metrics, adapting its behavior based on a boolean flag in SimCtx.
- *
- * This function serves a dual purpose:
- * 1. If simCtx->isInitializationPhase is PETSC_TRUE, it logs settlement
- *    diagnostics to "Initialization_Metrics.log", using the provided stageName.
- * 2. If simCtx->isInitializationPhase is PETSC_FALSE, it logs regular
- *    timestep metrics to "Particle_Metrics.log".
- *
- * @param user      A pointer to the UserCtx.
- * @param stageName A descriptive string for the initialization stage (ignored in timestep mode).
- * @return          PetscErrorCode 0 on success.
+ * @brief Implementation of \ref LOG_PARTICLE_METRICS().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LOG_PARTICLE_METRICS()
  */
 PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
 {
     PetscErrorCode ierr;
-    PetscMPIInt    rank, size;
+    PetscMPIInt    rank;
     SimCtx         *simCtx = user->simCtx;
+    const char     *stage_label = (stageName && stageName[0] != '\0') ? stageName : "N/A";
 
     PetscFunctionBeginUser;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
 
     PetscInt totalParticles;
     ierr = DMSwarmGetSize(user->swarm, &totalParticles); CHKERRQ(ierr);
 
     if (!rank) {
         FILE *f;
-        char filen[PETSC_MAX_PATH_LEN];
-        sprintf(filen, "%s/Particle_Metrics.log", simCtx->log_dir);
+        char filen[PETSC_MAX_PATH_LEN + 64];
+        ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Particle_Metrics.log", simCtx->log_dir); CHKERRQ(ierr);
         f = fopen(filen, "a");
         if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open particle log file: %s", filen);
 
         if (simCtx->step == simCtx->StartStep + 1) {
-            PetscFPrintf(PETSC_COMM_SELF, f, "%-10s | %-12s | %-10s | %-10s | %-15s | %-10s | %-10s\n",
-                            "Timestep", "Total Ptls", "Lost", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes");
-            PetscFPrintf(PETSC_COMM_SELF, f, "----------------------------------------------------------------------------------------------------------\n");
+            PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10s | %-12s | %-10s | %-10s | %-15s | %-10s | %-10s\n",
+                            "Stage", "Timestep", "Total Ptls", "Lost", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes");
+            PetscFPrintf(PETSC_COMM_SELF, f, "----------------------------------------------------------------------------------------------------------------------------\n");
         }
 
-        PetscFPrintf(PETSC_COMM_SELF, f, "%-10d | %-12d | %-10d | %-10d | %-15d | %-10.2f | %-10d\n",
-                        (int)simCtx->step, (int)totalParticles, (int)simCtx->particlesLostLastStep,
+        PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10d | %-12d | %-10d | %-10d | %-15d | %-10.2f | %-10d\n",
+                        stage_label, (int)simCtx->step, (int)totalParticles, (int)simCtx->particlesLostLastStep,
                         (int)simCtx->particlesMigratedLastStep, (int)simCtx->occupiedCellCount,
                         (double)simCtx->particleLoadImbalance, (int)simCtx->migrationPassesLastStep);
         fclose(f);

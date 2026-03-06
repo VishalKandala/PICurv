@@ -93,25 +93,8 @@ static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
 #undef __FUNCT__
 #define __FUNCT__ "CorrectChannelFluxProfile"
 /**
- * @brief Enforces a constant volumetric flux profile along the entire length of a driven periodic channel.
- *
- * This function is a "hard" corrector, called at the end of the projection step.
- * The projection ensures the velocity field is divergence-free (3D continuity), but this
- * function enforces a stricter 1D continuity condition (`Flux(plane) = constant`)
- * required for physically realistic, fully-developed periodic channel/pipe flow.
- *
- * The process is as follows:
- * 1.  Introspects the boundary condition handlers to detect if a `DRIVEN_` flow is active
- *     and in which direction ('X', 'Y', or 'Z'). If none is found, it exits.
- * 2.  Measures the current volumetric flux through *every single cross-sectional plane*
- *     in the driven direction.
- * 3.  For each plane, it calculates the velocity correction required to make its flux
- *     match the global `targetVolumetricFlux` (which was set by the controller).
- * 4.  It applies this spatially-uniform (but plane-dependent) velocity correction directly
- *     to the `ucont` field, ensuring `Flux(plane) = TargetFlux` for all planes.
- *
- * @param user The UserCtx containing the simulation state for a single block.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `CorrectChannelFluxProfile()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CorrectChannelFluxProfile(UserCtx *user)
 {
@@ -329,41 +312,10 @@ PetscErrorCode CorrectChannelFluxProfile(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "Projection"
 /**
- * @brief Performs the projection step to enforce an incompressible velocity field.
- *
- * @details
- * This function executes the final "correction" stage of a fractional-step (projection)
- * method for solving the incompressible Navier-Stokes equations. After solving the
- * Pressure Poisson Equation to get a pressure correction `Phi`, this function uses
- * `Phi` to correct the intermediate velocity field, making it divergence-free.
- *
- * The main steps are:
- * 1.  **Calculate Pressure Gradient**: At each velocity point (on the cell faces), it
- *     computes the gradient of the pressure correction field (`∇Φ`). This is done using
- *     finite differences on a generalized curvilinear grid.
- *
- * 2.  **Correct Velocity Field**: It updates the contravariant velocity components `Ucont`
- *     by subtracting the scaled pressure gradient. The update rule is:
- *     `U_new = U_intermediate - Δt * G * ∇Φ`, where `G` is the metric tensor `g_ij`
- *     that transforms the gradient into contravariant components.
- *
- * 3.  **Boundary-Aware Gradients**: The gradient calculation is highly sensitive to
- *     boundaries. The code uses complex, dynamic stencils that switch from centered
- *     differences to one-sided differences if a standard stencil would use a point
- *     inside an immersed solid (`nvert > 0.1`). This preserves accuracy at the
- *     fluid-solid interface.
- *
- * 4.  **Periodic Boundary Updates**: Includes dedicated loops to correctly calculate
- *     the pressure gradient at the domain edges for periodic boundary conditions.
- *
- * 5.  **Finalization**: After correcting `Ucont`, it calls helper functions to convert
- *     the velocity back to Cartesian coordinates (`Contra2Cart`) and update all
- *     ghost cell values.
- *
- * @param[in, out] user Pointer to the UserCtx struct, containing simulation context,
- *                      grid metrics, and the velocity/pressure fields.
- *
- * @return PetscErrorCode 0 on success, or a non-zero error code on failure.
+ * @brief Implementation of \ref Projection().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see Projection()
  */
 PetscErrorCode Projection(UserCtx *user)
 {
@@ -886,32 +838,10 @@ PetscErrorCode Projection(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "UpdatePressure"
 /**
- * @brief Updates the pressure field and handles periodic boundary conditions.
- *
- * @details
- * This function is a core part of the projection method in a CFD solver. It is
- * called after the Pressure Poisson Equation has been solved to obtain a pressure
- * correction field, `Phi`.
- *
- * The function performs two main operations:
- *
- * 1.  **Core Pressure Update**: It updates the main pressure field `P` by adding the
- *     pressure correction `Phi` at every grid point in the fluid domain. The
- *     operation is `P_new = P_old + Phi`.
- *
- * 2.  **Periodic Boundary Synchronization**: If any of the domain boundaries are
- *     periodic (`user->boundary_faces[*].mathematical_type == PERIODIC`), this
- *     function manually updates the pressure values
- *     in the ghost cells. It copies values from the physical cells on one side of
- *     the domain to the corresponding ghost cells on the opposite side. This ensures
- *     that subsequent calculations involving pressure gradients are correct across
- *     periodic boundaries. The refactored version consolidates the original code's
- *     redundant updates into a single, efficient pass.
- *
- * @param[in, out] user Pointer to the UserCtx struct, containing simulation context and
- *                      the pressure vectors `P` and `Phi`.
- *
- * @return PetscErrorCode 0 on success, or a non-zero error code on failure.
+ * @brief Implementation of \ref UpdatePressure().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see UpdatePressure()
  */
 PetscErrorCode UpdatePressure(UserCtx *user)
 {
@@ -1081,25 +1011,20 @@ PetscErrorCode UpdatePressure(UserCtx *user)
   PROFILE_FUNCTION_END;
   PetscFunctionReturn(0);
 }
-
-
-
-static PetscErrorCode mymatmultadd(Mat mat, Vec v1, Vec v2)
-{
-  Vec vt;
-  VecDuplicate(v2, &vt);
-  MatMult(mat, v1, vt);
-  VecAYPX(v2, 1., vt);
-  VecDestroy(&vt);
-  return(0);
-}
-
-
 #undef __FUNCT__
 #define __FUNCT__ "PoissonNullSpaceFunction"
+/**
+ * @brief Implementation of \ref PoissonNullSpaceFunction().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see PoissonNullSpaceFunction()
+ */
+
 PetscErrorCode PoissonNullSpaceFunction(MatNullSpace nullsp,Vec X, void *ctx)
 {
+  PetscErrorCode ierr;
   UserCtx *user = (UserCtx*)ctx;
+  (void)nullsp;
 
   DM da = user->da;
 
@@ -1150,8 +1075,8 @@ PetscErrorCode PoissonNullSpaceFunction(MatNullSpace nullsp,Vec X, void *ctx)
       }
     }
 
-    MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+    ierr = MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
    /*  PetscGlobalSum(&lsum, &sum, PETSC_COMM_WORLD); */
 /*     PetscGlobalSum(&lnum, &num, PETSC_COMM_WORLD); */
     sum = sum / (-1.0 * num);
@@ -1179,8 +1104,8 @@ PetscErrorCode PoissonNullSpaceFunction(MatNullSpace nullsp,Vec X, void *ctx)
 	}
       }
     }
-    MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+    ierr = MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
    /*  PetscGlobalSum(&lsum, &sum, PETSC_COMM_WORLD); */
 /*     PetscGlobalSum(&lnum, &num, PETSC_COMM_WORLD); */
     sum /= -num;
@@ -1206,8 +1131,8 @@ PetscErrorCode PoissonNullSpaceFunction(MatNullSpace nullsp,Vec X, void *ctx)
 	}
       }
     }
-    MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+    ierr = MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
    /*  PetscGlobalSum(&lsum, &sum, PETSC_COMM_WORLD); */
 /*     PetscGlobalSum(&lnum, &num, PETSC_COMM_WORLD); */
     sum /= -num;
@@ -1289,6 +1214,13 @@ PetscErrorCode PoissonNullSpaceFunction(MatNullSpace nullsp,Vec X, void *ctx)
 
   return 0;
 }
+
+/**
+ * @brief Implementation of \ref MyInterpolation().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see MyInterpolation()
+ */
 
 PetscErrorCode MyInterpolation(Mat A, Vec X, Vec F)
 {
@@ -1472,6 +1404,13 @@ static PetscErrorCode RestrictResidual_SolidAware(Mat A, Vec X, Vec F)
   return 0;
 }
 
+/**
+ * @brief Implementation of \ref MyRestriction().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see MyRestriction()
+ */
+
 PetscErrorCode MyRestriction(Mat A, Vec X, Vec F)
 {
   UserCtx *user;
@@ -1575,48 +1514,8 @@ PetscErrorCode MyRestriction(Mat A, Vec X, Vec F)
 #define __FUNCT__ "PoissonLHSNew"
 
 /**
- * @brief Assembles the Left-Hand Side (LHS) matrix for the Pressure Poisson Equation.
- *
- * @details
- * This function constructs the sparse matrix `A` (the LHS) for the linear system `Ax = B`,
- * which is the Pressure Poisson Equation (PPE). The matrix `A` represents a discrete
- * version of the negative Laplacian operator (-∇²), tailored for a general curvilinear,
- * staggered grid.
- *
- * The assembly process is highly complex and follows these main steps:
- *
- * 1.  **Matrix Initialization**: On the first call, it allocates a sparse PETSc matrix `A`
- *     pre-allocating space for a 19-point stencil per row. On subsequent calls, it
- *     simply zeroes out the existing matrix.
- *
- * 2.  **Metric Tensor Calculation**: It first computes the 9 components of the metric
- *     tensor (`g11`, `g12`, ..., `g33`) at the cell faces. These `g_ij` coefficients
- *     are essential for defining the Laplacian operator in generalized curvilinear
- *     coordinates and account for grid stretching and non-orthogonality.
- *
- * 3.  **Stencil Assembly Loop**: The function iterates through every grid point `(i,j,k)`.
- *     For each point, it determines the matrix row entries based on its status:
- *     - **Boundary/Solid Point**: If the point is on a domain boundary or inside an
- *       immersed solid (`nvert > 0.1`), it sets an identity row (`A(row,row) = 1`),
- *       effectively removing it from the linear solve.
- *     - **Fluid Point**: For a fluid point, it computes the 19 coefficients of the
- *       finite volume stencil. This involves summing contributions from each of the
- *       six faces of the control volume around the point.
- *
- * 4.  **Boundary-Aware Stencils**: The stencil calculation is critically dependent on the
- *     state of neighboring cells. The code contains intricate logic to check if neighbors
- *     are fluid or solid. If a standard centered-difference stencil would cross into a
- *     solid, the scheme is automatically adapted to a one-sided difference to maintain
- *     accuracy at the fluid-solid interface.
- *
- * 5.  **Matrix Finalization**: After all rows corresponding to the local processor's
- *     grid points have been set, `MatAssemblyBegin/End` is called to finalize the
- *     global matrix, making it ready for use by a linear solver.
- *
- * @param[in, out] user Pointer to the UserCtx struct, containing all simulation context,
- *                      grid data, and the matrix `A`.
- *
- * @return PetscErrorCode 0 on success, or a non-zero error code on failure.
+ * @brief Internal helper implementation: `PoissonLHSNew()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PoissonLHSNew(UserCtx *user)
 {
@@ -1630,7 +1529,6 @@ PetscErrorCode PoissonLHSNew(UserCtx *user)
 
   
   // --- Get simulation and grid context ---
-  SimCtx *simCtx = user->simCtx;
   DM da = user->da, fda = user->fda;
   DMDALocalInfo info = user->info;
   PetscInt IM = user->IM, JM = user->JM, KM = user->KM;
@@ -1655,7 +1553,7 @@ PetscErrorCode PoissonLHSNew(UserCtx *user)
     PetscInt M;                // Local size
     VecGetLocalSize(user->Phi, &M);
     // Create a sparse AIJ matrix, preallocating for 19 non-zeros per row (d=diagonal, o=off-diagonal)
-    MatCreateAIJ(PETSC_COMM_WORLD, M, M, N, N, 19, PETSC_NULL, 19, PETSC_NULL, &(user->A));
+    MatCreateAIJ(PETSC_COMM_WORLD, M, M, N, N, 19, PETSC_NULLPTR, 19, PETSC_NULLPTR, &(user->A));
     user->assignedA = PETSC_TRUE;
   }
 
@@ -2221,8 +2119,16 @@ PetscErrorCode PoissonLHSNew(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "PoissonRHS"
 
+/**
+ * @brief Implementation of \ref PoissonRHS().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see PoissonRHS()
+ */
+
 PetscErrorCode PoissonRHS(UserCtx *user, Vec B)
 {
+  PetscErrorCode ierr;
   DMDALocalInfo info = user->info;
   PetscInt	xs = info.xs, xe = info.xs + info.xm;
   PetscInt  	ys = info.ys, ye = info.ys + info.ym;
@@ -2286,7 +2192,7 @@ PetscErrorCode PoissonRHS(UserCtx *user, Vec B)
     }
   }
   
-  MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+  ierr = MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
   LOG_ALLOW(GLOBAL, LOG_INFO, "Global Sum of RHS (Divergence Check): %le\n", sum);
 
@@ -2302,18 +2208,18 @@ PetscErrorCode PoissonRHS(UserCtx *user, Vec B)
   return 0;
 }
 
+/**
+ * @brief Implementation of \ref VolumeFlux_rev().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see VolumeFlux_rev()
+ */
+
 PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux, 
 			      PetscReal *ibm_Area, PetscInt flg)
 {
+  PetscErrorCode ierr;
 
-  // --- CONTEXT ACQUISITION BLOCK ---
-  // Get the master simulation context from the UserCtx.
-  SimCtx *simCtx = user->simCtx;
-
-  // Create a local variable to mirror the legacy global for minimal code changes.
-  const PetscInt NumberOfBodies = simCtx->NumberOfBodies;
-  // --- END CONTEXT ACQUISITION BLOCK ---
-  
   DM	da = user->da, fda = user->fda;
 
   DMDALocalInfo	info = user->info;
@@ -2400,8 +2306,8 @@ PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux,
     }
   }
 
-  MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
-  MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+  ierr = MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+  ierr = MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
  /*  PetscGlobalSum(&libm_Flux, ibm_Flux, PETSC_COMM_WORLD); */
 /*   PetscGlobalSum(&libm_area, ibm_Area, PETSC_COMM_WORLD); */
@@ -2525,8 +2431,8 @@ PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux,
     }
   }
 
-  MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
-  MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+  ierr = MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+  ierr = MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
  /*  PetscGlobalSum(&libm_Flux, ibm_Flux, PETSC_COMM_WORLD); */
 /*   PetscGlobalSum(&libm_area, ibm_Area, PETSC_COMM_WORLD); */
@@ -2544,16 +2450,22 @@ PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux,
 }
 
 
+/**
+ * @brief Implementation of \ref VolumeFlux().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see VolumeFlux()
+ */
+
 PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Area, PetscInt flg)
 {
+  PetscErrorCode ierr;
   // --- CONTEXT ACQUISITION BLOCK ---
   // Get the master simulation context from the UserCtx.
   SimCtx *simCtx = user->simCtx;
 
   // Create local variables to mirror the legacy globals for minimal code changes.
   const PetscInt NumberOfBodies = simCtx->NumberOfBodies;
-  const PetscInt channelz = simCtx->channelz;
-  const PetscInt fish = simCtx->fish;
   // --- END CONTEXT ACQUISITION BLOCK ---
 
   DM	da = user->da, fda = user->fda;
@@ -2567,12 +2479,6 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
 
   PetscInt i, j, k,ibi;
   PetscInt	lxs, lys, lzs, lxe, lye, lze;
-
-  PetscInt	gxs, gxe, gys, gye, gzs, gze;
-  
-  gxs = info.gxs; gxe = gxs + info.gxm;
-  gys = info.gys; gye = gys + info.gym;
-  gzs = info.gzs; gze = gzs + info.gzm;
 
   lxs = xs; lxe = xe;
   lys = ys; lye = ye;
@@ -2800,13 +2706,13 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
     }
   }
   
-  MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
-  MPI_Allreduce(&libm_Flux_abs, &ibm_Flux_abs,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
-  MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+  ierr = MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+  ierr = MPI_Allreduce(&libm_Flux_abs, &ibm_Flux_abs,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+  ierr = MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
   if (NumberOfBodies > 1) { 
-    MPI_Allreduce(lIB_Flux,IB_Flux,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
-    MPI_Allreduce(lIB_area,IB_Area,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD);
+    ierr = MPI_Allreduce(lIB_Flux,IB_Flux,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(lIB_area,IB_Area,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
   }
 
   PetscReal correction;
@@ -3052,8 +2958,8 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
     }
   }
 
-  MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
-  MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD);
+  ierr = MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+  ierr = MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
  /*  PetscGlobalSum(&libm_Flux, ibm_Flux, PETSC_COMM_WORLD); */
 /*   PetscGlobalSum(&libm_area, ibm_Area, PETSC_COMM_WORLD); */
@@ -3184,8 +3090,8 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
   DMDAVecRestoreArray(fda, user->Ucont, &ucor);
 
   if (has_periodic_ucont_seam) {
-    MPI_Allreduce(&periodic_seam_updates_local, &periodic_seam_updates_global, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD);
-    MPI_Allreduce(&periodic_seam_max_delta_local, &periodic_seam_max_delta_global, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD);
+    ierr = MPI_Allreduce(&periodic_seam_updates_local, &periodic_seam_updates_global, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&periodic_seam_max_delta_local, &periodic_seam_max_delta_global, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRMPI(ierr);
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
               "VolumeFlux: legacy periodic Ucont seam refresh updated %d values, max |delta|=%.6e.\n",
               (int)periodic_seam_updates_global, periodic_seam_max_delta_global);
@@ -3209,8 +3115,9 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
   return 0;
 }
 
-PetscErrorCode FullyBlocked(UserCtx *user)
+static PetscErrorCode FullyBlocked(UserCtx *user)
 {
+  PetscErrorCode ierr;
   DM da = user->da;
   Vec nNvert;
   DMDALocalInfo info = user->info;
@@ -3238,7 +3145,7 @@ PetscErrorCode FullyBlocked(UserCtx *user)
   VecDestroy(&nNvert);
 
   PetscInt rank;
-  MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRMPI(ierr);
 
   if (!rank) {
 
@@ -3273,16 +3180,16 @@ PetscErrorCode FullyBlocked(UserCtx *user)
     }
     PetscFree(Blocked);
     VecRestoreArray3d(Zvert, mz, my, mx, 0, 0, 0, &nvert);
-    MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD);
+    ierr = MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
     if (user->multinullspace) {
-      MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD);
+      ierr = MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
     }
   }
   else {
-    MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD);
+    ierr = MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
     if (user->multinullspace) {
-      MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD);
+      ierr = MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
     }
   }
 
@@ -3292,7 +3199,7 @@ PetscErrorCode FullyBlocked(UserCtx *user)
   return 0;
 }
 
-PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
+static PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
 {
   //  DA		da = user_c->da, fda = user_c->fda;
 
@@ -3407,6 +3314,13 @@ PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
 
 #undef __FUNCT__
 #define __FUNCT__ "PoissonSolver_MG"
+/**
+ * @brief Implementation of \ref PoissonSolver_MG().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see PoissonSolver_MG()
+ */
+
 PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 {
     // --- CONTEXT ACQUISITION BLOCK ---
@@ -3489,7 +3403,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 
 	// =======================================================================
         DualMonitorCtx *monctx;
-        char           filen[128];
+        char           filen[PETSC_MAX_PATH_LEN + 128];
 
         // 1. Allocate the context and set it up.
         ierr = PetscNew(&monctx); CHKERRQ(ierr);
@@ -3500,7 +3414,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 
 	// Only rank 0 handles the file.
         if (!rank) {
-	  sprintf(filen, "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir,bi);
+          ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir, bi); CHKERRQ(ierr);
 	  // On the very first step of the entire simulation, TRUNCATE the file.
 	  if (simCtx->step == simCtx->StartStep + 1) {
 	    monctx->file_handle = fopen(filen, "w");
@@ -3511,7 +3425,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             if (monctx->file_handle) {
                 PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle, "--- Convergence for Timestep %d, Block %d ---\n", (int)simCtx->step, bi);
             } else {
-                SETERRQ1(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not open KSP monitor log file: %s", filen);
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not open KSP monitor log file: %s", filen);
             }
         }
 
@@ -3523,7 +3437,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
         ierr = KSPGetPC(mgksp, &mgpc); CHKERRQ(ierr);
         ierr = PCSetType(mgpc, PCMG); CHKERRQ(ierr);
 
-	ierr = PCMGSetLevels(mgpc, usermg->mglevels, PETSC_NULL); CHKERRQ(ierr);
+        ierr = PCMGSetLevels(mgpc, usermg->mglevels, PETSC_NULLPTR); CHKERRQ(ierr);
         ierr = PCMGSetCycleType(mgpc, PC_MG_CYCLE_V); CHKERRQ(ierr);
         ierr = PCMGSetType(mgpc, PC_MG_MULTIPLICATIVE); CHKERRQ(ierr);
 
@@ -3599,7 +3513,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 	      ierr = PCFactorSetShiftAmount(subsubpc, 1.e-10); CHKERRQ(ierr);
 	    }
 	    
-	    ierr = MatNullSpaceCreate(PETSC_COMM_WORLD, PETSC_TRUE, 0, PETSC_NULL, &user[bi].nullsp); CHKERRQ(ierr);
+            ierr = MatNullSpaceCreate(PETSC_COMM_WORLD, PETSC_TRUE, 0, PETSC_NULLPTR, &user[bi].nullsp); CHKERRQ(ierr);
             ierr = MatNullSpaceSetFunction(user[bi].nullsp, PoissonNullSpaceFunction, &user[bi]); CHKERRQ(ierr);
             ierr = MatSetNullSpace(user[bi].A, user[bi].nullsp); CHKERRQ(ierr);
             
@@ -3607,7 +3521,7 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             ierr = KSPSetUp(subksp); CHKERRQ(ierr);
 
             if (l < usermg->mglevels - 1) {
-                ierr = MatCreateVecs(user[bi].A, &user[bi].R, PETSC_NULL); CHKERRQ(ierr);
+                ierr = MatCreateVecs(user[bi].A, &user[bi].R, PETSC_NULLPTR); CHKERRQ(ierr);
                 ierr = PCMGSetRhs(mgpc, l, user[bi].R); CHKERRQ(ierr);
             }
         }

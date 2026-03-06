@@ -1,10 +1,12 @@
 @page 25_Pressure_Poisson_GMRES_Multigrid Pressure-Poisson, GMRES, and Multigrid
 
+@anchor _Pressure_Poisson_GMRES_Multigrid
+
 This page describes the pressure-correction solve path used by projection in PICurv.
 
 @tableofcontents
 
-@section equation_sec 1. Pressure-Correction Equation
+@section p25_equation_sec 1. Pressure-Correction Equation
 
 The correction solve enforces incompressibility through:
 
@@ -20,7 +22,7 @@ In code terms:
 
 Null-space handling is explicitly configured for Neumann-like pressure systems via function @ref PoissonNullSpaceFunction in the Poisson module.
 
-@section mg_sec 2. Multigrid/KSP Stack In Code
+@section p25_mg_sec 2. Multigrid/KSP Stack In Code
 
 @ref PoissonSolver_MG currently:
 
@@ -35,7 +37,7 @@ After Poisson solve:
 - pressure is updated by @ref UpdatePressure
 - velocity is projected by @ref Projection
 
-@section config_sec 3. YAML Mapping and PETSc Options
+@section p25_config_sec 3. YAML Mapping and PETSc Options
 
 From `solver.yml` via `scripts/picurv`:
 
@@ -49,7 +51,7 @@ From `solver.yml` via `scripts/picurv`:
 
 Final option parsing happens in function @ref CreateSimulationContext during context creation.
 
-@section robustness_sec 4. Robustness Characteristics
+@section p25_robustness_sec 4. Robustness Characteristics
 
 Current implementation includes:
 
@@ -64,8 +66,31 @@ If pressure solve quality degrades, check first:
 3. grid metrics/orientation quality,
 4. solver tolerances vs timestep.
 
-@section refs_sec 5. Related Pages
+@section p25_refs_sec 5. Related Pages
 
 - **@subpage 23_Fractional_Step_Method**
 - **@subpage 24_Dual_Time_Picard_RK4**
 - **@subpage 31_Momentum_Solvers**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Pressure-Poisson, GMRES, and Multigrid** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

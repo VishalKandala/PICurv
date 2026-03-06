@@ -5,22 +5,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "CanRankServiceInletFace"
 /**
- * @brief Determines if the current MPI rank owns any part of the globally defined inlet face,
- *        making it responsible for placing particles on that portion of the surface.
- *
- * The determination is based on the rank's owned nodes (from `DMDALocalInfo`) and
- * the global node counts, in conjunction with the `user->identifiedInletBCFace`.
- * A rank can service an inlet face if it owns the cells adjacent to that global boundary
- * and has a non-zero extent (owns cells) in the tangential dimensions of that face.
- *
- * @param user Pointer to the UserCtx structure, containing `identifiedInletBCFace`.
- * @param info Pointer to the DMDALocalInfo for the current rank's DA (node-based).
- * @param IM_nodes_global Global number of nodes in the I-direction (e.g., user->IM + 1 if user->IM is cell count).
- * @param JM_nodes_global Global number of nodes in the J-direction.
- * @param KM_nodes_global Global number of nodes in the K-direction.
- * @param[out] can_service_inlet_out Pointer to a PetscBool; set to PETSC_TRUE if the rank
- *                                   services (part of) the inlet, PETSC_FALSE otherwise.
- * @return PetscErrorCode 0 on success, non-zero on failure.
+ * @brief Internal helper implementation: `CanRankServiceInletFace()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
                                               PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global,
@@ -132,21 +118,10 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
 #define __FUNCT__ "CanRankServiceFace"
 
 /**
- * @brief Determines if the current MPI rank owns any part of a specified global face.
- *
- * This function is a general utility for parallel boundary operations. It checks if the
- * local domain of the current MPI rank is adjacent to a specified global boundary face.
- * A rank "services" a face if it owns the cells adjacent to that global boundary and has
- * a non-zero extent (i.e., owns at least one cell) in the tangential dimensions of that face.
- *
- * @param info              Pointer to the DMDALocalInfo for the current rank's DA.
- * @param IM_nodes_global Global number of nodes in the I-direction (e.g., user->IM + 1 if user->IM is cell count).
- * @param JM_nodes_global Global number of nodes in the J-direction.
- * @param KM_nodes_global Global number of nodes in the K-direction.
- * @param face_id           The specific global face (e.g., BC_FACE_NEG_Z) to check.
- * @param[out] can_service_out Pointer to a PetscBool; set to PETSC_TRUE if the rank
- *                           services the face, PETSC_FALSE otherwise.
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref CanRankServiceFace().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Boundaries.h`.
+ * @see CanRankServiceFace()
  */
 PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global,
                                   BCFace face_id, PetscBool *can_service_out)
@@ -231,39 +206,8 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
 #define __FUNCT__ "GetDeterministicFaceGridLocation"
 
 /**
- * @brief Places particles in a deterministic grid/raster pattern on a specified domain face.
- *
- * This function creates a set of equidistant, parallel lines of particles near the four
- * edges of the face specified by user->identifiedInletBCFace. The number of lines drawn
- * from each edge is hardcoded within this function (default is 2).
- *
- * For example, if grid_layers=2 on face BC_FACE_NEG_X, the function will create particle lines at:
- * - y ~ 0*dy, y ~ 1*dy (parallel to the Z-axis, starting from the J=0 edge)
- * - y ~ y_max, y ~ y_max-dy (parallel to the Z-axis, starting from the J=max edge)
- * - z ~ 0*dz, z ~ 1*dz (parallel to the Y-axis, starting from the K=0 edge)
- * - z ~ z_max, z ~ z_max-dz (parallel to the Y-axis, starting from the K=max edge)
- *
- * The particle's final position is set just inside the target cell face to ensure it is
- * correctly located. The total number of particles (simCtx->np) is distributed as evenly
- * as possible among all generated lines.
- *
- * The function includes extensive validation to stop with an error if the requested grid
- * placement is geometrically impossible (e.g., in a 2D domain or if layers would overlap).
- * It also issues warnings for non-fatal but potentially unintended configurations.
- *
- * @param user Pointer to UserCtx, which must contain a valid identifiedInletBCFace.
- * @param info Pointer to DMDALocalInfo for the current rank's grid layout.
- * @param xs_gnode_rank, ys_gnode_rank, zs_gnode_rank Local starting node indices (incl. ghosts) for the rank's DA.
- * @param IM_cells_global, JM_cells_global, KM_cells_global Global cell counts.
- * @param particle_global_id The unique global ID of the particle being placed (from 0 to np-1).
- * @param[out] ci_metric_lnode_out Local I-node index of the selected cell's origin.
- * @param[out] cj_metric_lnode_out Local J-node index of the selected cell's origin.
- * @param[out] ck_metric_lnode_out Local K-node index of the selected cell's origin.
- * @param[out] xi_metric_logic_out Logical xi-coordinate [0,1] within the cell.
- * @param[out] eta_metric_logic_out Logical eta-coordinate [0,1] within the cell.
- * @param[out] zta_metric_logic_out Logical zta-coordinate [0,1] within the cell.
- * @param[out] placement_successful_out PETSC_TRUE if the point belongs to this rank, PETSC_FALSE otherwise.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `GetDeterministicFaceGridLocation()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode GetDeterministicFaceGridLocation(
     UserCtx *user, const DMDALocalInfo *info,
@@ -449,20 +393,8 @@ PetscErrorCode GetDeterministicFaceGridLocation(
 #define __FUNCT__ "GetRandomFCellAndLogicOnInletFace"
 
 /**
- * @brief Assuming the current rank services the inlet face, this function selects a random
- *        cell (owned by this rank on that face) and random logical coordinates within that cell,
- *        suitable for placing a particle on the inlet surface.
- *
- * It is the caller's responsibility to ensure CanRankServiceInletFace returned true.
- *
- * @param user Pointer to UserCtx.
- * @param info Pointer to DMDALocalInfo for the current rank (node-based).
- * @param xs_gnode, ys_gnode, zs_gnode Local starting node indices (incl. ghosts) for the rank's DA.
- * @param IM_nodes_global, JM_nodes_global, KM_nodes_global Global node counts.
- * @param rand_logic_i_ptr, rand_logic_j_ptr, rand_logic_k_ptr Pointers to RNGs for logical coords.
- * @param[out] ci_metric_lnode_out, cj_metric_lnode_out, ck_metric_lnode_out Local node indices of the selected cell's origin (these are local to the rank's DA including ghosts).
- * @param[out] xi_metric_logic_out, eta_metric_logic_out, zta_metric_logic_out Logical coords [0,1] within the cell.
- * @return PetscErrorCode
+ * @brief Internal helper implementation: `GetRandomCellAndLogicalCoordsOnInletFace()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
     UserCtx *user, const DMDALocalInfo *info,
@@ -653,30 +585,8 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 #undef __FUNCT__
 #define __FUNCT__ "EnforceRHSBoundaryConditions"
 /**
- * @brief Enforces boundary conditions on the momentum equation's Right-Hand-Side (RHS) vector.
- *
- * This function is a faithful and structured replication of the boundary logic from the legacy
- * `CalcRHS` routine. It accounts for the specific staggered grid architecture where a dimension of
- * size `mx` has `mx-1` nodes (0 to mx-2) and `mx-2` cells. The face-centered RHS vector is
- * allocated to size `mx`.
- *
- * This results in the following indexing for the x-component of the RHS:
- *  - i = 0 to mx-3:         Internal physical faces.
- *  - i = mx-2:              The final physical face, located at the boundary.
- *  - i = mx-1:              A dummy/ghost location corresponding to the last element of the vector.
- *
- * This function performs two distinct roles based on this layout:
- *
- * 1.  **Strong BC Enforcement on Physical Boundary Faces:** For non-periodic boundaries, it zeroes
- *     the RHS on the domain's outermost physical faces (e.g., i=0, i=mx-2). This enforces a
- *     zero time-derivative (dU/dt = 0), ensuring that Dirichlet velocity conditions are maintained.
- *
- * 2.  **Dummy Location Sanitization:** On the positive-side dummy locations (i=mx-1, j=my-1, k=mz-1),
- *     it unconditionally zeroes out all RHS components. This is a robust housekeeping step to
- *     ensure these architecturally unused locations do not contain garbage data.
- *
- * @param user The UserCtx for the specific block being computed.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `EnforceRHSBoundaryConditions()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
 {
@@ -827,16 +737,8 @@ PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "BoundaryCondition_Create"
 /**
- * @brief (Private) Creates and configures a specific BoundaryCondition handler object.
- *
- * This function acts as a factory. Based on the requested handler_type, it allocates
- * a BoundaryCondition object and populates it with the correct set of function
- * pointers corresponding to that specific behavior.
- *
- * @param handler_type The specific handler to create (e.g., BC_HANDLER_WALL_NOSLIP).
- * @param[out] new_bc_ptr  A pointer to where the newly created BoundaryCondition
- *                         object's address will be stored.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `BoundaryCondition_Create()`.
+ * @details Local to this translation unit.
  */
 
 PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCondition **new_bc_ptr)
@@ -917,19 +819,8 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
 #undef __FUNCT__
 #define __FUNCT__ "BoundarySystem_Validate"
 /**
- * @brief (Public) Validates the consistency and compatibility of the parsed boundary condition system.
- *
- * This function is the main entry point for all boundary condition validation. It should be
- * called from the main setup sequence AFTER the configuration file has been parsed by
- * `ParseAllBoundaryConditions` but BEFORE any `BoundaryCondition` handler objects are created.
- *
- * It acts as a dispatcher, calling specialized private sub-validators for different complex
- * BC setups (like driven flow) to ensure the combination of `mathematical_type` and `handler_type`
- * across all six faces is physically and numerically valid. This provides a "fail-fast"
- * mechanism to prevent users from running improperly configured simulations.
- *
- * @param user The UserCtx for a single block, containing the populated `boundary_faces` configuration.
- * @return PetscErrorCode 0 on success, non-zero PETSc error code on failure.
+ * @brief Internal helper implementation: `BoundarySystem_Validate()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode BoundarySystem_Validate(UserCtx *user)
 {
@@ -958,7 +849,10 @@ PetscErrorCode BoundarySystem_Validate(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "BoundarySystem_Initialize"
 /**
- * @brief Initializes the entire boundary system based on a configuration file.
+ * @brief Implementation of \ref BoundarySystem_Initialize().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Boundaries.h`.
+ * @see BoundarySystem_Initialize()
  */
 PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename)
 {
@@ -1082,14 +976,8 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
 #undef __FUNCT__
 #define __FUNCT__ "PropagateBoundaryConfigToCoarserLevels"
 /**
- * @brief Propagates boundary condition configuration from finest to all coarser multigrid levels.
- *
- * Coarser levels need BC type information for geometric operations (e.g., periodic corrections)
- * but do NOT need full handler objects since timestepping only occurs at the finest level.
- * This function copies the boundary_faces configuration down the hierarchy.
- *
- * @param simCtx The master SimCtx containing the multigrid hierarchy
- * @return PetscErrorCode 0 on success
+ * @brief Internal helper implementation: `PropagateBoundaryConfigToCoarserLevels()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx)
 {
@@ -1157,28 +1045,10 @@ PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "BoundarySystem_ExecuteStep"
 /**
- * @brief Executes all boundary condition handlers in priority order.
- *
- * This function orchestrates the application of boundary conditions across all
- * faces using a priority-based system. Each priority group is executed atomically:
- * handlers at a given priority complete their PreStep, Apply, and PostStep phases,
- * with MPI communication between phases as needed. This ensures proper data flow
- * for boundary conditions that depend on results from other boundaries.
- *
- * Priority execution order (matches legacy):
- *   0 (BC_PRIORITY_INLET):    Inlets - Set inflow, measure flux
- *   1 (BC_PRIORITY_FARFIELD): Farfield - Bidirectional flow, measure flux  
- *   2 (BC_PRIORITY_WALL):     Walls/Symmetry - Set velocity/gradients
- *   3 (BC_PRIORITY_OUTLET):   Outlets - Apply conservation correction
- *
- * NOTE: This function is called INSIDE the ApplyBoundaryConditions iteration loop.
- * It does NOT handle:
- *   - Contra2Cart (done by caller)
- *   - UpdateDummyCells (done by caller)
- *   - DMGlobalToLocal syncs (done by caller)
- *
- * @param user The UserCtx containing boundary configuration and state
- * @return PetscErrorCode 0 on success
+ * @brief Implementation of \ref BoundarySystem_ExecuteStep().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Boundaries.h`.
+ * @see BoundarySystem_ExecuteStep()
  */
 PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
 {
@@ -1599,23 +1469,8 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "BoundarySystem_RefreshUbcs"
 /**
- * @brief (Private) A lightweight execution engine that calls the UpdateUbcs() method on all relevant handlers.
- *
- * This function's sole purpose is to re-evaluate the target boundary values (`ubcs`) for
- * flow-dependent boundary conditions (e.g., Symmetry, Outlets) after the interior
- * velocity field has changed, such as after the projection step.
- *
- * It operates based on a "pull" model: it iterates through all boundary handlers and
- * executes their `UpdateUbcs` method only if the handler has provided one. This makes the
- * system extensible, as new flow-dependent handlers can be added without changing this
- * engine. Handlers for fixed boundary conditions (e.g., a wall with a constant velocity)
- * will have their `UpdateUbcs` pointer set to `NULL` and will be skipped automatically.
- *
- * @note This function is a critical part of the post-projection refresh. It intentionally
- *       does NOT modify `ucont` and does NOT perform flux balancing.
- *
- * @param user The main UserCtx struct.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `BoundarySystem_RefreshUbcs()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user)
 {
@@ -1662,15 +1517,10 @@ PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "BoundarySystem_Destroy"
 /**
- * @brief Cleans up and destroys all resources allocated by the boundary system.
- *
- * This function should be called once at the end of the simulation. It iterates
- * through all created handlers and calls their respective Destroy methods to free
- * any privately allocated data (like parameter lists or handler-specific data),
- * and then frees the handler object itself. This prevents memory leaks.
- *
- * @param user The main UserCtx struct containing the boundary system to be destroyed.
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref BoundarySystem_Destroy().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Boundaries.h`.
+ * @see BoundarySystem_Destroy()
  */
 PetscErrorCode BoundarySystem_Destroy(UserCtx *user)
 {
@@ -1716,16 +1566,8 @@ PetscErrorCode BoundarySystem_Destroy(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "TransferPeriodicFieldByDirection"
 /**
- * @brief (Private Worker) Copies periodic data for a SINGLE field in a SINGLE direction.
- *
- * This is a low-level helper that performs the memory copy from the local ghost
- * array to the global array for a specified field and direction ('i', 'j', or 'k').
- * It contains NO communication logic; that is handled by the orchestrator.
- *
- * @param user The main UserCtx struct.
- * @param field_name The string identifier for the field to transfer (e.g., "Ucat").
- * @param direction The character 'i', 'j', or 'k' specifying the direction.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `TransferPeriodicFieldByDirection()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field_name, char direction)
 {
@@ -1808,17 +1650,8 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
 #undef __FUNCT__
 #define __FUNCT__ "TransferPeriodicField"
 /**
- * @brief (Private) A generic routine to copy data for a single, named field across periodic boundaries.
- *
- * This function encapsulates all logic for a periodic transfer. Given a field name (e.g., "P", "Ucat"),
- * it determines the field's data type (scalar/vector), retrieves the correct DMDA and Vecs from the
- * UserCtx, and then performs the memory copy from the local ghost array to the global array.
- *
- * This must be called AFTER the corresponding local ghost vector has been updated via DMGlobalToLocal.
- *
- * @param user The main UserCtx struct, containing all grid info and field data.
- * @param field_name A string identifier for the field to transfer.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `TransferPeriodicField()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
 {
@@ -1920,19 +1753,8 @@ PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
 #undef __FUNCT__
 #define __FUNCT__ "TransferPeriodicFaceField"
 /**
- * @brief (Primitive) Copies periodic data from the interior to the local ghost cell region for a single field.
- *
- * This primitive function performs a direct memory copy for a specified field, updating
- * all periodic ghost faces (i, j, and k). It reads data from just inside the periodic boundary
- * and writes it to the corresponding local ghost cells.
- *
- * The copy is "two-cells deep" to support wider computational stencils.
- *
- * This function does NOT involve any MPI communication; it operates entirely on local PETSc vectors.
- *
- * @param user The main UserCtx struct.
- * @param field_name The string identifier for the field to update (e.g., "Csi", "Ucont").
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `TransferPeriodicFaceField()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode TransferPeriodicFaceField(UserCtx *user, const char *field_name)
 {
@@ -2067,14 +1889,8 @@ PetscErrorCode TransferPeriodicFaceField(UserCtx *user, const char *field_name)
 #undef __FUNCT__
 #define __FUNCT__ "ApplyMetricsPeriodicBCs"
 /**
- * @brief (Orchestrator) Updates all metric-related fields in the local ghost cell regions for periodic boundaries.
- *
- * This function calls the TransferPeriodicFaceField primitive for each of the 16
- * metric fields that require a 2-cell deep periodic ghost cell update.
- * This is a direct replacement for the legacy Update_Metrics_PBC function.
- *
- * @param user The main UserCtx struct.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ApplyMetricsPeriodicBCs()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
 {
@@ -2100,24 +1916,8 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ApplyPeriodicBCs"
 /**
- * @brief Applies periodic boundary conditions by copying data across domain boundaries for all relevant fields.
- *
- * This function orchestrates the periodic update. It first performs a collective
- * ghost-cell exchange for core fields, then performs periodic face updates on
- * field-by-field helpers.
- *
- * For staggered contravariant fluxes (`Ucont`), this routine additionally:
- * 1) refreshes local ghost values,
- * 2) applies periodic ghost-face transfer (`ApplyUcontPeriodicBCs`),
- * 3) enforces strict seam consistency on the last interior periodic faces
- *    (`EnforceUcontPeriodicity`),
- * 4) performs a final ghost refresh for downstream stencils.
- *
- * Future extension rule: when adding a new periodic field, keep this routine as
- * the single orchestration point and update the field dispatchers.
- *
- * @param user The main UserCtx struct.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `ApplyPeriodicBCs()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
 {
@@ -2141,7 +1941,7 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
         PetscFunctionReturn(0);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_TRACE, "Applying periodic boundary conditions for all fields.\s");
+    LOG_ALLOW(GLOBAL, LOG_TRACE, "Applying periodic boundary conditions for all fields.\n");
 
     // STEP 1: Perform the collective communication for periodic core fields.
     ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
@@ -2175,13 +1975,10 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ApplyUcontPeriodicBCs"
 /**
- * @brief (Orchestrator) Updates the contravariant velocity field in the local ghost cell regions for periodic boundaries.
- *
- * This function calls the TransferPeriodicFaceField primitive for the Ucont field.
- * This is a direct replacement for the legacy Update_U_Cont_PBC function.
- *
- * @param user The main UserCtx struct.
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref ApplyUcontPeriodicBCs().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Boundaries.h`.
+ * @see ApplyUcontPeriodicBCs()
  */
 PetscErrorCode ApplyUcontPeriodicBCs(UserCtx *user)
 {
@@ -2204,17 +2001,8 @@ PetscErrorCode ApplyUcontPeriodicBCs(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "EnforceUcontPeriodicity"
 /**
- * @brief Enforces strict periodicity on the interior contravariant velocity field.
- *
- * This function is a "fix-up" routine for staggered grids. After a solver step,
- * numerical inaccuracies can lead to small discrepancies between fluxes on opposing
- * periodic boundaries. This function manually corrects this by copying the flux value
- * from the first boundary face (retrieved from a ghost cell) to the last interior face.
- *
- * This routine involves MPI communication to synchronize the grid before and after the copy.
- *
- * @param user The main UserCtx struct.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `EnforceUcontPeriodicity()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode EnforceUcontPeriodicity(UserCtx *user)
 {
@@ -2265,23 +2053,8 @@ PetscErrorCode EnforceUcontPeriodicity(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "UpdateDummyCells"
 /**
- * @brief Updates the dummy cells (ghost nodes) on the faces of the local domain for NON-PERIODIC boundaries.
- *
- * This function's role is to apply a second-order extrapolation to set the ghost
- * cell values based on the boundary condition value (stored in `ubcs`) and the
- * first interior cell.
- *
- * NOTE: This function deliberately IGNORES periodic boundaries. It is part of a
- * larger workflow where `ApplyPeriodicBCs` handles periodic faces first.
- *
- * CRITICAL DETAIL: This function uses shrunken loop ranges (lxs, lxe, etc.) to
- * intentionally update only the flat part of the faces, avoiding the edges and
-
- * corners. The edges and corners are then handled separately by `UpdateCornerNodes`.
- * This precisely replicates the logic of the original function.
- *
- * @param user The main UserCtx struct containing all necessary data.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `UpdateDummyCells()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateDummyCells(UserCtx *user)
 {
@@ -2372,19 +2145,8 @@ PetscErrorCode UpdateDummyCells(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "UpdateCornerNodes"
 /**
- * @brief Updates the corner and edge ghost nodes of the local domain by averaging.
- *
- * This function should be called AFTER the face ghost nodes are finalized by both
- * `ApplyPeriodicBCs` and `UpdateDummyCells`. It resolves the values at shared
- * edges and corners by averaging the values of adjacent, previously-computed
- * ghost nodes.
- *
- * The logic is generic and works correctly regardless of the boundary types on
- * the adjacent faces (e.g., it will correctly average a periodic face neighbor
- * with a wall face neighbor).
- *
- * @param user The main UserCtx struct containing all necessary data.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `UpdateCornerNodes()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateCornerNodes(UserCtx *user)
 {
@@ -2527,17 +2289,8 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "UpdatePeriodicCornerNodes"
 /**
- * @brief (Orchestrator) Performs a sequential, deterministic periodic update for a list of fields.
- *
- * This function orchestrates the resolution of ambiguous periodic corners and edges.
- * It takes an array of field names and updates them in a strict i-sync-j-sync-k order
- * by calling the low-level worker `TransferPeriodicFieldByDirection` and the
- * communication routine `UpdateLocalGhosts`.
- *
- * @param user The main UserCtx struct.
- * @param num_fields The number of fields in the field_names array.
- * @param field_names An array of strings with the names of fields to update (e.g., ["Ucat", "P"]).
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `UpdatePeriodicCornerNodes()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdatePeriodicCornerNodes(UserCtx *user, PetscInt num_fields, const char* field_names[])
 {
@@ -2579,50 +2332,8 @@ PetscErrorCode UpdatePeriodicCornerNodes(UserCtx *user, PetscInt num_fields, con
 #undef __FUNCT__
 #define __FUNCT__ "ApplyWallFunction"
 /**
- * @brief Applies wall function modeling to near-wall velocities for all wall-type boundaries.
- *
- * This function implements log-law wall functions to model the near-wall velocity profile
- * without fully resolving the viscous sublayer. It is applicable to ALL wall-type boundaries
- * regardless of their specific boundary condition (no-slip, moving wall, slip, etc.), as
- * determined by the mathematical_type being WALL.
- *
- * MATHEMATICAL BACKGROUND:
- * Wall functions bridge the gap between the wall (y=0) and the first computational cell
- * center by using empirical log-law relationships:
- *   - Viscous sublayer (y+ < 11.81): u+ = y+
- *   - Log-law region (y+ > 11.81): u+ = (1/κ) * ln(E * y+)
- * where u+ = u/u_τ, y+ = y*u_τ/ν, κ = 0.41 (von Karman constant), E = exp(κB)
- *
- * IMPLEMENTATION DETAILS:
- * Unlike standard boundary conditions that set ghost cell values, wall functions:
- *   1. Read velocity from the SECOND interior cell (i±2, j±2, k±2)
- *   2. Compute wall shear stress using log-law
- *   3. Modify velocity at the FIRST interior cell (i±1, j±1, k±1) 
- *   4. Keep ghost cell boundary values (ubcs, ucont) at zero
- *
- * WORKFLOW:
- *   - Called from ApplyBoundaryConditions after standard BC application
- *   - Operates on ucat (Cartesian velocity)
- *   - Updates ustar (friction velocity field) for diagnostics/turbulence models
- *   - Ghost cells remain zero; UpdateDummyCells handles extrapolation afterward
- *
- * GEOMETRIC QUANTITIES:
- *   sb = wall-normal distance from wall to first interior cell center
- *   sc = wall-normal distance from wall to second interior cell center  
- *   These are computed from cell Jacobians (aj) and face area vectors
- *
- * APPLICABILITY:
- *   - Requires simCtx->wallfunction = true
- *   - Only processes faces where mathematical_type == WALL
- *   - Skips solid-embedded cells (nvert >= 0.1)
- *
- * @param user The UserCtx containing all simulation state and geometry
- * @return PetscErrorCode 0 on success
- *
- * @note This function modifies interior cell velocities, NOT ghost cells
- * @note Wall roughness (ks) is currently set to 1e-16 (smooth wall)
- * @see wall_function_loglaw() in wallfunction.c for the actual log-law implementation
- * @see noslip() in wallfunction.c for the initial linear interpolation
+ * @brief Internal helper implementation: `ApplyWallFunction()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode ApplyWallFunction(UserCtx *user)
 {
@@ -3080,31 +2791,8 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "RefreshBoundaryGhostCells"
 /**
- * @brief (Public) Orchestrates the "light" refresh of all boundary ghost cells after the projection step.
- *
- * This function is the correct and complete replacement for the role that `GhostNodeVelocity`
- * played when called from within the `Projection` function. Its purpose is to ensure that
- * all ghost cells for `ucat` and `p` are made consistent with the final, divergence-free
- * interior velocity field computed by the projection step.
- *
- * This function is fundamentally different from `ApplyBoundaryConditions` because it does
- * NOT modify the physical flux field (`ucont`) and does NOT apply physical models like
- * the wall function. It is a purely geometric and data-consistency operation.
- *
- * WORKFLOW:
- * 1.  Calls the lightweight `BoundarySystem_RefreshUbcs()` engine. This re-calculates the
- *     `ubcs` target values ONLY for flow-dependent boundary conditions (like Symmetry or Outlets)
- *     using the newly updated interior `ucat` field.
- *
- * 2.  Calls the geometric updaters (`ApplyPeriodicBCs`, `UpdateDummyCells`, `UpdateCornerNodes`)
- *     in the correct, dependency-aware order to fill in all ghost cell values based on the now
- *     fully-refreshed `ubcs` targets.
- *
- * 3.  Performs a final synchronization of local PETSc vectors to ensure all MPI ranks are
- *     consistent before proceeding to the next time step.
- *
- * @param user The main UserCtx struct, containing all simulation state.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `RefreshBoundaryGhostCells()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode RefreshBoundaryGhostCells(UserCtx *user)
 {
@@ -3166,31 +2854,10 @@ PetscErrorCode RefreshBoundaryGhostCells(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ApplyBoundaryConditions"
 /**
- * @brief Main master function to apply all boundary conditions for a time step.
- *
- * This function orchestrates the entire boundary condition workflow in a specific,
- * dependency-aware order:
- *
- * 1.  **Iterate Non-Periodic BCs:** It then enters an iterative loop to solve for
- *     the non-periodic boundary conditions. This allows complex, coupled conditions
- *     (like mass-conserving outlets that depend on inlet fluxes) to converge.
- *     - `BoundarySystem_ExecuteStep` calculates fluxes and sets boundary values (`ubcs`).
- *     - `UpdateDummyCells` uses these values to update the ghost cells.
- *
- * 2.  **Apply Periodic BCs:** First, it handles all periodic boundaries. This is a
- *     direct, non-iterative data copy that establishes the "wrap-around" state for
- *     all relevant fields. This provides a fixed constraint for the subsequent steps.
- * 
- * 3.  **Update Corner Nodes:** After the loop, `UpdateCornerNodes` is called to
- *     resolve the values at ghost cell edges and corners, using the now-final
- *     values from both the periodic and non-periodic faces.
- *
- * 4.  **Final Ghost Synchronization:** Finally, it performs a global-to-local
- *     update on all key fields to ensure that every processor's ghost-cell data
- *     is fully consistent before the main solver proceeds.
- *
- * @param user The main UserCtx struct containing the complete simulation state.
- * @return PetscErrorCode 0 on success.
+ * @brief Implementation of \ref ApplyBoundaryConditions().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Boundaries.h`.
+ * @see ApplyBoundaryConditions()
  */
 PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 {

@@ -1,3 +1,8 @@
+/**
+ * @file test_runtime_kernels.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "BC_Handlers.h"
@@ -9,6 +14,9 @@
 #include "runloop.h"
 #include "setup.h"
 #include "wallfunction.h"
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestDistributeParticlesRemainderHandling(void)
 {
@@ -25,6 +33,9 @@ static PetscErrorCode TestDistributeParticlesRemainderHandling(void)
     PetscCall(PicurvAssertIntEqual(1, remainder, "remainder should remain unchanged across ranks"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestIsParticleInsideBoundingBoxBasicCases(void)
 {
@@ -51,6 +62,9 @@ static PetscErrorCode TestIsParticleInsideBoundingBoxBasicCases(void)
     PetscCall(PicurvAssertBool((PetscBool)!IsParticleInsideBoundingBox(&bbox, &particle), "particle should be outside bounding box"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestUpdateParticleWeightsComputesExpectedRatios(void)
 {
@@ -71,6 +85,9 @@ static PetscErrorCode TestUpdateParticleWeightsComputesExpectedRatios(void)
     PetscCall(PicurvAssertRealNear(0.5, particle.weights.z, 1.0e-12, "clamped z weight remains centered"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestUpdateParticlePositionWithoutBrownianContribution(void)
 {
@@ -102,6 +119,9 @@ static PetscErrorCode TestUpdateParticlePositionWithoutBrownianContribution(void
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestUpdateParticleFieldIEMRelaxation(void)
 {
@@ -125,6 +145,9 @@ static PetscErrorCode TestUpdateParticleFieldIEMRelaxation(void)
     PetscCall(PicurvAssertRealNear(7.0, unchanged, 1.0e-12, "unknown field should remain unchanged"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestSetInitialInteriorFieldIgnoresNonUcontRequest(void)
 {
@@ -141,6 +164,9 @@ static PetscErrorCode TestSetInitialInteriorFieldIgnoresNonUcontRequest(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestSetInitialInteriorFieldConstantProfileOnZInlet(void)
 {
@@ -169,6 +195,9 @@ static PetscErrorCode TestSetInitialInteriorFieldConstantProfileOnZInlet(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestWallNoSlipAndFreeSlipHelpers(void)
 {
@@ -189,6 +218,9 @@ static PetscErrorCode TestWallNoSlipAndFreeSlipHelpers(void)
     PetscCall(PicurvAssertRealNear(4.0, boundary_velocity.z, 1.0e-12, "free-slip tangential z preserved"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestWallModelScalarHelpers(void)
 {
@@ -210,6 +242,9 @@ static PetscErrorCode TestWallModelScalarHelpers(void)
     PetscCall(PicurvAssertBool((PetscBool)(integrate_1(1.0e-3, 1.0e-2, 0.1, 0) > 0.0), "integral helper should be positive"));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestValidateDrivenFlowConfigurationNoDrivenHandlers(void)
 {
@@ -222,6 +257,9 @@ static PetscErrorCode TestValidateDrivenFlowConfigurationNoDrivenHandlers(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestComputeSmagorinskyConstantConstantModel(void)
 {
@@ -242,6 +280,9 @@ static PetscErrorCode TestComputeSmagorinskyConstantConstantModel(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestUpdateSolverHistoryVectorsShiftsStates(void)
 {
@@ -278,6 +319,9 @@ static PetscErrorCode TestUpdateSolverHistoryVectorsShiftsStates(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestGetOwnedCellRangeSingleRankAccounting(void)
 {
@@ -303,6 +347,9 @@ static PetscErrorCode TestGetOwnedCellRangeSingleRankAccounting(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestComputeAndStoreNeighborRanksSingleRank(void)
 {
@@ -323,6 +370,9 @@ static PetscErrorCode TestComputeAndStoreNeighborRanksSingleRank(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

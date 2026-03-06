@@ -1,11 +1,13 @@
 @page 50_Modular_Selector_Extension_Guide Modular Selector Extension Guide
 
+@anchor _Modular_Selector_Extension_Guide
+
 This page is the contributor checklist for adding new selector-driven options
 without drifting the YAML -> launcher -> C runtime contract.
 
 @tableofcontents
 
-@section general_sec 1. Standard Checklist For Any Selector
+@section p50_general_sec 1. Standard Checklist For Any Selector
 
 For every new selector value:
 
@@ -19,7 +21,7 @@ For every new selector value:
 
 Use the canonical value only. Do not add placeholder enum values or compatibility aliases for unimplemented options.
 
-@section momentum_sec 2. Momentum Solver Selector
+@section p50_momentum_sec 2. Momentum Solver Selector
 
 - Schema home: `solver.yml -> strategy.momentum_solver`
 - Canonical values:
@@ -43,7 +45,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - **@subpage 24_Dual_Time_Picard_RK4**
   - **@subpage 31_Momentum_Solvers**
 
-@section bc_sec 3. Boundary Condition Type Or Handler
+@section p50_bc_sec 3. Boundary Condition Type Or Handler
 
 - Schema home: `case.yml -> boundary_conditions`
 - Canonical values:
@@ -72,7 +74,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - **@subpage 07_Case_Reference**
   - **@subpage 44_Boundary_Conditions_Guide**
 
-@section particle_init_sec 4. Particle Initialization Mode
+@section p50_particle_init_sec 4. Particle Initialization Mode
 
 - Schema home: `case.yml -> models.physics.particles.init_mode`
 - Canonical values:
@@ -96,7 +98,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 45_Particle_Initialization_and_Restart**
 
-@section field_init_sec 5. Field Initialization Mode
+@section p50_field_init_sec 5. Field Initialization Mode
 
 - Schema home: `case.yml -> properties.initial_conditions.mode`
 - Canonical values:
@@ -118,7 +120,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 33_Initial_Conditions**
 
-@section analytical_sec 6. Analytical Type
+@section p50_analytical_sec 6. Analytical Type
 
 - Schema home: `solver.yml -> operation_mode.analytical_type`
 - Canonical values:
@@ -138,7 +140,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - **@subpage 08_Solver_Reference**
   - **@subpage 32_Analytical_Solutions**
 
-@section grid_sec 7. Grid Selector / Generator Selector
+@section p50_grid_sec 7. Grid Selector / Generator Selector
 
 - Schema homes:
   - `case.yml -> grid.mode`
@@ -163,7 +165,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - **@subpage 07_Case_Reference**
   - **@subpage 48_Grid_Generator_Guide**
 
-@section profiling_sec 8. Profiling Selector
+@section p50_profiling_sec 8. Profiling Selector
 
 - Schema home: `monitor.yml -> profiling.timestep_output.mode`
 - Canonical values:
@@ -187,7 +189,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 09_Monitor_Reference**
 
-@section post_sec 9. Postprocessing / Statistics Tasks
+@section p50_post_sec 9. Postprocessing / Statistics Tasks
 
 - Schema home: `post.yml -> statistics_pipeline`
 - Canonical values:
@@ -205,10 +207,33 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 10_Post_Processing_Reference**
 
-@section related_sec 10. Related Pages
+@section p50_related_sec 10. Related Pages
 
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 31_Momentum_Solvers**
 - **@subpage 44_Boundary_Conditions_Guide**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Modular Selector Extension Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

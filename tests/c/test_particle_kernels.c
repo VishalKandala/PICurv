@@ -1,6 +1,14 @@
+/**
+ * @file test_particle_kernels.c
+ * @brief C test module for PICurv.
+ */
+
 #include "test_support.h"
 
 #include "walkingsearch.h"
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestCheckCellWithinLocalGrid(void)
 {
@@ -20,6 +28,9 @@ static PetscErrorCode TestCheckCellWithinLocalGrid(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestInitializeTraversalParameters(void)
 {
@@ -46,6 +57,9 @@ static PetscErrorCode TestInitializeTraversalParameters(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Test-local routine.
+ */
 
 static PetscErrorCode TestRetrieveCurrentCell(void)
 {
@@ -68,6 +82,9 @@ static PetscErrorCode TestRetrieveCurrentCell(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Entry point for this unit-test binary.
+ */
 
 int main(int argc, char **argv)
 {

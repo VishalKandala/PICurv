@@ -14,6 +14,7 @@ LINE_RE = re.compile(r"^\s*([^:]+):\s*([0-9]+):(.*)$")
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse args."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--src-dir", default="src", help="directory containing C source files")
     parser.add_argument("--obj-dir", default="obj", help="directory containing coverage objects (*.gcda/*.gcno)")
@@ -23,6 +24,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_gcov(src_files: list[Path], obj_dir: Path, repo_root: Path, output_dir: Path) -> None:
+    """Run gcov."""
     for src in src_files:
         cmd = ["gcov", "-o", str(obj_dir), str(src)]
         proc = subprocess.run(cmd, cwd=str(repo_root), text=True, capture_output=True, check=False)
@@ -35,6 +37,7 @@ def run_gcov(src_files: list[Path], obj_dir: Path, repo_root: Path, output_dir: 
 
 
 def parse_gcov_file(gcov_path: Path, repo_root: Path) -> tuple[Path | None, int, int]:
+    """Parse gcov file."""
     source_path = None
     covered = 0
     total = 0
@@ -75,6 +78,7 @@ def parse_gcov_file(gcov_path: Path, repo_root: Path) -> tuple[Path | None, int,
 
 
 def main() -> int:
+    """Entry point for this script."""
     args = parse_args()
     repo_root = Path(__file__).resolve().parents[1]
     src_dir = (repo_root / args.src_dir).resolve()

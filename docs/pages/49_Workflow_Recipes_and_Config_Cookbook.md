@@ -1,11 +1,13 @@
 @page 49_Workflow_Recipes_and_Config_Cookbook Workflow Recipes and Config Cookbook
 
+@anchor _Workflow_Recipes_and_Config_Cookbook
+
 This page is the practical companion to the reference docs.
 Use it when you already understand the config roles and want proven patterns for combining them cleanly.
 
 @tableofcontents
 
-@section idea_sec 1. Core Workflow Idea
+@section p49_idea_sec 1. Core Workflow Idea
 
 PICurv is designed around modular config roles:
 
@@ -22,7 +24,7 @@ The intended UX is:
 - reuse stable profiles across many runs,
 - only clone and specialize the roles that actually changed.
 
-@section combos_sec 2. Common Mix-and-Match Patterns
+@section p49_combos_sec 2. Common Mix-and-Match Patterns
 
 Pattern A: same case, different monitoring
 
@@ -45,7 +47,7 @@ Pattern D: same cluster profile across many jobs
 - reuse one `cluster.yml` for site policy
 - vary only case/solver/monitor/post inputs
 
-@section recipes_sec 3. Command Recipes
+@section p49_recipes_sec 3. Command Recipes
 
 First-time local workflow:
 
@@ -79,7 +81,7 @@ Cluster generation without submit:
 ./bin/picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit
 ```
 
-@section examples_sec 4. Example Config Combinations
+@section p49_examples_sec 4. Example Config Combinations
 
 Programmatic baseline:
 
@@ -105,7 +107,7 @@ Analytical zero-flow Brownian verification:
 These are examples, not fixed bundles.
 You can intentionally swap roles when the contract makes sense.
 
-@section config_patterns_sec 5. Configuration Patterns Worth Reusing
+@section p49_config_patterns_sec 5. Configuration Patterns Worth Reusing
 
 Minimal zero-flow startup:
 
@@ -184,7 +186,7 @@ Expected step range:
 - first new step is `501`
 - final step after this run is `1500`
 
-@section choose_sec 6. Which Example To Start From
+@section p49_choose_sec 6. Which Example To Start From
 
 Choose `flat_channel` when:
 
@@ -204,10 +206,33 @@ Choose `brownian_motion` when:
 - you want a particle-focused test with minimal flow complexity,
 - you want a reference for `ZERO_FLOW` analytical mode.
 
-@section next_steps_sec 7. Related Pages
+@section p49_next_steps_sec 7. Related Pages
 
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 07_Case_Reference**
 - **@subpage 14_Config_Contract**
 - **@subpage 48_Grid_Generator_Guide**
 - **@subpage 45_Particle_Initialization_and_Restart**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Workflow Recipes and Config Cookbook** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

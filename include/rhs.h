@@ -6,8 +6,34 @@
 #include "Metric.h"
 #include  "BodyForces.h"
 
+/**
+ * @brief Computes the viscous contribution to the contravariant momentum RHS.
+ *
+ * This routine evaluates diffusive fluxes on the curvilinear grid and writes the
+ * resulting term into `Visc`. The caller is responsible for providing compatible
+ * vectors and for assembling any additional source terms afterwards.
+ *
+ * @param[in]  user  Block-level solver context containing metrics and model parameters.
+ * @param[in]  Ucont Contravariant velocity field used by the discretization.
+ * @param[in]  Ucat  Cartesian velocity field used for derivative evaluation.
+ * @param[out] Visc  Output vector receiving the viscous RHS contribution.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc);
 
+/**
+ * @brief Computes the convective contribution to the contravariant momentum RHS.
+ *
+ * This routine evaluates the advection operator on the current velocity state and
+ * stores the contribution in `Conv` for subsequent combination with viscous and
+ * body-force terms.
+ *
+ * @param[in]  user  Block-level solver context containing metrics and numerics settings.
+ * @param[in]  Ucont Contravariant velocity field used in face-normal flux construction.
+ * @param[in]  Ucat  Cartesian velocity field used by the convective stencil.
+ * @param[out] Conv  Output vector receiving the convection RHS contribution.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv);
 
 /**
@@ -21,7 +47,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv);
  * forces are active and calls their specific implementation functions.
  *
  * @param user The UserCtx containing the simulation state for a single block.
- * @param Rhs  The PETSc Vec for the contravariant RHS, which will be modified in-place.
+ * @param Rct  The PETSc Vec for the contravariant RHS, modified in place.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct);
@@ -38,24 +64,22 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct);
  */
 extern PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs);
 /**
- * @brief Computes the effective diffusivity scalar field ($\Gamma_{eff}$) on the Eulerian grid.
+ * @brief Computes the effective diffusivity scalar field (Gamma_eff) on the Eulerian grid.
  *
  * This function calculates the total diffusivity used to drive the stochastic 
  * motion of particles (Scalar FDF). It combines molecular diffusion and 
  * turbulent diffusion.
  *
- * **Formula:**
- * \f[
- *    \Gamma_{eff} = \underbrace{\frac{\nu}{Sc}}_{\text{Molecular}} + \underbrace{\frac{\nu_t}{Sc_t}}_{\text{Turbulent}}
- * \f]
+ * Formula:
+ *   Gamma_eff = nu/Sc + nu_t/Sc_t
  *
  * Where:
- * - \f$ \nu = 1/Re \f$ (Kinematic Viscosity)
- * - \f$ \nu_t \f$ (Eddy Viscosity from LES/RANS model)
- * - \f$ Sc \f$ (Molecular Schmidt Number, user-defined)
- * - \f$ Sc_t \f$ (Turbulent Schmidt Number, user-defined)
+ * - nu = 1/Re (kinematic viscosity)
+ * - nu_t (eddy viscosity from LES/RANS model)
+ * - Sc (molecular Schmidt number)
+ * - Sc_t (turbulent Schmidt number)
  *
- * @note If turbulence models are disabled, \f$ \nu_t \f$ is assumed to be 0.
+ * @note If turbulence models are disabled, nu_t is assumed to be 0.
  * @note This function updates the local ghost values of lDiffusivity at the end 
  *       to ensure gradients can be computed correctly at subdomain boundaries.
  *
@@ -64,5 +88,16 @@ extern PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs);
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user);
+
+/**
+ * @brief Computes the Eulerian gradient of the effective diffusivity field.
+ *
+ * Reads the scalar diffusivity field and writes a vector gradient field used by
+ * particle stochastic transport updates.
+ *
+ * @param[in,out] user Pointer to user context containing diffusivity vectors.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeEulerianDiffusivityGradient(UserCtx *user);
 
 #endif // RHS_H

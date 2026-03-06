@@ -1,86 +1,74 @@
 #!/usr/bin/env python3
+"""Backward-compatible wrapper for legacy grid conversion.
+
+This script now delegates to:
+    python3 scripts/grid.gen legacy1d ...
+so there is a single maintained conversion implementation.
 """
-Convert LES-Flat grid format to PICGRID format
-Input: Coordinates stored separately by dimension
-Output: PICGRID format with all coordinates per point
-"""
 
-import numpy as np
+from __future__ import annotations
 
-def read_les_flat_grid(filename):
-    """Read grid file in LES-Flat format"""
-    with open(filename, 'r') as f:
-        lines = f.readlines()
-    
-    # First line: number of blocks
-    nblocks = int(lines[0].strip())
-    
-    # Second line: grid dimensions
-    ni, nj, nk = map(int, lines[1].strip().split())
-    
-    print(f"Grid dimensions: {ni} x {nj} x {nk}")
-    
-    # Read X coordinates (lines 2 to 2+ni)
-    x_coords = np.zeros(ni)
-    for i in range(ni):
-        vals = list(map(float, lines[2 + i].strip().split()))
-        x_coords[i] = vals[0]  # X is in first column
-    
-    # Read Y coordinates (lines 2+ni to 2+ni+nj)
-    y_coords = np.zeros(nj)
-    for j in range(nj):
-        vals = list(map(float, lines[2 + ni + j].strip().split()))
-        y_coords[j] = vals[1]  # Y is in second column
-    
-    # Read Z coordinates (lines 2+ni+nj to 2+ni+nj+nk)
-    z_coords = np.zeros(nk)
-    for k in range(nk):
-        vals = list(map(float, lines[2 + ni + nj + k].strip().split()))
-        z_coords[k] = vals[2]  # Z is in third column
-    
-    return ni, nj, nk, x_coords, y_coords, z_coords
+import argparse
+import os
+import subprocess
+import sys
 
-def write_picgrid_format(filename, ni, nj, nk, x_coords, y_coords, z_coords):
-    """Write grid file in PICGRID format"""
-    
-    total_points = ni * nj * nk
-    print(f"Writing {total_points} grid points to {filename}")
-    
-    with open(filename, 'w') as f:
-        # Write header
-        f.write("PICGRID\n")
-        f.write("1\n")
-        f.write(f"{ni} {nj} {nk}\n")
-        
-        # Write coordinates
-        # The ordering appears to be: for i, for k, for j (based on cpipe_coarse.grid)
-        # This means i varies fastest, then j, then k
-        for k in range(ni):
-            for j in range(nk):
-                for i in range(nj):
-                    x = x_coords[i] + min(x_coords)
-                    y = y_coords[j] + min(y_coords)
-                    z = z_coords[k] + min(z_coords)
-                    f.write(f"{x:.8e} {y:.8e} {z:.8e}\n")
-    
-    print(f"Successfully wrote {filename}")
 
-def main():
-    input_file = "/mnt/user-data/uploads/LES-Flat_grid.dat"
-    output_file = "/mnt/user-data/outputs/LES-Flat_PICGRID.grid"
-    
-    print(f"Reading {input_file}...")
-    ni, nj, nk, x_coords, y_coords, z_coords = read_les_flat_grid(input_file)
-    
-    print(f"\nCoordinate ranges:")
-    print(f"  X: [{x_coords.min():.6f}, {x_coords.max():.6f}]")
-    print(f"  Y: [{y_coords.min():.6f}, {y_coords.max():.6f}]")
-    print(f"  Z: [{z_coords.min():.6f}, {z_coords.max():.6f}]")
-    
-    print(f"\nWriting to {output_file}...")
-    write_picgrid_format(output_file, ni, nj, nk, x_coords, y_coords, z_coords)
-    
-    print("\nConversion complete!")
+def parse_args() -> argparse.Namespace:
+    """Parse wrapper CLI arguments."""
+    parser = argparse.ArgumentParser(
+        description="Convert a legacy 1D-axis grid payload into canonical PICGRID format.",
+    )
+    parser.add_argument("--input", required=True, help="Path to legacy grid input file.")
+    parser.add_argument("--output", required=True, help="Path to converted PICGRID output file.")
+    parser.add_argument(
+        "--axis-columns",
+        type=int,
+        nargs=3,
+        default=[0, 1, 2],
+        metavar=("XCOL", "YCOL", "ZCOL"),
+        help="Preferred source column index for X/Y/Z axis rows (default: 0 1 2).",
+    )
+    parser.add_argument(
+        "--allow-trailing",
+        action="store_true",
+        help="Ignore trailing payload rows after expected legacy content.",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    """Entry point."""
+    args = parse_args()
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    gridgen = os.path.join(script_dir, "grid.gen")
+    if not os.path.isfile(gridgen):
+        print(f"Error: grid.gen not found at '{gridgen}'.", file=sys.stderr)
+        return 1
+
+    cmd = [
+        sys.executable,
+        gridgen,
+        "legacy1d",
+        "--input",
+        args.input,
+        "--output",
+        args.output,
+        "--axis-columns",
+        str(args.axis_columns[0]),
+        str(args.axis_columns[1]),
+        str(args.axis_columns[2]),
+        "--no-write-vtk",
+    ]
+    cmd.append("--allow-trailing" if args.allow_trailing else "--strict-trailing")
+
+    result = subprocess.run(cmd, text=True, capture_output=True)
+    if result.stdout:
+        print(result.stdout.strip())
+    if result.stderr:
+        print(result.stderr.strip(), file=sys.stderr)
+    return result.returncode
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

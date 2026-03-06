@@ -7,20 +7,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "UpdateParticleField"
 /**
- * @brief Updates a single particle's field based on its state and physics model.
- *
- * Implements the IEM (Interaction by Exchange with the Mean) model for scalar mixing.
- * 
- * Physics: dPsi/dt = -Omega * (Psi - <Psi>)
- * Solution: Psi_new = <Psi> + (Psi_old - <Psi>) * exp(-Omega * dt)
- *
- * @param[in]     fieldName   Name of the field (e.g., "Psi").
- * @param[in]     dt          Time step size.
- * @param[in,out] psi_io      Pointer to the particle's scalar value (Psi).
- * @param[in]     diffusivity Particle diffusivity (Gamma + Gamma_t).
- * @param[in]     mean_val    Local Eulerian mean value (<Psi>).
- * @param[in]     cell_vol    Volume of the host cell (1/Jacobian).
- * @param[in]     C_model     Model constant (C_IEM).
+ * @brief Internal helper implementation: `UpdateParticleField()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateParticleField(const char *fieldName,
                                    PetscReal dt,
@@ -65,13 +53,8 @@ PetscErrorCode UpdateParticleField(const char *fieldName,
 #undef __FUNCT__
 #define __FUNCT__ "UpdateFieldForAllParticles"
 /**
- * @brief Loops over all local particles and updates a specified field.
- *
- * Prepares necessary Eulerian and Lagrangian data structures before looping.
- *
- * @param[in,out] user      Pointer to the UserCtx.
- * @param[in]     fieldName The name of the field to update (e.g., "Psi").
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `UpdateFieldForAllParticles()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName)
 {
@@ -175,6 +158,13 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName)
 
 #undef __FUNCT__
 #define __FUNCT__ "UpdateAllParticleFields"
+/**
+ * @brief Implementation of \ref UpdateAllParticleFields().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticlePhysics.h`.
+ * @see UpdateAllParticleFields()
+ */
+
 PetscErrorCode UpdateAllParticleFields(UserCtx *user)
 {
     PetscErrorCode ierr;

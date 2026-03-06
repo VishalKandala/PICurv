@@ -51,15 +51,18 @@ STUDY_BUNDLES = [
 
 
 def run_picurv(args):
+    """Run picurv."""
     cmd = [sys.executable, str(PICURV)] + list(args)
     return subprocess.run(cmd, cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False)
 
 
 def _read_text(path: Path) -> str:
+    """Helper for read text."""
     return path.read_text(encoding="utf-8")
 
 
 def test_all_example_bundles_validate():
+    """Test that all example bundles validate."""
     for bundle in EXAMPLE_BUNDLES:
         args = ["validate"]
         for role in ("case", "solver", "monitor", "post"):
@@ -70,6 +73,7 @@ def test_all_example_bundles_validate():
 
 
 def test_all_example_study_and_cluster_bundles_validate():
+    """Test that all example study and cluster bundles validate."""
     for bundle in STUDY_BUNDLES:
         result = run_picurv(
             [
@@ -84,6 +88,7 @@ def test_all_example_study_and_cluster_bundles_validate():
 
 
 def test_docs_and_examples_do_not_use_legacy_post_run_control_yaml_keys():
+    """Test that docs and examples do not use legacy post run control yaml keys."""
     legacy_key_pattern = re.compile(r"(?m)^\s*(startTime|endTime|timeStep):")
 
     scanned_roots = [
@@ -103,6 +108,7 @@ def test_docs_and_examples_do_not_use_legacy_post_run_control_yaml_keys():
 
 
 def test_docs_and_examples_do_not_contain_stale_post_contract_terms():
+    """Test that docs and examples do not contain stale post contract terms."""
     forbidden_literals = [
         "post.cfg",
         "output/BrownianStats_msd.csv",
@@ -128,6 +134,7 @@ def test_docs_and_examples_do_not_contain_stale_post_contract_terms():
 
 
 def test_yaml_templates_do_not_use_unquoted_off_for_mode_keys():
+    """Test that yaml templates do not use unquoted off for mode keys."""
     bare_off_pattern = re.compile(r"(?m)^\s*mode:\s+off\s*(?:#.*)?$")
 
     scanned_roots = [

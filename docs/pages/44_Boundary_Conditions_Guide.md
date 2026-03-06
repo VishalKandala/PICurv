@@ -1,11 +1,13 @@
 @page 44_Boundary_Conditions_Guide Boundary Conditions Guide
 
+@anchor _Boundary_Conditions_Guide
+
 This page is the detailed reference for boundary-condition authoring in `case.yml`.
 It documents what is currently supported by the Python conductor and what is currently wired in C.
 
 @tableofcontents
 
-@section grammar_sec 1. Boundary-Condition Grammar
+@section p44_grammar_sec 1. Boundary-Condition Grammar
 
 `case.yml -> boundary_conditions` supports:
 
@@ -18,7 +20,7 @@ Face names:
 
 Every block must provide all six faces exactly once.
 
-@section supported_sec 2. Supported User-Facing Combinations (`picurv`)
+@section p44_supported_sec 2. Supported User-Facing Combinations (`picurv`)
 
 The validator accepts these type/handler pairs:
 
@@ -37,7 +39,7 @@ Notes:
 - unknown params are rejected per handler,
 - `constant_flux` must be configured on both faces of the periodic pair.
 
-@section nondim_sec 3. Non-Dimensionalization Before C Input
+@section p44_nondim_sec 3. Non-Dimensionalization Before C Input
 
 `picurv` converts physical BC values to solver-scale values before writing `bcs.run`:
 
@@ -51,7 +53,7 @@ Specifically:
 - `vx/vy/vz/v_max` are divided by `properties.scaling.velocity_ref`,
 - `target_flux` is divided by `velocity_ref * length_ref^2`.
 
-@section periodic_rules_sec 4. Periodicity Consistency Rules
+@section p44_periodic_rules_sec 4. Periodicity Consistency Rules
 
 Validator checks:
 
@@ -62,7 +64,7 @@ Validator checks:
 
 The C side also performs periodic consistency checks while deriving global periodicity in @ref DeterminePeriodicity.
 
-@section c_pipeline_sec 5. C-Side Parsing and Dispatch
+@section p44_c_pipeline_sec 5. C-Side Parsing and Dispatch
 
 Generated `bcs.run` lines use:
 
@@ -91,7 +93,7 @@ Current factory-wired handlers include:
 - periodic geometric,
 - periodic driven constant flux.
 
-@section c_gap_sec 6. Exposed vs Latent Options
+@section p44_c_gap_sec 6. Exposed vs Latent Options
 
 Important contributor note:
 
@@ -104,7 +106,7 @@ If you add a new BC mode, update all three layers in one change:
 2. C parser/factory/handler implementation,
 3. docs and tests (fixtures + smoke checks).
 
-@section examples_sec 7. Authoring Examples
+@section p44_examples_sec 7. Authoring Examples
 
 Constant-velocity inlet + outlet conservation:
 
@@ -157,7 +159,7 @@ boundary_conditions:
     handler: noslip
 ```
 
-@section troubleshoot_sec 8. Common Failure Modes
+@section p44_troubleshoot_sec 8. Common Failure Modes
 
 - `missing required key 'face'/'type'/'handler'`: malformed BC entry object.
 - `Duplicate face`: same face declared twice in one block.
@@ -165,7 +167,7 @@ boundary_conditions:
 - `Inconsistent periodicity`: one side periodic and opposite side non-periodic.
 - `Unknown params`: extra keys not allowed for selected handler.
 
-@section refs_sec 9. Related Pages
+@section p44_refs_sec 9. Related Pages
 
 - **@subpage 07_Case_Reference**
 - **@subpage 33_Initial_Conditions**
@@ -173,3 +175,26 @@ boundary_conditions:
 - **@subpage 13_Code_Architecture**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 50_Modular_Selector_Extension_Guide**
+
+<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+## CFD Reader Guidance and Practical Use
+
+This page describes **Boundary Conditions Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+
+Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+
+### What To Extract Before Changing A Case
+
+- Identify which YAML role or runtime stage this page governs.
+- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
+- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
+- Record failure signals that require rollback or parameter isolation.
+
+### Practical CFD Troubleshooting Pattern
+
+1. Reproduce the issue on a tiny case or narrow timestep window.
+2. Change one control at a time and keep all other roles/configs fixed.
+3. Validate generated artifacts and logs after each change before scaling up.
+4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+

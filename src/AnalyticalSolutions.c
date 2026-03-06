@@ -35,6 +35,13 @@
 static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx);
 static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx);
 
+/**
+ * @brief Implementation of \ref AnalyticalTypeRequiresCustomGeometry().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @see AnalyticalTypeRequiresCustomGeometry()
+ */
+
 PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
 {
     if (!analytical_type) return PETSC_FALSE;
@@ -44,28 +51,8 @@ PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalGridInfo"
 /**
- * @brief Sets the grid domain and resolution for analytical solution cases.
- *
- * @details This function is called when `eulerianSource` is "analytical". It is responsible for
- * automatically configuring the grid based on the chosen `AnalyticalSolutionType`.
- *
- * @par TGV3D Multi-Block Decomposition
- * If the analytical solution is "TGV3D", this function automatically decomposes the
- * required `[0, 2*PI]` physical domain among the available blocks.
- * - **Single Block (`nblk=1`):** The single block is assigned the full `[0, 2*PI]` domain.
- * - **Multiple Blocks (`nblk>1`):** It requires that the number of blocks be a **perfect square**
- *   (e.g., 4, 9, 16). It then arranges the blocks in a `sqrt(nblk)` by `sqrt(nblk)` grid in the
- *   X-Y plane, partitioning the `[0, 2*PI]` domain in X and Y accordingly. The Z domain for all
- *   blocks remains `[0, 2*PI]`. If `nblk` is not a perfect square, the simulation is aborted
- *   with an error.
- *
- * Grid resolution (`IM/JM/KM`) is expected to be pre-populated in `user`
- * before this function is called.
- *
- * @param user Pointer to the `UserCtx` for a specific block. The function will
- *             populate the geometric fields (`IM`, `JM`, `KM`, `Min_X`, `Max_X`, etc.)
- *             within this struct.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `SetAnalyticalGridInfo()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
 {
@@ -77,7 +64,7 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
     PROFILE_FUNCTION_BEGIN;
 
     if (!AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) {
-        SETERRQ1(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
                  "SetAnalyticalGridInfo called for analytical type '%s' that does not require custom geometry.",
                  simCtx->AnalyticalSolutionType);
     }
@@ -103,7 +90,7 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
             
             // Validate that nblk is a perfect square.
             if (fabs(s - floor(s)) > 1e-9) {
-                SETERRQ1(PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
                          "\n\n*** CONFIGURATION ERROR FOR TGV3D ***\n"
                          "For multi-block TGV3D cases, the number of blocks must be a perfect square (e.g., 4, 9, 16).\n"
                          "You have specified %d blocks. Please adjust `-block_number`.\n", nblk);
@@ -140,7 +127,7 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
      * }
      */
     else {
-        SETERRQ1(PETSC_COMM_WORLD, PETSC_ERR_ARG_UNKNOWN_TYPE,
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_UNKNOWN_TYPE,
                  "Analytical type '%s' has no custom geometry implementation.",
                  simCtx->AnalyticalSolutionType);
     }
@@ -166,15 +153,10 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "AnalyticalSolutionEngine"
 /**
- * @brief Dispatches to the appropriate analytical solution function based on simulation settings.
- *
- * This function acts as a router. It reads the `AnalyticalSolutionType` string from the
- * simulation context and calls the corresponding private implementation function
- * (e.g., for Taylor-Green Vortex). This design keeps the main simulation code clean
- * and makes it easy to add new analytical test cases.
- *
- * @param[in] simCtx The main simulation context, containing all configuration and state.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Implementation of \ref AnalyticalSolutionEngine().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @see AnalyticalSolutionEngine()
  */
 PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx)
 {
@@ -209,7 +191,7 @@ PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx)
      */
     else {
         // If the type is unknown, raise a fatal error to prevent silent failures.
-        SETERRQ1(PETSC_COMM_WORLD, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown AnalyticalSolutionType specified: '%s'", simCtx->AnalyticalSolutionType);
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown AnalyticalSolutionType specified: '%s'", simCtx->AnalyticalSolutionType);
     }
 
     PROFILE_FUNCTION_END;
@@ -224,28 +206,8 @@ PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolution_TGV3D"
 /**
- * @brief Sets the non-dimensional velocity and pressure fields to the 3D Taylor-Green Vortex solution.
- *
- * @details This function implements the classical decaying Taylor-Green vortex in non-dimensional
- * form, consistent with the solver's internal state. It is fully compatible with the
- * solver's curvilinear, parallel, cell-centered architecture.
- *
- * @par WORKFLOW
- * 1.  Defines non-dimensional parameters for the TGV solution (V0=1.0, rho=1.0).
- * 2.  Defines correct loop bounds (`lxs`, `lxe`, etc.) to iterate over ONLY the physical
- *     interior cells owned by the current MPI rank.
- * 3.  Sets the **interior** cell-centered velocity (`Ucat`) and pressure (`P`) by evaluating
- *     the analytical formula at the cell-center coordinates (read from the local `user->Cent` vector).
- * 4.  Sets the **boundary condition** vector (`user->Bcs.Ubcs`) by evaluating the analytical
- *     velocity at the true physical face-center locations (read from the local `user->Centx`,
- *     `user->Centy`, and `user->Centz` vectors).
- * 5.  Manually sets the **pressure ghost cells** on the faces (excluding edges/corners) to
- *     enforce a zero-gradient (Neumann) boundary condition, which is standard for pressure.
- * 6.  Calls the solver's utility functions `UpdateDummyCells` (for `Ucat`) and `UpdateCornerNodes`
- *     (for both `Ucat` and `P`) to finalize all ghost cell values, ensuring a fully consistent field.
- *
- * @param[in] simCtx The main simulation context.
- * @return PetscErrorCode 0 on success, or a PETSc error code on failure.
+ * @brief Internal helper implementation: `SetAnalyticalSolution_TGV3D()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
 {
@@ -385,15 +347,8 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolution_ZeroFlow"
 /**
- * @brief Sets all fluid fields to zero for a quiescent (zero-flow) background.
- *
- * Used for Brownian-motion validation: particles diffuse from a point source with
- * no advection, so the carrier flow is identically zero everywhere.  The ghost-cell
- * sequence is identical to that used by TGV3D, ensuring a fully consistent field
- * state before the first time step.
- *
- * @param[in] simCtx The main simulation context.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `SetAnalyticalSolution_ZeroFlow()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
 {
@@ -424,15 +379,9 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolutionForParticles_TGV3D"
 /**
-@brief Sets the TGV3D analytical velocity solution for particles.
-
-@details Computes the 3D Taylor-Green Vortex velocity field at each particle position.
-         Assumes the vector contains interleaved xyz components [x0,y0,z0, x1,y1,z1, ...].
-
-@param tempVec The PETSc Vec containing particle positions, will be overwritten with velocities.
-@param simCtx The simulation context containing time and Reynolds number.
-@return PetscErrorCode Returns 0 on success.
-*/
+ * @brief Internal helper implementation: `SetAnalyticalSolutionForParticles_TGV3D()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCtx *simCtx)
 {
     PetscErrorCode ierr;
@@ -473,20 +422,14 @@ static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCt
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolutionForParticles"
 /**
-@brief Applies the analytical solution to particle velocity vector.
-
-@details Dispatcher function that calls the appropriate analytical solution based on 
-         simCtx->AnalyticalSolutionType. Supports multiple solution types.
-
-@param tempVec The PETSc Vec containing particle positions which will be used to store velocities.
-@param simCtx The simulation context.
-@return PetscErrorCode Returns 0 on success.
-*/
+ * @brief Implementation of \ref SetAnalyticalSolutionForParticles().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @see SetAnalyticalSolutionForParticles()
+ */
 PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
 {
     PetscErrorCode ierr;
-    PetscInt nLocal;
-    PetscReal *vels;
 
     PetscFunctionBeginUser;
     
@@ -499,8 +442,6 @@ PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
         ierr = SetAnalyticalSolutionForParticles_TGV3D(tempVec, simCtx); CHKERRQ(ierr);
         return 0;
     }
-        
-    ierr = VecRestoreArray(tempVec, &vels); CHKERRQ(ierr);
     
     PetscFunctionReturn(0);
 }

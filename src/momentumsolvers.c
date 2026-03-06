@@ -4,16 +4,8 @@
 #undef __FUNCT__
 #define __FUNCT__ "ComputeTotalResidual"
 /**
- * @brief Computes the Total Residual for the Dual-Time stepping method.
- *
- * @details 
- * Calculates R_total(U) = R_spatial(U) + R_temporal(U).
- * 1. Calls ComputeRHS() to get spatial fluxes (Convection, Diffusion, Pressure).
- * 2. Adds the Physical Time Derivative terms (BDF1 or BDF2) to the RHS vector.
- *    Time parameters (ti, dt) are accessed directly from user->simCtx.
- * 3. Enforces RHS boundary conditions.
- *
- * @param user Pointer to the User context for the specific block.
+ * @brief Internal helper implementation: `ComputeTotalResidual()`.
+ * @details Local to this translation unit.
  */
 static PetscErrorCode ComputeTotalResidual(UserCtx *user)
 {
@@ -60,28 +52,13 @@ static PetscErrorCode ComputeTotalResidual(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "Momentum_Solver_Explicit_RungeKutta4"
 /**
- * @brief Advances the momentum equations for ALL blocks by one time step
- *        using an explicit 4-stage, 4th-order Runge-Kutta scheme.
- *
- * This function computes an intermediate, non-divergence-free contravariant
- * velocity field (Ucont) at time t_{n+1} for all computational blocks.
- *
- * This is a minimally-edited version of the legacy solver. It retains its
- * internal loop over all blocks and is intended to be called once per time step
- * from the main FlowSolver orchestrator. All former global variables are now
- * accessed via the SimCtx passed in through the first block's UserCtx.
- * 
- * @note This does not employ a Backward Euler implicit treatment of the time derivative.
- * The physical timestep itself is advanced explicitly. The dual-time stepping is not used here.
- *
- * @param user The array of UserCtx structs for all blocks.
- * @param ibm  (Optional) Pointer to the full array of IBM data structures. Pass NULL if disabled.
- * @param fsi  (Optional) Pointer to the full array of FSI data structures. Pass NULL if disabled.
- * @return PetscErrorCode 0 on success.
+ * @brief Internal helper implementation: `MomentumSolver_Explicit_RungeKutta4()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 {
     PetscErrorCode ierr;
+    (void)fsi;
     // --- Context Acquisition ---
     // Get the master simulation context from the first block's UserCtx.
     // This is the bridge to access all former global variables.
@@ -183,46 +160,13 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
 #undef __FUNCT__
 #define __FUNCT__ "MomentumSolver_DualTime_Picard_RK4"
 /**
- * @brief Solves the Momentum Equations using Dual-Time Stepping with a Fixed-Point RK4 Smoother.
- *
- * =================================================================================================
- * GLOSSARY & THEORETICAL BASIS
- * =================================================================================================
- * 
- * 1. METHODOLOGY: Dual-Time Stepping (Pseudo-Time Integration)
- *    We aim to solve the implicit BDF equation:  R_spatial(U) + dU/dt_physical = 0.
- *    We do this by introducing a fictitious "Pseudo-Time" (tau) and iterating to steady state:
- *       dU/d(tau) = - [ R_spatial(U) + BDF_Terms(U) ]
- *    When dU/d(tau) -> 0, the physical time step is satisfied.
- *
- * 2. ALGORITHM: Fixed-Point Iteration with Explicit Runge-Kutta
- *    This is technically a Fixed-Point iteration on the operator:
- *       U_new = U_old + pseudo_dt_scaling * dt_pseudo * Total_Residual(U_old)
- *    We use a 4-Stage Explicit RK scheme (Jameson-Schmidt-Turkel coeffs) to smooth errors.
- *
- * 3. STABILITY: Backtracking Line Search
- *    If a pseudo-time step causes the Residual or Solution Error to GROW (Divergence),
- *    the solver "Backtracks": it restores the previous solution, cuts the pseudo-time step
- *    scaling factor (pseudo_dt_scaling) in half, and retries the iteration.
- *
- * =================================================================================================
- * VARIABLE MAPPING
- * =================================================================================================
- * -- Physics Variables (Legacy Names Kept) --
- * ti   : Physical Time Step Index.
- * dt   : Physical Time Step size (Delta t).
- * st   : Pseudo-Time Step size (Delta tau).
- * alfa : Runge-Kutta stage coefficients {1/4, 1/3, 1/2, 1}.
- *
- * -- Convergence & Solver Control (Renamed) --
- * pseudo_iter       : Counter for the inner dual-time loop.
- * pseudo_dt_scaling : Adaptive scalar for the pseudo-time step (formerly lambda).
- * delta_sol_norm    : The L_inf norm of the change in solution (dU).
- * resid_norm        : The L_inf norm of the Total Residual (RHS).
- * =================================================================================================
+ * @brief Internal helper implementation: `MomentumSolver_DualTime_Picard_RK4()`.
+ * @details Local to this translation unit.
  */
 PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 {
+    (void)ibm;
+    (void)fsi;
     // --- CONTEXT ACQUISITION BLOCK ---
     SimCtx *simCtx = user[0].simCtx;
     const PetscInt block_number = simCtx->block_number;
@@ -245,7 +189,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
 
     PetscErrorCode ierr;
     PetscMPIInt    rank;
-    PetscInt       istage, pseudo_iter, ibi;
+    PetscInt       istage, pseudo_iter;
     PetscReal      ts, te, cput;
 
     // --- Global Convergence Metrics ---
@@ -376,8 +320,8 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
             // --- File Logging ---
             if (!rank) {
                 FILE *f;
-                char filen[128];
-                sprintf(filen, "%s/Momentum_Solver_Convergence_History_Block_%1d.log", simCtx->log_dir, bi);
+                char filen[PETSC_MAX_PATH_LEN + 128];
+                ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Momentum_Solver_Convergence_History_Block_%1d.log", simCtx->log_dir, bi); CHKERRQ(ierr);
                 if(simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1) f = fopen(filen, "w");
                 else f = fopen(filen, "a");
                 
