@@ -15,11 +15,37 @@ LINE_RE = re.compile(r"^\s*([^:]+):\s*([0-9]+):(.*)$")
 
 def parse_args() -> argparse.Namespace:
     """Parse args."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--src-dir", default="src", help="directory containing C source files")
-    parser.add_argument("--obj-dir", default="obj", help="directory containing coverage objects (*.gcda/*.gcno)")
-    parser.add_argument("--output-dir", default="coverage/c", help="directory for gcov artifacts")
-    parser.add_argument("--min-line", type=float, default=55.0, help="minimum required weighted line coverage percent")
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python3 scripts/c_coverage_gate.py\n"
+            "  python3 scripts/c_coverage_gate.py --min-line 60\n"
+            "  python3 scripts/c_coverage_gate.py --src-dir src --obj-dir obj --output-dir coverage/c\n"
+        ),
+    )
+    parser.add_argument(
+        "--src-dir",
+        default="src",
+        help="Repository-relative C source directory scanned for *.c files (default: src).",
+    )
+    parser.add_argument(
+        "--obj-dir",
+        default="obj",
+        help="Repository-relative directory containing coverage objects (*.gcda/*.gcno) (default: obj).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="coverage/c",
+        help="Repository-relative output directory for gcov files and summary.txt (default: coverage/c).",
+    )
+    parser.add_argument(
+        "--min-line",
+        type=float,
+        default=55.0,
+        help="Minimum required weighted line coverage percent (default: 55.0).",
+    )
     return parser.parse_args()
 
 

@@ -321,9 +321,32 @@ def write_fallback_struct_page(repo_root: Path, html_dir: Path) -> None:
 
 def main() -> int:
     """Entry point for this script."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--repo-root", required=True, type=Path)
-    parser.add_argument("--html-dir", required=True, type=Path)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate structured Doxygen index pages and fallback replacements when\n"
+            "files.html or annotated.html are missing/empty after doc generation."
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python3 scripts/generate_doxygen_fallback_indexes.py \\\n"
+            "    --repo-root . --html-dir docs_build/html\n"
+            "  python3 scripts/generate_doxygen_fallback_indexes.py \\\n"
+            "    --repo-root /path/to/repo --html-dir /path/to/repo/docs_build/html"
+        ),
+    )
+    parser.add_argument(
+        "--repo-root",
+        required=True,
+        type=Path,
+        help="Repository root used to scan include/src/scripts and headers.",
+    )
+    parser.add_argument(
+        "--html-dir",
+        required=True,
+        type=Path,
+        help="Doxygen HTML output directory (where files.html/annotated.html live).",
+    )
     args = parser.parse_args()
 
     repo_root = args.repo_root.resolve()

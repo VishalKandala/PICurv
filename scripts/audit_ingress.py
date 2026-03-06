@@ -46,16 +46,31 @@ def load_manifest(path: pathlib.Path) -> Set[str]:
 
 def main() -> int:
     """Entry point for this script."""
-    parser = argparse.ArgumentParser(description="Audit PETSc option ingress against manifest.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Scan PETSc option ingress in src/setup.c and src/io.c, then compare "
+            "against scripts/audit_ingress_manifest.json."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python3 scripts/audit_ingress.py\n"
+            "  python3 scripts/audit_ingress.py --show-scanned\n"
+            "  python3 scripts/audit_ingress.py --manifest scripts/audit_ingress_manifest.json\n"
+        ),
+    )
     parser.add_argument(
         "--manifest",
         default="scripts/audit_ingress_manifest.json",
-        help="Path to ingress manifest JSON.",
+        help=(
+            "Manifest JSON path, relative to repository root unless absolute "
+            "(default: scripts/audit_ingress_manifest.json)."
+        ),
     )
     parser.add_argument(
         "--show-scanned",
         action="store_true",
-        help="Print scanned option list before comparison.",
+        help="Print discovered PETSc options before drift comparison.",
     )
     args = parser.parse_args()
 
