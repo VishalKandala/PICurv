@@ -154,7 +154,11 @@ Canonical targets:
 - `make unit-particles`
 - `make unit-io`
 - `make unit-post`
-- `make smoke`: executable-level simulator/postprocessor smoke checks
+- `make unit-grid`
+- `make unit-metric`
+- `make unit-boundaries`
+- `make unit-poisson-rhs`
+- `make smoke`: executable-level help/init/dry-run/restart workflow smoke checks
 - `make check`: full local validation sweep (`test-python + doctor + unit + smoke`)
 
 Compatibility aliases:
@@ -166,6 +170,10 @@ Compatibility aliases:
 - `make ctest-particles` -> `make unit-particles`
 - `make ctest-io` -> `make unit-io`
 - `make ctest-post` -> `make unit-post`
+- `make ctest-grid` -> `make unit-grid`
+- `make ctest-metric` -> `make unit-metric`
+- `make ctest-boundaries` -> `make unit-boundaries`
+- `make ctest-poisson-rhs` -> `make unit-poisson-rhs`
 
 Quick-start commands:
 
@@ -177,7 +185,7 @@ make smoke
 make check
 ```
 
-Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-*` while iterating on a subsystem. Use `make smoke` to confirm the compiled executables still launch. Use `make check` at the end of a development cycle.
+Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-*` while iterating on a subsystem. Use `make smoke` to verify executable wiring (`picurv init`, dry-run plan generation, and restart-source resolution) without running a full solve. Use `make check` at the end of a development cycle.
 
 Detailed guide:
 - https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html

@@ -136,12 +136,15 @@ Purpose:
 - confirm the compiled binaries still launch successfully
 - catch integration breakage that isolated unit tests may miss
 
-The current phase-1 smoke runner verifies:
+The current smoke runner verifies:
 
 - `bin/simulator` launches and responds to `-help`
 - `bin/postprocessor` launches and responds to `-help`
+- `bin/picurv init` creates a self-contained case with copied binaries + origin metadata
+- `picurv run --dry-run --format json` emits a valid solve/post execution plan
+- restart dry-run planning resolves `run_control.restart_from_run_dir` into the expected restart source directory
 
-This is intentionally lightweight and fast. The reserved fixture tree under `tests/smoke/` allows future evolution into true tiny case-level runtime smoke tests.
+These checks are still lightweight and fast (no full solve/post execution) while exercising real workflow wiring.
 
 Run locally:
 
