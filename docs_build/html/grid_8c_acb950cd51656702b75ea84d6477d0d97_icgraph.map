@@ -1,6 +1,0 @@
-<map id="SetFinestLevelCoordinates" name="SetFinestLevelCoordinates">
-<area shape="rect" id="node1" title="A router that populates the coordinates for a single finest&#45;level DMDA." alt="" coords="549,5,744,32"/>
-<area shape="rect" id="node2" href="$grid_8c.html#ab2aef4bb6fc2d2223a52ff6a45c7c600" title="Orchestrates the assignment of physical coordinates to all DMDA objects." alt="" coords="315,5,501,32"/>
-<area shape="rect" id="node3" href="$setup_8c.html#a2be2815aeb79afe9b95caf39c7b3312c" title="The main orchestrator for setting up all grid&#45;related components." alt="" coords="108,5,267,32"/>
-<area shape="rect" id="node4" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,5,60,32"/>
-</map>

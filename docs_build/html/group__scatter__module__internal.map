@@ -1,4 +1,0 @@
-<map id="Internal Scattering Helpers" name="Internal Scattering Helpers">
-<area shape="rect" id="node1" title="Lower&#45;level functions used by the main scattering routines." alt="" coords="245,5,388,45"/>
-<area shape="rect" id="node2" href="$group__scatter__module.html" title="Functions for scattering particle data (scalar or vector) onto Eulerian grid fields by averaging cont..." alt="" coords="5,13,197,38"/>
-</map>

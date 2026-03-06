@@ -1,4 +1,5 @@
 bin/
+docs_build/
 obj/
 stubs/
 __pycache__/
