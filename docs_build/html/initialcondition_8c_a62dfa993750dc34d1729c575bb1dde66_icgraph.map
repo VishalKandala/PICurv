@@ -1,6 +1,0 @@
-<map id="SetInitialInteriorField" name="SetInitialInteriorField">
-<area shape="rect" id="node1" title="Sets the initial values for the INTERIOR of a specified Eulerian field." alt="" coords="516,13,673,39"/>
-<area shape="rect" id="node2" href="$initialcondition_8c.html#a51d0251f84a962a611ff0c0a8797a3e4" title="(HELPER) Sets the t=0 fluid state for all blocks." alt="" coords="321,5,468,47"/>
-<area shape="rect" id="node3" href="$initialcondition_8c.html#ad0dd7d3f2528b6a7802fcd551e88ea99" title="High&#45;level orchestrator to set the complete initial state of the Eulerian solver." alt="" coords="108,13,273,39"/>
-<area shape="rect" id="node4" href="$picsolver_8c.html#a3c04138a5bfe5d72780bb7e82a18e627" title=" " alt="" coords="5,13,60,39"/>
-</map>

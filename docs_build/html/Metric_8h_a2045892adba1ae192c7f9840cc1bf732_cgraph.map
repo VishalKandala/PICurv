@@ -1,4 +1,0 @@
-<map id="MetricJacobian" name="MetricJacobian">
-<area shape="rect" id="node1" title="Compute Jacobian matrix and its determinant at (xi,eta,zta)." alt="" coords="5,5,124,32"/>
-<area shape="rect" id="node2" href="$Metric_8c.html#a4859ff8031c003e036eab9cf8fb351f6" title="Extract the eight vertex coordinates of the hexahedral cell (i,j,k)." alt="" coords="172,5,336,32"/>
-</map>
