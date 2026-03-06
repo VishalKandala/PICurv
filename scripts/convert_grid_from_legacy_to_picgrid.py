@@ -18,6 +18,17 @@ def parse_args() -> argparse.Namespace:
     """Parse wrapper CLI arguments."""
     parser = argparse.ArgumentParser(
         description="Convert a legacy 1D-axis grid payload into canonical PICGRID format.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "This wrapper delegates to: python3 scripts/grid.gen legacy1d ...\n\n"
+            "Examples:\n"
+            "  python3 scripts/convert_grid_from_legacy_to_picgrid.py \\\n"
+            "    --input legacy_flat.grid --output converted.picgrid\n"
+            "  python3 scripts/convert_grid_from_legacy_to_picgrid.py \\\n"
+            "    --input legacy_flat.grid --output converted.picgrid --axis-columns 0 1 2\n"
+            "  python3 scripts/convert_grid_from_legacy_to_picgrid.py \\\n"
+            "    --input legacy_flat.grid --output converted.picgrid --allow-trailing\n"
+        ),
     )
     parser.add_argument("--input", required=True, help="Path to legacy grid input file.")
     parser.add_argument("--output", required=True, help="Path to converted PICGRID output file.")

@@ -30,6 +30,55 @@ This directory is the Python/shell control plane for PICurv. It covers user work
   - backward-compatible wrapper that delegates to `grid.gen legacy1d`
   - retained for transition workflows; canonical implementation now lives in `grid.gen`
 
+## CLI Help and Option References
+
+Use script-local `--help` as the first source of truth:
+
+- `./scripts/picurv --help`
+- `./scripts/picurv run --help`
+- `./scripts/picurv validate --help`
+- `./scripts/picurv sweep --help`
+- `python3 scripts/grid.gen --help`
+- `python3 scripts/grid.gen legacy1d --help`
+- `python3 scripts/audit_ingress.py --help`
+- `python3 scripts/check_markdown_links.py --help`
+- `python3 scripts/python_coverage_gate.py --help`
+- `python3 scripts/c_coverage_gate.py --help`
+- `python3 scripts/generate_doxygen_fallback_indexes.py --help`
+- `python3 scripts/convert_grid_from_legacy_to_picgrid.py --help`
+- `bash scripts/bootstrap_install.sh --help`
+
+Detailed option coverage lives in:
+
+- `picurv`: `docs/pages/05_The_Conductor_Script.md` (`Full Command and Option Matrix`)
+- `grid.gen`: `docs/pages/48_Grid_Generator_Guide.md` (`Option Families`)
+- testing/coverage flow context: `docs/pages/40_Testing_and_Quality_Guide.md`
+
+Helper script option summary:
+
+- `audit_ingress.py`
+  - `--manifest` to select manifest JSON path.
+  - `--show-scanned` to print discovered PETSc flags before drift comparison.
+- `check_markdown_links.py`
+  - `--repo-root`, `--docs-dir`, `--examples-dir` to scope scanning.
+  - `--no-readme` to exclude root `README.md`.
+- `python_coverage_gate.py`
+  - `--target` (repeatable) to select measured files.
+  - `--pytest-args` to forward pytest arguments.
+  - `--min-line`, `--output-dir` to control gate threshold and artifacts.
+- `c_coverage_gate.py`
+  - `--src-dir`, `--obj-dir`, `--output-dir` for coverage input/output paths.
+  - `--min-line` for weighted line threshold.
+- `generate_doxygen_fallback_indexes.py`
+  - `--repo-root`, `--html-dir` for fallback index generation scope.
+- `convert_grid_from_legacy_to_picgrid.py`
+  - `--input`, `--output`, `--axis-columns`, `--allow-trailing` for legacy payload conversion.
+- `bootstrap_install.sh`
+  - `--install-petsc` to build PETSc in the bootstrap path.
+  - `--petsc-version`, `--petsc-prefix`, `--petsc-arch` for PETSc installation details.
+  - `--python-bin` to pick interpreter for dependency install/build checks.
+  - `--skip-system-deps` to skip apt package installation.
+
 ## High-Value CLI Contracts (`scripts/picurv`)
 
 - structured errors always use:

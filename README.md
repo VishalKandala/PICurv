@@ -128,6 +128,35 @@ Launch a sweep study:
   --cluster my_case/slurm_cluster.yml
 ```
 
+## CLI Option References
+
+For exact current options, always use script-local help:
+
+```bash
+./bin/picurv --help
+./bin/picurv run --help
+./bin/picurv validate --help
+./bin/picurv sweep --help
+python3 scripts/grid.gen --help
+python3 scripts/grid.gen legacy1d --help
+```
+
+Helper script help:
+
+- `python3 scripts/audit_ingress.py --help`
+- `python3 scripts/check_markdown_links.py --help`
+- `python3 scripts/python_coverage_gate.py --help`
+- `python3 scripts/c_coverage_gate.py --help`
+- `python3 scripts/generate_doxygen_fallback_indexes.py --help`
+- `python3 scripts/convert_grid_from_legacy_to_picgrid.py --help`
+- `bash scripts/bootstrap_install.sh --help`
+
+Detailed long-form option docs:
+
+- `picurv`: https://vishalkandala.me/picurv-docs/05_The_Conductor_Script.html
+- `grid.gen`: https://vishalkandala.me/picurv-docs/48_Grid_Generator_Guide.html
+- testing/coverage context: https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
+
 ## Generated Artifacts
 
 - Single run:
@@ -169,6 +198,7 @@ Canonical targets:
 - `make check`: full local validation sweep (`test-python + doctor + unit + smoke`)
 - `make check-mpi`: `make check` plus multi-rank MPI tests
 - `make check-mpi-matrix`: `make check` plus rank-matrix MPI smoke and `unit-mpi`
+- `make check-full`: comprehensive local gate (`check + unit-mpi + smoke-mpi + smoke-mpi-matrix`)
 
 Compatibility aliases:
 
@@ -196,9 +226,10 @@ make unit-mpi
 make coverage-python
 make smoke
 make check
+make check-full
 ```
 
-Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-*` while iterating on a subsystem. Use `make smoke` to run template-matrix init/validate/dry-run coverage across `flat_channel`, `bent_channel`, and `brownian_motion` plus tiny real runtime workflows (flat with/without particles, bent-channel solve/post, restart `load/init`, restart-equivalence split-vs-continuous, analytical Brownian). Use `make smoke-mpi` for multi-rank runtime smoke on flat+bent plus flat particle/restart branches, and `make smoke-mpi-matrix` for rank-sweep runtime smoke. Use `make coverage` for line-coverage gates. Use `make check` at the end of a development cycle, and `make check-mpi`/`make check-mpi-matrix` when multi-rank assertions are in scope.
+Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-*` while iterating on a subsystem. Use `make smoke` to run template-matrix init/validate/dry-run coverage across `flat_channel`, `bent_channel`, and `brownian_motion` plus tiny real runtime workflows (flat with/without particles, bent-channel solve/post, restart `load/init`, restart-equivalence split-vs-continuous, analytical Brownian). Use `make smoke-mpi` for multi-rank runtime smoke on flat+bent plus flat particle/restart branches, and `make smoke-mpi-matrix` for rank-sweep runtime smoke. Use `make coverage` for line-coverage gates. Use `make check` at the end of a development cycle, `make check-mpi`/`make check-mpi-matrix` when multi-rank assertions are in scope, and `make check-full` before release tagging.
 
 Detailed guide:
 - https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html

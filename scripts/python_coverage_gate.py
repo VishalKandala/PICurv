@@ -23,20 +23,41 @@ def normalize_path(path: str | Path) -> str:
 
 def parse_args() -> argparse.Namespace:
     """Parse args."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--min-line", type=float, default=70.0, help="minimum required weighted line coverage percent")
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python3 scripts/python_coverage_gate.py\n"
+            "  python3 scripts/python_coverage_gate.py --target scripts/picurv --target scripts/grid.gen\n"
+            "  python3 scripts/python_coverage_gate.py --pytest-args -- -q tests/test_cli_smoke.py\n"
+        ),
+    )
+    parser.add_argument(
+        "--min-line",
+        type=float,
+        default=70.0,
+        help="Minimum required weighted line coverage percent (default: 70.0).",
+    )
     parser.add_argument(
         "--target",
         action="append",
         default=[],
-        help="repo-relative target file to include (repeatable). Defaults to core runtime scripts.",
+        help=(
+            "Repository-relative file to include in coverage computation "
+            "(repeatable). Defaults to core runtime scripts."
+        ),
     )
-    parser.add_argument("--output-dir", default="coverage/python", help="directory for coverage artifacts")
+    parser.add_argument(
+        "--output-dir",
+        default="coverage/python",
+        help="Repository-relative output directory for coverage artifacts (default: coverage/python).",
+    )
     parser.add_argument(
         "--pytest-args",
         nargs=argparse.REMAINDER,
         default=["-q"],
-        help="arguments passed to pytest (prefix with --pytest-args -- ...)",
+        help="Arguments passed to pytest (prefix with --pytest-args -- ...).",
     )
     return parser.parse_args()
 
