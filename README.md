@@ -19,8 +19,19 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 
 - PETSc build available via `PETSC_DIR` (and `PETSC_ARCH` when required by your install)
 - C toolchain + MPI (`gcc/clang`, `mpicc`, GNU Make)
-- Python 3 with `pyyaml` and `numpy`
+- Python 3.10+ with `pyyaml` and `numpy`
 - Optional for plotting in sweep post-processing: `matplotlib`
+
+Automated setup (recommended):
+```bash
+export PETSC_DIR=/path/to/petsc
+export PETSC_ARCH=arch-linux-c-debug
+./scripts/bootstrap_install.sh
+```
+If PETSc is not installed yet:
+```bash
+./scripts/bootstrap_install.sh --install-petsc
+```
 
 ## Quick Start (Local)
 
