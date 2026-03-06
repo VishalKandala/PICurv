@@ -146,6 +146,10 @@ UNIT_SOLVER_EXE   := $(TESTBINDIR)/unit_solver
 UNIT_PARTICLES_EXE := $(TESTBINDIR)/unit_particles
 UNIT_IO_EXE       := $(TESTBINDIR)/unit_io
 UNIT_POST_EXE     := $(TESTBINDIR)/unit_post
+UNIT_GRID_EXE     := $(TESTBINDIR)/unit_grid
+UNIT_METRIC_EXE   := $(TESTBINDIR)/unit_metric
+UNIT_BOUNDARIES_EXE := $(TESTBINDIR)/unit_boundaries
+UNIT_POISSON_RHS_EXE := $(TESTBINDIR)/unit_poisson_rhs
 TEST_CFLAGS_TO_USE := $(CFLAGS_TO_USE) -I$(TESTCDIR)
 TEST_SUPPORT_OBJ  := $(TESTOBJDIR)/test_support.o
 DOCTOR_OBJ        := $(TESTOBJDIR)/test_install_check.o
@@ -154,6 +158,10 @@ UNIT_SOLVER_OBJ   := $(TESTOBJDIR)/test_solver_kernels.o
 UNIT_PARTICLES_OBJ := $(TESTOBJDIR)/test_particle_kernels.o
 UNIT_IO_OBJ       := $(TESTOBJDIR)/test_io.o
 UNIT_POST_OBJ     := $(TESTOBJDIR)/test_postprocessing.o
+UNIT_GRID_OBJ     := $(TESTOBJDIR)/test_grid.o
+UNIT_METRIC_OBJ   := $(TESTOBJDIR)/test_metric.o
+UNIT_BOUNDARIES_OBJ := $(TESTOBJDIR)/test_boundaries.o
+UNIT_POISSON_RHS_OBJ := $(TESTOBJDIR)/test_poisson_rhs.o
 TEST_COMMON_OBJS  := $(sort $(filter-out $(OBJDIR)/simulator.o $(OBJDIR)/postprocessor.o,$(SIMULATOR_OBJS) $(POSTPROCESSOR_OBJS)))
 
 # ==============================================================================
@@ -229,6 +237,22 @@ $(UNIT_POST_EXE): $(UNIT_POST_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dir
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_GRID_EXE): $(UNIT_GRID_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
+$(UNIT_METRIC_EXE): $(UNIT_METRIC_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
+$(UNIT_BOUNDARIES_EXE): $(UNIT_BOUNDARIES_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
+$(UNIT_POISSON_RHS_EXE): $(UNIT_POISSON_RHS_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 ## @target dirs
 ## @brief (Internal) Ensures all necessary build directories exist.
 dirs: 
@@ -237,7 +261,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: run test test-python doctor doctor-runner install-check smoke unit unit-geometry unit-solver unit-particles unit-io unit-post ctest ctest-geometry ctest-solver ctest-particles ctest-io ctest-post check build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: run test test-python doctor doctor-runner install-check smoke unit unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs ctest ctest-geometry ctest-solver ctest-particles ctest-io ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs check build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -301,9 +325,29 @@ unit-io: $(UNIT_IO_EXE)
 unit-post: $(UNIT_POST_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
 
+## @target unit-grid
+## @brief Runs the grid utility C unit tests.
+unit-grid: $(UNIT_GRID_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
+## @target unit-metric
+## @brief Runs the metric kernel C unit tests.
+unit-metric: $(UNIT_METRIC_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
+## @target unit-boundaries
+## @brief Runs boundary-system focused C unit tests.
+unit-boundaries: $(UNIT_BOUNDARIES_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
+## @target unit-poisson-rhs
+## @brief Runs focused Poisson/RHS kernel C unit tests.
+unit-poisson-rhs: $(UNIT_POISSON_RHS_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
-unit: unit-geometry unit-solver unit-particles unit-io unit-post
+unit: unit-geometry unit-solver unit-particles unit-io unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs
 
 ## @target ctest
 ## @brief Compatibility alias for `unit`.
@@ -328,6 +372,22 @@ ctest-io: unit-io
 ## @target ctest-post
 ## @brief Compatibility alias for `unit-post`.
 ctest-post: unit-post
+
+## @target ctest-grid
+## @brief Compatibility alias for `unit-grid`.
+ctest-grid: unit-grid
+
+## @target ctest-metric
+## @brief Compatibility alias for `unit-metric`.
+ctest-metric: unit-metric
+
+## @target ctest-boundaries
+## @brief Compatibility alias for `unit-boundaries`.
+ctest-boundaries: unit-boundaries
+
+## @target ctest-poisson-rhs
+## @brief Compatibility alias for `unit-poisson-rhs`.
+ctest-poisson-rhs: unit-poisson-rhs
 
 ## @target smoke
 ## @brief Runs lightweight executable-level simulator/postprocessor smoke checks.

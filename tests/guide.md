@@ -11,7 +11,11 @@ PICurv now exposes a layered local testing model:
 - `make unit-particles`
 - `make unit-io`
 - `make unit-post`
-- `make smoke`: executable entrypoint smoke checks for `bin/simulator` and `bin/postprocessor`
+- `make unit-grid`
+- `make unit-metric`
+- `make unit-boundaries`
+- `make unit-poisson-rhs`
+- `make smoke`: executable help/init/dry-run/restart orchestration smoke checks
 - `make check`: full local validation sweep
 
 ## Layout
@@ -21,7 +25,7 @@ PICurv now exposes a layered local testing model:
 - `test_config_regressions.py`: ingress/schema drift guards
 - `test_repo_consistency.py`: example validation and repository-wide consistency checks
 - `tests/c/`: PETSc-backed C unit binaries used by `make doctor` and `make unit-*`
-- `tests/smoke/`: lightweight executable smoke runner and reserved fixture directories
+- `tests/smoke/`: executable smoke runner for help/init/dry-run/restart workflow checks
 - `fixtures/valid/`: canonical valid YAML input sets
 - `fixtures/invalid/`: intentionally broken YAML input sets
 

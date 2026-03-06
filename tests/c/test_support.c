@@ -269,6 +269,8 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
 
         PetscCall(DestroyVecIfSet(&user->P));
         PetscCall(DestroyVecIfSet(&user->lP));
+        PetscCall(DestroyVecIfSet(&user->Phi));
+        PetscCall(DestroyVecIfSet(&user->lPhi));
         PetscCall(DestroyVecIfSet(&user->Nvert));
         PetscCall(DestroyVecIfSet(&user->lNvert));
         PetscCall(DestroyVecIfSet(&user->ParticleCount));
@@ -288,6 +290,20 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
         PetscCall(DestroyVecIfSet(&user->lEta));
         PetscCall(DestroyVecIfSet(&user->Zet));
         PetscCall(DestroyVecIfSet(&user->lZet));
+        PetscCall(DestroyVecIfSet(&user->Aj));
+        PetscCall(DestroyVecIfSet(&user->lAj));
+        PetscCall(DestroyVecIfSet(&user->IAj));
+        PetscCall(DestroyVecIfSet(&user->lIAj));
+        PetscCall(DestroyVecIfSet(&user->JAj));
+        PetscCall(DestroyVecIfSet(&user->lJAj));
+        PetscCall(DestroyVecIfSet(&user->KAj));
+        PetscCall(DestroyVecIfSet(&user->lKAj));
+        PetscCall(DestroyVecIfSet(&user->Diffusivity));
+        PetscCall(DestroyVecIfSet(&user->lDiffusivity));
+        PetscCall(DestroyVecIfSet(&user->DiffusivityGradient));
+        PetscCall(DestroyVecIfSet(&user->lDiffusivityGradient));
+        PetscCall(DestroyVecIfSet(&user->Nu_t));
+        PetscCall(DestroyVecIfSet(&user->lNu_t));
         PetscCall(DestroyVecIfSet(&user->Cent));
         PetscCall(DestroyVecIfSet(&user->lCent));
         PetscCall(DestroyVecIfSet(&user->Ucat_nodal));
