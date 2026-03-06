@@ -11,17 +11,40 @@ Install these first:
 - C compiler (`gcc` or `clang`)
 - MPI implementation (`mpich` or `openmpi`)
 - GNU Make
-- Python 3 + pip
+- Python 3.10+ + pip
 - Git
 - PETSc 3.20.3+ with `DMSwarm` support
 
-@section install_tools_sec 2. Install Base Toolchain
+@section automated_sec 2. Automated Install (Recommended)
+
+From the PICurv repo root:
+
+```bash
+export PETSC_DIR=/path/to/petsc
+export PETSC_ARCH=arch-linux-c-debug
+./scripts/bootstrap_install.sh
+```
+
+If PETSc is not installed yet, let the script build it:
+
+```bash
+./scripts/bootstrap_install.sh --install-petsc
+```
+
+The script installs system and Python dependencies, verifies PETSc/DMSwarm visibility, then builds:
+
+- `bin/simulator`
+- `bin/postprocessor`
+- `bin/picurv`
+
+@section install_tools_sec 3. Install Base Toolchain (Manual Path)
 
 Debian/Ubuntu:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential gfortran mpich python3 python3-pip git
+sudo apt-get install -y build-essential gfortran mpich git make pkg-config libx11-dev python3 python3-pip python3-venv
+python3 -m pip install --upgrade pip
 python3 -m pip install --user pyyaml numpy
 ```
 
@@ -39,7 +62,7 @@ Optional (study plot generation):
 python3 -m pip install --user matplotlib
 ```
 
-@section petsc_sec 3. Install PETSc
+@section petsc_sec 4. Install PETSc
 
 Recommended source install:
 
@@ -74,7 +97,7 @@ Official references:
 - https://petsc.org/release/install/
 - https://petsc.org/release/docs/manual/
 
-@section env_sec 4. Configure Environment Variables
+@section env_sec 5. Configure Environment Variables
 
 Add to your shell profile (`~/.bashrc` or equivalent):
 
@@ -91,14 +114,21 @@ echo "$PETSC_DIR"
 echo "$PETSC_ARCH"
 ```
 
-@section clone_sec 5. Clone PICurv
+Verify PETSc has DMSwarm headers:
+
+```bash
+test -f "$PETSC_DIR/include/petscdmswarm.h" && echo "DMSwarm header found"
+test -f "$PETSC_DIR/$PETSC_ARCH/include/petscconf.h" && echo "PETSc arch config found"
+```
+
+@section clone_sec 6. Clone PICurv
 
 ```bash
 git clone https://github.com/VishalKandala/PICurv.git
 cd PICurv
 ```
 
-@section build_sec 6. Build with picurv
+@section build_sec 7. Build with picurv
 
 ```bash
 ./scripts/picurv build
@@ -118,7 +148,7 @@ Useful variants:
 
 After the build creates `bin/picurv`, prefer `./bin/picurv` for normal help, validation, and run commands.
 
-@section verify_sec 7. Verify Installation
+@section verify_sec 8. Verify Installation
 
 ```bash
 make doctor
@@ -141,17 +171,19 @@ What `make doctor` does not prove:
 - it does not prove a full solver case is numerically correct
 - it does not replace case-specific validation or convergence testing
 
-@section common_sec 8. Common Installation Failures
+@section common_sec 9. Common Installation Failures
 
 - `PETSC_DIR`/`PETSC_ARCH` unset or mismatched with built arch.
 - MPI compiler wrappers unavailable in PATH.
+- Python interpreter too old (PICurv expects Python 3.10+).
 - PETSc configured without required downloaded dependencies.
+- missing X11 dev library at link time (`cannot find -lX11` on Linux; install `libx11-dev`).
 - stale object files after toolchain changes (use `clean-project`).
 
 For runtime-level failures after successful build, see **@subpage 39_Common_Fatal_Errors**.
 
 For the full testing model after installation, see **@subpage 40_Testing_and_Quality_Guide**.
 
-@section next_steps_sec 9. Next Steps
+@section next_steps_sec 10. Next Steps
 
 - First simulation walkthrough: **@subpage 02_Tutorial_Programmatic_Grid**
