@@ -15,18 +15,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y doxygen graphviz
       - name: Generate Doxygen
-        working-directory: docs
-        run: doxygen Doxyfile
+        run: doxygen docs/Doxyfile
       - name: Verify and patch key Doxygen index pages
         run: |
-          test -f docs/docs_build/html/index.html
-          test -f docs/docs_build/html/pages.html
+          test -f docs_build/html/index.html
+          test -f docs_build/html/pages.html
           python3 scripts/generate_doxygen_fallback_indexes.py \
             --repo-root . \
-            --html-dir docs/docs_build/html
+            --html-dir docs_build/html
 
-          cp docs/theme-sync.js docs/docs_build/html/theme-sync.js
-          for f in docs/docs_build/html/*.html docs/docs_build/html/search/*.html; do
+          cp docs/theme-sync.js docs_build/html/theme-sync.js
+          for f in docs_build/html/*.html docs_build/html/search/*.html; do
             [ -f "$f" ] || continue
             case "$f" in
               */search/*) sync_path="../theme-sync.js" ;;
@@ -40,7 +39,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: doxygen-html
-          path: docs/docs_build/html
+          path: docs_build/html
 
   mirror-to-website:
     needs: build
