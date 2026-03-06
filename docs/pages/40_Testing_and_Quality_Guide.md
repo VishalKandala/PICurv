@@ -24,6 +24,11 @@ Canonical commands:
 - `make unit-particles`
 - `make unit-io`
 - `make unit-post`
+- `make unit-grid`
+- `make unit-metric`
+- `make unit-boundaries`
+- `make unit-poisson-rhs`
+- `make unit-runtime`
 - `make smoke`
 - `make check`
 
@@ -41,6 +46,7 @@ Fast local checks:
 make test
 make doctor
 make unit-io
+make unit-runtime
 make smoke
 make check
 ```
@@ -50,8 +56,8 @@ Guidance:
 - Use `make test` when working on `scripts/picurv`, schemas, or repository metadata.
 - Use `make doctor` after provisioning PETSc on a new machine.
 - Use `make unit-<area>` while changing a subsystem in isolation.
-- Use `make smoke` after building binaries to confirm the entrypoints still launch.
-- Use `make check` at the end of a development cycle.
+- Use `make smoke` after building binaries to execute tiny real solve/post/restart workflows.
+- Use `make check` as the pre-merge gate at the end of a development cycle.
 
 @section python_sec 3. Python Suite (`test-python`)
 
@@ -117,15 +123,25 @@ Current suites:
 - `make unit-particles`
 - `make unit-io`
 - `make unit-post`
+- `make unit-grid`
+- `make unit-metric`
+- `make unit-boundaries`
+- `make unit-poisson-rhs`
+- `make unit-runtime`
 - `make unit` (all of the above)
 
-The phase-1 suite focuses on representative coverage:
+Suite focus areas:
 
 - geometry and interpolation invariants
 - solver utility kernels
 - particle location helpers
 - I/O pathing and field round-trips
 - post-processing/statistics kernels
+- grid decomposition and bounding-box exchange
+- metric tensor/face metric kernels
+- boundary factory/face-service checks
+- Poisson/RHS and diffusivity kernels
+- runtime helper kernels (initialization, particle helpers, wall models)
 
 These tests use real PETSc objects and run single-rank by default.
 
@@ -143,8 +159,12 @@ The current smoke runner verifies:
 - `bin/picurv init` creates a self-contained case with copied binaries + origin metadata
 - `picurv run --dry-run --format json` emits a valid solve/post execution plan
 - restart dry-run planning resolves `run_control.restart_from_run_dir` into the expected restart source directory
+- tiny end-to-end solve + post run (flat channel)
+- tiny end-to-end particle solve + post run (flat channel)
+- restart execution with both particle modes (`load` and `init`)
+- tiny end-to-end analytical Brownian run with particle VTP + MSD CSV output
 
-These checks are still lightweight and fast (no full solve/post execution) while exercising real workflow wiring.
+These checks are intentionally tiny but execute real solver/postprocessor runtime paths.
 
 Run locally:
 
@@ -190,3 +210,43 @@ When adding new tests:
 4. document new user-facing targets or workflows in the README and this guide
 
 For detailed C test maintenance guidance, see **@subpage 51_C_Test_Suite_Developer_Guide**.
+
+@section runtime_coverage_sec 10. Runtime Coverage Map
+
+The smoke suite uses these named runtime sequences:
+
+- `S1`: tiny flat-channel solve+post run
+- `S2`: tiny flat-channel solve+post with particles enabled
+- `S3`: tiny restart runs from `S2` with `particle_restart_mode=load` and `particle_restart_mode=init`
+- `S4`: tiny Brownian analytical solve+post with particle outputs and MSD statistics
+
+Runtime file coverage map (unit targets + runtime sequences):
+
+- `src/AnalyticalSolutions.c`: `unit-solver`, `S4`
+- `src/BC_Handlers.c`: `unit-boundaries`, `unit-runtime`, `S1`, `S2`, `S3`
+- `src/BodyForces.c`: `unit-solver`, `unit-poisson-rhs`, `S1`, `S2`
+- `src/Boundaries.c`: `unit-boundaries`, `S1`, `S2`, `S3`
+- `src/Filter.c`: `unit-solver`
+- `src/Metric.c`: `unit-metric`, `unit-grid`, `S1`, `S2`
+- `src/ParticleMotion.c`: `unit-runtime`, `S2`, `S3`, `S4`
+- `src/ParticlePhysics.c`: `unit-runtime`, `S2`, `S3`, `S4`
+- `src/ParticleSwarm.c`: `unit-runtime`, `S2`, `S3`, `S4`
+- `src/grid.c`: `unit-grid`, `S1`, `S2`, `S4`
+- `src/initialcondition.c`: `unit-runtime`, `S1`, `S2`, `S4`
+- `src/interpolation.c`: `unit-geometry`, `unit-particles`, `S2`, `S3`, `S4`
+- `src/io.c`: `unit-io`, `S1`, `S2`, `S3`, `S4`
+- `src/les.c`: `unit-runtime`
+- `src/logging.c`: `S1`, `S2`, `S3`, `S4`
+- `src/momentumsolvers.c`: `S1`, `S2`
+- `src/particle_statistics.c`: `unit-post`, `S4`
+- `src/poisson.c`: `unit-poisson-rhs`, `S1`, `S2`
+- `src/postprocessing_kernels.c`: `unit-post`, `S1`, `S2`, `S4`
+- `src/postprocessor.c`: `S1`, `S2`, `S3`, `S4`
+- `src/rhs.c`: `unit-poisson-rhs`, `S1`, `S2`
+- `src/runloop.c`: `S1`, `S2`, `S3`, `S4`
+- `src/setup.c`: `S1`, `S2`, `S3`, `S4`
+- `src/simulator.c`: `S1`, `S2`, `S3`, `S4`
+- `src/solvers.c`: `S1`, `S2`
+- `src/vtk_io.c`: `S1`, `S2`, `S3`, `S4`
+- `src/walkingsearch.c`: `unit-geometry`, `unit-particles`, `S2`, `S3`, `S4`
+- `src/wallfunction.c`: `unit-runtime`
