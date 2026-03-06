@@ -172,6 +172,7 @@ MPI/local options:
 - `-n, --num-procs`
   - applies to solver stage launch sizing.
   - post-processing defaults to one rank/task.
+  - local multi-rank runs resolve launcher overrides in this order: `PICURV_MPI_LAUNCHER`, `MPI_LAUNCHER`, nearest `.picurv-local.yml`, then default `mpiexec`.
 
 Cluster/Slurm options:
 - `--cluster <cluster.yml>`

@@ -10,6 +10,7 @@ For CFD users, the key idea is separation of concerns. Instead of creating one m
 - `grids/guide.md`
 - `monitors/guide.md`
 - `postprocessors/guide.md`
+- `runtime/guide.md`
 - `schedulers/guide.md`
 - `solvers/guide.md`
 - `studies/guide.md`

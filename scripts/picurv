@@ -48,6 +48,7 @@ else:
     DEFAULT_BIN_DIR = os.path.join(PROJECT_ROOT, "bin")
 
 CASE_ORIGIN_METADATA_FILENAME = ".picurv-origin.json"
+LOCAL_RUNTIME_CONFIG_FILENAME = ".picurv-local.yml"
 
 def resolve_runtime_executable(executable_name: str) -> str:
     """Resolve solver/post executable path, preferring local sibling binaries."""
@@ -306,6 +307,78 @@ def load_case_origin_metadata(case_dir_hint: str = None):
     except Exception as exc:
         raise ValueError(f"Failed to read case origin metadata at {metadata_path}: {exc}") from exc
     return os.path.dirname(metadata_path), metadata_path, payload
+
+
+def find_local_runtime_config_file(*anchors):
+    """Find the nearest optional local runtime config from runtime/case anchors."""
+    seen = set()
+    search_roots = []
+    for candidate in list(anchors) + [os.getcwd(), INVOKED_SCRIPT_DIR]:
+        if not candidate:
+            continue
+        current = os.path.abspath(candidate)
+        if os.path.isfile(current):
+            current = os.path.dirname(current)
+        if current in seen:
+            continue
+        seen.add(current)
+        search_roots.append(current)
+
+    seen_dirs = set()
+    for root in search_roots:
+        for directory in _iter_parent_dirs(root):
+            if directory in seen_dirs:
+                continue
+            seen_dirs.add(directory)
+            config_path = os.path.join(directory, LOCAL_RUNTIME_CONFIG_FILENAME)
+            if os.path.isfile(config_path):
+                return config_path
+    return None
+
+
+def load_local_runtime_config(config_search_anchor: str = None):
+    """Load optional local runtime launcher config from the nearest .picurv-local.yml."""
+    config_path = find_local_runtime_config_file(config_search_anchor)
+    if not config_path:
+        return None, {}
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            payload = yaml.safe_load(f) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} YAML parse error at {config_path}: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path} must be a YAML mapping.")
+
+    local_execution = payload.get("local_execution", {})
+    if local_execution is None:
+        local_execution = {}
+    if not isinstance(local_execution, dict):
+        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path}: local_execution must be a mapping.")
+
+    launcher = local_execution.get("launcher")
+    if launcher is not None and not isinstance(launcher, str):
+        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path}: local_execution.launcher must be a string.")
+
+    launcher_args = local_execution.get("launcher_args", [])
+    if launcher_args is None:
+        launcher_args = []
+    if not isinstance(launcher_args, list):
+        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path}: local_execution.launcher_args must be a list.")
+    for i, token in enumerate(launcher_args):
+        if not isinstance(token, (str, int, float)):
+            raise ValueError(
+                f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path}: local_execution.launcher_args[{i}] "
+                "must be a scalar CLI token."
+            )
+
+    return config_path, {
+        "local_execution": {
+            "launcher": launcher,
+            "launcher_args": [str(x) for x in launcher_args],
+        }
+    }
 
 
 def get_git_commit(repo_root: str = None) -> str:
@@ -2071,6 +2144,11 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
             for i, token in enumerate(launcher_args):
                 if not isinstance(token, (str, int, float)):
                     errors.append(f"  {cluster_path}: execution.launcher_args[{i}] must be a scalar CLI token.")
+        if (launcher is None or isinstance(launcher, str)) and (launcher_args is None or isinstance(launcher_args, list)):
+            try:
+                normalize_cluster_launcher(execution)
+            except ValueError as exc:
+                errors.append(f"  {cluster_path}: {exc}.")
 
         extra_sbatch = execution.get("extra_sbatch")
         if extra_sbatch is not None and not isinstance(extra_sbatch, (dict, list)):
@@ -2281,11 +2359,88 @@ def render_slurm_script(
         f.write("\n".join(lines) + "\n")
     os.chmod(script_path, 0o755)
 
+def split_launcher_tokens(
+    launcher: str | None,
+    launcher_args: list | None = None,
+    label: str = "launcher",
+) -> tuple[str | None, list[str]]:
+    """Canonicalize launcher config into executable token plus argv-style flags."""
+    normalized_args = [str(x) for x in (launcher_args or [])]
+
+    if launcher is None:
+        return None, normalized_args
+
+    try:
+        launcher_tokens = shlex.split(str(launcher))
+    except ValueError as exc:
+        raise ValueError(f"{label} is not shell-parseable: {exc}") from exc
+
+    if not launcher_tokens:
+        return None, normalized_args
+
+    return launcher_tokens[0], launcher_tokens[1:] + normalized_args
+
+
+def normalize_cluster_launcher(execution: dict) -> tuple[str | None, list[str]]:
+    """Canonicalize cluster launcher config into executable token plus argv-style flags."""
+    return split_launcher_tokens(
+        execution.get("launcher", "srun"),
+        execution.get("launcher_args", []),
+        label="execution.launcher",
+    )
+
+
+def build_local_launch_command(executable: str, executable_args: list, num_procs: int, config_search_anchor: str = None) -> list:
+    """Build local launcher command, allowing an env override for login-node MPI quirks."""
+    command = [executable] + executable_args
+    if num_procs <= 1:
+        return command
+
+    launcher_override = os.environ.get("PICURV_MPI_LAUNCHER")
+    if launcher_override is None:
+        launcher_override = os.environ.get("MPI_LAUNCHER")
+
+    try:
+        if launcher_override is not None:
+            launcher, launcher_args = split_launcher_tokens(
+                launcher_override,
+                label="local MPI launcher override",
+            )
+        else:
+            _, local_runtime_cfg = load_local_runtime_config(config_search_anchor)
+            local_execution = local_runtime_cfg.get("local_execution", {})
+            configured_launcher = local_execution.get("launcher")
+            configured_args = local_execution.get("launcher_args", [])
+            launcher, launcher_args = split_launcher_tokens(
+                configured_launcher if configured_launcher is not None else "mpiexec",
+                configured_args,
+                label="local_execution.launcher",
+            )
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if not launcher:
+        return command
+
+    launcher_name = os.path.basename(launcher).lower()
+    prefix = [launcher] + launcher_args
+
+    if launcher_name == "srun":
+        has_n = any(token in {"-n", "--ntasks"} for token in launcher_args)
+        if not has_n:
+            prefix += ["-n", str(num_procs)]
+    elif launcher_name in {"mpiexec", "mpirun"}:
+        has_n = any(token in {"-n", "-np"} for token in launcher_args)
+        if not has_n:
+            prefix += ["-n", str(num_procs)]
+
+    return prefix + command
+
 def build_cluster_launch_command(cluster_cfg: dict, executable: str, executable_args: list) -> list:
     """Build scheduler launcher command (srun/mpirun/custom) from cluster config."""
     execution = cluster_cfg.get("execution", {}) or {}
-    launcher = execution.get("launcher", "srun")
-    launcher_args = [str(x) for x in execution.get("launcher_args", [])]
+    launcher, launcher_args = normalize_cluster_launcher(execution)
     ntasks = get_cluster_total_tasks(cluster_cfg)
 
     if launcher and launcher.lower() == "srun":
@@ -3837,9 +3992,12 @@ def build_run_dry_plan(args) -> dict:
                 "launch_command_string": _command_to_string(solver_cmd),
             }
         else:
-            solver_cmd = [solver_exe] + solver_args
-            if solver_num_procs_effective > 1:
-                solver_cmd = ["mpiexec", "-n", str(solver_num_procs_effective)] + solver_cmd
+            solver_cmd = build_local_launch_command(
+                solver_exe,
+                solver_args,
+                solver_num_procs_effective,
+                config_search_anchor=case_path,
+            )
             plan["stages"]["solve"] = {
                 "mode": "local",
                 "num_procs_effective": solver_num_procs_effective,
@@ -4217,9 +4375,12 @@ def run_workflow(args):
                 print(f"[SUCCESS] Submitted solver job: {submit_info['job_id']}")
             stages_completed.append('solve')
         else:
-            command = [solver_exe] + solver_args
-            if solver_num_procs_effective > 1:
-                command = ["mpiexec", "-n", str(solver_num_procs_effective)] + command
+            command = build_local_launch_command(
+                solver_exe,
+                solver_args,
+                solver_num_procs_effective,
+                config_search_anchor=case_path,
+            )
             execute_command(command, run_dir, f"{run_id}_solver.log", configs['monitor'])
             stages_completed.append('solve')
 

@@ -14,10 +14,13 @@ PICURV = REPO_ROOT / "scripts" / "picurv"
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 
-def run_picurv(args, cwd=REPO_ROOT):
+def run_picurv(args, cwd=REPO_ROOT, env=None):
     """Run picurv."""
     cmd = [sys.executable, str(PICURV)] + list(args)
-    return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False)
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+    return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False, env=merged_env)
 
 
 def load_picurv_module():
@@ -1088,6 +1091,124 @@ def test_dry_run_local_solver_vs_post_proc_counts():
     assert "mpiexec" not in payload["stages"]["post-process"]["launch_command_string"]
 
 
+def test_dry_run_local_accepts_launcher_override_for_login_node_runs():
+    """Test that local multi-rank dry-run honors launcher override env vars."""
+    valid = FIXTURES / "valid"
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--num-procs",
+            "4",
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        env={"PICURV_MPI_LAUNCHER": "mpirun -mca pml ucx -mca btl '^uct,ofi' -mca mtl '^ofi'"},
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    launch_command = payload["stages"]["solve"]["launch_command"]
+    assert launch_command[0] == "mpirun"
+    assert launch_command[1:10] == ["-mca", "pml", "ucx", "-mca", "btl", "^uct,ofi", "-mca", "mtl", "^ofi"]
+    assert launch_command[10:12] == ["-n", "4"]
+
+
+def test_dry_run_local_reads_optional_local_runtime_config(tmp_path):
+    """Test that local multi-rank dry-run can read .picurv-local.yml."""
+    valid = FIXTURES / "valid"
+    (tmp_path / ".picurv-local.yml").write_text(
+        "\n".join(
+            [
+                "local_execution:",
+                "  launcher: \"mpirun\"",
+                "  launcher_args:",
+                "    - -mca",
+                "    - pml",
+                "    - ucx",
+                "    - -mca",
+                "    - btl",
+                "    - ^uct,ofi",
+                "    - -mca",
+                "    - mtl",
+                "    - ^ofi",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--num-procs",
+            "4",
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    launch_command = payload["stages"]["solve"]["launch_command"]
+    assert launch_command[0] == "mpirun"
+    assert launch_command[1:10] == ["-mca", "pml", "ucx", "-mca", "btl", "^uct,ofi", "-mca", "mtl", "^ofi"]
+    assert launch_command[10:12] == ["-n", "4"]
+
+
+def test_env_launcher_override_wins_over_optional_local_runtime_config(tmp_path):
+    """Test that env launcher override takes precedence over .picurv-local.yml."""
+    valid = FIXTURES / "valid"
+    (tmp_path / ".picurv-local.yml").write_text(
+        "\n".join(
+            [
+                "local_execution:",
+                "  launcher: \"mpiexec\"",
+                "  launcher_args:",
+                "    - --from-config",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--num-procs",
+            "3",
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+        env={"PICURV_MPI_LAUNCHER": "mpirun --from-env"},
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    launch_command = payload["stages"]["solve"]["launch_command"]
+    assert launch_command[:4] == ["mpirun", "--from-env", "-n", "3"]
+
+
 def test_dry_run_cluster_post_is_single_task(tmp_path):
     """Test that dry run cluster post is single task."""
     valid = FIXTURES / "valid"
@@ -1149,6 +1270,100 @@ def test_dry_run_cluster_post_is_single_task(tmp_path):
     assert payload["stages"]["post-process"]["num_procs_effective"] == 1
     assert "-n 4" in payload["stages"]["solve"]["launch_command_string"]
     assert "-n 1" in payload["stages"]["post-process"]["launch_command_string"]
+
+
+def test_dry_run_cluster_accepts_inline_launcher_tokens(tmp_path):
+    """Test that cluster dry-run accepts launcher strings with inline site flags."""
+    valid = FIXTURES / "valid"
+    cluster_override = tmp_path / "cluster_inline_launcher.yml"
+    cluster_override.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  type: slurm",
+                "",
+                "resources:",
+                "  account: \"test_account\"",
+                "  partition: \"compute\"",
+                "  nodes: 1",
+                "  ntasks_per_node: 4",
+                "  mem: \"4G\"",
+                "  time: \"00:10:00\"",
+                "",
+                "notifications:",
+                "  mail_user: null",
+                "  mail_type: null",
+                "",
+                "execution:",
+                "  module_setup:",
+                "    - \"module purge\"",
+                "  launcher: \"mpirun -mca pml ucx -mca btl '^uct,ofi' -mca mtl '^ofi'\"",
+                "  launcher_args: []",
+                "  extra_sbatch: {}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--cluster",
+            str(cluster_override),
+            "--dry-run",
+            "--format",
+            "json",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    launch_command = payload["stages"]["solve"]["launch_command"]
+    assert launch_command[0] == "mpirun"
+    assert launch_command[1:10] == ["-mca", "pml", "ucx", "-mca", "btl", "^uct,ofi", "-mca", "mtl", "^ofi"]
+    assert launch_command[10:12] == ["-np", "4"]
+
+
+def test_validate_cluster_rejects_unparseable_inline_launcher(tmp_path):
+    """Test that cluster validation rejects malformed inline launcher quoting."""
+    cluster_invalid = tmp_path / "cluster_bad_launcher.yml"
+    cluster_invalid.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  type: slurm",
+                "",
+                "resources:",
+                "  account: \"test_account\"",
+                "  partition: \"compute\"",
+                "  nodes: 1",
+                "  ntasks_per_node: 4",
+                "  mem: \"4G\"",
+                "  time: \"00:10:00\"",
+                "",
+                "notifications:",
+                "  mail_user: null",
+                "  mail_type: null",
+                "",
+                "execution:",
+                "  module_setup: []",
+                "  launcher: '\"mpirun -mca pml ucx'",
+                "  launcher_args: []",
+                "  extra_sbatch: {}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(["validate", "--cluster", str(cluster_invalid)])
+    assert result.returncode == 1
+    assert "execution.launcher is not shell-parseable" in result.stderr
 
 
 def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_path):
