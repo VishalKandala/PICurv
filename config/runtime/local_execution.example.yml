@@ -1,16 +1,13 @@
-local_execution:
-  # Legacy local-only example.
-  # Prefer config/runtime/execution.example.yml copied to `.picurv-execution.yml`
-  # when you want one site config to cover both login-node and batch runs.
-  # This file still works for local multi-rank launcher overrides only.
-  launcher: "mpirun"
-  launcher_args:
-    - -mca
-    - pml
-    - ucx
-    - -mca
-    - btl
-    - ^uct,ofi
-    - -mca
-    - mtl
-    - ^ofi
+# Legacy local-only example.
+# Prefer `.picurv-execution.yml` when you want one site config to cover both
+# login-node and batch runs.
+#
+# Leave this empty on ordinary local machines.
+#
+# Example override:
+# local_execution:
+#   launcher: "mpirun"
+#   launcher_args:
+#     - --bind-to
+#     - none
+local_execution: {}

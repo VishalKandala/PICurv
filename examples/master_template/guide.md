@@ -25,7 +25,8 @@ A practical pattern is: initialize a runnable example first, then use these temp
 Launcher-related note:
 
 - `master_cluster.yml` is only for batch/scheduler policy and batch-specific overrides.
-- shared launcher defaults for local/login-node and batch runs live in `execution.example.yml`; copy it to `.picurv-execution.yml` in the repo root or case tree.
+- `picurv init` writes `.picurv-execution.yml` into new cases with inert defaults.
+- for an existing case or repo-root site config, start from `execution.example.yml`.
 - legacy `.picurv-local.yml` remains supported for local-only compatibility, but it does not feed generated batch jobs.
 - run directory names are still generated automatically by `picurv` as `<case_basename>_<timestamp>`.
 

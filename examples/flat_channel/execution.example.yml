@@ -1,17 +1,15 @@
-default_execution:
-  # Rename/copy this file to `.picurv-execution.yml` to activate shared site
-  # launcher defaults in this repo or case tree.
-  launcher: "mpirun"
-  launcher_args:
-    - -mca
-    - pml
-    - ucx
-    - -mca
-    - btl
-    - ^uct,ofi
-    - -mca
-    - mtl
-    - ^ofi
+# Optional shared runtime launcher overrides.
+# This file is safe to leave unchanged on ordinary local machines.
+# Edit it only when your site needs custom MPI launcher tokens.
+#
+# Example override:
+# default_execution:
+#   launcher: "mpirun"
+#   launcher_args:
+#     - --bind-to
+#     - none
+default_execution: {}
 
 local_execution: {}
+
 cluster_execution: {}

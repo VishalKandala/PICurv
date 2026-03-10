@@ -81,7 +81,8 @@ This allows consistent local dry-run and cluster production flow from the same i
 - If queue policies differ by partition/account, encode them in `cluster.yml` instead of editing generated scripts manually.
 - Solver stage uses `cluster.yml` resources directly.
 - Post stage defaults to single-task scheduling (`nodes=1`, `ntasks_per_node=1`) in generated `post.sbatch`.
-- If your cluster needs the same MPI launcher tokens for login-node and batch runs, put them in `.picurv-execution.yml` and let `cluster.yml` override only when batch jobs differ.
+- `picurv init` now creates `.picurv-execution.yml` in each new case with inert defaults.
+- If your cluster needs the same MPI launcher tokens for login-node and batch runs, edit that file and let `cluster.yml` override only when batch jobs differ.
 - For one-off interactive multi-rank runs on cluster login nodes, `PICURV_MPI_LAUNCHER` still overrides everything.
 - `--num-procs` in cluster mode is a consistency guard, not an independent rank selector:
   - allowed values are `1` (auto) or exactly `nodes * ntasks_per_node`.

@@ -105,6 +105,7 @@ Analytical-mode compatibility rule:
 
 Optional shared runtime execution file:
 
+- `picurv init` writes `.picurv-execution.yml` into each new case with inert defaults.
 - nearest `.picurv-execution.yml` may define:
   - `default_execution`
   - `local_execution`

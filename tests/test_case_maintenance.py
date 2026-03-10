@@ -6,6 +6,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
+import yaml
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PICURV = REPO_ROOT / "scripts" / "picurv"
@@ -71,6 +73,12 @@ def test_init_case_writes_origin_metadata_and_copies_binaries(tmp_path):
     assert (case_dir / "simulator").read_text(encoding="utf-8") == "simulator-v1\n"
     assert (case_dir / "postprocessor").read_text(encoding="utf-8") == "postprocessor-v1\n"
     assert (case_dir / "picurv").read_text(encoding="utf-8") == "picurv-v1\n"
+    runtime_cfg = yaml.safe_load((case_dir / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).read_text(encoding="utf-8"))
+    assert runtime_cfg == {
+        "default_execution": {},
+        "local_execution": {},
+        "cluster_execution": {},
+    }
 
 
 def test_build_project_uses_case_origin_source_root(tmp_path):
@@ -99,6 +107,35 @@ def test_build_project_uses_case_origin_source_root(tmp_path):
         picurv.execute_command = original_execute
 
     assert captured["command"] == ["make", "clean-project"]
+    assert captured["run_dir"] == str(source_root.resolve())
+    assert captured["log_filename"] == "build.log"
+
+
+def test_build_project_defaults_to_all_when_make_args_have_no_goal(tmp_path):
+    """Test that build project injects `all` when only make assignments/options are passed."""
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    picurv.write_case_origin_metadata(str(case_dir), str(source_root), template_name="demo")
+
+    captured = {}
+
+    def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
+        captured["command"] = command
+        captured["run_dir"] = run_dir
+        captured["log_filename"] = log_filename
+
+    original_execute = picurv.execute_command
+    picurv.execute_command = fake_execute
+    try:
+        picurv.build_project(
+            SimpleNamespace(case_dir=str(case_dir), source_root=None, make_args=["SYSTEM=cluster"])
+        )
+    finally:
+        picurv.execute_command = original_execute
+
+    assert captured["command"] == ["make", "all", "SYSTEM=cluster"]
     assert captured["run_dir"] == str(source_root.resolve())
     assert captured["log_filename"] == "build.log"
 

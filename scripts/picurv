@@ -55,6 +55,27 @@ RUNTIME_EXECUTION_CONFIG_FILENAMES = (
     LEGACY_LOCAL_RUNTIME_CONFIG_FILENAME,
 )
 
+DEFAULT_RUNTIME_EXECUTION_CONFIG_TEMPLATE = """# Optional shared runtime launcher overrides.
+# This file is safe to leave unchanged on ordinary local machines.
+# Edit it only when your site needs custom MPI launcher tokens.
+#
+# Precedence:
+#   - local/login-node runs: local_execution -> default_execution -> built-in mpiexec
+#   - generated cluster jobs: cluster.yml.execution -> cluster_execution -> default_execution -> built-in srun
+#
+# Example override:
+# default_execution:
+#   launcher: "mpirun"
+#   launcher_args:
+#     - --bind-to
+#     - none
+default_execution: {}
+
+local_execution: {}
+
+cluster_execution: {}
+"""
+
 def resolve_runtime_executable(executable_name: str) -> str:
     """Resolve solver/post executable path, preferring local sibling binaries."""
     local_candidate = os.path.join(INVOKED_SCRIPT_DIR, executable_name)
@@ -226,6 +247,19 @@ def write_json_file(filepath: str, payload: dict):
     with open(filepath, "w") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
         f.write("\n")
+
+
+def write_runtime_execution_file(filepath: str, template_source_path: str = None) -> str:
+    """Write a default runtime execution config, copying a source template when available."""
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    if template_source_path and os.path.isfile(template_source_path):
+        shutil.copy2(template_source_path, filepath)
+        return filepath
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(DEFAULT_RUNTIME_EXECUTION_CONFIG_TEMPLATE)
+    return filepath
 
 
 def is_project_root(candidate: str) -> bool:
@@ -480,6 +514,35 @@ def write_case_origin_metadata(case_dir: str, source_project_root: str, template
     metadata_path = os.path.join(os.path.abspath(case_dir), CASE_ORIGIN_METADATA_FILENAME)
     write_json_file(metadata_path, payload)
     return metadata_path, payload
+
+
+def make_args_include_explicit_goal(make_args: list[str]) -> bool:
+    """Return True when make args contain an explicit target rather than only options/assignments."""
+    if not make_args:
+        return False
+
+    options_with_value = {
+        "-C", "-f", "-I", "-j", "-l", "-o", "-W",
+        "--directory", "--file", "--makefile", "--include-dir", "--jobs",
+        "--load-average", "--max-load", "--old-file", "--assume-old",
+        "--what-if", "--new-file", "--assume-new",
+    }
+    assignment_pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*[:+?]?=.*$")
+
+    skip_next = False
+    for token in make_args:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in options_with_value:
+            skip_next = True
+            continue
+        if token.startswith("-"):
+            continue
+        if assignment_pattern.match(token):
+            continue
+        return True
+    return False
 
 
 def resolve_case_origin_context(case_dir_hint: str = None, source_root_override: str = None, template_name_override: str = None):
@@ -4935,6 +4998,20 @@ def init_case(args):
     shutil.copytree(template_path, dest_path)
     print(f"[SUCCESS] Copied template files to: {dest_path}")
 
+    runtime_execution_source = os.path.join(
+        source_project_root,
+        "config",
+        "runtime",
+        "execution.example.yml",
+    )
+    runtime_execution_dest = os.path.join(dest_path, RUNTIME_EXECUTION_CONFIG_FILENAME)
+    try:
+        write_runtime_execution_file(runtime_execution_dest, runtime_execution_source)
+        print(f"[INFO] Wrote optional runtime launcher config: {os.path.relpath(runtime_execution_dest)}")
+        print("       Leave it unchanged for ordinary local runs; edit it only if your site needs custom MPI launcher tokens.")
+    except Exception as e:
+        print(f"[ERROR] Failed to write runtime execution config: {e}", file=sys.stderr)
+
     try:
         metadata_path, _ = write_case_origin_metadata(
             dest_path,
@@ -4953,9 +5030,10 @@ def init_case(args):
             print(f"  - Copied '{os.path.basename(dest_file_path)}'")
         print("[SUCCESS] Binaries are now available in your study directory.")
         print("          You can now 'cd' into your study and run commands locally (e.g., './picurv ...').")
+        print("          If your cluster/login node needs custom MPI launcher tokens, edit '.picurv-execution.yml'.")
     except ValueError as exc:
         print(f"[WARNING] {exc}", file=sys.stderr)
-        print("          No binaries were copied. Run 'picurv build' first if needed.", file=sys.stderr)
+        print("          No binaries were copied. Run 'picurv build' first, or add 'SYSTEM=cluster' when building on a cluster.", file=sys.stderr)
     except Exception as e:
         print(f"[ERROR] Failed to process binaries: {e}", file=sys.stderr)
         print("        Your case files were copied, but you will need to run commands from the project root.", file=sys.stderr)
@@ -5087,7 +5165,13 @@ def build_project(args):
         print("        Please ensure the project root contains a valid Makefile.", file=sys.stderr)
         sys.exit(1)
 
-    command = ["make"] + args.make_args
+    make_args = list(args.make_args or [])
+    if make_args_include_explicit_goal(make_args):
+        command = ["make"] + make_args
+    else:
+        command = ["make", "all"] + make_args
+        print("[INFO] No explicit make target supplied; defaulting to 'all'.")
+        print("       Use 'picurv build clean-project ...' or another target when you want a non-build make action.")
     # For the build process, we don't have a monitor.yml, so we pass an empty
     # dict to execute_command. The command should be run in the project root.
     execute_command(command, source_project_root, "build.log", {})
@@ -5232,12 +5316,14 @@ def _add_build_parser(subparsers):
         help="Build project executables using the Makefile.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Calls the project's Makefile directly through `make`. Any arguments provided after 'build'\n"
-            "are passed directly to make.\n\n"
+            "Calls the project's Makefile directly through `make`.\n"
+            "If you do not pass an explicit make target, `picurv build` runs `make all`.\n"
+            "Any arguments provided after 'build' are passed directly to make.\n\n"
             "Examples:\n"
             "  picurv build\n"
             "  picurv build clean-project\n"
             "  picurv build SYSTEM=cluster\n"
+            "  picurv build all SYSTEM=cluster\n"
             "  picurv build postprocessor\n"
             "  ./picurv build clean-project   # from an initialized case directory"
         ),

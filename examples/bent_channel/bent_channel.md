@@ -30,7 +30,7 @@ Initialize study:
 ./bin/picurv init bent_channel --dest my_bent_case
 ```
 
-If cluster login-node or batch launches need site-specific MPI commands, copy `my_bent_case/execution.example.yml` to `my_bent_case/.picurv-execution.yml` and edit the launcher tokens there. Keep `slurm_cluster.yml` for scheduler settings and any batch-only override.
+If cluster login-node or batch launches need site-specific MPI commands, edit `my_bent_case/.picurv-execution.yml` after `init`. That file is created with inert defaults, so it is safe to leave unchanged on ordinary local machines. Keep `slurm_cluster.yml` for scheduler settings and any batch-only override.
 
 Run solve + post:
 
