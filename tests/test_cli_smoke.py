@@ -79,6 +79,14 @@ def test_validate_help_smoke():
     assert "--strict" in result.stdout
 
 
+def test_summarize_help_smoke():
+    """Test that summarize help smoke."""
+    result = run_picurv(["summarize", "--help"])
+    assert result.returncode == 0
+    assert "--run-dir" in result.stdout
+    assert "--snapshot-rows" in result.stdout
+
+
 def test_removed_selector_aliases_are_rejected():
     """Test that removed selector aliases are rejected."""
     picurv = load_picurv_module()
@@ -453,9 +461,232 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
 
     assert len(calls) == 1
     assert calls[0]["command"][0].endswith("/postprocessor")
+    assert calls[0]["log_filename"] == os.path.join("scheduler", "existing_run_eulerian_data.log")
     assert (config_dir / "post.run").is_file()
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["stages_completed_or_submitted"] == ["post-process"]
+
+
+def test_local_solve_wrapper_log_is_routed_to_scheduler_dir(tmp_path):
+    """Test that local solver wrapper output goes to scheduler/ for new runs."""
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    calls = []
+
+    def fake_resolve_runtime_executable(name):
+        """Return a fake runtime executable path."""
+        return f"/tmp/fake/{name}"
+
+    def fake_execute_command(command, run_dir_arg, log_filename, monitor_cfg=None):
+        """Capture execute_command inputs instead of launching."""
+        calls.append(
+            {
+                "command": command,
+                "run_dir": run_dir_arg,
+                "log_filename": log_filename,
+            }
+        )
+
+    original_resolve = picurv.resolve_runtime_executable
+    original_execute = picurv.execute_command
+    original_cwd = os.getcwd()
+    picurv.resolve_runtime_executable = fake_resolve_runtime_executable
+    picurv.execute_command = fake_execute_command
+
+    try:
+        os.chdir(tmp_path)
+        args = SimpleNamespace(
+            dry_run=False,
+            cluster=None,
+            scheduler=None,
+            num_procs=1,
+            solve=True,
+            post_process=False,
+            run_dir=None,
+            post=None,
+            case=str(valid / "case.yml"),
+            solver=str(valid / "solver.yml"),
+            monitor=str(valid / "monitor.yml"),
+            no_submit=False,
+        )
+        picurv.run_workflow(args)
+    finally:
+        os.chdir(original_cwd)
+        picurv.resolve_runtime_executable = original_resolve
+        picurv.execute_command = original_execute
+
+    assert len(calls) == 1
+    assert calls[0]["command"][0].endswith("/simulator")
+    assert calls[0]["log_filename"].startswith("scheduler/")
+    assert calls[0]["log_filename"].endswith("_solver.log")
+    run_dir = Path(calls[0]["run_dir"])
+    assert run_dir.parent == tmp_path / "runs"
+    assert (run_dir / "scheduler").is_dir()
+
+
+def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
+    """Test that summarize aggregates available per-step artifacts into JSON."""
+    run_dir = tmp_path / "runs" / "demo_run"
+    config_dir = run_dir / "config"
+    logs_dir = run_dir / "logs"
+    scheduler_dir = run_dir / "scheduler"
+    config_dir.mkdir(parents=True)
+    logs_dir.mkdir()
+    scheduler_dir.mkdir()
+
+    (config_dir / "monitor.yml").write_text(
+        "\n".join(
+            [
+                "logging:",
+                "  verbosity: INFO",
+                "profiling:",
+                "  timestep_output:",
+                "    mode: selected",
+                "    functions:",
+                "      - AdvanceSimulation",
+                "io:",
+                "  data_output_frequency: 2",
+                "  particle_log_interval: 2",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (config_dir / "case.yml").write_text(
+        "\n".join(
+            [
+                "models:",
+                "  physics:",
+                "    particles:",
+                "      count: 120",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "demo_run",
+                "launch_mode": "local",
+                "created_at": "2026-03-10T12:00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    (logs_dir / "Continuity_Metrics.log").write_text(
+        "\n".join(
+            [
+                "Timestep   | Block  | Max Divergence     | Max Divergence Location ([k][j][i]=idx) | Sum(RHS)           | Total Flux In      | Total Flux Out     | Net Flux",
+                "------------------------------------------------------------------------------------------------------------------------------------------",
+                "10         | 0      | 1.0000000000e-03   | ([0][0][0] = 0)                         | 2.0000000000e-04   | 1.0000000000e+00   | 9.9000000000e-01   | 1.0000000000e-02",
+                "10         | 1      | -2.5000000000e-03  | ([1][0][1] = 9)                         | 1.5000000000e-04   | 1.0000000000e+00   | 9.8500000000e-01   | 1.5000000000e-02",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "Particle_Metrics.log").write_text(
+        "\n".join(
+            [
+                "Stage              | Timestep   | Total Ptls   | Lost       | Migrated   | Occupied Cells  | Imbalance  | Mig Passes",
+                "----------------------------------------------------------------------------------------------------------------------------",
+                "AfterAdvection     | 10         | 120          | 2          | 5          | 40              | 1.25       | 2",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
+        "Step: 10 | PseudoIter(k): 4| | Pseudo-cfl: 2.5000 |dUk|: 1.000000e-06 | |dUk|/|dUprev|: 1.500000e-01 | |Rk|: 2.000000e-05 | |Rk|/|Rprev|: 3.000000e-02\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "Poisson_Solver_Convergence_History_Block_0.log").write_text(
+        "\n".join(
+            [
+                "--- Convergence for Timestep 10, Block 0 ---",
+                "ts: 10    | block: 0  | iter: 7   | Unprecond Norm:  1.23456e-04 | True Norm:  7.89012e-05 | Rel Norm:  2.34567e-03",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "Profiling_Timestep_Summary.csv").write_text(
+        "\n".join(
+            [
+                "step,function,calls,step_time_s",
+                "10,AdvanceSimulation,1,0.400000",
+                "10,FlowSolver,1,0.300000",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (scheduler_dir / "demo_run_solver.log").write_text(
+        "\n".join(
+            [
+                "Particle states at step 8:",
+                "| Rank | PID | CellID | Position | Velocity | Weights |",
+                "| 0 | 101 | (1, 2, 2) | (0.0, 0.1, 0.2) | (0.5, 1.0, 1.5) | (0.4, 0.5, 0.6) |",
+                "| 1 | 102 | (4, 5, 5) | (0.3, 0.4, 0.5) | (0.0, 0.5, 0.0) | (0.7, 0.8, 0.9) |",
+                "",
+                "Particle states at step 10:",
+                "| Rank | PID | CellID | Position | Velocity | Weights |",
+                "| 0 | 101 | (1, 2, 3) | (0.1, 0.2, 0.3) | (1.0, 2.0, 2.0) | (0.5, 0.6, 0.7) |",
+                "| 1 | 102 | (4, 5, 6) | (0.4, 0.5, 0.6) | (0.0, 1.0, 0.0) | (0.8, 0.9, 1.0) |",
+                "| 1 | 103 | (4, 5, 6) | (0.7, 0.8, 0.9) | (0.5, 0.5, 0.5) | (1.1, 1.2, 1.3) |",
+                "",
+                "Progress: 10/100",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_picurv(
+        [
+            "summarize",
+            "--run-dir",
+            str(run_dir),
+            "--latest",
+            "--snapshot-rows",
+            "1",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["run_id"] == "demo_run"
+    assert payload["step"] == 10
+    assert payload["continuity"]["available"] is True
+    assert payload["continuity"]["max_abs_divergence"] == 2.5e-03
+    assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 4
+    assert payload["poisson"]["blocks"][0]["iterations"] == 7
+    assert payload["particles"]["total_particles"] == 120
+    assert payload["profiling"]["available"] is True
+    assert payload["profiling"]["functions"][0]["function"] == "AdvanceSimulation"
+    assert payload["particle_snapshot"]["available"] is True
+    assert payload["particle_snapshot"]["sampled_rows"] == 3
+    assert len(payload["particle_snapshot"]["preview_rows"]) == 1
+    assert payload["particle_snapshot"]["cadence"]["particle_console_output_frequency"] == 2
+    assert payload["particle_snapshot"]["speed"]["max"] == 3.0
+    assert payload["particle_snapshot"]["sampled_distribution"]["unique_cells"] == 2
+    assert payload["particle_snapshot"]["sampled_distribution"]["duplicate_cells"] == 1
+    assert payload["particle_snapshot"]["sampled_distribution"]["rank_counts"] == {"0": 1, "1": 2}
+    assert payload["particle_snapshot"]["weights"]["component_0"]["min"] == 0.5
+    assert payload["particle_snapshot"]["checks"]["duplicate_pid_count"] == 0
+    assert payload["particle_snapshot"]["top_speeds"][0]["pid"] == 101
+    assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["available"] is True
+    assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["previous_step"] == 8
+    assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["matched_pids"] == 2
+    assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["rank_migrations"] == 0
+    assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["cell_changes"] == 2
+    assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["new_count"] == 1
+    assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["gone_count"] == 0
 
 
 def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):

@@ -47,6 +47,12 @@
   - added templates: `master_cluster.yml`, `master_study.yml`.
   - added docs pages: cluster run guide and sweep/study guide.
 
+- Run inspection and local log routing:
+  - added `picurv summarize` for read-only per-step health summaries derived from existing run artifacts.
+  - local wrapper stream logs for solver/post stages now write under `runs/<run_id>/scheduler/` instead of `runs/<run_id>/logs/`.
+  - summary lookup can use continuity, particle metrics, momentum, Poisson, profiling, and sampled particle snapshot artifacts when present.
+  - sampled particle snapshot summaries now include compact speed/bounds/rank/weight diagnostics plus sampled deltas against the previous snapshot when possible.
+
 - Initial Doxygen docs scaffold, architecture, and developer guide pages.
 - Main docs refresh:
   - updated tutorials/references for current YAML -> `picurv` -> C contract.
