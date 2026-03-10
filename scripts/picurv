@@ -77,6 +77,9 @@ local_execution: {}
 cluster_execution: {}
 """
 
+CLUSTER_TEMPLATE_PLACEHOLDER_ACCOUNT = "my_project_account"
+CLUSTER_TEMPLATE_PLACEHOLDER_MAIL = "user@example.edu"
+
 def resolve_runtime_executable(executable_name: str) -> str:
     """Resolve solver/post executable path, preferring local sibling binaries."""
     local_candidate = os.path.join(INVOKED_SCRIPT_DIR, executable_name)
@@ -263,6 +266,11 @@ def write_runtime_execution_file(filepath: str, template_source_path: str = None
     return filepath
 
 
+def _launcher_arg_contains_whitespace(token) -> bool:
+    """Return True when a launcher arg token contains embedded whitespace and should be split."""
+    return isinstance(token, str) and any(ch.isspace() for ch in token.strip())
+
+
 def resolve_runtime_execution_seed_source(source_project_root: str) -> str | None:
     """Prefer repo-local ignored runtime config, then tracked example, then built-in defaults."""
     source_root_abs = os.path.abspath(source_project_root)
@@ -439,6 +447,11 @@ def _normalize_execution_override_section(payload: dict, section_name: str, conf
                 raise ValueError(
                     f"{config_label} at {config_path}: {section_name}.launcher_args[{i}] "
                     "must be a scalar CLI token."
+                )
+            if _launcher_arg_contains_whitespace(token):
+                raise ValueError(
+                    f"{config_label} at {config_path}: {section_name}.launcher_args[{i}] "
+                    "must be a single CLI token; split whitespace-separated arguments into separate list items."
                 )
         launcher_args = [str(x) for x in launcher_args]
 
@@ -839,6 +852,21 @@ def compute_case_source_status(case_dir: str, source_project_root: str, template
         except ValueError:
             pass
     status["config"] = config_status
+
+    case_runtime_cfg = os.path.join(case_dir_abs, RUNTIME_EXECUTION_CONFIG_FILENAME)
+    repo_runtime_seed = os.path.join(source_root_abs, RUNTIME_EXECUTION_CONFIG_FILENAME)
+    runtime_status = {
+        "case_config_present": os.path.isfile(case_runtime_cfg),
+        "repo_seed_present": os.path.isfile(repo_runtime_seed),
+        "case_matches_repo_seed": False,
+    }
+    if runtime_status["case_config_present"] and runtime_status["repo_seed_present"]:
+        runtime_status["case_matches_repo_seed"] = filecmp.cmp(
+            case_runtime_cfg,
+            repo_runtime_seed,
+            shallow=False,
+        )
+    status["runtime_execution"] = runtime_status
     return status
 
 
@@ -874,6 +902,13 @@ def print_case_source_status(status: dict):
             print("[INFO] Prune candidates  : tracking unavailable")
     elif status.get("template_name"):
         print("[INFO] Template files    : template unavailable in source repo")
+
+    runtime_cfg = status.get("runtime_execution", {})
+    print(
+        f"[INFO] Runtime config    : case={'yes' if runtime_cfg.get('case_config_present') else 'no'} "
+        f"repo-seed={'yes' if runtime_cfg.get('repo_seed_present') else 'no'} "
+        f"matches-repo-seed={'yes' if runtime_cfg.get('case_matches_repo_seed') else 'no'}"
+    )
 
 
 def status_source_command(args):
@@ -2262,6 +2297,7 @@ def validate_post_config(post_cfg: dict, post_path: str):
 def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
     """Validate Slurm scheduler configuration from cluster.yml."""
     errors = []
+    warnings = []
     if not isinstance(cluster_cfg, dict) or not cluster_cfg:
         errors.append(f"  {cluster_path}: cluster config is empty or not a valid YAML mapping.")
         _print_validation_errors(errors)
@@ -2290,6 +2326,12 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
             if str_key in resources and resources.get(str_key) is not None:
                 if not isinstance(resources.get(str_key), str):
                     errors.append(f"  {cluster_path}: resources.{str_key} must be a string when provided.")
+        account = resources.get("account")
+        if account == CLUSTER_TEMPLATE_PLACEHOLDER_ACCOUNT:
+            warnings.append(
+                f"{cluster_path}: resources.account still uses the sample placeholder "
+                f"'{CLUSTER_TEMPLATE_PLACEHOLDER_ACCOUNT}'. Edit the cluster profile before submission."
+            )
 
     notifications = cluster_cfg.get("notifications", {})
     if notifications is not None and not isinstance(notifications, dict):
@@ -2298,6 +2340,11 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
         mail_user = notifications.get("mail_user")
         if mail_user is not None and not is_valid_email(mail_user):
             errors.append(f"  {cluster_path}: notifications.mail_user is not a valid email '{mail_user}'.")
+        if mail_user == CLUSTER_TEMPLATE_PLACEHOLDER_MAIL:
+            warnings.append(
+                f"{cluster_path}: notifications.mail_user still uses the sample placeholder "
+                f"'{CLUSTER_TEMPLATE_PLACEHOLDER_MAIL}'. Edit the cluster profile before submission."
+            )
         mail_type = notifications.get("mail_type")
         if mail_type is not None and not isinstance(mail_type, str):
             errors.append(f"  {cluster_path}: notifications.mail_type must be a string when provided.")
@@ -2324,6 +2371,11 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
             for i, token in enumerate(launcher_args):
                 if not isinstance(token, (str, int, float)):
                     errors.append(f"  {cluster_path}: execution.launcher_args[{i}] must be a scalar CLI token.")
+                elif _launcher_arg_contains_whitespace(token):
+                    errors.append(
+                        f"  {cluster_path}: execution.launcher_args[{i}] must be a single CLI token; "
+                        "split whitespace-separated arguments into separate list items."
+                    )
         if (launcher is None or isinstance(launcher, str)) and (launcher_args is None or isinstance(launcher_args, list)):
             try:
                 normalize_cluster_launcher(execution)
@@ -2333,6 +2385,10 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
         extra_sbatch = execution.get("extra_sbatch")
         if extra_sbatch is not None and not isinstance(extra_sbatch, (dict, list)):
             errors.append(f"  {cluster_path}: execution.extra_sbatch must be a mapping or list when provided.")
+
+    if warnings:
+        for warning in warnings:
+            print(f"[WARN] {warning}", file=sys.stderr)
 
     if errors:
         _print_validation_errors(errors)
@@ -5075,6 +5131,19 @@ def init_case(args):
         print(f"[INFO] Wrote case origin metadata: {os.path.relpath(metadata_path)}")
     except Exception as e:
         print(f"[ERROR] Failed to write case origin metadata: {e}", file=sys.stderr)
+
+    cluster_profile_candidates = sorted(
+        {
+            os.path.basename(path)
+            for pattern in ("*cluster*.yml", "*cluster*.yaml")
+            for path in glob.glob(os.path.join(dest_path, pattern))
+        }
+    )
+    if cluster_profile_candidates:
+        print("[INFO] Cluster profile sample(s) copied with this case:")
+        for profile_name in cluster_profile_candidates:
+            print(f"  - {profile_name}")
+        print("       Edit account/partition/module_setup and any batch-specific launcher overrides before using --cluster.")
 
     print("[INFO] Copying project binaries for a self-contained case...")
     try:

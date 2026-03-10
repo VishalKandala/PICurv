@@ -1543,6 +1543,80 @@ def test_validate_cluster_rejects_unparseable_inline_launcher(tmp_path):
     assert "execution.launcher is not shell-parseable" in result.stderr
 
 
+def test_validate_cluster_rejects_whitespace_packed_launcher_arg(tmp_path):
+    """Test that cluster validation rejects launcher_args items containing embedded whitespace."""
+    cluster_invalid = tmp_path / "cluster_bad_launcher_args.yml"
+    cluster_invalid.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  type: slurm",
+                "",
+                "resources:",
+                "  account: \"test_account\"",
+                "  partition: \"compute\"",
+                "  nodes: 1",
+                "  ntasks_per_node: 4",
+                "  mem: \"4G\"",
+                "  time: \"00:10:00\"",
+                "",
+                "notifications:",
+                "  mail_user: null",
+                "  mail_type: null",
+                "",
+                "execution:",
+                "  module_setup: []",
+                "  launcher: \"mpirun\"",
+                "  launcher_args: [\"-mca pml ucx\"]",
+                "  extra_sbatch: {}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(["validate", "--cluster", str(cluster_invalid)])
+    assert result.returncode == 1
+    assert "split whitespace-separated arguments into separate list items" in result.stderr
+
+
+def test_validate_cluster_warns_on_sample_placeholder_values(tmp_path):
+    """Test that cluster validation warns when sample placeholder values remain in use."""
+    cluster_placeholder = tmp_path / "cluster_placeholder.yml"
+    cluster_placeholder.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  type: slurm",
+                "",
+                "resources:",
+                "  account: \"my_project_account\"",
+                "  partition: \"compute\"",
+                "  nodes: 1",
+                "  ntasks_per_node: 4",
+                "  mem: \"4G\"",
+                "  time: \"00:10:00\"",
+                "",
+                "notifications:",
+                "  mail_user: \"user@example.edu\"",
+                "  mail_type: \"END,FAIL\"",
+                "",
+                "execution:",
+                "  module_setup: []",
+                "  launcher: \"srun\"",
+                "  launcher_args: []",
+                "  extra_sbatch: {}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(["validate", "--cluster", str(cluster_placeholder)])
+    assert result.returncode == 0, result.stderr
+    assert "[WARN]" in result.stderr
+    assert "my_project_account" in result.stderr
+    assert "user@example.edu" in result.stderr
+
+
 def test_validate_rejects_invalid_shared_runtime_execution_config(tmp_path):
     """Test that validate reports malformed .picurv-execution.yml content."""
     valid = FIXTURES / "valid"
