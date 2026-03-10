@@ -23,6 +23,7 @@ Primary commands:
 - `pull-source`
 - `status-source`
 - `run`
+- `summarize`
 - `sweep`
 - `validate`
 
@@ -43,6 +44,7 @@ Help:
 ./bin/picurv pull-source --help
 ./bin/picurv status-source --help
 ./bin/picurv run --help
+./bin/picurv summarize --help
 ./bin/picurv sweep --help
 ./bin/picurv validate --help
 ```
@@ -218,6 +220,51 @@ Slurm example (generate only):
   --cluster my_case/cluster.yml \
   --no-submit
 ```
+
+Runtime stream logs:
+
+- C-managed logs remain under `runs/<run_id>/logs/`.
+- wrapper stdout/stderr stream logs now live under `runs/<run_id>/scheduler/` for both local and Slurm launches.
+- this avoids collisions with solver startup, which recreates the C log directory.
+
+@section p05_summarize_sec 5. summarize: Read-Only Run Health Summary
+
+```bash
+./bin/picurv summarize --run-dir <run_dir> [--latest | --step <n>] [--format json]
+```
+
+Behavior:
+
+- reads copied run configs plus existing runtime artifacts,
+- builds a best-effort step summary without changing solver output,
+- works for active runs and completed runs,
+- reports unavailable sections when a source log is missing or disabled.
+
+Examples:
+
+```bash
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --latest
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --step 500
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --latest --format json
+```
+
+Typical sources:
+
+- `logs/Continuity_Metrics.log`
+- `logs/Particle_Metrics.log`
+- `logs/Momentum_Solver_Convergence_History_Block_*.log`
+- `logs/Poisson_Solver_Convergence_History_Block_*.log`
+- `logs/Profiling_Timestep_Summary.csv` when enabled
+- `scheduler/*_solver.log` or `scheduler/solver_*.out` for sampled particle snapshot previews
+
+When particle snapshots are available, `summarize` reports sampled diagnostics such as:
+
+- speed min/mean/max/std and stagnant-count
+- sampled position bounds and centroid
+- sampled rank counts and duplicate sampled cells
+- sampled weight min/max by component
+- sanity checks for duplicate PIDs and non-finite/zero/negative weights
+- top sampled speeds and sampled deltas versus the previous snapshot when matching PIDs exist
 
 Dry-run example (no file writes):
 ```bash

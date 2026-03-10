@@ -54,6 +54,21 @@ These categories should be fixed in small, reviewable batches.
 - Treat everything in sandbox as non-production unless promoted.
 - Stable outcomes should be moved into `config/`, `examples/`, `scripts/`, or `docs/`.
 
+@section p29_runtime_obs_sec 7. Runtime Observability Backlog
+
+Potential low-priority observability improvements worth revisiting:
+
+- move the local wrapper stream log out of `runs/<run_id>/logs/` so it is not affected by solver-side log-directory recreation; `scheduler/` is the existing precedent for batch stdout/stderr.
+- add an optional compact per-step summary CSV that consolidates already-available signals such as momentum pseudo-iterations/final residual, Poisson iterations/final residual, continuity/divergence, and particle health counters.
+- add an optional boundary-flux summary CSV for inlet/farfield/outlet totals and conservation error when boundary-condition debugging becomes a repeated workflow need.
+- add cadence-based field-extrema summaries (`P`, `|Ucat|`, `Psi`, diffusivity) only if users need compact trend logs instead of verbose anatomy/min-max output.
+- extend particle metrics only when current `Particle_Metrics.log` proves insufficient; prefer compact inventory/health summaries over larger particle state dumps.
+
+Observability policy note:
+
+- current runtime coverage is already strong for most runs: momentum convergence, Poisson convergence, continuity metrics, particle metrics, console particle snapshots, and profiling summaries.
+- backlog items in this section are primarily convenience or subsystem-specific diagnostics, not missing core health signals.
+
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 
 ## CFD Reader Guidance and Practical Use
@@ -75,4 +90,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

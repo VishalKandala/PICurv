@@ -28,6 +28,7 @@ import itertools
 import re
 import shlex
 import copy
+import math
 import numpy as np
 from datetime import datetime
 import time
@@ -3692,11 +3693,12 @@ def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg:
     @param[in] monitor_cfg Optional. If provided, used to set LOG_LEVEL in a custom environment.
                            If None, the process inherits the parent's environment directly.
     """
-    # Create the log directory if it doesn't exist.
-    log_dir = os.path.join(run_dir, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    
-    log_path = os.path.join(log_dir, log_filename)
+    if os.path.dirname(log_filename):
+        log_path = os.path.join(run_dir, log_filename)
+    else:
+        log_path = os.path.join(run_dir, "logs", log_filename)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
     print(f"[INFO] Launching Command...\n  > {' '.join(command)}")
     print(f"       Log file: {os.path.relpath(log_path)}")
     print("-" * 60)
@@ -4271,9 +4273,12 @@ def build_run_dry_plan(args) -> dict:
                 solver_num_procs_effective,
                 config_search_anchor=case_path,
             )
+            solver_stream_log = os.path.join(scheduler_dir, f"{run_id}_solver.log")
+            plan["artifacts"].append(solver_stream_log)
             plan["stages"]["solve"] = {
                 "mode": "local",
                 "num_procs_effective": solver_num_procs_effective,
+                "stream_log": solver_stream_log,
                 "launch_command": solver_cmd,
                 "launch_command_string": _command_to_string(solver_cmd),
             }
@@ -4366,10 +4371,13 @@ def build_run_dry_plan(args) -> dict:
             }
         else:
             post_cmd = [post_exe] + post_args
+            post_stream_log = os.path.join(run_dir, "scheduler", f"{run_id}_{output_prefix}.log")
+            plan["artifacts"].append(post_stream_log)
             plan["stages"]["post-process"] = {
                 "mode": "local",
                 "source_data_directory": resolved_source_dir,
                 "num_procs_effective": post_num_procs_effective,
+                "stream_log": post_stream_log,
                 "launch_command": post_cmd,
                 "launch_command_string": _command_to_string(post_cmd),
             }
@@ -4684,7 +4692,7 @@ def run_workflow(args):
                 solver_num_procs_effective,
                 config_search_anchor=configs["case_path"],
             )
-            execute_command(command, run_dir, f"{run_id}_solver.log", configs['monitor'])
+            execute_command(command, run_dir, os.path.join("scheduler", f"{run_id}_solver.log"), configs['monitor'])
             stages_completed.append('solve')
 
     # --- Stage 2: Post-Processing (if requested) ---
@@ -4798,7 +4806,7 @@ def run_workflow(args):
             stages_completed.append('post-process')
         else:
             command = [post_exe] + post_args
-            execute_command(command, run_dir, f"{run_id}_{output_prefix}.log", monitor_cfg)
+            execute_command(command, run_dir, os.path.join("scheduler", f"{run_id}_{output_prefix}.log"), monitor_cfg)
             stages_completed.append('post-process')
 
     if run_dir:
@@ -5074,6 +5082,947 @@ def sweep_workflow(args):
     if plots:
         print(f"  Plots           : {os.path.relpath(os.path.join(results_dir, 'plots'))}")
     print("=" * 60)
+
+
+_SUMMARY_NUMERIC_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
+
+
+def _read_yaml_if_exists(filepath: str):
+    """Read YAML when present, otherwise return None."""
+    if not filepath or not os.path.isfile(filepath):
+        return None
+    with open(filepath, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def _read_json_if_exists(filepath: str):
+    """Read JSON when present, otherwise return None."""
+    if not filepath or not os.path.isfile(filepath):
+        return None
+    with open(filepath, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _parse_int_loose(value):
+    """Best-effort integer parsing for summary extraction."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        try:
+            return int(float(text))
+        except ValueError:
+            return None
+
+
+def _parse_float_loose(value):
+    """Best-effort float parsing for summary extraction."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _extract_numeric_tuple(text: str):
+    """Extract a numeric tuple from a string like '(1, 2, 3)'."""
+    if not text:
+        return []
+    return [float(token) for token in _SUMMARY_NUMERIC_RE.findall(text)]
+
+
+def _build_summary_context(run_dir: str) -> dict:
+    """Resolve run-local config and artifact paths for summarize."""
+    run_dir = os.path.abspath(run_dir)
+    if not os.path.isdir(run_dir):
+        emit_structured_error(
+            ERROR_CODE_CFG_FILE_NOT_FOUND,
+            key="run_dir",
+            file_path=run_dir,
+            message="Run directory not found.",
+        )
+        sys.exit(1)
+
+    config_dir = os.path.join(run_dir, "config")
+    monitor_cfg = _read_yaml_if_exists(os.path.join(config_dir, "monitor.yml")) or {}
+    case_cfg = _read_yaml_if_exists(os.path.join(config_dir, "case.yml")) or {}
+    manifest = _read_json_if_exists(os.path.join(run_dir, "manifest.json")) or {}
+
+    io_cfg = monitor_cfg.get("io", {}) if isinstance(monitor_cfg, dict) else {}
+    io_dirs = io_cfg.get("directories", {}) if isinstance(io_cfg, dict) else {}
+    log_dir_name = io_dirs.get("log", "logs")
+    scheduler_dir = os.path.join(run_dir, "scheduler")
+
+    profiling_cfg = {"mode": "off", "functions": [], "timestep_file": "Profiling_Timestep_Summary.csv", "final_summary_enabled": True}
+    if monitor_cfg:
+        profiling_cfg = resolve_profiling_config(monitor_cfg)
+
+    particle_console_output_freq = None
+    particle_log_interval = None
+    if monitor_cfg:
+        particle_console_output_freq = resolve_particle_console_output_frequency(io_cfg)
+        particle_log_interval = io_cfg.get("particle_log_interval")
+
+    particle_count_cfg = None
+    if case_cfg:
+        particle_count_cfg = (
+            case_cfg.get("models", {})
+            .get("physics", {})
+            .get("particles", {})
+            .get("count")
+        )
+
+    return {
+        "run_dir": run_dir,
+        "config_dir": config_dir,
+        "log_dir": os.path.join(run_dir, log_dir_name),
+        "scheduler_dir": scheduler_dir,
+        "monitor_cfg": monitor_cfg,
+        "case_cfg": case_cfg,
+        "manifest": manifest,
+        "profiling_cfg": profiling_cfg,
+        "particle_console_output_freq": particle_console_output_freq,
+        "particle_log_interval": particle_log_interval,
+        "particle_count_cfg": particle_count_cfg,
+    }
+
+
+def _parse_continuity_metrics_log(filepath: str) -> dict:
+    """Parse Continuity_Metrics.log into {step: [rows...]}."""
+    rows_by_step = {}
+    if not os.path.isfile(filepath):
+        return rows_by_step
+
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("-") or line.startswith("Timestep"):
+                continue
+            parts = [part.strip() for part in raw_line.split("|")]
+            if len(parts) < 8:
+                continue
+            step = _parse_int_loose(parts[0])
+            block = _parse_int_loose(parts[1])
+            max_div = _parse_float_loose(parts[2])
+            rhs_sum = _parse_float_loose(parts[4])
+            flux_in = _parse_float_loose(parts[5])
+            flux_out = _parse_float_loose(parts[6])
+            net_flux = _parse_float_loose(parts[7])
+            if step is None or block is None:
+                continue
+            rows_by_step.setdefault(step, []).append(
+                {
+                    "block": block,
+                    "max_divergence": max_div,
+                    "max_divergence_location": parts[3],
+                    "rhs_sum": rhs_sum,
+                    "flux_in": flux_in,
+                    "flux_out": flux_out,
+                    "net_flux": net_flux,
+                }
+            )
+    return rows_by_step
+
+
+def _parse_particle_metrics_log(filepath: str) -> dict:
+    """Parse Particle_Metrics.log into {step: row}."""
+    rows_by_step = {}
+    if not os.path.isfile(filepath):
+        return rows_by_step
+
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("-") or line.startswith("Stage"):
+                continue
+            parts = [part.strip() for part in raw_line.split("|")]
+            if len(parts) < 8:
+                continue
+            step = _parse_int_loose(parts[1])
+            if step is None:
+                continue
+            rows_by_step[step] = {
+                "stage": parts[0],
+                "total_particles": _parse_int_loose(parts[2]),
+                "lost_particles": _parse_int_loose(parts[3]),
+                "migrated_particles": _parse_int_loose(parts[4]),
+                "occupied_cells": _parse_int_loose(parts[5]),
+                "load_imbalance": _parse_float_loose(parts[6]),
+                "migration_passes": _parse_int_loose(parts[7]),
+            }
+    return rows_by_step
+
+
+def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict]:
+    """Parse per-block momentum convergence logs."""
+    rows_by_step = {}
+    sources = {}
+    pattern = os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log")
+    regex = re.compile(
+        r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\|\s*\|"
+        r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
+        r"\s*\|dUk\|/\|dUprev\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
+        r"\s*\|Rk\|/\|Rprev\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
+    )
+
+    for path in sorted(glob.glob(pattern)):
+        block_match = re.search(r"Block_(\d+)\.log$", path)
+        if not block_match:
+            continue
+        block = int(block_match.group(1))
+        sources[block] = path
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                match = regex.search(raw_line)
+                if not match:
+                    continue
+                step = int(match.group("step"))
+                rows_by_step.setdefault(step, {})[block] = {
+                    "block": block,
+                    "pseudo_iterations": int(match.group("pseudo_iter")),
+                    "pseudo_cfl": float(match.group("pseudo_cfl")),
+                    "delta_norm": float(match.group("delta")),
+                    "delta_rel": float(match.group("delta_rel")),
+                    "residual_norm": float(match.group("resid")),
+                    "residual_rel": float(match.group("resid_rel")),
+                }
+    return rows_by_step, sources
+
+
+def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict]:
+    """Parse per-block Poisson convergence logs."""
+    rows_by_step = {}
+    sources = {}
+    pattern = os.path.join(log_dir, "Poisson_Solver_Convergence_History_Block_*.log")
+    regex = re.compile(
+        r"ts:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|\s*iter:\s*(?P<iter>\d+)\s*\|"
+        r"\s*Unprecond Norm:\s*(?P<unpre>[-+0-9.eE]+)\s*\|\s*True Norm:\s*(?P<true>[-+0-9.eE]+)"
+        r"(?:\s*\|\s*Rel Norm:\s*(?P<rel>[-+0-9.eE]+))?"
+    )
+
+    for path in sorted(glob.glob(pattern)):
+        block_match = re.search(r"Block_(\d+)\.log$", path)
+        if not block_match:
+            continue
+        block = int(block_match.group(1))
+        sources[block] = path
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                match = regex.search(raw_line)
+                if not match:
+                    continue
+                step = int(match.group("step"))
+                rows_by_step.setdefault(step, {})[block] = {
+                    "block": block,
+                    "iterations": int(match.group("iter")),
+                    "unpreconditioned_norm": float(match.group("unpre")),
+                    "true_norm": float(match.group("true")),
+                    "relative_norm": _parse_float_loose(match.group("rel")),
+                }
+    return rows_by_step, sources
+
+
+def _parse_profiling_timestep_csv(filepath: str) -> dict:
+    """Parse profiling timestep CSV into {step: [rows...]}."""
+    rows_by_step = {}
+    if not os.path.isfile(filepath):
+        return rows_by_step
+
+    with open(filepath, "r", encoding="utf-8", errors="replace", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            step = _parse_int_loose(row.get("step"))
+            if step is None:
+                continue
+            rows_by_step.setdefault(step, []).append(
+                {
+                    "function": row.get("function"),
+                    "calls": _parse_int_loose(row.get("calls")),
+                    "step_time_s": _parse_float_loose(row.get("step_time_s")),
+                }
+            )
+    return rows_by_step
+
+
+def _find_solver_stream_log_candidates(run_dir: str, log_dir: str) -> list[str]:
+    """Return plausible solver stream logs for local and Slurm runs."""
+    patterns = [
+        os.path.join(run_dir, "scheduler", "*_solver.log"),
+        os.path.join(run_dir, "scheduler", "solver_*.out"),
+        os.path.join(log_dir, "*_solver.log"),
+    ]
+    found = []
+    seen = set()
+    for pattern in patterns:
+        for path in sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True):
+            if path not in seen:
+                seen.add(path)
+                found.append(path)
+    return found
+
+
+def _parse_particle_snapshot_file(filepath: str) -> dict:
+    """Parse sampled particle snapshots from a solver stream log."""
+    snapshots = {}
+    if not os.path.isfile(filepath):
+        return snapshots
+
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+
+    idx = 0
+    while idx < len(lines):
+        match = re.search(r"Particle states at step\s+(\d+):", lines[idx])
+        if not match:
+            idx += 1
+            continue
+        step = int(match.group(1))
+        idx += 1
+        rows = []
+        while idx < len(lines):
+            stripped = lines[idx].strip()
+            if re.search(r"Particle states at step\s+\d+:", lines[idx]):
+                break
+            if stripped.startswith("|"):
+                parts = [part.strip() for part in stripped.split("|")[1:-1]]
+                if len(parts) >= 6 and parts[0] != "Rank":
+                    velocity = _extract_numeric_tuple(parts[4])
+                    rows.append(
+                        {
+                            "rank": _parse_int_loose(parts[0]),
+                            "pid": _parse_int_loose(parts[1]),
+                            "cell": [int(value) for value in _extract_numeric_tuple(parts[2])],
+                            "position": _extract_numeric_tuple(parts[3]),
+                            "velocity": velocity,
+                            "weights": _extract_numeric_tuple(parts[5]),
+                            "sample_speed": math.sqrt(sum(component * component for component in velocity)) if len(velocity) == 3 else None,
+                        }
+                    )
+            elif rows and (not stripped or stripped.startswith("Progress:")):
+                break
+            idx += 1
+        if rows:
+            snapshots[step] = rows
+        else:
+            snapshots.setdefault(step, [])
+    return snapshots
+
+
+def _find_previous_snapshot_step(snapshot_steps: list[int], step: int) -> int | None:
+    """Return the nearest earlier snapshot step when available."""
+    earlier_steps = [candidate for candidate in snapshot_steps if candidate < step]
+    if not earlier_steps:
+        return None
+    return max(earlier_steps)
+
+
+def _compute_particle_snapshot_delta(current_rows: list[dict], previous_rows: list[dict]) -> dict:
+    """Compute sampled deltas between two particle snapshot samples."""
+    previous_by_pid = {
+        row.get("pid"): row
+        for row in previous_rows
+        if row.get("pid") is not None
+    }
+    current_by_pid = {
+        row.get("pid"): row
+        for row in current_rows
+        if row.get("pid") is not None
+    }
+    matched_pids = sorted(set(previous_by_pid) & set(current_by_pid))
+    if not matched_pids:
+        return {"available": False}
+
+    displacements = []
+    rank_migrations = 0
+    cell_changes = 0
+    speed_changes = []
+    for pid in matched_pids:
+        current_row = current_by_pid[pid]
+        previous_row = previous_by_pid[pid]
+        current_pos = current_row.get("position") or []
+        previous_pos = previous_row.get("position") or []
+        if len(current_pos) == len(previous_pos) and current_pos:
+            displacements.append(
+                math.sqrt(
+                    sum(
+                        (float(current_pos[idx]) - float(previous_pos[idx])) ** 2
+                        for idx in range(len(current_pos))
+                    )
+                )
+            )
+        current_speed = current_row.get("sample_speed")
+        previous_speed = previous_row.get("sample_speed")
+        if current_speed is not None and previous_speed is not None:
+            speed_changes.append(float(current_speed) - float(previous_speed))
+        if current_row.get("rank") is not None and previous_row.get("rank") is not None:
+            if current_row["rank"] != previous_row["rank"]:
+                rank_migrations += 1
+        if current_row.get("cell") and previous_row.get("cell"):
+            if current_row["cell"] != previous_row["cell"]:
+                cell_changes += 1
+
+    payload = {
+        "available": True,
+        "matched_pids": len(matched_pids),
+        "new_count": len(set(current_by_pid) - set(previous_by_pid)),
+        "gone_count": len(set(previous_by_pid) - set(current_by_pid)),
+        "rank_migrations": rank_migrations,
+        "cell_changes": cell_changes,
+    }
+    if displacements:
+        payload["mean_displacement"] = float(np.mean(displacements))
+        payload["max_displacement"] = float(np.max(displacements))
+    if speed_changes:
+        payload["mean_speed_change"] = float(np.mean(speed_changes))
+        payload["max_abs_speed_change"] = float(np.max(np.abs(speed_changes)))
+    return payload
+
+
+def _build_particle_snapshot_summary(
+    source: str,
+    step: int,
+    rows: list[dict],
+    preview_rows: int,
+    particle_console_output_freq,
+    particle_log_interval,
+    previous_step: int | None = None,
+    previous_rows: list[dict] | None = None,
+) -> dict:
+    """Build sampled diagnostics for one particle console snapshot."""
+    payload = {
+        "available": True,
+        "sampled": True,
+        "source": source,
+        "step": step,
+        "sampled_rows": len(rows),
+        "preview_rows": rows[:preview_rows],
+        "cadence": {
+            "particle_console_output_frequency": particle_console_output_freq,
+            "particle_log_interval": particle_log_interval,
+        },
+    }
+    if not rows:
+        return payload
+
+    rank_counts = {}
+    duplicate_pid_count = 0
+    duplicate_cell_count = 0
+    nan_count = 0
+    inf_count = 0
+    zero_weight_count = 0
+    negative_weight_count = 0
+    unique_pid_count = 0
+
+    seen_pids = set()
+    cell_counter = {}
+    position_components = [[], [], []]
+    weight_components = {}
+    speeds = []
+
+    for row in rows:
+        pid = row.get("pid")
+        if pid is not None:
+            if pid in seen_pids:
+                duplicate_pid_count += 1
+            else:
+                seen_pids.add(pid)
+        rank = row.get("rank")
+        if rank is not None:
+            rank_counts[str(rank)] = rank_counts.get(str(rank), 0) + 1
+
+        cell = row.get("cell") or []
+        if cell:
+            key = tuple(cell)
+            cell_counter[key] = cell_counter.get(key, 0) + 1
+
+        position = row.get("position") or []
+        for idx, value in enumerate(position[:3]):
+            if not np.isfinite(value):
+                if np.isnan(value):
+                    nan_count += 1
+                else:
+                    inf_count += 1
+                continue
+            position_components[idx].append(float(value))
+
+        velocity = row.get("velocity") or []
+        if any(not np.isfinite(value) for value in velocity):
+            for value in velocity:
+                if not np.isfinite(value):
+                    if np.isnan(value):
+                        nan_count += 1
+                    else:
+                        inf_count += 1
+        speed = row.get("sample_speed")
+        if speed is not None and np.isfinite(speed):
+            speeds.append(float(speed))
+
+        weights = row.get("weights") or []
+        for idx, value in enumerate(weights):
+            if not np.isfinite(value):
+                if np.isnan(value):
+                    nan_count += 1
+                else:
+                    inf_count += 1
+                continue
+            numeric = float(value)
+            weight_components.setdefault(idx, []).append(numeric)
+            if abs(numeric) <= 1.0e-15:
+                zero_weight_count += 1
+            if numeric < 0.0:
+                negative_weight_count += 1
+
+    unique_pid_count = len(seen_pids)
+    duplicate_cell_count = sum(1 for count in cell_counter.values() if count > 1)
+
+    payload["sampled_distribution"] = {
+        "unique_cells": len(cell_counter),
+        "duplicate_cells": duplicate_cell_count,
+        "rank_counts": rank_counts,
+        "unique_pids": unique_pid_count,
+    }
+    payload["checks"] = {
+        "duplicate_pid_count": duplicate_pid_count,
+        "nan_count": nan_count,
+        "inf_count": inf_count,
+        "zero_weight_count": zero_weight_count,
+        "negative_weight_count": negative_weight_count,
+    }
+
+    if speeds:
+        payload["speed"] = {
+            "min": float(np.min(speeds)),
+            "mean": float(np.mean(speeds)),
+            "max": float(np.max(speeds)),
+            "std": float(np.std(speeds)),
+            "stagnant_count": sum(1 for speed in speeds if abs(speed) < 1.0e-6),
+        }
+
+        fastest_rows = sorted(
+            [row for row in rows if row.get("sample_speed") is not None],
+            key=lambda row: row["sample_speed"],
+            reverse=True,
+        )[:3]
+        payload["top_speeds"] = [
+            {
+                "pid": row.get("pid"),
+                "rank": row.get("rank"),
+                "speed": row.get("sample_speed"),
+                "cell": row.get("cell"),
+            }
+            for row in fastest_rows
+        ]
+
+    if any(position_components):
+        axes = ["x", "y", "z"]
+        payload["position_bounds"] = {}
+        centroid = []
+        for idx, axis in enumerate(axes):
+            values = position_components[idx]
+            if values:
+                payload["position_bounds"][axis] = [float(np.min(values)), float(np.max(values))]
+                centroid.append(float(np.mean(values)))
+            else:
+                centroid.append(None)
+        payload["position_centroid"] = centroid
+
+    if weight_components:
+        payload["weights"] = {}
+        for idx, values in sorted(weight_components.items()):
+            payload["weights"][f"component_{idx}"] = {
+                "min": float(np.min(values)),
+                "max": float(np.max(values)),
+            }
+
+    delta_summary = {"available": False}
+    if previous_step is not None and previous_rows:
+        delta_summary = _compute_particle_snapshot_delta(rows, previous_rows)
+        if delta_summary.get("available"):
+            delta_summary["previous_step"] = previous_step
+    payload["delta_from_previous_snapshot"] = delta_summary
+    return payload
+
+
+def _find_particle_snapshot_for_step(
+    run_dir: str,
+    log_dir: str,
+    step: int,
+    preview_rows: int,
+    particle_console_output_freq,
+    particle_log_interval,
+) -> dict:
+    """Locate and summarize a particle console snapshot for one step."""
+    best = None
+    for path in _find_solver_stream_log_candidates(run_dir, log_dir):
+        snapshots = _parse_particle_snapshot_file(path)
+        rows = snapshots.get(step)
+        if not rows:
+            continue
+        if best is None or len(rows) > len(best["rows"]):
+            best = {"source": path, "rows": rows, "snapshots": snapshots}
+
+    if not best:
+        return {"available": False}
+
+    previous_step = _find_previous_snapshot_step(list(best["snapshots"].keys()), step)
+    previous_rows = best["snapshots"].get(previous_step, []) if previous_step is not None else None
+    return _build_particle_snapshot_summary(
+        best["source"],
+        step,
+        best["rows"],
+        preview_rows,
+        particle_console_output_freq=particle_console_output_freq,
+        particle_log_interval=particle_log_interval,
+        previous_step=previous_step,
+        previous_rows=previous_rows,
+    )
+
+
+def _resolve_summary_step(requested_step, continuity_rows, particle_rows, momentum_rows, poisson_rows, profiling_rows):
+    """Select a step to summarize, preferring completed end-of-step metrics."""
+    available_steps = set(continuity_rows) | set(particle_rows) | set(momentum_rows) | set(poisson_rows) | set(profiling_rows)
+    if not available_steps:
+        return None, []
+
+    if requested_step is not None:
+        return requested_step, sorted(available_steps)
+
+    if continuity_rows:
+        return max(continuity_rows), sorted(available_steps)
+    if particle_rows:
+        return max(particle_rows), sorted(available_steps)
+    return max(available_steps), sorted(available_steps)
+
+
+def _format_summary_float(value, spec: str = ".6e", missing: str = "n/a") -> str:
+    """Format optional numeric values for summary text output."""
+    if value is None:
+        return missing
+    return format(value, spec)
+
+
+def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_rows: int = 5) -> dict:
+    """Build a read-only run-step summary from existing PICurv artifacts."""
+    context = _build_summary_context(run_dir)
+    log_dir = context["log_dir"]
+
+    continuity_rows = _parse_continuity_metrics_log(os.path.join(log_dir, "Continuity_Metrics.log"))
+    particle_rows = _parse_particle_metrics_log(os.path.join(log_dir, "Particle_Metrics.log"))
+    momentum_rows, momentum_sources = _parse_momentum_convergence_logs(log_dir)
+    poisson_rows, poisson_sources = _parse_poisson_convergence_logs(log_dir)
+
+    profiling_rows = {}
+    profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
+    if context["profiling_cfg"].get("mode") != "off":
+        profiling_rows = _parse_profiling_timestep_csv(profiling_path)
+
+    resolved_step, available_steps = _resolve_summary_step(
+        step,
+        continuity_rows,
+        particle_rows,
+        momentum_rows,
+        poisson_rows,
+        profiling_rows,
+    )
+    if resolved_step is None:
+        emit_structured_error(
+            ERROR_CODE_CFG_FILE_NOT_FOUND,
+            key="summary",
+            file_path=log_dir,
+            message="No summary-capable run artifacts were found under the run log directory.",
+            hint="Run the solver first, then retry summarize on a run directory that contains continuity or solver convergence logs.",
+        )
+        sys.exit(1)
+
+    if step is not None and step not in set(available_steps):
+        emit_structured_error(
+            ERROR_CODE_CFG_INVALID_VALUE,
+            key="step",
+            file_path=context["run_dir"],
+            message=f"Requested step {step} is not present in the available summary artifacts.",
+            hint=f"Available steps include: {available_steps[:10]}{'...' if len(available_steps) > 10 else ''}",
+        )
+        sys.exit(1)
+
+    continuity_step_rows = sorted(continuity_rows.get(resolved_step, []), key=lambda row: row["block"])
+    continuity_summary = {"available": bool(continuity_step_rows), "blocks": continuity_step_rows}
+    if continuity_step_rows:
+        divergence_values = [
+            abs(row["max_divergence"])
+            for row in continuity_step_rows
+            if row["max_divergence"] is not None
+        ]
+        continuity_summary["max_abs_divergence"] = max(divergence_values) if divergence_values else None
+        continuity_summary["net_flux"] = continuity_step_rows[0].get("net_flux")
+        continuity_summary["flux_in"] = continuity_step_rows[0].get("flux_in")
+        continuity_summary["flux_out"] = continuity_step_rows[0].get("flux_out")
+
+    momentum_step_rows = [row for _, row in sorted(momentum_rows.get(resolved_step, {}).items())]
+    momentum_summary = {"available": bool(momentum_step_rows), "blocks": momentum_step_rows}
+
+    poisson_step_rows = [row for _, row in sorted(poisson_rows.get(resolved_step, {}).items())]
+    poisson_summary = {"available": bool(poisson_step_rows), "blocks": poisson_step_rows}
+
+    particle_summary = {"available": resolved_step in particle_rows}
+    if resolved_step in particle_rows:
+        particle_summary.update(particle_rows[resolved_step])
+
+    profiling_summary = {"available": resolved_step in profiling_rows}
+    if resolved_step in profiling_rows:
+        functions = sorted(
+            profiling_rows[resolved_step],
+            key=lambda row: (row.get("step_time_s") or 0.0),
+            reverse=True,
+        )
+        profiling_summary["functions"] = functions
+        profiling_summary["total_logged_step_time_s"] = sum(
+            row.get("step_time_s") or 0.0 for row in functions
+        )
+
+    snapshot_summary = {"available": False}
+    if context["particle_console_output_freq"] and context["particle_console_output_freq"] > 0:
+        snapshot_summary = _find_particle_snapshot_for_step(
+            context["run_dir"],
+            log_dir,
+            resolved_step,
+            preview_rows=max(1, snapshot_rows),
+            particle_console_output_freq=context["particle_console_output_freq"],
+            particle_log_interval=context["particle_log_interval"],
+        )
+
+    monitor_info = {
+        "profiling_timestep_mode": context["profiling_cfg"].get("mode"),
+        "profiling_timestep_file": context["profiling_cfg"].get("timestep_file"),
+        "particle_console_output_frequency": context["particle_console_output_freq"],
+        "particle_log_interval": context["particle_log_interval"],
+    }
+
+    return {
+        "run_id": context["manifest"].get("run_id", os.path.basename(context["run_dir"])),
+        "run_dir": context["run_dir"],
+        "step": resolved_step,
+        "selected_via": "explicit" if step is not None else "latest_available",
+        "available_steps": available_steps,
+        "launch_mode": context["manifest"].get("launch_mode"),
+        "created_at": context["manifest"].get("created_at"),
+        "monitor": monitor_info,
+        "particles_configured": context["particle_count_cfg"],
+        "sources": {
+            "continuity_log": os.path.join(log_dir, "Continuity_Metrics.log") if os.path.isfile(os.path.join(log_dir, "Continuity_Metrics.log")) else None,
+            "particle_metrics_log": os.path.join(log_dir, "Particle_Metrics.log") if os.path.isfile(os.path.join(log_dir, "Particle_Metrics.log")) else None,
+            "momentum_logs": momentum_sources,
+            "poisson_logs": poisson_sources,
+            "profiling_timestep_csv": profiling_path if os.path.isfile(profiling_path) else None,
+        },
+        "continuity": continuity_summary,
+        "momentum": momentum_summary,
+        "poisson": poisson_summary,
+        "particles": particle_summary,
+        "particle_snapshot": snapshot_summary,
+        "profiling": profiling_summary,
+    }
+
+
+def render_run_summary(payload: dict, output_format: str = "text"):
+    """Render a run-step summary in human or JSON form."""
+    if output_format == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    print("\n" + "=" * 60)
+    print("                     RUN STEP SUMMARY")
+    print("=" * 60)
+    print(f"  Run ID         : {payload.get('run_id')}")
+    print(f"  Run directory  : {os.path.relpath(payload.get('run_dir'))}")
+    print(f"  Step           : {payload.get('step')} ({payload.get('selected_via')})")
+    if payload.get("launch_mode"):
+        print(f"  Launch mode    : {payload.get('launch_mode')}")
+    if payload.get("created_at"):
+        print(f"  Created at     : {payload.get('created_at')}")
+
+    continuity = payload.get("continuity", {})
+    print("\n  Continuity:")
+    if continuity.get("available"):
+        if continuity.get("max_abs_divergence") is not None:
+            print(f"    max |div|    : {continuity['max_abs_divergence']:.6e}")
+        if continuity.get("net_flux") is not None:
+            print(f"    net flux     : {continuity['net_flux']:.6e}")
+        for row in continuity.get("blocks", []):
+            print(
+                "    "
+                f"block {row['block']}: div={_format_summary_float(row.get('max_divergence'))} "
+                f"rhs={_format_summary_float(row.get('rhs_sum'))} location={row['max_divergence_location']}"
+            )
+    else:
+        print("    unavailable")
+
+    momentum = payload.get("momentum", {})
+    print("\n  Momentum:")
+    if momentum.get("available"):
+        for row in momentum.get("blocks", []):
+            print(
+                "    "
+                f"block {row['block']}: pseudo_iter={row['pseudo_iterations']} "
+                f"cfl={_format_summary_float(row.get('pseudo_cfl'), '.4f')} "
+                f"resid={_format_summary_float(row.get('residual_norm'))} "
+                f"rel={_format_summary_float(row.get('residual_rel'))}"
+            )
+    else:
+        print("    unavailable")
+
+    poisson = payload.get("poisson", {})
+    print("\n  Poisson:")
+    if poisson.get("available"):
+        for row in poisson.get("blocks", []):
+            print(
+                "    "
+                f"block {row['block']}: iter={row['iterations']} "
+                f"true={_format_summary_float(row.get('true_norm'))} "
+                f"rel={_format_summary_float(row.get('relative_norm'))}"
+            )
+    else:
+        print("    unavailable")
+
+    particles = payload.get("particles", {})
+    print("\n  Particles:")
+    if particles.get("available"):
+        print(
+            "    "
+            f"total={particles.get('total_particles')} lost={particles.get('lost_particles')} "
+            f"migrated={particles.get('migrated_particles')} occupied={particles.get('occupied_cells')} "
+            f"imbalance={_format_summary_float(particles.get('load_imbalance'), '.2f')}"
+        )
+    else:
+        print("    unavailable")
+
+    snapshot = payload.get("particle_snapshot", {})
+    if snapshot.get("available"):
+        print("\n  Particle Snapshot (sampled):")
+        print(f"    source        : {os.path.relpath(snapshot.get('source'))}")
+        cadence = snapshot.get("cadence", {})
+        print(
+            "    "
+            f"cadence       : every {cadence.get('particle_console_output_frequency', 'n/a')} steps, "
+            f"row interval {cadence.get('particle_log_interval', 'n/a')}"
+        )
+        print(f"    sampled rows  : {snapshot.get('sampled_rows')}")
+        speed = snapshot.get("speed", {})
+        if speed:
+            print(
+                "    "
+                f"sampled speeds: min={_format_summary_float(speed.get('min'))} "
+                f"mean={_format_summary_float(speed.get('mean'))} "
+                f"max={_format_summary_float(speed.get('max'))} "
+                f"std={_format_summary_float(speed.get('std'))} "
+                f"stagnant(<1e-6)={speed.get('stagnant_count', 0)}"
+            )
+        bounds = snapshot.get("position_bounds", {})
+        centroid = snapshot.get("position_centroid")
+        if bounds:
+            bound_parts = []
+            for axis in ("x", "y", "z"):
+                if axis in bounds:
+                    bound_parts.append(
+                        f"{axis}=[{_format_summary_float(bounds[axis][0])}, { _format_summary_float(bounds[axis][1])}]"
+                    )
+            print(f"    sampled bounds: {' '.join(bound_parts)}")
+        if centroid:
+            print(
+                "    "
+                f"sampled center: ({_format_summary_float(centroid[0])}, "
+                f"{_format_summary_float(centroid[1])}, {_format_summary_float(centroid[2])})"
+            )
+        distribution = snapshot.get("sampled_distribution", {})
+        if distribution:
+            print(
+                "    "
+                f"sampled spread: unique_cells={distribution.get('unique_cells', 'n/a')} "
+                f"duplicate_cells={distribution.get('duplicate_cells', 'n/a')} "
+                f"unique_pids={distribution.get('unique_pids', 'n/a')} "
+                f"ranks={distribution.get('rank_counts', {})}"
+            )
+        weights = snapshot.get("weights", {})
+        if weights:
+            weight_parts = []
+            for component, summary in sorted(weights.items()):
+                weight_parts.append(
+                    f"{component}[min/max]=[{_format_summary_float(summary.get('min'))}, { _format_summary_float(summary.get('max'))}]"
+                )
+            print(f"    sampled weights: {' '.join(weight_parts)}")
+        checks = snapshot.get("checks", {})
+        if checks:
+            print(
+                "    "
+                f"checks        : duplicate_pid={checks.get('duplicate_pid_count', 0)} "
+                f"nan={checks.get('nan_count', 0)} inf={checks.get('inf_count', 0)} "
+                f"zero_weight={checks.get('zero_weight_count', 0)} "
+                f"negative_weight={checks.get('negative_weight_count', 0)}"
+            )
+        top_speeds = snapshot.get("top_speeds", [])
+        if top_speeds:
+            summary = ", ".join(
+                f"pid={row.get('pid')} {_format_summary_float(row.get('speed'))}"
+                for row in top_speeds
+            )
+            print(f"    top speeds    : {summary}")
+        delta_summary = snapshot.get("delta_from_previous_snapshot", {})
+        if delta_summary.get("available"):
+            print(
+                "    "
+                f"vs prev snap  : step={delta_summary.get('previous_step')} "
+                f"matched_pids={delta_summary.get('matched_pids')} "
+                f"mean_disp={_format_summary_float(delta_summary.get('mean_displacement'))} "
+                f"max_disp={_format_summary_float(delta_summary.get('max_displacement'))} "
+                f"rank_moves={delta_summary.get('rank_migrations')} "
+                f"cell_changes={delta_summary.get('cell_changes')} "
+                f"new={delta_summary.get('new_count')} gone={delta_summary.get('gone_count')}"
+            )
+        print("    preview rows  :")
+        for row in snapshot.get("preview_rows", []):
+            print(
+                "    "
+                f"pid={row.get('pid')} rank={row.get('rank')} "
+                f"cell={row.get('cell')} pos={row.get('position')} vel={row.get('velocity')}"
+            )
+
+    profiling = payload.get("profiling", {})
+    print("\n  Profiling:")
+    if profiling.get("available"):
+        print(f"    total logged step time: {profiling.get('total_logged_step_time_s', 0.0):.6f}s")
+        for row in profiling.get("functions", [])[:5]:
+            print(
+                "    "
+                f"{row.get('function')}: calls={row.get('calls')} "
+                f"time={_format_summary_float(row.get('step_time_s'), '.6f', '0.000000')}s"
+            )
+    else:
+        print("    unavailable")
+    print("=" * 60)
+
+
+def summarize_workflow(args):
+    """Build and render a read-only health summary for a run step."""
+    if args.step is not None and args.step < 0:
+        fail_cli_usage("--step must be a non-negative integer.")
+    if args.snapshot_rows < 1:
+        fail_cli_usage("--snapshot-rows must be at least 1.")
+    requested_step = args.step
+    if requested_step is None and getattr(args, "latest", False):
+        requested_step = None
+    payload = build_run_summary_payload(
+        args.run_dir,
+        step=requested_step,
+        snapshot_rows=args.snapshot_rows,
+    )
+    render_run_summary(payload, output_format=args.output_format)
 
 
 def init_case(args):
@@ -5408,6 +6357,46 @@ def _add_validate_parser(subparsers):
     return p_validate
 
 
+def _add_summarize_parser(subparsers):
+    """Attach `summarize` parser for read-only run-health views."""
+    p_summarize = subparsers.add_parser(
+        "summarize",
+        help="Summarize one run step from existing logs and copied configs.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Build a read-only run-health summary from existing runtime artifacts.\n"
+            "It does not modify solver output and works for active or completed runs.\n\n"
+            "Examples:\n"
+            "  picurv summarize --run-dir runs/my_run --latest\n"
+            "  picurv summarize --run-dir runs/my_run --step 500\n"
+            "  picurv summarize --run-dir runs/my_run --latest --format json"
+        ),
+        epilog="Next: use `picurv run ...` to create runs or `picurv sweep ...` for multi-case studies.",
+    )
+    p_summarize.add_argument("--run-dir", required=True, help="Path to the run directory to inspect.")
+    step_group = p_summarize.add_mutually_exclusive_group()
+    step_group.add_argument("--step", type=int, help="Specific completed timestep to summarize.")
+    step_group.add_argument(
+        "--latest",
+        action="store_true",
+        help="Summarize the latest completed step found in available artifacts (default behavior).",
+    )
+    p_summarize.add_argument(
+        "--snapshot-rows",
+        type=int,
+        default=5,
+        help="Number of sampled particle snapshot rows to preview when solver stream output contains them.",
+    )
+    p_summarize.add_argument(
+        "--format",
+        dest="output_format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text).",
+    )
+    return p_summarize
+
+
 def _add_init_parser(subparsers):
     """Perform add init parser."""
     p_init = subparsers.add_parser(
@@ -5587,17 +6576,20 @@ def build_main_parser():
             "  picurv validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
+            "  picurv summarize --run-dir runs/my_run --latest\n"
             "  picurv sweep --study study.yml --cluster cluster.yml\n\n"
             "Next commands:\n"
             "  - First run: picurv init ... -> picurv validate ... -> picurv run ...\n"
             "  - Config debugging: picurv validate ...\n"
-            "  - Launch planning: picurv run ... --dry-run"
+            "  - Launch planning: picurv run ... --dry-run\n"
+            "  - Run inspection: picurv summarize ..."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
     _add_run_parser(subparsers)
     _add_sweep_parser(subparsers)
     _add_validate_parser(subparsers)
+    _add_summarize_parser(subparsers)
     _add_init_parser(subparsers)
     _add_build_parser(subparsers)
     _add_sync_binaries_parser(subparsers)
@@ -5625,6 +6617,9 @@ def dispatch_command(args):
         return
     if args.command == "validate":
         validate_workflow(args)
+        return
+    if args.command == "summarize":
+        summarize_workflow(args)
         return
     if args.command == "init":
         init_case(args)
