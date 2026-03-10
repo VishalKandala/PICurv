@@ -40,6 +40,8 @@ execution:
   # Removing these keys lets batch jobs inherit from `.picurv-execution.yml`.
   launcher: "srun"               # alternatives: "mpirun", custom launcher
   launcher_args: []              # e.g. ["--cpu-bind=cores"] or ["-mca", "pml", "ucx"]
+  # Each launcher_args entry must be one CLI token.
+  # Do not write: ["-mca pml ucx -mca btl ^uct,ofi"]
   # Multi-word launcher strings are accepted, but the portable form is:
   # launcher: "mpirun"
   # launcher_args: ["-mca", "pml", "ucx"]

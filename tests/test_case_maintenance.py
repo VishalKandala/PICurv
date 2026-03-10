@@ -109,6 +109,27 @@ def test_init_case_seeds_runtime_from_repo_local_config_and_omits_execution_exam
     assert picurv.RUNTIME_EXECUTION_EXAMPLE_FILENAME not in metadata["template_managed_files"]
 
 
+def test_init_case_prints_note_for_cluster_profile_samples(tmp_path, capsys):
+    """Test that init warns users to edit copied cluster profile samples."""
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    (source_root / "examples" / "demo" / "slurm_cluster.yml").write_text(
+        "scheduler:\n  type: slurm\n",
+        encoding="utf-8",
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    args = SimpleNamespace(template_name="demo", dest_name="my_case", source_root=str(source_root))
+    with pushd(workspace):
+        picurv.init_case(args)
+
+    captured = capsys.readouterr()
+    assert "Cluster profile sample(s) copied with this case" in captured.out
+    assert "slurm_cluster.yml" in captured.out
+    assert "before using --cluster" in captured.out
+
+
 def test_build_project_uses_case_origin_source_root(tmp_path):
     """Test that build project uses case origin source root."""
     picurv = load_picurv_module()
@@ -337,6 +358,40 @@ def test_compute_case_source_status_reports_binary_and_template_drift(tmp_path):
     assert "simulator" in status["binaries"]["case_bin_different"]
     assert "case.yml" in status["config"]["case_modified_files"]
     assert "guide.md" in status["config"]["template_removed_since_last_sync"]
+
+
+def test_compute_case_source_status_reports_runtime_config_seed_match(tmp_path):
+    """Test that status-source reports case runtime config presence and repo-seed match."""
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    (source_root / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).write_text(
+        "default_execution:\n  launcher: mpirun\n  launcher_args: [--bind-to, none]\nlocal_execution: {}\ncluster_execution: {}\n",
+        encoding="utf-8",
+    )
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+
+    picurv.sync_case_config_command(
+        SimpleNamespace(
+            case_dir=str(case_dir),
+            source_root=str(source_root),
+            template_name="demo",
+            overwrite=False,
+            prune=False,
+        )
+    )
+
+    metadata = json.loads((case_dir / picurv.CASE_ORIGIN_METADATA_FILENAME).read_text(encoding="utf-8"))
+    status = picurv.compute_case_source_status(
+        str(case_dir),
+        str(source_root),
+        template_name="demo",
+        metadata=metadata,
+    )
+
+    assert status["runtime_execution"]["case_config_present"] is True
+    assert status["runtime_execution"]["repo_seed_present"] is True
+    assert status["runtime_execution"]["case_matches_repo_seed"] is True
 
 
 def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
