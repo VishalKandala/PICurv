@@ -72,16 +72,18 @@ Solver-only run:
 Solver-only run on a cluster login node with a persistent site launcher config:
 
 ```bash
-# New cases created with `picurv init` already contain `.picurv-execution.yml`.
-# For an existing case, copy config/runtime/execution.example.yml once.
+# Preferred: create one repo-root `.picurv-execution.yml` in your cluster clone.
+# `picurv init` seeds new cases from it automatically.
+# For an existing case, copy config/runtime/execution.example.yml once and rename it.
 ./bin/picurv run --solve -n 8 --case case.yml --solver solver.yml --monitor monitor.yml
 ```
 
 Cluster run that reuses the same site launcher defaults unless `cluster.yml` overrides them:
 
 ```bash
-# New cases created with `picurv init` already contain `.picurv-execution.yml`.
-# For an existing case, copy config/runtime/execution.example.yml once.
+# Preferred: create one repo-root `.picurv-execution.yml` in your cluster clone.
+# `picurv init` seeds new cases from it automatically.
+# For an existing case, copy config/runtime/execution.example.yml once and rename it.
 ./bin/picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml
 ```
 

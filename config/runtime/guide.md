@@ -14,6 +14,9 @@ If your site needs different MPI launcher tokens, use the optional `.picurv-exec
 Nearest config wins.
 
 `picurv init` now writes this file automatically into each new case with inert defaults.
+If the source repo already has a repo-root `.picurv-execution.yml`, `init` seeds the new case from that ignored local file instead.
+`sync-config` also creates a missing case-local `.picurv-execution.yml` from the repo-root one when available, but it does not overwrite an existing case-local file.
+
 For an existing case or a repo-root site config, start from [execution.example.yml](execution.example.yml):
 
 ```yaml
@@ -27,6 +30,14 @@ Behavior by environment:
 1. Local workstation: no file needed; local multi-rank solve uses `mpiexec`.
 2. Cluster login node: edit `.picurv-execution.yml`; local solve uses `local_execution`, otherwise `default_execution`.
 3. Cluster batch job: generated job scripts use `cluster.yml.execution` first, otherwise `cluster_execution`, otherwise `default_execution`.
+
+Recommended cluster-clone workflow:
+
+1. Create one ignored repo-root `.picurv-execution.yml` in your cluster clone.
+2. Run `picurv init ...` normally; each new case gets a seeded `.picurv-execution.yml`.
+3. Adjust a case-local `.picurv-execution.yml` only when that case needs a special override.
+
+`sync-config` does not copy `execution.example.yml` into cases.
 
 Local precedence:
 
