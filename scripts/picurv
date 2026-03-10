@@ -4646,8 +4646,8 @@ def run_workflow(args):
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")
-            solver_log = os.path.join(run_dir, "logs", "solver_%j.out")
-            solver_err = os.path.join(run_dir, "logs", "solver_%j.err")
+            solver_log = os.path.join(scheduler_dir, "solver_%j.out")
+            solver_err = os.path.join(scheduler_dir, "solver_%j.err")
             solver_cmd = build_cluster_launch_command(
                 cluster_cfg,
                 solver_exe,
@@ -4755,8 +4755,8 @@ def run_workflow(args):
             scheduler_dir = os.path.join(run_dir, "scheduler")
             os.makedirs(scheduler_dir, exist_ok=True)
             post_script = os.path.join(scheduler_dir, "post.sbatch")
-            post_log = os.path.join(run_dir, "logs", "post_%j.out")
-            post_err = os.path.join(run_dir, "logs", "post_%j.err")
+            post_log = os.path.join(scheduler_dir, "post_%j.out")
+            post_err = os.path.join(scheduler_dir, "post_%j.err")
             post_cluster_cfg = copy.deepcopy(cluster_cfg)
             post_cluster_cfg.setdefault("resources", {})
             post_cluster_cfg["resources"]["nodes"] = 1
@@ -4880,8 +4880,7 @@ def sweep_workflow(args):
     cases_dir = os.path.join(study_dir, "cases")
     scheduler_dir = os.path.join(study_dir, "scheduler")
     results_dir = os.path.join(study_dir, "results")
-    logs_dir = os.path.join(study_dir, "logs")
-    for path in [cases_dir, scheduler_dir, results_dir, logs_dir]:
+    for path in [cases_dir, scheduler_dir, results_dir]:
         os.makedirs(path, exist_ok=True)
 
     print(f"[INFO] Creating study directory: {os.path.relpath(study_dir)}")
@@ -5003,8 +5002,8 @@ def sweep_workflow(args):
         "solve",
         solver_exe,
         post_exe,
-        os.path.join(logs_dir, "solver_%A_%a.out"),
-        os.path.join(logs_dir, "solver_%A_%a.err")
+        os.path.join(scheduler_dir, "solver_%A_%a.out"),
+        os.path.join(scheduler_dir, "solver_%A_%a.err")
     )
     render_slurm_array_stage_script(
         post_array_script,
@@ -5015,8 +5014,8 @@ def sweep_workflow(args):
         "post",
         solver_exe,
         post_exe,
-        os.path.join(logs_dir, "post_%A_%a.out"),
-        os.path.join(logs_dir, "post_%A_%a.err")
+        os.path.join(scheduler_dir, "post_%A_%a.out"),
+        os.path.join(scheduler_dir, "post_%A_%a.err")
     )
     print(f"[SUCCESS] Generated Slurm array scripts in {os.path.relpath(scheduler_dir)}")
 

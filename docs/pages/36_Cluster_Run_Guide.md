@@ -59,6 +59,8 @@ In run directory, scheduler generation typically produces:
 
 - `runs/<run_id>/scheduler/solver.sbatch`
 - `runs/<run_id>/scheduler/post.sbatch`
+- `runs/<run_id>/scheduler/solver_<jobid>.out/.err` after solver submission
+- `runs/<run_id>/scheduler/post_<jobid>.out/.err` after post submission
 - `runs/<run_id>/manifest.json`
 - `runs/<run_id>/scheduler/submission.json` (always in cluster mode when run artifacts are written; contains launch metadata and submission IDs when present)
 
@@ -82,6 +84,7 @@ This allows consistent local dry-run and cluster production flow from the same i
 - If queue policies differ by partition/account, encode them in `cluster.yml` instead of editing generated scripts manually.
 - Solver stage uses `cluster.yml` resources directly.
 - Post stage defaults to single-task scheduling (`nodes=1`, `ntasks_per_node=1`) in generated `post.sbatch`.
+- Slurm stdout/stderr lives under `scheduler/`; solver-generated runtime logs still live under `logs/`.
 - `picurv init` now creates `.picurv-execution.yml` in each new case with inert defaults.
 - If your cluster needs the same MPI launcher tokens for login-node and batch runs, edit that file and let `cluster.yml` override only when batch jobs differ.
 - For one-off interactive multi-rank runs on cluster login nodes, `PICURV_MPI_LAUNCHER` still overrides everything.

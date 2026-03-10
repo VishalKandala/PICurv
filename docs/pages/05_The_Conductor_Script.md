@@ -451,7 +451,9 @@ For prebuilt reusable profiles, also see the local guides under:
 
 Single run (`run`):
 - `runs/<run_id>/config/*.control`, `bcs*.run`, `post.run`, plus optional `whitelist.run` / `profile.run` sidecars when enabled
+- `runs/<run_id>/logs/*` (runtime logs and metrics written by solver/postprocessor)
 - `runs/<run_id>/scheduler/solver.sbatch`, `post.sbatch` (cluster mode)
+- `runs/<run_id>/scheduler/solver_<jobid>.out/.err`, `post_<jobid>.out/.err` (cluster mode, after submission)
 - `runs/<run_id>/scheduler/submission.json` (cluster mode)
 - `runs/<run_id>/manifest.json`
 
@@ -460,6 +462,7 @@ Sweep (`sweep`):
 - `studies/<study_id>/scheduler/case_index.tsv`
 - `studies/<study_id>/scheduler/solver_array.sbatch`
 - `studies/<study_id>/scheduler/post_array.sbatch`
+- `studies/<study_id>/scheduler/solver_<array_jobid>_<taskid>.out/.err`, `post_<array_jobid>_<taskid>.out/.err`
 - `studies/<study_id>/scheduler/submission.json`
 - `studies/<study_id>/results/metrics_table.csv`
 - `studies/<study_id>/results/plots/*.png` (if plotting enabled and matplotlib available)
