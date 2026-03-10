@@ -8,7 +8,7 @@ Compared with programmatic-grid examples, this case is useful for understanding 
 
 - `bent_channel.yml`, `Imp-MG-Standard.yml`, `Standard_Output.yml`, `standard_analysis.yml`
 - `bent_channel_coarse.picgrid` and companion metadata files
-- `slurm_cluster.yml` and `timestep_sensitivity_study.yml`
+- `slurm_cluster.yml`, `execution.example.yml`, and `timestep_sensitivity_study.yml`
 
 ## Quick Start
 
@@ -28,12 +28,19 @@ Compared with programmatic-grid examples, this case is useful for understanding 
 
 This case expects `grid.source_file: bent_channel_coarse.picgrid`, which is bundled with the template.
 
+If you run this example on a cluster and need site-specific MPI launcher tokens, copy `execution.example.yml` to `.picurv-execution.yml` in the repo root or case directory. That same file can drive both login-node runs and generated batch jobs. Keep `slurm_cluster.yml` reserved for scheduler policy and batch-only overrides.
+
 ## Recommended Uses
 
 - validating the file-grid ingestion path,
 - checking BC behavior on curved geometry,
 - testing timestep sensitivity studies,
 - establishing a reference for imported production grids.
+
+Run naming note:
+
+- `picurv` will create `runs/bent_channel_<timestamp>/` automatically for this example.
+- `slurm_cluster.yml` does not provide a separate run-name key.
 
 ## Common Pitfalls
 

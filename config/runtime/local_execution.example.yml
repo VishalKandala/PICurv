@@ -1,5 +1,8 @@
 local_execution:
-  # Optional replacement for the default local multi-rank launcher (`mpiexec`).
+  # Legacy local-only example.
+  # Prefer config/runtime/execution.example.yml copied to `.picurv-execution.yml`
+  # when you want one site config to cover both login-node and batch runs.
+  # This file still works for local multi-rank launcher overrides only.
   launcher: "mpirun"
   launcher_args:
     - -mca

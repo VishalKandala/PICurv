@@ -204,6 +204,7 @@ import json
 import os
 import subprocess
 import sys
+import yaml
 
 picurv_exe = os.path.abspath(sys.argv[1])
 matrix_root = os.path.abspath(sys.argv[2])
@@ -237,9 +238,23 @@ def discover_case_bundle(case_dir: str, template_name: str):
         "grid_independence_study.yml",
         "timestep_sensitivity_study.yml",
     }
+
+    def is_execution_example(name: str) -> bool:
+        path = os.path.join(case_dir, name)
+        with open(path, "r", encoding="utf-8") as f:
+            payload = yaml.safe_load(f) or {}
+        if not isinstance(payload, dict):
+            return False
+        return any(key in payload for key in ("default_execution", "local_execution", "cluster_execution"))
+
     solver_candidates = [
         name for name in ymls
-        if name not in excluded and "study" not in name.lower() and "cluster" not in name.lower()
+        if (
+            name not in excluded
+            and "study" not in name.lower()
+            and "cluster" not in name.lower()
+            and not is_execution_example(name)
+        )
     ]
     if len(solver_candidates) != 1:
         fail(

@@ -1120,13 +1120,13 @@ def test_dry_run_local_accepts_launcher_override_for_login_node_runs():
     assert launch_command[10:12] == ["-n", "4"]
 
 
-def test_dry_run_local_reads_optional_local_runtime_config(tmp_path):
-    """Test that local multi-rank dry-run can read .picurv-local.yml."""
+def test_dry_run_local_reads_shared_runtime_execution_config(tmp_path):
+    """Test that local multi-rank dry-run can read .picurv-execution.yml."""
     valid = FIXTURES / "valid"
-    (tmp_path / ".picurv-local.yml").write_text(
+    (tmp_path / ".picurv-execution.yml").write_text(
         "\n".join(
             [
-                "local_execution:",
+                "default_execution:",
                 "  launcher: \"mpirun\"",
                 "  launcher_args:",
                 "    - -mca",
@@ -1169,13 +1169,13 @@ def test_dry_run_local_reads_optional_local_runtime_config(tmp_path):
     assert launch_command[10:12] == ["-n", "4"]
 
 
-def test_env_launcher_override_wins_over_optional_local_runtime_config(tmp_path):
-    """Test that env launcher override takes precedence over .picurv-local.yml."""
+def test_env_launcher_override_wins_over_shared_runtime_execution_config(tmp_path):
+    """Test that env launcher override takes precedence over .picurv-execution.yml."""
     valid = FIXTURES / "valid"
-    (tmp_path / ".picurv-local.yml").write_text(
+    (tmp_path / ".picurv-execution.yml").write_text(
         "\n".join(
             [
-                "local_execution:",
+                "default_execution:",
                 "  launcher: \"mpiexec\"",
                 "  launcher_args:",
                 "    - --from-config",
@@ -1207,6 +1207,44 @@ def test_env_launcher_override_wins_over_optional_local_runtime_config(tmp_path)
     payload = json.loads(result.stdout)
     launch_command = payload["stages"]["solve"]["launch_command"]
     assert launch_command[:4] == ["mpirun", "--from-env", "-n", "3"]
+
+
+def test_dry_run_local_still_reads_legacy_local_runtime_config(tmp_path):
+    """Test that legacy .picurv-local.yml remains supported for local runs."""
+    valid = FIXTURES / "valid"
+    (tmp_path / ".picurv-local.yml").write_text(
+        "\n".join(
+            [
+                "local_execution:",
+                "  launcher: \"mpirun\"",
+                "  launcher_args:",
+                "    - --legacy-local",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--num-procs",
+            "3",
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["stages"]["solve"]["launch_command"][:4] == ["mpirun", "--legacy-local", "-n", "3"]
 
 
 def test_dry_run_cluster_post_is_single_task(tmp_path):
@@ -1330,6 +1368,145 @@ def test_dry_run_cluster_accepts_inline_launcher_tokens(tmp_path):
     assert launch_command[10:12] == ["-np", "4"]
 
 
+def test_dry_run_cluster_reads_shared_runtime_execution_config(tmp_path):
+    """Test that cluster dry-run falls back to .picurv-execution.yml when cluster.yml omits launcher tokens."""
+    valid = FIXTURES / "valid"
+    (tmp_path / ".picurv-execution.yml").write_text(
+        "\n".join(
+            [
+                "default_execution:",
+                "  launcher: \"mpirun\"",
+                "  launcher_args:",
+                "    - --from-shared-site",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    cluster_override = tmp_path / "cluster_shared_launcher.yml"
+    cluster_override.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  type: slurm",
+                "",
+                "resources:",
+                "  account: \"test_account\"",
+                "  partition: \"compute\"",
+                "  nodes: 1",
+                "  ntasks_per_node: 4",
+                "  mem: \"4G\"",
+                "  time: \"00:10:00\"",
+                "",
+                "notifications:",
+                "  mail_user: null",
+                "  mail_type: null",
+                "",
+                "execution:",
+                "  module_setup:",
+                "    - \"module purge\"",
+                "  extra_sbatch: {}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--cluster",
+            str(cluster_override),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["stages"]["solve"]["launch_command"][:4] == ["mpirun", "--from-shared-site", "-np", "4"]
+
+
+def test_cluster_yml_launcher_args_override_shared_cluster_execution(tmp_path):
+    """Test that cluster.yml launcher_args can override shared cluster defaults without redefining launcher."""
+    valid = FIXTURES / "valid"
+    (tmp_path / ".picurv-execution.yml").write_text(
+        "\n".join(
+            [
+                "default_execution:",
+                "  launcher: \"mpiexec\"",
+                "  launcher_args:",
+                "    - --default-shared",
+                "",
+                "cluster_execution:",
+                "  launcher: \"mpirun\"",
+                "  launcher_args:",
+                "    - --cluster-shared",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    cluster_override = tmp_path / "cluster_override_launcher_args.yml"
+    cluster_override.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  type: slurm",
+                "",
+                "resources:",
+                "  account: \"test_account\"",
+                "  partition: \"compute\"",
+                "  nodes: 1",
+                "  ntasks_per_node: 4",
+                "  mem: \"4G\"",
+                "  time: \"00:10:00\"",
+                "",
+                "notifications:",
+                "  mail_user: null",
+                "  mail_type: null",
+                "",
+                "execution:",
+                "  module_setup:",
+                "    - \"module purge\"",
+                "  launcher_args:",
+                "    - --cluster-explicit",
+                "  extra_sbatch: {}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--cluster",
+            str(cluster_override),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["stages"]["solve"]["launch_command"][:4] == ["mpirun", "--cluster-explicit", "-np", "4"]
+
+
 def test_validate_cluster_rejects_unparseable_inline_launcher(tmp_path):
     """Test that cluster validation rejects malformed inline launcher quoting."""
     cluster_invalid = tmp_path / "cluster_bad_launcher.yml"
@@ -1364,6 +1541,36 @@ def test_validate_cluster_rejects_unparseable_inline_launcher(tmp_path):
     result = run_picurv(["validate", "--cluster", str(cluster_invalid)])
     assert result.returncode == 1
     assert "execution.launcher is not shell-parseable" in result.stderr
+
+
+def test_validate_rejects_invalid_shared_runtime_execution_config(tmp_path):
+    """Test that validate reports malformed .picurv-execution.yml content."""
+    valid = FIXTURES / "valid"
+    (tmp_path / ".picurv-execution.yml").write_text(
+        "\n".join(
+            [
+                "default_execution:",
+                "  launcher: 17",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 1
+    assert "runtime_execution" in result.stderr
+    assert "default_execution.launcher must be a string" in result.stderr
 
 
 def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_path):

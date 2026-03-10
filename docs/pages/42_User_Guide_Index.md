@@ -12,6 +12,7 @@ If Getting Started proves the toolchain works, this section is where production 
 - **@subpage 05_The_Conductor_Script**: command model and flag contracts.
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**: practical run patterns and modular profile combinations.
 - **@subpage 06_Simulation_Anatomy**: runtime artifact graph and execution stages.
+- **@subpage 52_Run_Lifecycle_Guide**: operational path from new run to restart, post-only reuse, and batch job generation.
 - **@subpage 36_Cluster_Run_Guide**: Slurm submission path for single runs.
 - **@subpage 37_Sweep_Studies_Guide**: parameter studies and array jobs.
 
@@ -68,4 +69,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

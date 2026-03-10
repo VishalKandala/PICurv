@@ -11,6 +11,7 @@ Because it avoids external grid files, this template is also useful for controll
 - `Standard_Output.yml`: monitor/logging settings.
 - `standard_analysis.yml`: postprocessing recipe.
 - `slurm_cluster.yml`: sample cluster scheduler config.
+- `execution.example.yml`: optional shared local/login-node + batch launcher defaults.
 - `grid_independence_study.yml`: sample sweep study definition.
 
 ## Quick Start
@@ -31,12 +32,19 @@ Because it avoids external grid files, this template is also useful for controll
 
 If project binaries are already built, `init` copies executables (`picurv`, `simulator`, `postprocessor`) into the case directory and records source linkage in `.picurv-origin.json` for later maintenance commands.
 
+If you run this example on a cluster and need site-specific MPI launcher tokens, copy `execution.example.yml` to `.picurv-execution.yml` in the repo root or case directory. That same file can cover both login-node runs and generated batch jobs. Keep `slurm_cluster.yml` for scheduler policy and any batch-only override.
+
 ## Recommended Uses
 
 - first local smoke run,
 - solver/post pipeline validation,
 - baseline for parameter perturbation studies,
 - reference behavior before introducing geometry complexity.
+
+Run naming note:
+
+- `picurv` will create `runs/flat_channel_<timestamp>/` automatically for this example.
+- `slurm_cluster.yml` does not have a separate run-name field.
 
 ## Practical Debugging Tips
 

@@ -47,6 +47,12 @@ Pattern D: same cluster profile across many jobs
 - reuse one `cluster.yml` for site policy
 - vary only case/solver/monitor/post inputs
 
+Pattern E: same case, different local launch environment
+
+- keep case/solver/monitor/post unchanged
+- use default `mpiexec` on ordinary workstations
+- add a repo-local or case-local `.picurv-execution.yml` when a cluster login node or cluster batch job needs site-specific launcher flags
+
 @section p49_recipes_sec 3. Command Recipes
 
 First-time local workflow:
@@ -61,6 +67,20 @@ Solver-only run:
 
 ```bash
 ./bin/picurv run --solve -n 8 --case case.yml --solver solver.yml --monitor monitor.yml
+```
+
+Solver-only run on a cluster login node with a persistent site launcher config:
+
+```bash
+cp config/runtime/execution.example.yml .picurv-execution.yml
+./bin/picurv run --solve -n 8 --case case.yml --solver solver.yml --monitor monitor.yml
+```
+
+Cluster run that reuses the same site launcher defaults unless `cluster.yml` overrides them:
+
+```bash
+cp config/runtime/execution.example.yml .picurv-execution.yml
+./bin/picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml
 ```
 
 Post-process an existing run with a different recipe:
@@ -80,6 +100,12 @@ Cluster generation without submit:
 ```bash
 ./bin/picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit
 ```
+
+Run naming note:
+
+- `cluster.yml` does not provide a run-name field.
+- `picurv` creates `runs/<case_basename>_<timestamp>/` automatically.
+- generated Slurm job names are derived from that run ID.
 
 @section p49_examples_sec 4. Example Config Combinations
 
@@ -211,6 +237,7 @@ Choose `brownian_motion` when:
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 07_Case_Reference**
 - **@subpage 14_Config_Contract**
+- **@subpage 52_Run_Lifecycle_Guide**
 - **@subpage 48_Grid_Generator_Guide**
 - **@subpage 45_Particle_Initialization_and_Restart**
 
@@ -235,4 +262,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

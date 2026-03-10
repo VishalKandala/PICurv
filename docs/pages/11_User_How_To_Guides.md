@@ -254,6 +254,7 @@ See also:
 - **@subpage 09_Monitor_Reference**
 - **@subpage 33_Initial_Conditions**
 - **@subpage 45_Particle_Initialization_and_Restart**
+- **@subpage 52_Run_Lifecycle_Guide**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 
@@ -281,6 +282,8 @@ Prefer narrow function lists to keep logs manageable.
 ```
 
 Use when solver outputs already exist and you are iterating only on analysis pipeline.
+
+For the broader run-directory lifecycle around restart, post-only reuse, and generated scheduler artifacts, see **@subpage 52_Run_Lifecycle_Guide**.
 
 @subsection p11_qcrit_ssec 4.2 Add Q-Criterion to Eulerian Pipeline
 
@@ -359,4 +362,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

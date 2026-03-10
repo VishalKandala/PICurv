@@ -134,6 +134,7 @@ Quick sanity check in ParaView:
 - Full walkthrough with deeper explanation: **@subpage 02_Tutorial_Programmatic_Grid**
 - File-based-grid tutorial: **@subpage 03_Tutorial_File-Based_Grid**
 - Command/reference guide for orchestration: **@subpage 05_The_Conductor_Script**
+- Operational run reuse/restart flow: **@subpage 52_Run_Lifecycle_Guide**
 - Troubleshooting map: **@subpage 39_Common_Fatal_Errors**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
@@ -157,4 +158,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

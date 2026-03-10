@@ -1,0 +1,30 @@
+default_execution:
+  # Copy this file to `.picurv-execution.yml` to activate shared site defaults.
+  # These tokens apply to:
+  #   - local/login-node multi-rank solver runs, unless local_execution overrides
+  #   - generated cluster jobs, unless cluster.yml or cluster_execution overrides
+  launcher: "mpirun"
+  launcher_args:
+    - -mca
+    - pml
+    - ucx
+    - -mca
+    - btl
+    - ^uct,ofi
+    - -mca
+    - mtl
+    - ^ofi
+
+# Optional local/login-node-only override. Leave empty to inherit
+# default_execution.
+# local_execution:
+#   launcher: "mpiexec"
+#   launcher_args: []
+local_execution: {}
+
+# Optional batch-job-only override. Leave empty to inherit
+# default_execution.
+# cluster_execution:
+#   launcher: "srun"
+#   launcher_args: []
+cluster_execution: {}

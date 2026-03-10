@@ -18,6 +18,7 @@ It describes the launcher-level contract, which may be stricter or more explicit
 5. MPI launch settings (`-n`, executable stage selection).
    - `-n/--num-procs` sizes the solver stage launch.
    - post stage defaults to single-rank execution by workflow policy.
+   - optional site execution defaults can be supplied via nearest `.picurv-execution.yml`.
 6. (Cluster mode) `cluster.yml`: scheduler/resource/launcher contract.
 7. (Sweep mode) `study.yml`: parameter matrix + metrics/plot contract.
 
@@ -98,7 +99,18 @@ Analytical-mode compatibility rule:
 - `execution.module_setup` injects shell lines before launch.
 - `execution.launcher` controls launch style (`srun`, `mpirun`, custom). A multi-word launcher string is accepted for site compatibility, but keeping the executable here and extra flags in `execution.launcher_args` is the preferred portable form.
 - `execution.launcher_args` provides site-specific launch flags and is appended after any inline tokens parsed from `execution.launcher`.
+- when `execution.launcher` / `execution.launcher_args` are omitted, `picurv` falls back to nearest `.picurv-execution.yml` (`cluster_execution`, then `default_execution`) before using the built-in default `srun`.
 - `execution.extra_sbatch` supports scheduler-specific pass-through flags.
+- `cluster.yml` does not currently define run naming. `picurv` derives `run_id` from `<case_basename>_<timestamp>` and uses that same run ID to name generated scheduler jobs.
+
+Optional shared runtime execution file:
+
+- nearest `.picurv-execution.yml` may define:
+  - `default_execution`
+  - `local_execution`
+  - `cluster_execution`
+- local precedence is: `PICURV_MPI_LAUNCHER` -> `MPI_LAUNCHER` -> `.picurv-execution.yml` -> legacy `.picurv-local.yml` -> default `mpiexec`
+- cluster precedence is: `cluster.yml.execution` -> `.picurv-execution.yml cluster_execution` -> `.picurv-execution.yml default_execution` -> default `srun`
 
 `picurv run --cluster ...` generates:
 - `runs/<run_id>/scheduler/solver.sbatch`

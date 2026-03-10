@@ -9,6 +9,7 @@ This directory contains fully commented reference templates for all major workfl
 - `master_monitor.yml`
 - `master_postprocessor.yml`
 - `master_cluster.yml`
+- `execution.example.yml`
 - `master_study.yml`
 
 These files are intended to document contract breadth and option interactions. They are not meant to be executed directly as-is.
@@ -20,6 +21,8 @@ These files are intended to document contract breadth and option interactions. T
 2. Keep edits in study-local YAML files.
 3. Use master templates to discover advanced options and copy validated snippets.
 4. Re-run `picurv validate` after each copied block.
+
+For shared site MPI quirks across login-node and batch runs, copy `execution.example.yml` to `.picurv-execution.yml` in the repo root or case tree. Keep `master_cluster.yml` focused on batch scheduler policy and batch-only overrides. Legacy `.picurv-local.yml` still works for local-only compatibility.
 
 ## 3. How To Read A Master Template Efficiently
 
