@@ -1716,12 +1716,79 @@ def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_pa
 
     solver_script = (run_dir / "scheduler" / "solver.sbatch").read_text(encoding="utf-8")
     assert "#SBATCH --ntasks-per-node=4" in solver_script
+    assert f"#SBATCH --output={run_dir / 'scheduler' / 'solver_%j.out'}" in solver_script
+    assert f"#SBATCH --error={run_dir / 'scheduler' / 'solver_%j.err'}" in solver_script
     assert "srun -n 4 " in solver_script
 
     post_script = (run_dir / "scheduler" / "post.sbatch").read_text(encoding="utf-8")
     assert "#SBATCH --nodes=1" in post_script
     assert "#SBATCH --ntasks-per-node=1" in post_script
+    assert f"#SBATCH --output={run_dir / 'scheduler' / 'post_%j.out'}" in post_script
+    assert f"#SBATCH --error={run_dir / 'scheduler' / 'post_%j.err'}" in post_script
     assert "srun -n 1 " in post_script
+
+
+def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
+    """Test that Slurm array scripts keep scheduler stdout/stderr under scheduler/."""
+    valid = FIXTURES / "valid"
+    cluster_override = tmp_path / "cluster_tmp_ntasks4.yml"
+    cluster_override.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  type: slurm",
+                "",
+                "resources:",
+                "  account: \"test_account\"",
+                "  partition: \"compute\"",
+                "  nodes: 1",
+                "  ntasks_per_node: 4",
+                "  mem: \"4G\"",
+                "  time: \"00:10:00\"",
+                "",
+                "notifications:",
+                "  mail_user: null",
+                "  mail_type: null",
+                "",
+                "execution:",
+                "  module_setup:",
+                "    - \"module purge\"",
+                "  launcher: \"srun\"",
+                "  launcher_args: []",
+                "  extra_sbatch: {}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_picurv(
+        [
+            "sweep",
+            "--study",
+            str(valid / "study.yml"),
+            "--cluster",
+            str(cluster_override),
+            "--no-submit",
+        ],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0
+
+    studies_dir = tmp_path / "studies"
+    study_dirs = [p for p in studies_dir.iterdir() if p.is_dir()]
+    assert len(study_dirs) == 1
+    study_dir = study_dirs[0]
+
+    solver_script = (study_dir / "scheduler" / "solver_array.sbatch").read_text(encoding="utf-8")
+    assert f"#SBATCH --output={study_dir / 'scheduler' / 'solver_%A_%a.out'}" in solver_script
+    assert f"#SBATCH --error={study_dir / 'scheduler' / 'solver_%A_%a.err'}" in solver_script
+
+    post_script = (study_dir / "scheduler" / "post_array.sbatch").read_text(encoding="utf-8")
+    assert f"#SBATCH --output={study_dir / 'scheduler' / 'post_%A_%a.out'}" in post_script
+    assert f"#SBATCH --error={study_dir / 'scheduler' / 'post_%A_%a.err'}" in post_script
+
+    assert not (study_dir / "logs").exists()
 
 
 def test_markdown_link_checker_passes():

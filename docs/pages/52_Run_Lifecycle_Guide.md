@@ -61,9 +61,9 @@ This sequence verifies contract correctness before consuming runtime or queue ti
 A typical run directory contains:
 
 - `runs/<run_id>/config/`: generated `.control`, BC files, copied YAML inputs, and `post.run`
-- `runs/<run_id>/logs/`: solver/post logs
+- `runs/<run_id>/logs/`: solver/postprocessor runtime logs and metrics written by PICurv itself
 - `runs/<run_id>/results/`: solver outputs when monitor paths use the default layout
-- `runs/<run_id>/scheduler/`: generated Slurm scripts and `submission.json` in cluster mode
+- `runs/<run_id>/scheduler/`: generated Slurm scripts, `submission.json`, and cluster stdout/stderr in cluster mode
 - `runs/<run_id>/manifest.json`: top-level run metadata
 
 Practical interpretation:
@@ -161,7 +161,9 @@ PICurv will auto-identify the required case/monitor/control artifacts from `runs
 In cluster mode, `picurv` writes scheduler artifacts into the new run directory:
 
 - `scheduler/solver.sbatch`
+- `scheduler/solver_<jobid>.out` / `scheduler/solver_<jobid>.err`
 - `scheduler/post.sbatch`
+- `scheduler/post_<jobid>.out` / `scheduler/post_<jobid>.err`
 - `scheduler/submission.json`
 
 Recommended operational pattern:

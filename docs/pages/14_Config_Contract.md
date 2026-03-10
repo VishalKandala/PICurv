@@ -116,6 +116,7 @@ Optional shared runtime execution file:
 `picurv run --cluster ...` generates:
 - `runs/<run_id>/scheduler/solver.sbatch`
 - `runs/<run_id>/scheduler/post.sbatch`
+- `runs/<run_id>/scheduler/solver_<jobid>.out/.err` and `post_<jobid>.out/.err` after submission
 - `runs/<run_id>/scheduler/submission.json`
 
 @section p14_study_sec 8. Study Contract Highlights (study.yml)
@@ -138,6 +139,7 @@ Optional shared runtime execution file:
 - `studies/<study_id>/scheduler/case_index.tsv`
 - `studies/<study_id>/scheduler/solver_array.sbatch`
 - `studies/<study_id>/scheduler/post_array.sbatch`
+- `studies/<study_id>/scheduler/solver_<array_jobid>_<taskid>.out/.err` and `post_<array_jobid>_<taskid>.out/.err` after submission
 - `studies/<study_id>/results/metrics_table.csv`
 - `studies/<study_id>/results/plots/*`
 

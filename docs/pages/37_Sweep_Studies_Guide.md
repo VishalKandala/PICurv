@@ -58,6 +58,8 @@ Expected study outputs include:
 - `studies/<study_id>/scheduler/case_index.tsv`
 - `studies/<study_id>/scheduler/solver_array.sbatch`
 - `studies/<study_id>/scheduler/post_array.sbatch`
+- `studies/<study_id>/scheduler/solver_<array_jobid>_<taskid>.out/.err` after submission
+- `studies/<study_id>/scheduler/post_<array_jobid>_<taskid>.out/.err` after submission
 - `studies/<study_id>/scheduler/submission.json` (when jobs are submitted)
 - `studies/<study_id>/results/metrics_table.csv`
 - `studies/<study_id>/results/plots/*` (when plotting is enabled and matplotlib is available)
