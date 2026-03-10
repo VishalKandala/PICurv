@@ -122,11 +122,9 @@ Optional partition hints:
 
 ```yaml
 grid:
-  mode: programmatic_c
-  programmatic_settings:
-    da_processors_x: 4
-    da_processors_y: 2
-    da_processors_z: 2
+  da_processors_x: 4
+  da_processors_y: 2
+  da_processors_z: 2
 ```
 
 Note: `da_processors_*` are scalar globals, not per-block vectors.

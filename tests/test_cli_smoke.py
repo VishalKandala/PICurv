@@ -55,6 +55,18 @@ def write_legacy_1d_grid(path: Path) -> Path:
     return path
 
 
+def write_canonical_picgrid(path: Path, dims=(3, 3, 3)) -> Path:
+    """Write a minimal canonical PICGRID payload for file-grid tests."""
+    im, jm, km = dims
+    lines = ["PICGRID", "1", f"{im} {jm} {km}"]
+    for k in range(km):
+        for j in range(jm):
+            for i in range(im):
+                lines.append(f"{float(i):.8e} {float(j):.8e} {float(k):.8e}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def test_top_level_help_smoke():
     """Test that top level help smoke."""
     result = run_picurv(["--help"])
@@ -853,6 +865,147 @@ def test_grid_gen_legacy1d_conversion_writes_canonical_picgrid(tmp_path):
     assert lines[-1].split() == ["1.00000000e+00", "1.00000000e+00", "2.00000000e+00"]
 
 
+def test_generate_solver_control_file_applies_top_level_da_processors_for_file_grid(tmp_path):
+    """Test that file-grid mode accepts top-level DMDA processor layout hints."""
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    grid_file = write_canonical_picgrid(tmp_path / "grid.picgrid")
+    case_cfg["grid"] = {
+        "mode": "file",
+        "source_file": str(grid_file),
+        "da_processors_x": 1,
+        "da_processors_y": 2,
+        "da_processors_z": 2,
+    }
+    case_path = tmp_path / "case_file_grid.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    run_dir = tmp_path / "run_file_grid"
+    (run_dir / "config").mkdir(parents=True)
+    source_files = {
+        "Case": str(case_path),
+        "Solver": str(valid / "solver.yml"),
+        "Monitor": str(valid / "monitor.yml"),
+    }
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo_run",
+        {
+            "case": case_cfg,
+            "case_path": str(case_path),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        4,
+        monitor_files,
+    )
+
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert "-da_processors_x 1" in content
+    assert "-da_processors_y 2" in content
+    assert "-da_processors_z 2" in content
+
+
+def test_generate_solver_control_file_applies_top_level_da_processors_for_grid_gen(tmp_path):
+    """Test that grid-gen mode accepts top-level DMDA processor layout hints."""
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    case_cfg["grid"] = {
+        "mode": "grid_gen",
+        "da_processors_x": 1,
+        "da_processors_y": 2,
+        "da_processors_z": 2,
+        "generator": {
+            "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
+            "grid_type": "cpipe",
+        },
+    }
+    case_path = tmp_path / "case_grid_gen.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    run_dir = tmp_path / "run_grid_gen"
+    (run_dir / "config").mkdir(parents=True)
+    source_files = {
+        "Case": str(case_path),
+        "Solver": str(valid / "solver.yml"),
+        "Monitor": str(valid / "monitor.yml"),
+    }
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo_run",
+        {
+            "case": case_cfg,
+            "case_path": str(case_path),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        4,
+        monitor_files,
+    )
+
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert "-da_processors_x 1" in content
+    assert "-da_processors_y 2" in content
+    assert "-da_processors_z 2" in content
+
+
+def test_generate_solver_control_file_preserves_legacy_programmatic_da_processors(tmp_path):
+    """Test that legacy nested programmatic da_processors remain supported."""
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    case_cfg["grid"]["programmatic_settings"]["da_processors_x"] = 1
+    case_cfg["grid"]["programmatic_settings"]["da_processors_y"] = 2
+    case_cfg["grid"]["programmatic_settings"]["da_processors_z"] = 2
+    case_path = tmp_path / "case_programmatic_legacy.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    run_dir = tmp_path / "run_programmatic_legacy"
+    (run_dir / "config").mkdir(parents=True)
+    source_files = {
+        "Case": str(case_path),
+        "Solver": str(valid / "solver.yml"),
+        "Monitor": str(valid / "monitor.yml"),
+    }
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo_run",
+        {
+            "case": case_cfg,
+            "case_path": str(case_path),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        4,
+        monitor_files,
+    )
+
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert "-da_processors_x 1" in content
+    assert "-da_processors_y 2" in content
+    assert "-da_processors_z 2" in content
+
+
 def test_case_local_symlinked_picurv_prefers_local_binaries(tmp_path):
     """Test that case local symlinked picurv prefers local binaries."""
     valid = FIXTURES / "valid"
@@ -1179,6 +1332,32 @@ def test_validate_rejects_unknown_legacy_grid_conversion_format(tmp_path):
 
     assert result.returncode == 1
     assert "grid.legacy_conversion.format" in result.stderr
+
+
+def test_validate_rejects_conflicting_top_level_and_legacy_da_processors(tmp_path):
+    """Test that conflicting processor-layout definitions are rejected."""
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    case_cfg["grid"]["da_processors_x"] = 4
+    case_cfg["grid"]["programmatic_settings"]["da_processors_x"] = 2
+    case_path = tmp_path / "case_conflicting_da_layout.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "conflicts with legacy grid.programmatic_settings.da_processors_x" in result.stderr
 
 
 def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):

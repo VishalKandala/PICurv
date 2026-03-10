@@ -91,6 +91,14 @@ grid:
   # Options: 'file', 'programmatic_c', or 'grid_gen'.
   mode: programmatic_c
 
+  # --- Optional Global DMDA Layout (applies to all grid modes) ---
+  # Edit or remove these for parallel runs. The product must equal the total
+  # MPI process count (-n) when all three are set.
+  # NOTE: Per-block processor decomposition is not implemented on the C side.
+  da_processors_x: 2
+  da_processors_y: 2
+  da_processors_z: 4
+
   # --- Option A: Grid from File ---
   # Use this if you have a pre-generated grid file.
   # The script validates and non-dimensionalizes coordinates using 'length_ref'.
@@ -134,14 +142,6 @@ grid:
     rxs: 1.0
     rys: 1.05
     rzs: 1.0
-
-    # --- Domain Decomposition (for parallel runs) ---
-    # GLOBAL DMDA layout for the run (single value per direction).
-    # NOTE: Per-block processor decomposition is not implemented on the C side.
-    # The product must equal the total number of MPI processes (-n) for parallel runs.
-    da_processors_x: 2
-    da_processors_y: 2
-    da_processors_z: 4
 
 # ==============================================================================
 # 4. MODEL SELECTION
