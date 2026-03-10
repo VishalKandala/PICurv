@@ -58,7 +58,8 @@ Behavior:
 - copies `examples/<template_name>/` into a new working directory,
 - optionally renames the destination via `--dest`,
 - writes `.picurv-origin.json` with the source repo path and template name,
-- writes `.picurv-execution.yml` with inert defaults for optional site-specific launcher overrides,
+- writes `.picurv-execution.yml` for optional site-specific launcher overrides,
+- seeds that file from a repo-root `.picurv-execution.yml` when the source clone already has one, otherwise from inert defaults,
 - copies the full executable set from `bin/` into the new case directory so the case is self-contained,
 - includes `picurv`, `simulator`, and `postprocessor` when they exist in `bin/`,
 - copies built executables when they exist in the source repo `bin/`.
@@ -120,6 +121,8 @@ By default it preserves user-modified files and only copies missing files:
 
 `--prune` is conservative: it removes only files previously recorded as template-managed
 that no longer exist in the source template. User-created case files are not pruned.
+`sync-config` does not copy `execution.example.yml` into a case; instead it creates
+`.picurv-execution.yml` only when the case does not already have one.
 
 `pull-source` runs `git pull --rebase` in the original source repo so you can update code
 without leaving the case directory:

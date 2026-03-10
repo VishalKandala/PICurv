@@ -50,6 +50,7 @@ else:
 CASE_ORIGIN_METADATA_FILENAME = ".picurv-origin.json"
 RUNTIME_EXECUTION_CONFIG_FILENAME = ".picurv-execution.yml"
 LEGACY_LOCAL_RUNTIME_CONFIG_FILENAME = ".picurv-local.yml"
+RUNTIME_EXECUTION_EXAMPLE_FILENAME = "execution.example.yml"
 RUNTIME_EXECUTION_CONFIG_FILENAMES = (
     RUNTIME_EXECUTION_CONFIG_FILENAME,
     LEGACY_LOCAL_RUNTIME_CONFIG_FILENAME,
@@ -260,6 +261,44 @@ def write_runtime_execution_file(filepath: str, template_source_path: str = None
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(DEFAULT_RUNTIME_EXECUTION_CONFIG_TEMPLATE)
     return filepath
+
+
+def resolve_runtime_execution_seed_source(source_project_root: str) -> str | None:
+    """Prefer repo-local ignored runtime config, then tracked example, then built-in defaults."""
+    source_root_abs = os.path.abspath(source_project_root)
+    repo_local_runtime = os.path.join(source_root_abs, RUNTIME_EXECUTION_CONFIG_FILENAME)
+    if os.path.isfile(repo_local_runtime):
+        return repo_local_runtime
+
+    tracked_example = os.path.join(
+        source_root_abs,
+        "config",
+        "runtime",
+        RUNTIME_EXECUTION_EXAMPLE_FILENAME,
+    )
+    if os.path.isfile(tracked_example):
+        return tracked_example
+    return None
+
+
+def ensure_case_runtime_execution_config(case_dir: str, source_project_root: str, overwrite: bool = False) -> dict:
+    """Create case-local runtime execution config if missing, seeded from repo-local config when available."""
+    case_dir_abs = os.path.abspath(case_dir)
+    dest_path = os.path.join(case_dir_abs, RUNTIME_EXECUTION_CONFIG_FILENAME)
+    if os.path.exists(dest_path) and not overwrite:
+        return {
+            "path": dest_path,
+            "created": False,
+            "seed_source": None,
+        }
+
+    seed_source = resolve_runtime_execution_seed_source(source_project_root)
+    write_runtime_execution_file(dest_path, seed_source)
+    return {
+        "path": dest_path,
+        "created": True,
+        "seed_source": seed_source,
+    }
 
 
 def is_project_root(candidate: str) -> bool:
@@ -616,16 +655,19 @@ def resolve_template_directory(source_project_root: str, template_name: str):
     return template_dir
 
 
-def list_template_relative_files(template_dir: str):
+def list_template_relative_files(template_dir: str, excluded_rel_paths=None):
     """List all files in a template directory as case-relative paths."""
     template_dir_abs = os.path.abspath(template_dir)
     if not os.path.isdir(template_dir_abs):
         raise ValueError(f"Template directory not found: {template_dir_abs}")
+    excluded = set(excluded_rel_paths or [])
     relative_paths = []
     for root, _, files in os.walk(template_dir_abs):
         rel_root = os.path.relpath(root, template_dir_abs)
         for filename in sorted(files):
             rel_path = filename if rel_root == "." else os.path.join(rel_root, filename)
+            if rel_path in excluded:
+                continue
             relative_paths.append(rel_path)
     return relative_paths
 
@@ -676,7 +718,11 @@ def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool =
         "pruned": [],
         "prune_requested_without_tracking": False,
     }
-    current_template_files = list_template_relative_files(template_dir_abs)
+    excluded_rel_paths = {RUNTIME_EXECUTION_EXAMPLE_FILENAME}
+    current_template_files = list_template_relative_files(
+        template_dir_abs,
+        excluded_rel_paths=excluded_rel_paths,
+    )
     current_template_set = set(current_template_files)
 
     for root, _, files in os.walk(template_dir_abs):
@@ -684,6 +730,8 @@ def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool =
         for filename in sorted(files):
             src_path = os.path.join(root, filename)
             rel_path = filename if rel_root == "." else os.path.join(rel_root, filename)
+            if rel_path in excluded_rel_paths:
+                continue
             dest_path = os.path.join(case_dir_abs, rel_path)
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
@@ -770,7 +818,10 @@ def compute_case_source_status(case_dir: str, source_project_root: str, template
     if template_name:
         try:
             template_dir = resolve_template_directory(source_root_abs, template_name)
-            template_files = list_template_relative_files(template_dir)
+            template_files = list_template_relative_files(
+                template_dir,
+                excluded_rel_paths={RUNTIME_EXECUTION_EXAMPLE_FILENAME},
+            )
             config_status["template_available"] = True
             config_status["template_files"] = template_files
             for rel_path in template_files:
@@ -4998,16 +5049,15 @@ def init_case(args):
     shutil.copytree(template_path, dest_path)
     print(f"[SUCCESS] Copied template files to: {dest_path}")
 
-    runtime_execution_source = os.path.join(
-        source_project_root,
-        "config",
-        "runtime",
-        "execution.example.yml",
-    )
-    runtime_execution_dest = os.path.join(dest_path, RUNTIME_EXECUTION_CONFIG_FILENAME)
+    copied_runtime_example = os.path.join(dest_path, RUNTIME_EXECUTION_EXAMPLE_FILENAME)
+    if os.path.isfile(copied_runtime_example):
+        os.remove(copied_runtime_example)
+
     try:
-        write_runtime_execution_file(runtime_execution_dest, runtime_execution_source)
-        print(f"[INFO] Wrote optional runtime launcher config: {os.path.relpath(runtime_execution_dest)}")
+        runtime_result = ensure_case_runtime_execution_config(dest_path, source_project_root, overwrite=True)
+        print(f"[INFO] Wrote optional runtime launcher config: {os.path.relpath(runtime_result['path'])}")
+        if runtime_result["seed_source"] and os.path.basename(runtime_result["seed_source"]) == RUNTIME_EXECUTION_CONFIG_FILENAME:
+            print("       Seeded from repo-local '.picurv-execution.yml'.")
         print("       Leave it unchanged for ordinary local runs; edit it only if your site needs custom MPI launcher tokens.")
     except Exception as e:
         print(f"[ERROR] Failed to write runtime execution config: {e}", file=sys.stderr)
@@ -5017,7 +5067,10 @@ def init_case(args):
             dest_path,
             source_project_root,
             template_name=args.template_name,
-            template_managed_files=list_template_relative_files(template_path),
+            template_managed_files=list_template_relative_files(
+                template_path,
+                excluded_rel_paths={RUNTIME_EXECUTION_EXAMPLE_FILENAME},
+            ),
         )
         print(f"[INFO] Wrote case origin metadata: {os.path.relpath(metadata_path)}")
     except Exception as e:
@@ -5096,6 +5149,7 @@ def sync_case_config_command(args):
             existing=context.get("metadata"),
             template_managed_files=summary["template_managed_files"],
         )
+        runtime_result = ensure_case_runtime_execution_config(case_dir, source_project_root, overwrite=False)
     except ValueError as exc:
         print(f"[FATAL] {exc}", file=sys.stderr)
         sys.exit(1)
@@ -5106,6 +5160,10 @@ def sync_case_config_command(args):
     print(f"[INFO] Skipped modified    : {len(summary['skipped_modified'])}")
     print(f"[INFO] Already unchanged   : {len(summary['unchanged'])}")
     print(f"[INFO] Pruned stale files  : {len(summary['pruned'])}")
+    if runtime_result["created"]:
+        print(f"[INFO] Created runtime launcher config: {os.path.relpath(runtime_result['path'])}")
+        if runtime_result["seed_source"] and os.path.basename(runtime_result["seed_source"]) == RUNTIME_EXECUTION_CONFIG_FILENAME:
+            print("[INFO] Seed source              : repo-local .picurv-execution.yml")
     if summary.get("prune_requested_without_tracking"):
         print("[WARNING] Prune tracking unavailable for this case; no removed template files were deleted.", file=sys.stderr)
     print(f"[INFO] Case origin metadata refreshed: {os.path.relpath(metadata_path)}")

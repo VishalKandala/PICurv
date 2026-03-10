@@ -81,6 +81,34 @@ def test_init_case_writes_origin_metadata_and_copies_binaries(tmp_path):
     }
 
 
+def test_init_case_seeds_runtime_from_repo_local_config_and_omits_execution_example(tmp_path):
+    """Test that init prefers repo-local runtime config and does not leave execution.example.yml in the case."""
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    (source_root / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).write_text(
+        "default_execution:\n  launcher: mpirun\n  launcher_args: [--bind-to, none]\nlocal_execution: {}\ncluster_execution: {}\n",
+        encoding="utf-8",
+    )
+    (source_root / "examples" / "demo" / picurv.RUNTIME_EXECUTION_EXAMPLE_FILENAME).write_text(
+        "default_execution:\n  launcher: should_not_copy\n",
+        encoding="utf-8",
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    args = SimpleNamespace(template_name="demo", dest_name="my_case", source_root=str(source_root))
+    with pushd(workspace):
+        picurv.init_case(args)
+
+    case_dir = workspace / "my_case"
+    runtime_cfg = yaml.safe_load((case_dir / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).read_text(encoding="utf-8"))
+    metadata = json.loads((case_dir / picurv.CASE_ORIGIN_METADATA_FILENAME).read_text(encoding="utf-8"))
+
+    assert runtime_cfg["default_execution"]["launcher"] == "mpirun"
+    assert not (case_dir / picurv.RUNTIME_EXECUTION_EXAMPLE_FILENAME).exists()
+    assert picurv.RUNTIME_EXECUTION_EXAMPLE_FILENAME not in metadata["template_managed_files"]
+
+
 def test_build_project_uses_case_origin_source_root(tmp_path):
     """Test that build project uses case origin source root."""
     picurv = load_picurv_module()
@@ -183,6 +211,39 @@ def test_sync_config_preserves_modified_files_without_overwrite(tmp_path):
     assert (case_dir / "case.yml").read_text(encoding="utf-8") == "case: customized\n"
     assert (case_dir / "guide.md").read_text(encoding="utf-8") == "# demo\n"
     assert (case_dir / "nested" / "notes.txt").read_text(encoding="utf-8") == "nested template file\n"
+
+
+def test_sync_config_omits_execution_example_and_bootstraps_runtime_config(tmp_path):
+    """Test that sync-config creates .picurv-execution.yml but does not copy execution.example.yml."""
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    (source_root / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).write_text(
+        "default_execution:\n  launcher: mpirun\n  launcher_args: [--bind-to, none]\nlocal_execution: {}\ncluster_execution: {}\n",
+        encoding="utf-8",
+    )
+    (source_root / "examples" / "demo" / picurv.RUNTIME_EXECUTION_EXAMPLE_FILENAME).write_text(
+        "default_execution:\n  launcher: should_not_copy\n",
+        encoding="utf-8",
+    )
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+
+    picurv.sync_case_config_command(
+        SimpleNamespace(
+            case_dir=str(case_dir),
+            source_root=str(source_root),
+            template_name="demo",
+            overwrite=False,
+            prune=False,
+        )
+    )
+
+    metadata = json.loads((case_dir / picurv.CASE_ORIGIN_METADATA_FILENAME).read_text(encoding="utf-8"))
+    runtime_cfg = yaml.safe_load((case_dir / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).read_text(encoding="utf-8"))
+
+    assert runtime_cfg["default_execution"]["launcher"] == "mpirun"
+    assert not (case_dir / picurv.RUNTIME_EXECUTION_EXAMPLE_FILENAME).exists()
+    assert picurv.RUNTIME_EXECUTION_EXAMPLE_FILENAME not in metadata["template_managed_files"]
 
 
 def test_sync_config_overwrite_replaces_modified_files_when_requested(tmp_path):
