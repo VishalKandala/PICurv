@@ -13,7 +13,7 @@ If your site needs different MPI launcher tokens, create an optional `.picurv-ex
 
 Nearest config wins.
 
-Start from [execution.example.yml](/root/PE/PICurv/config/runtime/execution.example.yml):
+Start from [execution.example.yml](execution.example.yml):
 
 ```yaml
 default_execution:
