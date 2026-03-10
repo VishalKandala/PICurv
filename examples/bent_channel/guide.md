@@ -28,7 +28,7 @@ Compared with programmatic-grid examples, this case is useful for understanding 
 
 This case expects `grid.source_file: bent_channel_coarse.picgrid`, which is bundled with the template.
 
-If you run this example on a cluster and need site-specific MPI launcher tokens, copy `execution.example.yml` to `.picurv-execution.yml` in the repo root or case directory. That same file can drive both login-node runs and generated batch jobs. Keep `slurm_cluster.yml` reserved for scheduler policy and batch-only overrides.
+If you run this example on a cluster and need site-specific MPI launcher tokens, edit the `.picurv-execution.yml` that `init` created in the case directory. Existing cases or repo-root site configs can still start from `execution.example.yml`. That same file can drive both login-node runs and generated batch jobs. Keep `slurm_cluster.yml` reserved for scheduler policy and batch-only overrides.
 
 ## Recommended Uses
 

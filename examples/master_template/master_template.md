@@ -22,7 +22,7 @@ These files are intended to document contract breadth and option interactions. T
 3. Use master templates to discover advanced options and copy validated snippets.
 4. Re-run `picurv validate` after each copied block.
 
-For shared site MPI quirks across login-node and batch runs, copy `execution.example.yml` to `.picurv-execution.yml` in the repo root or case tree. Keep `master_cluster.yml` focused on batch scheduler policy and batch-only overrides. Legacy `.picurv-local.yml` still works for local-only compatibility.
+For shared site MPI quirks across login-node and batch runs, `picurv init` now creates `.picurv-execution.yml` in each new case with inert defaults. Existing cases or repo-root site configs can still start from `execution.example.yml`. Keep `master_cluster.yml` focused on batch scheduler policy and batch-only overrides. Legacy `.picurv-local.yml` still works for local-only compatibility.
 
 ## 3. How To Read A Master Template Efficiently
 

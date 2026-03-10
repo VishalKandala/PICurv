@@ -18,7 +18,7 @@ This directory contains runnable case templates used by `./bin/picurv init` and 
    - `./bin/picurv validate --case ... --solver ... --monitor ... --post ...`
 3. Run dry-run planning, then actual solve/post execution.
 
-If project binaries are already built, `init` copies available executables into the case directory so it can run self-contained. The initializer also writes `.picurv-origin.json`, which enables case-local maintenance commands (`status-source`, `build`, `pull-source`, `sync-binaries`, `sync-config`) against the source repository.
+If project binaries are already built, `init` copies available executables into the case directory so it can run self-contained. The initializer also writes `.picurv-origin.json` and an inert `.picurv-execution.yml`, which enables case-local maintenance commands (`status-source`, `build`, `pull-source`, `sync-binaries`, `sync-config`) and gives each case a safe place for site-specific launcher overrides when needed.
 
 ## Composition Guidance
 

@@ -94,7 +94,8 @@ Cluster batch precedence:
 This gives three clean cases:
 
 - workstation users usually need no extra file,
-- cluster login-node users can add `.picurv-execution.yml`,
+- `picurv init` creates `.picurv-execution.yml` in each new case with inert defaults,
+- cluster login-node users can edit `.picurv-execution.yml` when needed,
 - batch users can reuse that same file unless `cluster.yml` needs a batch-specific override.
 
 @section p52_restart_sec 5. Restart From An Existing Run

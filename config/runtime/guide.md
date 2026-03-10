@@ -6,23 +6,18 @@ This directory documents optional runtime-side knobs that are not part of the co
 
 `picurv run` defaults to `mpiexec` for local multi-rank solver launches and `srun` for generated Slurm jobs.
 
-If your site needs different MPI launcher tokens, create an optional `.picurv-execution.yml` in either:
+If your site needs different MPI launcher tokens, use the optional `.picurv-execution.yml` in either:
 
 - the repository root, or
 - a case directory (or any parent directory above the case file).
 
 Nearest config wins.
 
-Start from [execution.example.yml](execution.example.yml):
+`picurv init` now writes this file automatically into each new case with inert defaults.
+For an existing case or a repo-root site config, start from [execution.example.yml](execution.example.yml):
 
 ```yaml
-default_execution:
-  launcher: "mpirun"
-  launcher_args:
-    - -mca
-    - pml
-    - ucx
-
+default_execution: {}
 local_execution: {}
 cluster_execution: {}
 ```
@@ -30,7 +25,7 @@ cluster_execution: {}
 Behavior by environment:
 
 1. Local workstation: no file needed; local multi-rank solve uses `mpiexec`.
-2. Cluster login node: add `.picurv-execution.yml`; local solve uses `local_execution`, otherwise `default_execution`.
+2. Cluster login node: edit `.picurv-execution.yml`; local solve uses `local_execution`, otherwise `default_execution`.
 3. Cluster batch job: generated job scripts use `cluster.yml.execution` first, otherwise `cluster_execution`, otherwise `default_execution`.
 
 Local precedence:

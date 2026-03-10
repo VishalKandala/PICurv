@@ -58,6 +58,7 @@ Behavior:
 - copies `examples/<template_name>/` into a new working directory,
 - optionally renames the destination via `--dest`,
 - writes `.picurv-origin.json` with the source repo path and template name,
+- writes `.picurv-execution.yml` with inert defaults for optional site-specific launcher overrides,
 - copies the full executable set from `bin/` into the new case directory so the case is self-contained,
 - includes `picurv`, `simulator`, and `postprocessor` when they exist in `bin/`,
 - copies built executables when they exist in the source repo `bin/`.
@@ -81,6 +82,7 @@ Use reusable profile libraries directly when you already have your own case dire
 Behavior:
 
 - calls the top-level `Makefile` via `make`,
+- defaults to `make all` when you do not provide an explicit make target,
 - resolves the source repo from `.picurv-origin.json` when run from an initialized case,
 - passes any trailing arguments directly through to the Make/build layer,
 - can rebuild or clean the source repo without leaving a copied case directory,
