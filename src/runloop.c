@@ -4,7 +4,112 @@
  * Provides the setup to start any simulation with DMSwarm and DMDAs.
  **/
 
+#include <signal.h>
+
 #include "runloop.h"
+
+static volatile sig_atomic_t g_runtime_shutdown_signal = 0;
+
+static void RuntimeShutdownSignalHandler(int signum)
+{
+    if (g_runtime_shutdown_signal == 0) {
+        g_runtime_shutdown_signal = signum;
+    }
+}
+
+static PetscBool RuntimeShutdownRequested(void)
+{
+    return (PetscBool)(g_runtime_shutdown_signal != 0);
+}
+
+static PetscInt RuntimeShutdownSignal(void)
+{
+    return (PetscInt)g_runtime_shutdown_signal;
+}
+
+static const char *RuntimeShutdownSignalName(PetscInt signum)
+{
+    switch (signum) {
+#ifdef SIGTERM
+        case SIGTERM: return "SIGTERM";
+#endif
+#ifdef SIGUSR1
+        case SIGUSR1: return "SIGUSR1";
+#endif
+#ifdef SIGINT
+        case SIGINT: return "SIGINT";
+#endif
+        default: return "UNKNOWN";
+    }
+}
+
+static PetscErrorCode RegisterRuntimeSignalHandler(int signum)
+{
+    struct sigaction action;
+
+    PetscFunctionBeginUser;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = RuntimeShutdownSignalHandler;
+
+    if (sigemptyset(&action.sa_mask) != 0) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SYS, "sigemptyset failed for signal %d.", signum);
+    }
+
+    if (sigaction(signum, &action, NULL) != 0) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SYS, "sigaction failed for signal %d.", signum);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+PetscErrorCode InitializeRuntimeSignalHandlers(void)
+{
+    PetscErrorCode ierr;
+
+    PetscFunctionBeginUser;
+    g_runtime_shutdown_signal = 0;
+
+#ifdef SIGTERM
+    ierr = RegisterRuntimeSignalHandler(SIGTERM); CHKERRQ(ierr);
+#endif
+#ifdef SIGUSR1
+    ierr = RegisterRuntimeSignalHandler(SIGUSR1); CHKERRQ(ierr);
+#endif
+#ifdef SIGINT
+    ierr = RegisterRuntimeSignalHandler(SIGINT); CHKERRQ(ierr);
+#endif
+
+    PetscFunctionReturn(0);
+}
+
+static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user, const char *phase)
+{
+    PetscErrorCode ierr;
+    PetscInt       signum = RuntimeShutdownSignal();
+
+    PetscFunctionBeginUser;
+
+    LOG_ALLOW(GLOBAL, LOG_WARNING,
+              "[T=%.4f, Step=%d] Received %s during %s. Writing final output outside the normal cadence before exiting.\n",
+              simCtx->ti, simCtx->step, RuntimeShutdownSignalName(signum), phase);
+
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
+    }
+
+    if (simCtx->np > 0) {
+        ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
+    }
+
+    if (IsParticleConsoleSnapshotEnabled(simCtx)) {
+        ierr = EmitParticleConsoleSnapshot(user, simCtx, simCtx->step); CHKERRQ(ierr);
+    }
+
+    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    fflush(stdout);
+
+    PetscFunctionReturn(0);
+}
 
 /**
  * @brief Internal helper implementation: `UpdateSolverHistoryVectors()`.
@@ -271,6 +376,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     // Variables for particle removal statistics
     //PetscInt removed_local_ob, removed_global_ob;
     PetscInt removed_local_lost, removed_global_lost;
+    PetscBool terminated_early = PETSC_FALSE;
+    PetscInt  last_completed_loop_index = StartStep - 1;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -279,6 +386,11 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 
     // --- Main Time-Marching Loop ---
     for (PetscInt step = StartStep; step < StartStep + StepsToRun; step++) {
+        if (RuntimeShutdownRequested()) {
+            ierr = WriteForcedTerminationOutput(simCtx, user, "pre-step checkpoint"); CHKERRQ(ierr);
+            terminated_early = PETSC_TRUE;
+            break;
+        }
         
         // =================================================================
         //     1. PRE-STEP SETUP
@@ -438,17 +550,35 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             PrintProgressBar(step,StartStep,StepsToRun,simCtx->ti);
             if(get_log_level()>=LOG_WARNING) PetscPrintf(PETSC_COMM_SELF,"\n");
         }
+
+        last_completed_loop_index = step;
+
+        if (RuntimeShutdownRequested()) {
+            ierr = WriteForcedTerminationOutput(simCtx, user, "post-step checkpoint"); CHKERRQ(ierr);
+            terminated_early = PETSC_TRUE;
+            break;
+        }
     } // --- End of Time-Marching Loop ---
 
-    // After the loop, print the 100% complete bar on rank 0 and add a newline
+    // After the loop, print the final progress state on rank 0 and add a newline
     // to ensure subsequent terminal output starts on a fresh line.
     if (simCtx->rank == 0 && StepsToRun > 0) {
-        PrintProgressBar(StartStep + StepsToRun - 1, StartStep, StepsToRun, simCtx->ti);
+        if (!terminated_early && last_completed_loop_index >= StartStep) {
+            PrintProgressBar(StartStep + StepsToRun - 1, StartStep, StepsToRun, simCtx->ti);
+        } else if (terminated_early && last_completed_loop_index >= StartStep) {
+            PrintProgressBar(last_completed_loop_index, StartStep, StepsToRun, simCtx->ti);
+        }
         PetscPrintf(PETSC_COMM_SELF, "\n");
         fflush(stdout);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", simCtx->ti);
+    if (terminated_early) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "Time marching stopped early after %s. Final retained state is step %d at t=%.4f.\n",
+                  RuntimeShutdownSignalName(RuntimeShutdownSignal()), simCtx->step, simCtx->ti);
+    } else {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", simCtx->ti);
+    }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

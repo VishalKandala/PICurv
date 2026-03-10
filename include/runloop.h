@@ -29,6 +29,16 @@
 
 
 /**
+ * @brief Installs lightweight signal handlers for graceful shutdown requests.
+ *
+ * The handlers only record that a shutdown signal was received. The actual
+ * output flush and exit path happens later at safe checkpoints in the run loop.
+ *
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode InitializeRuntimeSignalHandlers(void);
+
+/**
  * @brief Copies the current time step's solution fields into history vectors
  *        (e.g., U(t_n) -> U_o, U_o -> U_rm1) for the next time step's calculations.
  *

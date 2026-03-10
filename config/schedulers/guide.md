@@ -36,6 +36,20 @@ If your site wants the same launcher tokens for login-node and batch runs, put t
 3. Preserve one site-approved baseline profile and derive specialized profiles from it.
 4. `cluster.yml` does not name the run directory; `picurv` generates `runs/<case_basename>_<timestamp>/` automatically and derives Slurm job names from that run ID.
 5. For interactive multi-rank runs on login nodes, prefer `.picurv-execution.yml` (or `PICURV_MPI_LAUNCHER` for one-off runs) instead of overloading scheduler profiles.
+6. If you want PICurv to flush one last output before a walltime stop, ask Slurm to send an early signal. Example for `srun`-launched solver steps:
+
+```yaml
+execution:
+  extra_sbatch:
+    signal: "USR1@120"
+```
+
+PICurv traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes a final step snapshot at the next safe checkpoint even if `data_output_frequency` has not been reached.
+
+- If your solver is launched via `srun`, use `signal: "USR1@120"`.
+- If your batch script launches `mpirun` directly, use `signal: "B:USR1@120"` and prefer `exec mpirun ...` so the batch shell is replaced by `mpirun` and receives the signal directly.
+
+This is not a hard guarantee for cases such as `SIGKILL`, node failure, or a timestep that runs longer than the warning window.
 
 ## Reference Schema
 

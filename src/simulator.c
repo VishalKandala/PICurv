@@ -28,6 +28,7 @@ int main(int argc, char **argv)
 
   // === I. INITIALIZE =======================================================
   ierr = PetscInitialize(&argc, &argv, (char *)0, "PICurv Simulator"); CHKERRQ(ierr);
+  ierr = InitializeRuntimeSignalHandlers(); CHKERRQ(ierr);
 
   // === II. CONFIGURE =======================================================
   // Create and populate the entire simulation configuration from command line.

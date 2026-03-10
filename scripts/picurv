@@ -2580,8 +2580,7 @@ def render_slurm_script(
             lines.append(f"export {key}={shlex.quote(str(value))}")
 
     cmd = " ".join(shlex.quote(str(tok)) for tok in command)
-    lines.append(cmd)
-    lines.append('echo "[$(date)] Job completed."')
+    lines.append(f"exec {cmd}")
 
     os.makedirs(os.path.dirname(script_path), exist_ok=True)
     with open(script_path, "w") as f:
@@ -3941,8 +3940,7 @@ def render_slurm_array_stage_script(
             return tok
         return shlex.quote(str(tok))
 
-    lines.append(" ".join(_token(t) for t in cmd))
-    lines.append('echo "[$(date)] Completed case ${CASE_ID}"')
+    lines.append(f"exec {' '.join(_token(t) for t in cmd)}")
 
     os.makedirs(os.path.dirname(script_path), exist_ok=True)
     with open(script_path, "w") as f:
