@@ -11,6 +11,7 @@ __pycache__/
 *.vts
 *.grid
 scripts/brownian_grids/
-logs/doxygen.warnings
+/logs/*
+!/logs/guide.md
 .picurv-execution.yml
 .picurv-local.yml
