@@ -48,6 +48,8 @@ For each run, `picurv` generates:
 - `grid.mode` supports: `file`, `programmatic_c`, `grid_gen`.
 - For `programmatic_c`, per-block arrays are supported for geometry (`im/jm/km`, bounds, stretching).
 - `programmatic_c.im/jm/km` are cell counts in YAML; `picurv` converts them to node counts before writing `-im/-jm/-km`.
+- `grid.da_processors_x/y/z` optionally set the global DMDA layout for any grid mode.
+- Legacy `grid.programmatic_settings.da_processors_*` is still accepted for compatibility.
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block MPI decomposition is not currently supported.
 - For `grid_gen`, `grid.generator.config_file` is required today. `grid.gen` consumes cell counts and writes node counts into `.picgrid`.
 - For `file`, optional `grid.legacy_conversion` can call `grid.gen legacy1d` to convert headerless 1D-axis legacy payloads before standard validation/non-dimensionalization.

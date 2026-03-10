@@ -76,6 +76,19 @@ Mode compatibility note:
 - for normal `solve` and `load` workflows, all three grid modes are supported.
 - for `solver.yml -> operation_mode.eulerian_field_source: analytical`, the current contract requires `grid.mode: programmatic_c`.
 
+Optional global DMDA layout hints apply to all grid modes:
+
+```yaml
+grid:
+  da_processors_x: 4
+  da_processors_y: 2
+  da_processors_z: 2
+```
+
+These are scalar global values, not per-block vectors. Legacy placement under
+`grid.programmatic_settings.da_processors_*` is still accepted for compatibility,
+but the shared top-level `grid.da_processors_*` form is preferred.
+
 @subsection p07_grid_prog_ssec 3.1 mode: programmatic_c
 
 `programmatic_settings` supports per-block lists for geometry arrays:
@@ -88,7 +101,7 @@ Dimension contract:
 - `picurv` converts them to node counts before emitting `-im/-jm/-km` for the C runtime.
 
 Important constraint:
-- `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block processor decomposition is not implemented.
+- `grid.da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block processor decomposition is not implemented.
 
 @subsection p07_grid_file_ssec 3.2 mode: file
 

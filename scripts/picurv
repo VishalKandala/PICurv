@@ -1831,18 +1831,6 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             errors.append(f"  {case_path}: 'grid.programmatic_settings' is required when grid.mode is 'programmatic_c'.")
         elif not isinstance(grid_settings, dict):
             errors.append(f"  {case_path}: 'grid.programmatic_settings' must be a mapping.")
-        else:
-            for p_key in ('da_processors_x', 'da_processors_y', 'da_processors_z'):
-                p_val = grid_settings.get(p_key)
-                if isinstance(p_val, (list, tuple)):
-                    errors.append(
-                        f"  {case_path}: grid.programmatic_settings.{p_key} must be a scalar integer. "
-                        "Per-block MPI decomposition is not implemented on the C side; DMDA layout is global."
-                    )
-                elif p_val is not None and (not isinstance(p_val, int) or p_val <= 0):
-                    errors.append(
-                        f"  {case_path}: grid.programmatic_settings.{p_key} must be a positive integer when provided (got {p_val})."
-                    )
     elif grid_mode == 'grid_gen':
         gen_cfg = grid_cfg.get('generator')
         if not isinstance(gen_cfg, dict):
@@ -1863,6 +1851,10 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             cli_args = gen_cfg.get('cli_args', [])
             if cli_args is not None and not isinstance(cli_args, list):
                 errors.append(f"  {case_path}: grid.generator.cli_args must be a list of CLI tokens.")
+    try:
+        resolve_grid_da_processor_layout(grid_cfg)
+    except ValueError as e:
+        errors.append(f"  {case_path}: {e}")
 
     # --- case.yml: boundary_conditions strict validation ---
     prepared_blocks = None
@@ -2988,6 +2980,88 @@ def translate_programmatic_grid_settings(grid_settings: dict) -> dict:
             translated[dim_key] = raw_val + 1
     return translated
 
+
+GRID_DA_PROCESSOR_KEYS = ("da_processors_x", "da_processors_y", "da_processors_z")
+
+
+def resolve_grid_da_processor_layout(grid_cfg: dict) -> dict:
+    """Resolve optional global DMDA layout, preferring grid-level keys over legacy nested keys."""
+    top_level = {}
+    legacy = {}
+
+    for key in GRID_DA_PROCESSOR_KEYS:
+        value = grid_cfg.get(key)
+        if isinstance(value, (list, tuple)):
+            raise ValueError(
+                f"grid.{key} must be a scalar integer. "
+                "Per-block MPI decomposition is not implemented on the C side; DMDA layout is global."
+            )
+        if value is not None:
+            if not isinstance(value, int) or value <= 0:
+                raise ValueError(f"grid.{key} must be a positive integer when provided (got {value}).")
+            top_level[key] = value
+
+    legacy_settings = grid_cfg.get("programmatic_settings")
+    if isinstance(legacy_settings, dict):
+        for key in GRID_DA_PROCESSOR_KEYS:
+            value = legacy_settings.get(key)
+            if isinstance(value, (list, tuple)):
+                raise ValueError(
+                    f"grid.programmatic_settings.{key} must be a scalar integer. "
+                    "Per-block MPI decomposition is not implemented on the C side; DMDA layout is global."
+                )
+            if value is not None:
+                if not isinstance(value, int) or value <= 0:
+                    raise ValueError(
+                        f"grid.programmatic_settings.{key} must be a positive integer when provided (got {value})."
+                    )
+                legacy[key] = value
+
+    resolved = {}
+    for key in GRID_DA_PROCESSOR_KEYS:
+        top_value = top_level.get(key)
+        legacy_value = legacy.get(key)
+        if top_value is not None and legacy_value is not None and top_value != legacy_value:
+            raise ValueError(
+                f"grid.{key} conflicts with legacy grid.programmatic_settings.{key}; "
+                "define the processor layout in only one place."
+            )
+        if top_value is not None:
+            resolved[key] = top_value
+        elif legacy_value is not None:
+            resolved[key] = legacy_value
+
+    return resolved
+
+
+def append_grid_da_processor_layout(control_lines: list, grid_cfg: dict, num_procs: int) -> None:
+    """Append optional global DMDA layout flags for any grid mode."""
+    layout = resolve_grid_da_processor_layout(grid_cfg)
+    if not layout:
+        if num_procs > 1:
+            print("[INFO] Letting PETSc automatically determine processor layout.")
+        return
+
+    if num_procs == 1:
+        print("[INFO] Serial run, ignoring da_processors layout.")
+        return
+
+    if all(layout.get(key) is not None for key in GRID_DA_PROCESSOR_KEYS):
+        total_layout = 1
+        for key in GRID_DA_PROCESSOR_KEYS:
+            total_layout *= layout[key]
+        if total_layout != num_procs:
+            raise ValueError(f"Processor layout mismatch: product ({total_layout}) != processes ({num_procs}).")
+        print(f"[INFO] Applying user-defined processor layout for {num_procs} processes.")
+    else:
+        printable = " x ".join(str(layout.get(key, "PETSC_DECIDE")) for key in GRID_DA_PROCESSOR_KEYS)
+        print(f"[INFO] Applying partial processor layout: {printable}.")
+
+    for key in GRID_DA_PROCESSOR_KEYS:
+        value = layout.get(key)
+        if value is not None:
+            control_lines.append(f"-{key} {value}")
+
 def normalize_momentum_solver_type(value: str) -> str:
     """!
     @brief Maps canonical user-facing momentum solver names to C-enum CLI values.
@@ -3514,27 +3588,13 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         print("[INFO] Grid Mode: Programmatic C...")
         grid_settings = translate_programmatic_grid_settings(grid_cfg.get('programmatic_settings', {}))
         control_lines.append("-grid")
-        px, py, pz = grid_settings.get('da_processors_x'), grid_settings.get('da_processors_y'), grid_settings.get('da_processors_z')
-        if any(isinstance(p, (list, tuple)) for p in [px, py, pz] if p is not None):
-            raise ValueError(
-                "da_processors_x/y/z must be scalar integers. "
-                "Per-block MPI decomposition is not implemented on the C side; DMDA layout is global."
-            )
-        if num_procs > 1 and all(p is not None for p in [px, py, pz]):
-            if not all(isinstance(p, int) and p > 0 for p in [px, py, pz]):
-                raise ValueError("da_processors_x/y/z must be positive integers when provided.")
-            total_layout = px * py * pz
-            if total_layout != num_procs:
-                raise ValueError(f"Processor layout mismatch: product ({total_layout}) != processes ({num_procs}).")
-            print(f"[INFO] Applying user-defined processor layout for {num_procs} processes.")
-        else:
-            if num_procs == 1: print("[INFO] Serial run, ignoring da_processors layout.")
-            else: print("[INFO] Letting PETSc automatically determine processor layout.")
-            for p_key in ['da_processors_x', 'da_processors_y', 'da_processors_z']:
-                grid_settings.pop(p_key, None)
+        for p_key in GRID_DA_PROCESSOR_KEYS:
+            grid_settings.pop(p_key, None)
         for key, value in grid_settings.items(): control_lines.append(f"-{key} {format_flag_value(value)}")
     else:
         raise ValueError(f"Unknown or missing grid mode '{grid_mode}' in case.yml.")
+
+    append_grid_da_processor_layout(control_lines, grid_cfg, num_procs)
     
     parse_and_add_model_flags(case_cfg, control_lines)
     
