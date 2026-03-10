@@ -48,7 +48,12 @@ else:
     DEFAULT_BIN_DIR = os.path.join(PROJECT_ROOT, "bin")
 
 CASE_ORIGIN_METADATA_FILENAME = ".picurv-origin.json"
-LOCAL_RUNTIME_CONFIG_FILENAME = ".picurv-local.yml"
+RUNTIME_EXECUTION_CONFIG_FILENAME = ".picurv-execution.yml"
+LEGACY_LOCAL_RUNTIME_CONFIG_FILENAME = ".picurv-local.yml"
+RUNTIME_EXECUTION_CONFIG_FILENAMES = (
+    RUNTIME_EXECUTION_CONFIG_FILENAME,
+    LEGACY_LOCAL_RUNTIME_CONFIG_FILENAME,
+)
 
 def resolve_runtime_executable(executable_name: str) -> str:
     """Resolve solver/post executable path, preferring local sibling binaries."""
@@ -309,8 +314,8 @@ def load_case_origin_metadata(case_dir_hint: str = None):
     return os.path.dirname(metadata_path), metadata_path, payload
 
 
-def find_local_runtime_config_file(*anchors):
-    """Find the nearest optional local runtime config from runtime/case anchors."""
+def find_runtime_execution_config_file(*anchors):
+    """Find the nearest optional execution config from runtime/case anchors."""
     seen = set()
     search_roots = []
     for candidate in list(anchors) + [os.getcwd(), INVOKED_SCRIPT_DIR]:
@@ -330,15 +335,55 @@ def find_local_runtime_config_file(*anchors):
             if directory in seen_dirs:
                 continue
             seen_dirs.add(directory)
-            config_path = os.path.join(directory, LOCAL_RUNTIME_CONFIG_FILENAME)
-            if os.path.isfile(config_path):
-                return config_path
+            for filename in RUNTIME_EXECUTION_CONFIG_FILENAMES:
+                config_path = os.path.join(directory, filename)
+                if os.path.isfile(config_path):
+                    return config_path
     return None
 
 
-def load_local_runtime_config(config_search_anchor: str = None):
-    """Load optional local runtime launcher config from the nearest .picurv-local.yml."""
-    config_path = find_local_runtime_config_file(config_search_anchor)
+def _normalize_execution_override_section(payload: dict, section_name: str, config_path: str, config_label: str) -> dict:
+    """Validate one execution override section while preserving missing-vs-empty semantics."""
+    section = payload.get(section_name)
+    if section is None:
+        return {"launcher": None, "launcher_args": None}
+    if not isinstance(section, dict):
+        raise ValueError(f"{config_label} at {config_path}: {section_name} must be a mapping.")
+
+    launcher = section.get("launcher")
+    if launcher is not None and not isinstance(launcher, str):
+        raise ValueError(f"{config_label} at {config_path}: {section_name}.launcher must be a string.")
+
+    launcher_args = None
+    if "launcher_args" in section:
+        launcher_args = section.get("launcher_args", [])
+        if launcher_args is None:
+            launcher_args = []
+        if not isinstance(launcher_args, list):
+            raise ValueError(f"{config_label} at {config_path}: {section_name}.launcher_args must be a list.")
+        for i, token in enumerate(launcher_args):
+            if not isinstance(token, (str, int, float)):
+                raise ValueError(
+                    f"{config_label} at {config_path}: {section_name}.launcher_args[{i}] "
+                    "must be a scalar CLI token."
+                )
+        launcher_args = [str(x) for x in launcher_args]
+
+    return {
+        "launcher": launcher,
+        "launcher_args": launcher_args,
+    }
+
+
+def load_runtime_execution_config(config_search_anchor: str = None, extra_search_anchors=None):
+    """Load optional shared execution launcher config from the nearest runtime config file."""
+    anchors = []
+    if config_search_anchor is not None:
+        anchors.append(config_search_anchor)
+    if extra_search_anchors:
+        anchors.extend(extra_search_anchors)
+
+    config_path = find_runtime_execution_config_file(*anchors)
     if not config_path:
         return None, {}
 
@@ -346,39 +391,60 @@ def load_local_runtime_config(config_search_anchor: str = None):
         with open(config_path, "r", encoding="utf-8") as f:
             payload = yaml.safe_load(f) or {}
     except yaml.YAMLError as exc:
-        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} YAML parse error at {config_path}: {exc}") from exc
+        raise ValueError(f"{os.path.basename(config_path)} YAML parse error at {config_path}: {exc}") from exc
 
     if not isinstance(payload, dict):
-        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path} must be a YAML mapping.")
-
-    local_execution = payload.get("local_execution", {})
-    if local_execution is None:
-        local_execution = {}
-    if not isinstance(local_execution, dict):
-        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path}: local_execution must be a mapping.")
-
-    launcher = local_execution.get("launcher")
-    if launcher is not None and not isinstance(launcher, str):
-        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path}: local_execution.launcher must be a string.")
-
-    launcher_args = local_execution.get("launcher_args", [])
-    if launcher_args is None:
-        launcher_args = []
-    if not isinstance(launcher_args, list):
-        raise ValueError(f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path}: local_execution.launcher_args must be a list.")
-    for i, token in enumerate(launcher_args):
-        if not isinstance(token, (str, int, float)):
-            raise ValueError(
-                f"{LOCAL_RUNTIME_CONFIG_FILENAME} at {config_path}: local_execution.launcher_args[{i}] "
-                "must be a scalar CLI token."
-            )
+        raise ValueError(f"{os.path.basename(config_path)} at {config_path} must be a YAML mapping.")
 
     return config_path, {
-        "local_execution": {
-            "launcher": launcher,
-            "launcher_args": [str(x) for x in launcher_args],
-        }
+        "default_execution": _normalize_execution_override_section(
+            payload,
+            "default_execution",
+            config_path,
+            os.path.basename(config_path),
+        ),
+        "local_execution": _normalize_execution_override_section(
+            payload,
+            "local_execution",
+            config_path,
+            os.path.basename(config_path),
+        ),
+        "cluster_execution": _normalize_execution_override_section(
+            payload,
+            "cluster_execution",
+            config_path,
+            os.path.basename(config_path),
+        ),
     }
+
+
+def merge_execution_overrides(base: dict | None, override: dict | None) -> dict:
+    """Merge execution overrides, letting explicit override values win key-by-key."""
+    base = base or {}
+    override = override or {}
+
+    launcher = override.get("launcher")
+    if launcher is None:
+        launcher = base.get("launcher")
+
+    launcher_args = override.get("launcher_args")
+    if launcher_args is None:
+        launcher_args = base.get("launcher_args")
+
+    return {
+        "launcher": launcher,
+        "launcher_args": None if launcher_args is None else [str(x) for x in launcher_args],
+    }
+
+
+def resolve_runtime_execution_context(runtime_execution_cfg: dict, context: str) -> dict:
+    """Resolve default plus context-specific execution overrides."""
+    if context not in {"local", "cluster"}:
+        raise ValueError(f"Unsupported execution context '{context}'.")
+    return merge_execution_overrides(
+        runtime_execution_cfg.get("default_execution"),
+        runtime_execution_cfg.get(f"{context}_execution"),
+    )
 
 
 def get_git_commit(repo_root: str = None) -> str:
@@ -2134,10 +2200,10 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
                 if not isinstance(line, str):
                     errors.append(f"  {cluster_path}: execution.module_setup[{i}] must be a string.")
 
-        launcher = execution.get("launcher", "srun")
+        launcher = execution.get("launcher")
         if launcher is not None and not isinstance(launcher, str):
             errors.append(f"  {cluster_path}: execution.launcher must be a string when provided.")
-        launcher_args = execution.get("launcher_args", [])
+        launcher_args = execution.get("launcher_args")
         if launcher_args is not None and not isinstance(launcher_args, list):
             errors.append(f"  {cluster_path}: execution.launcher_args must be a list of CLI tokens.")
         elif isinstance(launcher_args, list):
@@ -2384,14 +2450,14 @@ def split_launcher_tokens(
 def normalize_cluster_launcher(execution: dict) -> tuple[str | None, list[str]]:
     """Canonicalize cluster launcher config into executable token plus argv-style flags."""
     return split_launcher_tokens(
-        execution.get("launcher", "srun"),
-        execution.get("launcher_args", []),
+        execution.get("launcher"),
+        execution.get("launcher_args") or [],
         label="execution.launcher",
     )
 
 
 def build_local_launch_command(executable: str, executable_args: list, num_procs: int, config_search_anchor: str = None) -> list:
-    """Build local launcher command, allowing an env override for login-node MPI quirks."""
+    """Build local launcher command, allowing env or shared config overrides for login-node MPI quirks."""
     command = [executable] + executable_args
     if num_procs <= 1:
         return command
@@ -2407,10 +2473,10 @@ def build_local_launch_command(executable: str, executable_args: list, num_procs
                 label="local MPI launcher override",
             )
         else:
-            _, local_runtime_cfg = load_local_runtime_config(config_search_anchor)
-            local_execution = local_runtime_cfg.get("local_execution", {})
+            _, runtime_execution_cfg = load_runtime_execution_config(config_search_anchor)
+            local_execution = resolve_runtime_execution_context(runtime_execution_cfg, "local")
             configured_launcher = local_execution.get("launcher")
-            configured_args = local_execution.get("launcher_args", [])
+            configured_args = local_execution.get("launcher_args") or []
             launcher, launcher_args = split_launcher_tokens(
                 configured_launcher if configured_launcher is not None else "mpiexec",
                 configured_args,
@@ -2437,10 +2503,41 @@ def build_local_launch_command(executable: str, executable_args: list, num_procs
 
     return prefix + command
 
-def build_cluster_launch_command(cluster_cfg: dict, executable: str, executable_args: list) -> list:
-    """Build scheduler launcher command (srun/mpirun/custom) from cluster config."""
+def resolve_cluster_execution(cluster_cfg: dict, config_search_anchor: str = None, extra_search_anchors=None) -> dict:
+    """Resolve cluster execution launcher settings from shared runtime config plus cluster.yml overrides."""
+    _, runtime_execution_cfg = load_runtime_execution_config(config_search_anchor, extra_search_anchors=extra_search_anchors)
+    shared_cluster_execution = resolve_runtime_execution_context(runtime_execution_cfg, "cluster")
     execution = cluster_cfg.get("execution", {}) or {}
-    launcher, launcher_args = normalize_cluster_launcher(execution)
+    cluster_override = {
+        "launcher": execution.get("launcher") if "launcher" in execution else None,
+        "launcher_args": execution.get("launcher_args") if "launcher_args" in execution else None,
+    }
+    return merge_execution_overrides(shared_cluster_execution, cluster_override)
+
+
+def build_cluster_launch_command(
+    cluster_cfg: dict,
+    executable: str,
+    executable_args: list,
+    config_search_anchor: str = None,
+    extra_search_anchors=None,
+) -> list:
+    """Build scheduler launcher command from cluster config plus optional shared execution defaults."""
+    try:
+        execution = resolve_cluster_execution(
+            cluster_cfg,
+            config_search_anchor=config_search_anchor,
+            extra_search_anchors=extra_search_anchors,
+        )
+        launcher, launcher_args = split_launcher_tokens(
+            execution.get("launcher") if execution.get("launcher") is not None else "srun",
+            execution.get("launcher_args") or [],
+            label="cluster execution launcher",
+        )
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
     ntasks = get_cluster_total_tasks(cluster_cfg)
 
     if launcher and launcher.lower() == "srun":
@@ -3982,7 +4079,13 @@ def build_run_dry_plan(args) -> dict:
         solver_args = ["-control_file", solver_control_path]
         if cluster_mode:
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")
-            solver_cmd = build_cluster_launch_command(cluster_cfg, solver_exe, solver_args)
+            solver_cmd = build_cluster_launch_command(
+                cluster_cfg,
+                solver_exe,
+                solver_args,
+                config_search_anchor=case_path,
+                extra_search_anchors=[cluster_path],
+            )
             plan["artifacts"].append(solver_script)
             plan["stages"]["solve"] = {
                 "mode": "slurm",
@@ -4075,7 +4178,13 @@ def build_run_dry_plan(args) -> dict:
             post_cluster_cfg.setdefault("resources", {})
             post_cluster_cfg["resources"]["nodes"] = 1
             post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
-            post_cmd = build_cluster_launch_command(post_cluster_cfg, post_exe, post_args)
+            post_cmd = build_cluster_launch_command(
+                post_cluster_cfg,
+                post_exe,
+                post_args,
+                config_search_anchor=case_path,
+                extra_search_anchors=[cluster_path],
+            )
             plan["artifacts"].append(post_script)
             plan["stages"]["post-process"] = {
                 "mode": "slurm",
@@ -4157,6 +4266,8 @@ def validate_workflow(args):
     checked = []
     solver_group_selected = any([args.case, args.solver, args.monitor])
     any_group_selected = solver_group_selected or any([args.post, args.cluster, args.study])
+    case_path = None
+    cluster_path = None
 
     if not any_group_selected:
         fail_cli_usage(
@@ -4190,6 +4301,22 @@ def validate_workflow(args):
         cluster_cfg = read_yaml_file(cluster_path)
         validate_cluster_config(cluster_cfg, cluster_path)
         checked.append(cluster_path)
+
+    try:
+        runtime_execution_path, _ = load_runtime_execution_config(
+            case_path,
+            extra_search_anchors=[cluster_path] if cluster_path else None,
+        )
+    except ValueError as exc:
+        emit_structured_error(
+            ERROR_CODE_CFG_INVALID_VALUE,
+            key="runtime_execution",
+            file_path=case_path or cluster_path or os.getcwd(),
+            message=str(exc),
+        )
+        sys.exit(1)
+    if runtime_execution_path:
+        checked.append(runtime_execution_path)
 
     study_cfg = None
     if args.study:
@@ -4351,7 +4478,13 @@ def run_workflow(args):
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")
             solver_log = os.path.join(run_dir, "logs", "solver_%j.out")
             solver_err = os.path.join(run_dir, "logs", "solver_%j.err")
-            solver_cmd = build_cluster_launch_command(cluster_cfg, solver_exe, solver_args)
+            solver_cmd = build_cluster_launch_command(
+                cluster_cfg,
+                solver_exe,
+                solver_args,
+                config_search_anchor=args.case,
+                extra_search_anchors=[cluster_path],
+            )
             render_slurm_script(
                 solver_script,
                 f"{run_id}_solve",
@@ -4379,7 +4512,7 @@ def run_workflow(args):
                 solver_exe,
                 solver_args,
                 solver_num_procs_effective,
-                config_search_anchor=case_path,
+                config_search_anchor=configs["case_path"],
             )
             execute_command(command, run_dir, f"{run_id}_solver.log", configs['monitor'])
             stages_completed.append('solve')
@@ -4458,7 +4591,13 @@ def run_workflow(args):
             post_cluster_cfg.setdefault("resources", {})
             post_cluster_cfg["resources"]["nodes"] = 1
             post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
-            post_cmd = build_cluster_launch_command(post_cluster_cfg, post_exe, post_args)
+            post_cmd = build_cluster_launch_command(
+                post_cluster_cfg,
+                post_exe,
+                post_args,
+                config_search_anchor=case_path,
+                extra_search_anchors=[cluster_path],
+            )
             render_slurm_script(
                 post_script,
                 f"{run_id}_post",

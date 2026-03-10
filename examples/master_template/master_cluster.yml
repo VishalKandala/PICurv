@@ -7,6 +7,8 @@
 #   picurv sweep --cluster cluster.yml ...
 #
 # In v1, scheduler.type must be "slurm".
+# Run IDs are not configured here; picurv derives them from
+# <case_basename>_<timestamp> and uses that to name scheduler jobs.
 # ==============================================================================
 
 scheduler:
@@ -32,9 +34,15 @@ execution:
     - "module purge"
     - "module restore petsc-setup"
 
-  # Launcher and args are site-specific.
+  # Launcher and args are batch-specific overrides.
+  # If your site uses the same launcher tokens for login-node and batch runs,
+  # put them in `.picurv-execution.yml` and only override them here when needed.
+  # Removing these keys lets batch jobs inherit from `.picurv-execution.yml`.
   launcher: "srun"               # alternatives: "mpirun", custom launcher
-  launcher_args: []              # e.g. ["--cpu-bind=cores"]
+  launcher_args: []              # e.g. ["--cpu-bind=cores"] or ["-mca", "pml", "ucx"]
+  # Multi-word launcher strings are accepted, but the portable form is:
+  # launcher: "mpirun"
+  # launcher_args: ["-mca", "pml", "ucx"]
 
   # Optional pass-through SBATCH flags.
   # dict form:

@@ -11,6 +11,7 @@ A practical pattern is: initialize a runnable example first, then use these temp
 - `master_monitor.yml`
 - `master_postprocessor.yml`
 - `master_cluster.yml`
+- `execution.example.yml`
 - `master_study.yml`
 
 ## Suggested Workflow
@@ -20,6 +21,13 @@ A practical pattern is: initialize a runnable example first, then use these temp
 3. Keep each role modular rather than merging all settings into one large file.
 4. Validate with `picurv validate` after each change.
 5. Execute with `picurv run` or `picurv sweep`.
+
+Launcher-related note:
+
+- `master_cluster.yml` is only for batch/scheduler policy and batch-specific overrides.
+- shared launcher defaults for local/login-node and batch runs live in `execution.example.yml`; copy it to `.picurv-execution.yml` in the repo root or case tree.
+- legacy `.picurv-local.yml` remains supported for local-only compatibility, but it does not feed generated batch jobs.
+- run directory names are still generated automatically by `picurv` as `<case_basename>_<timestamp>`.
 
 ## Why This Matters For CFD Teams
 

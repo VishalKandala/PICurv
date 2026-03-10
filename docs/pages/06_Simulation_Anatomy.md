@@ -73,6 +73,7 @@ For full contract and ingestion mapping, also see:
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
+- **@subpage 52_Run_Lifecycle_Guide**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 21_Methods_Overview**
 
@@ -97,4 +98,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

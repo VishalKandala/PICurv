@@ -16,6 +16,7 @@ Default setup:
 - `Standard_Output.yml`: monitor profile
 - `standard_analysis.yml`: postprocessor recipe
 - `slurm_cluster.yml`: sample Slurm scheduler profile
+- `execution.example.yml`: optional shared site launcher example
 - `timestep_sensitivity_study.yml`: sample timestep sensitivity sweep
 - `bent_channel_coarse.picgrid`: solver input grid
 - `bent_channel_coarse.vts`: grid visualization helper
@@ -28,6 +29,8 @@ Initialize study:
 ```bash
 ./bin/picurv init bent_channel --dest my_bent_case
 ```
+
+If cluster login-node or batch launches need site-specific MPI commands, copy `my_bent_case/execution.example.yml` to `my_bent_case/.picurv-execution.yml` and edit the launcher tokens there. Keep `slurm_cluster.yml` for scheduler settings and any batch-only override.
 
 Run solve + post:
 

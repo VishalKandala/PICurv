@@ -16,6 +16,7 @@ Default setup:
 - `Standard_Output.yml`: monitor profile
 - `standard_analysis.yml`: postprocessor recipe
 - `slurm_cluster.yml`: sample Slurm scheduler profile
+- `execution.example.yml`: optional shared site launcher example
 - `grid_independence_study.yml`: sample sweep definition
 
 ## 3. Typical Workflow
@@ -25,6 +26,8 @@ Initialize study:
 ```bash
 ./bin/picurv init flat_channel --dest my_channel_case
 ```
+
+If cluster login-node or batch launches need site-specific MPI commands, copy `my_channel_case/execution.example.yml` to `my_channel_case/.picurv-execution.yml` and edit the launcher tokens there. Keep `slurm_cluster.yml` for scheduler settings and any batch-only override.
 
 Run solve + post:
 
