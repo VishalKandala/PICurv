@@ -106,7 +106,12 @@ def main() -> int:
             if not normalized:
                 continue
             resolved = (md_file.parent / normalized).resolve()
-            if not resolved.exists():
+            try:
+                exists = resolved.exists()
+            except OSError as exc:
+                failures.append((str(md_file.relative_to(repo_root)), target, f"{resolved} ({exc})"))
+                continue
+            if not exists:
                 failures.append((str(md_file.relative_to(repo_root)), target, str(resolved)))
 
     if failures:

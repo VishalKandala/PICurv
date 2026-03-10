@@ -87,7 +87,7 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
   --monitor my_case/Standard_Output.yml \
   --post my_case/standard_analysis.yml
 ```
-`-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution. For shared site launcher behavior across login-node and batch runs, copy [execution.example.yml](/root/PE/PICurv/config/runtime/execution.example.yml) to `.picurv-execution.yml` and edit the launcher tokens there. Local multi-rank precedence is: `PICURV_MPI_LAUNCHER`, then `MPI_LAUNCHER`, then nearest `.picurv-execution.yml`, then legacy `.picurv-local.yml`, then default `mpiexec`. Cluster job generation uses `cluster.yml.execution` first, then `.picurv-execution.yml`, then the built-in cluster default.
+`-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution. For shared site launcher behavior across login-node and batch runs, copy [execution.example.yml](config/runtime/execution.example.yml) to `.picurv-execution.yml` and edit the launcher tokens there. Local multi-rank precedence is: `PICURV_MPI_LAUNCHER`, then `MPI_LAUNCHER`, then nearest `.picurv-execution.yml`, then legacy `.picurv-local.yml`, then default `mpiexec`. Cluster job generation uses `cluster.yml.execution` first, then `.picurv-execution.yml`, then the built-in cluster default.
 
 ## Case Maintenance From A Self-Contained Case
 
