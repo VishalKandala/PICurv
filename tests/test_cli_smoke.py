@@ -8,6 +8,8 @@ import sys
 from types import SimpleNamespace
 from pathlib import Path
 
+import yaml
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PICURV = REPO_ROOT / "scripts" / "picurv"
@@ -299,32 +301,16 @@ def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
     case_path = tmp_path / "case_file_grid.yml"
     solver_path = tmp_path / "solver_analytical.yml"
 
-    case_text = (valid / "case.yml").read_text(encoding="utf-8")
-    case_text = case_text.replace(
-        """grid:
-        mode: programmatic_c
-  programmatic_settings:
-    im: 8
-    jm: 8
-    km: 16
-    xMins: 0.0
-    xMaxs: 1.0
-    yMins: 0.0
-    yMaxs: 1.0
-    zMins: 0.0
-    zMaxs: 4.0
-    rxs: 1.0
-    rys: 1.0
-    rzs: 1.0
-    cgrids: 0
-""",
-        f"""grid:\n  mode: file\n  source_file: "{valid / 'case.yml'}"\n""",
-    )
-    case_path.write_text(case_text, encoding="utf-8")
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["grid"] = {
+        "mode": "file",
+        "source_file": str(valid / "case.yml"),
+    }
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 
-    solver_text = (valid / "solver.yml").read_text(encoding="utf-8")
-    solver_text = solver_text.replace('  eulerian_field_source: "solve"\n', '  eulerian_field_source: "analytical"\n')
-    solver_path.write_text(solver_text, encoding="utf-8")
+    solver_cfg = yaml.safe_load((valid / "solver.yml").read_text(encoding="utf-8"))
+    solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
+    solver_path.write_text(yaml.safe_dump(solver_cfg, sort_keys=False), encoding="utf-8")
 
     result = run_picurv(
         [
