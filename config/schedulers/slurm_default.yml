@@ -20,5 +20,5 @@ execution:
   launcher_args: []
   # Optional early warning before walltime. Example:
   # extra_sbatch:
-  #   signal: "USR1@120"
+  #   signal: "USR1@300"
   extra_sbatch: {}

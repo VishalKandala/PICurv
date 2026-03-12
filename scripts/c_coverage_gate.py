@@ -14,7 +14,10 @@ LINE_RE = re.compile(r"^\s*([^:]+):\s*([0-9]+):(.*)$")
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse args."""
+    """!
+    @brief Parse args.
+    @return Value returned by `parse_args()`.
+    """
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -50,7 +53,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_gcov(src_files: list[Path], obj_dir: Path, repo_root: Path, output_dir: Path) -> None:
-    """Run gcov."""
+    """!
+    @brief Run gcov.
+    @param[in] src_files Argument passed to `run_gcov()`.
+    @param[in] obj_dir Argument passed to `run_gcov()`.
+    @param[in] repo_root Argument passed to `run_gcov()`.
+    @param[in] output_dir Argument passed to `run_gcov()`.
+    """
     for src in src_files:
         cmd = ["gcov", "-o", str(obj_dir), str(src)]
         proc = subprocess.run(cmd, cwd=str(repo_root), text=True, capture_output=True, check=False)
@@ -63,7 +72,12 @@ def run_gcov(src_files: list[Path], obj_dir: Path, repo_root: Path, output_dir: 
 
 
 def parse_gcov_file(gcov_path: Path, repo_root: Path) -> tuple[Path | None, int, int]:
-    """Parse gcov file."""
+    """!
+    @brief Parse gcov file.
+    @param[in] gcov_path Argument passed to `parse_gcov_file()`.
+    @param[in] repo_root Argument passed to `parse_gcov_file()`.
+    @return Value returned by `parse_gcov_file()`.
+    """
     source_path = None
     covered = 0
     total = 0
@@ -104,7 +118,10 @@ def parse_gcov_file(gcov_path: Path, repo_root: Path) -> tuple[Path | None, int,
 
 
 def main() -> int:
-    """Entry point for this script."""
+    """!
+    @brief Entry point for this script.
+    @return Value returned by `main()`.
+    """
     args = parse_args()
     repo_root = Path(__file__).resolve().parents[1]
     src_dir = (repo_root / args.src_dir).resolve()

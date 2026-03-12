@@ -64,8 +64,10 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
 
 /**
  * @brief Initializes the entire boundary system.
- * @param user The main UserCtx struct.
- * @param bcs_filename The path to the boundary conditions configuration file.
+ *
+ * @param user The
+ * @param bcs_filename The
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename);
 
@@ -83,7 +85,9 @@ PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx);
 
 /**
  * @brief Executes one full boundary condition update cycle for a time step.
- * @param user The main UserCtx struct.
+ *
+ * @param user The
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user);
 
@@ -110,7 +114,9 @@ PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user);
 
 /**
  * @brief Cleans up and destroys all boundary system resources.
- * @param user The main UserCtx struct.
+ *
+ * @param user The
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode BoundarySystem_Destroy(UserCtx *user);
 
@@ -162,33 +168,34 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
  * This function creates a set of equidistant, parallel lines of particles near the four
  * edges of the face specified by user->identifiedInletBCFace. The number of lines drawn
  * from each edge is hardcoded within this function (default is 2).
- *
  * For example, if grid_layers=2 on face BC_FACE_NEG_X, the function will create particle lines at:
  * - y ~ 0*dy, y ~ 1*dy (parallel to the Z-axis, starting from the J=0 edge)
  * - y ~ y_max, y ~ y_max-dy (parallel to the Z-axis, starting from the J=max edge)
  * - z ~ 0*dz, z ~ 1*dz (parallel to the Y-axis, starting from the K=0 edge)
  * - z ~ z_max, z ~ z_max-dz (parallel to the Y-axis, starting from the K=max edge)
- *
  * The particle's final position is set just inside the target cell face to ensure it is
  * correctly located. The total number of particles (simCtx->np) is distributed as evenly
  * as possible among all generated lines.
- *
  * The function includes extensive validation to stop with an error if the requested grid
  * placement is geometrically impossible (e.g., in a 2D domain or if layers would overlap).
  * It also issues warnings for non-fatal but potentially unintended configurations.
  *
- * @param user Pointer to UserCtx, which must contain a valid identifiedInletBCFace.
- * @param info Pointer to DMDALocalInfo for the current rank's grid layout.
- * @param xs_gnode_rank, ys_gnode_rank, zs_gnode_rank Local starting node indices (incl. ghosts) for the rank's DA.
- * @param IM_cells_global, JM_cells_global, KM_cells_global Global cell counts.
- * @param particle_global_id The unique global ID of the particle being placed (from 0 to np-1).
- * @param[out] ci_metric_lnode_out Local I-node index of the selected cell's origin.
- * @param[out] cj_metric_lnode_out Local J-node index of the selected cell's origin.
- * @param[out] ck_metric_lnode_out Local K-node index of the selected cell's origin.
- * @param[out] xi_metric_logic_out Logical xi-coordinate [0,1] within the cell.
- * @param[out] eta_metric_logic_out Logical eta-coordinate [0,1] within the cell.
- * @param[out] zta_metric_logic_out Logical zta-coordinate [0,1] within the cell.
- * @param[out] placement_successful_out PETSC_TRUE if the point belongs to this rank, PETSC_FALSE otherwise.
+ * @param user Pointer
+ * @param info Pointer
+ * @param xs_gnode_rank Parameter `xs_gnode_rank` passed to `GetDeterministicFaceGridLocation()`.
+ * @param ys_gnode_rank Parameter `ys_gnode_rank` passed to `GetDeterministicFaceGridLocation()`.
+ * @param zs_gnode_rank Parameter `zs_gnode_rank` passed to `GetDeterministicFaceGridLocation()`.
+ * @param IM_cells_global Parameter `IM_cells_global` passed to `GetDeterministicFaceGridLocation()`.
+ * @param JM_cells_global Parameter `JM_cells_global` passed to `GetDeterministicFaceGridLocation()`.
+ * @param KM_cells_global Parameter `KM_cells_global` passed to `GetDeterministicFaceGridLocation()`.
+ * @param particle_global_id The
+ * @param ci_metric_lnode_out Local
+ * @param cj_metric_lnode_out Local
+ * @param ck_metric_lnode_out Local
+ * @param xi_metric_logic_out Logical
+ * @param eta_metric_logic_out Logical
+ * @param zta_metric_logic_out Logical
+ * @param placement_successful_out PETSC_TRUE
  * @return PetscErrorCode
  */
 PetscErrorCode GetDeterministicFaceGridLocation(

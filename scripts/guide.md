@@ -29,6 +29,9 @@ This directory is the Python/shell control plane for PICurv. It covers user work
 - `convert_grid_from_legacy_to_picgrid.py`
   - backward-compatible wrapper that delegates to `grid.gen legacy1d`
   - retained for transition workflows; canonical implementation now lives in `grid.gen`
+- `audit_function_docs.py`
+  - repository-wide function-doc audit for C headers/sources/tests and Python product/test code
+  - used by repo-consistency tests to prevent doc-coverage regressions
 
 ## CLI Help and Option References
 
@@ -46,6 +49,7 @@ Use script-local `--help` as the first source of truth:
 - `python3 scripts/c_coverage_gate.py --help`
 - `python3 scripts/generate_doxygen_fallback_indexes.py --help`
 - `python3 scripts/convert_grid_from_legacy_to_picgrid.py --help`
+- `python3 scripts/audit_function_docs.py`
 - `bash scripts/bootstrap_install.sh --help`
 
 Detailed option coverage lives in:
@@ -115,6 +119,7 @@ Helper script option summary:
    - regression tests (`tests/test_config_regressions.py` and/or CLI smoke tests)
 3. Keep error-code semantics stable for automation.
 4. Prefer deterministic dry-run and no-submit behaviors for new orchestration features.
+5. Keep Python function docstrings Doxygen-compatible so `scripts/audit_function_docs.py` stays green.
 
 ## Debugging Guidance
 

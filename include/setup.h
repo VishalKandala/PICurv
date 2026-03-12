@@ -137,6 +137,9 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName);
 
 /**
  * @brief (Orchestrator) Sets up all boundary conditions for the simulation.
+ *
+ * @param simCtx Simulation context controlling the operation.
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx);
 
@@ -413,10 +416,19 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
 PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx);
 
 /**
- * @brief Transforms scalar derivatives from computational space to physical space 
- *        using the chain rule.
- * 
+ * @brief Transforms scalar derivatives from computational space to physical space
+ *
+ * using the chain rule.
  * Formula: dPhi/dx = J * ( dPhi/dCsi * dCsi/dx + dPhi/dEta * dEta/dx + ... )
+ *
+ * @param jacobian Parameter `jacobian` passed to `TransformScalarDerivativesToPhysical()`.
+ * @param csi_metrics Parameter `csi_metrics` passed to `TransformScalarDerivativesToPhysical()`.
+ * @param eta_metrics Parameter `eta_metrics` passed to `TransformScalarDerivativesToPhysical()`.
+ * @param zet_metrics Parameter `zet_metrics` passed to `TransformScalarDerivativesToPhysical()`.
+ * @param dPhi_dcsi Parameter `dPhi_dcsi` passed to `TransformScalarDerivativesToPhysical()`.
+ * @param dPhi_deta Parameter `dPhi_deta` passed to `TransformScalarDerivativesToPhysical()`.
+ * @param dPhi_dzet Parameter `dPhi_dzet` passed to `TransformScalarDerivativesToPhysical()`.
+ * @param gradPhi Parameter `gradPhi` passed to `TransformScalarDerivativesToPhysical()`.
  */
  void TransformScalarDerivativesToPhysical(PetscReal jacobian, 
                                                  Cmpnts csi_metrics, 
@@ -430,11 +442,13 @@ PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx);
 /**
  * @brief Computes the gradient of a cell-centered SCALAR field at a specific grid point.
  *
- * @param user       The user context.
- * @param i, j, k    The grid indices.
- * @param field_data 3D array pointer to the scalar field (PetscReal***).
- * @param grad       Output: A Cmpnts struct storing [dPhi/dx, dPhi/dy, dPhi/dz].
- * @return           PetscErrorCode
+ * @param user The
+ * @param i Parameter `i` passed to `ComputeScalarFieldDerivatives()`.
+ * @param j Parameter `j` passed to `ComputeScalarFieldDerivatives()`.
+ * @param k Parameter `k` passed to `ComputeScalarFieldDerivatives()`.
+ * @param field_data 3D
+ * @param grad Output:
+ * @return PetscErrorCode
  */
 PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, 
                                              PetscReal ***field_data, Cmpnts *grad);
@@ -446,13 +460,15 @@ PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
  * the derivatives in computational space (d/dcsi, d/deta, d/dzet) using a central
  * difference scheme and then transforms them into physical space (d/dx, d/dy, d/dz).
  *
- * @param user      The user context for the current computational block.
- * @param i, j, k   The grid indices of the cell center where derivatives are required.
- * @param field_data A 3D array pointer to the raw local data of the vector field (e.g., from lUcat).
- * @param dudx      Output: A Cmpnts struct storing [du/dx, du/dy, du/dz].
- * @param dvdx      Output: A Cmpnts struct storing [dv/dx, dv/dy, dv/dz].
- * @param dwdx      Output: A Cmpnts struct storing [dw/dx, dw/dy, dw/dz].
- * @return          PetscErrorCode 0 on success.
+ * @param user The
+ * @param i Parameter `i` passed to `ComputeVectorFieldDerivatives()`.
+ * @param j Parameter `j` passed to `ComputeVectorFieldDerivatives()`.
+ * @param k Parameter `k` passed to `ComputeVectorFieldDerivatives()`.
+ * @param field_data A
+ * @param dudx Output:
+ * @param dvdx Output:
+ * @param dwdx Output:
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, Cmpnts ***field_data,
                                              Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx);

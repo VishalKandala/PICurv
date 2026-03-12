@@ -56,6 +56,7 @@ Compatibility aliases remain available:
 Fast local checks:
 
 ```bash
+python3 scripts/audit_function_docs.py
 make test
 make coverage-python
 make doctor
@@ -69,7 +70,9 @@ make check-full
 
 Guidance:
 
+- Use `python3 scripts/audit_function_docs.py` when changing C/Python function signatures, docstrings, or test helpers.
 - Use `make test` when working on `scripts/picurv`, schemas, or repository metadata.
+- Use `python3 scripts/check_markdown_links.py` when changing docs/examples.
 - Use `make doctor` after provisioning PETSc on a new machine.
 - Use `make unit-<area>` while changing a subsystem in isolation.
 - Use `make smoke` after building binaries to execute tiny real solve/post/restart workflows.
@@ -95,12 +98,17 @@ Current coverage includes:
 - config regression checks
 - case maintenance regressions
 - repository consistency scans
+- function-level documentation contract checks for C and Python executable code
 
 Run locally:
 
 ```bash
 make test-python
 ```
+
+CI note:
+
+- `.github/workflows/quality.yml` runs `python scripts/audit_function_docs.py` explicitly before `pytest -q`, then runs markdown link checks on pull requests and pushes to `main`.
 
 @subsection p40_python_files_ssec 3.1 Python Test File Matrix
 
@@ -124,6 +132,7 @@ Current Python files and primary responsibilities:
 - `tests/test_repo_consistency.py`
   - validates canonical example bundles with `picurv validate`
   - scans docs/examples/tests for forbidden stale contract terms
+  - runs the repository-wide function documentation audit (`scripts/audit_function_docs.py`)
 
 These files are intentionally role-specific to keep failures actionable.
 

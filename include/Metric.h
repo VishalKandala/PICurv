@@ -9,20 +9,69 @@
 #include "io.h"
 #include "setup.h"    // For SetDMDAProcLayout
 
+/**
+ * @brief Public interface for `MetricLogicalToPhysical()`.
+ *
+ * @param user Primary `UserCtx` input for the operation.
+ * @param X Parameter `X` passed to `MetricLogicalToPhysical()`.
+ * @param i Parameter `i` passed to `MetricLogicalToPhysical()`.
+ * @param j Parameter `j` passed to `MetricLogicalToPhysical()`.
+ * @param k Parameter `k` passed to `MetricLogicalToPhysical()`.
+ * @param xi Parameter `xi` passed to `MetricLogicalToPhysical()`.
+ * @param eta Parameter `eta` passed to `MetricLogicalToPhysical()`.
+ * @param zta Parameter `zta` passed to `MetricLogicalToPhysical()`.
+ * @param Xp Parameter `Xp` passed to `MetricLogicalToPhysical()`.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode MetricLogicalToPhysical(UserCtx *user, const Cmpnts ***X,
                                        PetscInt i,PetscInt j,PetscInt k,
                                        PetscReal xi,PetscReal eta,PetscReal zta,
                                        Cmpnts *Xp);
 
+/**
+ * @brief Public interface for `MetricGetCellVertices()`.
+ *
+ * @param user Primary `UserCtx` input for the operation.
+ * @param X Parameter `X` passed to `MetricGetCellVertices()`.
+ * @param i Parameter `i` passed to `MetricGetCellVertices()`.
+ * @param j Parameter `j` passed to `MetricGetCellVertices()`.
+ * @param k Parameter `k` passed to `MetricGetCellVertices()`.
+ * @param V Parameter `V` passed to `MetricGetCellVertices()`.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode MetricGetCellVertices(UserCtx *user,const Cmpnts ***X,
                                      PetscInt i,PetscInt j,PetscInt k,
                                      Cmpnts V[8]);
 
+/**
+ * @brief Public interface for `MetricJacobian()`.
+ *
+ * @param user Primary `UserCtx` input for the operation.
+ * @param X Parameter `X` passed to `MetricJacobian()`.
+ * @param i Parameter `i` passed to `MetricJacobian()`.
+ * @param j Parameter `j` passed to `MetricJacobian()`.
+ * @param k Parameter `k` passed to `MetricJacobian()`.
+ * @param xi Parameter `xi` passed to `MetricJacobian()`.
+ * @param eta Parameter `eta` passed to `MetricJacobian()`.
+ * @param zta Parameter `zta` passed to `MetricJacobian()`.
+ * @param J Parameter `J` passed to `MetricJacobian()`.
+ * @param detJ Parameter `detJ` passed to `MetricJacobian()`.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode MetricJacobian(UserCtx *user,const Cmpnts ***X,
                               PetscInt i,PetscInt j,PetscInt k,
                               PetscReal xi,PetscReal eta,PetscReal zta,
                               PetscReal J[3][3],PetscReal *detJ);
 
+/**
+ * @brief Public interface for `MetricVelocityContravariant()`.
+ *
+ * @param J Parameter `J` passed to `MetricVelocityContravariant()`.
+ * @param detJ Parameter `detJ` passed to `MetricVelocityContravariant()`.
+ * @param u Parameter `u` passed to `MetricVelocityContravariant()`.
+ * @param uc Parameter `uc` passed to `MetricVelocityContravariant()`.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3],
                                            PetscReal detJ,
                                            const PetscReal u[3],PetscReal uc[3]);
@@ -33,13 +82,15 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3],
  * Given the metric vectors (csi, eta, zet), this function calculates the geometric
  * properties of the cell faces aligned with the i, j, and k directions.
  *
- * @param csi, eta, zet  The metric vectors at the cell center.
- * @param ni  Output: A 3-element array for the unit normal vector of the i-face.
- * @param nj  Output: A 3-element array for the unit normal vector of the j-face.
- * @param nk  Output: A 3-element array for the unit normal vector of the k-face.
- * @param Ai  Output: Pointer to store the area of the i-face.
- * @param Aj  Output: Pointer to store the area of the j-face.
- * @param Ak  Output: Pointer to store the area of the k-face.
+ * @param csi Parameter `csi` passed to `CalculateFaceNormalAndArea()`.
+ * @param eta Parameter `eta` passed to `CalculateFaceNormalAndArea()`.
+ * @param zet Parameter `zet` passed to `CalculateFaceNormalAndArea()`.
+ * @param ni Output:
+ * @param nj Output:
+ * @param nk Output:
+ * @param Ai Output:
+ * @param Aj Output:
+ * @param Ak Output:
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak);
@@ -65,11 +116,13 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
  * computes an effective length scale in each Cartesian direction based on the cell
  * volume and the areas of its faces.
  *
- * @param ajc       The Jacobian of the grid transformation (1 / cell volume).
- * @param csi, eta, zet  The metric vectors at the cell center.
- * @param dx             Output: Pointer to store the characteristic length in the x-direction.
- * @param dy             Output: Pointer to store the characteristic length in the y-direction.
- * @param dz             Output: Pointer to store the characteristic length in the z-direction.
+ * @param ajc The
+ * @param csi Parameter `csi` passed to `ComputeCellCharacteristicLengthScale()`.
+ * @param eta Parameter `eta` passed to `ComputeCellCharacteristicLengthScale()`.
+ * @param zet Parameter `zet` passed to `ComputeCellCharacteristicLengthScale()`.
+ * @param dx Output:
+ * @param dy Output:
+ * @param dz Output:
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz);

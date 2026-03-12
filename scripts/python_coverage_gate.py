@@ -17,12 +17,19 @@ DEFAULT_TARGETS = [
 
 
 def normalize_path(path: str | Path) -> str:
-    """Normalize path."""
+    """!
+    @brief Normalize path.
+    @param[in] path Filesystem path argument passed to `normalize_path()`.
+    @return Value returned by `normalize_path()`.
+    """
     return str(Path(path).resolve())
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse args."""
+    """!
+    @brief Parse args.
+    @return Value returned by `parse_args()`.
+    """
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -63,7 +70,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_trace_ignoredirs() -> list[str]:
-    """Build trace ignoredirs."""
+    """!
+    @brief Build trace ignoredirs.
+    @return Value returned by `build_trace_ignoredirs()`.
+    """
     ignoredirs = {
         normalize_path(sys.prefix),
         normalize_path(sys.exec_prefix),
@@ -82,7 +92,11 @@ def build_trace_ignoredirs() -> list[str]:
 
 
 def collect_counts(results: trace.CoverageResults) -> dict[str, dict[int, int]]:
-    """Collect counts."""
+    """!
+    @brief Collect counts.
+    @param[in] results Argument passed to `collect_counts()`.
+    @return Value returned by `collect_counts()`.
+    """
     counts_by_file: dict[str, dict[int, int]] = {}
     for (filename, lineno), count in results.counts.items():
         file_key = normalize_path(filename)
@@ -91,7 +105,12 @@ def collect_counts(results: trace.CoverageResults) -> dict[str, dict[int, int]]:
 
 
 def compute_file_coverage(target: Path, counts_by_file: dict[str, dict[int, int]]) -> tuple[int, int, float]:
-    """Compute file coverage."""
+    """!
+    @brief Compute file coverage.
+    @param[in] target Argument passed to `compute_file_coverage()`.
+    @param[in] counts_by_file Argument passed to `compute_file_coverage()`.
+    @return Value returned by `compute_file_coverage()`.
+    """
     finder = getattr(trace, "find_executable_linenos", None)
     if finder is None:
         finder = trace._find_executable_linenos  # type: ignore[attr-defined]
@@ -108,7 +127,10 @@ def compute_file_coverage(target: Path, counts_by_file: dict[str, dict[int, int]
 
 
 def main() -> int:
-    """Entry point for this script."""
+    """!
+    @brief Entry point for this script.
+    @return Value returned by `main()`.
+    """
     args = parse_args()
     output_dir = (REPO_ROOT / args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -38,6 +38,18 @@ Generate only (no submission):
 ./bin/picurv run ... --cluster <cluster.yml> --no-submit
 ```
 
+Submit existing staged artifacts later:
+
+```bash
+./bin/picurv submit --run-dir runs/<run_id>
+```
+
+Stop a submitted run by directory:
+
+```bash
+./bin/picurv cancel --run-dir runs/<run_id>
+```
+
 Explicit scheduler cross-check (optional):
 
 ```bash
@@ -65,14 +77,15 @@ In run directory, scheduler generation typically produces:
 - `runs/<run_id>/scheduler/submission.json` (always in cluster mode when run artifacts are written; contains launch metadata and submission IDs when present)
 
 These coexist with standard runtime control artifacts used by solver/postprocessor binaries.
+`submission.json` is also the run-directory contract consumed by `picurv submit` and `picurv cancel`.
 
 @section p36_flow_sec 4. Submission Flow
 
 1. YAML validation and contract checks,
 2. run directory + control artifact generation,
 3. sbatch script rendering from scheduler settings,
-4. optional solver submission (`solver.sbatch`),
-5. optional post submission (`post.sbatch`), with `afterok:<solver_jobid>` dependency when solve+post are both requested in one command.
+4. optional solver submission (`solver.sbatch`) immediately, or later via `picurv submit --run-dir ...`,
+5. optional post submission (`post.sbatch`), with `afterok:<solver_jobid>` dependency when solve+post are both requested in one command or when `submit --stage all` is used.
 
 This allows consistent local dry-run and cluster production flow from the same inputs.
 
@@ -82,6 +95,7 @@ This allows consistent local dry-run and cluster production flow from the same i
 - Keep cluster defaults in reusable templates (`examples/master_template/master_cluster.yml`).
 - For personal cluster copies, prefer local operational files such as `short_job.local.yml` / `long_job.local.yml` instead of committing account/module-specific scheduler profiles.
 - If queue policies differ by partition/account, encode them in `cluster.yml` instead of editing generated scripts manually.
+- If you need one last output before walltime, request an early signal in `cluster.yml`: `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
 - Solver stage uses `cluster.yml` resources directly.
 - Post stage defaults to single-task scheduling (`nodes=1`, `ntasks_per_node=1`) in generated `post.sbatch`.
 - Slurm stdout/stderr lives under `scheduler/`; solver-generated runtime logs still live under `logs/`.
@@ -92,6 +106,7 @@ This allows consistent local dry-run and cluster production flow from the same i
   - allowed values are `1` (auto) or exactly `nodes * ntasks_per_node`.
   - any other value is rejected as an inconsistent configuration combo.
 - use `picurv run --dry-run --format json` before submission when integrating with external launch wrappers.
+- for new profiles, the safest operational loop is `--dry-run`, then `--no-submit`, then `submit --run-dir ...`.
 
 See also:
 

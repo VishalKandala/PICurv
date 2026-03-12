@@ -4,6 +4,8 @@ PICurv testing is intentionally layered: Python control-plane validation, PETSc 
 
 ## Canonical Targets
 
+- repository/doc contract:
+  - `python3 scripts/audit_function_docs.py`
 - Python and coverage:
   - `make test-python` (`make test` alias)
   - `make coverage-python`
@@ -56,6 +58,7 @@ PICurv testing is intentionally layered: Python control-plane validation, PETSc 
 - `test_repo_consistency.py`
   - validates example bundles and study bundles via `picurv validate`
   - scans docs/examples/tests for stale/forbidden contract literals
+  - wraps the repository-wide function documentation audit script
 
 ## C Unit Files (`tests/c/test_*.c`)
 
@@ -109,6 +112,8 @@ Useful env knobs:
 
 - editing `scripts/picurv` or YAML contracts:
   - `make test-python`
+- editing C/Python functions or helper/test docstrings:
+  - `python3 scripts/audit_function_docs.py`
 - editing one C subsystem:
   - targeted `make unit-<area>`
 - editing runtime orchestration, restart, or output contracts:
@@ -122,6 +127,7 @@ Useful env knobs:
 ## Notes
 
 - Python tests do not require PETSc.
+- GitHub Actions quality CI runs `python scripts/audit_function_docs.py`, then `pytest -q`, then markdown link checks.
 - `doctor`, `unit-*`, `smoke*`, `check*`, and `coverage-c` require PETSc/MPI tooling.
 - `check-full` is the single-command comprehensive gate (`check` + `unit-mpi` + `smoke-mpi` + `smoke-mpi-matrix`).
 - compatibility aliases (`install-check`, `ctest-*`) still exist, but canonical names are preferred in docs and CI.

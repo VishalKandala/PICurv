@@ -24,6 +24,8 @@ Primary commands:
 - `status-source`
 - `run`
 - `summarize`
+- `submit`
+- `cancel`
 - `sweep`
 - `validate`
 
@@ -45,6 +47,8 @@ Help:
 ./bin/picurv status-source --help
 ./bin/picurv run --help
 ./bin/picurv summarize --help
+./bin/picurv submit --help
+./bin/picurv cancel --help
 ./bin/picurv sweep --help
 ./bin/picurv validate --help
 ```
@@ -221,6 +225,16 @@ Slurm example (generate only):
   --no-submit
 ```
 
+Follow-up submission from existing artifacts:
+```bash
+./bin/picurv submit --run-dir runs/<run_id>
+```
+
+Graceful shutdown note:
+
+- if `cluster.yml -> execution.extra_sbatch.signal` requests an early warning signal, PICurv traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes one last snapshot at the next safe checkpoint even when the normal recording interval has not been reached.
+- use `signal: "USR1@300"` for `srun`-launched jobs, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
+
 Runtime stream logs:
 
 - C-managed logs remain under `runs/<run_id>/logs/`.
@@ -282,9 +296,66 @@ Common `run` use cases:
 - solver-only run: `--solve`
 - post-only rerun on an existing run directory: `--post-process --run-dir ...`
 - cluster script generation without submit: `--cluster ... --no-submit`
+- delayed submission of an already-staged run: `submit --run-dir ...`
 - planning and CI-style checks: `--dry-run`
 
-@section p05_sweep_sec 5. sweep: Parameter Study via Slurm Arrays
+@section p05_submit_sec 5b. submit: Submit Existing Slurm Artifacts
+
+```bash
+./bin/picurv submit [--run-dir <run_dir> | --study-dir <study_dir>] \
+  [--stage {all,solve,post-process}] [--force] [--dry-run]
+```
+
+Behavior:
+
+- consumes existing `--no-submit` artifacts without regenerating configs or scripts,
+- reads `scheduler/submission.json` to locate the staged Slurm scripts,
+- submits `solve`, `post-process`, or both,
+- wires the post stage dependency automatically when `all` is selected,
+- refuses re-submission unless `--force` is explicitly provided.
+
+Examples:
+
+```bash
+./bin/picurv submit --run-dir runs/my_case_20260310-120000
+./bin/picurv submit --run-dir runs/my_case_20260310-120000 --stage solve
+./bin/picurv submit --study-dir studies/my_study_20260310-120000 --dry-run
+```
+
+Notes:
+
+- works only for Slurm-staged artifacts,
+- `--dry-run` prints the exact `sbatch` plan,
+- `--force` is the opt-in path for deliberate resubmission.
+
+@section p05_cancel_sec 5c. cancel: Stop A Slurm Run By Run Directory
+
+```bash
+./bin/picurv cancel --run-dir <run_dir> [--stage {all,solve,post-process}] [--dry-run]
+```
+
+Behavior:
+
+- reads `scheduler/submission.json` from an existing run directory,
+- resolves the recorded Slurm job IDs for `solve` and/or `post-process`,
+- runs `scancel` for the selected stage set,
+- avoids manual job-id lookup when the run directory is already known.
+
+Examples:
+
+```bash
+./bin/picurv cancel --run-dir runs/my_case_20260310-120000
+./bin/picurv cancel --run-dir runs/my_case_20260310-120000 --stage solve
+./bin/picurv cancel --run-dir runs/my_case_20260310-120000 --dry-run
+```
+
+Notes:
+
+- works only for Slurm-submitted runs that have `scheduler/submission.json`,
+- does not apply to local runs,
+- `--dry-run` is useful when you want to confirm the recorded stage/job mapping first.
+
+@section p05_sweep_sec 6. sweep: Parameter Study via Slurm Arrays
 
 ```bash
 ./bin/picurv sweep \
@@ -299,7 +370,7 @@ Behavior:
 - submits post array with `afterok:<solver_jobid>` dependency (unless `--no-submit`)
 - aggregates metrics and emits plots in `studies/<study_id>/results/`
 
-@section p05_validate_sec 6. validate: Config-Only Checks
+@section p05_validate_sec 7. validate: Config-Only Checks
 
 ```bash
 ./bin/picurv validate \
@@ -318,7 +389,7 @@ What `validate` is for:
 - catch mode-dependent contract errors before the C runtime,
 - inspect warnings where `picurv` preserves a C-side default intentionally.
 
-@section p05_command_matrix_sec 7. Full Command and Option Matrix
+@section p05_command_matrix_sec 8. Full Command and Option Matrix
 
 This section is intentionally exhaustive and mirrors the current `argparse` contract in `scripts/picurv`.
 Use it as the authoritative option reference when writing docs, examples, wrappers, or CI jobs.
@@ -352,6 +423,21 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
   - `--study <path>`
 - stricter policy:
   - `--strict` (adds additional checks for selected roles; documented below)
+
+`submit`:
+- required:
+  - exactly one of `--run-dir <path>` or `--study-dir <path>`
+- optional:
+  - `--stage {all,solve,post-process}`
+  - `--force`
+  - `--dry-run`
+
+`cancel`:
+- required:
+  - `--run-dir <path>`
+- optional:
+  - `--stage {all,solve,post-process}`
+  - `--dry-run`
 
 `sweep`:
 - required:

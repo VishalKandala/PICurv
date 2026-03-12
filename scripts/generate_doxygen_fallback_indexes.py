@@ -20,17 +20,29 @@ TYPEDEF_END_RE = re.compile(r"^\s*}\s*([A-Za-z_]\w*)\s*;")
 
 
 def doxygen_file_page(name: str) -> str:
-    """Perform doxygen file page."""
+    """!
+    @brief Perform doxygen file page.
+    @param[in] name Argument passed to `doxygen_file_page()`.
+    @return Value returned by `doxygen_file_page()`.
+    """
     return name.replace("_", "__").replace(".", "_8") + ".html"
 
 
 def doxygen_file_page_with_path(rel_path: str) -> str:
-    """Perform doxygen file page with path."""
+    """!
+    @brief Perform doxygen file page with path.
+    @param[in] rel_path Argument passed to `doxygen_file_page_with_path()`.
+    @return Value returned by `doxygen_file_page_with_path()`.
+    """
     return rel_path.replace("_", "__").replace("/", "_2").replace(".", "_8") + ".html"
 
 
 def needs_files_fallback(path: Path) -> bool:
-    """Perform needs files fallback."""
+    """!
+    @brief Perform needs files fallback.
+    @param[in] path Filesystem path argument passed to `needs_files_fallback()`.
+    @return Value returned by `needs_files_fallback()`.
+    """
     if not path.exists():
         return True
     text = path.read_text(encoding="utf-8", errors="ignore")
@@ -38,7 +50,11 @@ def needs_files_fallback(path: Path) -> bool:
 
 
 def needs_structs_fallback(path: Path) -> bool:
-    """Perform needs structs fallback."""
+    """!
+    @brief Perform needs structs fallback.
+    @param[in] path Filesystem path argument passed to `needs_structs_fallback()`.
+    @return Value returned by `needs_structs_fallback()`.
+    """
     if not path.exists():
         return True
     text = path.read_text(encoding="utf-8", errors="ignore")
@@ -46,7 +62,12 @@ def needs_structs_fallback(path: Path) -> bool:
 
 
 def resolve_doxygen_file_href(html_dir: Path, rel_path: str) -> str:
-    """Resolve doxygen file href."""
+    """!
+    @brief Resolve doxygen file href.
+    @param[in] html_dir Argument passed to `resolve_doxygen_file_href()`.
+    @param[in] rel_path Argument passed to `resolve_doxygen_file_href()`.
+    @return Value returned by `resolve_doxygen_file_href()`.
+    """
     name = Path(rel_path).name
     candidate = doxygen_file_page(name)
     if (html_dir / candidate).exists():
@@ -58,12 +79,23 @@ def resolve_doxygen_file_href(html_dir: Path, rel_path: str) -> str:
 
 
 def make_repo_href(rel_path: str) -> str:
-    """Perform make repo href."""
+    """!
+    @brief Perform make repo href.
+    @param[in] rel_path Argument passed to `make_repo_href()`.
+    @return Value returned by `make_repo_href()`.
+    """
     return REPO_BLOB_URL + rel_path
 
 
 def collect_file_rows(repo_root: Path, html_dir: Path, base_dir: str, suffixes: set[str]) -> list[tuple[str, str, str]]:
-    """Collect file rows."""
+    """!
+    @brief Collect file rows.
+    @param[in] repo_root Argument passed to `collect_file_rows()`.
+    @param[in] html_dir Argument passed to `collect_file_rows()`.
+    @param[in] base_dir Argument passed to `collect_file_rows()`.
+    @param[in] suffixes Argument passed to `collect_file_rows()`.
+    @return Value returned by `collect_file_rows()`.
+    """
     rows: list[tuple[str, str, str]] = []
     root = repo_root / base_dir
     if not root.exists():
@@ -80,7 +112,12 @@ def collect_file_rows(repo_root: Path, html_dir: Path, base_dir: str, suffixes: 
 
 
 def collect_all_source_like_files(repo_root: Path, html_dir: Path) -> list[tuple[str, str, str]]:
-    """Collect all source like files."""
+    """!
+    @brief Collect all source like files.
+    @param[in] repo_root Argument passed to `collect_all_source_like_files()`.
+    @param[in] html_dir Argument passed to `collect_all_source_like_files()`.
+    @return Value returned by `collect_all_source_like_files()`.
+    """
     rows: list[tuple[str, str, str]] = []
     rows.extend(collect_file_rows(repo_root, html_dir, "include", HEADER_SUFFIXES))
     rows.extend(collect_file_rows(repo_root, html_dir, "src", SOURCE_SUFFIXES))
@@ -89,7 +126,12 @@ def collect_all_source_like_files(repo_root: Path, html_dir: Path) -> list[tuple
 
 
 def collect_struct_rows(repo_root: Path, html_dir: Path) -> list[tuple[str, str, str]]:
-    """Collect struct rows."""
+    """!
+    @brief Collect struct rows.
+    @param[in] repo_root Argument passed to `collect_struct_rows()`.
+    @param[in] html_dir Argument passed to `collect_struct_rows()`.
+    @return Value returned by `collect_struct_rows()`.
+    """
     struct_to_header: dict[str, str] = {}
     include_dir = repo_root / "include"
     if not include_dir.exists():
@@ -116,7 +158,11 @@ def collect_struct_rows(repo_root: Path, html_dir: Path) -> list[tuple[str, str,
 
 
 def extract_struct_names(text: str) -> set[str]:
-    """Extract struct names."""
+    """!
+    @brief Extract struct names.
+    @param[in] text Argument passed to `extract_struct_names()`.
+    @return Value returned by `extract_struct_names()`.
+    """
     names: set[str] = set()
 
     for match in NAMED_STRUCT_RE.finditer(text):
@@ -152,7 +198,11 @@ def extract_struct_names(text: str) -> set[str]:
 
 
 def categorize_struct(name: str) -> str:
-    """Categorize struct."""
+    """!
+    @brief Categorize struct.
+    @param[in] name Argument passed to `categorize_struct()`.
+    @return Value returned by `categorize_struct()`.
+    """
     if name.startswith("BC") or "Boundary" in name or name == "FlowWave":
         return "Boundary Condition System"
     if name.startswith("IBM") or name in {"FSInfo", "SurfElmtInfo", "Cstart"}:
@@ -169,7 +219,12 @@ def categorize_struct(name: str) -> str:
 
 
 def render_link(label: str, href: str) -> str:
-    """Render link."""
+    """!
+    @brief Render link.
+    @param[in] label Argument passed to `render_link()`.
+    @param[in] href Argument passed to `render_link()`.
+    @return Value returned by `render_link()`.
+    """
     label_esc = html.escape(label)
     href_esc = html.escape(href)
     if href.startswith("http"):
@@ -178,7 +233,12 @@ def render_link(label: str, href: str) -> str:
 
 
 def render_rows(rows: list[tuple[str, str, str]], empty_msg: str) -> str:
-    """Render rows."""
+    """!
+    @brief Render rows.
+    @param[in] rows Argument passed to `render_rows()`.
+    @param[in] empty_msg Argument passed to `render_rows()`.
+    @return Value returned by `render_rows()`.
+    """
     if not rows:
         return f"<tr><td colspan='2'>{html.escape(empty_msg)}</td></tr>"
     out: list[str] = []
@@ -193,7 +253,12 @@ def render_rows(rows: list[tuple[str, str, str]], empty_msg: str) -> str:
 
 
 def section_table(title: str, rows_html: str) -> str:
-    """Perform section table."""
+    """!
+    @brief Perform section table.
+    @param[in] title Argument passed to `section_table()`.
+    @param[in] rows_html Argument passed to `section_table()`.
+    @return Value returned by `section_table()`.
+    """
     return (
         f"<h2>{html.escape(title)}</h2>\n"
         "<table class='doxtable'>\n"
@@ -204,7 +269,13 @@ def section_table(title: str, rows_html: str) -> str:
 
 
 def render_page(title: str, intro: str, body_html: str) -> str:
-    """Render page."""
+    """!
+    @brief Render page.
+    @param[in] title Argument passed to `render_page()`.
+    @param[in] intro Argument passed to `render_page()`.
+    @param[in] body_html Argument passed to `render_page()`.
+    @return Value returned by `render_page()`.
+    """
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -230,7 +301,11 @@ def render_page(title: str, intro: str, body_html: str) -> str:
 
 
 def write_structured_file_index(repo_root: Path, html_dir: Path) -> None:
-    """Write structured file index."""
+    """!
+    @brief Write structured file index.
+    @param[in] repo_root Argument passed to `write_structured_file_index()`.
+    @param[in] html_dir Argument passed to `write_structured_file_index()`.
+    """
     headers = collect_file_rows(repo_root, html_dir, "include", HEADER_SUFFIXES)
     sources = collect_file_rows(repo_root, html_dir, "src", SOURCE_SUFFIXES)
     scripts = collect_file_rows(repo_root, html_dir, "scripts", SCRIPT_SUFFIXES)
@@ -252,7 +327,11 @@ def write_structured_file_index(repo_root: Path, html_dir: Path) -> None:
 
 
 def write_structured_struct_index(repo_root: Path, html_dir: Path) -> None:
-    """Write structured struct index."""
+    """!
+    @brief Write structured struct index.
+    @param[in] repo_root Argument passed to `write_structured_struct_index()`.
+    @param[in] html_dir Argument passed to `write_structured_struct_index()`.
+    """
     rows = collect_struct_rows(repo_root, html_dir)
     grouped: dict[str, list[tuple[str, str, str]]] = {}
     for row in rows:
@@ -288,7 +367,11 @@ def write_structured_struct_index(repo_root: Path, html_dir: Path) -> None:
 
 
 def write_fallback_files_page(repo_root: Path, html_dir: Path) -> None:
-    """Write fallback files page."""
+    """!
+    @brief Write fallback files page.
+    @param[in] repo_root Argument passed to `write_fallback_files_page()`.
+    @param[in] html_dir Argument passed to `write_fallback_files_page()`.
+    """
     rows = collect_all_source_like_files(repo_root, html_dir)
     body = section_table("Files", render_rows(rows, "No source-like files found."))
     out = html_dir / "files.html"
@@ -304,7 +387,11 @@ def write_fallback_files_page(repo_root: Path, html_dir: Path) -> None:
 
 
 def write_fallback_struct_page(repo_root: Path, html_dir: Path) -> None:
-    """Write fallback struct page."""
+    """!
+    @brief Write fallback struct page.
+    @param[in] repo_root Argument passed to `write_fallback_struct_page()`.
+    @param[in] html_dir Argument passed to `write_fallback_struct_page()`.
+    """
     rows = collect_struct_rows(repo_root, html_dir)
     body = section_table("Data Structures", render_rows(rows, "No C struct declarations found."))
     out = html_dir / "annotated.html"
@@ -320,7 +407,10 @@ def write_fallback_struct_page(repo_root: Path, html_dir: Path) -> None:
 
 
 def main() -> int:
-    """Entry point for this script."""
+    """!
+    @brief Entry point for this script.
+    @return Value returned by `main()`.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Generate structured Doxygen index pages and fallback replacements when\n"

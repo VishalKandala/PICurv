@@ -14,6 +14,10 @@ static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta);
 //                 IMPLEMENTATION OF PRIVATE HELPERS
 //================================================================================
 
+/**
+ * @brief Internal helper implementation: `WriteVTKAppendedBlock()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode WriteVTKAppendedBlock(FILE *fp, const void *data, PetscInt num_elements, size_t element_size) {
     uint32_t block_size = num_elements * (uint32_t)element_size;
     if (fwrite(&block_size, sizeof(uint32_t), 1, fp) != 1) return PETSC_ERR_FILE_WRITE;
@@ -21,6 +25,10 @@ static PetscErrorCode WriteVTKAppendedBlock(FILE *fp, const void *data, PetscInt
     return 0;
 }
 
+/**
+ * @brief Internal helper implementation: `WriteVTSXMLHeader()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
     const char *byte_order = "LittleEndian";
@@ -57,6 +65,10 @@ static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
     return 0;
 }
 
+/**
+ * @brief Internal helper implementation: `WriteVTPXMLHeader()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
     const char *byte_order = "LittleEndian";
@@ -103,6 +115,10 @@ static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
     return 0;
 }
 
+/**
+ * @brief Internal helper implementation: `WriteVTKFileHeader()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
     if (meta->fileType == VTK_STRUCTURED) {
@@ -113,6 +129,10 @@ static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, Pets
     return PETSC_ERR_ARG_WRONG;
 }
 
+/**
+ * @brief Internal helper implementation: `WriteVTKFileFooter()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta)
 {
     (void)meta;

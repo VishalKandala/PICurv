@@ -15,7 +15,10 @@ import sys
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse wrapper CLI arguments."""
+    """!
+    @brief Parse wrapper CLI arguments.
+    @return Value returned by `parse_args()`.
+    """
     parser = argparse.ArgumentParser(
         description="Convert a legacy 1D-axis grid payload into canonical PICGRID format.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -49,7 +52,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    """Entry point."""
+    """!
+    @brief Entry point.
+    @return Value returned by `main()`.
+    """
     args = parse_args()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     gridgen = os.path.join(script_dir, "grid.gen")

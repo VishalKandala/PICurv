@@ -10,6 +10,10 @@
 
 static volatile sig_atomic_t g_runtime_shutdown_signal = 0;
 
+/**
+ * @brief Internal helper implementation: `RuntimeShutdownSignalHandler()`.
+ * @details Local to this translation unit.
+ */
 static void RuntimeShutdownSignalHandler(int signum)
 {
     if (g_runtime_shutdown_signal == 0) {
@@ -17,16 +21,28 @@ static void RuntimeShutdownSignalHandler(int signum)
     }
 }
 
+/**
+ * @brief Internal helper implementation: `RuntimeShutdownRequested()`.
+ * @details Local to this translation unit.
+ */
 static PetscBool RuntimeShutdownRequested(void)
 {
     return (PetscBool)(g_runtime_shutdown_signal != 0);
 }
 
+/**
+ * @brief Internal helper implementation: `RuntimeShutdownSignal()`.
+ * @details Local to this translation unit.
+ */
 static PetscInt RuntimeShutdownSignal(void)
 {
     return (PetscInt)g_runtime_shutdown_signal;
 }
 
+/**
+ * @brief Internal helper implementation: `RuntimeShutdownSignalName()`.
+ * @details Local to this translation unit.
+ */
 static const char *RuntimeShutdownSignalName(PetscInt signum)
 {
     switch (signum) {
@@ -43,6 +59,10 @@ static const char *RuntimeShutdownSignalName(PetscInt signum)
     }
 }
 
+/**
+ * @brief Internal helper implementation: `RegisterRuntimeSignalHandler()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode RegisterRuntimeSignalHandler(int signum)
 {
     struct sigaction action;
@@ -62,6 +82,12 @@ static PetscErrorCode RegisterRuntimeSignalHandler(int signum)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Implementation of \ref InitializeRuntimeSignalHandlers().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the matching public header declaration.
+ * @see InitializeRuntimeSignalHandlers()
+ */
 PetscErrorCode InitializeRuntimeSignalHandlers(void)
 {
     PetscErrorCode ierr;
@@ -82,6 +108,10 @@ PetscErrorCode InitializeRuntimeSignalHandlers(void)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Internal helper implementation: `WriteForcedTerminationOutput()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user, const char *phase)
 {
     PetscErrorCode ierr;

@@ -854,6 +854,10 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
 
 #undef __FUNCT__
 #define __FUNCT__ "SetupSolverParameters"
+/**
+ * @brief Internal helper implementation: `SetupSolverParameters()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode SetupSolverParameters(SimCtx *simCtx){
   
   PetscFunctionBeginUser;
@@ -2242,6 +2246,10 @@ PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 
 }
 
 
+/**
+ * @brief Internal helper implementation: `Gidx()`.
+ * @details Local to this translation unit.
+ */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 {
   PetscInt nidx;

@@ -1915,6 +1915,10 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Internal helper implementation: `Gidx()`.
+ * @details Local to this translation unit.
+ */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 {
   PetscInt nidx;

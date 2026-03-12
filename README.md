@@ -12,6 +12,8 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`)
 - YAML-driven orchestration through the conductor (`./scripts/picurv`, installed to `./bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
+- Staged Slurm workflows with `--no-submit`, delayed `submit`, and run-directory-based `cancel`
+- Graceful final snapshot writes on early shutdown signals (`SIGUSR1`, `SIGTERM`, `SIGINT`) at safe checkpoints
 - Parameter sweep orchestration with Slurm arrays (`study.yml`)
 - Solver and postprocessor executables from one build system
 
@@ -122,12 +124,45 @@ Run on a cluster (Slurm):
   --cluster my_case/slurm_cluster.yml
 ```
 
+Stage scripts first, then submit later from the generated run directory:
+```bash
+./bin/picurv run --solve --post-process \
+  --case my_case/flat_channel.yml \
+  --solver my_case/Imp-MG-Standard.yml \
+  --monitor my_case/Standard_Output.yml \
+  --post my_case/standard_analysis.yml \
+  --cluster my_case/slurm_cluster.yml \
+  --no-submit
+
+./bin/picurv submit --run-dir runs/<run_id>
+./bin/picurv cancel --run-dir runs/<run_id> --stage solve
+```
+
 Launch a sweep study:
 ```bash
 ./bin/picurv sweep \
   --study my_case/grid_independence_study.yml \
   --cluster my_case/slurm_cluster.yml
 ```
+
+If a study was staged with `--no-submit`, submit it later with:
+
+```bash
+./bin/picurv submit --study-dir studies/<study_id>
+```
+
+If you want one last output snapshot before a walltime stop, request an early Slurm signal in
+`cluster.yml`:
+
+```yaml
+execution:
+  extra_sbatch:
+    signal: "USR1@300"
+```
+
+Use `USR1@300` for `srun`-launched jobs. If your batch script launches `mpirun` directly, use
+`signal: "B:USR1@300"` and prefer `exec mpirun ...` so the signal reaches `mpirun` and is
+forwarded to all ranks.
 
 ## CLI Option References
 
@@ -136,6 +171,8 @@ For exact current options, always use script-local help:
 ```bash
 ./bin/picurv --help
 ./bin/picurv run --help
+./bin/picurv submit --help
+./bin/picurv cancel --help
 ./bin/picurv validate --help
 ./bin/picurv sweep --help
 python3 scripts/grid.gen --help
@@ -220,6 +257,7 @@ Compatibility aliases:
 Quick-start commands:
 
 ```bash
+python3 scripts/audit_function_docs.py
 make test
 make doctor
 make unit-io
@@ -231,6 +269,11 @@ make check-full
 ```
 
 Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-*` while iterating on a subsystem. Use `make smoke` to run template-matrix init/validate/dry-run coverage across `flat_channel`, `bent_channel`, and `brownian_motion` plus tiny real runtime workflows (flat with/without particles, bent-channel solve/post, restart `load/init`, restart-equivalence split-vs-continuous, analytical Brownian). Use `make smoke-mpi` for multi-rank runtime smoke on flat+bent plus flat particle/restart branches, and `make smoke-mpi-matrix` for rank-sweep runtime smoke. Use `make coverage` for line-coverage gates. Use `make check` at the end of a development cycle, `make check-mpi`/`make check-mpi-matrix` when multi-rank assertions are in scope, and `make check-full` before release tagging.
+
+Repository contract note:
+
+- `python3 scripts/audit_function_docs.py` enforces Doxygen-style function documentation coverage for C and Python code, including tests.
+- GitHub Actions now runs that audit explicitly before `pytest -q`, then runs markdown link checks on pull requests and pushes to `main`.
 
 Detailed guide:
 - https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html

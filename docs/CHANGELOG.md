@@ -41,11 +41,19 @@
 
 - Cluster orchestration and sweeps:
   - added `cluster.yml` Slurm contract support to `picurv run` (`--cluster`, `--scheduler`, `--no-submit`).
+  - added `picurv submit` as the delayed-submit counterpart to `--no-submit` for existing run/study artifacts.
+  - added `picurv cancel` so Slurm jobs can be stopped by `--run-dir` instead of manual job-id lookup.
   - added scheduler artifact generation and submission metadata (`solver.sbatch`, `post.sbatch`, `submission.json`, `manifest.json`).
   - added `picurv sweep` for parameter studies using Slurm job arrays with post-stage dependency chaining.
   - added study aggregation outputs (`metrics_table.csv`, `results/plots`, `summary.json`).
   - added templates: `master_cluster.yml`, `master_study.yml`.
   - added docs pages: cluster run guide and sweep/study guide.
+  - documented signal-triggered final snapshot writes for impending walltime/termination handling (`SIGUSR1`, `SIGTERM`, `SIGINT`) with launcher-specific Slurm signal guidance.
+
+- Documentation enforcement and CI:
+  - enforced function-level Doxygen-compatible coverage across C product code, C tests, Python product scripts, and Python tests.
+  - added `scripts/audit_function_docs.py` as the repository-wide audit gate.
+  - wired the audit into repository consistency tests and the GitHub Actions quality workflow as an explicit pre-pytest step.
 
 - Run inspection and local log routing:
   - added `picurv summarize` for read-only per-step health summaries derived from existing run artifacts.

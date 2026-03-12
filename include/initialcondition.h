@@ -55,6 +55,9 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName);
  * restart from saved files. It then delegates to the appropriate helper function.
  * Finally, it initializes the solver's history vectors (Ucont_o, P_o, etc.)
  * to ensure the first time step has the necessary data.
+ *
+ * @param simCtx Simulation context controlling the operation.
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode InitializeEulerianState(SimCtx *simCtx);
 

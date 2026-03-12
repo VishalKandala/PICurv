@@ -70,6 +70,7 @@ Practical interpretation:
 
 - if validation succeeds but runtime is wrong, inspect `config/` first,
 - if scheduler behavior is wrong, inspect `scheduler/solver.sbatch` or `scheduler/post.sbatch`,
+- `scheduler/submission.json` is the source of truth for delayed `submit` and run-directory-based `cancel`,
 - if restart/post-only behavior is wrong, confirm the previous run directory contents before changing YAML again.
 
 @section p52_launchers_sec 4. Local, Login-Node, and Batch Launch Resolution
@@ -170,7 +171,8 @@ Recommended operational pattern:
 
 1. `--dry-run` to confirm launch commands and artifact paths
 2. `--no-submit` to inspect generated batch scripts
-3. full submit only after the scripts look correct
+3. `picurv submit --run-dir runs/<run_id>` only after the scripts look correct
+4. `picurv cancel --run-dir runs/<run_id>` when you need to stop a submitted stage without separate job-id bookkeeping
 
 This is especially useful when changing:
 
@@ -179,6 +181,15 @@ This is especially useful when changing:
 - queue/account settings,
 - restart or post-only job behavior.
 
+Operational examples:
+
+```bash
+./bin/picurv submit --run-dir runs/<run_id>
+./bin/picurv cancel --run-dir runs/<run_id> --stage solve
+```
+
+If the cluster profile requests an early signal, PICurv traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes one last output snapshot at the next safe checkpoint before exiting cleanly. Use `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
+
 @section p52_rules_sec 8. Safe Rules Of Thumb
 
 - Treat `runs/<run_id>/config/` as the ground truth for what the binaries actually consumed.
@@ -186,6 +197,7 @@ This is especially useful when changing:
 - Use a fresh restarted run instead of overwriting the previous run directory.
 - Use post-only reruns when analysis changes but solver data do not.
 - Keep site launcher policy in `.picurv-execution.yml`; keep scheduler policy in `cluster.yml`.
+- Keep the shutdown warning window longer than the slowest expected timestep if you rely on the final-snapshot signal path.
 
 @section p52_refs_sec 9. Related Pages
 

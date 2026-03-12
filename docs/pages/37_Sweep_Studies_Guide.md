@@ -28,6 +28,12 @@ Optional generation-only mode:
 ./bin/picurv sweep --study <study.yml> --cluster <cluster.yml> --no-submit
 ```
 
+Delayed submit from existing staged study artifacts:
+
+```bash
+./bin/picurv submit --study-dir studies/<study_id>
+```
+
 There is no dedicated `--dry-run` flag on `sweep`; use `--no-submit` for non-submitting artifact generation.
 
 @section p37_contract_sec 3. Study Contract Essentials
@@ -73,7 +79,7 @@ Recommended workflow:
 
 1. run a tiny subset locally or with `--no-submit`,
 2. verify parameter substitution and metric extraction,
-3. launch full array,
+3. launch full array, either directly with `picurv sweep ...` or later with `picurv submit --study-dir ...`,
 4. inspect aggregate outputs,
 5. archive the exact study file with results for reproducibility.
 
@@ -84,6 +90,7 @@ Implementation details worth knowing:
 - case expansion uses cartesian product over all `parameters.*` lists.
 - generated case configs are revalidated through the same solver/post validators used by `picurv run`.
 - post array submission depends on solver array completion (`afterok:<jobid>`) unless `--no-submit` is used.
+- `scheduler/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.
 - generator/file grid external paths are rewritten to absolute paths during case materialization so they remain valid in `studies/<study_id>/cases/...`.
 
 @section p37_refs_sec 6. Related Pages

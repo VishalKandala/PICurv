@@ -516,6 +516,10 @@ PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscI
 }
 
 
+/**
+ * @brief Internal helper implementation: `trim()`.
+ * @details Local to this translation unit.
+ */
 static void trim(char *s)
 {
     if (!s) return;
@@ -949,6 +953,10 @@ static PetscInt g_profiler_count = 0;
 static PetscInt g_profiler_capacity = 0;
 
 // Internal helper to find a function in the registry or create it
+/**
+ * @brief Internal helper implementation: `_FindOrCreateEntry()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode _FindOrCreateEntry(const char *func_name, PetscInt *idx)
 {
     PetscFunctionBeginUser;
@@ -1132,6 +1140,10 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
 }
 
 // Comparison function for qsort to sort by total_time in descending order
+/**
+ * @brief Internal helper implementation: `_CompareProfiledFunctions()`.
+ * @details Local to this translation unit.
+ */
 static int _CompareProfiledFunctions(const void *a, const void *b)
 {
     const ProfiledFunction *func_a = (const ProfiledFunction *)a;

@@ -86,6 +86,11 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
 
 /**
  * @brief Writes particle data to a VTP file using the Prepare-Write-Cleanup pattern.
+ *
+ * @param user Primary `UserCtx` input for the operation.
+ * @param pps Post-processing configuration for the operation.
+ * @param ti Parameter `ti` passed to `WriteParticleFile()`.
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt ti);
 

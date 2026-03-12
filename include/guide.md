@@ -18,6 +18,7 @@ For maintainers, this directory is a stability boundary: changes here can impact
 2. Keep Doxygen `@param` names exact to avoid warning noise and stale docs.
 3. Place cross-module shared enums/structs in `variables.h` unless module-local.
 4. Document call-order assumptions and ownership semantics for every new public API.
+5. Keep `scripts/audit_function_docs.py` passing when changing public headers or their matching C implementations.
 
 ## API Change Guidance
 

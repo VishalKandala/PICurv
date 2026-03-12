@@ -11,7 +11,10 @@ LINK_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)|\[[^\]]*\
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """!
+    @brief Parse command-line arguments.
+    @return Value returned by `parse_args()`.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Check local markdown links for README.md plus docs/examples trees.\n"
@@ -50,7 +53,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def iter_markdown_files(repo_root: Path, docs_dir: str, examples_dir: str, include_readme: bool):
-    """Yield markdown files from configured roots."""
+    """!
+    @brief Yield markdown files from configured roots.
+    @param[in] repo_root Argument passed to `iter_markdown_files()`.
+    @param[in] docs_dir Argument passed to `iter_markdown_files()`.
+    @param[in] examples_dir Argument passed to `iter_markdown_files()`.
+    @param[in] include_readme Argument passed to `iter_markdown_files()`.
+    """
     if include_readme:
         yield repo_root / "README.md"
 
@@ -66,7 +75,11 @@ def iter_markdown_files(repo_root: Path, docs_dir: str, examples_dir: str, inclu
 
 
 def should_skip_link(target: str) -> bool:
-    """Perform should skip link."""
+    """!
+    @brief Perform should skip link.
+    @param[in] target Argument passed to `should_skip_link()`.
+    @return Value returned by `should_skip_link()`.
+    """
     lower = target.lower()
     return (
         lower.startswith("http://")
@@ -77,13 +90,20 @@ def should_skip_link(target: str) -> bool:
 
 
 def normalize_target(raw_target: str) -> str:
-    """Normalize target."""
+    """!
+    @brief Normalize target.
+    @param[in] raw_target Argument passed to `normalize_target()`.
+    @return Value returned by `normalize_target()`.
+    """
     cleaned = raw_target.strip().strip("<>").split("#", 1)[0].split("?", 1)[0]
     return cleaned
 
 
 def main() -> int:
-    """Entry point for this script."""
+    """!
+    @brief Entry point for this script.
+    @return Value returned by `main()`.
+    """
     args = parse_args()
     repo_root = args.repo_root.resolve()
     failures = []

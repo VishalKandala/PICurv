@@ -37,6 +37,10 @@
   if (ia==-1 && nvert_c[kc][jc][ic-1] > 0.1) ia = 0; \
   else if (ia==1 && nvert_c[kc][jc][ic+1] > 0.1) ia = 0;
 
+/**
+ * @brief Internal helper implementation: `Gidx()`.
+ * @details Local to this translation unit.
+ */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 
 {
@@ -57,6 +61,10 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "GridRestriction"
 
+/**
+ * @brief Internal helper implementation: `GridRestriction()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
 			       PetscInt *ih, PetscInt *jh, PetscInt *kh,
 			       UserCtx *user)
@@ -1329,6 +1337,10 @@ PetscErrorCode MyInterpolation(Mat A, Vec X, Vec F)
  
 }
 
+/**
+ * @brief Internal helper implementation: `RestrictResidual_SolidAware()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode RestrictResidual_SolidAware(Mat A, Vec X, Vec F)
 {
   UserCtx *user;
@@ -3115,6 +3127,10 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
   return 0;
 }
 
+/**
+ * @brief Internal helper implementation: `FullyBlocked()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode FullyBlocked(UserCtx *user)
 {
   PetscErrorCode ierr;
@@ -3199,6 +3215,10 @@ static PetscErrorCode FullyBlocked(UserCtx *user)
   return 0;
 }
 
+/**
+ * @brief Internal helper implementation: `MyNvertRestriction()`.
+ * @details Local to this translation unit.
+ */
 static PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
 {
   //  DA		da = user_c->da, fda = user_c->fda;
