@@ -2,11 +2,12 @@
 #                   Monitor Profile: Standard Output
 # ==============================================================================
 # PURPOSE:
-# Production-safe default monitor profile with INFO logging and regular I/O.
+# Production-safe default monitor profile with WARNING logging and regular I/O.
+# The startup banner still reports key case metadata and walltime-guard status.
 # ==============================================================================
 
 logging:
-  verbosity: INFO
+  verbosity: WARNING
   enabled_functions: []
 
 profiling:

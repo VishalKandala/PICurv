@@ -2,13 +2,13 @@
 #                   Monitor Profile: Standard Output
 # ==============================================================================
 # PURPOSE:
-# A standard monitoring profile for production runs. Provides INFO-level
-# progress updates and saves data at a reasonable interval.
+# A standard monitoring profile for production runs. Keeps console output quiet
+# while preserving warnings and regular data output.
 # ==============================================================================
 
 # --- Logging ---
 logging:
-  verbosity: INFO
+  verbosity: WARNING
   enabled_functions: [] # Empty = use the C runtime's default allow-list.
 
 # --- Profiling ---

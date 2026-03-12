@@ -46,15 +46,15 @@ Semantics:
 
 ```yaml
 logging:
-  verbosity: "INFO"
-  enabled_functions:
-    - AdvanceSimulation
+  verbosity: "WARNING"
+  enabled_functions: []
 ```
 
 - `verbosity` maps to environment variable `LOG_LEVEL` via `picurv` launcher.
 - `enabled_functions` is serialized into `whitelist.run` only when non-empty.
 - If `enabled_functions` is empty, `picurv` omits `whitelist.run` and the C runtime falls back to its default allow-list.
 - An explicitly provided `whitelist.run` must contain at least one function name; an empty whitelist file is invalid.
+- `config/monitors/Standard_Output.yml` uses `WARNING` with an empty allow-list for quiet production runs; the startup banner still reports the walltime-guard status.
 
 Supported verbosity strings:
 - `ERROR`
@@ -133,4 +133,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-
