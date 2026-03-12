@@ -1,6 +1,6 @@
 /**
  * @file test_support.h
- * @brief C test module for PICurv.
+ * @brief Shared declarations for the PICurv C test fixture and assertion layer.
  */
 
 #ifndef PICURV_TEST_SUPPORT_H

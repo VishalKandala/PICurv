@@ -1,6 +1,6 @@
 /**
  * @file test_solver_kernels.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for solver-side analytical and LES helper kernels.
  */
 
 #include "test_support.h"
@@ -9,7 +9,7 @@
 #include "BodyForces.h"
 #include "Filter.h"
 /**
- * @brief Test-local routine.
+ * @brief Tests LES test-filter helper paths for representative cases.
  */
 
 static PetscErrorCode TestLESTestFilterPaths(void)
@@ -49,7 +49,7 @@ static PetscErrorCode TestLESTestFilterPaths(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests analytical geometry selection for supported analytical solutions.
  */
 
 static PetscErrorCode TestAnalyticalGeometrySelection(void)
@@ -74,7 +74,7 @@ static PetscErrorCode TestAnalyticalGeometrySelection(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests driven-channel flow source-term evaluation.
  */
 
 static PetscErrorCode TestDrivenChannelFlowSource(void)
@@ -111,7 +111,7 @@ static PetscErrorCode TestDrivenChannelFlowSource(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-solver PETSc test binary.
  */
 
 int main(int argc, char **argv)

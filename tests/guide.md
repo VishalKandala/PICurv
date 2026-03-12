@@ -2,6 +2,11 @@
 
 PICurv testing is intentionally layered: Python control-plane validation, PETSc installation checks, focused C unit suites, executable smoke runs, MPI variants, and coverage gates. Choose the narrowest layer that answers your current question.
 
+Function-level docs in `tests/c/` are part of the repository contract. For new
+or touched C tests/helpers, keep the Doxygen blocks concise but descriptive:
+the `@brief` should state what the routine verifies or sets up, not just that it
+is a test-local routine.
+
 ## Canonical Targets
 
 - repository/doc contract:

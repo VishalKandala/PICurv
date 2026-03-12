@@ -100,6 +100,10 @@ Current coverage includes:
 - repository consistency scans
 - function-level documentation contract checks for C and Python executable code
 
+For newly added or modified C test helpers, keep Doxygen blocks concise but
+descriptive: the `@brief` should state what the test or helper verifies rather
+than using a placeholder label.
+
 Run locally:
 
 ```bash

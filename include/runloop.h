@@ -39,18 +39,6 @@
 PetscErrorCode InitializeRuntimeSignalHandlers(void);
 
 /**
- * @brief Parse a positive floating-point seconds value from runtime metadata.
- *
- * This helper is used for shell-exported walltime metadata such as
- * `PICURV_JOB_START_EPOCH` and `PICURV_WALLTIME_LIMIT_SECONDS`.
- *
- * @param[in]  text         String to parse.
- * @param[out] seconds_out  Parsed positive seconds value when successful.
- * @return PetscBool `PETSC_TRUE` when parsing succeeds, else `PETSC_FALSE`.
- */
-PetscBool RuntimeWalltimeGuardParsePositiveSeconds(const char *text, PetscReal *seconds_out);
-
-/**
  * @brief Update an EWMA estimate for timestep wall-clock duration.
  *
  * @param[in] has_previous          Whether a previous EWMA estimate exists.

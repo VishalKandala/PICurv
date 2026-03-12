@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 /runs/
 /studies/
+/tmp/
 
 # Large grid/mesh files
 *.vts

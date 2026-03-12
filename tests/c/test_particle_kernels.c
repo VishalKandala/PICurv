@@ -1,13 +1,13 @@
 /**
  * @file test_particle_kernels.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for particle walking-search helper routines.
  */
 
 #include "test_support.h"
 
 #include "walkingsearch.h"
 /**
- * @brief Test-local routine.
+ * @brief Tests whether a cell index lies within the local grid ownership range.
  */
 
 static PetscErrorCode TestCheckCellWithinLocalGrid(void)
@@ -29,7 +29,7 @@ static PetscErrorCode TestCheckCellWithinLocalGrid(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests initialization of traversal parameters for particle search.
  */
 
 static PetscErrorCode TestInitializeTraversalParameters(void)
@@ -58,7 +58,7 @@ static PetscErrorCode TestInitializeTraversalParameters(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests retrieval of the current cell from logical particle coordinates.
  */
 
 static PetscErrorCode TestRetrieveCurrentCell(void)
@@ -83,7 +83,7 @@ static PetscErrorCode TestRetrieveCurrentCell(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-particles PETSc test binary.
  */
 
 int main(int argc, char **argv)

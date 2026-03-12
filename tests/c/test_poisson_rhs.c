@@ -1,6 +1,6 @@
 /**
  * @file test_poisson_rhs.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for Poisson, RHS, body-force, and diffusivity helpers.
  */
 
 #include "test_support.h"
@@ -8,7 +8,7 @@
 #include "poisson.h"
 #include "rhs.h"
 /**
- * @brief Test-local routine.
+ * @brief Allocates Poisson/RHS support vectors required by the tests.
  */
 
 static PetscErrorCode EnsurePoissonAndRhsVectors(UserCtx *user)
@@ -23,7 +23,7 @@ static PetscErrorCode EnsurePoissonAndRhsVectors(UserCtx *user)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests that pressure updates add the correction potential.
  */
 
 static PetscErrorCode TestUpdatePressureAddsPhi(void)
@@ -44,7 +44,7 @@ static PetscErrorCode TestUpdatePressureAddsPhi(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests that the Poisson RHS is zero for zero-divergence velocity.
  */
 
 static PetscErrorCode TestPoissonRHSZeroDivergence(void)
@@ -78,7 +78,7 @@ static PetscErrorCode TestPoissonRHSZeroDivergence(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests the body-force dispatcher across supported source terms.
  */
 
 static PetscErrorCode TestComputeBodyForcesDispatcher(void)
@@ -112,7 +112,7 @@ static PetscErrorCode TestComputeBodyForcesDispatcher(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests Eulerian diffusivity for the molecular-only configuration.
  */
 
 static PetscErrorCode TestComputeEulerianDiffusivityMolecularOnly(void)
@@ -140,7 +140,7 @@ static PetscErrorCode TestComputeEulerianDiffusivityMolecularOnly(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-poisson-rhs PETSc test binary.
  */
 
 int main(int argc, char **argv)

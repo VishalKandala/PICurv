@@ -1,13 +1,13 @@
 /**
  * @file test_metric.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for metric tensors, face geometry, and length-scale helpers.
  */
 
 #include "test_support.h"
 
 #include "Metric.h"
 /**
- * @brief Test-local routine.
+ * @brief Tests inversion of a diagonal covariant metric tensor.
  */
 
 static PetscErrorCode TestInvertCovariantMetricTensorDiagonal(void)
@@ -27,7 +27,7 @@ static PetscErrorCode TestInvertCovariantMetricTensorDiagonal(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests contravariant velocity computation for identity metrics.
  */
 
 static PetscErrorCode TestMetricVelocityContravariantIdentity(void)
@@ -48,7 +48,7 @@ static PetscErrorCode TestMetricVelocityContravariantIdentity(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests contravariant velocity computation for scaled axes.
  */
 
 static PetscErrorCode TestMetricVelocityContravariantScaledAxes(void)
@@ -69,7 +69,7 @@ static PetscErrorCode TestMetricVelocityContravariantScaledAxes(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests face-normal and face-area calculation on an axis-aligned cell.
  */
 
 static PetscErrorCode TestCalculateFaceNormalAndAreaAxisAligned(void)
@@ -99,7 +99,7 @@ static PetscErrorCode TestCalculateFaceNormalAndAreaAxisAligned(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests characteristic length-scale computation on an axis-aligned cell.
  */
 
 static PetscErrorCode TestComputeCellCharacteristicLengthScaleAxisAligned(void)
@@ -117,7 +117,7 @@ static PetscErrorCode TestComputeCellCharacteristicLengthScaleAxisAligned(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-metric PETSc test binary.
  */
 
 int main(int argc, char **argv)

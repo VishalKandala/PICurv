@@ -1,6 +1,6 @@
 /**
  * @file test_runtime_kernels.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for runtime, particle, wall, and walltime-guard helpers.
  */
 
 #include "test_support.h"
@@ -15,7 +15,7 @@
 #include "setup.h"
 #include "wallfunction.h"
 /**
- * @brief Test-local routine.
+ * @brief Tests particle distribution remainder handling across ranks.
  */
 
 static PetscErrorCode TestDistributeParticlesRemainderHandling(void)
@@ -34,7 +34,7 @@ static PetscErrorCode TestDistributeParticlesRemainderHandling(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests basic particle-inside-bounding-box classification cases.
  */
 
 static PetscErrorCode TestIsParticleInsideBoundingBoxBasicCases(void)
@@ -63,7 +63,7 @@ static PetscErrorCode TestIsParticleInsideBoundingBoxBasicCases(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests particle weight updates against expected ratios.
  */
 
 static PetscErrorCode TestUpdateParticleWeightsComputesExpectedRatios(void)
@@ -86,7 +86,7 @@ static PetscErrorCode TestUpdateParticleWeightsComputesExpectedRatios(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests particle position updates without Brownian forcing.
  */
 
 static PetscErrorCode TestUpdateParticlePositionWithoutBrownianContribution(void)
@@ -120,7 +120,7 @@ static PetscErrorCode TestUpdateParticlePositionWithoutBrownianContribution(void
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests IEM relaxation updates for particle-carried fields.
  */
 
 static PetscErrorCode TestUpdateParticleFieldIEMRelaxation(void)
@@ -146,7 +146,7 @@ static PetscErrorCode TestUpdateParticleFieldIEMRelaxation(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests that non-Ucont requests do not modify interior field initialization.
  */
 
 static PetscErrorCode TestSetInitialInteriorFieldIgnoresNonUcontRequest(void)
@@ -165,7 +165,7 @@ static PetscErrorCode TestSetInitialInteriorFieldIgnoresNonUcontRequest(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests constant-profile interior initialization on a Z-direction inlet.
  */
 
 static PetscErrorCode TestSetInitialInteriorFieldConstantProfileOnZInlet(void)
@@ -196,7 +196,7 @@ static PetscErrorCode TestSetInitialInteriorFieldConstantProfileOnZInlet(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests no-slip and free-slip wall helper kernels.
  */
 
 static PetscErrorCode TestWallNoSlipAndFreeSlipHelpers(void)
@@ -219,7 +219,7 @@ static PetscErrorCode TestWallNoSlipAndFreeSlipHelpers(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests wall-model scalar helper kernels.
  */
 
 static PetscErrorCode TestWallModelScalarHelpers(void)
@@ -243,7 +243,7 @@ static PetscErrorCode TestWallModelScalarHelpers(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests driven-flow validation when no driven handlers are present.
  */
 
 static PetscErrorCode TestValidateDrivenFlowConfigurationNoDrivenHandlers(void)
@@ -258,7 +258,7 @@ static PetscErrorCode TestValidateDrivenFlowConfigurationNoDrivenHandlers(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests the constant Smagorinsky model helper path.
  */
 
 static PetscErrorCode TestComputeSmagorinskyConstantConstantModel(void)
@@ -281,7 +281,7 @@ static PetscErrorCode TestComputeSmagorinskyConstantConstantModel(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests solver history-vector shifting between time levels.
  */
 
 static PetscErrorCode TestUpdateSolverHistoryVectorsShiftsStates(void)
@@ -320,7 +320,7 @@ static PetscErrorCode TestUpdateSolverHistoryVectorsShiftsStates(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests owned-cell range accounting on a single MPI rank.
  */
 
 static PetscErrorCode TestGetOwnedCellRangeSingleRankAccounting(void)
@@ -348,7 +348,7 @@ static PetscErrorCode TestGetOwnedCellRangeSingleRankAccounting(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests neighbor-rank discovery on a single MPI rank.
  */
 
 static PetscErrorCode TestComputeAndStoreNeighborRanksSingleRank(void)
@@ -371,7 +371,7 @@ static PetscErrorCode TestComputeAndStoreNeighborRanksSingleRank(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests parsing of positive runtime walltime metadata values.
  */
 
 static PetscErrorCode TestRuntimeWalltimeGuardParsesPositiveSeconds(void)
@@ -388,7 +388,7 @@ static PetscErrorCode TestRuntimeWalltimeGuardParsesPositiveSeconds(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests walltime-guard estimator helper calculations.
  */
 
 static PetscErrorCode TestRuntimeWalltimeGuardEstimatorHelpers(void)
@@ -414,7 +414,7 @@ static PetscErrorCode TestRuntimeWalltimeGuardEstimatorHelpers(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests runtime walltime-guard shutdown trigger decisions.
  */
 
 static PetscErrorCode TestRuntimeWalltimeGuardTriggerDecision(void)
@@ -436,7 +436,7 @@ static PetscErrorCode TestRuntimeWalltimeGuardTriggerDecision(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-runtime PETSc test binary.
  */
 
 int main(int argc, char **argv)

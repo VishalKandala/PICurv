@@ -1,6 +1,6 @@
 /**
  * @file test_logging.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for runtime log-level, allow-list, and snapshot helpers.
  */
 
 #include "test_support.h"
@@ -9,7 +9,7 @@
 
 #include <stdlib.h>
 /**
- * @brief Test-local routine.
+ * @brief Tests that log level selection honors the environment variable.
  */
 
 static PetscErrorCode TestGetLogLevelFromEnvironment(void)
@@ -21,7 +21,7 @@ static PetscErrorCode TestGetLogLevelFromEnvironment(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests the function allow-list filter used by the logging layer.
  */
 
 static PetscErrorCode TestAllowedFunctionsFilter(void)
@@ -41,7 +41,7 @@ static PetscErrorCode TestAllowedFunctionsFilter(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests periodic particle console snapshot enablement and cadence.
  */
 
 static PetscErrorCode TestParticleConsoleSnapshotCadence(void)
@@ -68,7 +68,7 @@ static PetscErrorCode TestParticleConsoleSnapshotCadence(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-logging PETSc test binary.
  */
 
 int main(int argc, char **argv)

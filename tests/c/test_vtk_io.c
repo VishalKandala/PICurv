@@ -1,6 +1,6 @@
 /**
  * @file test_vtk_io.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for VTK output preparation and file writing helpers.
  */
 
 #include "test_support.h"
@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 /**
- * @brief Test-local routine.
+ * @brief Tests coordinate extraction with interior-grid subsampling.
  */
 
 static PetscErrorCode TestPrepareOutputCoordinatesSubsamplesInteriorGrid(void)
@@ -46,7 +46,7 @@ static PetscErrorCode TestPrepareOutputCoordinatesSubsamplesInteriorGrid(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests Eulerian scalar field extraction with subsampling.
  */
 
 static PetscErrorCode TestPrepareOutputEulerianFieldDataSubsamplesScalar(void)
@@ -80,7 +80,7 @@ static PetscErrorCode TestPrepareOutputEulerianFieldDataSubsamplesScalar(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests particle-data extraction with output subsampling.
  */
 
 static PetscErrorCode TestPrepareOutputParticleDataSubsampling(void)
@@ -140,7 +140,7 @@ static PetscErrorCode TestPrepareOutputParticleDataSubsampling(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests structured-grid VTK file creation from assembled metadata.
  */
 
 static PetscErrorCode TestCreateVTKFileFromMetadataWritesStructuredGrid(void)
@@ -192,7 +192,7 @@ static PetscErrorCode TestCreateVTKFileFromMetadataWritesStructuredGrid(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-post-vtk PETSc test binary.
  */
 
 int main(int argc, char **argv)

@@ -1,6 +1,6 @@
 /**
  * @file test_grid.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for grid bounding-box helper routines.
  */
 
 #include "test_support.h"
@@ -9,7 +9,7 @@
 
 #include <stdlib.h>
 /**
- * @brief Test-local routine.
+ * @brief Tests local bounding-box construction on a uniform grid.
  */
 
 static PetscErrorCode TestComputeLocalBoundingBoxUniformGrid(void)
@@ -33,7 +33,7 @@ static PetscErrorCode TestComputeLocalBoundingBoxUniformGrid(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests collective gather and broadcast of rank-local bounding boxes.
  */
 
 static PetscErrorCode TestGatherAndBroadcastBoundingBoxes(void)
@@ -75,7 +75,7 @@ static PetscErrorCode TestGatherAndBroadcastBoundingBoxes(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-grid PETSc test binary.
  */
 
 int main(int argc, char **argv)

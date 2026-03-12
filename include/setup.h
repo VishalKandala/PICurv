@@ -73,6 +73,18 @@
 PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx);
 
 /**
+ * @brief Parse a positive floating-point seconds value from runtime metadata.
+ *
+ * This helper is used for shell-exported walltime metadata such as
+ * `PICURV_JOB_START_EPOCH` and `PICURV_WALLTIME_LIMIT_SECONDS`.
+ *
+ * @param[in]  text         String to parse.
+ * @param[out] seconds_out  Parsed positive seconds value when successful.
+ * @return PetscBool `PETSC_TRUE` when parsing succeeds, else `PETSC_FALSE`.
+ */
+PetscBool RuntimeWalltimeGuardParsePositiveSeconds(const char *text, PetscReal *seconds_out);
+
+/**
  * @brief Verifies and prepares the complete I/O environment for a simulation run.
  *
  * This function performs a comprehensive series of checks and setup actions to

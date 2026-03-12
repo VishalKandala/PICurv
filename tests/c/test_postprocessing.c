@@ -1,13 +1,13 @@
 /**
  * @file test_postprocessing.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for post-processing kernel functions.
  */
 
 #include "test_support.h"
 
 #include "postprocessing_kernels.h"
 /**
- * @brief Test-local routine.
+ * @brief Tests specific turbulent kinetic energy computation on particle data.
  */
 
 static PetscErrorCode TestComputeSpecificKE(void)
@@ -40,7 +40,7 @@ static PetscErrorCode TestComputeSpecificKE(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests particle displacement computation against reference positions.
  */
 
 static PetscErrorCode TestComputeDisplacement(void)
@@ -73,7 +73,7 @@ static PetscErrorCode TestComputeDisplacement(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests nodal averaging of scalar cell-centered data.
  */
 
 static PetscErrorCode TestComputeNodalAverageScalar(void)
@@ -98,7 +98,7 @@ static PetscErrorCode TestComputeNodalAverageScalar(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests normalization of one field relative to a reference field.
  */
 
 static PetscErrorCode TestNormalizeRelativeField(void)
@@ -137,7 +137,7 @@ static PetscErrorCode TestNormalizeRelativeField(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests dimensionalization of pressure data from nondimensional values.
  */
 
 static PetscErrorCode TestDimensionalizePressureField(void)
@@ -157,7 +157,7 @@ static PetscErrorCode TestDimensionalizePressureField(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests Q-criterion computation for a quiescent velocity field.
  */
 
 static PetscErrorCode TestComputeQCriterionZeroFlow(void)
@@ -188,7 +188,7 @@ static PetscErrorCode TestComputeQCriterionZeroFlow(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-post PETSc test binary.
  */
 
 int main(int argc, char **argv)
