@@ -117,7 +117,20 @@ Cancel a submitted run by directory:
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve
 ```
 
-Request one last snapshot before walltime:
+Generated Slurm solver jobs already enable the runtime walltime guard by default. Override it only
+when needed:
+
+```yaml
+execution:
+  walltime_guard:
+    enabled: true
+    warmup_steps: 10
+    multiplier: 2.0
+    min_seconds: 60
+    estimator_alpha: 0.35
+```
+
+Keep an early signal as fallback protection for preemption/manual termination:
 
 ```yaml
 execution:

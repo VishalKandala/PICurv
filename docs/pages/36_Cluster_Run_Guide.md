@@ -95,7 +95,12 @@ This allows consistent local dry-run and cluster production flow from the same i
 - Keep cluster defaults in reusable templates (`examples/master_template/master_cluster.yml`).
 - For personal cluster copies, prefer local operational files such as `short_job.local.yml` / `long_job.local.yml` instead of committing account/module-specific scheduler profiles.
 - If queue policies differ by partition/account, encode them in `cluster.yml` instead of editing generated scripts manually.
-- If you need one last output before walltime, request an early signal in `cluster.yml`: `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
+- Generated Slurm solver jobs enable a runtime walltime guard by default:
+  - warmup: first 10 completed steps
+  - estimator: `max(warmup_avg, ewma, latest_step)`
+  - cutoff: `max(60 s, 2.0 * estimator)`
+- Override that policy in `cluster.yml -> execution.walltime_guard` only when the defaults do not fit your timestep variability or filesystem overhead.
+- Keep an early signal in `cluster.yml -> execution.extra_sbatch.signal` as fallback protection: `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
 - Solver stage uses `cluster.yml` resources directly.
 - Post stage defaults to single-task scheduling (`nodes=1`, `ntasks_per_node=1`) in generated `post.sbatch`.
 - Slurm stdout/stderr lives under `scheduler/`; solver-generated runtime logs still live under `logs/`.

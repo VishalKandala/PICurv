@@ -18,6 +18,14 @@ execution:
     - "module purge"
   launcher: "srun"
   launcher_args: []
+  # Generated Slurm solver jobs enable these defaults even when omitted.
+  # Uncomment to tune the runtime walltime estimator:
+  # walltime_guard:
+  #   enabled: true
+  #   warmup_steps: 10
+  #   multiplier: 2.0
+  #   min_seconds: 60
+  #   estimator_alpha: 0.35
   # Optional early warning before walltime. Example:
   # extra_sbatch:
   #   signal: "USR1@300"

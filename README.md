@@ -151,8 +151,23 @@ If a study was staged with `--no-submit`, submit it later with:
 ./bin/picurv submit --study-dir studies/<study_id>
 ```
 
-If you want one last output snapshot before a walltime stop, request an early Slurm signal in
-`cluster.yml`:
+Generated Slurm solver jobs now enable an automatic runtime walltime guard by default. After the
+first 10 completed steps, PICurv estimates timestep cost, then exits through the same graceful
+final-write path before remaining walltime gets too tight. Tune it in `cluster.yml` only when the
+defaults are too conservative or too aggressive:
+
+```yaml
+execution:
+  walltime_guard:
+    enabled: true
+    warmup_steps: 10
+    multiplier: 2.0
+    min_seconds: 60
+    estimator_alpha: 0.35
+```
+
+Keep an early Slurm signal as a fallback for preemption/termination events or for runs that have
+not finished the warmup window yet:
 
 ```yaml
 execution:
@@ -162,7 +177,8 @@ execution:
 
 Use `USR1@300` for `srun`-launched jobs. If your batch script launches `mpirun` directly, use
 `signal: "B:USR1@300"` and prefer `exec mpirun ...` so the signal reaches `mpirun` and is
-forwarded to all ranks.
+forwarded to all ranks. Both the automatic guard and the signal path stop only at safe checkpoints,
+so the retained state may lag the signal/request by up to roughly one in-flight timestep.
 
 ## CLI Option References
 

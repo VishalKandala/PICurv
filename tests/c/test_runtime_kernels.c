@@ -371,6 +371,71 @@ static PetscErrorCode TestComputeAndStoreNeighborRanksSingleRank(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestRuntimeWalltimeGuardParsesPositiveSeconds(void)
+{
+    PetscReal seconds = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvAssertBool(RuntimeWalltimeGuardParsePositiveSeconds("300", &seconds), "plain positive seconds should parse"));
+    PetscCall(PicurvAssertRealNear(300.0, seconds, 1.0e-12, "parsed walltime seconds"));
+    PetscCall(PicurvAssertBool(RuntimeWalltimeGuardParsePositiveSeconds(" 42.5 ", &seconds), "whitespace-wrapped decimal seconds should parse"));
+    PetscCall(PicurvAssertRealNear(42.5, seconds, 1.0e-12, "parsed decimal walltime seconds"));
+    PetscCall(PicurvAssertBool((PetscBool)!RuntimeWalltimeGuardParsePositiveSeconds("nope", &seconds), "non-numeric metadata should fail parsing"));
+    PetscCall(PicurvAssertBool((PetscBool)!RuntimeWalltimeGuardParsePositiveSeconds("-10", &seconds), "negative metadata should fail parsing"));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestRuntimeWalltimeGuardEstimatorHelpers(void)
+{
+    PetscReal ewma_fast = 0.0;
+    PetscReal ewma_slow = 0.0;
+    PetscReal conservative_fast = 0.0;
+    PetscReal conservative_slow = 0.0;
+    PetscReal required_headroom = 0.0;
+
+    PetscFunctionBeginUser;
+    ewma_fast = RuntimeWalltimeGuardUpdateEWMA(PETSC_TRUE, 4.0, 6.0, 0.5);
+    ewma_slow = RuntimeWalltimeGuardUpdateEWMA(PETSC_TRUE, ewma_fast, 12.0, 0.5);
+    conservative_fast = RuntimeWalltimeGuardConservativeEstimate(5.0, ewma_fast, 6.0);
+    conservative_slow = RuntimeWalltimeGuardConservativeEstimate(5.0, ewma_slow, 12.0);
+    required_headroom = RuntimeWalltimeGuardRequiredHeadroom(8.0, 2.0, conservative_slow);
+
+    PetscCall(PicurvAssertRealNear(5.0, ewma_fast, 1.0e-12, "EWMA after moderate step"));
+    PetscCall(PicurvAssertRealNear(8.5, ewma_slow, 1.0e-12, "EWMA after newer slow step"));
+    PetscCall(PicurvAssertRealNear(6.0, conservative_fast, 1.0e-12, "conservative estimate tracks latest moderate step"));
+    PetscCall(PicurvAssertRealNear(12.0, conservative_slow, 1.0e-12, "conservative estimate tracks newest slow step"));
+    PetscCall(PicurvAssertRealNear(24.0, required_headroom, 1.0e-12, "required headroom scales with conservative estimate"));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Test-local routine.
+ */
+
+static PetscErrorCode TestRuntimeWalltimeGuardTriggerDecision(void)
+{
+    PetscBool should_trigger = PETSC_FALSE;
+    PetscReal required_headroom = 0.0;
+
+    PetscFunctionBeginUser;
+    should_trigger = RuntimeWalltimeGuardShouldTrigger(9, 10, 15.0, 5.0, 2.0, 6.0, 6.0, 6.0, &required_headroom);
+    PetscCall(PicurvAssertBool((PetscBool)!should_trigger, "guard should not trigger before warmup completes"));
+
+    should_trigger = RuntimeWalltimeGuardShouldTrigger(10, 10, 40.0, 5.0, 2.0, 10.0, 12.0, 14.0, &required_headroom);
+    PetscCall(PicurvAssertBool((PetscBool)!should_trigger, "guard should not trigger when remaining walltime exceeds required headroom"));
+    PetscCall(PicurvAssertRealNear(28.0, required_headroom, 1.0e-12, "required headroom after warmup"));
+
+    should_trigger = RuntimeWalltimeGuardShouldTrigger(10, 10, 28.0, 5.0, 2.0, 10.0, 12.0, 14.0, &required_headroom);
+    PetscCall(PicurvAssertBool(should_trigger, "guard should trigger when remaining walltime reaches required headroom"));
+    PetscCall(PicurvAssertRealNear(28.0, required_headroom, 1.0e-12, "required headroom remains unchanged at trigger threshold"));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Entry point for this unit-test binary.
  */
 
@@ -392,6 +457,9 @@ int main(int argc, char **argv)
         {"update-solver-history-vectors-shifts-states", TestUpdateSolverHistoryVectorsShiftsStates},
         {"get-owned-cell-range-single-rank-accounting", TestGetOwnedCellRangeSingleRankAccounting},
         {"compute-and-store-neighbor-ranks-single-rank", TestComputeAndStoreNeighborRanksSingleRank},
+        {"runtime-walltime-guard-parses-positive-seconds", TestRuntimeWalltimeGuardParsesPositiveSeconds},
+        {"runtime-walltime-guard-estimator-helpers", TestRuntimeWalltimeGuardEstimatorHelpers},
+        {"runtime-walltime-guard-trigger-decision", TestRuntimeWalltimeGuardTriggerDecision},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv runtime-kernel tests");

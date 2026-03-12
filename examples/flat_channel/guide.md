@@ -32,7 +32,7 @@ Because it avoids external grid files, this template is also useful for controll
 
 If project binaries are already built, `init` copies executables (`picurv`, `simulator`, `postprocessor`) into the case directory, records source linkage in `.picurv-origin.json`, and writes an inert `.picurv-execution.yml` for later site-specific launcher overrides.
 
-If you run this example on a cluster and need site-specific MPI launcher tokens, edit the `.picurv-execution.yml` that `init` created in the case directory. Existing cases or repo-root site configs can still start from `execution.example.yml`. That same file can cover both login-node runs and generated batch jobs. Keep `slurm_cluster.yml` for scheduler policy and any batch-only override.
+If you run this example on a cluster and need site-specific MPI launcher tokens, edit the `.picurv-execution.yml` that `init` created in the case directory. Existing cases or repo-root site configs can still start from `execution.example.yml`. That same file can cover both login-node runs and generated batch jobs. Keep `slurm_cluster.yml` for scheduler policy and any batch-only override. Generated Slurm solver jobs now enable the runtime walltime guard by default; override it in `slurm_cluster.yml -> execution.walltime_guard` only when the default warmup/headroom policy is not a good fit.
 
 ## Recommended Uses
 

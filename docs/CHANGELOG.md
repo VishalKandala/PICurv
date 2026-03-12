@@ -49,6 +49,7 @@
   - added templates: `master_cluster.yml`, `master_study.yml`.
   - added docs pages: cluster run guide and sweep/study guide.
   - documented signal-triggered final snapshot writes for impending walltime/termination handling (`SIGUSR1`, `SIGTERM`, `SIGINT`) with launcher-specific Slurm signal guidance.
+  - added automatic runtime walltime guarding for generated Slurm solver jobs, with tunable `execution.walltime_guard` policy and exported batch metadata (`PICURV_JOB_START_EPOCH`, `PICURV_WALLTIME_LIMIT_SECONDS`).
 
 - Documentation enforcement and CI:
   - enforced function-level Doxygen-compatible coverage across C product code, C tests, Python product scripts, and Python tests.

@@ -81,6 +81,119 @@ cluster_execution: {}
 CLUSTER_TEMPLATE_PLACEHOLDER_ACCOUNT = "my_project_account"
 CLUSTER_TEMPLATE_PLACEHOLDER_MAIL = "user@example.edu"
 
+DEFAULT_WALLTIME_GUARD_POLICY = {
+    "enabled": True,
+    "warmup_steps": 10,
+    "multiplier": 2.0,
+    "min_seconds": 60.0,
+    "estimator_alpha": 0.35,
+}
+WALLTIME_GUARD_ENV_JOB_START_EPOCH = "PICURV_JOB_START_EPOCH"
+WALLTIME_GUARD_ENV_LIMIT_SECONDS = "PICURV_WALLTIME_LIMIT_SECONDS"
+
+
+def parse_slurm_time_limit_to_seconds(time_text: str) -> int:
+    """!
+    @brief Parse a Slurm time-limit string into total seconds.
+    @param[in] time_text Argument passed to `parse_slurm_time_limit_to_seconds()`.
+    @return Value returned by `parse_slurm_time_limit_to_seconds()`.
+    """
+    text = str(time_text).strip()
+    if not text:
+        raise ValueError("time limit cannot be empty")
+
+    days = 0
+    clock_text = text
+    if "-" in text:
+        day_text, clock_text = text.split("-", 1)
+        if not day_text.isdigit():
+            raise ValueError(f"invalid day field '{day_text}'")
+        days = int(day_text)
+        if not clock_text:
+            raise ValueError("missing time portion after day field")
+
+    parts = clock_text.split(":")
+    if len(parts) > 3:
+        raise ValueError(f"unsupported time format '{time_text}'")
+    if any(part == "" for part in parts):
+        raise ValueError(f"malformed time field '{time_text}'")
+    if any(not part.isdigit() for part in parts):
+        raise ValueError(f"non-numeric time field '{time_text}'")
+
+    nums = [int(part) for part in parts]
+    if days > 0:
+        if len(nums) == 1:
+            hours, minutes, seconds = nums[0], 0, 0
+        elif len(nums) == 2:
+            hours, minutes = nums
+            seconds = 0
+        else:
+            hours, minutes, seconds = nums
+    else:
+        if len(nums) == 1:
+            hours, minutes, seconds = 0, nums[0], 0
+        elif len(nums) == 2:
+            hours = 0
+            minutes, seconds = nums
+        else:
+            hours, minutes, seconds = nums
+
+    if minutes >= 60 or seconds >= 60:
+        raise ValueError(f"minutes and seconds must be < 60 in '{time_text}'")
+    if days == 0 and len(nums) == 3 and hours < 0:
+        raise ValueError(f"hours must be non-negative in '{time_text}'")
+
+    total_seconds = (((days * 24) + hours) * 60 + minutes) * 60 + seconds
+    if total_seconds <= 0:
+        raise ValueError("time limit must be positive")
+    return total_seconds
+
+
+def resolve_walltime_guard_policy(cluster_cfg: dict | None) -> dict | None:
+    """!
+    @brief Resolve the effective Slurm walltime-guard policy for generated solver jobs.
+    @param[in] cluster_cfg Argument passed to `resolve_walltime_guard_policy()`.
+    @return Value returned by `resolve_walltime_guard_policy()`.
+    """
+    if not isinstance(cluster_cfg, dict):
+        return None
+
+    scheduler = cluster_cfg.get("scheduler", {}) or {}
+    if str(scheduler.get("type", "slurm")).lower() != "slurm":
+        return None
+
+    execution = cluster_cfg.get("execution", {}) or {}
+    guard_cfg = execution.get("walltime_guard")
+    if guard_cfg is None:
+        guard_cfg = {}
+    elif not isinstance(guard_cfg, dict):
+        raise ValueError("execution.walltime_guard must be a mapping when provided")
+
+    policy = copy.deepcopy(DEFAULT_WALLTIME_GUARD_POLICY)
+    policy.update(guard_cfg)
+    policy["enabled"] = bool(policy["enabled"])
+    policy["warmup_steps"] = int(policy["warmup_steps"])
+    policy["multiplier"] = float(policy["multiplier"])
+    policy["min_seconds"] = float(policy["min_seconds"])
+    policy["estimator_alpha"] = float(policy["estimator_alpha"])
+    return policy
+
+
+def build_walltime_guard_exports(cluster_cfg: dict | None) -> dict:
+    """!
+    @brief Build shell-evaluated environment exports for the runtime walltime guard.
+    @param[in] cluster_cfg Argument passed to `build_walltime_guard_exports()`.
+    @return Value returned by `build_walltime_guard_exports()`.
+    """
+    policy = resolve_walltime_guard_policy(cluster_cfg)
+    if not policy or not policy.get("enabled", False):
+        return {}
+    walltime_limit_seconds = parse_slurm_time_limit_to_seconds(cluster_cfg.get("resources", {}).get("time", ""))
+    return {
+        WALLTIME_GUARD_ENV_JOB_START_EPOCH: "$(date +%s)",
+        WALLTIME_GUARD_ENV_LIMIT_SECONDS: str(walltime_limit_seconds),
+    }
+
 def resolve_runtime_executable(executable_name: str) -> str:
     """!
     @brief Resolve solver/post executable path, preferring local sibling binaries.
@@ -2587,6 +2700,13 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
             if str_key in resources and resources.get(str_key) is not None:
                 if not isinstance(resources.get(str_key), str):
                     errors.append(f"  {cluster_path}: resources.{str_key} must be a string when provided.")
+        if isinstance(resources.get("time"), str):
+            try:
+                parse_slurm_time_limit_to_seconds(resources["time"])
+            except ValueError as exc:
+                errors.append(
+                    f"  {cluster_path}: resources.time must be a supported finite Slurm time string ({exc})."
+                )
         account = resources.get("account")
         if account == CLUSTER_TEMPLATE_PLACEHOLDER_ACCOUNT:
             warnings.append(
@@ -2646,6 +2766,50 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
         extra_sbatch = execution.get("extra_sbatch")
         if extra_sbatch is not None and not isinstance(extra_sbatch, (dict, list)):
             errors.append(f"  {cluster_path}: execution.extra_sbatch must be a mapping or list when provided.")
+
+        walltime_guard = execution.get("walltime_guard")
+        if walltime_guard is not None and not isinstance(walltime_guard, dict):
+            errors.append(f"  {cluster_path}: execution.walltime_guard must be a mapping when provided.")
+        elif isinstance(walltime_guard, dict):
+            enabled = walltime_guard.get("enabled")
+            if enabled is not None and not isinstance(enabled, bool):
+                errors.append(f"  {cluster_path}: execution.walltime_guard.enabled must be boolean when provided.")
+
+            warmup_steps = walltime_guard.get("warmup_steps")
+            if warmup_steps is not None and (not isinstance(warmup_steps, int) or isinstance(warmup_steps, bool) or warmup_steps <= 0):
+                errors.append(
+                    f"  {cluster_path}: execution.walltime_guard.warmup_steps must be a positive integer when provided."
+                )
+
+            multiplier = walltime_guard.get("multiplier")
+            if multiplier is not None:
+                if isinstance(multiplier, bool) or not isinstance(multiplier, (int, float)) or multiplier <= 0.0:
+                    errors.append(
+                        f"  {cluster_path}: execution.walltime_guard.multiplier must be a positive number when provided."
+                    )
+                elif float(multiplier) > 5.0:
+                    errors.append(
+                        f"  {cluster_path}: execution.walltime_guard.multiplier must be <= 5.0 (got {multiplier})."
+                    )
+
+            min_seconds = walltime_guard.get("min_seconds")
+            if min_seconds is not None and (
+                isinstance(min_seconds, bool) or not isinstance(min_seconds, (int, float)) or float(min_seconds) <= 0.0
+            ):
+                errors.append(
+                    f"  {cluster_path}: execution.walltime_guard.min_seconds must be a positive number when provided."
+                )
+
+            estimator_alpha = walltime_guard.get("estimator_alpha")
+            if estimator_alpha is not None:
+                if isinstance(estimator_alpha, bool) or not isinstance(estimator_alpha, (int, float)):
+                    errors.append(
+                        f"  {cluster_path}: execution.walltime_guard.estimator_alpha must be a number in (0, 1] when provided."
+                    )
+                elif float(estimator_alpha) <= 0.0 or float(estimator_alpha) > 1.0:
+                    errors.append(
+                        f"  {cluster_path}: execution.walltime_guard.estimator_alpha must be in (0, 1] (got {estimator_alpha})."
+                    )
 
     if warnings:
         for warning in warnings:
@@ -2801,6 +2965,7 @@ def render_slurm_script(
     stdout_path: str,
     stderr_path: str = None,
     env_vars: dict = None,
+    shell_env_vars: dict = None,
     array_spec: str = None
 ):
     """!
@@ -2813,6 +2978,7 @@ def render_slurm_script(
     @param[in] stdout_path Argument passed to `render_slurm_script()`.
     @param[in] stderr_path Argument passed to `render_slurm_script()`.
     @param[in] env_vars Argument passed to `render_slurm_script()`.
+    @param[in] shell_env_vars Argument passed to `render_slurm_script()`.
     @param[in] array_spec Argument passed to `render_slurm_script()`.
     """
     resources = cluster_cfg.get("resources", {})
@@ -2871,6 +3037,10 @@ def render_slurm_script(
             'echo "[$(date)] Working directory: $PWD"',
         ]
     )
+
+    if shell_env_vars:
+        for key, value in shell_env_vars.items():
+            lines.append(f"export {key}={value}")
 
     for setup_line in module_setup:
         lines.append(str(setup_line))
@@ -3908,6 +4078,18 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if profiling_cfg.get("mode") != "off":
         control_lines.append(f"-profiling_timestep_file {profiling_cfg.get('timestep_file', 'Profiling_Timestep_Summary.csv')}")
     control_lines.append(f"-profiling_final_summary {str(bool(profiling_cfg.get('final_summary_enabled', True))).lower()}")
+
+    walltime_guard_policy = configs.get("walltime_guard_policy")
+    if walltime_guard_policy is not None:
+        control_lines.extend(
+            [
+                f"-walltime_guard_enabled {str(bool(walltime_guard_policy.get('enabled', False))).lower()}",
+                f"-walltime_guard_warmup_steps {int(walltime_guard_policy.get('warmup_steps', DEFAULT_WALLTIME_GUARD_POLICY['warmup_steps']))}",
+                f"-walltime_guard_multiplier {float(walltime_guard_policy.get('multiplier', DEFAULT_WALLTIME_GUARD_POLICY['multiplier']))}",
+                f"-walltime_guard_min_seconds {float(walltime_guard_policy.get('min_seconds', DEFAULT_WALLTIME_GUARD_POLICY['min_seconds']))}",
+                f"-walltime_guard_estimator_alpha {float(walltime_guard_policy.get('estimator_alpha', DEFAULT_WALLTIME_GUARD_POLICY['estimator_alpha']))}",
+            ]
+        )
     
     grid_cfg = case_cfg.get('grid', {})
     grid_mode = grid_cfg.get('mode')
@@ -4318,8 +4500,14 @@ def render_slurm_array_stage_script(
         "IFS=$'\\t' read -r CASE_INDEX CASE_ID RUN_DIR CONTROL_FILE POST_RECIPE_FILE LOG_LEVEL POST_PREFIX <<< \"$LINE\"",
         'cd "$RUN_DIR"',
         'echo "[$(date)] Starting case ${CASE_ID} (array index ${SLURM_ARRAY_TASK_ID})"',
-        'export LOG_LEVEL="${LOG_LEVEL}"',
     ])
+
+    if stage == "solve":
+        walltime_guard_exports = build_walltime_guard_exports(cluster_cfg)
+        for key, value in walltime_guard_exports.items():
+            lines.append(f"export {key}={value}")
+
+    lines.append('export LOG_LEVEL="${LOG_LEVEL}"')
 
     for setup_line in module_setup:
         lines.append(str(setup_line))
@@ -5125,10 +5313,12 @@ def run_workflow(args):
 
     # --- Stage 1: Solver (if requested) ---
     if args.solve:
+        walltime_guard_policy = resolve_walltime_guard_policy(cluster_cfg) if cluster_mode else None
         configs = {
             'case': read_yaml_file(args.case), 'case_path': os.path.abspath(args.case),
             'solver': read_yaml_file(args.solver), 'solver_path': os.path.abspath(args.solver),
-            'monitor': read_yaml_file(args.monitor), 'monitor_path': os.path.abspath(args.monitor)
+            'monitor': read_yaml_file(args.monitor), 'monitor_path': os.path.abspath(args.monitor),
+            'walltime_guard_policy': walltime_guard_policy,
         }
 
         print("\n[INFO] Validating configuration files...")
@@ -5194,6 +5384,7 @@ def run_workflow(args):
                 solver_log,
                 solver_err,
                 env_vars={"LOG_LEVEL": configs['monitor'].get('logging', {}).get('verbosity', 'INFO').upper()},
+                shell_env_vars=build_walltime_guard_exports(cluster_cfg),
             )
             submission_meta["stages"]["solve"] = {
                 "script": solver_script,
@@ -5477,7 +5668,8 @@ def sweep_workflow(args):
         configs = {
             "case": case_cfg, "case_path": case_path,
             "solver": solver_cfg, "solver_path": solver_path,
-            "monitor": monitor_cfg, "monitor_path": monitor_path
+            "monitor": monitor_cfg, "monitor_path": monitor_path,
+            "walltime_guard_policy": resolve_walltime_guard_policy(cluster_cfg),
         }
         control_file = generate_solver_control_file(run_dir, case_id, configs, cluster_tasks, monitor_files)
 

@@ -21,4 +21,12 @@ execution:
     - "module restore petsc-setup"
   launcher: "srun"
   launcher_args: []
+  # Generated Slurm solver jobs enable this runtime walltime guard by default.
+  # Uncomment only when you need to override the defaults:
+  # walltime_guard:
+  #   enabled: true
+  #   warmup_steps: 10
+  #   multiplier: 2.0
+  #   min_seconds: 60
+  #   estimator_alpha: 0.35
   extra_sbatch: {}

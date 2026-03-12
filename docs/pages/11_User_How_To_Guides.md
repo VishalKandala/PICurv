@@ -164,7 +164,21 @@ Cancel a submitted run by directory:
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve
 ```
 
-Ask Slurm for an early warning signal when you want PICurv to flush one last snapshot before walltime:
+Generated Slurm solver jobs already enable an automatic runtime walltime guard. Override it only
+when you need a different warmup/headroom policy:
+
+```yaml
+execution:
+  walltime_guard:
+    enabled: true
+    warmup_steps: 10
+    multiplier: 2.0
+    min_seconds: 60
+    estimator_alpha: 0.35
+```
+
+Ask Slurm for an early warning signal as fallback protection when you want PICurv to flush one
+last snapshot before walltime or preemption:
 
 ```yaml
 execution:
@@ -177,7 +191,8 @@ If the batch script launches `mpirun` directly, use `signal: "B:USR1@300"` and p
 Verification:
 
 - inspect `scheduler/*.sbatch` and `submission.json` in run directory.
-- confirm the generated cluster profile contains the intended `signal` policy before submission.
+- confirm the generated solver script exports `PICURV_JOB_START_EPOCH` and `PICURV_WALLTIME_LIMIT_SECONDS`.
+- confirm the generated cluster profile contains the intended `signal` fallback policy before submission.
 
 @subsection p11_restart_ssec 3.3 Restart from a Saved Step
 

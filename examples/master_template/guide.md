@@ -25,6 +25,7 @@ A practical pattern is: initialize a runnable example first, then use these temp
 Launcher-related note:
 
 - `master_cluster.yml` is only for batch/scheduler policy and batch-specific overrides.
+- generated Slurm solver jobs use the runtime walltime guard by default; override it in `master_cluster.yml -> execution.walltime_guard` only when the default policy is not appropriate.
 - `picurv init` writes `.picurv-execution.yml` into new cases with inert defaults.
 - for an existing case or repo-root site config, start from `execution.example.yml`.
 - legacy `.picurv-local.yml` remains supported for local-only compatibility, but it does not feed generated batch jobs.

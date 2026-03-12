@@ -232,7 +232,9 @@ Follow-up submission from existing artifacts:
 
 Graceful shutdown note:
 
-- if `cluster.yml -> execution.extra_sbatch.signal` requests an early warning signal, PICurv traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes one last snapshot at the next safe checkpoint even when the normal recording interval has not been reached.
+- generated Slurm solver jobs enable a runtime walltime guard by default; after 10 completed warmup steps, PICurv estimates timestep cost and requests the same graceful final-write path before remaining walltime gets too tight.
+- if `cluster.yml -> execution.extra_sbatch.signal` requests an early warning signal, PICurv also traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes one last snapshot at the next safe checkpoint even when the normal recording interval has not been reached.
+- tune the automatic estimator in `cluster.yml -> execution.walltime_guard`; keep `execution.extra_sbatch.signal` as fallback protection for preemption/manual termination or jobs that may not reach the warmup window.
 - use `signal: "USR1@300"` for `srun`-launched jobs, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
 
 Runtime stream logs:

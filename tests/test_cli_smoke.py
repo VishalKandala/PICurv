@@ -890,6 +890,43 @@ def test_programmatic_grid_cell_counts_translate_to_node_counts(tmp_path):
     assert "-im 9" in content
     assert "-jm 9" in content
     assert "-km 17" in content
+    assert "-walltime_guard_enabled" not in content
+
+
+def test_parse_slurm_time_limit_to_seconds_supports_common_formats():
+    """!
+    @brief Test that Slurm time parsing supports common scheduler formats.
+    """
+    picurv = load_picurv_module()
+
+    assert picurv.parse_slurm_time_limit_to_seconds("15") == 900
+    assert picurv.parse_slurm_time_limit_to_seconds("10:30") == 630
+    assert picurv.parse_slurm_time_limit_to_seconds("01:02:03") == 3723
+    assert picurv.parse_slurm_time_limit_to_seconds("2-03") == 183600
+    assert picurv.parse_slurm_time_limit_to_seconds("2-03:04") == 183840
+    assert picurv.parse_slurm_time_limit_to_seconds("2-03:04:05") == 183845
+
+
+def test_resolve_walltime_guard_policy_defaults_for_slurm_cluster():
+    """!
+    @brief Test that omitted Slurm walltime guard config resolves to built-in defaults.
+    """
+    picurv = load_picurv_module()
+    policy = picurv.resolve_walltime_guard_policy(
+        {
+            "scheduler": {"type": "slurm"},
+            "resources": {"time": "00:10:00"},
+            "execution": {},
+        }
+    )
+
+    assert policy == {
+        "enabled": True,
+        "warmup_steps": 10,
+        "multiplier": 2.0,
+        "min_seconds": 60.0,
+        "estimator_alpha": 0.35,
+    }
 
 
 def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
@@ -2202,6 +2239,53 @@ def test_validate_cluster_warns_on_sample_placeholder_values(tmp_path):
     assert "user@example.edu" in result.stderr
 
 
+def test_validate_cluster_rejects_invalid_walltime_guard_values(tmp_path):
+    """!
+    @brief Test that cluster validation rejects malformed walltime guard settings.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    cluster_invalid = tmp_path / "cluster_bad_walltime_guard.yml"
+    cluster_invalid.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  type: slurm",
+                "",
+                "resources:",
+                "  account: \"test_account\"",
+                "  partition: \"compute\"",
+                "  nodes: 1",
+                "  ntasks_per_node: 4",
+                "  mem: \"4G\"",
+                "  time: \"00:10:00\"",
+                "",
+                "notifications:",
+                "  mail_user: null",
+                "  mail_type: null",
+                "",
+                "execution:",
+                "  module_setup: []",
+                "  launcher: \"srun\"",
+                "  launcher_args: []",
+                "  extra_sbatch: {}",
+                "  walltime_guard:",
+                "    warmup_steps: 0",
+                "    multiplier: 6.0",
+                "    min_seconds: -5",
+                "    estimator_alpha: 0.0",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = run_picurv(["validate", "--cluster", str(cluster_invalid)])
+    assert result.returncode == 1
+    assert "execution.walltime_guard.warmup_steps must be a positive integer" in result.stderr
+    assert "execution.walltime_guard.multiplier must be <= 5.0" in result.stderr
+    assert "execution.walltime_guard.min_seconds must be a positive number" in result.stderr
+    assert "execution.walltime_guard.estimator_alpha must be in (0, 1]" in result.stderr
+
+
 def test_validate_rejects_invalid_shared_runtime_execution_config(tmp_path):
     """!
     @brief Test that validate reports malformed .picurv-execution.yml content.
@@ -2309,6 +2393,8 @@ def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_pa
     assert "#SBATCH --ntasks-per-node=4" in solver_script
     assert f"#SBATCH --output={run_dir / 'scheduler' / 'solver_%j.out'}" in solver_script
     assert f"#SBATCH --error={run_dir / 'scheduler' / 'solver_%j.err'}" in solver_script
+    assert "export PICURV_JOB_START_EPOCH=$(date +%s)" in solver_script
+    assert "export PICURV_WALLTIME_LIMIT_SECONDS=600" in solver_script
     assert "srun -n 4 " in solver_script
 
     post_script = (run_dir / "scheduler" / "post.sbatch").read_text(encoding="utf-8")
@@ -2316,7 +2402,16 @@ def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_pa
     assert "#SBATCH --ntasks-per-node=1" in post_script
     assert f"#SBATCH --output={run_dir / 'scheduler' / 'post_%j.out'}" in post_script
     assert f"#SBATCH --error={run_dir / 'scheduler' / 'post_%j.err'}" in post_script
+    assert "PICURV_JOB_START_EPOCH" not in post_script
     assert "srun -n 1 " in post_script
+
+    control_file = next((run_dir / "config").glob("*.control"))
+    control_text = control_file.read_text(encoding="utf-8")
+    assert "-walltime_guard_enabled true" in control_text
+    assert "-walltime_guard_warmup_steps 10" in control_text
+    assert "-walltime_guard_multiplier 2.0" in control_text
+    assert "-walltime_guard_min_seconds 60.0" in control_text
+    assert "-walltime_guard_estimator_alpha 0.35" in control_text
 
 
 def create_staged_run_dir(
@@ -2716,10 +2811,18 @@ def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
     solver_script = (study_dir / "scheduler" / "solver_array.sbatch").read_text(encoding="utf-8")
     assert f"#SBATCH --output={study_dir / 'scheduler' / 'solver_%A_%a.out'}" in solver_script
     assert f"#SBATCH --error={study_dir / 'scheduler' / 'solver_%A_%a.err'}" in solver_script
+    assert 'export PICURV_JOB_START_EPOCH=$(date +%s)' in solver_script
+    assert "export PICURV_WALLTIME_LIMIT_SECONDS=600" in solver_script
 
     post_script = (study_dir / "scheduler" / "post_array.sbatch").read_text(encoding="utf-8")
     assert f"#SBATCH --output={study_dir / 'scheduler' / 'post_%A_%a.out'}" in post_script
     assert f"#SBATCH --error={study_dir / 'scheduler' / 'post_%A_%a.err'}" in post_script
+    assert "PICURV_JOB_START_EPOCH" not in post_script
+
+    sample_control = next((study_dir / "cases").glob("*/config/*.control"))
+    sample_control_text = sample_control.read_text(encoding="utf-8")
+    assert "-walltime_guard_enabled true" in sample_control_text
+    assert "-walltime_guard_warmup_steps 10" in sample_control_text
 
     assert not (study_dir / "logs").exists()
 

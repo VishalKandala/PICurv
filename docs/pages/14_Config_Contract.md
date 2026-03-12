@@ -102,6 +102,7 @@ Analytical-mode compatibility rule:
 - `execution.launcher` controls launch style (`srun`, `mpirun`, custom). A multi-word launcher string is accepted for site compatibility, but keeping the executable here and extra flags in `execution.launcher_args` is the preferred portable form.
 - `execution.launcher_args` provides site-specific launch flags and is appended after any inline tokens parsed from `execution.launcher`.
 - when `execution.launcher` / `execution.launcher_args` are omitted, `picurv` falls back to nearest `.picurv-execution.yml` (`cluster_execution`, then `default_execution`) before using the built-in default `srun`.
+- `execution.walltime_guard` optionally tunes the automatic runtime walltime estimator for generated Slurm solver jobs. When omitted, generated solver jobs still use the built-in default policy (`enabled: true`, `warmup_steps: 10`, `multiplier: 2.0`, `min_seconds: 60`, `estimator_alpha: 0.35`).
 - `execution.extra_sbatch` supports scheduler-specific pass-through flags.
 - `cluster.yml` does not currently define run naming. `picurv` derives `run_id` from `<case_basename>_<timestamp>` and uses that same run ID to name generated scheduler jobs.
 

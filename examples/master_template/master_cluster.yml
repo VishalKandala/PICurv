@@ -45,6 +45,14 @@ execution:
   # Multi-word launcher strings are accepted, but the portable form is:
   # launcher: "mpirun"
   # launcher_args: ["-mca", "pml", "ucx"]
+  # Generated Slurm solver jobs enable this runtime walltime guard by default.
+  # Uncomment only when you need to override the defaults:
+  # walltime_guard:
+  #   enabled: true
+  #   warmup_steps: 10
+  #   multiplier: 2.0
+  #   min_seconds: 60
+  #   estimator_alpha: 0.35
 
   # Optional pass-through SBATCH flags.
   # dict form:

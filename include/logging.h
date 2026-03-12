@@ -750,14 +750,12 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx);
 // --- Internal functions, do not call directly ---
 // These are called by the macros below.
 /**
- * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_BEGIN`. */
- *
+ * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_BEGIN`.
  * @param func_name Function name used by the profiling helper.
  */
 void _ProfilingStart(const char *func_name);
 /**
- * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_END`. */
- *
+ * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_END`.
  * @param func_name Function name used by the profiling helper.
  */
 void _ProfilingEnd(const char *func_name);
