@@ -15,7 +15,13 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 
 def run_picurv(args, cwd=REPO_ROOT, env=None):
-    """Run picurv."""
+    """!
+    @brief Run picurv.
+    @param[in] args Command-line style argument list supplied to the function.
+    @param[in] cwd Working directory override supplied to the function.
+    @param[in] env Environment override mapping supplied to the function.
+    @return Value returned by `run_picurv()`.
+    """
     cmd = [sys.executable, str(PICURV)] + list(args)
     merged_env = os.environ.copy()
     if env:
@@ -24,7 +30,10 @@ def run_picurv(args, cwd=REPO_ROOT, env=None):
 
 
 def load_picurv_module():
-    """Load picurv module for tests."""
+    """!
+    @brief Load picurv module for tests.
+    @return Value returned by `load_picurv_module()`.
+    """
     loader = importlib.machinery.SourceFileLoader("picurv_module", str(PICURV))
     spec = importlib.util.spec_from_loader("picurv_module", loader)
     assert spec is not None
@@ -34,7 +43,11 @@ def load_picurv_module():
 
 
 def write_legacy_1d_grid(path: Path) -> Path:
-    """Write a minimal legacy 1D-axis grid payload for conversion tests."""
+    """!
+    @brief Write a minimal legacy 1D-axis grid payload for conversion tests.
+    @param[in] path Filesystem path argument passed to `write_legacy_1d_grid()`.
+    @return Value returned by `write_legacy_1d_grid()`.
+    """
     path.write_text(
         "\n".join(
             [
@@ -56,7 +69,12 @@ def write_legacy_1d_grid(path: Path) -> Path:
 
 
 def write_canonical_picgrid(path: Path, dims=(3, 3, 3)) -> Path:
-    """Write a minimal canonical PICGRID payload for file-grid tests."""
+    """!
+    @brief Write a minimal canonical PICGRID payload for file-grid tests.
+    @param[in] path Filesystem path argument passed to `write_canonical_picgrid()`.
+    @param[in] dims Argument passed to `write_canonical_picgrid()`.
+    @return Value returned by `write_canonical_picgrid()`.
+    """
     im, jm, km = dims
     lines = ["PICGRID", "1", f"{im} {jm} {km}"]
     for k in range(km):
@@ -68,7 +86,9 @@ def write_canonical_picgrid(path: Path, dims=(3, 3, 3)) -> Path:
 
 
 def test_top_level_help_smoke():
-    """Test that top level help smoke."""
+    """!
+    @brief Test that top level help smoke.
+    """
     result = run_picurv(["--help"])
     assert result.returncode == 0
     assert "validate" in result.stdout
@@ -76,7 +96,9 @@ def test_top_level_help_smoke():
 
 
 def test_run_help_smoke():
-    """Test that run help smoke."""
+    """!
+    @brief Test that run help smoke.
+    """
     result = run_picurv(["run", "--help"])
     assert result.returncode == 0
     assert "--dry-run" in result.stdout
@@ -84,7 +106,9 @@ def test_run_help_smoke():
 
 
 def test_validate_help_smoke():
-    """Test that validate help smoke."""
+    """!
+    @brief Test that validate help smoke.
+    """
     result = run_picurv(["validate", "--help"])
     assert result.returncode == 0
     assert "--case" in result.stdout
@@ -92,15 +116,30 @@ def test_validate_help_smoke():
 
 
 def test_summarize_help_smoke():
-    """Test that summarize help smoke."""
+    """!
+    @brief Test that summarize help smoke.
+    """
     result = run_picurv(["summarize", "--help"])
     assert result.returncode == 0
     assert "--run-dir" in result.stdout
     assert "--snapshot-rows" in result.stdout
 
 
+def test_submit_help_smoke():
+    """!
+    @brief Test that submit help smoke.
+    """
+    result = run_picurv(["submit", "--help"])
+    assert result.returncode == 0
+    assert "--run-dir" in result.stdout
+    assert "--study-dir" in result.stdout
+    assert "--force" in result.stdout
+
+
 def test_removed_selector_aliases_are_rejected():
-    """Test that removed selector aliases are rejected."""
+    """!
+    @brief Test that removed selector aliases are rejected.
+    """
     picurv = load_picurv_module()
 
     rejected = [
@@ -121,7 +160,10 @@ def test_removed_selector_aliases_are_rejected():
 
 
 def test_picgrid_validation_requires_canonical_header(tmp_path):
-    """Test that picgrid validation requires canonical header."""
+    """!
+    @brief Test that picgrid validation requires canonical header.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source = tmp_path / "legacy.grid"
     source.write_text("1\n3 3 3\n0 0 0\n", encoding="utf-8")
@@ -136,7 +178,9 @@ def test_picgrid_validation_requires_canonical_header(tmp_path):
 
 
 def test_validate_valid_configs_pass():
-    """Test that validate valid configs pass."""
+    """!
+    @brief Test that validate valid configs pass.
+    """
     valid = FIXTURES / "valid"
     result = run_picurv(
         [
@@ -160,7 +204,10 @@ def test_validate_valid_configs_pass():
 
 
 def test_validate_zero_mode_case_allows_omitting_velocity_components(tmp_path):
-    """Test that validate zero mode case allows omitting velocity components."""
+    """!
+    @brief Test that validate zero mode case allows omitting velocity components.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_zero.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
@@ -187,7 +234,10 @@ def test_validate_zero_mode_case_allows_omitting_velocity_components(tmp_path):
 
 
 def test_validate_poiseuille_peak_velocity_option_passes_with_unique_inlet_axis(tmp_path):
-    """Test that validate poiseuille peak velocity option passes with unique inlet axis."""
+    """!
+    @brief Test that validate poiseuille peak velocity option passes with unique inlet axis.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_poiseuille_peak.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
@@ -214,7 +264,10 @@ def test_validate_poiseuille_peak_velocity_option_passes_with_unique_inlet_axis(
 
 
 def test_validate_initial_condition_mode_must_be_explicit(tmp_path):
-    """Test that validate initial condition mode must be explicit."""
+    """!
+    @brief Test that validate initial condition mode must be explicit.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_missing_mode.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
@@ -238,7 +291,10 @@ def test_validate_initial_condition_mode_must_be_explicit(tmp_path):
 
 
 def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
-    """Test that validate analytical mode requires programmatic grid."""
+    """!
+    @brief Test that validate analytical mode requires programmatic grid.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_file_grid.yml"
     solver_path = tmp_path / "solver_analytical.yml"
@@ -246,7 +302,7 @@ def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
     case_text = case_text.replace(
         """grid:
-  mode: programmatic_c
+        mode: programmatic_c
   programmatic_settings:
     im: 8
     jm: 8
@@ -288,7 +344,10 @@ def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
 
 
 def test_validate_particle_restart_mode_omission_warns_on_restart(tmp_path):
-    """Test that validate particle restart mode omission warns on restart."""
+    """!
+    @brief Test that validate particle restart mode omission warns on restart.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     case_path = tmp_path / "case_restart_warn.yml"
     case_text = (valid / "case.yml").read_text(encoding="utf-8")
@@ -313,7 +372,9 @@ def test_validate_particle_restart_mode_omission_warns_on_restart(tmp_path):
 
 
 def test_validate_invalid_case_reports_structured_error():
-    """Test that validate invalid case reports structured error."""
+    """!
+    @brief Test that validate invalid case reports structured error.
+    """
     valid = FIXTURES / "valid"
     invalid = FIXTURES / "invalid"
     result = run_picurv(
@@ -333,7 +394,9 @@ def test_validate_invalid_case_reports_structured_error():
 
 
 def test_validate_invalid_cluster_and_study_fail():
-    """Test that validate invalid cluster and study fail."""
+    """!
+    @brief Test that validate invalid cluster and study fail.
+    """
     invalid = FIXTURES / "invalid"
     cluster_result = run_picurv(["validate", "--cluster", str(invalid / "cluster_bad_scheduler.yml")])
     assert cluster_result.returncode == 1
@@ -345,7 +408,9 @@ def test_validate_invalid_cluster_and_study_fail():
 
 
 def test_dry_run_does_not_create_run_directories():
-    """Test that dry run does not create run directories."""
+    """!
+    @brief Test that dry run does not create run directories.
+    """
     valid = FIXTURES / "valid"
     runs_dir = REPO_ROOT / "runs"
     before = {p.name for p in runs_dir.iterdir()} if runs_dir.exists() else set()
@@ -374,7 +439,9 @@ def test_dry_run_does_not_create_run_directories():
 
 
 def test_dry_run_json_output_schema():
-    """Test that dry run json output schema."""
+    """!
+    @brief Test that dry run json output schema.
+    """
     valid = FIXTURES / "valid"
     result = run_picurv(
         [
@@ -407,7 +474,11 @@ def test_dry_run_json_output_schema():
 
 
 def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
-    """Test that post process run dir accepts null source data mapping."""
+    """!
+    @brief Test that post process run dir accepts null source data mapping.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Value returned by `test_post_process_run_dir_accepts_null_source_data_mapping()`.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
 
@@ -433,11 +504,21 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
     calls = []
 
     def fake_resolve_runtime_executable(name):
-        """Helper for fake resolve runtime executable."""
+        """!
+        @brief Helper for fake resolve runtime executable.
+        @param[in] name Argument passed to `fake_resolve_runtime_executable()`.
+        @return Value returned by `fake_resolve_runtime_executable()`.
+        """
         return f"/tmp/fake/{name}"
 
     def fake_execute_command(command, run_dir_arg, log_filename, monitor_cfg=None):
-        """Helper for fake execute command."""
+        """!
+        @brief Helper for fake execute command.
+        @param[in] command Argument passed to `fake_execute_command()`.
+        @param[in] run_dir_arg Argument passed to `fake_execute_command()`.
+        @param[in] log_filename Argument passed to `fake_execute_command()`.
+        @param[in] monitor_cfg Argument passed to `fake_execute_command()`.
+        """
         calls.append(
             {
                 "command": command,
@@ -480,17 +561,31 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
 
 
 def test_local_solve_wrapper_log_is_routed_to_scheduler_dir(tmp_path):
-    """Test that local solver wrapper output goes to scheduler/ for new runs."""
+    """!
+    @brief Test that local solver wrapper output goes to scheduler/ for new runs.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Value returned by `test_local_solve_wrapper_log_is_routed_to_scheduler_dir()`.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     calls = []
 
     def fake_resolve_runtime_executable(name):
-        """Return a fake runtime executable path."""
+        """!
+        @brief Return a fake runtime executable path.
+        @param[in] name Argument passed to `fake_resolve_runtime_executable()`.
+        @return Value returned by `fake_resolve_runtime_executable()`.
+        """
         return f"/tmp/fake/{name}"
 
     def fake_execute_command(command, run_dir_arg, log_filename, monitor_cfg=None):
-        """Capture execute_command inputs instead of launching."""
+        """!
+        @brief Capture execute_command inputs instead of launching.
+        @param[in] command Argument passed to `fake_execute_command()`.
+        @param[in] run_dir_arg Argument passed to `fake_execute_command()`.
+        @param[in] log_filename Argument passed to `fake_execute_command()`.
+        @param[in] monitor_cfg Argument passed to `fake_execute_command()`.
+        """
         calls.append(
             {
                 "command": command,
@@ -537,7 +632,10 @@ def test_local_solve_wrapper_log_is_routed_to_scheduler_dir(tmp_path):
 
 
 def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
-    """Test that summarize aggregates available per-step artifacts into JSON."""
+    """!
+    @brief Test that summarize aggregates available per-step artifacts into JSON.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     run_dir = tmp_path / "runs" / "demo_run"
     config_dir = run_dir / "config"
     logs_dir = run_dir / "logs"
@@ -702,7 +800,10 @@ def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
 
 
 def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):
-    """Test that dry run restart from missing run dir fails."""
+    """!
+    @brief Test that dry run restart from missing run dir fails.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
 
@@ -743,7 +844,10 @@ def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):
 
 
 def test_post_process_run_dir_missing_config_inputs_fails(tmp_path):
-    """Test that post process run dir missing config inputs fails."""
+    """!
+    @brief Test that post process run dir missing config inputs fails.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     run_dir = tmp_path / "broken_run"
     (run_dir / "config").mkdir(parents=True)
@@ -765,7 +869,10 @@ def test_post_process_run_dir_missing_config_inputs_fails(tmp_path):
 
 
 def test_programmatic_grid_cell_counts_translate_to_node_counts(tmp_path):
-    """Test that programmatic grid cell counts translate to node counts."""
+    """!
+    @brief Test that programmatic grid cell counts translate to node counts.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -800,7 +907,10 @@ def test_programmatic_grid_cell_counts_translate_to_node_counts(tmp_path):
 
 
 def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
-    """Test that grid gen exports node counts from cell inputs."""
+    """!
+    @brief Test that grid gen exports node counts from cell inputs.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     output_path = tmp_path / "tiny_grid.picgrid"
     result = subprocess.run(
         [
@@ -833,7 +943,10 @@ def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
 
 
 def test_grid_gen_legacy1d_conversion_writes_canonical_picgrid(tmp_path):
-    """Test that grid.gen legacy1d converts headerless 1D-axis payload to canonical PICGRID."""
+    """!
+    @brief Test that grid.gen legacy1d converts headerless 1D-axis payload to canonical PICGRID.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     legacy_input = write_legacy_1d_grid(tmp_path / "legacy.grid")
     output_path = tmp_path / "converted.picgrid"
     result = subprocess.run(
@@ -866,7 +979,10 @@ def test_grid_gen_legacy1d_conversion_writes_canonical_picgrid(tmp_path):
 
 
 def test_generate_solver_control_file_applies_top_level_da_processors_for_file_grid(tmp_path):
-    """Test that file-grid mode accepts top-level DMDA processor layout hints."""
+    """!
+    @brief Test that file-grid mode accepts top-level DMDA processor layout hints.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -914,7 +1030,10 @@ def test_generate_solver_control_file_applies_top_level_da_processors_for_file_g
 
 
 def test_generate_solver_control_file_applies_top_level_da_processors_for_grid_gen(tmp_path):
-    """Test that grid-gen mode accepts top-level DMDA processor layout hints."""
+    """!
+    @brief Test that grid-gen mode accepts top-level DMDA processor layout hints.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -964,7 +1083,10 @@ def test_generate_solver_control_file_applies_top_level_da_processors_for_grid_g
 
 
 def test_generate_solver_control_file_preserves_legacy_programmatic_da_processors(tmp_path):
-    """Test that legacy nested programmatic da_processors remain supported."""
+    """!
+    @brief Test that legacy nested programmatic da_processors remain supported.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -1007,7 +1129,10 @@ def test_generate_solver_control_file_preserves_legacy_programmatic_da_processor
 
 
 def test_case_local_symlinked_picurv_prefers_local_binaries(tmp_path):
-    """Test that case local symlinked picurv prefers local binaries."""
+    """!
+    @brief Test that case local symlinked picurv prefers local binaries.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     case_dir = tmp_path / "case_dir"
     case_dir.mkdir()
@@ -1053,7 +1178,10 @@ def test_case_local_symlinked_picurv_prefers_local_binaries(tmp_path):
 
 
 def test_case_local_copied_picurv_prefers_local_binaries(tmp_path):
-    """Test that case local copied picurv prefers local binaries."""
+    """!
+    @brief Test that case local copied picurv prefers local binaries.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     case_dir = tmp_path / "copied_case_dir"
     case_dir.mkdir()
@@ -1099,7 +1227,10 @@ def test_case_local_copied_picurv_prefers_local_binaries(tmp_path):
 
 
 def test_init_always_copies_full_executable_set(tmp_path):
-    """Test that init always copies full executable set."""
+    """!
+    @brief Test that init always copies full executable set.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     fake_root = tmp_path / "fake_root"
     template_dir = fake_root / "examples" / "demo_case"
@@ -1142,7 +1273,10 @@ def test_init_always_copies_full_executable_set(tmp_path):
 
 
 def test_empty_enabled_functions_omits_whitelist_and_uses_c_default(tmp_path):
-    """Test that empty enabled functions omits whitelist and uses c default."""
+    """!
+    @brief Test that empty enabled functions omits whitelist and uses c default.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -1184,7 +1318,10 @@ def test_empty_enabled_functions_omits_whitelist_and_uses_c_default(tmp_path):
 
 
 def test_generate_solver_control_file_converts_legacy_grid_when_enabled(tmp_path):
-    """Test that file-grid mode can convert legacy payloads via grid.gen before staging grid.run."""
+    """!
+    @brief Test that file-grid mode can convert legacy payloads via grid.gen before staging grid.run.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -1241,7 +1378,10 @@ def test_generate_solver_control_file_converts_legacy_grid_when_enabled(tmp_path
 
 
 def test_particle_console_output_frequency_defaults_to_data_output_frequency(tmp_path):
-    """Test that particle console output frequency defaults to data output frequency."""
+    """!
+    @brief Test that particle console output frequency defaults to data output frequency.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -1277,7 +1417,10 @@ def test_particle_console_output_frequency_defaults_to_data_output_frequency(tmp
 
 
 def test_validate_rejects_negative_particle_console_output_frequency(tmp_path):
-    """Test that validate rejects negative particle console output frequency."""
+    """!
+    @brief Test that validate rejects negative particle console output frequency.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
@@ -1303,7 +1446,10 @@ def test_validate_rejects_negative_particle_console_output_frequency(tmp_path):
 
 
 def test_validate_rejects_unknown_legacy_grid_conversion_format(tmp_path):
-    """Test that validate rejects unsupported grid.legacy_conversion.format values."""
+    """!
+    @brief Test that validate rejects unsupported grid.legacy_conversion.format values.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -1335,7 +1481,10 @@ def test_validate_rejects_unknown_legacy_grid_conversion_format(tmp_path):
 
 
 def test_validate_rejects_conflicting_top_level_and_legacy_da_processors(tmp_path):
-    """Test that conflicting processor-layout definitions are rejected."""
+    """!
+    @brief Test that conflicting processor-layout definitions are rejected.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -1361,7 +1510,10 @@ def test_validate_rejects_conflicting_top_level_and_legacy_da_processors(tmp_pat
 
 
 def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
-    """Test that new profiling config emits explicit timestep flags."""
+    """!
+    @brief Test that new profiling config emits explicit timestep flags.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -1407,7 +1559,10 @@ def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
 
 
 def test_restart_from_run_dir_resolves_previous_restart_directory(tmp_path):
-    """Test that restart from run dir resolves previous restart directory."""
+    """!
+    @brief Test that restart from run dir resolves previous restart directory.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
@@ -1470,7 +1625,9 @@ def test_restart_from_run_dir_resolves_previous_restart_directory(tmp_path):
 
 
 def test_dry_run_local_solver_vs_post_proc_counts():
-    """Test that dry run local solver vs post proc counts."""
+    """!
+    @brief Test that dry run local solver vs post proc counts.
+    """
     valid = FIXTURES / "valid"
     result = run_picurv(
         [
@@ -1502,7 +1659,9 @@ def test_dry_run_local_solver_vs_post_proc_counts():
 
 
 def test_dry_run_local_accepts_launcher_override_for_login_node_runs():
-    """Test that local multi-rank dry-run honors launcher override env vars."""
+    """!
+    @brief Test that local multi-rank dry-run honors launcher override env vars.
+    """
     valid = FIXTURES / "valid"
     result = run_picurv(
         [
@@ -1531,7 +1690,10 @@ def test_dry_run_local_accepts_launcher_override_for_login_node_runs():
 
 
 def test_dry_run_local_reads_shared_runtime_execution_config(tmp_path):
-    """Test that local multi-rank dry-run can read .picurv-execution.yml."""
+    """!
+    @brief Test that local multi-rank dry-run can read .picurv-execution.yml.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     (tmp_path / ".picurv-execution.yml").write_text(
         "\n".join(
@@ -1580,7 +1742,10 @@ def test_dry_run_local_reads_shared_runtime_execution_config(tmp_path):
 
 
 def test_env_launcher_override_wins_over_shared_runtime_execution_config(tmp_path):
-    """Test that env launcher override takes precedence over .picurv-execution.yml."""
+    """!
+    @brief Test that env launcher override takes precedence over .picurv-execution.yml.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     (tmp_path / ".picurv-execution.yml").write_text(
         "\n".join(
@@ -1620,7 +1785,10 @@ def test_env_launcher_override_wins_over_shared_runtime_execution_config(tmp_pat
 
 
 def test_dry_run_local_still_reads_legacy_local_runtime_config(tmp_path):
-    """Test that legacy .picurv-local.yml remains supported for local runs."""
+    """!
+    @brief Test that legacy .picurv-local.yml remains supported for local runs.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     (tmp_path / ".picurv-local.yml").write_text(
         "\n".join(
@@ -1658,7 +1826,10 @@ def test_dry_run_local_still_reads_legacy_local_runtime_config(tmp_path):
 
 
 def test_dry_run_cluster_post_is_single_task(tmp_path):
-    """Test that dry run cluster post is single task."""
+    """!
+    @brief Test that dry run cluster post is single task.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     cluster_override = tmp_path / "cluster_tmp_ntasks4.yml"
     cluster_override.write_text(
@@ -1721,7 +1892,10 @@ def test_dry_run_cluster_post_is_single_task(tmp_path):
 
 
 def test_dry_run_cluster_accepts_inline_launcher_tokens(tmp_path):
-    """Test that cluster dry-run accepts launcher strings with inline site flags."""
+    """!
+    @brief Test that cluster dry-run accepts launcher strings with inline site flags.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     cluster_override = tmp_path / "cluster_inline_launcher.yml"
     cluster_override.write_text(
@@ -1779,7 +1953,10 @@ def test_dry_run_cluster_accepts_inline_launcher_tokens(tmp_path):
 
 
 def test_dry_run_cluster_reads_shared_runtime_execution_config(tmp_path):
-    """Test that cluster dry-run falls back to .picurv-execution.yml when cluster.yml omits launcher tokens."""
+    """!
+    @brief Test that cluster dry-run falls back to .picurv-execution.yml when cluster.yml omits launcher tokens.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     (tmp_path / ".picurv-execution.yml").write_text(
         "\n".join(
@@ -1845,7 +2022,10 @@ def test_dry_run_cluster_reads_shared_runtime_execution_config(tmp_path):
 
 
 def test_cluster_yml_launcher_args_override_shared_cluster_execution(tmp_path):
-    """Test that cluster.yml launcher_args can override shared cluster defaults without redefining launcher."""
+    """!
+    @brief Test that cluster.yml launcher_args can override shared cluster defaults without redefining launcher.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     (tmp_path / ".picurv-execution.yml").write_text(
         "\n".join(
@@ -1918,7 +2098,10 @@ def test_cluster_yml_launcher_args_override_shared_cluster_execution(tmp_path):
 
 
 def test_validate_cluster_rejects_unparseable_inline_launcher(tmp_path):
-    """Test that cluster validation rejects malformed inline launcher quoting."""
+    """!
+    @brief Test that cluster validation rejects malformed inline launcher quoting.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     cluster_invalid = tmp_path / "cluster_bad_launcher.yml"
     cluster_invalid.write_text(
         "\n".join(
@@ -1954,7 +2137,10 @@ def test_validate_cluster_rejects_unparseable_inline_launcher(tmp_path):
 
 
 def test_validate_cluster_rejects_whitespace_packed_launcher_arg(tmp_path):
-    """Test that cluster validation rejects launcher_args items containing embedded whitespace."""
+    """!
+    @brief Test that cluster validation rejects launcher_args items containing embedded whitespace.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     cluster_invalid = tmp_path / "cluster_bad_launcher_args.yml"
     cluster_invalid.write_text(
         "\n".join(
@@ -1990,7 +2176,10 @@ def test_validate_cluster_rejects_whitespace_packed_launcher_arg(tmp_path):
 
 
 def test_validate_cluster_warns_on_sample_placeholder_values(tmp_path):
-    """Test that cluster validation warns when sample placeholder values remain in use."""
+    """!
+    @brief Test that cluster validation warns when sample placeholder values remain in use.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     cluster_placeholder = tmp_path / "cluster_placeholder.yml"
     cluster_placeholder.write_text(
         "\n".join(
@@ -2028,7 +2217,10 @@ def test_validate_cluster_warns_on_sample_placeholder_values(tmp_path):
 
 
 def test_validate_rejects_invalid_shared_runtime_execution_config(tmp_path):
-    """Test that validate reports malformed .picurv-execution.yml content."""
+    """!
+    @brief Test that validate reports malformed .picurv-execution.yml content.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     (tmp_path / ".picurv-execution.yml").write_text(
         "\n".join(
@@ -2058,7 +2250,10 @@ def test_validate_rejects_invalid_shared_runtime_execution_config(tmp_path):
 
 
 def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_path):
-    """Test that cluster no submit manifest and scripts use stage specific counts."""
+    """!
+    @brief Test that cluster no submit manifest and scripts use stage specific counts.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     cluster_override = tmp_path / "cluster_tmp_ntasks4.yml"
     cluster_override.write_text(
@@ -2138,8 +2333,350 @@ def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_pa
     assert "srun -n 1 " in post_script
 
 
+def create_staged_run_dir(
+    tmp_path: Path,
+    name: str = "demo_run",
+    launch_mode: str = "slurm",
+    solve_meta=None,
+    post_meta=None,
+    include_solve_script: bool = True,
+    include_post_script: bool = True,
+) -> Path:
+    """!
+    @brief Create a staged run directory with scheduler metadata for submit tests.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] name Argument passed to `create_staged_run_dir()`.
+    @param[in] launch_mode Argument passed to `create_staged_run_dir()`.
+    @param[in] solve_meta Argument passed to `create_staged_run_dir()`.
+    @param[in] post_meta Argument passed to `create_staged_run_dir()`.
+    @param[in] include_solve_script Argument passed to `create_staged_run_dir()`.
+    @param[in] include_post_script Argument passed to `create_staged_run_dir()`.
+    @return Value returned by `create_staged_run_dir()`.
+    """
+    run_dir = tmp_path / "runs" / name
+    scheduler_dir = run_dir / "scheduler"
+    scheduler_dir.mkdir(parents=True)
+
+    solver_script = scheduler_dir / "solver.sbatch"
+    post_script = scheduler_dir / "post.sbatch"
+    if include_solve_script:
+        solver_script.write_text("#!/bin/bash\n", encoding="utf-8")
+    if include_post_script:
+        post_script.write_text("#!/bin/bash\n", encoding="utf-8")
+
+    submission = {"launch_mode": launch_mode, "stages": {}}
+    if solve_meta is not False:
+        stage_meta = {"script": str(solver_script), "submitted": False}
+        if solve_meta:
+            stage_meta.update(solve_meta)
+        submission["stages"]["solve"] = stage_meta
+    if post_meta is not False:
+        stage_meta = {"script": str(post_script), "submitted": False}
+        if post_meta:
+            stage_meta.update(post_meta)
+        submission["stages"]["post-process"] = stage_meta
+
+    (scheduler_dir / "submission.json").write_text(json.dumps(submission, indent=2) + "\n", encoding="utf-8")
+    return run_dir
+
+
+def create_staged_study_dir(
+    tmp_path: Path,
+    name: str = "demo_study",
+    launch_mode: str = "slurm",
+    solve_meta=None,
+    post_meta=None,
+    include_solve_script: bool = True,
+    include_post_script: bool = True,
+) -> Path:
+    """!
+    @brief Create a staged study directory with scheduler metadata for submit tests.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] name Argument passed to `create_staged_study_dir()`.
+    @param[in] launch_mode Argument passed to `create_staged_study_dir()`.
+    @param[in] solve_meta Argument passed to `create_staged_study_dir()`.
+    @param[in] post_meta Argument passed to `create_staged_study_dir()`.
+    @param[in] include_solve_script Argument passed to `create_staged_study_dir()`.
+    @param[in] include_post_script Argument passed to `create_staged_study_dir()`.
+    @return Value returned by `create_staged_study_dir()`.
+    """
+    study_dir = tmp_path / "studies" / name
+    scheduler_dir = study_dir / "scheduler"
+    scheduler_dir.mkdir(parents=True)
+
+    solver_script = scheduler_dir / "solver_array.sbatch"
+    post_script = scheduler_dir / "post_array.sbatch"
+    if include_solve_script:
+        solver_script.write_text("#!/bin/bash\n", encoding="utf-8")
+    if include_post_script:
+        post_script.write_text("#!/bin/bash\n", encoding="utf-8")
+
+    submission = {
+        "launch_mode": launch_mode,
+        "study_id": name,
+        "solver_array": {"script": str(solver_script), "submitted": False},
+        "post_array": {"script": str(post_script), "submitted": False},
+    }
+    if solve_meta:
+        submission["solver_array"].update(solve_meta)
+    if post_meta:
+        submission["post_array"].update(post_meta)
+
+    (scheduler_dir / "submission.json").write_text(json.dumps(submission, indent=2) + "\n", encoding="utf-8")
+    (study_dir / "study_manifest.json").write_text(
+        json.dumps({"study_id": name, "submission": submission}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return study_dir
+
+
+def test_submit_run_dir_dry_run_prints_planned_sbatch_calls(tmp_path):
+    """!
+    @brief Test that submit dry-run prints solver and dependent post sbatch commands.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(tmp_path)
+    result = run_picurv(["submit", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
+    assert result.returncode == 0
+    assert "solver.sbatch" in result.stdout
+    assert "post.sbatch" in result.stdout
+    assert "--dependency=afterok:<new solve job id>" in result.stdout
+
+
+def test_submit_run_stage_solve_only_updates_submission_metadata(tmp_path):
+    """!
+    @brief Test that submit can launch only the staged solve job.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Value returned by `test_submit_run_stage_solve_only_updates_submission_metadata()`.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_staged_run_dir(tmp_path)
+    calls = []
+
+    def fake_submit_sbatch(script_path, dependency=None):
+        """!
+        @brief Record staged submissions without calling Slurm.
+        @param[in] script_path Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency Argument passed to `fake_submit_sbatch()`.
+        @return Value returned by `fake_submit_sbatch()`.
+        """
+        calls.append({"script": script_path, "dependency": dependency})
+        return {
+            "command": ["sbatch", script_path],
+            "returncode": 0,
+            "stdout": "Submitted batch job 501",
+            "stderr": "",
+            "script": script_path,
+            "job_id": "501",
+        }
+
+    original_submit = picurv.submit_sbatch
+    picurv.submit_sbatch = fake_submit_sbatch
+    try:
+        picurv.submit_staged_jobs(
+            SimpleNamespace(run_dir=str(run_dir), study_dir=None, stage="solve", force=False, dry_run=False)
+        )
+    finally:
+        picurv.submit_sbatch = original_submit
+
+    assert calls == [{"script": str(run_dir / "scheduler" / "solver.sbatch"), "dependency": None}]
+    submission = json.loads((run_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
+    assert submission["stages"]["solve"]["submitted"] is True
+    assert submission["stages"]["solve"]["job_id"] == "501"
+    assert submission["stages"]["post-process"]["submitted"] is False
+
+
+def test_submit_run_stage_all_adds_post_dependency_on_new_solve_job(tmp_path):
+    """!
+    @brief Test that submit all submits solve first and chains post to the new solve job id.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Value returned by `test_submit_run_stage_all_adds_post_dependency_on_new_solve_job()`.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_staged_run_dir(tmp_path)
+    calls = []
+    job_ids = iter(["601", "602"])
+
+    def fake_submit_sbatch(script_path, dependency=None):
+        """!
+        @brief Record staged submissions without calling Slurm.
+        @param[in] script_path Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency Argument passed to `fake_submit_sbatch()`.
+        @return Value returned by `fake_submit_sbatch()`.
+        """
+        job_id = next(job_ids)
+        calls.append({"script": script_path, "dependency": dependency, "job_id": job_id})
+        return {
+            "command": ["sbatch", script_path],
+            "returncode": 0,
+            "stdout": f"Submitted batch job {job_id}",
+            "stderr": "",
+            "script": script_path,
+            "job_id": job_id,
+        }
+
+    original_submit = picurv.submit_sbatch
+    picurv.submit_sbatch = fake_submit_sbatch
+    try:
+        picurv.submit_staged_jobs(
+            SimpleNamespace(run_dir=str(run_dir), study_dir=None, stage="all", force=False, dry_run=False)
+        )
+    finally:
+        picurv.submit_sbatch = original_submit
+
+    assert calls == [
+        {"script": str(run_dir / "scheduler" / "solver.sbatch"), "dependency": None, "job_id": "601"},
+        {"script": str(run_dir / "scheduler" / "post.sbatch"), "dependency": "601", "job_id": "602"},
+    ]
+    submission = json.loads((run_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
+    assert submission["stages"]["solve"]["job_id"] == "601"
+    assert submission["stages"]["post-process"]["job_id"] == "602"
+    assert submission["stages"]["post-process"]["dependency"] == "afterok:601"
+
+
+def test_submit_post_process_requires_recorded_solve_job_id(tmp_path):
+    """!
+    @brief Test that post-only submit refuses when no recorded solve job id exists.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(tmp_path)
+    result = run_picurv(["submit", "--run-dir", str(run_dir), "--stage", "post-process"], cwd=tmp_path)
+    assert result.returncode == 1
+    assert "requires a recorded solve job id" in result.stderr
+
+
+def test_submit_refuses_already_submitted_stage_without_force(tmp_path):
+    """!
+    @brief Test that submit protects against duplicate submission unless forced.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "777"},
+    )
+    result = run_picurv(["submit", "--run-dir", str(run_dir), "--stage", "solve"], cwd=tmp_path)
+    assert result.returncode == 1
+    assert "already recorded as submitted" in result.stderr
+
+
+def test_submit_force_resubmits_recorded_stage(tmp_path):
+    """!
+    @brief Test that --force allows re-submitting an already-submitted stage.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Value returned by `test_submit_force_resubmits_recorded_stage()`.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "777"},
+    )
+    calls = []
+
+    def fake_submit_sbatch(script_path, dependency=None):
+        """!
+        @brief Record forced re-submission without calling Slurm.
+        @param[in] script_path Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency Argument passed to `fake_submit_sbatch()`.
+        @return Value returned by `fake_submit_sbatch()`.
+        """
+        calls.append({"script": script_path, "dependency": dependency})
+        return {
+            "command": ["sbatch", script_path],
+            "returncode": 0,
+            "stdout": "Submitted batch job 778",
+            "stderr": "",
+            "script": script_path,
+            "job_id": "778",
+        }
+
+    original_submit = picurv.submit_sbatch
+    picurv.submit_sbatch = fake_submit_sbatch
+    try:
+        picurv.submit_staged_jobs(
+            SimpleNamespace(run_dir=str(run_dir), study_dir=None, stage="solve", force=True, dry_run=False)
+        )
+    finally:
+        picurv.submit_sbatch = original_submit
+
+    assert calls == [{"script": str(run_dir / "scheduler" / "solver.sbatch"), "dependency": None}]
+    submission = json.loads((run_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
+    assert submission["stages"]["solve"]["job_id"] == "778"
+    assert submission["stages"]["solve"]["submitted"] is True
+
+
+def test_submit_study_dir_updates_submission_and_manifest(tmp_path):
+    """!
+    @brief Test that study submit updates both scheduler submission.json and study_manifest.json.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Value returned by `test_submit_study_dir_updates_submission_and_manifest()`.
+    """
+    picurv = load_picurv_module()
+    study_dir = create_staged_study_dir(tmp_path)
+    calls = []
+    job_ids = iter(["801", "802"])
+
+    def fake_submit_sbatch(script_path, dependency=None):
+        """!
+        @brief Record study submissions without calling Slurm.
+        @param[in] script_path Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency Argument passed to `fake_submit_sbatch()`.
+        @return Value returned by `fake_submit_sbatch()`.
+        """
+        job_id = next(job_ids)
+        calls.append({"script": script_path, "dependency": dependency, "job_id": job_id})
+        return {
+            "command": ["sbatch", script_path],
+            "returncode": 0,
+            "stdout": f"Submitted batch job {job_id}",
+            "stderr": "",
+            "script": script_path,
+            "job_id": job_id,
+        }
+
+    original_submit = picurv.submit_sbatch
+    picurv.submit_sbatch = fake_submit_sbatch
+    try:
+        picurv.submit_staged_jobs(
+            SimpleNamespace(run_dir=None, study_dir=str(study_dir), stage="all", force=False, dry_run=False)
+        )
+    finally:
+        picurv.submit_sbatch = original_submit
+
+    assert calls == [
+        {"script": str(study_dir / "scheduler" / "solver_array.sbatch"), "dependency": None, "job_id": "801"},
+        {"script": str(study_dir / "scheduler" / "post_array.sbatch"), "dependency": "801", "job_id": "802"},
+    ]
+    submission = json.loads((study_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
+    manifest = json.loads((study_dir / "study_manifest.json").read_text(encoding="utf-8"))
+    assert submission["solver_array"]["job_id"] == "801"
+    assert submission["post_array"]["job_id"] == "802"
+    assert submission["post_array"]["dependency"] == "afterok:801"
+    assert manifest["submission"]["solver_array"]["job_id"] == "801"
+    assert manifest["submission"]["post_array"]["job_id"] == "802"
+
+
+def test_submit_rejects_non_slurm_or_malformed_submission_metadata(tmp_path):
+    """!
+    @brief Test that submit fails cleanly for local or missing submission metadata.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    local_run_dir = create_staged_run_dir(tmp_path, name="local_run", launch_mode="local")
+    local_result = run_picurv(["submit", "--run-dir", str(local_run_dir), "--dry-run"], cwd=tmp_path)
+    assert local_result.returncode == 1
+    assert "is not Slurm" in local_result.stderr
+
+    malformed_run_dir = tmp_path / "runs" / "missing_meta"
+    (malformed_run_dir / "scheduler").mkdir(parents=True)
+    malformed_result = run_picurv(["submit", "--run-dir", str(malformed_run_dir), "--dry-run"], cwd=tmp_path)
+    assert malformed_result.returncode == 1
+    assert "does not contain scheduler submission metadata" in malformed_result.stderr
+
+
 def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
-    """Test that Slurm array scripts keep scheduler stdout/stderr under scheduler/."""
+    """!
+    @brief Test that Slurm array scripts keep scheduler stdout/stderr under scheduler/.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     valid = FIXTURES / "valid"
     cluster_override = tmp_path / "cluster_tmp_ntasks4.yml"
     cluster_override.write_text(
@@ -2202,7 +2739,9 @@ def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
 
 
 def test_markdown_link_checker_passes():
-    """Test that markdown link checker passes."""
+    """!
+    @brief Test that markdown link checker passes.
+    """
     checker = REPO_ROOT / "scripts" / "check_markdown_links.py"
     result = subprocess.run(
         [sys.executable, str(checker)],

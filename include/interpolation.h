@@ -174,19 +174,20 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
 /**
  * @brief Computes the trilinear interpolated scalar at a given point.
  *
- * @param[in]  fieldName A string representing the name of the scalar field (e.g., "temperature").
- * @param[in]  fieldScal 3D array of the field from a DMDA (indexed as [k][j][i]),
- *                      each cell a PetscReal.
- * @param[in]  i Integral i-index of the interpolation cell.
- * @param[in]  j Integral j-index of the interpolation cell.
- * @param[in]  k Integral k-index of the interpolation cell.
- * @param[in]  a1 Normalized xi coordinate within the cell ([0,1]).
- * @param[in]  a2 Normalized eta coordinate within the cell ([0,1]).
- * @param[in]  a3 Normalized zta coordinate within the cell ([0,1]).
- * @param[out] val       Pointer to a PetscReal that will store the interpolated scalar.
- *
+ * each cell a PetscReal.
  * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
  * If a different scheme is desired, implement a new function with the same interface.
+ *
+ * @param fieldName A
+ * @param fieldScal 3D
+ * @param i Integral
+ * @param j Integral
+ * @param k Integral
+ * @param a1 Normalized
+ * @param a2 Normalized
+ * @param a3 Normalized
+ * @param val Pointer
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode TrilinearInterpolation_Scalar(
     const char   *fieldName,
@@ -202,19 +203,20 @@ PetscErrorCode TrilinearInterpolation_Scalar(
 /**
  * @brief Computes the trilinear interpolated vector (e.g., velocity) at a given point.
  *
- * @param[in]  fieldName  A string representing the name of the vector field (e.g., "velocity").
- * @param[in]  fieldVec   3D array of the field from a DMDA (indexed as [k][j][i]),
- *                        each cell of type Cmpnts.
- * @param[in]  i Integral i-index of the interpolation cell.
- * @param[in]  j Integral j-index of the interpolation cell.
- * @param[in]  k Integral k-index of the interpolation cell.
- * @param[in]  a1 Normalized xi coordinate within the cell ([0,1]).
- * @param[in]  a2 Normalized eta coordinate within the cell ([0,1]).
- * @param[in]  a3 Normalized zta coordinate within the cell ([0,1]).
- * @param[out] vec        Pointer to a Cmpnts struct that will store the interpolated vector (x, y, z).
- *
+ * each cell of type Cmpnts.
  * This function uses the standard 8-corner trilinear formula via `ComputeTrilinearWeights()`.
  * If a different scheme is desired, implement a new function with the same interface.
+ *
+ * @param fieldName A
+ * @param fieldVec 3D
+ * @param i Integral
+ * @param j Integral
+ * @param k Integral
+ * @param a1 Normalized
+ * @param a2 Normalized
+ * @param a3 Normalized
+ * @param vec Pointer
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode TrilinearInterpolation_Vector(
     const char   *fieldName,

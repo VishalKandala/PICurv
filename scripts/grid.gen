@@ -133,7 +133,11 @@ def create_stretched_linspace(
         # the desired first cell size. This is an inverse problem solved via bisection.
 
         def compute_first_cell_for_stretch(sf):
-            """Helper: compute first cell size for a given stretch factor"""
+            """!
+            @brief Helper: compute first cell size for a given stretch factor
+            @param[in] sf Argument passed to `compute_first_cell_for_stretch()`.
+            @return Value returned by `compute_first_cell_for_stretch()`.
+            """
             if sf < 1e-10:
                 # Uniform spacing
                 return domain_length / num_cells
@@ -254,6 +258,25 @@ def cartesian_pipe_grid(
 ) -> GridCoords: 
     """!
     @brief Generates a bent pipe grid by warping a Cartesian block.
+    @param[in] ncells_i Argument passed to `cartesian_pipe_grid()`.
+    @param[in] ncells_j Argument passed to `cartesian_pipe_grid()`.
+    @param[in] ncells_k Argument passed to `cartesian_pipe_grid()`.
+    @param[in] side_lengths Argument passed to `cartesian_pipe_grid()`.
+    @param[in] Rc_factor Argument passed to `cartesian_pipe_grid()`.
+    @param[in] straight_factor Argument passed to `cartesian_pipe_grid()`.
+    @param[in] bend_angle_deg Argument passed to `cartesian_pipe_grid()`.
+    @param[in] orientation Argument passed to `cartesian_pipe_grid()`.
+    @param[in] origin Argument passed to `cartesian_pipe_grid()`.
+    @param[in] stretch_i Argument passed to `cartesian_pipe_grid()`.
+    @param[in] stretch_j Argument passed to `cartesian_pipe_grid()`.
+    @param[in] stretch_k Argument passed to `cartesian_pipe_grid()`.
+    @param[in] first_cell_i_start Argument passed to `cartesian_pipe_grid()`.
+    @param[in] first_cell_i_end Argument passed to `cartesian_pipe_grid()`.
+    @param[in] first_cell_j_start Argument passed to `cartesian_pipe_grid()`.
+    @param[in] first_cell_j_end Argument passed to `cartesian_pipe_grid()`.
+    @param[in] first_cell_k_start Argument passed to `cartesian_pipe_grid()`.
+    @param[in] first_cell_k_end Argument passed to `cartesian_pipe_grid()`.
+    @return Value returned by `cartesian_pipe_grid()`.
     """
     print(f"Generating Cartesian Pipe Grid (Orientation: {orientation.upper()}) ---")
     side_i, side_j = side_lengths
@@ -359,6 +382,26 @@ def bent_pipe_grid(
 ) -> GridCoords:
     """!
     @brief Generates a structured O-grid for a bent pipe.
+    @param[in] ncells_phi Argument passed to `bent_pipe_grid()`.
+    @param[in] ncells_r Argument passed to `bent_pipe_grid()`.
+    @param[in] ncells_path Argument passed to `bent_pipe_grid()`.
+    @param[in] D Argument passed to `bent_pipe_grid()`.
+    @param[in] Rc_factor Argument passed to `bent_pipe_grid()`.
+    @param[in] straight_factor Argument passed to `bent_pipe_grid()`.
+    @param[in] bend_angle_deg Argument passed to `bent_pipe_grid()`.
+    @param[in] pinhole_factor Argument passed to `bent_pipe_grid()`.
+    @param[in] orientation Argument passed to `bent_pipe_grid()`.
+    @param[in] origin Argument passed to `bent_pipe_grid()`.
+    @param[in] stretch_i Argument passed to `bent_pipe_grid()`.
+    @param[in] stretch_j Argument passed to `bent_pipe_grid()`.
+    @param[in] stretch_k Argument passed to `bent_pipe_grid()`.
+    @param[in] first_cell_i_start Argument passed to `bent_pipe_grid()`.
+    @param[in] first_cell_i_end Argument passed to `bent_pipe_grid()`.
+    @param[in] first_cell_j_start Argument passed to `bent_pipe_grid()`.
+    @param[in] first_cell_j_end Argument passed to `bent_pipe_grid()`.
+    @param[in] first_cell_k_start Argument passed to `bent_pipe_grid()`.
+    @param[in] first_cell_k_end Argument passed to `bent_pipe_grid()`.
+    @return Value returned by `bent_pipe_grid()`.
     """
     print(f"Generating O-Grid Pipe (Orientation: {orientation.upper()}) ---")
     Rp = 0.5 * D; bend_angle_rad = np.deg2rad(bend_angle_deg); Rc = Rc_factor * D
@@ -452,6 +495,29 @@ def generate_curvilinear_grid(
 ) -> GridCoords:
     """!
     @brief Generates a 3D all-hexahedral grid by warping a Cartesian block.
+    @param[in] ncells_i Argument passed to `generate_curvilinear_grid()`.
+    @param[in] ncells_j Argument passed to `generate_curvilinear_grid()`.
+    @param[in] ncells_k Argument passed to `generate_curvilinear_grid()`.
+    @param[in] x_min Argument passed to `generate_curvilinear_grid()`.
+    @param[in] x_max Argument passed to `generate_curvilinear_grid()`.
+    @param[in] y_min Argument passed to `generate_curvilinear_grid()`.
+    @param[in] y_max Argument passed to `generate_curvilinear_grid()`.
+    @param[in] z_min Argument passed to `generate_curvilinear_grid()`.
+    @param[in] z_max Argument passed to `generate_curvilinear_grid()`.
+    @param[in] A Argument passed to `generate_curvilinear_grid()`.
+    @param[in] B Argument passed to `generate_curvilinear_grid()`.
+    @param[in] C Argument passed to `generate_curvilinear_grid()`.
+    @param[in] origin Argument passed to `generate_curvilinear_grid()`.
+    @param[in] stretch_i Argument passed to `generate_curvilinear_grid()`.
+    @param[in] stretch_j Argument passed to `generate_curvilinear_grid()`.
+    @param[in] stretch_k Argument passed to `generate_curvilinear_grid()`.
+    @param[in] first_cell_i_start Argument passed to `generate_curvilinear_grid()`.
+    @param[in] first_cell_i_end Argument passed to `generate_curvilinear_grid()`.
+    @param[in] first_cell_j_start Argument passed to `generate_curvilinear_grid()`.
+    @param[in] first_cell_j_end Argument passed to `generate_curvilinear_grid()`.
+    @param[in] first_cell_k_start Argument passed to `generate_curvilinear_grid()`.
+    @param[in] first_cell_k_end Argument passed to `generate_curvilinear_grid()`.
+    @return Value returned by `generate_curvilinear_grid()`.
     """
     print("Generating Warped Box Grid ---")
     IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
@@ -513,8 +579,10 @@ def generate_curvilinear_grid(
 def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
     """!
     @brief Performs a comprehensive quality analysis on the grid and returns a dictionary of metrics.
-    @param[in] X, Y, Z Numpy arrays for the grid node coordinates.
-    @return A dictionary containing all calculated quality metrics.
+    @param[in] X Argument passed to `analyze_grid_quality()`.
+    @param[in] Y Argument passed to `analyze_grid_quality()`.
+    @param[in] Z Argument passed to `analyze_grid_quality()`.
+    @return Value returned by `analyze_grid_quality()`.
     """
     stats = {}
     IM, JM, KM = X.shape
@@ -629,6 +697,7 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
 def print_stats_to_console(stats: dict) -> None:
     """!
     @brief Prints a formatted summary of the grid quality analysis to the console.
+    @param[in] stats Argument passed to `print_stats_to_console()`.
     """
     print("\nGrid Quality Analysis ---")
     print("\n[Dimensions & Domain]")
@@ -701,6 +770,8 @@ def print_stats_to_console(stats: dict) -> None:
 def export_stats_to_file(filename: str, stats: dict) -> None:
     """!
     @brief Writes the grid quality analysis metrics to a text file.
+    @param[in] filename Argument passed to `export_stats_to_file()`.
+    @param[in] stats Argument passed to `export_stats_to_file()`.
     """
     try:
         with open(filename, 'w') as f:
@@ -753,7 +824,13 @@ def export_stats_to_file(filename: str, stats: dict) -> None:
         print(f"Error: Could not write stats to file '{filename}'.\n{e}", file=sys.stderr)
 
 def export_grid_to_picgrid(filename: str, X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> None:
-    """Perform export grid to picgrid."""
+    """!
+    @brief Perform export grid to picgrid.
+    @param[in] filename Argument passed to `export_grid_to_picgrid()`.
+    @param[in] X Argument passed to `export_grid_to_picgrid()`.
+    @param[in] Y Argument passed to `export_grid_to_picgrid()`.
+    @param[in] Z Argument passed to `export_grid_to_picgrid()`.
+    """
     IM, JM, KM = X.shape
     try:
         with open(filename, 'w') as f:
@@ -766,7 +843,10 @@ def export_grid_to_picgrid(filename: str, X: np.ndarray, Y: np.ndarray, Z: np.nd
 
 
 def _iter_legacy_payload_lines(path: str):
-    """Yield (lineno, stripped_line) for non-empty, non-comment legacy input lines."""
+    """!
+    @brief Yield (lineno, stripped_line) for non-empty, non-comment legacy input lines.
+    @param[in] path Filesystem path argument passed to `_iter_legacy_payload_lines()`.
+    """
     with open(path, "r", encoding="utf-8") as f:
         for lineno, raw in enumerate(f, start=1):
             line = raw.strip()
@@ -776,7 +856,15 @@ def _iter_legacy_payload_lines(path: str):
 
 
 def _parse_axis_value(tokens: List[str], preferred_col: int, axis_name: str, path: str, lineno: int) -> float:
-    """Parse one axis value from a legacy axis line with column-preference fallback."""
+    """!
+    @brief Parse one axis value from a legacy axis line with column-preference fallback.
+    @param[in] tokens Argument passed to `_parse_axis_value()`.
+    @param[in] preferred_col Argument passed to `_parse_axis_value()`.
+    @param[in] axis_name Argument passed to `_parse_axis_value()`.
+    @param[in] path Filesystem path argument passed to `_parse_axis_value()`.
+    @param[in] lineno Argument passed to `_parse_axis_value()`.
+    @return Value returned by `_parse_axis_value()`.
+    """
     if preferred_col < 0:
         raise ValueError(f"{axis_name}: preferred column index must be >= 0 (got {preferred_col}).")
 
@@ -899,7 +987,13 @@ def _read_legacy_1d_axes(
 
 
 def _axes_to_structured_grid(x_axis: np.ndarray, y_axis: np.ndarray, z_axis: np.ndarray) -> GridCoords:
-    """Build structured node-coordinate arrays from 1D axes (ij-indexed)."""
+    """!
+    @brief Build structured node-coordinate arrays from 1D axes (ij-indexed).
+    @param[in] x_axis Argument passed to `_axes_to_structured_grid()`.
+    @param[in] y_axis Argument passed to `_axes_to_structured_grid()`.
+    @param[in] z_axis Argument passed to `_axes_to_structured_grid()`.
+    @return Value returned by `_axes_to_structured_grid()`.
+    """
     X = np.broadcast_to(x_axis[:, np.newaxis, np.newaxis], (len(x_axis), len(y_axis), len(z_axis))).copy()
     Y = np.broadcast_to(y_axis[np.newaxis, :, np.newaxis], (len(x_axis), len(y_axis), len(z_axis))).copy()
     Z = np.broadcast_to(z_axis[np.newaxis, np.newaxis, :], (len(x_axis), len(y_axis), len(z_axis))).copy()
@@ -956,7 +1050,13 @@ def convert_legacy_1d_to_picgrid(
     return summary
 
 def export_grid_to_vts_manual(filename: str, X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> None:
-    """Perform export grid to vts manual."""
+    """!
+    @brief Perform export grid to vts manual.
+    @param[in] filename Argument passed to `export_grid_to_vts_manual()`.
+    @param[in] X Argument passed to `export_grid_to_vts_manual()`.
+    @param[in] Y Argument passed to `export_grid_to_vts_manual()`.
+    @param[in] Z Argument passed to `export_grid_to_vts_manual()`.
+    """
     IM, JM, KM = X.shape
     x_flat, y_flat, z_flat = X.flatten(order='F'), Y.flatten(order='F'), Z.flatten(order='F')
     try:
@@ -1051,7 +1151,12 @@ python3 scripts/grid.gen legacy1d --input legacy.grid --output legacy.picgrid --
     }
 
     def add_arg(p, *args, **kwargs):
-        """Perform add arg."""
+        """!
+        @brief Perform add arg.
+        @param[in] p Argument passed to `add_arg()`.
+        @param[in] args Command-line style argument list supplied to the function.
+        @param[in] kwargs Argument passed to `add_arg()`.
+        """
         p.add_argument(*args, default=argparse.SUPPRESS, **kwargs)
 
     parent = argparse.ArgumentParser(add_help=False)

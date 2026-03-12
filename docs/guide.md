@@ -21,17 +21,21 @@ The goal of this guide is to explain not only where files live, but how each doc
 ## Documentation Maintenance Workflow
 
 1. Identify the behavior change and map it to impacted docs pages.
-2. Update user-facing pages first (what changed and how to use it).
+2. Update user-facing pages first (what changed and how to use it), including `README.md` when entry workflows or top-level commands changed.
 3. Update developer/reference pages second (runtime mapping, implementation details).
-4. Regenerate docs locally and resolve warnings.
-5. Run link checks and verify navigation placement.
+4. Run repository doc-contract checks (`python3 scripts/audit_function_docs.py` when function comments/docstrings changed).
+5. Regenerate docs locally and resolve warnings.
+6. Run link checks and verify navigation placement.
 
 ## Quality Checklist Before Commit
 
 - Keep cross-page IDs stable (`@page`, `@subpage`, `@ref`) so existing links do not break.
 - Run markdown link checking:
   - `python3 scripts/check_markdown_links.py`
+- Run the function-doc audit when C/Python executable APIs or test helpers changed:
+  - `python3 scripts/audit_function_docs.py`
 - Keep `docs/DoxygenLayout.xml` and `docs/mainpage.md` synchronized with new/renamed pages.
+- When changing run/cluster lifecycle behavior, keep `README.md`, `05_The_Conductor_Script.md`, `36_Cluster_Run_Guide.md`, `52_Run_Lifecycle_Guide.md`, and the relevant `config/*/guide.md` pages aligned.
 - For equations or symbols, verify MathJax rendering in the generated HTML.
 - Avoid introducing orphan pages that are discoverable only by URL.
 

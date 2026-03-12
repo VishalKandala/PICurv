@@ -74,7 +74,12 @@ PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool
 
 /**
  * @brief Returns whether full field/restart output should be written for the
- *        completed timestep.
+ *
+ * completed timestep.
+ *
+ * @param simCtx Simulation context controlling the operation.
+ * @param completed_step Completed step index used by the decision helper.
+ * @return PetscBool indicating the result of `ShouldWriteDataOutput()`.
  */
 PetscBool ShouldWriteDataOutput(const SimCtx *simCtx, PetscInt completed_step);
 
@@ -257,9 +262,9 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscIn
 /**
  * @brief Writes a predefined set of PETSc Swarm fields to files.
  *
- * This function iterates through a hardcoded list of common swarm fields 
- * (position, velocity, etc.) and calls the WriteSwarmField() helper function 
- * for each one. This provides a straightforward way to output essential particle 
+ * This function iterates through a hardcoded list of common swarm fields
+ * (position, velocity, etc.) and calls the WriteSwarmField() helper function
+ * for each one. This provides a straightforward way to output essential particle
  * data at a given simulation step.
  *
  * This function will only execute if particles are enabled in the simulation
@@ -267,66 +272,41 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscIn
  *
  * @param[in] user Pointer to the UserCtx structure containing the simulation context
  *                 and the PetscSwarm.
- *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
 PetscErrorCode WriteAllSwarmFields(UserCtx *user);
 
-/* --------------------------------------------------------------------
-   ReadDataFileToArray
-
-   Reads a simple ASCII .dat file containing one numeric value per line.
-
-   PARAMETERS:
-     filename   - (input)  path to the .dat file
-     data_out   - (output) pointer to newly allocated array (rank 0 
-                          broadcasts to all ranks so each rank gets a copy)
-     Nout       - (output) number of values read; same on all ranks
-     comm       - (input)  MPI communicator (we use rank 0 for I/O)
-
-   RETURN:
-     PetscErrorCode (0 = success, or error code on failure)
-
-   NOTES:
-     1) This function checks file existence on rank 0 and broadcasts
-        the result. If the file doesn't exist, it sets an error.
-     2) The array is allocated on all ranks, and the data is
-        broadcast so each rank has a local copy.
-     3) If your file format is more complex (e.g. multiple columns,
-        binary, etc.), you can adapt the reading logic here.
--------------------------------------------------------------------- */
+/**
+ * @brief Reads a simple ASCII data file containing one numeric value per line.
+ *
+ * This helper performs rank-0 file I/O, broadcasts the parsed result to the rest
+ * of the communicator, and returns a replicated array on every rank.
+ *
+ * @param filename Path to the input data file.
+ * @param data_out Output pointer to the allocated scalar array.
+ * @param Nout Output pointer storing the number of values read.
+ * @param comm MPI communicator used for the coordinated read/broadcast sequence.
+ * @return Integer value produced by `ReadDataFileToArray()`.
+ */
 PetscInt ReadDataFileToArray(const char   *filename,
-                        double      **data_out,
-                        PetscInt          *Nout,
-                        MPI_Comm      comm);
+                            double      **data_out,
+                            PetscInt      *Nout,
+                            MPI_Comm       comm);
 
-/* --------------------------------------------------------------------
-   CreateVTKFileFromMetadata
-
-   Creates a .vts (if fileType=VTK_STRUCTURED) or .vtp (if fileType=VTK_POLYDATA),
-   writing out the data contained in the VTKMetaData structure.
-
-   PARAMETERS:
-     filename   - (input) path to the output file, e.g. "myfile.vts" or "myfile.vtp"
-     meta       - (input) pointer to the VTKMetaData struct with all geometry/fields
-     comm       - (input) MPI communicator (only rank 0 writes the file)
-
-   RETURN:
-     PetscErrorCode (0 = success, or error code on failure)
-
-   NOTES:
-     1) The function writes an XML header, the appended binary data blocks
-        (coordinates, scalar field, connectivity if needed), and the closing tags.
-     2) If meta->fileType = VTK_STRUCTURED, it calls .vts-specific logic.
-        If meta->fileType = VTK_POLYDATA, it calls .vtp logic.
-     3) Coordinates and field arrays must be properly sized. For instance,
-        if fileType=VTK_STRUCTURED, coords => length=3*nnodes, field=>nnodes.
-        If fileType=VTK_POLYDATA, coords => length=3*npoints, field=>npoints,
-        plus connectivity/offsets => length=npoints each.
--------------------------------------------------------------------- */
+/**
+ * @brief Creates a VTK file from prepared metadata and field payloads.
+ *
+ * This helper dispatches to the structured-grid or polydata writer based on the
+ * metadata contents and emits the assembled VTK file on the requested communicator.
+ *
+ * @param filename Path to the output VTK file.
+ * @param meta VTK metadata describing the output geometry and field payloads.
+ * @param comm MPI communicator used by the write operation.
+ * @return Integer value produced by `CreateVTKFileFromMetadata()`.
+ */
 PetscInt CreateVTKFileFromMetadata(const char       *filename,
-                              const VTKMetaData *meta,
-                              MPI_Comm          comm);
+                                   const VTKMetaData *meta,
+                                   MPI_Comm           comm);
 
 /**
  * @brief Gathers the contents of a distributed PETSc Vec into a single array on rank 0.

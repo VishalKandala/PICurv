@@ -105,6 +105,28 @@ Cluster generation without submit:
 ./bin/picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit
 ```
 
+Delayed submit from existing staged artifacts:
+
+```bash
+./bin/picurv submit --run-dir runs/<run_id>
+```
+
+Cancel a submitted run by directory:
+
+```bash
+./bin/picurv cancel --run-dir runs/<run_id> --stage solve
+```
+
+Request one last snapshot before walltime:
+
+```yaml
+execution:
+  extra_sbatch:
+    signal: "USR1@300"
+```
+
+For direct `mpirun` batch launches, use `signal: "B:USR1@300"` and prefer `exec mpirun ...`.
+
 Run naming note:
 
 - `cluster.yml` does not provide a run-name field.

@@ -82,7 +82,11 @@ CLUSTER_TEMPLATE_PLACEHOLDER_ACCOUNT = "my_project_account"
 CLUSTER_TEMPLATE_PLACEHOLDER_MAIL = "user@example.edu"
 
 def resolve_runtime_executable(executable_name: str) -> str:
-    """Resolve solver/post executable path, preferring local sibling binaries."""
+    """!
+    @brief Resolve solver/post executable path, preferring local sibling binaries.
+    @param[in] executable_name Argument passed to `resolve_runtime_executable()`.
+    @return Value returned by `resolve_runtime_executable()`.
+    """
     local_candidate = os.path.join(INVOKED_SCRIPT_DIR, executable_name)
     if os.path.isfile(local_candidate):
         return os.path.abspath(local_candidate)
@@ -111,7 +115,11 @@ _ERROR_HINTS = {
 
 
 def _sanitize_error_field(value) -> str:
-    """Normalize error fields into a single-line string."""
+    """!
+    @brief Normalize error fields into a single-line string.
+    @param[in] value Argument passed to `_sanitize_error_field()`.
+    @return Value returned by `_sanitize_error_field()`.
+    """
     if value is None:
         return "-"
     text = str(value).strip()
@@ -122,7 +130,15 @@ def _sanitize_error_field(value) -> str:
 
 def emit_structured_error(code: str, key: str = "-", file_path: str = "-",
                           message: str = "", hint: str = None, stream=None):
-    """Emit one standardized error line for tooling and users."""
+    """!
+    @brief Emit one standardized error line for tooling and users.
+    @param[in] code Argument passed to `emit_structured_error()`.
+    @param[in] key Argument passed to `emit_structured_error()`.
+    @param[in] file_path Argument passed to `emit_structured_error()`.
+    @param[in] message Argument passed to `emit_structured_error()`.
+    @param[in] hint Argument passed to `emit_structured_error()`.
+    @param[in] stream Argument passed to `emit_structured_error()`.
+    """
     if stream is None:
         stream = sys.stderr
     resolved_hint = hint if hint is not None else _ERROR_HINTS.get(code, "-")
@@ -137,7 +153,11 @@ def emit_structured_error(code: str, key: str = "-", file_path: str = "-",
 
 
 def fail_cli_usage(message: str, hint: str = None):
-    """Emit a structured CLI usage error and exit with code 2."""
+    """!
+    @brief Emit a structured CLI usage error and exit with code 2.
+    @param[in] message Argument passed to `fail_cli_usage()`.
+    @param[in] hint Argument passed to `fail_cli_usage()`.
+    """
     emit_structured_error(
         ERROR_CODE_CLI_USAGE_INVALID,
         key="-",
@@ -149,7 +169,11 @@ def fail_cli_usage(message: str, hint: str = None):
 
 
 def _split_error_file_and_message(raw_error: str):
-    """Split '<file>: <message>' style validation strings when possible."""
+    """!
+    @brief Split '<file>: <message>' style validation strings when possible.
+    @param[in] raw_error Argument passed to `_split_error_file_and_message()`.
+    @return Value returned by `_split_error_file_and_message()`.
+    """
     text = str(raw_error).strip()
     match = re.match(r"^(?P<file>[^:]+):\s*(?P<msg>.+)$", text)
     if not match:
@@ -163,7 +187,11 @@ def _split_error_file_and_message(raw_error: str):
 
 
 def _extract_key_path(message: str) -> str:
-    """Best-effort key-path extraction from free-form validation messages."""
+    """!
+    @brief Best-effort key-path extraction from free-form validation messages.
+    @param[in] message Argument passed to `_extract_key_path()`.
+    @return Value returned by `_extract_key_path()`.
+    """
     dotted = re.search(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_\[\]-]+)+)\b", message)
     if dotted:
         return dotted.group(1)
@@ -180,7 +208,11 @@ def _extract_key_path(message: str) -> str:
 
 
 def _classify_error_code(message: str) -> str:
-    """Map existing validation/error messages to the standardized code set."""
+    """!
+    @brief Map existing validation/error messages to the standardized code set.
+    @param[in] message Argument passed to `_classify_error_code()`.
+    @return Value returned by `_classify_error_code()`.
+    """
     msg = message.lower()
     if "missing required section" in msg:
         return ERROR_CODE_CFG_MISSING_SECTION
@@ -241,13 +273,21 @@ def read_yaml_file(filepath: str) -> dict:
         sys.exit(1)
 
 def write_yaml_file(filepath: str, data: dict):
-    """Write YAML with stable ordering for generated study artifacts."""
+    """!
+    @brief Write YAML with stable ordering for generated study artifacts.
+    @param[in] filepath Argument passed to `write_yaml_file()`.
+    @param[in] data Argument passed to `write_yaml_file()`.
+    """
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, "w") as f:
         yaml.safe_dump(data, f, sort_keys=False)
 
 def write_json_file(filepath: str, payload: dict):
-    """Write JSON metadata/manifests with a stable, readable format."""
+    """!
+    @brief Write JSON metadata/manifests with a stable, readable format.
+    @param[in] filepath Argument passed to `write_json_file()`.
+    @param[in] payload Argument passed to `write_json_file()`.
+    """
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, "w") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
@@ -255,7 +295,12 @@ def write_json_file(filepath: str, payload: dict):
 
 
 def write_runtime_execution_file(filepath: str, template_source_path: str = None) -> str:
-    """Write a default runtime execution config, copying a source template when available."""
+    """!
+    @brief Write a default runtime execution config, copying a source template when available.
+    @param[in] filepath Argument passed to `write_runtime_execution_file()`.
+    @param[in] template_source_path Argument passed to `write_runtime_execution_file()`.
+    @return Value returned by `write_runtime_execution_file()`.
+    """
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
     if template_source_path and os.path.isfile(template_source_path):
@@ -268,12 +313,20 @@ def write_runtime_execution_file(filepath: str, template_source_path: str = None
 
 
 def _launcher_arg_contains_whitespace(token) -> bool:
-    """Return True when a launcher arg token contains embedded whitespace and should be split."""
+    """!
+    @brief Return True when a launcher arg token contains embedded whitespace and should be split.
+    @param[in] token Argument passed to `_launcher_arg_contains_whitespace()`.
+    @return Value returned by `_launcher_arg_contains_whitespace()`.
+    """
     return isinstance(token, str) and any(ch.isspace() for ch in token.strip())
 
 
 def resolve_runtime_execution_seed_source(source_project_root: str) -> str | None:
-    """Prefer repo-local ignored runtime config, then tracked example, then built-in defaults."""
+    """!
+    @brief Prefer repo-local ignored runtime config, then tracked example, then built-in defaults.
+    @param[in] source_project_root Argument passed to `resolve_runtime_execution_seed_source()`.
+    @return Value returned by `resolve_runtime_execution_seed_source()`.
+    """
     source_root_abs = os.path.abspath(source_project_root)
     repo_local_runtime = os.path.join(source_root_abs, RUNTIME_EXECUTION_CONFIG_FILENAME)
     if os.path.isfile(repo_local_runtime):
@@ -291,7 +344,13 @@ def resolve_runtime_execution_seed_source(source_project_root: str) -> str | Non
 
 
 def ensure_case_runtime_execution_config(case_dir: str, source_project_root: str, overwrite: bool = False) -> dict:
-    """Create case-local runtime execution config if missing, seeded from repo-local config when available."""
+    """!
+    @brief Create case-local runtime execution config if missing, seeded from repo-local config when available.
+    @param[in] case_dir Argument passed to `ensure_case_runtime_execution_config()`.
+    @param[in] source_project_root Argument passed to `ensure_case_runtime_execution_config()`.
+    @param[in] overwrite Argument passed to `ensure_case_runtime_execution_config()`.
+    @return Value returned by `ensure_case_runtime_execution_config()`.
+    """
     case_dir_abs = os.path.abspath(case_dir)
     dest_path = os.path.join(case_dir_abs, RUNTIME_EXECUTION_CONFIG_FILENAME)
     if os.path.exists(dest_path) and not overwrite:
@@ -311,7 +370,11 @@ def ensure_case_runtime_execution_config(case_dir: str, source_project_root: str
 
 
 def is_project_root(candidate: str) -> bool:
-    """Return True when a directory looks like the PICurv source repository root."""
+    """!
+    @brief Return True when a directory looks like the PICurv source repository root.
+    @param[in] candidate Argument passed to `is_project_root()`.
+    @return Value returned by `is_project_root()`.
+    """
     if not candidate:
         return False
     candidate_abs = os.path.abspath(candidate)
@@ -324,7 +387,10 @@ def is_project_root(candidate: str) -> bool:
 
 
 def _iter_parent_dirs(start_path: str):
-    """Yield a path and all of its parents up to filesystem root."""
+    """!
+    @brief Yield a path and all of its parents up to filesystem root.
+    @param[in] start_path Argument passed to `_iter_parent_dirs()`.
+    """
     current = os.path.abspath(start_path)
     if os.path.isfile(current):
         current = os.path.dirname(current)
@@ -337,7 +403,11 @@ def _iter_parent_dirs(start_path: str):
 
 
 def find_project_root_upwards(start_path: str):
-    """Search upward from an anchor and return the first matching project root."""
+    """!
+    @brief Search upward from an anchor and return the first matching project root.
+    @param[in] start_path Argument passed to `find_project_root_upwards()`.
+    @return Value returned by `find_project_root_upwards()`.
+    """
     if not start_path:
         return None
     for directory in _iter_parent_dirs(start_path):
@@ -347,7 +417,11 @@ def find_project_root_upwards(start_path: str):
 
 
 def discover_local_project_root(*extra_anchors):
-    """Best-effort source repo discovery from runtime anchors."""
+    """!
+    @brief Best-effort source repo discovery from runtime anchors.
+    @param[in] extra_anchors Argument passed to `discover_local_project_root()`.
+    @return Value returned by `discover_local_project_root()`.
+    """
     anchors = list(extra_anchors) + [os.getcwd(), INVOKED_SCRIPT_DIR, SCRIPT_PATH, PROJECT_ROOT]
     seen = set()
     for anchor in anchors:
@@ -364,7 +438,11 @@ def discover_local_project_root(*extra_anchors):
 
 
 def find_case_origin_metadata_file(case_dir_hint: str = None):
-    """Find the nearest case-origin metadata file from known runtime anchors."""
+    """!
+    @brief Find the nearest case-origin metadata file from known runtime anchors.
+    @param[in] case_dir_hint Argument passed to `find_case_origin_metadata_file()`.
+    @return Value returned by `find_case_origin_metadata_file()`.
+    """
     search_roots = []
     for candidate in (case_dir_hint, os.getcwd(), INVOKED_SCRIPT_DIR):
         if not candidate:
@@ -382,7 +460,11 @@ def find_case_origin_metadata_file(case_dir_hint: str = None):
 
 
 def load_case_origin_metadata(case_dir_hint: str = None):
-    """Load case-origin metadata if present, returning (case_dir, metadata_path, payload)."""
+    """!
+    @brief Load case-origin metadata if present, returning (case_dir, metadata_path, payload).
+    @param[in] case_dir_hint Argument passed to `load_case_origin_metadata()`.
+    @return Value returned by `load_case_origin_metadata()`.
+    """
     metadata_path = find_case_origin_metadata_file(case_dir_hint)
     if not metadata_path:
         return None, None, None
@@ -397,7 +479,11 @@ def load_case_origin_metadata(case_dir_hint: str = None):
 
 
 def find_runtime_execution_config_file(*anchors):
-    """Find the nearest optional execution config from runtime/case anchors."""
+    """!
+    @brief Find the nearest optional execution config from runtime/case anchors.
+    @param[in] anchors Argument passed to `find_runtime_execution_config_file()`.
+    @return Value returned by `find_runtime_execution_config_file()`.
+    """
     seen = set()
     search_roots = []
     for candidate in list(anchors) + [os.getcwd(), INVOKED_SCRIPT_DIR]:
@@ -425,7 +511,14 @@ def find_runtime_execution_config_file(*anchors):
 
 
 def _normalize_execution_override_section(payload: dict, section_name: str, config_path: str, config_label: str) -> dict:
-    """Validate one execution override section while preserving missing-vs-empty semantics."""
+    """!
+    @brief Validate one execution override section while preserving missing-vs-empty semantics.
+    @param[in] payload Argument passed to `_normalize_execution_override_section()`.
+    @param[in] section_name Argument passed to `_normalize_execution_override_section()`.
+    @param[in] config_path Argument passed to `_normalize_execution_override_section()`.
+    @param[in] config_label Argument passed to `_normalize_execution_override_section()`.
+    @return Value returned by `_normalize_execution_override_section()`.
+    """
     section = payload.get(section_name)
     if section is None:
         return {"launcher": None, "launcher_args": None}
@@ -463,7 +556,12 @@ def _normalize_execution_override_section(payload: dict, section_name: str, conf
 
 
 def load_runtime_execution_config(config_search_anchor: str = None, extra_search_anchors=None):
-    """Load optional shared execution launcher config from the nearest runtime config file."""
+    """!
+    @brief Load optional shared execution launcher config from the nearest runtime config file.
+    @param[in] config_search_anchor Argument passed to `load_runtime_execution_config()`.
+    @param[in] extra_search_anchors Argument passed to `load_runtime_execution_config()`.
+    @return Value returned by `load_runtime_execution_config()`.
+    """
     anchors = []
     if config_search_anchor is not None:
         anchors.append(config_search_anchor)
@@ -506,7 +604,12 @@ def load_runtime_execution_config(config_search_anchor: str = None, extra_search
 
 
 def merge_execution_overrides(base: dict | None, override: dict | None) -> dict:
-    """Merge execution overrides, letting explicit override values win key-by-key."""
+    """!
+    @brief Merge execution overrides, letting explicit override values win key-by-key.
+    @param[in] base Argument passed to `merge_execution_overrides()`.
+    @param[in] override Argument passed to `merge_execution_overrides()`.
+    @return Value returned by `merge_execution_overrides()`.
+    """
     base = base or {}
     override = override or {}
 
@@ -525,7 +628,12 @@ def merge_execution_overrides(base: dict | None, override: dict | None) -> dict:
 
 
 def resolve_runtime_execution_context(runtime_execution_cfg: dict, context: str) -> dict:
-    """Resolve default plus context-specific execution overrides."""
+    """!
+    @brief Resolve default plus context-specific execution overrides.
+    @param[in] runtime_execution_cfg Argument passed to `resolve_runtime_execution_context()`.
+    @param[in] context Argument passed to `resolve_runtime_execution_context()`.
+    @return Value returned by `resolve_runtime_execution_context()`.
+    """
     if context not in {"local", "cluster"}:
         raise ValueError(f"Unsupported execution context '{context}'.")
     return merge_execution_overrides(
@@ -535,7 +643,11 @@ def resolve_runtime_execution_context(runtime_execution_cfg: dict, context: str)
 
 
 def get_git_commit(repo_root: str = None) -> str:
-    """Best-effort git commit lookup for run/study manifests and case metadata."""
+    """!
+    @brief Best-effort git commit lookup for run/study manifests and case metadata.
+    @param[in] repo_root Argument passed to `get_git_commit()`.
+    @return Value returned by `get_git_commit()`.
+    """
     cwd = repo_root or PROJECT_ROOT
     try:
         result = subprocess.run(
@@ -554,7 +666,15 @@ def get_git_commit(repo_root: str = None) -> str:
 
 def write_case_origin_metadata(case_dir: str, source_project_root: str, template_name: str = None,
                                existing: dict = None, template_managed_files=None):
-    """Create or refresh case-origin metadata for repo-aware case maintenance commands."""
+    """!
+    @brief Create or refresh case-origin metadata for repo-aware case maintenance commands.
+    @param[in] case_dir Argument passed to `write_case_origin_metadata()`.
+    @param[in] source_project_root Argument passed to `write_case_origin_metadata()`.
+    @param[in] template_name Argument passed to `write_case_origin_metadata()`.
+    @param[in] existing Argument passed to `write_case_origin_metadata()`.
+    @param[in] template_managed_files Argument passed to `write_case_origin_metadata()`.
+    @return Value returned by `write_case_origin_metadata()`.
+    """
     payload = dict(existing or {})
     if "initialized_at" not in payload:
         payload["initialized_at"] = datetime.now().isoformat()
@@ -570,7 +690,11 @@ def write_case_origin_metadata(case_dir: str, source_project_root: str, template
 
 
 def make_args_include_explicit_goal(make_args: list[str]) -> bool:
-    """Return True when make args contain an explicit target rather than only options/assignments."""
+    """!
+    @brief Return True when make args contain an explicit target rather than only options/assignments.
+    @param[in] make_args Argument passed to `make_args_include_explicit_goal()`.
+    @return Value returned by `make_args_include_explicit_goal()`.
+    """
     if not make_args:
         return False
 
@@ -599,7 +723,13 @@ def make_args_include_explicit_goal(make_args: list[str]) -> bool:
 
 
 def resolve_case_origin_context(case_dir_hint: str = None, source_root_override: str = None, template_name_override: str = None):
-    """Resolve case directory, source repo root, and optional template metadata."""
+    """!
+    @brief Resolve case directory, source repo root, and optional template metadata.
+    @param[in] case_dir_hint Argument passed to `resolve_case_origin_context()`.
+    @param[in] source_root_override Argument passed to `resolve_case_origin_context()`.
+    @param[in] template_name_override Argument passed to `resolve_case_origin_context()`.
+    @return Value returned by `resolve_case_origin_context()`.
+    """
     metadata_case_dir, metadata_path, metadata = load_case_origin_metadata(case_dir_hint)
 
     if metadata_case_dir:
@@ -629,7 +759,12 @@ def resolve_case_origin_context(case_dir_hint: str = None, source_root_override:
 
 
 def require_project_root(candidate: str, purpose: str):
-    """Validate that a source repo root was resolved and is structurally valid."""
+    """!
+    @brief Validate that a source repo root was resolved and is structurally valid.
+    @param[in] candidate Argument passed to `require_project_root()`.
+    @param[in] purpose Argument passed to `require_project_root()`.
+    @return Value returned by `require_project_root()`.
+    """
     if not candidate:
         raise ValueError(
             f"Could not determine the PICurv source repository for {purpose}. "
@@ -644,7 +779,13 @@ def require_project_root(candidate: str, purpose: str):
 
 
 def require_existing_case_dir(case_dir: str, purpose: str, source_project_root: str = None):
-    """Validate that a target case directory exists and is not the source repo root."""
+    """!
+    @brief Validate that a target case directory exists and is not the source repo root.
+    @param[in] case_dir Argument passed to `require_existing_case_dir()`.
+    @param[in] purpose Argument passed to `require_existing_case_dir()`.
+    @param[in] source_project_root Argument passed to `require_existing_case_dir()`.
+    @return Value returned by `require_existing_case_dir()`.
+    """
     if not case_dir:
         raise ValueError(f"Could not determine the case directory for {purpose}. Pass --case-dir.")
     case_dir_abs = os.path.abspath(case_dir)
@@ -658,7 +799,12 @@ def require_existing_case_dir(case_dir: str, purpose: str, source_project_root: 
 
 
 def resolve_template_directory(source_project_root: str, template_name: str):
-    """Resolve an example template directory inside the source repository."""
+    """!
+    @brief Resolve an example template directory inside the source repository.
+    @param[in] source_project_root Argument passed to `resolve_template_directory()`.
+    @param[in] template_name Argument passed to `resolve_template_directory()`.
+    @return Value returned by `resolve_template_directory()`.
+    """
     if not template_name:
         raise ValueError(
             "Template name is required for config sync. Re-run with --template-name or from a case initialized by current picurv."
@@ -670,7 +816,12 @@ def resolve_template_directory(source_project_root: str, template_name: str):
 
 
 def list_template_relative_files(template_dir: str, excluded_rel_paths=None):
-    """List all files in a template directory as case-relative paths."""
+    """!
+    @brief List all files in a template directory as case-relative paths.
+    @param[in] template_dir Argument passed to `list_template_relative_files()`.
+    @param[in] excluded_rel_paths Argument passed to `list_template_relative_files()`.
+    @return Value returned by `list_template_relative_files()`.
+    """
     template_dir_abs = os.path.abspath(template_dir)
     if not os.path.isdir(template_dir_abs):
         raise ValueError(f"Template directory not found: {template_dir_abs}")
@@ -687,7 +838,11 @@ def list_template_relative_files(template_dir: str, excluded_rel_paths=None):
 
 
 def list_source_binaries(source_project_root: str):
-    """List binary artifacts currently available in the source repo bin directory."""
+    """!
+    @brief List binary artifacts currently available in the source repo bin directory.
+    @param[in] source_project_root Argument passed to `list_source_binaries()`.
+    @return Value returned by `list_source_binaries()`.
+    """
     source_bin_dir = os.path.join(os.path.abspath(source_project_root), "bin")
     if not os.path.isdir(source_bin_dir):
         raise ValueError(f"Source bin directory not found: {source_bin_dir}. Run 'picurv build' first.")
@@ -703,7 +858,12 @@ def list_source_binaries(source_project_root: str):
 
 
 def sync_case_binaries(case_dir: str, source_project_root: str):
-    """Copy current source-repo binaries into a case directory, refreshing picurv last."""
+    """!
+    @brief Copy current source-repo binaries into a case directory, refreshing picurv last.
+    @param[in] case_dir Argument passed to `sync_case_binaries()`.
+    @param[in] source_project_root Argument passed to `sync_case_binaries()`.
+    @return Value returned by `sync_case_binaries()`.
+    """
     case_dir_abs = os.path.abspath(case_dir)
     os.makedirs(case_dir_abs, exist_ok=True)
     source_bin_dir, binaries = list_source_binaries(source_project_root)
@@ -718,7 +878,15 @@ def sync_case_binaries(case_dir: str, source_project_root: str):
 
 def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool = False,
                              prune: bool = False, managed_rel_paths=None):
-    """Sync template files into a case directory, preserving modified files unless overwrite is requested."""
+    """!
+    @brief Sync template files into a case directory, preserving modified files unless overwrite is requested.
+    @param[in] case_dir Argument passed to `sync_case_template_files()`.
+    @param[in] template_dir Argument passed to `sync_case_template_files()`.
+    @param[in] overwrite Argument passed to `sync_case_template_files()`.
+    @param[in] prune Argument passed to `sync_case_template_files()`.
+    @param[in] managed_rel_paths Argument passed to `sync_case_template_files()`.
+    @return Value returned by `sync_case_template_files()`.
+    """
     case_dir_abs = os.path.abspath(case_dir)
     template_dir_abs = os.path.abspath(template_dir)
     if not os.path.isdir(template_dir_abs):
@@ -779,7 +947,14 @@ def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool =
 
 
 def compute_case_source_status(case_dir: str, source_project_root: str, template_name: str = None, metadata: dict = None):
-    """Compute source/case drift across commits, binaries, and template-managed files."""
+    """!
+    @brief Compute source/case drift across commits, binaries, and template-managed files.
+    @param[in] case_dir Argument passed to `compute_case_source_status()`.
+    @param[in] source_project_root Argument passed to `compute_case_source_status()`.
+    @param[in] template_name Argument passed to `compute_case_source_status()`.
+    @param[in] metadata Argument passed to `compute_case_source_status()`.
+    @return Value returned by `compute_case_source_status()`.
+    """
     case_dir_abs = os.path.abspath(case_dir)
     source_root_abs = os.path.abspath(source_project_root)
     metadata = metadata or {}
@@ -872,7 +1047,10 @@ def compute_case_source_status(case_dir: str, source_project_root: str, template
 
 
 def print_case_source_status(status: dict):
-    """Render human-readable source/case drift details."""
+    """!
+    @brief Render human-readable source/case drift details.
+    @param[in] status Argument passed to `print_case_source_status()`.
+    """
     print(f"[INFO] Case directory      : {status['case_dir']}")
     print(f"[INFO] Source repo        : {status['source_repo_root']}")
     print(f"[INFO] Template           : {status.get('template_name') or '(unknown)'}")
@@ -913,7 +1091,10 @@ def print_case_source_status(status: dict):
 
 
 def status_source_command(args):
-    """Report source/case drift for an initialized case directory."""
+    """!
+    @brief Report source/case drift for an initialized case directory.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
     try:
         context = resolve_case_origin_context(
             case_dir_hint=getattr(args, "case_dir", None),
@@ -938,7 +1119,12 @@ def status_source_command(args):
     print_case_source_status(status)
 
 def resolve_path(anchor_file: str, candidate: str) -> str:
-    """Resolve a potentially relative path against a source YAML file path."""
+    """!
+    @brief Resolve a potentially relative path against a source YAML file path.
+    @param[in] anchor_file Argument passed to `resolve_path()`.
+    @param[in] candidate Argument passed to `resolve_path()`.
+    @return Value returned by `resolve_path()`.
+    """
     if candidate is None:
         return None
     if os.path.isabs(candidate):
@@ -954,7 +1140,13 @@ POST_RUN_CONTROL_ALIASES = {
 
 
 def _mapping_value_with_aliases(mapping: dict, *keys, default=None):
-    """Return the first defined value from a mapping across alias keys."""
+    """!
+    @brief Return the first defined value from a mapping across alias keys.
+    @param[in] mapping Argument passed to `_mapping_value_with_aliases()`.
+    @param[in] default Argument passed to `_mapping_value_with_aliases()`.
+    @param[in] keys Argument passed to `_mapping_value_with_aliases()`.
+    @return Value returned by `_mapping_value_with_aliases()`.
+    """
     if not isinstance(mapping, dict):
         return default
     for key in keys:
@@ -964,14 +1156,24 @@ def _mapping_value_with_aliases(mapping: dict, *keys, default=None):
 
 
 def get_post_run_control_value(post_cfg: dict, canonical_key: str, default=None):
-    """Resolve post run_control values with backwards-compatible legacy aliases."""
+    """!
+    @brief Resolve post run_control values with backwards-compatible legacy aliases.
+    @param[in] post_cfg Argument passed to `get_post_run_control_value()`.
+    @param[in] canonical_key Argument passed to `get_post_run_control_value()`.
+    @param[in] default Argument passed to `get_post_run_control_value()`.
+    @return Value returned by `get_post_run_control_value()`.
+    """
     aliases = POST_RUN_CONTROL_ALIASES.get(canonical_key, (canonical_key,))
     rc = post_cfg.get("run_control", {})
     return _mapping_value_with_aliases(rc, *aliases, default=default)
 
 
 def get_post_source_data(post_cfg: dict):
-    """Return source_data as a mapping when valid, else an empty mapping."""
+    """!
+    @brief Return source_data as a mapping when valid, else an empty mapping.
+    @param[in] post_cfg Argument passed to `get_post_source_data()`.
+    @return Value returned by `get_post_source_data()`.
+    """
     source_cfg = post_cfg.get("source_data", {})
     if isinstance(source_cfg, dict):
         return source_cfg
@@ -979,12 +1181,21 @@ def get_post_source_data(post_cfg: dict):
 
 
 def get_post_source_directory_template(post_cfg: dict, default: str = "<solver_output_dir>") -> str:
-    """Resolve the source directory template from source_data with a safe default."""
+    """!
+    @brief Resolve the source directory template from source_data with a safe default.
+    @param[in] post_cfg Argument passed to `get_post_source_directory_template()`.
+    @param[in] default Argument passed to `get_post_source_directory_template()`.
+    @return Value returned by `get_post_source_directory_template()`.
+    """
     return get_post_source_data(post_cfg).get("directory", default)
 
 
 def get_post_input_extensions(post_cfg: dict):
-    """Return post input_extensions, preferring io.* and tolerating legacy source_data.* placement."""
+    """!
+    @brief Return post input_extensions, preferring io.* and tolerating legacy source_data.* placement.
+    @param[in] post_cfg Argument passed to `get_post_input_extensions()`.
+    @return Value returned by `get_post_input_extensions()`.
+    """
     io_cfg = post_cfg.get("io", {})
     io_ext = io_cfg.get("input_extensions") if isinstance(io_cfg, dict) else None
     if isinstance(io_ext, dict):
@@ -998,7 +1209,11 @@ def get_post_input_extensions(post_cfg: dict):
 
 
 def get_post_statistics_task_tokens(post_cfg: dict):
-    """Return normalized statistics pipeline tokens that will be written into post.run."""
+    """!
+    @brief Return normalized statistics pipeline tokens that will be written into post.run.
+    @param[in] post_cfg Argument passed to `get_post_statistics_task_tokens()`.
+    @return Value returned by `get_post_statistics_task_tokens()`.
+    """
     stats_cfg = post_cfg.get("statistics_pipeline")
     stats_entries = []
     if isinstance(stats_cfg, list):
@@ -1022,7 +1237,12 @@ def get_post_statistics_task_tokens(post_cfg: dict):
 
 
 def get_post_statistics_output_prefix(post_cfg: dict, default: str = "Stats") -> str:
-    """Resolve the statistics CSV prefix, preserving legacy top-level override support."""
+    """!
+    @brief Resolve the statistics CSV prefix, preserving legacy top-level override support.
+    @param[in] post_cfg Argument passed to `get_post_statistics_output_prefix()`.
+    @param[in] default Argument passed to `get_post_statistics_output_prefix()`.
+    @return Value returned by `get_post_statistics_output_prefix()`.
+    """
     stats_cfg = post_cfg.get("statistics_pipeline")
     if isinstance(stats_cfg, dict):
         prefix = stats_cfg.get("output_prefix")
@@ -1037,7 +1257,12 @@ def get_post_statistics_output_prefix(post_cfg: dict, default: str = "Stats") ->
 
 
 def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str):
-    """Predict statistics CSV output paths relative to the postprocessor runtime cwd."""
+    """!
+    @brief Predict statistics CSV output paths relative to the postprocessor runtime cwd.
+    @param[in] post_cfg Argument passed to `get_post_statistics_output_artifacts()`.
+    @param[in] run_dir Argument passed to `get_post_statistics_output_artifacts()`.
+    @return Value returned by `get_post_statistics_output_artifacts()`.
+    """
     token_to_suffix = {
         "ComputeMSD": "_msd.csv",
     }
@@ -1057,7 +1282,12 @@ def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str):
 
 
 def is_restart_execution(case_cfg: dict, solver_cfg: dict) -> bool:
-    """Return True when the solver will read restart data."""
+    """!
+    @brief Return True when the solver will read restart data.
+    @param[in] case_cfg Argument passed to `is_restart_execution()`.
+    @param[in] solver_cfg Argument passed to `is_restart_execution()`.
+    @return Value returned by `is_restart_execution()`.
+    """
     try:
         start_step = int(case_cfg.get("run_control", {}).get("start_step", 0) or 0)
     except (TypeError, ValueError):
@@ -1069,7 +1299,15 @@ def is_restart_execution(case_cfg: dict, solver_cfg: dict) -> bool:
 
 
 def resolve_restart_source_from_run_dir(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict, case_path: str, strict: bool = True) -> str:
-    """Resolve an automated restart source directory from a prior run directory."""
+    """!
+    @brief Resolve an automated restart source directory from a prior run directory.
+    @param[in] case_cfg Argument passed to `resolve_restart_source_from_run_dir()`.
+    @param[in] solver_cfg Argument passed to `resolve_restart_source_from_run_dir()`.
+    @param[in] monitor_cfg Argument passed to `resolve_restart_source_from_run_dir()`.
+    @param[in] case_path Argument passed to `resolve_restart_source_from_run_dir()`.
+    @param[in] strict Argument passed to `resolve_restart_source_from_run_dir()`.
+    @return Value returned by `resolve_restart_source_from_run_dir()`.
+    """
     run_ctrl = case_cfg.get("run_control", {}) or {}
     restart_from_run_dir = run_ctrl.get("restart_from_run_dir")
     if not restart_from_run_dir:
@@ -1107,7 +1345,11 @@ def resolve_restart_source_from_run_dir(case_cfg: dict, solver_cfg: dict, monito
     return restart_source_dir
 
 def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
-    """Convert external grid/generator paths in case config to absolute paths."""
+    """!
+    @brief Convert external grid/generator paths in case config to absolute paths.
+    @param[in] case_cfg Argument passed to `absolutize_case_external_paths()`.
+    @param[in] case_anchor_path Argument passed to `absolutize_case_external_paths()`.
+    """
     grid_cfg = case_cfg.get("grid", {})
     if not isinstance(grid_cfg, dict):
         return
@@ -1130,7 +1372,11 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
                     gen[key] = resolve_path(case_anchor_path, val)
 
 def is_valid_email(email: str) -> bool:
-    """Lightweight email validation for scheduler notifications."""
+    """!
+    @brief Lightweight email validation for scheduler notifications.
+    @param[in] email Argument passed to `is_valid_email()`.
+    @return Value returned by `is_valid_email()`.
+    """
     if not isinstance(email, str):
         return False
     pattern = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
@@ -1152,7 +1398,10 @@ def normalize_statistics_task(task_name: str) -> str:
     return "ComputeMSD"
 
 def _iter_nonempty_noncomment_lines(file_obj):
-    """Yield (lineno, stripped_line) for non-empty, non-comment lines."""
+    """!
+    @brief Yield (lineno, stripped_line) for non-empty, non-comment lines.
+    @param[in] file_obj Argument passed to `_iter_nonempty_noncomment_lines()`.
+    """
     for lineno, raw in enumerate(file_obj, start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -1510,14 +1759,24 @@ _NUMERIC_BC_PARAMS = {"vx", "vy", "vz", "v_max", "target_flux"}
 _BOOL_BC_PARAMS = {"apply_trim"}
 
 def _to_float(value, field_name: str) -> float:
-    """Convert a YAML scalar to float with a clear error message."""
+    """!
+    @brief Convert a YAML scalar to float with a clear error message.
+    @param[in] value Argument passed to `_to_float()`.
+    @param[in] field_name Argument passed to `_to_float()`.
+    @return Value returned by `_to_float()`.
+    """
     try:
         return float(value)
     except (TypeError, ValueError):
         raise ValueError(f"'{field_name}' must be numeric (got {value!r}).")
 
 def _to_bool(value, field_name: str) -> bool:
-    """Convert a YAML scalar/string to bool with a clear error message."""
+    """!
+    @brief Convert a YAML scalar/string to bool with a clear error message.
+    @param[in] value Argument passed to `_to_bool()`.
+    @param[in] field_name Argument passed to `_to_bool()`.
+    @return Value returned by `_to_bool()`.
+    """
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -1529,8 +1788,11 @@ def _to_bool(value, field_name: str) -> bool:
     raise ValueError(f"'{field_name}' must be boolean (got {value!r}).")
 
 def normalize_boundary_conditions_layout(all_blocks_bcs, num_blocks: int):
-    """
-    Normalize boundary_conditions to list-of-lists form and validate block count.
+    """!
+    @brief Normalize boundary_conditions to list-of-lists form and validate block count.
+    @param[in] all_blocks_bcs Argument passed to `normalize_boundary_conditions_layout()`.
+    @param[in] num_blocks Argument passed to `normalize_boundary_conditions_layout()`.
+    @return Value returned by `normalize_boundary_conditions_layout()`.
     """
     if not all_blocks_bcs:
         raise ValueError("The 'boundary_conditions' section in case.yml is empty.")
@@ -1551,9 +1813,11 @@ def normalize_boundary_conditions_layout(all_blocks_bcs, num_blocks: int):
     return all_blocks_bcs
 
 def validate_and_prepare_boundary_conditions(case_cfg: dict):
-    """
-    Validate BC entries against currently supported C-side handlers/types and
-    return normalized entries ready for bcs.run generation.
+    """!
+    @brief Validate BC entries against currently supported C-side handlers/types and
+    @details return normalized entries ready for bcs.run generation.
+    @param[in] case_cfg Argument passed to `validate_and_prepare_boundary_conditions()`.
+    @return Value returned by `validate_and_prepare_boundary_conditions()`.
     """
     num_blocks = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
     scales = case_cfg.get('properties', {}).get('scaling', {})
@@ -2288,7 +2552,11 @@ def validate_post_config(post_cfg: dict, post_path: str):
         _print_validation_errors(errors)
 
 def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
-    """Validate Slurm scheduler configuration from cluster.yml."""
+    """!
+    @brief Validate Slurm scheduler configuration from cluster.yml.
+    @param[in] cluster_cfg Argument passed to `validate_cluster_config()`.
+    @param[in] cluster_path Argument passed to `validate_cluster_config()`.
+    """
     errors = []
     warnings = []
     if not isinstance(cluster_cfg, dict) or not cluster_cfg:
@@ -2387,7 +2655,11 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
         _print_validation_errors(errors)
 
 def validate_study_config(study_cfg: dict, study_path: str):
-    """Validate sweep/study specification from study.yml."""
+    """!
+    @brief Validate sweep/study specification from study.yml.
+    @param[in] study_cfg Argument passed to `validate_study_config()`.
+    @param[in] study_path Argument passed to `validate_study_config()`.
+    """
     errors = []
     if not isinstance(study_cfg, dict) or not study_cfg:
         errors.append(f"  {study_path}: study config is empty or not a valid YAML mapping.")
@@ -2474,7 +2746,12 @@ def validate_study_config(study_cfg: dict, study_path: str):
         _print_validation_errors(errors)
 
 def _deep_set(container: dict, dotted_path: str, value):
-    """Set nested dictionary value, creating intermediate maps when needed."""
+    """!
+    @brief Set nested dictionary value, creating intermediate maps when needed.
+    @param[in] container Argument passed to `_deep_set()`.
+    @param[in] dotted_path Argument passed to `_deep_set()`.
+    @param[in] value Argument passed to `_deep_set()`.
+    """
     keys = dotted_path.split(".")
     current = container
     for key in keys[:-1]:
@@ -2484,7 +2761,11 @@ def _deep_set(container: dict, dotted_path: str, value):
     current[keys[-1]] = value
 
 def expand_parameter_matrix(parameters: dict) -> list:
-    """Expand study parameter lists into cartesian-product combinations."""
+    """!
+    @brief Expand study parameter lists into cartesian-product combinations.
+    @param[in] parameters Argument passed to `expand_parameter_matrix()`.
+    @return Value returned by `expand_parameter_matrix()`.
+    """
     param_keys = list(parameters.keys())
     all_values = [parameters[k] for k in param_keys]
     combos = []
@@ -2493,12 +2774,20 @@ def expand_parameter_matrix(parameters: dict) -> list:
     return combos
 
 def get_cluster_total_tasks(cluster_cfg: dict) -> int:
-    """Return cluster total tasks."""
+    """!
+    @brief Return cluster total tasks.
+    @param[in] cluster_cfg Argument passed to `get_cluster_total_tasks()`.
+    @return Value returned by `get_cluster_total_tasks()`.
+    """
     resources = cluster_cfg.get("resources", {})
     return int(resources.get("nodes", 1)) * int(resources.get("ntasks_per_node", 1))
 
 def normalize_extension(ext: str) -> str:
-    """Normalize extension."""
+    """!
+    @brief Normalize extension.
+    @param[in] ext Argument passed to `normalize_extension()`.
+    @return Value returned by `normalize_extension()`.
+    """
     if ext is None:
         return None
     return str(ext).strip().lstrip(".")
@@ -2514,7 +2803,18 @@ def render_slurm_script(
     env_vars: dict = None,
     array_spec: str = None
 ):
-    """Render a Slurm batch script for a single command."""
+    """!
+    @brief Render a Slurm batch script for a single command.
+    @param[in] script_path Argument passed to `render_slurm_script()`.
+    @param[in] job_name Argument passed to `render_slurm_script()`.
+    @param[in] cluster_cfg Argument passed to `render_slurm_script()`.
+    @param[in] command Argument passed to `render_slurm_script()`.
+    @param[in] workdir Argument passed to `render_slurm_script()`.
+    @param[in] stdout_path Argument passed to `render_slurm_script()`.
+    @param[in] stderr_path Argument passed to `render_slurm_script()`.
+    @param[in] env_vars Argument passed to `render_slurm_script()`.
+    @param[in] array_spec Argument passed to `render_slurm_script()`.
+    """
     resources = cluster_cfg.get("resources", {})
     notifications = cluster_cfg.get("notifications", {}) or {}
     execution = cluster_cfg.get("execution", {}) or {}
@@ -2593,7 +2893,13 @@ def split_launcher_tokens(
     launcher_args: list | None = None,
     label: str = "launcher",
 ) -> tuple[str | None, list[str]]:
-    """Canonicalize launcher config into executable token plus argv-style flags."""
+    """!
+    @brief Canonicalize launcher config into executable token plus argv-style flags.
+    @param[in] launcher Argument passed to `split_launcher_tokens()`.
+    @param[in] launcher_args Argument passed to `split_launcher_tokens()`.
+    @param[in] label Argument passed to `split_launcher_tokens()`.
+    @return Value returned by `split_launcher_tokens()`.
+    """
     normalized_args = [str(x) for x in (launcher_args or [])]
 
     if launcher is None:
@@ -2611,7 +2917,11 @@ def split_launcher_tokens(
 
 
 def normalize_cluster_launcher(execution: dict) -> tuple[str | None, list[str]]:
-    """Canonicalize cluster launcher config into executable token plus argv-style flags."""
+    """!
+    @brief Canonicalize cluster launcher config into executable token plus argv-style flags.
+    @param[in] execution Argument passed to `normalize_cluster_launcher()`.
+    @return Value returned by `normalize_cluster_launcher()`.
+    """
     return split_launcher_tokens(
         execution.get("launcher"),
         execution.get("launcher_args") or [],
@@ -2620,7 +2930,14 @@ def normalize_cluster_launcher(execution: dict) -> tuple[str | None, list[str]]:
 
 
 def build_local_launch_command(executable: str, executable_args: list, num_procs: int, config_search_anchor: str = None) -> list:
-    """Build local launcher command, allowing env or shared config overrides for login-node MPI quirks."""
+    """!
+    @brief Build local launcher command, allowing env or shared config overrides for login-node MPI quirks.
+    @param[in] executable Argument passed to `build_local_launch_command()`.
+    @param[in] executable_args Argument passed to `build_local_launch_command()`.
+    @param[in] num_procs Argument passed to `build_local_launch_command()`.
+    @param[in] config_search_anchor Argument passed to `build_local_launch_command()`.
+    @return Value returned by `build_local_launch_command()`.
+    """
     command = [executable] + executable_args
     if num_procs <= 1:
         return command
@@ -2667,7 +2984,13 @@ def build_local_launch_command(executable: str, executable_args: list, num_procs
     return prefix + command
 
 def resolve_cluster_execution(cluster_cfg: dict, config_search_anchor: str = None, extra_search_anchors=None) -> dict:
-    """Resolve cluster execution launcher settings from shared runtime config plus cluster.yml overrides."""
+    """!
+    @brief Resolve cluster execution launcher settings from shared runtime config plus cluster.yml overrides.
+    @param[in] cluster_cfg Argument passed to `resolve_cluster_execution()`.
+    @param[in] config_search_anchor Argument passed to `resolve_cluster_execution()`.
+    @param[in] extra_search_anchors Argument passed to `resolve_cluster_execution()`.
+    @return Value returned by `resolve_cluster_execution()`.
+    """
     _, runtime_execution_cfg = load_runtime_execution_config(config_search_anchor, extra_search_anchors=extra_search_anchors)
     shared_cluster_execution = resolve_runtime_execution_context(runtime_execution_cfg, "cluster")
     execution = cluster_cfg.get("execution", {}) or {}
@@ -2685,7 +3008,15 @@ def build_cluster_launch_command(
     config_search_anchor: str = None,
     extra_search_anchors=None,
 ) -> list:
-    """Build scheduler launcher command from cluster config plus optional shared execution defaults."""
+    """!
+    @brief Build scheduler launcher command from cluster config plus optional shared execution defaults.
+    @param[in] cluster_cfg Argument passed to `build_cluster_launch_command()`.
+    @param[in] executable Argument passed to `build_cluster_launch_command()`.
+    @param[in] executable_args Argument passed to `build_cluster_launch_command()`.
+    @param[in] config_search_anchor Argument passed to `build_cluster_launch_command()`.
+    @param[in] extra_search_anchors Argument passed to `build_cluster_launch_command()`.
+    @return Value returned by `build_cluster_launch_command()`.
+    """
     try:
         execution = resolve_cluster_execution(
             cluster_cfg,
@@ -2726,12 +3057,21 @@ def build_cluster_launch_command(
     return cmd
 
 def parse_slurm_job_id(sbatch_output: str) -> str:
-    """Extract numeric job id from standard sbatch output."""
+    """!
+    @brief Extract numeric job id from standard sbatch output.
+    @param[in] sbatch_output Argument passed to `parse_slurm_job_id()`.
+    @return Value returned by `parse_slurm_job_id()`.
+    """
     match = re.search(r"Submitted batch job\s+(\d+)", sbatch_output or "")
     return match.group(1) if match else None
 
 def submit_sbatch(script_path: str, dependency: str = None) -> dict:
-    """Submit sbatch script and return submission metadata."""
+    """!
+    @brief Submit sbatch script and return submission metadata.
+    @param[in] script_path Argument passed to `submit_sbatch()`.
+    @param[in] dependency Argument passed to `submit_sbatch()`.
+    @return Value returned by `submit_sbatch()`.
+    """
     cmd = ["sbatch"]
     if dependency:
         cmd.append(f"--dependency=afterok:{dependency}")
@@ -2827,13 +3167,21 @@ def generate_simple_list_file(run_dir: str, run_id: str, cfg: dict, section: str
 
 
 def has_explicit_monitor_whitelist(monitor_cfg: dict) -> bool:
-    """Return True when logging.enabled_functions contains at least one entry."""
+    """!
+    @brief Return True when logging.enabled_functions contains at least one entry.
+    @param[in] monitor_cfg Argument passed to `has_explicit_monitor_whitelist()`.
+    @return Value returned by `has_explicit_monitor_whitelist()`.
+    """
     items = monitor_cfg.get("logging", {}).get("enabled_functions", [])
     return bool(items)
 
 
 def resolve_profiling_config(monitor_cfg: dict) -> dict:
-    """Resolve profiling reporting config from monitor.yml."""
+    """!
+    @brief Resolve profiling reporting config from monitor.yml.
+    @param[in] monitor_cfg Argument passed to `resolve_profiling_config()`.
+    @return Value returned by `resolve_profiling_config()`.
+    """
     profiling_cfg = monitor_cfg.get("profiling", {}) or {}
     timestep_cfg = profiling_cfg.get("timestep_output")
     final_cfg = profiling_cfg.get("final_summary")
@@ -2880,7 +3228,14 @@ def resolve_profiling_config(monitor_cfg: dict) -> dict:
 
 
 def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_files: dict) -> dict:
-    """Generate monitor sidecar files and resolve profiling reporting behavior."""
+    """!
+    @brief Generate monitor sidecar files and resolve profiling reporting behavior.
+    @param[in] run_dir Argument passed to `prepare_monitor_files()`.
+    @param[in] run_id Argument passed to `prepare_monitor_files()`.
+    @param[in] monitor_cfg Argument passed to `prepare_monitor_files()`.
+    @param[in] source_files Argument passed to `prepare_monitor_files()`.
+    @return Value returned by `prepare_monitor_files()`.
+    """
     print("[INFO] Generating monitoring files...")
 
     whitelist_path = None
@@ -2967,7 +3322,11 @@ def format_flag_value(value):
     return str(value)
 
 def translate_programmatic_grid_settings(grid_settings: dict) -> dict:
-    """Return programmatic-grid settings translated to the C node-count contract."""
+    """!
+    @brief Return programmatic-grid settings translated to the C node-count contract.
+    @param[in] grid_settings Argument passed to `translate_programmatic_grid_settings()`.
+    @return Value returned by `translate_programmatic_grid_settings()`.
+    """
     translated = dict(grid_settings)
     for dim_key in ("im", "jm", "km"):
         if dim_key in translated:
@@ -2985,7 +3344,11 @@ GRID_DA_PROCESSOR_KEYS = ("da_processors_x", "da_processors_y", "da_processors_z
 
 
 def resolve_grid_da_processor_layout(grid_cfg: dict) -> dict:
-    """Resolve optional global DMDA layout, preferring grid-level keys over legacy nested keys."""
+    """!
+    @brief Resolve optional global DMDA layout, preferring grid-level keys over legacy nested keys.
+    @param[in] grid_cfg Argument passed to `resolve_grid_da_processor_layout()`.
+    @return Value returned by `resolve_grid_da_processor_layout()`.
+    """
     top_level = {}
     legacy = {}
 
@@ -3035,7 +3398,12 @@ def resolve_grid_da_processor_layout(grid_cfg: dict) -> dict:
 
 
 def append_grid_da_processor_layout(control_lines: list, grid_cfg: dict, num_procs: int) -> None:
-    """Append optional global DMDA layout flags for any grid mode."""
+    """!
+    @brief Append optional global DMDA layout flags for any grid mode.
+    @param[in] control_lines Argument passed to `append_grid_da_processor_layout()`.
+    @param[in] grid_cfg Argument passed to `append_grid_da_processor_layout()`.
+    @param[in] num_procs Argument passed to `append_grid_da_processor_layout()`.
+    """
     layout = resolve_grid_da_processor_layout(grid_cfg)
     if not layout:
         if num_procs > 1:
@@ -3302,7 +3670,11 @@ def append_passthrough_flags(control_lines: list, options: dict):
 
 
 def resolve_particle_console_output_frequency(io_cfg: dict) -> int | None:
-    """Return the effective particle-console snapshot cadence from monitor.yml."""
+    """!
+    @brief Return the effective particle-console snapshot cadence from monitor.yml.
+    @param[in] io_cfg Argument passed to `resolve_particle_console_output_frequency()`.
+    @return Value returned by `resolve_particle_console_output_frequency()`.
+    """
     if 'particle_console_output_frequency' in io_cfg:
         return io_cfg['particle_console_output_frequency']
     return io_cfg.get('data_output_frequency')
@@ -3406,7 +3778,10 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                 flags[flag] = t[key]
 
     def _append_dualtime_options(cfg: dict):
-        """Append dualtime options."""
+        """!
+        @brief Append dualtime options.
+        @param[in] cfg Argument passed to `_append_dualtime_options()`.
+        """
         if 'max_pseudo_steps' in cfg:
             flags['-mom_max_pseudo_steps'] = cfg['max_pseudo_steps']
         if 'absolute_tol' in cfg:
@@ -3477,13 +3852,14 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     """!
     @brief Generates the main .control file for the C-solver.
     @details Orchestrates the conversion of all YAML configurations (case, solver, monitor)
-             into a single, machine-readable file of command-line flags.
-    @param[in] run_dir The path to the main run directory.
-    @param[in] run_id The unique identifier for the run.
-    @param[in] configs A dictionary containing the parsed YAML data.
-    @param[in] num_procs The number of MPI processes for the run.
-    @param[in] monitor_files A dictionary containing paths to generated monitor files.
-    @return The absolute path to the generated solver control file.
+    into a single, machine-readable file of command-line flags.
+    @param[in] run_dir Argument passed to `generate_solver_control_file()`.
+    @param[in] run_id Argument passed to `generate_solver_control_file()`.
+    @param[in] configs Argument passed to `generate_solver_control_file()`.
+    @param[in] num_procs Argument passed to `generate_solver_control_file()`.
+    @param[in] monitor_files Argument passed to `generate_solver_control_file()`.
+    @param[in] restart_source_dir Argument passed to `generate_solver_control_file()`.
+    @return Value returned by `generate_solver_control_file()`.
     """
     print("[INFO] Generating master solver control file...")
     case_cfg, solver_cfg, monitor_cfg = configs['case'], configs['solver'], configs['monitor']
@@ -3749,9 +4125,12 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
 def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg: dict = None):
     """!
     @brief Executes a command, streaming its output to the console and a log file.
-    ...
-    @param[in] monitor_cfg Optional. If provided, used to set LOG_LEVEL in a custom environment.
-                           If None, the process inherits the parent's environment directly.
+    @details ...
+    If None, the process inherits the parent's environment directly.
+    @param[in] command Argument passed to `execute_command()`.
+    @param[in] run_dir Argument passed to `execute_command()`.
+    @param[in] log_filename Argument passed to `execute_command()`.
+    @param[in] monitor_cfg Argument passed to `execute_command()`.
     """
     if os.path.dirname(log_filename):
         log_path = os.path.join(run_dir, log_filename)
@@ -3806,7 +4185,11 @@ def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg:
         sys.exit(1)
 
 def auto_identify_run_inputs(config_dir: str):
-    """Auto-detect case.yml, monitor.yml, and *.control in a run config directory."""
+    """!
+    @brief Auto-detect case.yml, monitor.yml, and *.control in a run config directory.
+    @param[in] config_dir Argument passed to `auto_identify_run_inputs()`.
+    @return Value returned by `auto_identify_run_inputs()`.
+    """
     all_yml_files = glob.glob(os.path.join(config_dir, "*.yml"))
     case_path, monitor_path = None, None
     for f_path in all_yml_files:
@@ -3827,7 +4210,14 @@ def auto_identify_run_inputs(config_dir: str):
     return case_path, monitor_path, solver_control_path
 
 def resolve_post_source_directory(run_dir: str, monitor_cfg: dict, post_cfg: dict, strict: bool = True) -> str:
-    """Resolve post source directory token and optionally enforce existence."""
+    """!
+    @brief Resolve post source directory token and optionally enforce existence.
+    @param[in] run_dir Argument passed to `resolve_post_source_directory()`.
+    @param[in] monitor_cfg Argument passed to `resolve_post_source_directory()`.
+    @param[in] post_cfg Argument passed to `resolve_post_source_directory()`.
+    @param[in] strict Argument passed to `resolve_post_source_directory()`.
+    @return Value returned by `resolve_post_source_directory()`.
+    """
     solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
     solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
     source_dir_template = get_post_source_directory_template(post_cfg)
@@ -3860,7 +4250,20 @@ def render_slurm_array_stage_script(
     stdout_path: str,
     stderr_path: str
 ):
-    """Render array script that maps SLURM_ARRAY_TASK_ID to per-case run artifacts."""
+    """!
+    @brief Render array script that maps SLURM_ARRAY_TASK_ID to per-case run artifacts.
+    @param[in] script_path Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] job_name Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] cluster_cfg Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] array_spec Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] case_index_tsv Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] stage Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] solver_exe Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] post_exe Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] stdout_path Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] stderr_path Argument passed to `render_slurm_array_stage_script()`.
+    @return Value returned by `render_slurm_array_stage_script()`.
+    """
     resources = cluster_cfg.get("resources", {})
     notifications = cluster_cfg.get("notifications", {}) or {}
     execution = cluster_cfg.get("execution", {}) or {}
@@ -3936,7 +4339,11 @@ def render_slurm_array_stage_script(
 
     # Keep shell variables unresolved inside sbatch script.
     def _token(tok: str) -> str:
-        """Perform token."""
+        """!
+        @brief Perform token.
+        @param[in] tok Argument passed to `_token()`.
+        @return Value returned by `_token()`.
+        """
         if tok.startswith("$"):
             return tok
         return shlex.quote(str(tok))
@@ -3950,7 +4357,12 @@ def render_slurm_array_stage_script(
     os.chmod(script_path, 0o755)
 
 def extract_metric_from_csv(case_dir: str, spec: dict):
-    """Extract a scalar metric from a CSV source."""
+    """!
+    @brief Extract a scalar metric from a CSV source.
+    @param[in] case_dir Argument passed to `extract_metric_from_csv()`.
+    @param[in] spec Argument passed to `extract_metric_from_csv()`.
+    @return Value returned by `extract_metric_from_csv()`.
+    """
     file_glob = spec.get("file_glob", "**/*_msd.csv")
     candidates = sorted(glob.glob(os.path.join(case_dir, file_glob), recursive=True))
     if not candidates:
@@ -3992,7 +4404,12 @@ def extract_metric_from_csv(case_dir: str, spec: dict):
     return float(values[-1])
 
 def extract_metric_from_log(case_dir: str, spec: dict):
-    """Extract a scalar metric from a log file using regex."""
+    """!
+    @brief Extract a scalar metric from a log file using regex.
+    @param[in] case_dir Argument passed to `extract_metric_from_log()`.
+    @param[in] spec Argument passed to `extract_metric_from_log()`.
+    @return Value returned by `extract_metric_from_log()`.
+    """
     file_glob = spec.get("file_glob", "logs/*.log")
     regex = spec.get("regex")
     if not regex:
@@ -4026,7 +4443,11 @@ def extract_metric_from_log(case_dir: str, spec: dict):
     return float(values[-1])
 
 def normalize_metric_spec(metric):
-    """Normalize study metric definitions to a common dictionary form."""
+    """!
+    @brief Normalize study metric definitions to a common dictionary form.
+    @param[in] metric Argument passed to `normalize_metric_spec()`.
+    @return Value returned by `normalize_metric_spec()`.
+    """
     if isinstance(metric, str):
         if metric.lower() in {"msd", "msd_final"}:
             return {
@@ -4039,7 +4460,13 @@ def normalize_metric_spec(metric):
     return dict(metric)
 
 def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> str:
-    """Collect metric values from generated case directories into one CSV."""
+    """!
+    @brief Collect metric values from generated case directories into one CSV.
+    @param[in] study_cfg Argument passed to `aggregate_study_metrics()`.
+    @param[in] cases Argument passed to `aggregate_study_metrics()`.
+    @param[in] results_dir Argument passed to `aggregate_study_metrics()`.
+    @return Value returned by `aggregate_study_metrics()`.
+    """
     metrics = study_cfg.get("metrics", [])
     if not metrics:
         metrics = ["msd_final"]
@@ -4082,7 +4509,12 @@ def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> s
     return out_csv
 
 def infer_plot_x_axis(study_cfg: dict, rows: list):
-    """Infer x-axis key/values for study plots."""
+    """!
+    @brief Infer x-axis key/values for study plots.
+    @param[in] study_cfg Argument passed to `infer_plot_x_axis()`.
+    @param[in] rows Argument passed to `infer_plot_x_axis()`.
+    @return Value returned by `infer_plot_x_axis()`.
+    """
     params = list((study_cfg.get("parameters") or {}).keys())
     if not params or not rows:
         return None, None
@@ -4114,7 +4546,13 @@ def infer_plot_x_axis(study_cfg: dict, rows: list):
     return primary, xs
 
 def generate_study_plots(study_cfg: dict, metrics_csv: str, plots_dir: str):
-    """Generate metric-vs-parameter plots for completed studies."""
+    """!
+    @brief Generate metric-vs-parameter plots for completed studies.
+    @param[in] study_cfg Argument passed to `generate_study_plots()`.
+    @param[in] metrics_csv Argument passed to `generate_study_plots()`.
+    @param[in] plots_dir Argument passed to `generate_study_plots()`.
+    @return Value returned by `generate_study_plots()`.
+    """
     plotting_cfg = study_cfg.get("plotting", {}) or {}
     if plotting_cfg.get("enabled", True) is False:
         print("[INFO] Plotting disabled by study.yml.")
@@ -4176,12 +4614,22 @@ def generate_study_plots(study_cfg: dict, metrics_csv: str, plots_dir: str):
 
 
 def _command_to_string(command_tokens: list) -> str:
-    """Render a command list as a shell-safe display string."""
+    """!
+    @brief Render a command list as a shell-safe display string.
+    @param[in] command_tokens Argument passed to `_command_to_string()`.
+    @return Value returned by `_command_to_string()`.
+    """
     return " ".join(shlex.quote(str(tok)) for tok in command_tokens)
 
 
 def _resolve_post_source_directory_preview(run_dir: str, monitor_cfg: dict, post_cfg: dict) -> str:
-    """Resolve post source directory without side effects or stdout/stderr output."""
+    """!
+    @brief Resolve post source directory without side effects or stdout/stderr output.
+    @param[in] run_dir Argument passed to `_resolve_post_source_directory_preview()`.
+    @param[in] monitor_cfg Argument passed to `_resolve_post_source_directory_preview()`.
+    @param[in] post_cfg Argument passed to `_resolve_post_source_directory_preview()`.
+    @return Value returned by `_resolve_post_source_directory_preview()`.
+    """
     solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
     solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
     source_dir_template = get_post_source_directory_template(post_cfg)
@@ -4191,7 +4639,11 @@ def _resolve_post_source_directory_preview(run_dir: str, monitor_cfg: dict, post
 
 
 def build_run_dry_plan(args) -> dict:
-    """Build a no-write execution plan for `run --dry-run`."""
+    """!
+    @brief Build a no-write execution plan for `run --dry-run`.
+    @param[in] args Command-line style argument list supplied to the function.
+    @return Value returned by `build_run_dry_plan()`.
+    """
     plan = {
         "mode": "dry-run",
         "created_at": datetime.now().isoformat(),
@@ -4461,7 +4913,11 @@ def build_run_dry_plan(args) -> dict:
 
 
 def render_run_dry_plan(plan: dict, output_format: str = "text"):
-    """Render dry-run plan in human or JSON format."""
+    """!
+    @brief Render dry-run plan in human or JSON format.
+    @param[in] plan Argument passed to `render_run_dry_plan()`.
+    @param[in] output_format Argument passed to `render_run_dry_plan()`.
+    """
     if output_format == "json":
         print(json.dumps(plan, indent=2, sort_keys=True))
         return
@@ -4500,7 +4956,10 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
 
 
 def validate_workflow(args):
-    """Implements `picurv validate` without launching solver/post workflows."""
+    """!
+    @brief Implements `picurv validate` without launching solver/post workflows.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
     checked = []
     solver_group_selected = any([args.case, args.solver, args.monitor])
     any_group_selected = solver_group_selected or any([args.post, args.cluster, args.study])
@@ -4602,7 +5061,10 @@ def validate_workflow(args):
         print(f"  - {path}")
 
 def run_workflow(args):
-    """Main orchestrator for the 'run' command (local and Slurm modes)."""
+    """!
+    @brief Main orchestrator for the 'run' command (local and Slurm modes).
+    @param[in] args Command-line style argument list supplied to the function.
+    """
     if getattr(args, "dry_run", False):
         plan = build_run_dry_plan(args)
         render_run_dry_plan(plan, output_format=getattr(args, "output_format", "text"))
@@ -4932,7 +5394,10 @@ def run_workflow(args):
         print("=" * 60)
 
 def sweep_workflow(args):
-    """Study/sweep orchestration using Slurm job arrays."""
+    """!
+    @brief Study/sweep orchestration using Slurm job arrays.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
     study_path = os.path.abspath(args.study)
     cluster_path = os.path.abspath(args.cluster)
 
@@ -5148,7 +5613,11 @@ _SUMMARY_NUMERIC_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
 
 def _read_yaml_if_exists(filepath: str):
-    """Read YAML when present, otherwise return None."""
+    """!
+    @brief Read YAML when present, otherwise return None.
+    @param[in] filepath Argument passed to `_read_yaml_if_exists()`.
+    @return Value returned by `_read_yaml_if_exists()`.
+    """
     if not filepath or not os.path.isfile(filepath):
         return None
     with open(filepath, "r", encoding="utf-8") as f:
@@ -5156,7 +5625,11 @@ def _read_yaml_if_exists(filepath: str):
 
 
 def _read_json_if_exists(filepath: str):
-    """Read JSON when present, otherwise return None."""
+    """!
+    @brief Read JSON when present, otherwise return None.
+    @param[in] filepath Argument passed to `_read_json_if_exists()`.
+    @return Value returned by `_read_json_if_exists()`.
+    """
     if not filepath or not os.path.isfile(filepath):
         return None
     with open(filepath, "r", encoding="utf-8") as f:
@@ -5164,7 +5637,11 @@ def _read_json_if_exists(filepath: str):
 
 
 def _parse_int_loose(value):
-    """Best-effort integer parsing for summary extraction."""
+    """!
+    @brief Best-effort integer parsing for summary extraction.
+    @param[in] value Argument passed to `_parse_int_loose()`.
+    @return Value returned by `_parse_int_loose()`.
+    """
     if value is None:
         return None
     text = str(value).strip()
@@ -5180,7 +5657,11 @@ def _parse_int_loose(value):
 
 
 def _parse_float_loose(value):
-    """Best-effort float parsing for summary extraction."""
+    """!
+    @brief Best-effort float parsing for summary extraction.
+    @param[in] value Argument passed to `_parse_float_loose()`.
+    @return Value returned by `_parse_float_loose()`.
+    """
     if value is None:
         return None
     text = str(value).strip()
@@ -5193,14 +5674,22 @@ def _parse_float_loose(value):
 
 
 def _extract_numeric_tuple(text: str):
-    """Extract a numeric tuple from a string like '(1, 2, 3)'."""
+    """!
+    @brief Extract a numeric tuple from a string like '(1, 2, 3)'.
+    @param[in] text Argument passed to `_extract_numeric_tuple()`.
+    @return Value returned by `_extract_numeric_tuple()`.
+    """
     if not text:
         return []
     return [float(token) for token in _SUMMARY_NUMERIC_RE.findall(text)]
 
 
 def _build_summary_context(run_dir: str) -> dict:
-    """Resolve run-local config and artifact paths for summarize."""
+    """!
+    @brief Resolve run-local config and artifact paths for summarize.
+    @param[in] run_dir Argument passed to `_build_summary_context()`.
+    @return Value returned by `_build_summary_context()`.
+    """
     run_dir = os.path.abspath(run_dir)
     if not os.path.isdir(run_dir):
         emit_structured_error(
@@ -5256,7 +5745,11 @@ def _build_summary_context(run_dir: str) -> dict:
 
 
 def _parse_continuity_metrics_log(filepath: str) -> dict:
-    """Parse Continuity_Metrics.log into {step: [rows...]}."""
+    """!
+    @brief Parse Continuity_Metrics.log into {step: [rows...]}.
+    @param[in] filepath Argument passed to `_parse_continuity_metrics_log()`.
+    @return Value returned by `_parse_continuity_metrics_log()`.
+    """
     rows_by_step = {}
     if not os.path.isfile(filepath):
         return rows_by_step
@@ -5293,7 +5786,11 @@ def _parse_continuity_metrics_log(filepath: str) -> dict:
 
 
 def _parse_particle_metrics_log(filepath: str) -> dict:
-    """Parse Particle_Metrics.log into {step: row}."""
+    """!
+    @brief Parse Particle_Metrics.log into {step: row}.
+    @param[in] filepath Argument passed to `_parse_particle_metrics_log()`.
+    @return Value returned by `_parse_particle_metrics_log()`.
+    """
     rows_by_step = {}
     if not os.path.isfile(filepath):
         return rows_by_step
@@ -5322,7 +5819,11 @@ def _parse_particle_metrics_log(filepath: str) -> dict:
 
 
 def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict]:
-    """Parse per-block momentum convergence logs."""
+    """!
+    @brief Parse per-block momentum convergence logs.
+    @param[in] log_dir Argument passed to `_parse_momentum_convergence_logs()`.
+    @return Value returned by `_parse_momentum_convergence_logs()`.
+    """
     rows_by_step = {}
     sources = {}
     pattern = os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log")
@@ -5358,7 +5859,11 @@ def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict]:
 
 
 def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict]:
-    """Parse per-block Poisson convergence logs."""
+    """!
+    @brief Parse per-block Poisson convergence logs.
+    @param[in] log_dir Argument passed to `_parse_poisson_convergence_logs()`.
+    @return Value returned by `_parse_poisson_convergence_logs()`.
+    """
     rows_by_step = {}
     sources = {}
     pattern = os.path.join(log_dir, "Poisson_Solver_Convergence_History_Block_*.log")
@@ -5391,7 +5896,11 @@ def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict]:
 
 
 def _parse_profiling_timestep_csv(filepath: str) -> dict:
-    """Parse profiling timestep CSV into {step: [rows...]}."""
+    """!
+    @brief Parse profiling timestep CSV into {step: [rows...]}.
+    @param[in] filepath Argument passed to `_parse_profiling_timestep_csv()`.
+    @return Value returned by `_parse_profiling_timestep_csv()`.
+    """
     rows_by_step = {}
     if not os.path.isfile(filepath):
         return rows_by_step
@@ -5413,7 +5922,12 @@ def _parse_profiling_timestep_csv(filepath: str) -> dict:
 
 
 def _find_solver_stream_log_candidates(run_dir: str, log_dir: str) -> list[str]:
-    """Return plausible solver stream logs for local and Slurm runs."""
+    """!
+    @brief Return plausible solver stream logs for local and Slurm runs.
+    @param[in] run_dir Argument passed to `_find_solver_stream_log_candidates()`.
+    @param[in] log_dir Argument passed to `_find_solver_stream_log_candidates()`.
+    @return Value returned by `_find_solver_stream_log_candidates()`.
+    """
     patterns = [
         os.path.join(run_dir, "scheduler", "*_solver.log"),
         os.path.join(run_dir, "scheduler", "solver_*.out"),
@@ -5430,7 +5944,11 @@ def _find_solver_stream_log_candidates(run_dir: str, log_dir: str) -> list[str]:
 
 
 def _parse_particle_snapshot_file(filepath: str) -> dict:
-    """Parse sampled particle snapshots from a solver stream log."""
+    """!
+    @brief Parse sampled particle snapshots from a solver stream log.
+    @param[in] filepath Argument passed to `_parse_particle_snapshot_file()`.
+    @return Value returned by `_parse_particle_snapshot_file()`.
+    """
     snapshots = {}
     if not os.path.isfile(filepath):
         return snapshots
@@ -5477,7 +5995,12 @@ def _parse_particle_snapshot_file(filepath: str) -> dict:
 
 
 def _find_previous_snapshot_step(snapshot_steps: list[int], step: int) -> int | None:
-    """Return the nearest earlier snapshot step when available."""
+    """!
+    @brief Return the nearest earlier snapshot step when available.
+    @param[in] snapshot_steps Argument passed to `_find_previous_snapshot_step()`.
+    @param[in] step Argument passed to `_find_previous_snapshot_step()`.
+    @return Value returned by `_find_previous_snapshot_step()`.
+    """
     earlier_steps = [candidate for candidate in snapshot_steps if candidate < step]
     if not earlier_steps:
         return None
@@ -5485,7 +6008,12 @@ def _find_previous_snapshot_step(snapshot_steps: list[int], step: int) -> int | 
 
 
 def _compute_particle_snapshot_delta(current_rows: list[dict], previous_rows: list[dict]) -> dict:
-    """Compute sampled deltas between two particle snapshot samples."""
+    """!
+    @brief Compute sampled deltas between two particle snapshot samples.
+    @param[in] current_rows Argument passed to `_compute_particle_snapshot_delta()`.
+    @param[in] previous_rows Argument passed to `_compute_particle_snapshot_delta()`.
+    @return Value returned by `_compute_particle_snapshot_delta()`.
+    """
     previous_by_pid = {
         row.get("pid"): row
         for row in previous_rows
@@ -5556,7 +6084,18 @@ def _build_particle_snapshot_summary(
     previous_step: int | None = None,
     previous_rows: list[dict] | None = None,
 ) -> dict:
-    """Build sampled diagnostics for one particle console snapshot."""
+    """!
+    @brief Build sampled diagnostics for one particle console snapshot.
+    @param[in] source Argument passed to `_build_particle_snapshot_summary()`.
+    @param[in] step Argument passed to `_build_particle_snapshot_summary()`.
+    @param[in] rows Argument passed to `_build_particle_snapshot_summary()`.
+    @param[in] preview_rows Argument passed to `_build_particle_snapshot_summary()`.
+    @param[in] particle_console_output_freq Argument passed to `_build_particle_snapshot_summary()`.
+    @param[in] particle_log_interval Argument passed to `_build_particle_snapshot_summary()`.
+    @param[in] previous_step Argument passed to `_build_particle_snapshot_summary()`.
+    @param[in] previous_rows Argument passed to `_build_particle_snapshot_summary()`.
+    @return Value returned by `_build_particle_snapshot_summary()`.
+    """
     payload = {
         "available": True,
         "sampled": True,
@@ -5719,7 +6258,16 @@ def _find_particle_snapshot_for_step(
     particle_console_output_freq,
     particle_log_interval,
 ) -> dict:
-    """Locate and summarize a particle console snapshot for one step."""
+    """!
+    @brief Locate and summarize a particle console snapshot for one step.
+    @param[in] run_dir Argument passed to `_find_particle_snapshot_for_step()`.
+    @param[in] log_dir Argument passed to `_find_particle_snapshot_for_step()`.
+    @param[in] step Argument passed to `_find_particle_snapshot_for_step()`.
+    @param[in] preview_rows Argument passed to `_find_particle_snapshot_for_step()`.
+    @param[in] particle_console_output_freq Argument passed to `_find_particle_snapshot_for_step()`.
+    @param[in] particle_log_interval Argument passed to `_find_particle_snapshot_for_step()`.
+    @return Value returned by `_find_particle_snapshot_for_step()`.
+    """
     best = None
     for path in _find_solver_stream_log_candidates(run_dir, log_dir):
         snapshots = _parse_particle_snapshot_file(path)
@@ -5747,7 +6295,16 @@ def _find_particle_snapshot_for_step(
 
 
 def _resolve_summary_step(requested_step, continuity_rows, particle_rows, momentum_rows, poisson_rows, profiling_rows):
-    """Select a step to summarize, preferring completed end-of-step metrics."""
+    """!
+    @brief Select a step to summarize, preferring completed end-of-step metrics.
+    @param[in] requested_step Argument passed to `_resolve_summary_step()`.
+    @param[in] continuity_rows Argument passed to `_resolve_summary_step()`.
+    @param[in] particle_rows Argument passed to `_resolve_summary_step()`.
+    @param[in] momentum_rows Argument passed to `_resolve_summary_step()`.
+    @param[in] poisson_rows Argument passed to `_resolve_summary_step()`.
+    @param[in] profiling_rows Argument passed to `_resolve_summary_step()`.
+    @return Value returned by `_resolve_summary_step()`.
+    """
     available_steps = set(continuity_rows) | set(particle_rows) | set(momentum_rows) | set(poisson_rows) | set(profiling_rows)
     if not available_steps:
         return None, []
@@ -5763,14 +6320,26 @@ def _resolve_summary_step(requested_step, continuity_rows, particle_rows, moment
 
 
 def _format_summary_float(value, spec: str = ".6e", missing: str = "n/a") -> str:
-    """Format optional numeric values for summary text output."""
+    """!
+    @brief Format optional numeric values for summary text output.
+    @param[in] value Argument passed to `_format_summary_float()`.
+    @param[in] spec Argument passed to `_format_summary_float()`.
+    @param[in] missing Argument passed to `_format_summary_float()`.
+    @return Value returned by `_format_summary_float()`.
+    """
     if value is None:
         return missing
     return format(value, spec)
 
 
 def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_rows: int = 5) -> dict:
-    """Build a read-only run-step summary from existing PICurv artifacts."""
+    """!
+    @brief Build a read-only run-step summary from existing PICurv artifacts.
+    @param[in] run_dir Argument passed to `build_run_summary_payload()`.
+    @param[in] step Argument passed to `build_run_summary_payload()`.
+    @param[in] snapshot_rows Argument passed to `build_run_summary_payload()`.
+    @return Value returned by `build_run_summary_payload()`.
+    """
     context = _build_summary_context(run_dir)
     log_dir = context["log_dir"]
 
@@ -5892,7 +6461,11 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
 
 
 def render_run_summary(payload: dict, output_format: str = "text"):
-    """Render a run-step summary in human or JSON form."""
+    """!
+    @brief Render a run-step summary in human or JSON form.
+    @param[in] payload Argument passed to `render_run_summary()`.
+    @param[in] output_format Argument passed to `render_run_summary()`.
+    """
     if output_format == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))
         return
@@ -6069,7 +6642,10 @@ def render_run_summary(payload: dict, output_format: str = "text"):
 
 
 def summarize_workflow(args):
-    """Build and render a read-only health summary for a run step."""
+    """!
+    @brief Build and render a read-only health summary for a run step.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
     if args.step is not None and args.step < 0:
         fail_cli_usage("--step must be a non-negative integer.")
     if args.snapshot_rows < 1:
@@ -6083,6 +6659,352 @@ def summarize_workflow(args):
         snapshot_rows=args.snapshot_rows,
     )
     render_run_summary(payload, output_format=args.output_format)
+
+
+def _resolve_submission_target(run_dir: str = None, study_dir: str = None) -> dict:
+    """!
+    @brief Resolve a run/study submission target from explicit directory flags.
+    @param[in] run_dir Argument passed to `_resolve_submission_target()`.
+    @param[in] study_dir Argument passed to `_resolve_submission_target()`.
+    @return Value returned by `_resolve_submission_target()`.
+    """
+    has_run_dir = bool(run_dir)
+    has_study_dir = bool(study_dir)
+    if has_run_dir == has_study_dir:
+        fail_cli_usage("submit requires exactly one of --run-dir or --study-dir.")
+
+    target_kind = "run" if has_run_dir else "study"
+    target_key = "run_dir" if target_kind == "run" else "study_dir"
+    root_dir = os.path.abspath(run_dir if has_run_dir else study_dir)
+    if not os.path.isdir(root_dir):
+        emit_structured_error(
+            ERROR_CODE_CFG_FILE_NOT_FOUND,
+            key=target_key,
+            file_path=root_dir,
+            message=f"{'Run' if target_kind == 'run' else 'Study'} directory not found.",
+        )
+        sys.exit(1)
+
+    scheduler_dir = os.path.join(root_dir, "scheduler")
+    submission_path = os.path.join(scheduler_dir, "submission.json")
+    submission_meta = _read_json_if_exists(submission_path)
+    if not isinstance(submission_meta, dict):
+        emit_structured_error(
+            ERROR_CODE_CFG_FILE_NOT_FOUND,
+            key="scheduler.submission",
+            file_path=submission_path,
+            message="Target directory does not contain scheduler submission metadata.",
+            hint="Use a Slurm-staged run/study directory with scheduler/submission.json, or submit the script manually.",
+        )
+        sys.exit(1)
+
+    launch_mode = str(submission_meta.get("launch_mode", "")).lower()
+    if launch_mode != "slurm":
+        emit_structured_error(
+            ERROR_CODE_CFG_INCONSISTENT_COMBO,
+            key="scheduler.launch_mode",
+            file_path=submission_path,
+            message=f"Target launch_mode={launch_mode or 'unknown'} is not Slurm.",
+            hint="picurv submit currently supports Slurm-staged artifacts only.",
+        )
+        sys.exit(1)
+
+    if target_kind == "run":
+        script_map = {
+            "solve": os.path.join(scheduler_dir, "solver.sbatch"),
+            "post-process": os.path.join(scheduler_dir, "post.sbatch"),
+        }
+        display_label = "Run directory"
+        manifest_path = None
+    else:
+        script_map = {
+            "solve": os.path.join(scheduler_dir, "solver_array.sbatch"),
+            "post-process": os.path.join(scheduler_dir, "post_array.sbatch"),
+        }
+        display_label = "Study directory"
+        manifest_path = os.path.join(root_dir, "study_manifest.json")
+
+    return {
+        "target_kind": target_kind,
+        "target_key": target_key,
+        "root_dir": root_dir,
+        "scheduler_dir": scheduler_dir,
+        "submission_path": submission_path,
+        "submission_meta": submission_meta,
+        "script_map": script_map,
+        "display_label": display_label,
+        "manifest_path": manifest_path,
+    }
+
+
+def _get_submission_stage_metadata(target_context: dict, stage_name: str) -> dict:
+    """!
+    @brief Return stored metadata for one staged submission target.
+    @param[in] target_context Argument passed to `_get_submission_stage_metadata()`.
+    @param[in] stage_name Argument passed to `_get_submission_stage_metadata()`.
+    @return Value returned by `_get_submission_stage_metadata()`.
+    """
+    submission_meta = target_context["submission_meta"]
+    if target_context["target_kind"] == "run":
+        stages = submission_meta.get("stages", {})
+        if not isinstance(stages, dict):
+            return {}
+        stage_meta = stages.get(stage_name)
+        return copy.deepcopy(stage_meta) if isinstance(stage_meta, dict) else {}
+
+    key = "solver_array" if stage_name == "solve" else "post_array"
+    stage_meta = submission_meta.get(key)
+    return copy.deepcopy(stage_meta) if isinstance(stage_meta, dict) else {}
+
+
+def _set_submission_stage_metadata(target_context: dict, stage_name: str, stage_meta: dict):
+    """!
+    @brief Persist one stage's metadata back into the submission payload.
+    @param[in] target_context Argument passed to `_set_submission_stage_metadata()`.
+    @param[in] stage_name Argument passed to `_set_submission_stage_metadata()`.
+    @param[in] stage_meta Argument passed to `_set_submission_stage_metadata()`.
+    """
+    submission_meta = target_context["submission_meta"]
+    if target_context["target_kind"] == "run":
+        stages = submission_meta.get("stages")
+        if not isinstance(stages, dict):
+            stages = {}
+            submission_meta["stages"] = stages
+        stages[stage_name] = stage_meta
+        return
+
+    key = "solver_array" if stage_name == "solve" else "post_array"
+    submission_meta[key] = stage_meta
+
+
+def _write_submission_target_metadata(target_context: dict):
+    """!
+    @brief Write updated submission metadata back to disk.
+    @param[in] target_context Argument passed to `_write_submission_target_metadata()`.
+    """
+    write_json_file(target_context["submission_path"], target_context["submission_meta"])
+
+    manifest_path = target_context.get("manifest_path")
+    if manifest_path and os.path.isfile(manifest_path):
+        manifest_payload = _read_json_if_exists(manifest_path)
+        if isinstance(manifest_payload, dict):
+            manifest_payload["submission"] = target_context["submission_meta"]
+            write_json_file(manifest_path, manifest_payload)
+
+
+def submit_staged_jobs(args):
+    """!
+    @brief Submit previously staged Slurm artifacts from an existing run/study directory.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
+    target_context = _resolve_submission_target(
+        run_dir=getattr(args, "run_dir", None),
+        study_dir=getattr(args, "study_dir", None),
+    )
+    stage_order = ["solve", "post-process"]
+    requested_stage = args.stage
+    selected_stages = stage_order if requested_stage == "all" else [requested_stage]
+
+    print(f"[INFO] {target_context['display_label']:<20}: {os.path.relpath(target_context['root_dir'])}")
+    print(f"[INFO] Submission metadata  : {os.path.relpath(target_context['submission_path'])}")
+    print(f"[INFO] Requested stages    : {', '.join(selected_stages)}")
+
+    stage_plans = []
+    solve_existing_meta = _get_submission_stage_metadata(target_context, "solve")
+    solve_existing_job_id = str(solve_existing_meta.get("job_id", "")).strip()
+
+    for stage_name in selected_stages:
+        script_path = target_context["script_map"][stage_name]
+        if not os.path.isfile(script_path):
+            emit_structured_error(
+                ERROR_CODE_CFG_FILE_NOT_FOUND,
+                key=f"scheduler.{stage_name}.script",
+                file_path=script_path,
+                message=f"Required {stage_name} sbatch artifact is missing.",
+                hint="Re-stage the run/study with picurv run/sweep --no-submit before calling picurv submit.",
+            )
+            sys.exit(1)
+
+        existing_meta = _get_submission_stage_metadata(target_context, stage_name)
+        if existing_meta.get("submitted") and not args.force:
+            emit_structured_error(
+                ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                key=f"scheduler.{stage_name}.submitted",
+                file_path=target_context["submission_path"],
+                message=f"Stage '{stage_name}' is already recorded as submitted.",
+                hint="Use --force to resubmit this stage intentionally.",
+            )
+            sys.exit(1)
+
+        dependency = None
+        if stage_name == "post-process":
+            if "solve" in selected_stages:
+                dependency = "__NEW_SOLVE_JOB_ID__"
+            else:
+                if not (solve_existing_meta.get("submitted") and solve_existing_job_id):
+                    emit_structured_error(
+                        ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                        key="scheduler.post-process.dependency",
+                        file_path=target_context["submission_path"],
+                        message="Post-process submission requires a recorded solve job id when solve is not being submitted in the same command.",
+                        hint="Submit --stage solve or --stage all first, or use --force only after solve metadata exists.",
+                    )
+                    sys.exit(1)
+                dependency = solve_existing_job_id
+
+        stage_plans.append(
+            {
+                "stage": stage_name,
+                "script": script_path,
+                "dependency": dependency,
+                "existing_meta": existing_meta,
+            }
+        )
+
+    if args.dry_run:
+        for plan in stage_plans:
+            cmd = ["sbatch"]
+            dependency = plan["dependency"]
+            if dependency == "__NEW_SOLVE_JOB_ID__":
+                cmd.append("--dependency=afterok:<new solve job id>")
+            elif dependency:
+                cmd.append(f"--dependency=afterok:{dependency}")
+            cmd.append(plan["script"])
+            print(f"[DRY-RUN] Would run: {' '.join(cmd)}")
+        print("[INFO] Dry-run only. No jobs were submitted.")
+        return
+
+    latest_solve_job_id = None
+    for plan in stage_plans:
+        dependency = plan["dependency"]
+        if dependency == "__NEW_SOLVE_JOB_ID__":
+            dependency = latest_solve_job_id
+
+        submit_info = submit_sbatch(plan["script"], dependency=dependency)
+        stage_meta = copy.deepcopy(plan["existing_meta"])
+        stage_meta.update(submit_info)
+        stage_meta["script"] = plan["script"]
+        stage_meta["submitted"] = True
+        if dependency:
+            stage_meta["dependency"] = f"afterok:{dependency}"
+        else:
+            stage_meta.pop("dependency", None)
+
+        _set_submission_stage_metadata(target_context, plan["stage"], stage_meta)
+        print(f"[SUCCESS] Submitted {plan['stage']} job: {submit_info['job_id']}")
+
+        if plan["stage"] == "solve":
+            latest_solve_job_id = submit_info["job_id"]
+
+    _write_submission_target_metadata(target_context)
+
+
+def cancel_run_jobs(args):
+    """!
+    @brief Cancel Slurm-submitted jobs for an existing run directory.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
+    run_dir = os.path.abspath(args.run_dir)
+    if not os.path.isdir(run_dir):
+        emit_structured_error(
+            ERROR_CODE_CFG_FILE_NOT_FOUND,
+            key="run_dir",
+            file_path=run_dir,
+            message="Run directory not found.",
+        )
+        sys.exit(1)
+
+    submission_path = os.path.join(run_dir, "scheduler", "submission.json")
+    submission_meta = _read_json_if_exists(submission_path)
+    if not isinstance(submission_meta, dict):
+        emit_structured_error(
+            ERROR_CODE_CFG_FILE_NOT_FOUND,
+            key="scheduler.submission",
+            file_path=submission_path,
+            message="Run directory does not contain scheduler submission metadata.",
+            hint="Use a Slurm-submitted run directory with scheduler/submission.json, or cancel the job manually.",
+        )
+        sys.exit(1)
+
+    launch_mode = str(submission_meta.get("launch_mode", "")).lower()
+    if launch_mode != "slurm":
+        emit_structured_error(
+            ERROR_CODE_CFG_INCONSISTENT_COMBO,
+            key="scheduler.launch_mode",
+            file_path=submission_path,
+            message=f"Run directory launch_mode={launch_mode or 'unknown'} is not Slurm.",
+            hint="picurv cancel currently supports Slurm-submitted runs only.",
+        )
+        sys.exit(1)
+
+    stage_order = ["solve", "post-process"]
+    requested_stage = args.stage
+    selected_stages = stage_order if requested_stage == "all" else [requested_stage]
+    recorded_stages = submission_meta.get("stages", {})
+    if not isinstance(recorded_stages, dict):
+        recorded_stages = {}
+
+    job_to_stages = {}
+    skipped = []
+    for stage_name in selected_stages:
+        stage_meta = recorded_stages.get(stage_name)
+        if not isinstance(stage_meta, dict):
+            skipped.append((stage_name, "no stage metadata recorded"))
+            continue
+
+        job_id = str(stage_meta.get("job_id", "")).strip()
+        if not stage_meta.get("submitted"):
+            skipped.append((stage_name, "job was generated but not submitted"))
+            continue
+        if not job_id:
+            skipped.append((stage_name, "submitted stage is missing a recorded job id"))
+            continue
+
+        job_to_stages.setdefault(job_id, []).append(stage_name)
+
+    if not job_to_stages:
+        print(f"[INFO] Run directory       : {os.path.relpath(run_dir)}")
+        print(f"[INFO] Submission metadata: {os.path.relpath(submission_path)}")
+        for stage_name, reason in skipped:
+            print(f"[INFO] Skipping stage '{stage_name}': {reason}")
+        print("[FATAL] No submitted Slurm job IDs were found for the requested stage selection.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[INFO] Run directory       : {os.path.relpath(run_dir)}")
+    print(f"[INFO] Submission metadata: {os.path.relpath(submission_path)}")
+    print(f"[INFO] Requested stages   : {', '.join(selected_stages)}")
+
+    if skipped:
+        for stage_name, reason in skipped:
+            print(f"[INFO] Skipping stage '{stage_name}': {reason}")
+
+    failures = []
+    for job_id, stage_names in job_to_stages.items():
+        joined_stage_names = ", ".join(stage_names)
+        if args.dry_run:
+            print(f"[DRY-RUN] Would run: scancel {job_id}  # stage(s): {joined_stage_names}")
+            continue
+
+        result = subprocess.run(["scancel", job_id], text=True, capture_output=True, check=False)
+        stderr_text = (result.stderr or "").strip()
+        stdout_text = (result.stdout or "").strip()
+        if result.returncode == 0:
+            print(f"[SUCCESS] Canceled Slurm job {job_id} for stage(s): {joined_stage_names}")
+            continue
+
+        detail = stderr_text or stdout_text or "unknown scancel failure"
+        failures.append((job_id, joined_stage_names, detail, result.returncode))
+        print(
+            f"[ERROR] Failed to cancel Slurm job {job_id} for stage(s) {joined_stage_names}: {detail}",
+            file=sys.stderr,
+        )
+
+    if args.dry_run:
+        print("[INFO] Dry-run only. No jobs were canceled.")
+        return
+
+    if failures:
+        sys.exit(1)
 
 
 def init_case(args):
@@ -6170,7 +7092,10 @@ def init_case(args):
 
 
 def sync_case_binaries_command(args):
-    """Refresh case-local executables from the source repository bin directory."""
+    """!
+    @brief Refresh case-local executables from the source repository bin directory.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
     try:
         context = resolve_case_origin_context(
             case_dir_hint=getattr(args, "case_dir", None),
@@ -6198,7 +7123,10 @@ def sync_case_binaries_command(args):
 
 
 def sync_case_config_command(args):
-    """Refresh template-managed config/docs files in a case directory."""
+    """!
+    @brief Refresh template-managed config/docs files in a case directory.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
     try:
         context = resolve_case_origin_context(
             case_dir_hint=getattr(args, "case_dir", None),
@@ -6247,7 +7175,10 @@ def sync_case_config_command(args):
 
 
 def pull_source_repo(args):
-    """Run git pull in the source repository resolved from a case directory."""
+    """!
+    @brief Run git pull in the source repository resolved from a case directory.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
     try:
         context = resolve_case_origin_context(
             case_dir_hint=getattr(args, "case_dir", None),
@@ -6319,7 +7250,11 @@ def build_project(args):
 # ==============================================================================
 
 def _add_run_parser(subparsers):
-    """Attach `run` parser with staged execution and dry-run support."""
+    """!
+    @brief Attach `run` parser with staged execution and dry-run support.
+    @param[in] subparsers Argument passed to `_add_run_parser()`.
+    @return Value returned by `_add_run_parser()`.
+    """
     p_run = subparsers.add_parser(
         "run",
         help="Execute a simulation workflow (solve and/or post-process).",
@@ -6373,7 +7308,11 @@ def _add_run_parser(subparsers):
 
 
 def _add_sweep_parser(subparsers):
-    """Perform add sweep parser."""
+    """!
+    @brief Perform add sweep parser.
+    @param[in] subparsers Argument passed to `_add_sweep_parser()`.
+    @return Value returned by `_add_sweep_parser()`.
+    """
     p_sweep = subparsers.add_parser(
         "sweep",
         help="Launch a Slurm-based parameter sweep/study.",
@@ -6393,7 +7332,11 @@ def _add_sweep_parser(subparsers):
 
 
 def _add_validate_parser(subparsers):
-    """Perform add validate parser."""
+    """!
+    @brief Perform add validate parser.
+    @param[in] subparsers Argument passed to `_add_validate_parser()`.
+    @return Value returned by `_add_validate_parser()`.
+    """
     p_validate = subparsers.add_parser(
         "validate",
         help="Validate config files without launching solver/post.",
@@ -6418,7 +7361,11 @@ def _add_validate_parser(subparsers):
 
 
 def _add_summarize_parser(subparsers):
-    """Attach `summarize` parser for read-only run-health views."""
+    """!
+    @brief Attach `summarize` parser for read-only run-health views.
+    @param[in] subparsers Argument passed to `_add_summarize_parser()`.
+    @return Value returned by `_add_summarize_parser()`.
+    """
     p_summarize = subparsers.add_parser(
         "summarize",
         help="Summarize one run step from existing logs and copied configs.",
@@ -6457,8 +7404,89 @@ def _add_summarize_parser(subparsers):
     return p_summarize
 
 
+def _add_cancel_parser(subparsers):
+    """!
+    @brief Perform add cancel parser.
+    @param[in] subparsers Argument passed to `_add_cancel_parser()`.
+    @return Value returned by `_add_cancel_parser()`.
+    """
+    p_cancel = subparsers.add_parser(
+        "cancel",
+        help="Cancel Slurm-submitted jobs for an existing run directory.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Look up scheduler/submission.json inside an existing run directory and cancel\n"
+            "the recorded Slurm job(s) without requiring manual job-id lookup.\n\n"
+            "Examples:\n"
+            "  picurv cancel --run-dir runs/my_run\n"
+            "  picurv cancel --run-dir runs/my_run --stage solve\n"
+            "  picurv cancel --run-dir runs/my_run --dry-run"
+        ),
+        epilog="Next: use `picurv summarize --run-dir ...` to inspect whatever output the run already produced.",
+    )
+    p_cancel.add_argument("--run-dir", required=True, help="Path to the run directory whose Slurm job(s) should be canceled.")
+    p_cancel.add_argument(
+        "--stage",
+        choices=["all", "solve", "post-process"],
+        default="all",
+        help="Which recorded stage job(s) to cancel (default: all).",
+    )
+    p_cancel.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show which `scancel` command(s) would run without actually canceling anything.",
+    )
+    return p_cancel
+
+
+def _add_submit_parser(subparsers):
+    """!
+    @brief Perform add submit parser.
+    @param[in] subparsers Argument passed to `_add_submit_parser()`.
+    @return Value returned by `_add_submit_parser()`.
+    """
+    p_submit = subparsers.add_parser(
+        "submit",
+        help="Submit previously staged Slurm artifacts from an existing run or study directory.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Consume an existing Slurm artifact set created by picurv --no-submit and\n"
+            "submit it later without regenerating configs or scripts.\n\n"
+            "Examples:\n"
+            "  picurv submit --run-dir runs/my_run\n"
+            "  picurv submit --run-dir runs/my_run --stage solve\n"
+            "  picurv submit --study-dir studies/my_study --dry-run"
+        ),
+        epilog="Next: use `picurv summarize --run-dir ...` or `picurv cancel --run-dir ...` after submission as needed.",
+    )
+    target_group = p_submit.add_mutually_exclusive_group(required=True)
+    target_group.add_argument("--run-dir", help="Path to a staged run directory created by `picurv run --cluster ... --no-submit`.")
+    target_group.add_argument("--study-dir", help="Path to a staged study directory created by `picurv sweep --cluster ... --no-submit`.")
+    p_submit.add_argument(
+        "--stage",
+        choices=["all", "solve", "post-process"],
+        default="all",
+        help="Which staged job(s) to submit (default: all).",
+    )
+    p_submit.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow re-submitting a stage already marked as submitted in scheduler/submission.json.",
+    )
+    p_submit.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show which `sbatch` command(s) would run without actually submitting anything.",
+    )
+    return p_submit
+
+
 def _add_init_parser(subparsers):
-    """Perform add init parser."""
+    """!
+    @brief Perform add init parser.
+    @param[in] subparsers Argument passed to `_add_init_parser()`.
+    @return Value returned by `_add_init_parser()`.
+    """
     p_init = subparsers.add_parser(
         "init",
         help="Initialize a new case study directory from a template.",
@@ -6485,7 +7513,11 @@ def _add_init_parser(subparsers):
 
 
 def _add_build_parser(subparsers):
-    """Perform add build parser."""
+    """!
+    @brief Perform add build parser.
+    @param[in] subparsers Argument passed to `_add_build_parser()`.
+    @return Value returned by `_add_build_parser()`.
+    """
     p_build = subparsers.add_parser(
         "build",
         help="Build project executables using the Makefile.",
@@ -6521,7 +7553,11 @@ def _add_build_parser(subparsers):
 
 
 def _add_sync_binaries_parser(subparsers):
-    """Perform add sync binaries parser."""
+    """!
+    @brief Perform add sync binaries parser.
+    @param[in] subparsers Argument passed to `_add_sync_binaries_parser()`.
+    @return Value returned by `_add_sync_binaries_parser()`.
+    """
     p_sync_binaries = subparsers.add_parser(
         "sync-binaries",
         help="Refresh a case directory's copied executables from the source repo.",
@@ -6541,7 +7577,11 @@ def _add_sync_binaries_parser(subparsers):
 
 
 def _add_sync_config_parser(subparsers):
-    """Perform add sync config parser."""
+    """!
+    @brief Perform add sync config parser.
+    @param[in] subparsers Argument passed to `_add_sync_config_parser()`.
+    @return Value returned by `_add_sync_config_parser()`.
+    """
     p_sync_config = subparsers.add_parser(
         "sync-config",
         help="Refresh template-managed files in a case directory from examples/<template>.",
@@ -6575,7 +7615,11 @@ def _add_sync_config_parser(subparsers):
 
 
 def _add_pull_source_parser(subparsers):
-    """Perform add pull source parser."""
+    """!
+    @brief Perform add pull source parser.
+    @param[in] subparsers Argument passed to `_add_pull_source_parser()`.
+    @return Value returned by `_add_pull_source_parser()`.
+    """
     p_pull = subparsers.add_parser(
         "pull-source",
         help="Run git pull in the source repo resolved from a case directory.",
@@ -6598,7 +7642,11 @@ def _add_pull_source_parser(subparsers):
 
 
 def _add_status_source_parser(subparsers):
-    """Perform add status source parser."""
+    """!
+    @brief Perform add status source parser.
+    @param[in] subparsers Argument passed to `_add_status_source_parser()`.
+    @return Value returned by `_add_status_source_parser()`.
+    """
     p_status = subparsers.add_parser(
         "status-source",
         help="Report source/case drift for an initialized case directory.",
@@ -6627,7 +7675,10 @@ def _add_status_source_parser(subparsers):
 
 
 def build_main_parser():
-    """Build and return the top-level CLI parser."""
+    """!
+    @brief Build and return the top-level CLI parser.
+    @return Value returned by `build_main_parser()`.
+    """
     parser = argparse.ArgumentParser(
         description="picurv: A comprehensive conductor for the PICurv simulation platform.",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -6637,12 +7688,16 @@ def build_main_parser():
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
             "  picurv summarize --run-dir runs/my_run --latest\n"
+            "  picurv submit --run-dir runs/my_run\n"
+            "  picurv cancel --run-dir runs/my_run\n"
             "  picurv sweep --study study.yml --cluster cluster.yml\n\n"
             "Next commands:\n"
             "  - First run: picurv init ... -> picurv validate ... -> picurv run ...\n"
             "  - Config debugging: picurv validate ...\n"
             "  - Launch planning: picurv run ... --dry-run\n"
-            "  - Run inspection: picurv summarize ..."
+            "  - Deferred submission: picurv submit --run-dir ...\n"
+            "  - Run inspection: picurv summarize ...\n"
+            "  - Run cancellation: picurv cancel --run-dir ..."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
@@ -6650,6 +7705,8 @@ def build_main_parser():
     _add_sweep_parser(subparsers)
     _add_validate_parser(subparsers)
     _add_summarize_parser(subparsers)
+    _add_submit_parser(subparsers)
+    _add_cancel_parser(subparsers)
     _add_init_parser(subparsers)
     _add_build_parser(subparsers)
     _add_sync_binaries_parser(subparsers)
@@ -6660,7 +7717,10 @@ def build_main_parser():
 
 
 def dispatch_command(args):
-    """Validate argument combinations and dispatch to command handlers."""
+    """!
+    @brief Validate argument combinations and dispatch to command handlers.
+    @param[in] args Command-line style argument list supplied to the function.
+    """
     if args.command == "run":
         if not args.solve and not args.post_process:
             fail_cli_usage("At least one stage (--solve or --post-process) must be selected.")
@@ -6680,6 +7740,12 @@ def dispatch_command(args):
         return
     if args.command == "summarize":
         summarize_workflow(args)
+        return
+    if args.command == "submit":
+        submit_staged_jobs(args)
+        return
+    if args.command == "cancel":
+        cancel_run_jobs(args)
         return
     if args.command == "init":
         init_case(args)

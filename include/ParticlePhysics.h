@@ -22,17 +22,17 @@
  * @brief Updates a single particle's field based on its state and physics model.
  *
  * Implements the IEM (Interaction by Exchange with the Mean) model for scalar mixing.
- * 
  * Physics: dPsi/dt = -Omega * (Psi - Psi_mean)
  * Solution: Psi_new = Psi_mean + (Psi_old - Psi_mean) * exp(-Omega * dt)
  *
- * @param[in]     fieldName   Name of the field (e.g., "Psi").
- * @param[in]     dt          Time step size.
- * @param[in,out] psi_io      Pointer to the particle's scalar value (Psi).
- * @param[in]     diffusivity Particle diffusivity (Gamma + Gamma_t).
- * @param[in]     mean_val    Local Eulerian mean scalar value (Psi_mean).
- * @param[in]     cell_vol    Volume of the host cell (1/Jacobian).
- * @param[in]     C_model     Model constant (C_IEM).
+ * @param fieldName Name
+ * @param dt Time
+ * @param psi_io Pointer
+ * @param diffusivity Particle
+ * @param mean_val Local
+ * @param cell_vol Volume
+ * @param C_model Model
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode UpdateParticleField(const char *fieldName,
                                    PetscReal dt,

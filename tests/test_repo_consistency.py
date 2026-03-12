@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PICURV = REPO_ROOT / "scripts" / "picurv"
+AUDIT_FUNCTION_DOCS = REPO_ROOT / "scripts" / "audit_function_docs.py"
 
 EXAMPLE_BUNDLES = [
     {
@@ -51,18 +52,28 @@ STUDY_BUNDLES = [
 
 
 def run_picurv(args):
-    """Run picurv."""
+    """!
+    @brief Run picurv.
+    @param[in] args Command-line style argument list supplied to the function.
+    @return Value returned by `run_picurv()`.
+    """
     cmd = [sys.executable, str(PICURV)] + list(args)
     return subprocess.run(cmd, cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False)
 
 
 def _read_text(path: Path) -> str:
-    """Helper for read text."""
+    """!
+    @brief Helper for read text.
+    @param[in] path Filesystem path argument passed to `_read_text()`.
+    @return Value returned by `_read_text()`.
+    """
     return path.read_text(encoding="utf-8")
 
 
 def test_all_example_bundles_validate():
-    """Test that all example bundles validate."""
+    """!
+    @brief Test that all example bundles validate.
+    """
     for bundle in EXAMPLE_BUNDLES:
         args = ["validate"]
         for role in ("case", "solver", "monitor", "post"):
@@ -73,7 +84,9 @@ def test_all_example_bundles_validate():
 
 
 def test_all_example_study_and_cluster_bundles_validate():
-    """Test that all example study and cluster bundles validate."""
+    """!
+    @brief Test that all example study and cluster bundles validate.
+    """
     for bundle in STUDY_BUNDLES:
         result = run_picurv(
             [
@@ -88,7 +101,9 @@ def test_all_example_study_and_cluster_bundles_validate():
 
 
 def test_docs_and_examples_do_not_use_legacy_post_run_control_yaml_keys():
-    """Test that docs and examples do not use legacy post run control yaml keys."""
+    """!
+    @brief Test that docs and examples do not use legacy post run control yaml keys.
+    """
     legacy_key_pattern = re.compile(r"(?m)^\s*(startTime|endTime|timeStep):")
 
     scanned_roots = [
@@ -108,7 +123,9 @@ def test_docs_and_examples_do_not_use_legacy_post_run_control_yaml_keys():
 
 
 def test_docs_and_examples_do_not_contain_stale_post_contract_terms():
-    """Test that docs and examples do not contain stale post contract terms."""
+    """!
+    @brief Test that docs and examples do not contain stale post contract terms.
+    """
     forbidden_literals = [
         "post.cfg",
         "output/BrownianStats_msd.csv",
@@ -134,7 +151,9 @@ def test_docs_and_examples_do_not_contain_stale_post_contract_terms():
 
 
 def test_yaml_templates_do_not_use_unquoted_off_for_mode_keys():
-    """Test that yaml templates do not use unquoted off for mode keys."""
+    """!
+    @brief Test that yaml templates do not use unquoted off for mode keys.
+    """
     bare_off_pattern = re.compile(r"(?m)^\s*mode:\s+off\s*(?:#.*)?$")
 
     scanned_roots = [
@@ -148,3 +167,18 @@ def test_yaml_templates_do_not_use_unquoted_off_for_mode_keys():
                 matched.append(str(path.relative_to(REPO_ROOT)))
 
     assert matched == [], f"Unquoted YAML 'mode: off' found in: {matched}"
+
+
+def test_c_and_python_function_docs_pass_repository_audit():
+    """!
+    @brief Test that C and Python function docs pass the repository audit.
+    """
+    result = subprocess.run(
+        [sys.executable, str(AUDIT_FUNCTION_DOCS)],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr

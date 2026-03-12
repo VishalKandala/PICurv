@@ -152,9 +152,32 @@ Generate-only mode:
   --no-submit
 ```
 
+Submit an already staged run later:
+
+```bash
+./bin/picurv submit --run-dir runs/<run_id>
+```
+
+Cancel a submitted run by directory:
+
+```bash
+./bin/picurv cancel --run-dir runs/<run_id> --stage solve
+```
+
+Ask Slurm for an early warning signal when you want PICurv to flush one last snapshot before walltime:
+
+```yaml
+execution:
+  extra_sbatch:
+    signal: "USR1@300"
+```
+
+If the batch script launches `mpirun` directly, use `signal: "B:USR1@300"` and prefer `exec mpirun ...`.
+
 Verification:
 
 - inspect `scheduler/*.sbatch` and `submission.json` in run directory.
+- confirm the generated cluster profile contains the intended `signal` policy before submission.
 
 @subsection p11_restart_ssec 3.3 Restart from a Saved Step
 

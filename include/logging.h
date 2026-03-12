@@ -412,10 +412,9 @@ LogLevel get_log_level();
 /**
  * @brief Prints the current logging level to the console.
  *
- * This function retrieves the log level using `get_log_level()` and prints 
- * the corresponding log level name. It helps verify the logging configuration 
+ * This function retrieves the log level using `get_log_level()` and prints
+ * the corresponding log level name. It helps verify the logging configuration
  * at runtime.
- *
  * The log levels supported are:
  * - `LOG_ERROR`   (0) : Logs only critical errors.
  * - `LOG_WARNING` (1) : Logs warnings and errors.
@@ -423,11 +422,8 @@ LogLevel get_log_level();
  * - `LOG_DEBUG`   (3) : Logs debugging information, info, warnings, and errors.
  * - `LOG_TRACE`   (4) : Logs fine-grained trace information.
  * - `LOG_VERBOSE` (5) : Logs very detailed developer output.
- *
- * @note The log level is determined from the `LOG_LEVEL` environment variable.
  * If `LOG_LEVEL` is not set, it defaults to `LOG_ERROR`.
- *
- * @see get_log_level()
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode print_log_level(void);
 
@@ -435,6 +431,9 @@ PetscErrorCode print_log_level(void);
  * @brief Sets the global list of function names that are allowed to log.
  *
  * You can replace the entire list of allowed function names at runtime.
+ *
+ * @param functionList Parameter `functionList` passed to `set_allowed_functions()`.
+ * @param count Parameter `count` passed to `set_allowed_functions()`.
  */
 void set_allowed_functions(const char** functionList, int count);
 
@@ -442,6 +441,9 @@ void set_allowed_functions(const char** functionList, int count);
  * @brief Checks if a given function is in the allow-list.
  *
  * This helper is used internally by the LOG_ALLOW macro.
+ *
+ * @param functionName Parameter `functionName` passed to `is_function_allowed()`.
+ * @return PetscBool indicating the result of `is_function_allowed()`.
  */
 PetscBool is_function_allowed(const char* functionName);
 
@@ -503,17 +505,30 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval);
  *
  * This checks only the reporting contract (particles exist, cadence is enabled,
  * and the global log level is at least INFO).
+ *
+ * @param simCtx Simulation context controlling the operation.
+ * @return PetscBool indicating the result of `IsParticleConsoleSnapshotEnabled()`.
  */
 PetscBool IsParticleConsoleSnapshotEnabled(const SimCtx *simCtx);
 
 /**
  * @brief Returns whether a particle console snapshot should be emitted for the
- *        completed timestep.
+ *
+ * completed timestep.
+ *
+ * @param simCtx Simulation context controlling the operation.
+ * @param completed_step Completed step index used by the decision helper.
+ * @return PetscBool indicating the result of `ShouldEmitPeriodicParticleConsoleSnapshot()`.
  */
 PetscBool ShouldEmitPeriodicParticleConsoleSnapshot(const SimCtx *simCtx, PetscInt completed_step);
 
 /**
  * @brief Emits one particle console snapshot into the main solver log.
+ *
+ * @param user Primary `UserCtx` input for the operation.
+ * @param simCtx Simulation context controlling the operation.
+ * @param step Step index associated with the operation.
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscInt step);
 
@@ -734,9 +749,17 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx);
 
 // --- Internal functions, do not call directly ---
 // These are called by the macros below.
-/** @brief Internal profiling hook invoked by `PROFILE_FUNCTION_BEGIN`. */
+/**
+ * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_BEGIN`. */
+ *
+ * @param func_name Function name used by the profiling helper.
+ */
 void _ProfilingStart(const char *func_name);
-/** @brief Internal profiling hook invoked by `PROFILE_FUNCTION_END`. */
+/**
+ * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_END`. */
+ *
+ * @param func_name Function name used by the profiling helper.
+ */
 void _ProfilingEnd(const char *func_name);
 
 
@@ -805,8 +828,11 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName);
 PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const char *stage_name);
 
 /**
-@brief Logs the interpolation error between the analytical and computed solutions.
-*/
+ * @brief Logs the interpolation error between the analytical and computed solutions.
+ *
+ * @param user Primary `UserCtx` input for the operation.
+ * @return PetscErrorCode 0 on success.
+ */
 PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user);
 
 /**

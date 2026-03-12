@@ -8,14 +8,17 @@ This page describes current API-doc quality, warning sources, and the expected s
 
 @section p35_status_sec 1. Current Status
 
-API documentation quality is improving but not yet uniformly clean across all modules.
-Known issues in some headers/source pairs include:
+Function-level documentation coverage is now enforced across:
 
-- stale parameter names in Doxygen blocks,
-- duplicate/missing `@param` entries,
-- partial function-level docs on legacy-heavy paths.
+- public C headers in `include/`,
+- C implementations in `src/`,
+- C tests in `tests/c/`,
+- Python product scripts in `scripts/`,
+- Python tests in `tests/`.
 
-Treat these as active maintenance items rather than hidden debt.
+The current repository contract requires every executable function to have a
+Doxygen-compatible comment/docstring with a valid `@brief`, exact parameter
+coverage, and documented return values where applicable.
 
 @section p35_warning_sec 2. Warning Log and Build Path
 
@@ -27,27 +30,36 @@ Configured in `docs/Doxyfile` via:
 
 - `WARN_LOGFILE = ../logs/doxygen.warnings`
 
-CI currently enforces Markdown-link integrity; Doxygen warning cleanup remains a repository maintenance objective.
+Repository consistency checks now also enforce function-level documentation via:
+
+- `scripts/audit_function_docs.py`
+
+GitHub Actions quality CI also runs the audit explicitly before `pytest -q` on pull requests and pushes to `main`.
+
+`make build-docs` remains useful for rendered output verification, but the audit
+script is the primary completeness gate for function comments.
 
 @section p35_expected_sec 3. Expected Standard For New APIs
 
-For newly added or modified public functions:
+For newly added or modified functions and test helpers:
 
 1. each parameter must have exactly one matching `@param`,
 2. function summary should describe behavior and side effects,
 3. return/CHKERRQ semantics should be documented,
-4. cross-module dependencies should be explicit when non-obvious.
+4. cross-module dependencies should be explicit when non-obvious,
+5. Python functions must use Doxygen-compatible docstrings, not plain one-line docstrings.
 
 Minimum acceptable quality is interface correctness and discoverability, even when deep theoretical derivation is documented elsewhere.
 
 @section p35_workflow_sec 4. Practical Cleanup Workflow
 
-1. run docs build (`make build-docs`) where available,
-2. inspect `logs/doxygen.warnings`,
-3. patch one module at a time (`include/*.h` + matching `src/*.c`),
-4. re-run warning pass and track net reduction.
+1. run `python3 scripts/audit_function_docs.py`,
+2. patch one module at a time (`include/*.h` + matching `src/*.c`, plus affected Python helpers/tests),
+3. run the repo consistency tests that wrap the audit,
+4. run docs build (`make build-docs`) to verify rendered output where needed.
 
-Batching by module avoids regressions and keeps review scope manageable.
+Batching by subsystem still keeps review scope manageable, but the audit gate now
+prevents silent regressions between cleanup passes.
 
 @section p35_refs_sec 5. Related Pages
 
@@ -76,4 +88,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

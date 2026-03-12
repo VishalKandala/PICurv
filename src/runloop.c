@@ -6,6 +6,139 @@
 
 #include "runloop.h"
 
+static volatile sig_atomic_t g_runtime_shutdown_signal = 0;
+
+/**
+ * @brief Internal helper implementation: `RuntimeShutdownSignalHandler()`.
+ * @details Local to this translation unit.
+ */
+static void RuntimeShutdownSignalHandler(int signum)
+{
+    if (g_runtime_shutdown_signal == 0) {
+        g_runtime_shutdown_signal = signum;
+    }
+}
+
+/**
+ * @brief Internal helper implementation: `RuntimeShutdownRequested()`.
+ * @details Local to this translation unit.
+ */
+static PetscBool RuntimeShutdownRequested(void)
+{
+    return (PetscBool)(g_runtime_shutdown_signal != 0);
+}
+
+/**
+ * @brief Internal helper implementation: `RuntimeShutdownSignal()`.
+ * @details Local to this translation unit.
+ */
+static PetscInt RuntimeShutdownSignal(void)
+{
+    return (PetscInt)g_runtime_shutdown_signal;
+}
+
+/**
+ * @brief Internal helper implementation: `RuntimeShutdownSignalName()`.
+ * @details Local to this translation unit.
+ */
+static const char *RuntimeShutdownSignalName(PetscInt signum)
+{
+    switch (signum) {
+#ifdef SIGTERM
+        case SIGTERM: return "SIGTERM";
+#endif
+#ifdef SIGUSR1
+        case SIGUSR1: return "SIGUSR1";
+#endif
+#ifdef SIGINT
+        case SIGINT: return "SIGINT";
+#endif
+        default: return "UNKNOWN";
+    }
+}
+
+/**
+ * @brief Internal helper implementation: `RegisterRuntimeSignalHandler()`.
+ * @details Local to this translation unit.
+ */
+static PetscErrorCode RegisterRuntimeSignalHandler(int signum)
+{
+    struct sigaction action;
+
+    PetscFunctionBeginUser;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = RuntimeShutdownSignalHandler;
+
+    if (sigemptyset(&action.sa_mask) != 0) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SYS, "sigemptyset failed for signal %d.", signum);
+    }
+
+    if (sigaction(signum, &action, NULL) != 0) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SYS, "sigaction failed for signal %d.", signum);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref InitializeRuntimeSignalHandlers().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the matching public header declaration.
+ * @see InitializeRuntimeSignalHandlers()
+ */
+PetscErrorCode InitializeRuntimeSignalHandlers(void)
+{
+    PetscErrorCode ierr;
+
+    PetscFunctionBeginUser;
+    g_runtime_shutdown_signal = 0;
+
+#ifdef SIGTERM
+    ierr = RegisterRuntimeSignalHandler(SIGTERM); CHKERRQ(ierr);
+#endif
+#ifdef SIGUSR1
+    ierr = RegisterRuntimeSignalHandler(SIGUSR1); CHKERRQ(ierr);
+#endif
+#ifdef SIGINT
+    ierr = RegisterRuntimeSignalHandler(SIGINT); CHKERRQ(ierr);
+#endif
+
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Internal helper implementation: `WriteForcedTerminationOutput()`.
+ * @details Local to this translation unit.
+ */
+static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user, const char *phase)
+{
+    PetscErrorCode ierr;
+    PetscInt       signum = RuntimeShutdownSignal();
+
+    PetscFunctionBeginUser;
+
+    LOG_ALLOW(GLOBAL, LOG_WARNING,
+              "[T=%.4f, Step=%d] Received %s during %s. Writing final output outside the normal cadence before exiting.\n",
+              simCtx->ti, simCtx->step, RuntimeShutdownSignalName(signum), phase);
+
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
+    }
+
+    if (simCtx->np > 0) {
+        ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
+    }
+
+    if (IsParticleConsoleSnapshotEnabled(simCtx)) {
+        ierr = EmitParticleConsoleSnapshot(user, simCtx, simCtx->step); CHKERRQ(ierr);
+    }
+
+    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    fflush(stdout);
+
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Internal helper implementation: `UpdateSolverHistoryVectors()`.
  * @details Local to this translation unit.

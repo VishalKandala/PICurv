@@ -14,7 +14,10 @@ PICURV = REPO_ROOT / "scripts" / "picurv"
 
 
 def load_picurv_module():
-    """Load picurv module for tests."""
+    """!
+    @brief Load picurv module for tests.
+    @return Value returned by `load_picurv_module()`.
+    """
     loader = importlib.machinery.SourceFileLoader("picurv_case_maintenance_module", str(PICURV))
     spec = importlib.util.spec_from_loader("picurv_case_maintenance_module", loader)
     assert spec is not None
@@ -25,7 +28,10 @@ def load_picurv_module():
 
 @contextmanager
 def pushd(path: Path):
-    """Temporarily change working directory within a context manager."""
+    """!
+    @brief Temporarily change working directory within a context manager.
+    @param[in] path Filesystem path argument passed to `pushd()`.
+    """
     previous = Path.cwd()
     os.chdir(path)
     try:
@@ -35,7 +41,11 @@ def pushd(path: Path):
 
 
 def make_fake_source_repo(root: Path) -> Path:
-    """Create fake source repo."""
+    """!
+    @brief Create fake source repo.
+    @param[in] root Argument passed to `make_fake_source_repo()`.
+    @return Value returned by `make_fake_source_repo()`.
+    """
     (root / "src").mkdir(parents=True)
     (root / "include").mkdir()
     (root / "scripts").mkdir()
@@ -53,7 +63,10 @@ def make_fake_source_repo(root: Path) -> Path:
 
 
 def test_init_case_writes_origin_metadata_and_copies_binaries(tmp_path):
-    """Test that init case writes origin metadata and copies binaries."""
+    """!
+    @brief Test that init case writes origin metadata and copies binaries.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     workspace = tmp_path / "workspace"
@@ -82,7 +95,10 @@ def test_init_case_writes_origin_metadata_and_copies_binaries(tmp_path):
 
 
 def test_init_case_seeds_runtime_from_repo_local_config_and_omits_execution_example(tmp_path):
-    """Test that init prefers repo-local runtime config and does not leave execution.example.yml in the case."""
+    """!
+    @brief Test that init prefers repo-local runtime config and does not leave execution.example.yml in the case.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     (source_root / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).write_text(
@@ -110,7 +126,11 @@ def test_init_case_seeds_runtime_from_repo_local_config_and_omits_execution_exam
 
 
 def test_init_case_prints_note_for_cluster_profile_samples(tmp_path, capsys):
-    """Test that init warns users to edit copied cluster profile samples."""
+    """!
+    @brief Test that init warns users to edit copied cluster profile samples.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] capsys Pytest capture fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     (source_root / "examples" / "demo" / "slurm_cluster.yml").write_text(
@@ -131,7 +151,10 @@ def test_init_case_prints_note_for_cluster_profile_samples(tmp_path, capsys):
 
 
 def test_build_project_uses_case_origin_source_root(tmp_path):
-    """Test that build project uses case origin source root."""
+    """!
+    @brief Test that build project uses case origin source root.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -141,7 +164,13 @@ def test_build_project_uses_case_origin_source_root(tmp_path):
     captured = {}
 
     def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
-        """Helper for fake execute."""
+        """!
+        @brief Helper for fake execute.
+        @param[in] command Argument passed to `fake_execute()`.
+        @param[in] run_dir Argument passed to `fake_execute()`.
+        @param[in] log_filename Argument passed to `fake_execute()`.
+        @param[in] monitor_cfg Argument passed to `fake_execute()`.
+        """
         captured["command"] = command
         captured["run_dir"] = run_dir
         captured["log_filename"] = log_filename
@@ -161,7 +190,10 @@ def test_build_project_uses_case_origin_source_root(tmp_path):
 
 
 def test_build_project_defaults_to_all_when_make_args_have_no_goal(tmp_path):
-    """Test that build project injects `all` when only make assignments/options are passed."""
+    """!
+    @brief Test that build project injects `all` when only make assignments/options are passed.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -171,6 +203,13 @@ def test_build_project_defaults_to_all_when_make_args_have_no_goal(tmp_path):
     captured = {}
 
     def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
+        """!
+        @brief Test-local helper used to stub execute.
+        @param[in] command Argument passed to `fake_execute()`.
+        @param[in] run_dir Argument passed to `fake_execute()`.
+        @param[in] log_filename Argument passed to `fake_execute()`.
+        @param[in] monitor_cfg Argument passed to `fake_execute()`.
+        """
         captured["command"] = command
         captured["run_dir"] = run_dir
         captured["log_filename"] = log_filename
@@ -190,7 +229,10 @@ def test_build_project_defaults_to_all_when_make_args_have_no_goal(tmp_path):
 
 
 def test_sync_case_binaries_command_refreshes_case_and_bootstraps_metadata(tmp_path):
-    """Test that sync case binaries command refreshes case and bootstraps metadata."""
+    """!
+    @brief Test that sync case binaries command refreshes case and bootstraps metadata.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -209,7 +251,10 @@ def test_sync_case_binaries_command_refreshes_case_and_bootstraps_metadata(tmp_p
 
 
 def test_sync_config_preserves_modified_files_without_overwrite(tmp_path):
-    """Test that sync config preserves modified files without overwrite."""
+    """!
+    @brief Test that sync config preserves modified files without overwrite.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -235,7 +280,10 @@ def test_sync_config_preserves_modified_files_without_overwrite(tmp_path):
 
 
 def test_sync_config_omits_execution_example_and_bootstraps_runtime_config(tmp_path):
-    """Test that sync-config creates .picurv-execution.yml but does not copy execution.example.yml."""
+    """!
+    @brief Test that sync-config creates .picurv-execution.yml but does not copy execution.example.yml.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     (source_root / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).write_text(
@@ -268,7 +316,10 @@ def test_sync_config_omits_execution_example_and_bootstraps_runtime_config(tmp_p
 
 
 def test_sync_config_overwrite_replaces_modified_files_when_requested(tmp_path):
-    """Test that sync config overwrite replaces modified files when requested."""
+    """!
+    @brief Test that sync config overwrite replaces modified files when requested.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -289,7 +340,10 @@ def test_sync_config_overwrite_replaces_modified_files_when_requested(tmp_path):
 
 
 def test_sync_config_prune_removes_only_tracked_stale_template_files(tmp_path):
-    """Test that sync config prune removes only tracked stale template files."""
+    """!
+    @brief Test that sync config prune removes only tracked stale template files.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -324,7 +378,10 @@ def test_sync_config_prune_removes_only_tracked_stale_template_files(tmp_path):
 
 
 def test_compute_case_source_status_reports_binary_and_template_drift(tmp_path):
-    """Test that compute case source status reports binary and template drift."""
+    """!
+    @brief Test that compute case source status reports binary and template drift.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -361,7 +418,10 @@ def test_compute_case_source_status_reports_binary_and_template_drift(tmp_path):
 
 
 def test_compute_case_source_status_reports_runtime_config_seed_match(tmp_path):
-    """Test that status-source reports case runtime config presence and repo-seed match."""
+    """!
+    @brief Test that status-source reports case runtime config presence and repo-seed match.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     (source_root / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).write_text(
@@ -395,7 +455,10 @@ def test_compute_case_source_status_reports_runtime_config_seed_match(tmp_path):
 
 
 def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
-    """Test that pull source repo uses git pull rebase by default."""
+    """!
+    @brief Test that pull source repo uses git pull rebase by default.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
     picurv = load_picurv_module()
     source_root = make_fake_source_repo(tmp_path / "source")
     case_dir = tmp_path / "case"
@@ -405,7 +468,13 @@ def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
     captured = {}
 
     def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
-        """Helper for fake execute."""
+        """!
+        @brief Helper for fake execute.
+        @param[in] command Argument passed to `fake_execute()`.
+        @param[in] run_dir Argument passed to `fake_execute()`.
+        @param[in] log_filename Argument passed to `fake_execute()`.
+        @param[in] monitor_cfg Argument passed to `fake_execute()`.
+        """
         captured["command"] = command
         captured["run_dir"] = run_dir
         captured["log_filename"] = log_filename

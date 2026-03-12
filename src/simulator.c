@@ -21,6 +21,11 @@
 
 #undef __FUNCT__
 #define __FUNCT__ "main"
+/**
+ * @brief Entry point for the solver executable.
+ * @details Initializes PETSc, builds the solver runtime, executes the
+ *          configured workflow, and finalizes runtime resources before exit.
+ */
 int main(int argc, char **argv)
 {
   PetscErrorCode    ierr;

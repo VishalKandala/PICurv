@@ -301,6 +301,14 @@ double f_Cabot(double kinematic_viscosity, double velocity, double wall_distance
 			   
 /**
  * @brief Numerical derivative for Cabot wall function
+ *
+ * @param kinematic_viscosity Parameter `kinematic_viscosity` passed to `df_Cabot()`.
+ * @param velocity Parameter `velocity` passed to `df_Cabot()`.
+ * @param wall_distance Parameter `wall_distance` passed to `df_Cabot()`.
+ * @param friction_velocity_guess Parameter `friction_velocity_guess` passed to `df_Cabot()`.
+ * @param pressure_gradient_tangent Parameter `pressure_gradient_tangent` passed to `df_Cabot()`.
+ * @param pressure_gradient_normal Parameter `pressure_gradient_normal` passed to `df_Cabot()`.
+ * @return Scalar value produced by `df_Cabot()`.
  */
 double df_Cabot(double kinematic_viscosity, double velocity, double wall_distance,
                 double friction_velocity_guess, double pressure_gradient_tangent,
@@ -370,6 +378,12 @@ double f_Werner(double kinematic_viscosity, double velocity,
 				
 /**
  * @brief Numerical derivative for Werner-Wengle iteration
+ *
+ * @param kinematic_viscosity Parameter `kinematic_viscosity` passed to `df_Werner()`.
+ * @param velocity Parameter `velocity` passed to `df_Werner()`.
+ * @param wall_distance Parameter `wall_distance` passed to `df_Werner()`.
+ * @param friction_velocity Parameter `friction_velocity` passed to `df_Werner()`.
+ * @return Scalar value produced by `df_Werner()`.
  */
 double df_Werner(double kinematic_viscosity, double velocity,
                  double wall_distance, double friction_velocity);

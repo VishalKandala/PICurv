@@ -659,6 +659,11 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
 #undef __FUNCT__
 #define __FUNCT__ "main"
 #ifndef PICURV_POSTPROCESSOR_NO_MAIN
+/**
+ * @brief Entry point for the postprocessor executable.
+ * @details Initializes PETSc, loads post-processing inputs, executes the
+ *          requested pipelines, and finalizes runtime resources before exit.
+ */
 int main(int argc, char **argv)
 {
     PetscErrorCode    ierr;
