@@ -188,7 +188,12 @@ Operational examples:
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve
 ```
 
-If the cluster profile requests an early signal, PICurv traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes one last output snapshot at the next safe checkpoint before exiting cleanly. Use `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
+Generated Slurm solver jobs also export runtime walltime metadata into `solver.sbatch`, so the
+solver can estimate completed-step cost and request a graceful final write before remaining
+walltime gets too tight. If the cluster profile also requests an early signal, PICurv traps
+`SIGUSR1`, `SIGTERM`, and `SIGINT`, then uses the same safe-checkpoint final-write path. Use
+`signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct
+`mpirun` batch launches.
 
 @section p52_rules_sec 8. Safe Rules Of Thumb
 
@@ -197,7 +202,8 @@ If the cluster profile requests an early signal, PICurv traps `SIGUSR1`, `SIGTER
 - Use a fresh restarted run instead of overwriting the previous run directory.
 - Use post-only reruns when analysis changes but solver data do not.
 - Keep site launcher policy in `.picurv-execution.yml`; keep scheduler policy in `cluster.yml`.
-- Keep the shutdown warning window longer than the slowest expected timestep if you rely on the final-snapshot signal path.
+- Keep the shutdown warning window longer than the slowest expected timestep if you rely on the fallback signal path.
+- If the runtime walltime guard is too eager or too late for a workload, tune `execution.walltime_guard` in the cluster profile rather than editing generated scripts.
 
 @section p52_refs_sec 9. Related Pages
 

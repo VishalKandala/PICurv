@@ -92,6 +92,7 @@ Implementation details worth knowing:
 - post array submission depends on solver array completion (`afterok:<jobid>`) unless `--no-submit` is used.
 - `scheduler/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.
 - generator/file grid external paths are rewritten to absolute paths during case materialization so they remain valid in `studies/<study_id>/cases/...`.
+- generated `solver_array.sbatch` exports walltime metadata for the runtime walltime guard, while `post_array.sbatch` remains a plain post-processing launcher.
 
 @section p37_refs_sec 6. Related Pages
 

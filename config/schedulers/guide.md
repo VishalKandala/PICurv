@@ -36,7 +36,24 @@ If your site wants the same launcher tokens for login-node and batch runs, put t
 3. Preserve one site-approved baseline profile and derive specialized profiles from it.
 4. `cluster.yml` does not name the run directory; `picurv` generates `runs/<case_basename>_<timestamp>/` automatically and derives Slurm job names from that run ID.
 5. For interactive multi-rank runs on login nodes, prefer `.picurv-execution.yml` (or `PICURV_MPI_LAUNCHER` for one-off runs) instead of overloading scheduler profiles.
-6. If you want PICurv to flush one last output before a walltime stop, ask Slurm to send an early signal. Example for `srun`-launched solver steps:
+6. Generated Slurm solver jobs enable an automatic runtime walltime guard by default. After the first `warmup_steps` completed steps, PICurv measures actual step wall-clock time and requests a graceful final write when remaining walltime drops below:
+
+   `max(min_seconds, multiplier * max(warmup_avg_step_s, ewma_step_s, latest_step_s))`
+
+   The default effective policy is:
+
+```yaml
+execution:
+  walltime_guard:
+    enabled: true
+    warmup_steps: 10
+    multiplier: 2.0
+    min_seconds: 60
+    estimator_alpha: 0.35
+```
+
+   You only need to add this block when you want to override the defaults.
+7. Keep an early Slurm signal as fallback protection for manual termination, preemption-style warnings, or runs that may not reach the warmup window. Example for `srun`-launched solver steps:
 
 ```yaml
 execution:
@@ -48,7 +65,8 @@ PICurv traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes a final step snapsh
 
 - If your solver is launched via `srun`, use `signal: "USR1@300"`.
 - If your batch script launches `mpirun` directly, use `signal: "B:USR1@300"` and prefer `exec mpirun ...` so the batch shell is replaced by `mpirun` and receives the signal directly.
-7. For new profiles, prefer a staged workflow:
+- The runtime guard and the signal path both stop only at safe checkpoints, so final retained state can lag the request by up to roughly one in-flight timestep.
+8. For new profiles, prefer a staged workflow:
    `picurv run ... --cluster ... --no-submit`, inspect `runs/<run_id>/scheduler/`, then `picurv submit --run-dir ...`.
    If the run is already submitted and you need to stop it, use `picurv cancel --run-dir ...`.
 

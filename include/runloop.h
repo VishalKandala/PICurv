@@ -39,6 +39,65 @@
 PetscErrorCode InitializeRuntimeSignalHandlers(void);
 
 /**
+ * @brief Parse a positive floating-point seconds value from runtime metadata.
+ *
+ * This helper is used for shell-exported walltime metadata such as
+ * `PICURV_JOB_START_EPOCH` and `PICURV_WALLTIME_LIMIT_SECONDS`.
+ *
+ * @param[in]  text         String to parse.
+ * @param[out] seconds_out  Parsed positive seconds value when successful.
+ * @return PetscBool `PETSC_TRUE` when parsing succeeds, else `PETSC_FALSE`.
+ */
+PetscBool RuntimeWalltimeGuardParsePositiveSeconds(const char *text, PetscReal *seconds_out);
+
+/**
+ * @brief Update an EWMA estimate for timestep wall-clock duration.
+ *
+ * @param[in] has_previous          Whether a previous EWMA estimate exists.
+ * @param[in] previous_ewma_seconds Prior EWMA estimate in seconds.
+ * @param[in] latest_step_seconds   Latest completed timestep duration in seconds.
+ * @param[in] alpha                 EWMA weighting factor in `(0, 1]`.
+ * @return PetscReal Updated EWMA estimate in seconds.
+ */
+PetscReal RuntimeWalltimeGuardUpdateEWMA(PetscBool has_previous, PetscReal previous_ewma_seconds, PetscReal latest_step_seconds, PetscReal alpha);
+
+/**
+ * @brief Return the conservative timestep estimate used by the walltime guard.
+ *
+ * @param[in] warmup_average_seconds Average duration across warmup steps.
+ * @param[in] ewma_seconds           Current EWMA duration estimate.
+ * @param[in] latest_step_seconds    Most recent completed timestep duration.
+ * @return PetscReal Conservative timestep estimate in seconds.
+ */
+PetscReal RuntimeWalltimeGuardConservativeEstimate(PetscReal warmup_average_seconds, PetscReal ewma_seconds, PetscReal latest_step_seconds);
+
+/**
+ * @brief Compute the required shutdown headroom from timestep estimate and floor.
+ *
+ * @param[in] min_seconds                   Absolute minimum shutdown headroom.
+ * @param[in] multiplier                    Safety multiplier applied to the timestep estimate.
+ * @param[in] conservative_estimate_seconds Conservative timestep estimate in seconds.
+ * @return PetscReal Required headroom in seconds.
+ */
+PetscReal RuntimeWalltimeGuardRequiredHeadroom(PetscReal min_seconds, PetscReal multiplier, PetscReal conservative_estimate_seconds);
+
+/**
+ * @brief Decide whether the runtime walltime guard should stop before another step.
+ *
+ * @param[in]  completed_steps                Number of completed timesteps observed so far.
+ * @param[in]  warmup_steps                   Minimum completed timesteps required before guarding.
+ * @param[in]  remaining_seconds              Remaining walltime in seconds.
+ * @param[in]  min_seconds                    Absolute minimum shutdown headroom.
+ * @param[in]  multiplier                     Safety multiplier applied to timestep estimate.
+ * @param[in]  warmup_average_seconds         Average duration across warmup steps.
+ * @param[in]  ewma_seconds                   Current EWMA duration estimate.
+ * @param[in]  latest_step_seconds            Latest completed timestep duration.
+ * @param[out] required_headroom_seconds_out  Computed required headroom in seconds.
+ * @return PetscBool `PETSC_TRUE` when shutdown should be requested.
+ */
+PetscBool RuntimeWalltimeGuardShouldTrigger(PetscInt completed_steps, PetscInt warmup_steps, PetscReal remaining_seconds, PetscReal min_seconds, PetscReal multiplier, PetscReal warmup_average_seconds, PetscReal ewma_seconds, PetscReal latest_step_seconds, PetscReal *required_headroom_seconds_out);
+
+/**
  * @brief Copies the current time step's solution fields into history vectors
  *        (e.g., U(t_n) -> U_o, U_o -> U_rm1) for the next time step's calculations.
  *

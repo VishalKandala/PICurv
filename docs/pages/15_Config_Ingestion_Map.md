@@ -34,6 +34,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `monitor.io.directories.*` | `-output_dir`, `-restart_dir`, `-log_dir`, `-euler_subdir`, `-particle_subdir` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
 | `monitor.logging.*` | `whitelist.run`, `LOG_LEVEL` env | `src/setup.c` + `src/logging.c` | logging macros/system |
 | `monitor.profiling.*` | `profile.run` (selected-mode only) + explicit profiling flags in `*.control` | `src/setup.c` + profiling init | profiler summaries |
+| `cluster.execution.walltime_guard.*` | `-walltime_guard_*` in solver `*.control` | `src/setup.c` | `src/runloop.c` runtime walltime estimator and graceful final-write cutoff |
 | `monitor.solver_monitoring` | raw flags in control | PETSc options db | PETSc monitors/convergence output |
 | `post.run_control.*` | `startTime/endTime/timeStep` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `src/postprocessor.c` main loop |
 | `post.io.input_extensions.*` | `eulerianExt`, `particleExt` in `post.run` | `src/io.c` | `ReadSimulationFields`, `ReadAllSwarmFields`, swarm precheck |

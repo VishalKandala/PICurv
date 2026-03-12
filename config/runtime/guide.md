@@ -35,6 +35,7 @@ Operational boundary:
 
 - `.picurv-execution.yml` controls launcher executable/tokens only.
 - delayed submission and cancellation use `picurv submit` / `picurv cancel` against generated run directories.
+- automatic walltime guarding belongs in `cluster.yml -> execution.walltime_guard`, not in `.picurv-execution.yml`.
 - early walltime/termination signals belong in `cluster.yml -> execution.extra_sbatch.signal`, not in `.picurv-execution.yml`.
 - if batch jobs launch `mpirun` directly, prefer `exec mpirun ...` and pair it with `signal: "B:USR1@300"` so the warning signal reaches `mpirun`.
 

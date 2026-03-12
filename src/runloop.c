@@ -4,11 +4,14 @@
  * Provides the setup to start any simulation with DMSwarm and DMDAs.
  **/
 
+#include <ctype.h>
+#include <errno.h>
 #include <signal.h>
 
 #include "runloop.h"
 
 static volatile sig_atomic_t g_runtime_shutdown_signal = 0;
+static PetscBool             g_runtime_shutdown_auto_requested = PETSC_FALSE;
 
 /**
  * @brief Internal helper implementation: `RuntimeShutdownSignalHandler()`.
@@ -22,21 +25,23 @@ static void RuntimeShutdownSignalHandler(int signum)
 }
 
 /**
+ * @brief Internal helper implementation: `RuntimeRequestAutoWalltimeGuard()`.
+ * @details Local to this translation unit.
+ */
+static void RuntimeRequestAutoWalltimeGuard(void)
+{
+    if (g_runtime_shutdown_signal == 0) {
+        g_runtime_shutdown_auto_requested = PETSC_TRUE;
+    }
+}
+
+/**
  * @brief Internal helper implementation: `RuntimeShutdownRequested()`.
  * @details Local to this translation unit.
  */
 static PetscBool RuntimeShutdownRequested(void)
 {
-    return (PetscBool)(g_runtime_shutdown_signal != 0);
-}
-
-/**
- * @brief Internal helper implementation: `RuntimeShutdownSignal()`.
- * @details Local to this translation unit.
- */
-static PetscInt RuntimeShutdownSignal(void)
-{
-    return (PetscInt)g_runtime_shutdown_signal;
+    return (PetscBool)(g_runtime_shutdown_signal != 0 || g_runtime_shutdown_auto_requested);
 }
 
 /**
@@ -57,6 +62,21 @@ static const char *RuntimeShutdownSignalName(PetscInt signum)
 #endif
         default: return "UNKNOWN";
     }
+}
+
+/**
+ * @brief Internal helper implementation: `RuntimeShutdownReasonName()`.
+ * @details Local to this translation unit.
+ */
+static const char *RuntimeShutdownReasonName(void)
+{
+    if (g_runtime_shutdown_signal != 0) {
+        return RuntimeShutdownSignalName((PetscInt)g_runtime_shutdown_signal);
+    }
+    if (g_runtime_shutdown_auto_requested) {
+        return "AUTO_WALLTIME_GUARD";
+    }
+    return "NONE";
 }
 
 /**
@@ -94,6 +114,7 @@ PetscErrorCode InitializeRuntimeSignalHandlers(void)
 
     PetscFunctionBeginUser;
     g_runtime_shutdown_signal = 0;
+    g_runtime_shutdown_auto_requested = PETSC_FALSE;
 
 #ifdef SIGTERM
     ierr = RegisterRuntimeSignalHandler(SIGTERM); CHKERRQ(ierr);
@@ -109,19 +130,186 @@ PetscErrorCode InitializeRuntimeSignalHandlers(void)
 }
 
 /**
+ * @brief Implementation of \ref RuntimeWalltimeGuardParsePositiveSeconds().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the matching public header declaration.
+ * @see RuntimeWalltimeGuardParsePositiveSeconds()
+ */
+PetscBool RuntimeWalltimeGuardParsePositiveSeconds(const char *text, PetscReal *seconds_out)
+{
+    char   *endptr = NULL;
+    double parsed_value;
+
+    if (seconds_out) *seconds_out = 0.0;
+    if (!text || text[0] == '\0') return PETSC_FALSE;
+
+    errno        = 0;
+    parsed_value = strtod(text, &endptr);
+    if (endptr == text || errno == ERANGE || !isfinite(parsed_value) || parsed_value <= 0.0) {
+        return PETSC_FALSE;
+    }
+
+    while (*endptr != '\0' && isspace((unsigned char)*endptr)) {
+        endptr++;
+    }
+    if (*endptr != '\0') return PETSC_FALSE;
+
+    if (seconds_out) *seconds_out = (PetscReal)parsed_value;
+    return PETSC_TRUE;
+}
+
+/**
+ * @brief Implementation of \ref RuntimeWalltimeGuardUpdateEWMA().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the matching public header declaration.
+ * @see RuntimeWalltimeGuardUpdateEWMA()
+ */
+PetscReal RuntimeWalltimeGuardUpdateEWMA(PetscBool has_previous, PetscReal previous_ewma_seconds, PetscReal latest_step_seconds, PetscReal alpha)
+{
+    if (!has_previous) return latest_step_seconds;
+    return alpha * latest_step_seconds + (1.0 - alpha) * previous_ewma_seconds;
+}
+
+/**
+ * @brief Implementation of \ref RuntimeWalltimeGuardConservativeEstimate().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the matching public header declaration.
+ * @see RuntimeWalltimeGuardConservativeEstimate()
+ */
+PetscReal RuntimeWalltimeGuardConservativeEstimate(PetscReal warmup_average_seconds, PetscReal ewma_seconds, PetscReal latest_step_seconds)
+{
+    return PetscMax(warmup_average_seconds, PetscMax(ewma_seconds, latest_step_seconds));
+}
+
+/**
+ * @brief Implementation of \ref RuntimeWalltimeGuardRequiredHeadroom().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the matching public header declaration.
+ * @see RuntimeWalltimeGuardRequiredHeadroom()
+ */
+PetscReal RuntimeWalltimeGuardRequiredHeadroom(PetscReal min_seconds, PetscReal multiplier, PetscReal conservative_estimate_seconds)
+{
+    return PetscMax(min_seconds, multiplier * conservative_estimate_seconds);
+}
+
+/**
+ * @brief Implementation of \ref RuntimeWalltimeGuardShouldTrigger().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the matching public header declaration.
+ * @see RuntimeWalltimeGuardShouldTrigger()
+ */
+PetscBool RuntimeWalltimeGuardShouldTrigger(PetscInt completed_steps, PetscInt warmup_steps, PetscReal remaining_seconds, PetscReal min_seconds, PetscReal multiplier, PetscReal warmup_average_seconds, PetscReal ewma_seconds, PetscReal latest_step_seconds, PetscReal *required_headroom_seconds_out)
+{
+    PetscReal conservative_estimate = 0.0;
+    PetscReal required_headroom     = 0.0;
+
+    if (required_headroom_seconds_out) *required_headroom_seconds_out = 0.0;
+    if (completed_steps < warmup_steps) return PETSC_FALSE;
+
+    conservative_estimate = RuntimeWalltimeGuardConservativeEstimate(warmup_average_seconds, ewma_seconds, latest_step_seconds);
+    required_headroom     = RuntimeWalltimeGuardRequiredHeadroom(min_seconds, multiplier, conservative_estimate);
+    if (required_headroom_seconds_out) *required_headroom_seconds_out = required_headroom;
+    return (PetscBool)(remaining_seconds <= required_headroom);
+}
+
+/**
+ * @brief Internal helper implementation: `RuntimeWalltimeGuardRemainingSeconds()`.
+ * @details Local to this translation unit.
+ */
+static PetscReal RuntimeWalltimeGuardRemainingSeconds(const SimCtx *simCtx)
+{
+    time_t now = time(NULL);
+
+    if (now == (time_t)-1) return -1.0;
+    return simCtx->walltimeGuardLimitSeconds - ((PetscReal)now - simCtx->walltimeGuardJobStartEpochSeconds);
+}
+
+/**
+ * @brief Internal helper implementation: `UpdateRuntimeWalltimeGuardEstimator()`.
+ * @details Local to this translation unit.
+ */
+static void UpdateRuntimeWalltimeGuardEstimator(SimCtx *simCtx, PetscReal completed_step_seconds)
+{
+    simCtx->walltimeGuardCompletedSteps++;
+    simCtx->walltimeGuardLatestStepSeconds = completed_step_seconds;
+
+    if (simCtx->walltimeGuardCompletedSteps <= simCtx->walltimeGuardWarmupSteps) {
+        simCtx->walltimeGuardWarmupTotalSeconds += completed_step_seconds;
+        if (simCtx->walltimeGuardCompletedSteps == simCtx->walltimeGuardWarmupSteps) {
+            simCtx->walltimeGuardWarmupAverageSeconds = simCtx->walltimeGuardWarmupTotalSeconds / (PetscReal)simCtx->walltimeGuardWarmupSteps;
+            simCtx->walltimeGuardEWMASeconds          = simCtx->walltimeGuardWarmupAverageSeconds;
+            simCtx->walltimeGuardHasEWMA             = PETSC_TRUE;
+        }
+        return;
+    }
+
+    simCtx->walltimeGuardEWMASeconds = RuntimeWalltimeGuardUpdateEWMA(
+        simCtx->walltimeGuardHasEWMA,
+        simCtx->walltimeGuardEWMASeconds,
+        completed_step_seconds,
+        simCtx->walltimeGuardEstimatorAlpha
+    );
+    simCtx->walltimeGuardHasEWMA = PETSC_TRUE;
+}
+
+/**
+ * @brief Internal helper implementation: `MaybeRequestRuntimeWalltimeGuardShutdown()`.
+ * @details Local to this translation unit.
+ */
+static PetscErrorCode MaybeRequestRuntimeWalltimeGuardShutdown(SimCtx *simCtx, const char *checkpoint_name)
+{
+    PetscReal remaining_seconds = 0.0;
+    PetscReal required_headroom = 0.0;
+
+    PetscFunctionBeginUser;
+    if (!simCtx->walltimeGuardActive || RuntimeShutdownRequested()) PetscFunctionReturn(0);
+
+    remaining_seconds = RuntimeWalltimeGuardRemainingSeconds(simCtx);
+    if (!RuntimeWalltimeGuardShouldTrigger(
+            simCtx->walltimeGuardCompletedSteps,
+            simCtx->walltimeGuardWarmupSteps,
+            remaining_seconds,
+            simCtx->walltimeGuardMinSeconds,
+            simCtx->walltimeGuardMultiplier,
+            simCtx->walltimeGuardWarmupAverageSeconds,
+            simCtx->walltimeGuardEWMASeconds,
+            simCtx->walltimeGuardLatestStepSeconds,
+            &required_headroom)) {
+        PetscFunctionReturn(0);
+    }
+
+    RuntimeRequestAutoWalltimeGuard();
+    LOG_ALLOW(
+        GLOBAL,
+        LOG_WARNING,
+        "[T=%.4f, Step=%d] AUTO_WALLTIME_GUARD requested at %s: remaining walltime %.1f s <= required headroom %.1f s "
+        "(warmup avg %.1f s, ewma %.1f s, latest %.1f s).\n",
+        simCtx->ti,
+        simCtx->step,
+        checkpoint_name,
+        (double)remaining_seconds,
+        (double)required_headroom,
+        (double)simCtx->walltimeGuardWarmupAverageSeconds,
+        (double)simCtx->walltimeGuardEWMASeconds,
+        (double)simCtx->walltimeGuardLatestStepSeconds
+    );
+
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Internal helper implementation: `WriteForcedTerminationOutput()`.
  * @details Local to this translation unit.
  */
 static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user, const char *phase)
 {
     PetscErrorCode ierr;
-    PetscInt       signum = RuntimeShutdownSignal();
 
     PetscFunctionBeginUser;
 
     LOG_ALLOW(GLOBAL, LOG_WARNING,
-              "[T=%.4f, Step=%d] Received %s during %s. Writing final output outside the normal cadence before exiting.\n",
-              simCtx->ti, simCtx->step, RuntimeShutdownSignalName(signum), phase);
+              "[T=%.4f, Step=%d] Shutdown requested by %s during %s. Writing final output outside the normal cadence before exiting.\n",
+              simCtx->ti, simCtx->step, RuntimeShutdownReasonName(), phase);
 
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
@@ -395,6 +583,9 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
+    PetscReal      step_start_seconds = 0.0;
+    PetscReal      step_elapsed_local = 0.0;
+    PetscReal      step_elapsed_max = 0.0;
     // Get the master context from the first block. All blocks share it.
     UserCtx *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
 
@@ -416,11 +607,14 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 
     // --- Main Time-Marching Loop ---
     for (PetscInt step = StartStep; step < StartStep + StepsToRun; step++) {
+        ierr = MaybeRequestRuntimeWalltimeGuardShutdown(simCtx, "pre-step checkpoint"); CHKERRQ(ierr);
         if (RuntimeShutdownRequested()) {
             ierr = WriteForcedTerminationOutput(simCtx, user, "pre-step checkpoint"); CHKERRQ(ierr);
             terminated_early = PETSC_TRUE;
             break;
         }
+
+        step_start_seconds = MPI_Wtime();
         
         // =================================================================
         //     1. PRE-STEP SETUP
@@ -583,6 +777,14 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 
         last_completed_loop_index = step;
 
+        step_elapsed_local = MPI_Wtime() - step_start_seconds;
+        step_elapsed_max   = step_elapsed_local;
+        ierr               = MPI_Allreduce(&step_elapsed_local, &step_elapsed_max, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+        if (simCtx->walltimeGuardActive) {
+            UpdateRuntimeWalltimeGuardEstimator(simCtx, step_elapsed_max);
+            ierr = MaybeRequestRuntimeWalltimeGuardShutdown(simCtx, "post-step checkpoint"); CHKERRQ(ierr);
+        }
+
         if (RuntimeShutdownRequested()) {
             ierr = WriteForcedTerminationOutput(simCtx, user, "post-step checkpoint"); CHKERRQ(ierr);
             terminated_early = PETSC_TRUE;
@@ -605,7 +807,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     if (terminated_early) {
         LOG_ALLOW(GLOBAL, LOG_WARNING,
                   "Time marching stopped early after %s. Final retained state is step %d at t=%.4f.\n",
-                  RuntimeShutdownSignalName(RuntimeShutdownSignal()), simCtx->step, simCtx->ti);
+                  RuntimeShutdownReasonName(), simCtx->step, simCtx->ti);
     } else {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", simCtx->ti);
     }

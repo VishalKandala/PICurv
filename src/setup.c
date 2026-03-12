@@ -4,7 +4,8 @@
  * Provides the setup to start any simulation with DMSwarm and DMDAs.
  **/
 
- #include "setup.h"
+#include "setup.h"
+#include "runloop.h"
 
 #undef __FUNCT__
 #define __FUNCT__ "CreateSimulationContext"
@@ -156,6 +157,20 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     strcpy(simCtx->profilingTimestepMode, "selected");
     strcpy(simCtx->profilingTimestepFile, "Profiling_Timestep_Summary.csv");
     simCtx->profilingFinalSummary = PETSC_TRUE;
+    simCtx->walltimeGuardEnabled = PETSC_FALSE;
+    simCtx->walltimeGuardActive = PETSC_FALSE;
+    simCtx->walltimeGuardWarmupSteps = 10;
+    simCtx->walltimeGuardMultiplier = 2.0;
+    simCtx->walltimeGuardMinSeconds = 60.0;
+    simCtx->walltimeGuardEstimatorAlpha = 0.35;
+    simCtx->walltimeGuardJobStartEpochSeconds = 0.0;
+    simCtx->walltimeGuardLimitSeconds = 0.0;
+    simCtx->walltimeGuardCompletedSteps = 0;
+    simCtx->walltimeGuardWarmupTotalSeconds = 0.0;
+    simCtx->walltimeGuardWarmupAverageSeconds = 0.0;
+    simCtx->walltimeGuardHasEWMA = PETSC_FALSE;
+    simCtx->walltimeGuardEWMASeconds = 0.0;
+    simCtx->walltimeGuardLatestStepSeconds = 0.0;
     // --- Group 11: Post-Processing Information ---
     strcpy(simCtx->PostprocessingControlFile, "config/post.run");
     ierr = PetscNew(&simCtx->pps); CHKERRQ(ierr);
@@ -276,9 +291,49 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-euler_subdir",simCtx->euler_subdir,sizeof(simCtx->euler_subdir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-particle_subdir",simCtx->particle_subdir,sizeof(simCtx->particle_subdir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetBool(NULL, NULL, "-walltime_guard_enabled", &simCtx->walltimeGuardEnabled, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-walltime_guard_warmup_steps", &simCtx->walltimeGuardWarmupSteps, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_multiplier", &simCtx->walltimeGuardMultiplier, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_min_seconds", &simCtx->walltimeGuardMinSeconds, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_estimator_alpha", &simCtx->walltimeGuardEstimatorAlpha, NULL); CHKERRQ(ierr);
+
+    if (simCtx->walltimeGuardWarmupSteps <= 0) {
+      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -walltime_guard_warmup_steps: %d. Must be > 0.", simCtx->walltimeGuardWarmupSteps);
+    }
+    if (simCtx->walltimeGuardMultiplier <= 0.0 || simCtx->walltimeGuardMultiplier > 5.0) {
+      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -walltime_guard_multiplier: %.6f. Must be in (0, 5].", (double)simCtx->walltimeGuardMultiplier);
+    }
+    if (simCtx->walltimeGuardMinSeconds <= 0.0) {
+      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -walltime_guard_min_seconds: %.6f. Must be > 0.", (double)simCtx->walltimeGuardMinSeconds);
+    }
+    if (simCtx->walltimeGuardEstimatorAlpha <= 0.0 || simCtx->walltimeGuardEstimatorAlpha > 1.0) {
+      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -walltime_guard_estimator_alpha: %.6f. Must be in (0, 1].", (double)simCtx->walltimeGuardEstimatorAlpha);
+    }
 
     if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0 && strcmp(simCtx->eulerianSource,"analytical")!=0){
       SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Invalid value for -euler_field_source. Must be 'load','analytical' or 'solve'. You provided '%s'.",simCtx->eulerianSource);
+    }
+
+    if (simCtx->walltimeGuardEnabled) {
+      const char *job_start_env = getenv("PICURV_JOB_START_EPOCH");
+      const char *limit_env = getenv("PICURV_WALLTIME_LIMIT_SECONDS");
+      PetscBool job_start_ok = RuntimeWalltimeGuardParsePositiveSeconds(job_start_env, &simCtx->walltimeGuardJobStartEpochSeconds);
+      PetscBool limit_ok = RuntimeWalltimeGuardParsePositiveSeconds(limit_env, &simCtx->walltimeGuardLimitSeconds);
+
+      if (!job_start_ok || !limit_ok) {
+        simCtx->walltimeGuardActive = PETSC_FALSE;
+        simCtx->walltimeGuardJobStartEpochSeconds = 0.0;
+        simCtx->walltimeGuardLimitSeconds = 0.0;
+        LOG_ALLOW(
+          GLOBAL,
+          LOG_WARNING,
+          "Runtime walltime guard enabled but %s/%s are missing or invalid. Falling back to external shutdown signals only.\n",
+          "PICURV_JOB_START_EPOCH",
+          "PICURV_WALLTIME_LIMIT_SECONDS"
+        );
+      } else {
+        simCtx->walltimeGuardActive = PETSC_TRUE;
+      }
     }
 
     //  --- Group 3
@@ -522,6 +577,20 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
       LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: every %d step(s)\n", simCtx->particleConsoleOutputFreq);
     } else {
       LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: DISABLED\n");
+    }
+    if (simCtx->walltimeGuardEnabled) {
+      LOG_ALLOW(
+        GLOBAL,
+        simCtx->walltimeGuardActive ? LOG_INFO : LOG_WARNING,
+        "  - Runtime walltime guard: %s (warmup=%d step(s), multiplier=%.2f, min headroom=%.1f s, alpha=%.2f)\n",
+        simCtx->walltimeGuardActive ? "ENABLED" : "CONFIGURED BUT INACTIVE",
+        simCtx->walltimeGuardWarmupSteps,
+        (double)simCtx->walltimeGuardMultiplier,
+        (double)simCtx->walltimeGuardMinSeconds,
+        (double)simCtx->walltimeGuardEstimatorAlpha
+      );
+    } else {
+      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Runtime walltime guard: DISABLED\n");
     }
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console row subsampling: every %d particle(s)\n", simCtx->LoggingFrequency);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Immersed Boundary: %s\n", simCtx->immersed ? "ENABLED" : "DISABLED");

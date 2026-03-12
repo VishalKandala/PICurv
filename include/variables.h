@@ -719,6 +719,20 @@ typedef struct SimCtx {
     char      profilingTimestepMode[32];
     char      profilingTimestepFile[PETSC_MAX_PATH_LEN];
     PetscBool profilingFinalSummary;
+    PetscBool walltimeGuardEnabled;
+    PetscBool walltimeGuardActive;
+    PetscInt  walltimeGuardWarmupSteps;
+    PetscReal walltimeGuardMultiplier;
+    PetscReal walltimeGuardMinSeconds;
+    PetscReal walltimeGuardEstimatorAlpha;
+    PetscReal walltimeGuardJobStartEpochSeconds;
+    PetscReal walltimeGuardLimitSeconds;
+    PetscInt  walltimeGuardCompletedSteps;
+    PetscReal walltimeGuardWarmupTotalSeconds;
+    PetscReal walltimeGuardWarmupAverageSeconds;
+    PetscBool walltimeGuardHasEWMA;
+    PetscReal walltimeGuardEWMASeconds;
+    PetscReal walltimeGuardLatestStepSeconds;
 
     //================ Group 12: Post-Processing =================================================
     char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];
