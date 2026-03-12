@@ -578,20 +578,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     } else {
       LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: DISABLED\n");
     }
-    if (simCtx->walltimeGuardEnabled) {
-      LOG_ALLOW(
-        GLOBAL,
-        simCtx->walltimeGuardActive ? LOG_INFO : LOG_WARNING,
-        "  - Runtime walltime guard: %s (warmup=%d step(s), multiplier=%.2f, min headroom=%.1f s, alpha=%.2f)\n",
-        simCtx->walltimeGuardActive ? "ENABLED" : "CONFIGURED BUT INACTIVE",
-        simCtx->walltimeGuardWarmupSteps,
-        (double)simCtx->walltimeGuardMultiplier,
-        (double)simCtx->walltimeGuardMinSeconds,
-        (double)simCtx->walltimeGuardEstimatorAlpha
-      );
-    } else {
-      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Runtime walltime guard: DISABLED\n");
-    }
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console row subsampling: every %d particle(s)\n", simCtx->LoggingFrequency);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Immersed Boundary: %s\n", simCtx->immersed ? "ENABLED" : "DISABLED");
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particles: %d\n", simCtx->np);

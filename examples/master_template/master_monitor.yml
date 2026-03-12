@@ -21,7 +21,9 @@ logging:
   # --- Verbosity Level ---
   # Sets the master LOG_LEVEL for the C-code.
   # Options: ERROR, WARNING, INFO, DEBUG, TRACE, VERBOSE
-  verbosity: INFO
+  # WARNING is the production default: quiet runtime, still shows warnings.
+  # The startup banner remains visible and reports walltime-guard status.
+  verbosity: WARNING
 
   # --- Function Allow-List ---
   # For targeted debugging. If this list is empty, picurv omits the whitelist

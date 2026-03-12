@@ -30,7 +30,12 @@ For exhaustive schema coverage, see:
 
 `ERROR`, `WARNING`, `INFO`, `DEBUG`, `TRACE`, `VERBOSE`
 
-Use high verbosity (`DEBUG+`) for short diagnostic runs only; large production runs are easier to manage with `INFO` plus targeted PETSc monitor flags.
+`Standard_Output.yml` now uses `WARNING` plus an empty function allow-list as the
+production default. That keeps solver logs quiet while still surfacing runtime
+warnings, graceful-shutdown notices, and the startup banner summary.
+
+Use `INFO` when you want more live progress detail, and reserve high verbosity
+(`DEBUG+`) for short diagnostic runs only.
 
 ## 5. CFD-Oriented Monitoring Advice
 

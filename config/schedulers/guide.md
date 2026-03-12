@@ -66,6 +66,7 @@ PICurv traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes a final step snapsh
 - If your solver is launched via `srun`, use `signal: "USR1@300"`.
 - If your batch script launches `mpirun` directly, use `signal: "B:USR1@300"` and prefer `exec mpirun ...` so the batch shell is replaced by `mpirun` and receives the signal directly.
 - The runtime guard and the signal path both stop only at safe checkpoints, so final retained state can lag the request by up to roughly one in-flight timestep.
+- The startup banner reports whether the runtime walltime guard is enabled, inactive, or disabled, even when the monitor profile uses the quiet `WARNING` default.
 8. For new profiles, prefer a staged workflow:
    `picurv run ... --cluster ... --no-submit`, inspect `runs/<run_id>/scheduler/`, then `picurv submit --run-dir ...`.
    If the run is already submitted and you need to stop it, use `picurv cancel --run-dir ...`.

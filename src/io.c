@@ -2128,6 +2128,19 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, " Timestep Size               : %.4f\n", (double)simCtx->dt); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Starting Step               : %d\n", StartStep); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Total Steps to Run          : %d\n", StepsToRun); CHKERRQ(ierr);
+        if (simCtx->walltimeGuardEnabled) {
+            ierr = PetscPrintf(
+                PETSC_COMM_SELF,
+                " Runtime Walltime Guard     : %s (warmup=%d, multiplier=%.2f, min=%.1f s, alpha=%.2f)\n",
+                simCtx->walltimeGuardActive ? "ENABLED" : "CONFIGURED BUT INACTIVE",
+                simCtx->walltimeGuardWarmupSteps,
+                (double)simCtx->walltimeGuardMultiplier,
+                (double)simCtx->walltimeGuardMinSeconds,
+                (double)simCtx->walltimeGuardEstimatorAlpha
+            ); CHKERRQ(ierr);
+        } else {
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Runtime Walltime Guard     : DISABLED\n"); CHKERRQ(ierr);
+        }
         ierr = PetscPrintf(PETSC_COMM_SELF, " Number of MPI Processes     : %d\n", num_mpi_procs); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %d\n", total_num_particles); CHKERRQ(ierr);
         if(strcmp(simCtx->eulerianSource,"solve")==0 || strcmp(simCtx->eulerianSource,"load")==0){

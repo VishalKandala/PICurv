@@ -307,9 +307,9 @@ static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user
 
     PetscFunctionBeginUser;
 
-    LOG_ALLOW(GLOBAL, LOG_WARNING,
-              "[T=%.4f, Step=%d] Shutdown requested by %s during %s. Writing final output outside the normal cadence before exiting.\n",
-              simCtx->ti, simCtx->step, RuntimeShutdownReasonName(), phase);
+    LOG(GLOBAL, LOG_WARNING,
+        "[T=%.4f, Step=%d] Shutdown requested by %s during %s. Writing final output outside the normal cadence before exiting.\n",
+        simCtx->ti, simCtx->step, RuntimeShutdownReasonName(), phase);
 
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);

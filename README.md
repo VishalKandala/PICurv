@@ -179,6 +179,8 @@ Use `USR1@300` for `srun`-launched jobs. If your batch script launches `mpirun` 
 `signal: "B:USR1@300"` and prefer `exec mpirun ...` so the signal reaches `mpirun` and is
 forwarded to all ranks. Both the automatic guard and the signal path stop only at safe checkpoints,
 so the retained state may lag the signal/request by up to roughly one in-flight timestep.
+The startup banner reports whether the runtime walltime guard is enabled, inactive, or disabled,
+so production monitor profiles can stay at `WARNING` without hiding that status.
 
 ## CLI Option References
 
