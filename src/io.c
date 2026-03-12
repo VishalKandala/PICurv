@@ -2124,10 +2124,18 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             }
         }
         ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------------------------------------------------\n"); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Run Mode                   : %s\n", simCtx->OnlySetup ? "SETUP ONLY" : "Full Simulation"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Start Time                  : %.4f\n", (double)StartTime); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Timestep Size               : %.4f\n", (double)simCtx->dt); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Starting Step               : %d\n", StartStep); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Total Steps to Run          : %d\n", StepsToRun); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Ending Step                : %d\n", StartStep + StepsToRun); CHKERRQ(ierr);
+        if (simCtx->tiout > 0) {
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Field/Restart Cadence      : every %d step(s)\n", simCtx->tiout); CHKERRQ(ierr);
+        } else {
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Field/Restart Cadence      : DISABLED\n"); CHKERRQ(ierr);
+        }
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Immersed Boundary          : %s\n", simCtx->immersed ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
         if (simCtx->walltimeGuardEnabled) {
             ierr = PetscPrintf(
                 PETSC_COMM_SELF,
@@ -2143,18 +2151,19 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         }
         ierr = PetscPrintf(PETSC_COMM_SELF, " Number of MPI Processes     : %d\n", num_mpi_procs); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %d\n", total_num_particles); CHKERRQ(ierr);
-        if(strcmp(simCtx->eulerianSource,"solve")==0 || strcmp(simCtx->eulerianSource,"load")==0){
-            const char* field_init_str = FieldInitializationToString(simCtx->FieldInitialization);
-            const char* particle_init_str = ParticleInitializationToString(simCtx->ParticleInitialization);
-            ierr = PetscPrintf(PETSC_COMM_WORLD," Reynolds Number             : %le\n", simCtx->ren); CHKERRQ(ierr);
-            //ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
-            ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
-            if(strcmp(simCtx->eulerianSource,"solve")==0){
-                //ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
-                ierr = PetscPrintf(PETSC_COMM_WORLD," Momentum Equation Solver      : %s\n", MomentumSolverTypeToString(simCtx->mom_solver_type)); CHKERRQ(ierr);
-                ierr = PetscPrintf(PETSC_COMM_WORLD," Initial Pseudo-CFL    : %le\n", simCtx->pseudo_cfl); CHKERRQ(ierr);
-                ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
+        if (simCtx->np > 0) {
+            const char *particle_init_str = ParticleInitializationToString(simCtx->ParticleInitialization);
+
+            if (simCtx->particleConsoleOutputFreq > 0) {
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Console Cadence   : every %d step(s)\n", simCtx->particleConsoleOutputFreq); CHKERRQ(ierr);
+            } else {
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Console Cadence   : DISABLED\n"); CHKERRQ(ierr);
             }
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Log Row Sampling  : every %d particle(s)\n", simCtx->LoggingFrequency); CHKERRQ(ierr);
+            if (simCtx->StartStep > 0) {
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Restart Mode      : %s\n", simCtx->particleRestartMode); CHKERRQ(ierr);
+            }
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
             if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM ||
                 simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES) {
                 if (user->inletFaceDefined) {
@@ -2163,8 +2172,18 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                     ierr = PetscPrintf(PETSC_COMM_SELF, " Particles Initialized At    : --- (No INLET face identified)\n"); CHKERRQ(ierr);
                 }
             }
-
-                ierr = PetscPrintf(PETSC_COMM_SELF, " Field Initialization Mode   : %s\n", field_init_str); CHKERRQ(ierr);
+        }
+        if(strcmp(simCtx->eulerianSource,"solve")==0 || strcmp(simCtx->eulerianSource,"load")==0){
+            const char* field_init_str = FieldInitializationToString(simCtx->FieldInitialization);
+            ierr = PetscPrintf(PETSC_COMM_WORLD," Reynolds Number             : %le\n", simCtx->ren); CHKERRQ(ierr);
+            //ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
+            if(strcmp(simCtx->eulerianSource,"solve")==0){
+                //ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
+                ierr = PetscPrintf(PETSC_COMM_WORLD," Momentum Equation Solver      : %s\n", MomentumSolverTypeToString(simCtx->mom_solver_type)); CHKERRQ(ierr);
+                ierr = PetscPrintf(PETSC_COMM_WORLD," Initial Pseudo-CFL    : %le\n", simCtx->pseudo_cfl); CHKERRQ(ierr);
+                ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
+            }
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Field Initialization Mode   : %s\n", field_init_str); CHKERRQ(ierr);
             if (simCtx->FieldInitialization == 1) {
                 ierr = PetscPrintf(PETSC_COMM_SELF, " Constant Velocity           : x - %.4f, y - %.4f, z - %.4f \n", (double)simCtx->InitialConstantContra.x,(double)simCtx->InitialConstantContra.y,(double)simCtx->InitialConstantContra.z ); CHKERRQ(ierr);
             }

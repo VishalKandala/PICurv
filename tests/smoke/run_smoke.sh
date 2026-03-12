@@ -15,6 +15,7 @@ valid_fixtures_dir="${repo_root}/tests/fixtures/valid"
 tmp_root="$(mktemp -d)"
 LAST_RUN_DIR=""
 LAST_RUN_LOG=""
+LAST_SOLVER_LOG=""
 declare -a mpi_launcher_cmd=()
 
 cleanup() {
@@ -73,6 +74,15 @@ require_file_contains() {
   local label="$3"
   if ! grep -q -- "${pattern}" "${file_path}"; then
     die "expected '${file_path}' to contain '${pattern}' (${label})."
+  fi
+}
+
+require_file_not_contains() {
+  local file_path="$1"
+  local pattern="$2"
+  local label="$3"
+  if grep -q -- "${pattern}" "${file_path}"; then
+    die "expected '${file_path}' to omit '${pattern}' (${label})."
   fi
 }
 
@@ -814,6 +824,10 @@ run_case_workflow() {
   fi
   LAST_RUN_DIR="${created_run}"
   LAST_RUN_LOG="${output_log}"
+  LAST_SOLVER_LOG="$(find "${created_run}/scheduler" -maxdepth 1 -type f -name '*_solver.log' | sort | tail -n 1)"
+  if [[ -z "${LAST_SOLVER_LOG}" ]]; then
+    die "workflow '${label}' completed but no solver runtime log was found under '${created_run}/scheduler'."
+  fi
 }
 
 run_restart_equivalence_smoke() {
@@ -891,6 +905,13 @@ run_full_runtime_smoke() {
   require_dir "${flat_les_run}/results" "flat LES results directory"
   require_count_ge "${flat_les_run}/results" "*.dat" 1 "flat LES result data files"
   require_count_ge "${flat_les_run}/viz/les_smoke" "*.vts" 1 "flat LES post VTS files"
+  require_file_contains "${LAST_SOLVER_LOG}" "Run Mode                   : Full Simulation" "runtime banner run mode"
+  require_file_contains "${LAST_SOLVER_LOG}" "Field/Restart Cadence      : every 1 step(s)" "runtime banner field cadence"
+  require_file_contains "${LAST_SOLVER_LOG}" "Immersed Boundary          : DISABLED" "runtime banner immersed-boundary state"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 0" "runtime banner particle count"
+  require_file_not_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence" "runtime banner particle console cadence omission"
+  require_file_not_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling" "runtime banner particle row sampling omission"
+  require_file_not_contains "${LAST_SOLVER_LOG}" "Particle Initialization Mode" "runtime banner particle init omission"
 
   "${picurv_exe}" init bent_channel --dest "${bent_case}" >/dev/null
   prepare_bent_case_tiny "${bent_case}"
@@ -922,6 +943,10 @@ run_full_runtime_smoke() {
   base_particles_run="${LAST_RUN_DIR}"
   require_count_ge "${base_particles_run}/results/particles" "*.dat" 1 "particle snapshot files"
   require_count_ge "${base_particles_run}/viz/particle_smoke" "*.vtp" 1 "particle VTP files"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 32" "particle runtime banner particle count"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "particle runtime banner disabled particle console cadence"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling  : every 1 particle(s)" "particle runtime banner row sampling"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Initialization Mode: Point Source" "particle runtime banner initialization mode"
 
   local case_restart_load="${flat_particles_case}/case_restart_load.yml"
   local solver_restart_load="${flat_particles_case}/solver_restart_load.yml"
@@ -941,7 +966,7 @@ run_full_runtime_smoke() {
   local restart_load_run
   restart_load_run="${LAST_RUN_DIR}"
   require_count_ge "${restart_load_run}/results/particles" "*.dat" 1 "restart-load particle snapshots"
-  require_file_contains "${LAST_RUN_LOG}" "Particle Restart Mode: load" "restart load branch"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : load" "restart load branch"
 
   local case_restart_init="${flat_particles_case}/case_restart_init.yml"
   local solver_restart_init="${flat_particles_case}/solver_restart_init.yml"
@@ -961,7 +986,7 @@ run_full_runtime_smoke() {
   local restart_init_run
   restart_init_run="${LAST_RUN_DIR}"
   require_count_ge "${restart_init_run}/results/particles" "*.dat" 1 "restart-init particle snapshots"
-  require_file_contains "${LAST_RUN_LOG}" "Particle Restart Mode: init" "restart init branch"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : init" "restart init branch"
 
   run_restart_equivalence_smoke
 
@@ -980,7 +1005,11 @@ run_full_runtime_smoke() {
   require_count_ge "${brownian_run}/viz/brownian_smoke" "*.vts" 1 "brownian eulerian VTS files"
   require_count_ge "${brownian_run}/viz/brownian_smoke" "*.vtp" 1 "brownian particle VTP files"
   require_file "${brownian_run}/BrownianStats_msd.csv" "brownian MSD statistics CSV"
-  require_file_contains "${LAST_RUN_LOG}" "Analytical Solution Type" "analytical runtime branch"
+  require_file_contains "${LAST_SOLVER_LOG}" "Analytical Solution Type" "analytical runtime branch"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 64" "brownian runtime banner particle count"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "brownian runtime banner disabled particle console cadence"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling  : every 1 particle(s)" "brownian runtime banner row sampling"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Initialization Mode: Point Source" "brownian runtime banner initialization mode"
 }
 
 run_multi_rank_runtime_smoke() {
@@ -1002,7 +1031,10 @@ run_multi_rank_runtime_smoke() {
   flat_run="${LAST_RUN_DIR}"
   require_count_ge "${flat_run}/results" "*.dat" 1 "flat MPI result data files"
   require_count_ge "${flat_run}/viz/les_smoke" "*.vts" 1 "flat MPI post VTS files"
-  require_file_contains "${LAST_RUN_LOG}" "Number of MPI Processes     : ${nprocs}" "flat MPI rank count in runtime summary"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "flat MPI rank count in runtime summary"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 0" "flat MPI runtime banner particle count"
+  require_file_not_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence" "flat MPI runtime banner particle console cadence omission"
+  require_file_not_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling" "flat MPI runtime banner particle row sampling omission"
 
   "${picurv_exe}" init bent_channel --dest "${bent_case}" >/dev/null
   prepare_bent_case_tiny "${bent_case}"
@@ -1018,7 +1050,7 @@ run_multi_rank_runtime_smoke() {
   bent_run="${LAST_RUN_DIR}"
   require_count_ge "${bent_run}/results" "*.dat" 1 "bent MPI result data files"
   require_count_ge "${bent_run}/viz/bent_smoke" "*.vts" 1 "bent MPI post VTS files"
-  require_file_contains "${LAST_RUN_LOG}" "Number of MPI Processes     : ${nprocs}" "bent MPI rank count in runtime summary"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "bent MPI rank count in runtime summary"
 
   "${picurv_exe}" init flat_channel --dest "${flat_particles_case}" >/dev/null
   prepare_flat_case_particles_base "${flat_particles_case}"
@@ -1034,7 +1066,11 @@ run_multi_rank_runtime_smoke() {
   base_particles_run="${LAST_RUN_DIR}"
   require_count_ge "${base_particles_run}/results/particles" "*.dat" 1 "MPI particle snapshot files"
   require_count_ge "${base_particles_run}/viz/particle_smoke" "*.vtp" 1 "MPI particle VTP files"
-  require_file_contains "${LAST_RUN_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI particle run rank count in runtime summary"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI particle run rank count in runtime summary"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 32" "MPI particle runtime banner particle count"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "MPI particle runtime banner disabled particle console cadence"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling  : every 1 particle(s)" "MPI particle runtime banner row sampling"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Initialization Mode: Point Source" "MPI particle runtime banner initialization mode"
 
   local case_restart_load="${flat_particles_case}/case_restart_load.yml"
   local solver_restart_load="${flat_particles_case}/solver_restart_load.yml"
@@ -1051,8 +1087,8 @@ run_multi_rank_runtime_smoke() {
     "${post_restart_load}" \
     "flat_particles_mpi_restart_load"
   require_count_ge "${LAST_RUN_DIR}/results/particles" "*.dat" 1 "MPI restart-load particle snapshots"
-  require_file_contains "${LAST_RUN_LOG}" "Particle Restart Mode: load" "MPI restart load branch"
-  require_file_contains "${LAST_RUN_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-load rank count in runtime summary"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : load" "MPI restart load branch"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-load rank count in runtime summary"
 
   local case_restart_init="${flat_particles_case}/case_restart_init.yml"
   local solver_restart_init="${flat_particles_case}/solver_restart_init.yml"
@@ -1069,8 +1105,8 @@ run_multi_rank_runtime_smoke() {
     "${post_restart_init}" \
     "flat_particles_mpi_restart_init"
   require_count_ge "${LAST_RUN_DIR}/results/particles" "*.dat" 1 "MPI restart-init particle snapshots"
-  require_file_contains "${LAST_RUN_LOG}" "Particle Restart Mode: init" "MPI restart init branch"
-  require_file_contains "${LAST_RUN_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-init rank count in runtime summary"
+  require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : init" "MPI restart init branch"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-init rank count in runtime summary"
 }
 
 require_executable "${simulator_exe}" "simulator"

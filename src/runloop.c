@@ -4,8 +4,6 @@
  * Provides the setup to start any simulation with DMSwarm and DMDAs.
  **/
 
-#include <ctype.h>
-#include <errno.h>
 #include <signal.h>
 #include "runloop.h"
 
@@ -126,35 +124,6 @@ PetscErrorCode InitializeRuntimeSignalHandlers(void)
 #endif
 
     PetscFunctionReturn(0);
-}
-
-/**
- * @brief Implementation of \ref RuntimeWalltimeGuardParsePositiveSeconds().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the matching public header declaration.
- * @see RuntimeWalltimeGuardParsePositiveSeconds()
- */
-PetscBool RuntimeWalltimeGuardParsePositiveSeconds(const char *text, PetscReal *seconds_out)
-{
-    char   *endptr = NULL;
-    double parsed_value;
-
-    if (seconds_out) *seconds_out = 0.0;
-    if (!text || text[0] == '\0') return PETSC_FALSE;
-
-    errno        = 0;
-    parsed_value = strtod(text, &endptr);
-    if (endptr == text || errno == ERANGE || !isfinite(parsed_value) || parsed_value <= 0.0) {
-        return PETSC_FALSE;
-    }
-
-    while (*endptr != '\0' && isspace((unsigned char)*endptr)) {
-        endptr++;
-    }
-    if (*endptr != '\0') return PETSC_FALSE;
-
-    if (seconds_out) *seconds_out = (PetscReal)parsed_value;
-    return PETSC_TRUE;
 }
 
 /**

@@ -1,3 +1,8 @@
+"""!
+@file test_case_maintenance.py
+@brief Pytest coverage for case initialization, sync, build, and source-maintenance workflows.
+"""
+
 import importlib.machinery
 import importlib.util
 import json
@@ -15,7 +20,7 @@ PICURV = REPO_ROOT / "scripts" / "picurv"
 
 def load_picurv_module():
     """!
-    @brief Load picurv module for tests.
+    @brief Load `scripts/picurv` as an importable module for maintenance tests.
     @return Value returned by `load_picurv_module()`.
     """
     loader = importlib.machinery.SourceFileLoader("picurv_case_maintenance_module", str(PICURV))
@@ -42,7 +47,7 @@ def pushd(path: Path):
 
 def make_fake_source_repo(root: Path) -> Path:
     """!
-    @brief Create fake source repo.
+    @brief Create a minimal fake PICurv source tree for case-maintenance tests.
     @param[in] root Argument passed to `make_fake_source_repo()`.
     @return Value returned by `make_fake_source_repo()`.
     """
@@ -165,7 +170,7 @@ def test_build_project_uses_case_origin_source_root(tmp_path):
 
     def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
         """!
-        @brief Helper for fake execute.
+        @brief Record build-command execution requests without launching a subprocess.
         @param[in] command Argument passed to `fake_execute()`.
         @param[in] run_dir Argument passed to `fake_execute()`.
         @param[in] log_filename Argument passed to `fake_execute()`.
@@ -204,7 +209,7 @@ def test_build_project_defaults_to_all_when_make_args_have_no_goal(tmp_path):
 
     def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
         """!
-        @brief Test-local helper used to stub execute.
+        @brief Record execute-command inputs while stubbing out subprocess execution.
         @param[in] command Argument passed to `fake_execute()`.
         @param[in] run_dir Argument passed to `fake_execute()`.
         @param[in] log_filename Argument passed to `fake_execute()`.
@@ -469,7 +474,7 @@ def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
 
     def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
         """!
-        @brief Helper for fake execute.
+        @brief Record pull-command execution requests without invoking Git.
         @param[in] command Argument passed to `fake_execute()`.
         @param[in] run_dir Argument passed to `fake_execute()`.
         @param[in] log_filename Argument passed to `fake_execute()`.

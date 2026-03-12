@@ -1,6 +1,6 @@
 /**
  * @file test_mpi_kernels.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for MPI collective helper routines.
  */
 
 #include "test_support.h"
@@ -10,7 +10,7 @@
 
 #include <stdlib.h>
 /**
- * @brief Test-local routine.
+ * @brief Tests collective particle distribution consistency across MPI ranks.
  */
 
 static PetscErrorCode TestDistributeParticlesCollectiveConsistency(void)
@@ -43,7 +43,7 @@ static PetscErrorCode TestDistributeParticlesCollectiveConsistency(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests multi-rank bounding-box gather and broadcast helpers.
  */
 
 static PetscErrorCode TestBoundingBoxCollectivesMultiRank(void)
@@ -86,7 +86,7 @@ static PetscErrorCode TestBoundingBoxCollectivesMultiRank(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-mpi PETSc test binary.
  */
 
 int main(int argc, char **argv)

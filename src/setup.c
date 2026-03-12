@@ -4,8 +4,39 @@
  * Provides the setup to start any simulation with DMSwarm and DMDAs.
  **/
 
+#include <ctype.h>
+#include <errno.h>
+
 #include "setup.h"
-#include "runloop.h"
+
+/**
+ * @brief Implementation of \ref RuntimeWalltimeGuardParsePositiveSeconds().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see RuntimeWalltimeGuardParsePositiveSeconds()
+ */
+PetscBool RuntimeWalltimeGuardParsePositiveSeconds(const char *text, PetscReal *seconds_out)
+{
+    char   *endptr = NULL;
+    double parsed_value;
+
+    if (seconds_out) *seconds_out = 0.0;
+    if (!text || text[0] == '\0') return PETSC_FALSE;
+
+    errno        = 0;
+    parsed_value = strtod(text, &endptr);
+    if (endptr == text || errno == ERANGE || !isfinite(parsed_value) || parsed_value <= 0.0) {
+        return PETSC_FALSE;
+    }
+
+    while (*endptr != '\0' && isspace((unsigned char)*endptr)) {
+        endptr++;
+    }
+    if (*endptr != '\0') return PETSC_FALSE;
+
+    if (seconds_out) *seconds_out = (PetscReal)parsed_value;
+    return PETSC_TRUE;
+}
 
 #undef __FUNCT__
 #define __FUNCT__ "CreateSimulationContext"
@@ -573,14 +604,16 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     } else {
       LOG_ALLOW(GLOBAL, LOG_INFO, "  - Field/restart output cadence: DISABLED\n");
     }
-    if (simCtx->particleConsoleOutputFreq > 0) {
-      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: every %d step(s)\n", simCtx->particleConsoleOutputFreq);
-    } else {
-      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: DISABLED\n");
-    }
-    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console row subsampling: every %d particle(s)\n", simCtx->LoggingFrequency);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Immersed Boundary: %s\n", simCtx->immersed ? "ENABLED" : "DISABLED");
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particles: %d\n", simCtx->np);
+    if (simCtx->np > 0) {
+      if (simCtx->particleConsoleOutputFreq > 0) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: every %d step(s)\n", simCtx->particleConsoleOutputFreq);
+      } else {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: DISABLED\n");
+      }
+      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console row subsampling: every %d particle(s)\n", simCtx->LoggingFrequency);
+    }
     if (simCtx->StartStep > 0 && simCtx->np > 0) {
       LOG_ALLOW(GLOBAL, LOG_INFO, "    - Particle Restart Mode: %s\n", simCtx->particleRestartMode);
     }

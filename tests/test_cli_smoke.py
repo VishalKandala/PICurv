@@ -1,3 +1,8 @@
+"""!
+@file test_cli_smoke.py
+@brief Pytest smoke and contract coverage for the `picurv` CLI.
+"""
+
 import importlib.machinery
 import importlib.util
 import json
@@ -18,7 +23,7 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 def run_picurv(args, cwd=REPO_ROOT, env=None):
     """!
-    @brief Run picurv.
+    @brief Run the `picurv` CLI and capture the completed-process result.
     @param[in] args Command-line style argument list supplied to the function.
     @param[in] cwd Working directory override supplied to the function.
     @param[in] env Environment override mapping supplied to the function.
@@ -33,7 +38,7 @@ def run_picurv(args, cwd=REPO_ROOT, env=None):
 
 def load_picurv_module():
     """!
-    @brief Load picurv module for tests.
+    @brief Load `scripts/picurv` as an importable module for white-box CLI tests.
     @return Value returned by `load_picurv_module()`.
     """
     loader = importlib.machinery.SourceFileLoader("picurv_module", str(PICURV))
@@ -491,7 +496,7 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
 
     def fake_resolve_runtime_executable(name):
         """!
-        @brief Helper for fake resolve runtime executable.
+        @brief Return a stub runtime executable path for wrapper-stage tests.
         @param[in] name Argument passed to `fake_resolve_runtime_executable()`.
         @return Value returned by `fake_resolve_runtime_executable()`.
         """
@@ -499,7 +504,7 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
 
     def fake_execute_command(command, run_dir_arg, log_filename, monitor_cfg=None):
         """!
-        @brief Helper for fake execute command.
+        @brief Record staged execute-command requests without launching a process.
         @param[in] command Argument passed to `fake_execute_command()`.
         @param[in] run_dir_arg Argument passed to `fake_execute_command()`.
         @param[in] log_filename Argument passed to `fake_execute_command()`.

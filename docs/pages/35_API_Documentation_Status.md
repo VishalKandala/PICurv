@@ -49,6 +49,11 @@ For newly added or modified functions and test helpers:
 4. cross-module dependencies should be explicit when non-obvious,
 5. Python functions must use Doxygen-compatible docstrings, not plain one-line docstrings.
 
+For C test files, concise briefs are acceptable, but they should still say what
+the test/helper verifies or sets up. Placeholder summaries like `Test-local routine.`
+remain tolerated in untouched legacy tests, but newly added or modified tests
+should use descriptive `@brief` text.
+
 Minimum acceptable quality is interface correctness and discoverability, even when deep theoretical derivation is documented elsewhere.
 
 @section p35_workflow_sec 4. Practical Cleanup Workflow

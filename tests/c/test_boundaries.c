@@ -1,13 +1,13 @@
 /**
  * @file test_boundaries.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for boundary factories, inlet ownership, and face helpers.
  */
 
 #include "test_support.h"
 
 #include "Boundaries.h"
 /**
- * @brief Test-local routine.
+ * @brief Destroys one boundary-condition handler allocated by a boundary test.
  */
 
 static PetscErrorCode DestroyBoundaryHandler(BoundaryCondition **bc_ptr)
@@ -25,7 +25,7 @@ static PetscErrorCode DestroyBoundaryHandler(BoundaryCondition **bc_ptr)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests that face-service detection matches a defined inlet face.
  */
 
 static PetscErrorCode TestCanRankServiceFaceMatchesInletWhenDefined(void)
@@ -56,7 +56,7 @@ static PetscErrorCode TestCanRankServiceFaceMatchesInletWhenDefined(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests that inlet-face service requires an inlet face to be defined.
  */
 
 static PetscErrorCode TestCanRankServiceInletFaceRequiresDefinition(void)
@@ -79,7 +79,7 @@ static PetscErrorCode TestCanRankServiceInletFaceRequiresDefinition(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests the boundary-condition factory assignments for representative handlers.
  */
 
 static PetscErrorCode TestBoundaryConditionFactoryAssignments(void)
@@ -107,7 +107,7 @@ static PetscErrorCode TestBoundaryConditionFactoryAssignments(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests the implemented-handler matrix exposed by the factory.
  */
 
 static PetscErrorCode TestBoundaryConditionFactoryImplementedHandlerMatrix(void)
@@ -140,7 +140,7 @@ static PetscErrorCode TestBoundaryConditionFactoryImplementedHandlerMatrix(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests that unsupported handler types are rejected by the factory.
  */
 
 static PetscErrorCode TestBoundaryConditionFactoryRejectsUnsupportedHandler(void)
@@ -160,7 +160,7 @@ static PetscErrorCode TestBoundaryConditionFactoryRejectsUnsupportedHandler(void
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests deterministic inlet-face grid-location helpers across all faces.
  */
 
 static PetscErrorCode TestGetDeterministicFaceGridLocationFaceMatrix(void)
@@ -206,7 +206,7 @@ static PetscErrorCode TestGetDeterministicFaceGridLocationFaceMatrix(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests random inlet-face cell selection across all supported faces.
  */
 
 static PetscErrorCode TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix(void)
@@ -278,7 +278,7 @@ static PetscErrorCode TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-boundaries PETSc test binary.
  */
 
 int main(int argc, char **argv)

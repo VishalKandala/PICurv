@@ -1,16 +1,18 @@
 /**
  * @file test_io.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for I/O helpers, parsers, and startup-banner output.
  */
 
 #include "test_support.h"
 
 #include "io.h"
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 /**
- * @brief Test-local routine.
+ * @brief Tests cadence-based Eulerian output triggering.
  */
 
 static PetscErrorCode TestShouldWriteDataOutput(void)
@@ -27,7 +29,7 @@ static PetscErrorCode TestShouldWriteDataOutput(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests filesystem existence checks for files and directories.
  */
 
 static PetscErrorCode TestVerifyPathExistence(void)
@@ -54,7 +56,7 @@ static PetscErrorCode TestVerifyPathExistence(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests writing and reloading core Eulerian field vectors.
  */
 
 static PetscErrorCode TestWriteAndReadSimulationFields(void)
@@ -92,7 +94,7 @@ static PetscErrorCode TestWriteAndReadSimulationFields(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests parsing of post-processing control settings from a file.
  */
 
 static PetscErrorCode TestParsePostProcessingSettings(void)
@@ -131,7 +133,7 @@ static PetscErrorCode TestParsePostProcessingSettings(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests trimming of leading and trailing whitespace.
  */
 
 static PetscErrorCode TestTrimWhitespace(void)
@@ -150,7 +152,7 @@ static PetscErrorCode TestTrimWhitespace(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests boundary-condition string parsers for face, type, and handler names.
  */
 
 static PetscErrorCode TestBoundaryConditionStringParsers(void)
@@ -172,7 +174,7 @@ static PetscErrorCode TestBoundaryConditionStringParsers(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests validation of boundary-type and handler compatibility.
  */
 
 static PetscErrorCode TestValidateBCHandlerForBCType(void)
@@ -187,7 +189,7 @@ static PetscErrorCode TestValidateBCHandlerForBCType(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests scaling-reference parsing and derived pressure scaling.
  */
 
 static PetscErrorCode TestParseScalingInformation(void)
@@ -223,7 +225,146 @@ static PetscErrorCode TestParseScalingInformation(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Captures the startup banner into a temporary file-backed buffer.
+ */
+static PetscErrorCode CaptureBannerOutput(SimCtx *simCtx, char *captured, size_t captured_len)
+{
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char capture_path[PETSC_MAX_PATH_LEN];
+    FILE *capture_file = NULL;
+    int saved_stdout = -1;
+    int capture_fd = -1;
+    size_t bytes_read = 0;
+    PetscErrorCode ierr;
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
+    PetscCheck(captured != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Capture buffer cannot be NULL.");
+    PetscCheck(captured_len > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ, "Capture buffer must be non-empty.");
+
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscSNPrintf(capture_path, sizeof(capture_path), "%s/banner.log", tmpdir));
+
+    fflush(stdout);
+    saved_stdout = dup(STDOUT_FILENO);
+    PetscCheck(saved_stdout >= 0, PETSC_COMM_SELF, PETSC_ERR_SYS, "dup(STDOUT_FILENO) failed.");
+    capture_fd = open(capture_path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    PetscCheck(capture_fd >= 0, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to open capture file '%s'.", capture_path);
+    PetscCheck(dup2(capture_fd, STDOUT_FILENO) >= 0, PETSC_COMM_SELF, PETSC_ERR_SYS, "dup2() failed while redirecting stdout.");
+    close(capture_fd);
+    capture_fd = -1;
+
+    ierr = DisplayBanner(simCtx);
+    fflush(stdout);
+    PetscCheck(dup2(saved_stdout, STDOUT_FILENO) >= 0, PETSC_COMM_SELF, PETSC_ERR_SYS, "dup2() failed while restoring stdout.");
+    close(saved_stdout);
+    saved_stdout = -1;
+    PetscCall(ierr);
+
+    capture_file = fopen(capture_path, "r");
+    PetscCheck(capture_file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to read capture file '%s'.", capture_path);
+    bytes_read = fread(captured, 1, captured_len - 1, capture_file);
+    captured[bytes_read] = '\0';
+    fclose(capture_file);
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Asserts that captured banner output contains one expected substring.
+ */
+static PetscErrorCode AssertCapturedContains(const char *captured, const char *needle, const char *message)
+{
+    PetscFunctionBeginUser;
+    PetscCall(PicurvAssertBool((PetscBool)(strstr(captured, needle) != NULL), message));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Asserts that captured banner output omits one forbidden substring.
+ */
+static PetscErrorCode AssertCapturedOmits(const char *captured, const char *needle, const char *message)
+{
+    PetscFunctionBeginUser;
+    PetscCall(PicurvAssertBool((PetscBool)(strstr(captured, needle) == NULL), message));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests conditional startup-banner fields across particle and analytical cases.
+ */
+
+static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char captured[16384];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->OnlySetup = PETSC_FALSE;
+    simCtx->StepsToRun = 5;
+    simCtx->immersed = PETSC_FALSE;
+    PetscCall(PetscStrncpy(simCtx->eulerianSource, "solve", sizeof(simCtx->eulerianSource)));
+    simCtx->particleConsoleOutputFreq = 7;
+    simCtx->LoggingFrequency = 4;
+    simCtx->ParticleInitialization = PARTICLE_INIT_POINT_SOURCE;
+
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Run Mode                   : Full Simulation",
+                                     "DisplayBanner should include the run mode"));
+    PetscCall(AssertCapturedContains(captured, "Field/Restart Cadence      : every 2 step(s)",
+                                     "DisplayBanner should include field/restart cadence"));
+    PetscCall(AssertCapturedContains(captured, "Immersed Boundary          : DISABLED",
+                                     "DisplayBanner should include immersed-boundary state"));
+    PetscCall(AssertCapturedContains(captured, "Number of Particles         : 0",
+                                     "DisplayBanner should include the total particle count"));
+    PetscCall(AssertCapturedOmits(captured, "Particle Console Cadence",
+                                  "DisplayBanner should omit particle console cadence when no particles are configured"));
+    PetscCall(AssertCapturedOmits(captured, "Particle Log Row Sampling",
+                                  "DisplayBanner should omit particle row sampling when no particles are configured"));
+    PetscCall(AssertCapturedOmits(captured, "Particle Restart Mode",
+                                  "DisplayBanner should omit particle restart mode when no particles are configured"));
+    PetscCall(AssertCapturedOmits(captured, "Particle Initialization Mode",
+                                  "DisplayBanner should omit particle initialization mode when no particles are configured"));
+
+    simCtx->StartStep = 3;
+    simCtx->np = 8;
+    simCtx->particleConsoleOutputFreq = 0;
+    simCtx->LoggingFrequency = 4;
+    PetscCall(PetscStrncpy(simCtx->particleRestartMode, "load", sizeof(simCtx->particleRestartMode)));
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Number of Particles         : 8",
+                                     "DisplayBanner should include the active particle count"));
+    PetscCall(AssertCapturedContains(captured, "Particle Console Cadence   : DISABLED",
+                                     "DisplayBanner should show disabled particle console cadence when particles are configured"));
+    PetscCall(AssertCapturedContains(captured, "Particle Log Row Sampling  : every 4 particle(s)",
+                                     "DisplayBanner should include particle row sampling when particles are configured"));
+    PetscCall(AssertCapturedContains(captured, "Particle Restart Mode      : load",
+                                     "DisplayBanner should include particle restart mode for restarted particle runs"));
+    PetscCall(AssertCapturedContains(captured, "Particle Initialization Mode: Point Source",
+                                     "DisplayBanner should include particle initialization mode when particles are configured"));
+    PetscCall(AssertCapturedOmits(captured, "Particles Initialized At",
+                                  "DisplayBanner should omit inlet-face placement details for point-source particle initialization"));
+
+    simCtx->StartStep = 0;
+    simCtx->particleConsoleOutputFreq = 6;
+    simCtx->ParticleInitialization = PARTICLE_INIT_SURFACE_RANDOM;
+    user->inletFaceDefined = PETSC_TRUE;
+    user->identifiedInletBCFace = (BCFace)0;
+    PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
+    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "ZERO_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Analytical Solution Type : ZERO_FLOW",
+                                     "DisplayBanner should include the analytical solution type for analytical runs"));
+    PetscCall(AssertCapturedContains(captured, "Particle Console Cadence   : every 6 step(s)",
+                                     "DisplayBanner should include active particle console cadence when particles are configured"));
+    PetscCall(AssertCapturedContains(captured, "Particle Initialization Mode: Surface: Random",
+                                     "DisplayBanner should include particle initialization mode for analytical particle runs"));
+    PetscCall(AssertCapturedContains(captured, "Particles Initialized At",
+                                     "DisplayBanner should include inlet-face placement details for surface particle initialization"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Runs the unit-io PETSc test binary.
  */
 
 int main(int argc, char **argv)
@@ -238,6 +379,7 @@ int main(int argc, char **argv)
         {"bc-string-parsers", TestBoundaryConditionStringParsers},
         {"validate-bc-handler-for-type", TestValidateBCHandlerForBCType},
         {"parse-scaling-information", TestParseScalingInformation},
+        {"display-banner-startup-summary", TestDisplayBannerTracksConditionalStartupFields},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv I/O tests");

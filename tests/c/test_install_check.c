@@ -1,6 +1,6 @@
 /**
  * @file test_install_check.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for PETSc installation and environment readiness checks.
  */
 
 #include "test_support.h"
@@ -13,7 +13,7 @@
 #define PICURV_TEST_ERR_ENVIRONMENT PETSC_ERR_USER_INPUT
 #endif
 /**
- * @brief Test-local routine.
+ * @brief Tests that the PETSc/MPI environment is visible to the binary.
  */
 
 static PetscErrorCode TestEnvironmentVisible(void)
@@ -26,7 +26,7 @@ static PetscErrorCode TestEnvironmentVisible(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests creation of basic PETSc objects during install checks.
  */
 
 static PetscErrorCode TestBasicPetscObjects(void)
@@ -61,7 +61,7 @@ static PetscErrorCode TestBasicPetscObjects(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the doctor/install-check PETSc test binary.
  */
 
 int main(int argc, char **argv)

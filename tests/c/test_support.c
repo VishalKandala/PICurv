@@ -1,6 +1,6 @@
 /**
  * @file test_support.c
- * @brief C test module for PICurv.
+ * @brief Shared C test fixtures, assertions, and PETSc helper utilities.
  */
 
 #include "test_support.h"
@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 /**
- * @brief Test-local routine.
+ * @brief Destroys a PETSc vector only when the handle is non-null.
  */
 
 static PetscErrorCode DestroyVecIfSet(Vec *vec)
@@ -25,7 +25,7 @@ static PetscErrorCode DestroyVecIfSet(Vec *vec)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Destroys a PETSc DM only when the handle is non-null.
  */
 
 static PetscErrorCode DestroyDMIfSet(DM *dm)
@@ -37,7 +37,7 @@ static PetscErrorCode DestroyDMIfSet(DM *dm)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Registers one DMSwarm field used by the C test fixtures.
  */
 
 static PetscErrorCode RegisterSwarmFieldForTests(DM swarm, const char *field_name, PetscInt field_dim, PetscDataType dtype)
@@ -47,7 +47,7 @@ static PetscErrorCode RegisterSwarmFieldForTests(DM swarm, const char *field_nam
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Runs a named C test suite and prints pass/fail progress markers.
  */
 
 PetscErrorCode PicurvRunTests(const char *suite_name, const PicurvTestCase *cases, size_t case_count)
@@ -65,7 +65,7 @@ PetscErrorCode PicurvRunTests(const char *suite_name, const PicurvTestCase *case
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Ensures a directory exists for test output.
  */
 
 PetscErrorCode PicurvEnsureDir(const char *path)
@@ -77,7 +77,7 @@ PetscErrorCode PicurvEnsureDir(const char *path)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Creates a unique temporary directory for one test case.
  */
 
 PetscErrorCode PicurvMakeTempDir(char *path, size_t path_len)
@@ -94,7 +94,7 @@ PetscErrorCode PicurvMakeTempDir(char *path, size_t path_len)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Builds minimal SimCtx and UserCtx fixtures for C unit tests.
  */
 
 PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_out, PetscInt mx, PetscInt my, PetscInt mz)
@@ -111,6 +111,7 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     PetscCall(PetscCalloc1(1, &user));
 
     PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &simCtx->rank));
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &simCtx->size));
     simCtx->block_number = 1;
     simCtx->dt = 0.1;
     simCtx->tiout = 2;
@@ -129,12 +130,28 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     PetscCall(PetscStrncpy(simCtx->particle_subdir, "particles", sizeof(simCtx->particle_subdir)));
     PetscCall(PetscStrncpy(simCtx->output_dir, "/tmp", sizeof(simCtx->output_dir)));
     PetscCall(PetscStrncpy(simCtx->restart_dir, "/tmp", sizeof(simCtx->restart_dir)));
+    simCtx->mglevels = 1;
+    simCtx->usermg.mglevels = 1;
+    PetscCall(PetscCalloc1(1, &simCtx->usermg.mgctx));
+    simCtx->usermg.mgctx[0].thislevel = 0;
+    PetscCall(PetscCalloc1(simCtx->size, &simCtx->bboxlist));
 
     user->simCtx = simCtx;
     user->_this = 0;
+    user->thislevel = 0;
+    user->mglevels = 1;
     user->IM = mx;
     user->JM = my;
     user->KM = mz;
+    simCtx->usermg.mgctx[0].user = user;
+    for (PetscMPIInt rank_idx = 0; rank_idx < simCtx->size; ++rank_idx) {
+        simCtx->bboxlist[rank_idx].min_coords.x = 0.0;
+        simCtx->bboxlist[rank_idx].min_coords.y = 0.0;
+        simCtx->bboxlist[rank_idx].min_coords.z = 0.0;
+        simCtx->bboxlist[rank_idx].max_coords.x = (PetscReal)(mx - 1);
+        simCtx->bboxlist[rank_idx].max_coords.y = (PetscReal)(my - 1);
+        simCtx->bboxlist[rank_idx].max_coords.z = (PetscReal)(mz - 1);
+    }
 
     PetscCall(DMDACreate3d(PETSC_COMM_WORLD,
                            DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
@@ -200,7 +217,7 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Populates identity metric vectors on the minimal grid fixture.
  */
 
 PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user)
@@ -249,7 +266,7 @@ PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Creates matched solver and post-processing swarms for tests.
  */
 
 PetscErrorCode PicurvCreateSwarmPair(UserCtx *user, PetscInt nlocal, const char *post_field_name)
@@ -282,7 +299,7 @@ PetscErrorCode PicurvCreateSwarmPair(UserCtx *user, PetscInt nlocal, const char 
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Destroys minimal SimCtx/UserCtx fixtures and all owned PETSc objects.
  */
 
 PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_ptr)
@@ -352,6 +369,8 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
     }
 
     if (simCtx) {
+        PetscCall(PetscFree(simCtx->bboxlist));
+        PetscCall(PetscFree(simCtx->usermg.mgctx));
         PetscCall(PetscFree(simCtx->pps));
         PetscCall(PetscFree(simCtx));
         if (simCtx_ptr) {
@@ -362,7 +381,7 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Asserts that two real values agree within tolerance.
  */
 
 PetscErrorCode PicurvAssertRealNear(PetscReal expected, PetscReal actual, PetscReal tol, const char *context)
@@ -377,7 +396,7 @@ PetscErrorCode PicurvAssertRealNear(PetscReal expected, PetscReal actual, PetscR
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Asserts that two integer values are equal.
  */
 
 PetscErrorCode PicurvAssertIntEqual(PetscInt expected, PetscInt actual, const char *context)
@@ -392,7 +411,7 @@ PetscErrorCode PicurvAssertIntEqual(PetscInt expected, PetscInt actual, const ch
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Asserts that one boolean condition is true.
  */
 
 PetscErrorCode PicurvAssertBool(PetscBool value, const char *context)
@@ -405,7 +424,7 @@ PetscErrorCode PicurvAssertBool(PetscBool value, const char *context)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Asserts that a filesystem path exists as a readable file.
  */
 
 PetscErrorCode PicurvAssertFileExists(const char *path, const char *context)
@@ -421,7 +440,7 @@ PetscErrorCode PicurvAssertFileExists(const char *path, const char *context)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Shared test-support routine.
+ * @brief Asserts that a PETSc vector is spatially constant within tolerance.
  */
 
 PetscErrorCode PicurvAssertVecConstant(Vec vec, PetscScalar expected, PetscReal tol, const char *context)

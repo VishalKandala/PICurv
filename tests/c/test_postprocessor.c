@@ -1,6 +1,6 @@
 /**
  * @file test_postprocessor.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for postprocessor orchestration and output paths.
  */
 
 #include "test_support.h"
@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 /**
- * @brief Test-local routine.
+ * @brief Tests post-processing swarm setup and pipeline-field registration.
  */
 
 static PetscErrorCode TestSetupPostProcessSwarmRegistersPipelineFields(void)
@@ -39,7 +39,7 @@ static PetscErrorCode TestSetupPostProcessSwarmRegistersPipelineFields(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests Eulerian post-processing pipeline dispatch for configured kernels.
  */
 
 static PetscErrorCode TestEulerianDataProcessingPipelineRunsConfiguredKernels(void)
@@ -69,7 +69,7 @@ static PetscErrorCode TestEulerianDataProcessingPipelineRunsConfiguredKernels(vo
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests particle post-processing pipeline dispatch for specific-KE output.
  */
 
 static PetscErrorCode TestParticleDataProcessingPipelineComputesSpecificKE(void)
@@ -107,7 +107,7 @@ static PetscErrorCode TestParticleDataProcessingPipelineComputesSpecificKE(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests global statistics pipeline generation of MSD CSV output.
  */
 
 static PetscErrorCode TestGlobalStatisticsPipelineWritesMSDCSV(void)
@@ -155,7 +155,7 @@ static PetscErrorCode TestGlobalStatisticsPipelineWritesMSDCSV(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests VTS emission for Eulerian post-processing output.
  */
 
 static PetscErrorCode TestWriteEulerianFileWritesVTS(void)
@@ -183,7 +183,7 @@ static PetscErrorCode TestWriteEulerianFileWritesVTS(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests VTP emission for particle post-processing output.
  */
 
 static PetscErrorCode TestWriteParticleFileWritesVTP(void)
@@ -228,7 +228,7 @@ static PetscErrorCode TestWriteParticleFileWritesVTP(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-postprocessor PETSc test binary.
  */
 
 int main(int argc, char **argv)

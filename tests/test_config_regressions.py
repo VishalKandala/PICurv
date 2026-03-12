@@ -1,3 +1,8 @@
+"""!
+@file test_config_regressions.py
+@brief Pytest coverage for ingress, post-validation, and statistics-config regressions.
+"""
+
 import importlib.machinery
 import importlib.util
 import json
@@ -13,7 +18,7 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 def run_picurv(args, cwd=REPO_ROOT):
     """!
-    @brief Run picurv.
+    @brief Run the `picurv` CLI for configuration-regression tests.
     @param[in] args Command-line style argument list supplied to the function.
     @param[in] cwd Working directory override supplied to the function.
     @return Value returned by `run_picurv()`.
@@ -24,7 +29,7 @@ def run_picurv(args, cwd=REPO_ROOT):
 
 def load_picurv_module():
     """!
-    @brief Load picurv module for tests.
+    @brief Load `scripts/picurv` as an importable module for regression tests.
     @return Value returned by `load_picurv_module()`.
     """
     loader = importlib.machinery.SourceFileLoader("picurv_regression_module", str(PICURV))
@@ -231,4 +236,3 @@ def test_dry_run_json_reports_predicted_statistics_csv_artifact(tmp_path):
     payload = json.loads(result.stdout)
     expected_stats_path = str((Path(payload["run_dir_preview"]) / "stats" / "BrownianStats_msd.csv").resolve())
     assert expected_stats_path in payload["artifacts"]
-

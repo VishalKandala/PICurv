@@ -1,6 +1,6 @@
 /**
  * @file test_statistics.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for particle statistics kernels and CSV output.
  */
 
 #include "test_support.h"
@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 /**
- * @brief Test-local routine.
+ * @brief Tests MSD CSV generation for a populated particle swarm.
  */
 
 static PetscErrorCode TestComputeParticleMSDWritesCSV(void)
@@ -66,7 +66,7 @@ static PetscErrorCode TestComputeParticleMSDWritesCSV(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests that empty swarms do not emit MSD CSV output.
  */
 
 static PetscErrorCode TestComputeParticleMSDEmptySwarmNoOutput(void)
@@ -95,7 +95,7 @@ static PetscErrorCode TestComputeParticleMSDEmptySwarmNoOutput(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-post-statistics PETSc test binary.
  */
 
 int main(int argc, char **argv)

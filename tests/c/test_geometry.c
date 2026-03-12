@@ -1,6 +1,6 @@
 /**
  * @file test_geometry.c
- * @brief C test module for PICurv.
+ * @brief C unit tests for interpolation and signed-distance geometry helpers.
  */
 
 #include "test_support.h"
@@ -8,7 +8,7 @@
 #include "interpolation.h"
 #include "walkingsearch.h"
 /**
- * @brief Test-local routine.
+ * @brief Tests scalar interpolation on a constant field.
  */
 
 static PetscErrorCode TestScalarInterpolationConstantField(void)
@@ -38,7 +38,7 @@ static PetscErrorCode TestScalarInterpolationConstantField(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests vector interpolation on a constant field.
  */
 
 static PetscErrorCode TestVectorInterpolationConstantField(void)
@@ -70,7 +70,7 @@ static PetscErrorCode TestVectorInterpolationConstantField(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Test-local routine.
+ * @brief Tests signed-distance computation and inside/outside classification.
  */
 
 static PetscErrorCode TestSignedDistanceAndClassification(void)
@@ -101,7 +101,7 @@ static PetscErrorCode TestSignedDistanceAndClassification(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Entry point for this unit-test binary.
+ * @brief Runs the unit-geometry PETSc test binary.
  */
 
 int main(int argc, char **argv)

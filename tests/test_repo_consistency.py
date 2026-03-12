@@ -1,7 +1,14 @@
+"""!
+@file test_repo_consistency.py
+@brief Pytest coverage for repository-wide consistency and documentation contracts.
+"""
+
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -53,7 +60,7 @@ STUDY_BUNDLES = [
 
 def run_picurv(args):
     """!
-    @brief Run picurv.
+    @brief Run the `picurv` CLI for repository-consistency checks.
     @param[in] args Command-line style argument list supplied to the function.
     @return Value returned by `run_picurv()`.
     """
@@ -63,7 +70,7 @@ def run_picurv(args):
 
 def _read_text(path: Path) -> str:
     """!
-    @brief Helper for read text.
+    @brief Read one UTF-8 text file used by repository-consistency checks.
     @param[in] path Filesystem path argument passed to `_read_text()`.
     @return Value returned by `_read_text()`.
     """
@@ -98,6 +105,25 @@ def test_all_example_study_and_cluster_bundles_validate():
             ]
         )
         assert result.returncode == 0, result.stdout + "\n" + result.stderr
+
+
+def test_standard_output_profiles_use_quiet_warning_defaults():
+    """!
+    @brief Test that shipped monitor profiles use the quiet warning-level default.
+    """
+    monitor_paths = [
+        REPO_ROOT / "config" / "monitors" / "Standard_Output.yml",
+        REPO_ROOT / "examples" / "flat_channel" / "Standard_Output.yml",
+        REPO_ROOT / "examples" / "bent_channel" / "Standard_Output.yml",
+        REPO_ROOT / "examples" / "brownian_motion" / "Standard_Output.yml",
+        REPO_ROOT / "examples" / "master_template" / "master_monitor.yml",
+    ]
+
+    for monitor_path in monitor_paths:
+        payload = yaml.safe_load(_read_text(monitor_path))
+        logging_cfg = payload.get("logging", {})
+        assert str(logging_cfg.get("verbosity", "")).upper() == "WARNING", monitor_path
+        assert logging_cfg.get("enabled_functions", []) == [], monitor_path
 
 
 def test_docs_and_examples_do_not_use_legacy_post_run_control_yaml_keys():
