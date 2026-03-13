@@ -26,6 +26,7 @@ Canonical commands:
 - `make doctor`
 - `make unit`
 - `make unit-geometry`
+- `make unit-setup`
 - `make unit-solver`
 - `make unit-particles`
 - `make unit-io`
@@ -36,14 +37,19 @@ Canonical commands:
 - `make unit-boundaries`
 - `make unit-poisson-rhs`
 - `make unit-runtime`
+- `make unit-simulation`
 - `make unit-mpi`
+- `make unit-periodic-dev`
 - `make smoke`
 - `make smoke-mpi`
 - `make smoke-mpi-matrix`
+- `make smoke-stress`
+- `make smoke-periodic-dev`
 - `make check`
 - `make check-mpi`
 - `make check-mpi-matrix`
 - `make check-full`
+- `make check-stress`
 
 Compatibility aliases remain available:
 
@@ -60,10 +66,13 @@ python3 scripts/audit_function_docs.py
 make test
 make coverage-python
 make doctor
+make unit-setup
+make unit-simulation
 make unit-io
 make unit-runtime
 make unit-mpi
 make smoke
+make smoke-periodic-dev
 make check
 make check-full
 ```
@@ -74,13 +83,18 @@ Guidance:
 - Use `make test` when working on `scripts/picurv`, schemas, or repository metadata.
 - Use `python3 scripts/check_markdown_links.py` when changing docs/examples.
 - Use `make doctor` after provisioning PETSc on a new machine.
+- Use `make unit-setup` when changing setup, teardown, initialization, or rank-info lifecycle code.
+- Use `make unit-simulation` for the normal simulation-core debugging loop (`unit-boundaries + unit-solver + unit-poisson-rhs + unit-runtime + unit-particles`).
 - Use `make unit-<area>` while changing a subsystem in isolation.
 - Use `make smoke` after building binaries to execute tiny real solve/post/restart workflows.
 - Use `make smoke-mpi-matrix` when you need a rank-sweep MPI runtime sanity check.
+- Use `make smoke-stress` when you want the opt-in medium-budget runtime extension tier.
+- Use `make unit-periodic-dev` and `make smoke-periodic-dev` only while working on the in-development periodic BC path; they are intentionally non-gating.
 - Use `make coverage` to enforce line-coverage floors for core Python scripts and C sources.
 - Use `make check` as the pre-merge gate at the end of a development cycle.
 - Use `make check-mpi` when multi-rank MPI behavior is in scope.
 - Use `make check-full` for comprehensive branch/CI/release validation that must cover all MPI layers.
+- Use `make check-stress` when you want the full default gate plus the stress tier in one pass.
 
 @section p40_python_sec 3. Python Suite (`test-python`)
 
@@ -121,11 +135,14 @@ Current Python files and primary responsibilities:
 - `tests/test_cli_smoke.py`
   - CLI help and argument contract checks
   - dry-run JSON schema assertions
+  - staged Slurm workflow coverage for `submit`, `cancel`, and `sweep`
+  - `summarize` JSON/text output and failure-path checks
   - restart resolution/pathing checks
   - cluster no-submit manifest and sbatch-rank checks
   - grid-gen header/node-count checks
 - `tests/test_case_maintenance.py`
   - case-origin metadata behavior
+  - real CLI wrapper coverage for `build`, `sync-binaries`, `sync-config`, `status-source`, and `pull-source`
   - sync/pull/build source-root resolution behavior
   - template sync behavior (`overwrite`, `prune`)
   - status drift report behavior
@@ -152,12 +169,8 @@ The `doctor` target builds and runs a small C smoke binary under `tests/c/test_i
 
 It validates:
 
-- environment visibility for `PETSC_DIR`
-- `PetscInitialize`
-- `DMDA` creation
-- `Vec` creation
-- `DMSwarm` creation
-- `PetscFinalize`
+- named case `environment-visible` for `PETSC_DIR` visibility
+- named case `basic-petsc-objects` for `PetscInitialize`, `DMDA`, `Vec`, `DMSwarm`, and `PetscFinalize`
 
 This target answers: "Is this machine set up correctly for PICurv development?"
 
@@ -177,6 +190,7 @@ Purpose:
 Current suites:
 
 - `make unit-geometry`
+- `make unit-setup`
 - `make unit-solver`
 - `make unit-particles`
 - `make unit-io`
@@ -191,6 +205,7 @@ Current suites:
 
 Suite focus areas:
 
+- setup, initialization, and cleanup lifecycle coverage
 - geometry and interpolation invariants
 - solver utility kernels
 - particle location helpers
@@ -210,22 +225,23 @@ These tests use real PETSc objects and run single-rank by default.
 
 Current C test files and their main purpose:
 
-- `tests/c/test_install_check.c`: PETSc installation viability (`doctor`)
+- `tests/c/test_install_check.c`: PETSc installation viability (`doctor`: `environment-visible`, `basic-petsc-objects`)
 - `tests/c/test_geometry.c`: interpolation/signed-distance helpers
-- `tests/c/test_solver_kernels.c`: solver utility kernels
+- `tests/c/test_setup_lifecycle.c`: setup/cleanup lifecycle, RNG, and initialized particle-settlement checks
+- `tests/c/test_solver_kernels.c`: analytical geometry/particle dispatch, LES filter/eddy-viscosity, and FlowSolver guardrails
 - `tests/c/test_particle_kernels.c`: walking-search helper kernels
-- `tests/c/test_io.c`: I/O path, parser, and scaling-ingestion checks
-- `tests/c/test_logging.c`: logging-contract checks (log level, allow-list, snapshot cadence)
+- `tests/c/test_io.c`: I/O path, parser, scaling-ingestion, and startup-banner checks
+- `tests/c/test_logging.c`: logging-contract checks (log level, allow-list, continuity/min-max/interpolation diagnostics, string conversion, profiling, snapshot cadence)
 - `tests/c/test_postprocessing.c`: post kernel checks (specific KE, displacement, nodal averaging, normalization, dimensionalization, Q-criterion)
 - `tests/c/test_vtk_io.c`: VTK prep/writer checks (Eulerian + particle data shaping)
 - `tests/c/test_postprocessor.c`: postprocessor pipeline/orchestration checks
 - `tests/c/test_statistics.c`: statistics-kernel checks (MSD CSV behavior)
 - `tests/c/test_grid.c`: bounding-box exchange checks
 - `tests/c/test_metric.c`: metric and face-geometry checks
-- `tests/c/test_boundaries.c`: boundary factory/handler matrix checks
-- `tests/c/test_poisson_rhs.c`: pressure/rhs/diffusivity helper checks
-- `tests/c/test_runtime_kernels.c`: runtime orchestration helper checks
-- `tests/c/test_mpi_kernels.c`: dedicated multi-rank consistency checks
+- `tests/c/test_boundaries.c`: boundary factory plus direct handler-behavior checks
+- `tests/c/test_poisson_rhs.c`: pressure/rhs/projection/diffusivity helper checks
+- `tests/c/test_runtime_kernels.c`: runtime orchestration, interpolation/scatter, particle lifecycle, wall, and walltime-guard checks
+- `tests/c/test_mpi_kernels.c`: dedicated multi-rank consistency and restart-migration checks
 - `tests/c/test_support.{c,h}`: shared PETSc fixture and assertion layer
 
 @section p40_smoke_sec 6. Executable Smoke (`smoke`)
@@ -252,8 +268,13 @@ The current smoke runner verifies:
 - multi-rank tiny solve + post runs for flat and bent channels (`make smoke-mpi`)
 - multi-rank flat particle runtime + restart (`load`/`init`) runs (`make smoke-mpi`)
 - rank-matrix MPI runtime sweep across flat+bent+flat-particle-restart (`make smoke-mpi-matrix`)
+- opt-in stress extensions for longer particle cycling, chained restarts, parabolic-inlet runtime coverage, periodic constant-flux validate/dry-run coverage, and extra-rank MPI particle runs (`make smoke-stress`)
+- periodic runtime development harness for the in-progress periodic constant-flux path (`make smoke-periodic-dev`, non-gating)
 
 These checks are intentionally tiny but execute real solver/postprocessor runtime paths.
+For the `-help` smoke checks, banner presence is authoritative: the local PETSc
+debug build may exit with code `62` (`PETSC_ERR_ARG_WRONG`) after printing help,
+and that still counts as a pass.
 
 Run locally:
 
@@ -261,6 +282,8 @@ Run locally:
 make smoke
 make smoke-mpi
 make smoke-mpi-matrix
+make smoke-stress
+make smoke-periodic-dev
 ```
 
 @subsection p40_smoke_knobs_ssec 6.1 Useful Smoke Knobs
@@ -294,6 +317,9 @@ Use it when you want maximum local confidence before ending a development cycle.
 `make check-mpi-matrix` extends this sweep by running `make smoke-mpi-matrix` and `make unit-mpi`.
 
 `make check-full` is the comprehensive MPI-inclusive gate. It runs `make check`, then `make unit-mpi`, `make smoke-mpi`, and `make smoke-mpi-matrix`.
+
+`make check-stress` extends `make check-full` by running `make smoke-stress` afterward.
+`make smoke-periodic-dev` is intentionally outside the default gates and may fail honestly while periodic BC work is still in development.
 
 Use `check-full` for release candidates or CI workflows where both focused multi-rank tests and rank-matrix runtime checks are required in a single pass.
 
@@ -335,7 +361,7 @@ Common issues:
 When adding new tests:
 
 1. choose the narrowest valid layer (`test-python`, `doctor`, `unit-*`, or `smoke`)
-2. reuse `tests/c/test_support.*` for PETSc-backed fixtures
+2. reuse `tests/c/test_support.*` for PETSc-backed fixtures; it now provides both a fast minimal fixture and a richer tiny-runtime fixture while mirroring the production `da/fda/swarm` contract instead of a same-size synthetic DM
 3. keep temporary artifacts under `/tmp`
 4. document new user-facing targets or workflows in the README and this guide
 
@@ -353,34 +379,36 @@ The smoke suite uses these named runtime sequences:
 - `S4`: tiny Brownian analytical solve+post with particle outputs and MSD statistics
 - `S5`: multi-rank tiny solve+post runs for flat and bent channels, plus flat particle base/restart (`load` and `init`) branches
 - `S6`: restart-equivalence run for flat channel (continuous vs split restart continuity metric agreement)
+- `S7`: periodic constant-flux validate + dry-run contract coverage in the opt-in stress tier
+- `S8`: periodic constant-flux real runtime development harness (`make smoke-periodic-dev`, non-gating)
 
 Runtime file coverage map (unit targets + runtime sequences):
 
 - `src/AnalyticalSolutions.c`: `unit-solver`, `S4`
-- `src/BC_Handlers.c`: `unit-boundaries`, `unit-runtime`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`
+- `src/BC_Handlers.c`: `unit-boundaries`, `unit-periodic-dev`, `unit-runtime`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`, `S7`, `S8`
 - `src/BodyForces.c`: `unit-solver`, `unit-poisson-rhs`, `S1`, `S2`
-- `src/Boundaries.c`: `unit-boundaries`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`
+- `src/Boundaries.c`: `unit-boundaries`, `unit-periodic-dev`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`, `S7`, `S8`
 - `src/Filter.c`: `unit-solver`
 - `src/Metric.c`: `unit-metric`, `unit-grid`, `S1`, `S1b`, `S2`, `S5`, `S6`
 - `src/ParticleMotion.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
 - `src/ParticlePhysics.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
 - `src/ParticleSwarm.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
-- `src/grid.c`: `unit-grid`, `S1`, `S1b`, `S2`, `S4`, `S5`, `S6`
+- `src/grid.c`: `unit-grid`, `unit-setup`, `S1`, `S1b`, `S2`, `S4`, `S5`, `S6`, `S8`
 - `src/initialcondition.c`: `unit-runtime`, `S1`, `S1b`, `S2`, `S4`, `S5`, `S6`
 - `src/interpolation.c`: `unit-geometry`, `unit-particles`, `S2`, `S3`, `S4`, `S5`
 - `src/io.c`: `unit-io`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
-- `src/les.c`: `unit-runtime`
-- `src/logging.c`: `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
+- `src/les.c`: `unit-solver`, `unit-runtime`
+- `src/logging.c`: `unit-logging`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`, `S8`
 - `src/momentumsolvers.c`: `S1`, `S1b`, `S2`, `S5`, `S6`
 - `src/particle_statistics.c`: `unit-post`, `S4`
 - `src/poisson.c`: `unit-poisson-rhs`, `S1`, `S1b`, `S2`, `S5`, `S6`
 - `src/postprocessing_kernels.c`: `unit-post`, `S1`, `S1b`, `S2`, `S4`, `S5`, `S6`
-- `src/postprocessor.c`: `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
+- `src/postprocessor.c`: `unit-post`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
 - `src/rhs.c`: `unit-poisson-rhs`, `S1`, `S1b`, `S2`, `S5`, `S6`
-- `src/runloop.c`: `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
-- `src/setup.c`: `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
+- `src/runloop.c`: `unit-runtime`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
+- `src/setup.c`: `unit-setup`, `unit-runtime`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`, `S8`
 - `src/simulator.c`: `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
-- `src/solvers.c`: `S1`, `S1b`, `S2`, `S5`, `S6`
+- `src/solvers.c`: `unit-solver`, `S1`, `S1b`, `S2`, `S5`, `S6`
 - `src/vtk_io.c`: `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
 - `src/walkingsearch.c`: `unit-geometry`, `unit-particles`, `S2`, `S3`, `S4`
 - `src/wallfunction.c`: `unit-runtime`
@@ -401,6 +429,18 @@ P1 (implemented):
 
 P1 (next):
 
+- direct walking-search branch pinning for `LocateParticleOrFindMigrationTarget`:
+  - boundary clamp
+  - ghost-region handoff
+  - tie-breaker
+  - `LOST` and `MIGRATING_OUT` outcomes
+- explicit direction-complete and failure-path coverage for the `GuessParticleOwnerWithBBox` heuristic
+- non-restart MPI particle-migration tests for multi-pass handoff, newcomer flagging, and count conservation
+- direct positive-path momentum harnesses:
+  - `MomentumSolver_Explicit_RungeKutta4`
+  - one small invariant case for `MomentumSolver_DualTime_Picard_RK4`
+- deeper `PoissonSolver_MG` and periodic/IBM stencil behavior checks beyond the current helper-level `unit-poisson-rhs` surface
+- broader richer-runtime fixture variants so grid/setup/metric tests cover more than the tiny Cartesian baseline
 - broaden the MPI rank matrix to larger optional decompositions (for example `SMOKE_MPI_MATRIX_NPROCS="2 3 4 6"`) in CI/nightly profiles
 
 P2 (deeper hardening):

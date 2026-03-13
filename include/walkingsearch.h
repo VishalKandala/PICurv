@@ -323,6 +323,12 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
  * @param[out]    status_out   The final, actionable status of the particle after the search.
  *
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ *
+ * @note Testing status:
+ *       This function is exercised indirectly by the orchestrator tests, but
+ *       direct branch pinning for boundary clamp, ghost-region handoff,
+ *       tie-breaker, `LOST`, and `MIGRATING_OUT` outcomes is still part of the
+ *       next-gap test backlog.
  */
 PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                                                         Particle *particle,

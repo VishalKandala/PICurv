@@ -47,7 +47,24 @@ The current orchestrator includes:
 For restart-loaded particles with valid `CellID`, PICurv can skip full walking search and directly resolve owner rank via cell ownership map before migration.
 This is usually much cheaper than full re-location on first restart step.
 
-@section p26_practical_sec 5. Failure Modes and Signals
+@section p26_testing_sec 5. Current test status
+
+Current direct coverage is strongest at the orchestrator level:
+
+- `LocateAllParticlesInGrid` has dedicated direct tests for the prior-cell fast path and the local guess-then-verify path
+- restart fast-path migration is covered directly through `MigrateRestartParticlesUsingCellID`
+
+Current direct gaps still targeted for the next remediation are:
+
+- branch-complete unit coverage for `LocateParticleOrFindMigrationTarget`
+  - boundary clamp
+  - ghost-region handoff
+  - stuck/tie-breaker
+  - `LOST` and `MIGRATING_OUT`
+- direction-complete and failure-path coverage for the `GuessParticleOwnerWithBBox` heuristic
+- non-restart MPI migration tests for multi-pass handoff and newcomer flagging
+
+@section p26_practical_sec 6. Failure Modes and Signals
 
 Watch for:
 
@@ -80,4 +97,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

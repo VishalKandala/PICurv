@@ -9,11 +9,77 @@
 #include "ParticleMotion.h"
 #include "ParticlePhysics.h"
 #include "ParticleSwarm.h"
+#include "interpolation.h"
 #include "initialcondition.h"
 #include "les.h"
 #include "runloop.h"
 #include "setup.h"
 #include "wallfunction.h"
+
+/**
+ * @brief Synchronizes the minimal runtime fixture's global fields into their persistent local ghosts.
+ */
+static PetscErrorCode SyncRuntimeFieldGhosts(UserCtx *user)
+{
+    PetscFunctionBeginUser;
+    PetscCall(DMGlobalToLocalBegin(user->da, user->P, INSERT_VALUES, user->lP));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->P, INSERT_VALUES, user->lP));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Psi, INSERT_VALUES, user->lPsi));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Psi, INSERT_VALUES, user->lPsi));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Diffusivity, INSERT_VALUES, user->lDiffusivity));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Diffusivity, INSERT_VALUES, user->lDiffusivity));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->DiffusivityGradient, INSERT_VALUES, user->lDiffusivityGradient));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->DiffusivityGradient, INSERT_VALUES, user->lDiffusivityGradient));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Seeds one localized swarm particle with the cell, position, weight, and status data used by runtime tests.
+ */
+static PetscErrorCode SeedSingleParticle(UserCtx *user,
+                                         PetscInt ci,
+                                         PetscInt cj,
+                                         PetscInt ck,
+                                         PetscReal x,
+                                         PetscReal y,
+                                         PetscReal z,
+                                         PetscReal wx,
+                                         PetscReal wy,
+                                         PetscReal wz,
+                                         PetscInt status_value)
+{
+    PetscReal *positions = NULL;
+    PetscReal *weights = NULL;
+    PetscInt *cell_ids = NULL;
+    PetscInt *status = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    PetscCall(DMSwarmGetField(user->swarm, "weight", NULL, NULL, (void **)&weights));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+
+    positions[0] = x;
+    positions[1] = y;
+    positions[2] = z;
+    weights[0] = wx;
+    weights[1] = wy;
+    weights[2] = wz;
+    cell_ids[0] = ci;
+    cell_ids[1] = cj;
+    cell_ids[2] = ck;
+    status[0] = status_value;
+
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmRestoreField(user->swarm, "weight", NULL, NULL, (void **)&weights));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    PetscFunctionReturn(0);
+}
 /**
  * @brief Tests particle distribution remainder handling across ranks.
  */
@@ -196,6 +262,419 @@ static PetscErrorCode TestSetInitialInteriorFieldConstantProfileOnZInlet(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests direct interpolation from Eulerian fields to one localized swarm particle.
+ */
+
+static PetscErrorCode TestInterpolateAllFieldsToSwarmConstantFields(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***grad = NULL;
+    PetscReal *velocity = NULL;
+    PetscReal *diffusivity = NULL;
+    PetscReal *diffusivity_gradient = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
+    PetscCall(VecSet(user->Ucat, 2.0));
+    PetscCall(VecSet(user->Diffusivity, 0.25));
+
+    PetscCall(DMDAVecGetArray(user->fda, user->DiffusivityGradient, &grad));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+                grad[k][j][i].x = 0.1;
+                grad[k][j][i].y = 0.2;
+                grad[k][j][i].z = 0.3;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->DiffusivityGradient, &grad));
+    PetscCall(SyncRuntimeFieldGhosts(user));
+    PetscCall(SeedSingleParticle(user, 0, 0, 0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ACTIVE_AND_LOCATED));
+
+    PetscCall(InterpolateAllFieldsToSwarm(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "velocity", NULL, NULL, (void **)&velocity));
+    PetscCall(DMSwarmGetField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmGetField(user->swarm, "DiffusivityGradient", NULL, NULL, (void **)&diffusivity_gradient));
+    PetscCall(PicurvAssertRealNear(2.0, velocity[0], 1.0e-12, "Interpolated velocity x should match constant Eulerian field"));
+    PetscCall(PicurvAssertRealNear(2.0, velocity[1], 1.0e-12, "Interpolated velocity y should match constant Eulerian field"));
+    PetscCall(PicurvAssertRealNear(2.0, velocity[2], 1.0e-12, "Interpolated velocity z should match constant Eulerian field"));
+    PetscCall(PicurvAssertRealNear(0.25, diffusivity[0], 1.0e-12, "Interpolated scalar diffusivity should match constant Eulerian field"));
+    PetscCall(PicurvAssertRealNear(0.1, diffusivity_gradient[0], 1.0e-12, "Interpolated diffusivity-gradient x component"));
+    PetscCall(PicurvAssertRealNear(0.2, diffusivity_gradient[1], 1.0e-12, "Interpolated diffusivity-gradient y component"));
+    PetscCall(PicurvAssertRealNear(0.3, diffusivity_gradient[2], 1.0e-12, "Interpolated diffusivity-gradient z component"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DiffusivityGradient", NULL, NULL, (void **)&diffusivity_gradient));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmRestoreField(user->swarm, "velocity", NULL, NULL, (void **)&velocity));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests particle-to-grid scattering using known cell occupancy and scalar values.
+ */
+
+static PetscErrorCode TestScatterAllParticleFieldsToEulerFieldsAveragesPsi(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscInt *cell_ids = NULL;
+    PetscReal *psi = NULL;
+    PetscReal ***psi_grid = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 2, "ske"));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    cell_ids[0] = 0; cell_ids[1] = 0; cell_ids[2] = 0;
+    cell_ids[3] = 0; cell_ids[4] = 0; cell_ids[5] = 0;
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    psi[0] = 1.0;
+    psi[1] = 3.0;
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+
+    PetscCall(ScatterAllParticleFieldsToEulerFields(user));
+
+    PetscCall(DMDAVecGetArrayRead(user->da, user->Psi, &psi_grid));
+    PetscCall(PicurvAssertRealNear(2.0, psi_grid[1][1][1], 1.0e-12, "Scatter should average particle Psi values into the owning cell"));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->Psi, &psi_grid));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests particle counting by geometric cell IDs using the production +1 storage shift.
+ */
+
+static PetscErrorCode TestCalculateParticleCountPerCellCountsGlobalCellIDs(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscInt *cell_ids = NULL;
+    PetscReal ***counts = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 3, "ske"));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    cell_ids[0] = 0; cell_ids[1] = 0; cell_ids[2] = 0;
+    cell_ids[3] = 0; cell_ids[4] = 0; cell_ids[5] = 0;
+    cell_ids[6] = 1; cell_ids[7] = 0; cell_ids[8] = 0;
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+
+    PetscCall(CalculateParticleCountPerCell(user));
+
+    PetscCall(DMDAVecGetArrayRead(user->da, user->ParticleCount, &counts));
+    PetscCall(PicurvAssertRealNear(2.0, counts[1][1][1], 1.0e-12, "Two particles in cell (0,0,0) should accumulate at shifted index (1,1,1)"));
+    PetscCall(PicurvAssertRealNear(1.0, counts[1][1][2], 1.0e-12, "One particle in cell (1,0,0) should accumulate at shifted index (2,1,1)"));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->ParticleCount, &counts));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests localized particle-status reset behavior for restart of the location workflow.
+ */
+
+static PetscErrorCode TestResetAllParticleStatusesLeavesLostParticlesUntouched(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscInt *status = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 3, "ske"));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    status[0] = ACTIVE_AND_LOCATED;
+    status[1] = LOST;
+    status[2] = NEEDS_LOCATION;
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+
+    PetscCall(ResetAllParticleStatuses(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(PicurvAssertIntEqual(NEEDS_LOCATION, status[0], "ACTIVE_AND_LOCATED particles should be reset to NEEDS_LOCATION"));
+    PetscCall(PicurvAssertIntEqual(LOST, status[1], "LOST particles should remain LOST"));
+    PetscCall(PicurvAssertIntEqual(NEEDS_LOCATION, status[2], "NEEDS_LOCATION particles should remain unchanged"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests direct removal of particles that leave every rank bounding box.
+ */
+
+static PetscErrorCode TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedParticle(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal *positions = NULL;
+    PetscInt removed_local = 0;
+    PetscInt removed_global = 0;
+    PetscInt nlocal = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 2, "ske"));
+
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    positions[0] = 0.5; positions[1] = 0.5; positions[2] = 0.5;
+    positions[3] = 9.0; positions[4] = 9.0; positions[5] = 9.0;
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+
+    PetscCall(CheckAndRemoveOutOfBoundsParticles(user, &removed_local, &removed_global, simCtx->bboxlist));
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(PicurvAssertIntEqual(1, removed_local, "Exactly one particle should be removed as out-of-bounds on a single rank"));
+    PetscCall(PicurvAssertIntEqual(1, removed_global, "Global out-of-bounds removal count should match the local single-rank result"));
+    PetscCall(PicurvAssertIntEqual(1, nlocal, "One in-bounds particle should remain after out-of-bounds removal"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests direct removal of particles already marked LOST by the location workflow.
+ */
+
+static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscInt *status = NULL;
+    PetscInt removed_local = 0;
+    PetscInt removed_global = 0;
+    PetscInt nlocal = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 3, "ske"));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    status[0] = ACTIVE_AND_LOCATED;
+    status[1] = LOST;
+    status[2] = LOST;
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+
+    PetscCall(CheckAndRemoveLostParticles(user, &removed_local, &removed_global));
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(PicurvAssertIntEqual(2, removed_local, "Two LOST particles should be removed locally"));
+    PetscCall(PicurvAssertIntEqual(2, removed_global, "Global LOST-particle removal count should match the local single-rank result"));
+    PetscCall(PicurvAssertIntEqual(1, nlocal, "One non-LOST particle should remain"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests Brownian displacement generation against a duplicated seeded RNG stream.
+ */
+
+static PetscErrorCode TestCalculateBrownianDisplacementDeterministicSeed(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts first;
+    Cmpnts second;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->dt = 0.25;
+
+    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &simCtx->BrownianMotionRNG));
+    PetscCall(PetscRandomSetType(simCtx->BrownianMotionRNG, PETSCRAND48));
+    PetscCall(PetscRandomSetInterval(simCtx->BrownianMotionRNG, 0.0, 1.0));
+    PetscCall(PetscRandomSetSeed(simCtx->BrownianMotionRNG, 12345));
+    PetscCall(PetscRandomSeed(simCtx->BrownianMotionRNG));
+
+    PetscCall(CalculateBrownianDisplacement(user, 0.5, &first));
+    PetscCall(PetscRandomSetSeed(simCtx->BrownianMotionRNG, 12345));
+    PetscCall(PetscRandomSeed(simCtx->BrownianMotionRNG));
+    PetscCall(CalculateBrownianDisplacement(user, 0.5, &second));
+
+    PetscCall(PicurvAssertRealNear(first.x, second.x, 1.0e-12, "Resetting the Brownian RNG seed should reproduce the x displacement"));
+    PetscCall(PicurvAssertRealNear(first.y, second.y, 1.0e-12, "Resetting the Brownian RNG seed should reproduce the y displacement"));
+    PetscCall(PicurvAssertRealNear(first.z, second.z, 1.0e-12, "Resetting the Brownian RNG seed should reproduce the z displacement"));
+
+    PetscCall(PetscRandomDestroy(&simCtx->BrownianMotionRNG));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests swarm-wide particle position updates using the same transport path as the runtime loop.
+ */
+static PetscErrorCode TestUpdateAllParticlePositionsMovesSwarmEntries(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal *positions = NULL;
+    PetscReal *velocities = NULL;
+    PetscReal *diffusivity = NULL;
+    Cmpnts *diffusivity_gradient = NULL;
+    PetscReal *psi = NULL;
+    PetscReal *weights = NULL;
+    PetscInt *cell_ids = NULL;
+    PetscInt *status = NULL;
+    PetscInt64 *pid = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
+    simCtx->dt = 0.25;
+
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    PetscCall(DMSwarmGetField(user->swarm, "velocity", NULL, NULL, (void **)&velocities));
+    PetscCall(DMSwarmGetField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmGetField(user->swarm, "DiffusivityGradient", NULL, NULL, (void **)&diffusivity_gradient));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "weight", NULL, NULL, (void **)&weights));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+
+    positions[0] = 0.20; positions[1] = 0.30; positions[2] = 0.40;
+    velocities[0] = 0.40; velocities[1] = -0.20; velocities[2] = 0.10;
+    diffusivity[0] = 0.0;
+    diffusivity_gradient[0].x = 0.10;
+    diffusivity_gradient[0].y = 0.20;
+    diffusivity_gradient[0].z = -0.10;
+    psi[0] = 0.5;
+    weights[0] = 0.5; weights[1] = 0.5; weights[2] = 0.5;
+    cell_ids[0] = 0; cell_ids[1] = 0; cell_ids[2] = 0;
+    status[0] = ACTIVE_AND_LOCATED;
+    pid[0] = 7;
+
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmRestoreField(user->swarm, "weight", NULL, NULL, (void **)&weights));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DiffusivityGradient", NULL, NULL, (void **)&diffusivity_gradient));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmRestoreField(user->swarm, "velocity", NULL, NULL, (void **)&velocities));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+
+    PetscCall(UpdateAllParticlePositions(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    PetscCall(PicurvAssertRealNear(0.325, positions[0], 1.0e-12, "UpdateAllParticlePositions should advect x"));
+    PetscCall(PicurvAssertRealNear(0.300, positions[1], 1.0e-12, "UpdateAllParticlePositions should advect y"));
+    PetscCall(PicurvAssertRealNear(0.400, positions[2], 1.0e-12, "UpdateAllParticlePositions should advect z"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests the location orchestrator fast path when a particle already carries a valid prior cell.
+ */
+static PetscErrorCode TestLocateAllParticlesInGridPriorCellFastPath(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal *positions = NULL;
+    PetscReal *weights = NULL;
+    PetscInt *cell_ids = NULL;
+    PetscInt *status = NULL;
+    PetscInt64 *pid = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
+
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    PetscCall(DMSwarmGetField(user->swarm, "weight", NULL, NULL, (void **)&weights));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    positions[0] = 0.375; positions[1] = 0.375; positions[2] = 0.375;
+    weights[0] = 0.5; weights[1] = 0.5; weights[2] = 0.5;
+    cell_ids[0] = 1; cell_ids[1] = 1; cell_ids[2] = 1;
+    status[0] = NEEDS_LOCATION;
+    pid[0] = 11;
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmRestoreField(user->swarm, "weight", NULL, NULL, (void **)&weights));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+
+    PetscCall(LocateAllParticlesInGrid(user, simCtx->bboxlist));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(PicurvAssertIntEqual(1, cell_ids[0], "prior-cell fast path should preserve the i cell id"));
+    PetscCall(PicurvAssertIntEqual(1, cell_ids[1], "prior-cell fast path should preserve the j cell id"));
+    PetscCall(PicurvAssertIntEqual(1, cell_ids[2], "prior-cell fast path should preserve the k cell id"));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status[0], "prior-cell fast path should mark the particle ACTIVE_AND_LOCATED"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests the guess-then-verify orchestrator path for a local particle with an unknown prior cell.
+ */
+static PetscErrorCode TestLocateAllParticlesInGridGuessPathResolvesLocalParticle(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal *positions = NULL;
+    PetscReal *weights = NULL;
+    PetscInt *cell_ids = NULL;
+    PetscInt *status = NULL;
+    PetscInt64 *pid = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
+
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    PetscCall(DMSwarmGetField(user->swarm, "weight", NULL, NULL, (void **)&weights));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    positions[0] = 0.625; positions[1] = 0.625; positions[2] = 0.625;
+    weights[0] = 0.5; weights[1] = 0.5; weights[2] = 0.5;
+    cell_ids[0] = -1; cell_ids[1] = -1; cell_ids[2] = -1;
+    status[0] = NEEDS_LOCATION;
+    pid[0] = 22;
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmRestoreField(user->swarm, "weight", NULL, NULL, (void **)&weights));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+
+    PetscCall(LocateAllParticlesInGrid(user, simCtx->bboxlist));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(PicurvAssertIntEqual(2, cell_ids[0], "guess-path location should resolve the i cell id"));
+    PetscCall(PicurvAssertIntEqual(2, cell_ids[1], "guess-path location should resolve the j cell id"));
+    PetscCall(PicurvAssertIntEqual(2, cell_ids[2], "guess-path location should resolve the k cell id"));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status[0], "guess-path location should mark the particle ACTIVE_AND_LOCATED"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests no-slip and free-slip wall helper kernels.
  */
 
@@ -243,6 +722,76 @@ static PetscErrorCode TestWallModelScalarHelpers(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests closed-form and iterative wall-model velocity helpers against inverse reconstructions.
+ */
+
+static PetscErrorCode TestWallModelVelocityHelpers(void)
+{
+    const PetscReal kinematic_viscosity = 1.0e-3;
+    const PetscReal wall_distance = 2.0e-2;
+    const PetscReal target_velocity = 1.0;
+    const PetscReal roughness_length = 1.0e-4;
+    PetscReal utau_loglaw = 0.0;
+    PetscReal utau_werner = 0.0;
+    PetscReal utau_cabot = 0.0;
+    PetscReal wall_shear_velocity = 0.0;
+    PetscReal wall_shear_normal = 0.0;
+
+    PetscFunctionBeginUser;
+    utau_loglaw = find_utau_loglaw(target_velocity, wall_distance, roughness_length);
+    PetscCall(PicurvAssertRealNear(target_velocity, u_loglaw(wall_distance, utau_loglaw, roughness_length), 1.0e-12,
+                                   "simple log-law inversion should reconstruct the target velocity"));
+
+    utau_werner = find_utau_Werner(kinematic_viscosity, target_velocity, wall_distance, 0.1);
+    PetscCall(PicurvAssertBool((PetscBool)(utau_werner > 0.0), "Werner-Wengle friction velocity should remain positive"));
+    PetscCall(PicurvAssertRealNear(target_velocity, u_Werner(kinematic_viscosity, wall_distance, utau_werner), 1.0e-6,
+                                   "Werner-Wengle inversion should reconstruct the target velocity"));
+
+    find_utau_Cabot(kinematic_viscosity, target_velocity, wall_distance, 0.1, 0.0, 0.0,
+                    &utau_cabot, &wall_shear_velocity, &wall_shear_normal);
+    PetscCall(PicurvAssertBool((PetscBool)(utau_cabot > 0.0), "Cabot friction velocity should remain positive"));
+    PetscCall(PicurvAssertRealNear(target_velocity, u_Cabot(kinematic_viscosity, wall_distance, utau_cabot, 0.0, wall_shear_velocity), 1.0e-6,
+                                   "Cabot inversion should reconstruct the target velocity when pressure gradient is zero"));
+    PetscCall(PicurvAssertRealNear(0.0, wall_shear_normal, 1.0e-10,
+                                   "zero normal pressure gradient should keep Cabot normal wall shear at zero"));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests the vector wall-function wrappers on a tangential reference flow.
+ */
+static PetscErrorCode TestWallFunctionVectorWrappers(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts wall_velocity = {0.0, 0.0, 0.0};
+    Cmpnts reference_velocity = {0.0, 1.0, 0.0};
+    Cmpnts boundary_velocity = {0.0, 0.0, 0.0};
+    PetscReal friction_velocity = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->ren = 1000.0;
+
+    wall_function(user, 2.0e-2, 1.0e-2, wall_velocity, reference_velocity, &boundary_velocity, &friction_velocity, 1.0, 0.0, 0.0);
+    PetscCall(PicurvAssertRealNear(0.0, boundary_velocity.x, 1.0e-12, "Werner wall function should preserve zero normal velocity"));
+    PetscCall(PicurvAssertBool((PetscBool)(boundary_velocity.y > 0.0 && boundary_velocity.y < 1.0), "Werner wall function should damp tangential velocity"));
+    PetscCall(PicurvAssertBool((PetscBool)(friction_velocity > 0.0), "Werner wall function should compute positive friction velocity"));
+
+    wall_function_loglaw(user, 1.0e-4, 2.0e-2, 1.0e-2, wall_velocity, reference_velocity, &boundary_velocity, &friction_velocity, 1.0, 0.0, 0.0);
+    PetscCall(PicurvAssertRealNear(0.0, boundary_velocity.x, 1.0e-12, "log-law wall function should preserve zero normal velocity"));
+    PetscCall(PicurvAssertBool((PetscBool)(boundary_velocity.y > 0.0 && boundary_velocity.y <= 1.0), "log-law wall function should keep tangential velocity bounded"));
+    PetscCall(PicurvAssertBool((PetscBool)(friction_velocity > 0.0), "log-law wall function should compute positive friction velocity"));
+
+    wall_function_Cabot(user, 1.0e-4, 2.0e-2, 1.0e-2, wall_velocity, reference_velocity, &boundary_velocity, &friction_velocity,
+                        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10);
+    PetscCall(PicurvAssertRealNear(0.0, boundary_velocity.x, 1.0e-12, "Cabot wall function should preserve zero normal velocity"));
+    PetscCall(PicurvAssertBool((PetscBool)(boundary_velocity.y > 0.0 && boundary_velocity.y <= 1.0), "Cabot wall function should keep tangential velocity bounded"));
+    PetscCall(PicurvAssertBool((PetscBool)(friction_velocity > 0.0), "Cabot wall function should compute positive friction velocity"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests driven-flow validation when no driven handlers are present.
  */
 
@@ -281,6 +830,86 @@ static PetscErrorCode TestComputeSmagorinskyConstantConstantModel(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that the shared minimal fixture mirrors the production DA contract.
+ */
+
+static PetscErrorCode TestMinimalFixtureMirrorsProductionDMLayout(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    DM coord_dm = NULL;
+    PetscInt mx = 0, my = 0, mz = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 6, 4));
+
+    PetscCall(DMDAGetInfo(user->da, NULL, &mx, &my, &mz, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL));
+    PetscCall(PicurvAssertIntEqual(user->IM + 1, mx, "minimal fixture should size da with IM+1 nodes"));
+    PetscCall(PicurvAssertIntEqual(user->JM + 1, my, "minimal fixture should size da with JM+1 nodes"));
+    PetscCall(PicurvAssertIntEqual(user->KM + 1, mz, "minimal fixture should size da with KM+1 nodes"));
+    PetscCall(PicurvAssertIntEqual(mx, user->info.mx, "user->info should be sourced from the production da"));
+    PetscCall(PicurvAssertIntEqual(my, user->info.my, "user->info my should match the da dimensions"));
+    PetscCall(PicurvAssertIntEqual(mz, user->info.mz, "user->info mz should match the da dimensions"));
+
+    PetscCall(DMGetCoordinateDM(user->da, &coord_dm));
+    PetscCall(PicurvAssertBool((PetscBool)(coord_dm == user->fda),
+                               "minimal fixture should derive fda from the coordinate-DM path"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests that the shared swarm fixture registers the production field set.
+ */
+
+static PetscErrorCode TestMinimalFixtureRegistersProductionSwarmFields(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscInt bs = 0;
+    void *field_ptr = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 2, "ske"));
+
+    PetscCall(DMSwarmGetField(user->swarm, "position", &bs, NULL, &field_ptr));
+    PetscCall(PicurvAssertIntEqual(3, bs, "solver swarm should register particle position"));
+    PetscCall(PicurvAssertBool((PetscBool)(field_ptr != NULL), "position field should be retrievable"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", &bs, NULL, &field_ptr));
+
+    PetscCall(DMSwarmGetField(user->swarm, "velocity", &bs, NULL, &field_ptr));
+    PetscCall(PicurvAssertIntEqual(3, bs, "solver swarm should register particle velocity"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "velocity", &bs, NULL, &field_ptr));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", &bs, NULL, &field_ptr));
+    PetscCall(PicurvAssertIntEqual(3, bs, "solver swarm should register DMSwarm_CellID"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", &bs, NULL, &field_ptr));
+
+    PetscCall(DMSwarmGetField(user->swarm, "weight", &bs, NULL, &field_ptr));
+    PetscCall(PicurvAssertIntEqual(3, bs, "solver swarm should register particle weight"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "weight", &bs, NULL, &field_ptr));
+
+    PetscCall(DMSwarmGetField(user->swarm, "Diffusivity", &bs, NULL, &field_ptr));
+    PetscCall(PicurvAssertIntEqual(1, bs, "solver swarm should register particle diffusivity"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Diffusivity", &bs, NULL, &field_ptr));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DiffusivityGradient", &bs, NULL, &field_ptr));
+    PetscCall(PicurvAssertIntEqual(3, bs, "solver swarm should register particle diffusivity gradients"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DiffusivityGradient", &bs, NULL, &field_ptr));
+
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", &bs, NULL, &field_ptr));
+    PetscCall(PicurvAssertIntEqual(1, bs, "solver swarm should register particle scalar Psi"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", &bs, NULL, &field_ptr));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", &bs, NULL, &field_ptr));
+    PetscCall(PicurvAssertIntEqual(1, bs, "solver swarm should register particle location status"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", &bs, NULL, &field_ptr));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests solver history-vector shifting between time levels.
  */
 
@@ -291,13 +920,6 @@ static PetscErrorCode TestUpdateSolverHistoryVectorsShiftsStates(void)
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
-
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Ucont_o));
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Ucont_rm1));
-    PetscCall(DMCreateLocalVector(user->fda, &user->lUcont_o));
-    PetscCall(DMCreateLocalVector(user->fda, &user->lUcont_rm1));
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Ucat_o));
-    PetscCall(DMCreateGlobalVector(user->da, &user->P_o));
 
     PetscCall(VecSet(user->Ucont, 11.0));
     PetscCall(VecSet(user->Ucont_o, 7.0));
@@ -450,10 +1072,24 @@ int main(int argc, char **argv)
         {"update-particle-field-iem-relaxation", TestUpdateParticleFieldIEMRelaxation},
         {"set-initial-interior-field-ignores-non-ucont-request", TestSetInitialInteriorFieldIgnoresNonUcontRequest},
         {"set-initial-interior-field-constant-profile-on-z-inlet", TestSetInitialInteriorFieldConstantProfileOnZInlet},
+        {"interpolate-all-fields-to-swarm-constant-fields", TestInterpolateAllFieldsToSwarmConstantFields},
+        {"scatter-all-particle-fields-to-euler-fields-averages-psi", TestScatterAllParticleFieldsToEulerFieldsAveragesPsi},
+        {"calculate-particle-count-per-cell-counts-global-cell-ids", TestCalculateParticleCountPerCellCountsGlobalCellIDs},
+        {"reset-all-particle-statuses-leaves-lost-particles-untouched", TestResetAllParticleStatusesLeavesLostParticlesUntouched},
+        {"check-and-remove-out-of-bounds-particles-removes-escaped-particle", TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedParticle},
+        {"check-and-remove-lost-particles-removes-lost-entries", TestCheckAndRemoveLostParticlesRemovesLostEntries},
+        {"calculate-brownian-displacement-deterministic-seed", TestCalculateBrownianDisplacementDeterministicSeed},
+        {"update-all-particle-positions-moves-swarm-entries", TestUpdateAllParticlePositionsMovesSwarmEntries},
+        {"locate-all-particles-in-grid-prior-cell-fast-path", TestLocateAllParticlesInGridPriorCellFastPath},
+        {"locate-all-particles-in-grid-guess-path-resolves-local-particle", TestLocateAllParticlesInGridGuessPathResolvesLocalParticle},
         {"wall-noslip-and-freeslip-helpers", TestWallNoSlipAndFreeSlipHelpers},
         {"wall-model-scalar-helpers", TestWallModelScalarHelpers},
+        {"wall-model-velocity-helpers", TestWallModelVelocityHelpers},
+        {"wall-function-vector-wrappers", TestWallFunctionVectorWrappers},
         {"validate-driven-flow-configuration-no-driven-handlers", TestValidateDrivenFlowConfigurationNoDrivenHandlers},
         {"compute-smagorinsky-constant-constant-model", TestComputeSmagorinskyConstantConstantModel},
+        {"minimal-fixture-mirrors-production-dm-layout", TestMinimalFixtureMirrorsProductionDMLayout},
+        {"minimal-fixture-registers-production-swarm-fields", TestMinimalFixtureRegistersProductionSwarmFields},
         {"update-solver-history-vectors-shifts-states", TestUpdateSolverHistoryVectorsShiftsStates},
         {"get-owned-cell-range-single-rank-accounting", TestGetOwnedCellRangeSingleRankAccounting},
         {"compute-and-store-neighbor-ranks-single-rank", TestComputeAndStoreNeighborRanksSingleRank},

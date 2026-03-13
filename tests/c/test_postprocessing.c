@@ -91,7 +91,8 @@ static PetscErrorCode TestComputeNodalAverageScalar(void)
 
     PetscCall(DMDAVecGetArrayRead(user->da, user->P_nodal, (void *)&p_nodal_arr));
     PetscCall(PicurvAssertRealNear(7.0, PetscRealPart(p_nodal_arr[0][0][0]), 1.0e-12, "ComputeNodalAverage interior node"));
-    PetscCall(PicurvAssertRealNear(-1.0, PetscRealPart(p_nodal_arr[3][3][3]), 1.0e-12, "ComputeNodalAverage untouched boundary node"));
+    PetscCall(PicurvAssertRealNear(-1.0, PetscRealPart(p_nodal_arr[user->KM][user->JM][user->IM]), 1.0e-12,
+                                   "ComputeNodalAverage untouched non-physical boundary node"));
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->P_nodal, (void *)&p_nodal_arr));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
@@ -168,8 +169,6 @@ static PetscErrorCode TestComputeQCriterionZeroFlow(void)
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
 
-    PetscCall(VecDuplicate(user->P, &user->Aj));
-    PetscCall(VecDuplicate(user->lP, &user->lAj));
     PetscCall(VecSet(user->Aj, 1.0));
     PetscCall(DMGlobalToLocalBegin(user->da, user->Aj, INSERT_VALUES, user->lAj));
     PetscCall(DMGlobalToLocalEnd(user->da, user->Aj, INSERT_VALUES, user->lAj));

@@ -39,7 +39,17 @@ Main controls consumed by implemented solvers:
 
 Defaults and final option ingestion are in function @ref CreateSimulationContext during startup parsing.
 
-@section p31_extension_sec 4. Adding A New Momentum Solver
+@section p31_testing_sec 4. Current test status
+
+Current testing is uneven by solver path:
+
+- dispatch and guardrails are directly covered through `FlowSolver`-side unit tests
+- `MomentumSolver_DualTime_Picard_RK4` is exercised mainly through smoke and runtime orchestration
+- `MomentumSolver_Explicit_RungeKutta4` still needs a direct positive-path harness
+
+That means the momentum stack is currently a stronger regression gate than bespoke debugging surface.
+
+@section p31_extension_sec 5. Adding A New Momentum Solver
 
 Required steps:
 
@@ -77,4 +87,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

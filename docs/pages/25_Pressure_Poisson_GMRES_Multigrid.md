@@ -66,7 +66,18 @@ If pressure solve quality degrades, check first:
 3. grid metrics/orientation quality,
 4. solver tolerances vs timestep.
 
-@section p25_refs_sec 5. Related Pages
+@section p25_testing_sec 5. Current test status
+
+Current direct tests are strongest for helper and invariant behavior:
+
+- `PoissonLHSNew`
+- `Projection`
+- `PoissonNullSpaceFunction`
+- RHS-related helpers used by `ComputeRHS`
+
+The main remaining gap is `PoissonSolver_MG`: it is exercised in runtime smoke, but still lacks equivalent direct bespoke coverage for debugging. Periodic and immersed-boundary stencil branches also remain thinner than the core Cartesian helper surface.
+
+@section p25_refs_sec 6. Related Pages
 
 - **@subpage 23_Fractional_Step_Method**
 - **@subpage 24_Dual_Time_Picard_RK4**
@@ -93,4 +104,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

@@ -1379,6 +1379,11 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
 /**
  * @brief Internal helper implementation: `GuessParticleOwnerWithBBox()`.
  * @details Local to this translation unit.
+ * @note Testing status:
+ *       The current direct surface reaches this helper through orchestrator
+ *       tests, but direction-complete immediate-neighbor coverage and the
+ *       explicit "not found in any rank" path are still targeted for future
+ *       bespoke tests.
  */
 static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
                                                  const Particle *particle,

@@ -22,8 +22,8 @@ static PetscErrorCode TestCheckCellWithinLocalGrid(void)
     PetscCall(CheckCellWithinLocalGrid(user, 1, 1, 1, &within));
     PetscCall(PicurvAssertBool(within, "cell (1,1,1) should be within the serial local grid"));
 
-    PetscCall(CheckCellWithinLocalGrid(user, 3, 1, 1, &within));
-    PetscCall(PicurvAssertBool((PetscBool)!within, "cell (3,1,1) should fall outside the valid local cell range"));
+    PetscCall(CheckCellWithinLocalGrid(user, 4, 1, 1, &within));
+    PetscCall(PicurvAssertBool((PetscBool)!within, "cell (4,1,1) should fall outside the valid local cell range"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -72,12 +72,12 @@ static PetscErrorCode TestRetrieveCurrentCell(void)
     PetscCall(PetscMemzero(&cell, sizeof(cell)));
 
     PetscCall(RetrieveCurrentCell(user, 1, 1, 1, &cell));
-    PetscCall(PicurvAssertRealNear(1.0, cell.vertices[0].x, 1.0e-12, "vertex 0 x coordinate"));
-    PetscCall(PicurvAssertRealNear(1.0, cell.vertices[0].y, 1.0e-12, "vertex 0 y coordinate"));
-    PetscCall(PicurvAssertRealNear(1.0, cell.vertices[0].z, 1.0e-12, "vertex 0 z coordinate"));
-    PetscCall(PicurvAssertRealNear(2.0, cell.vertices[5].x, 1.0e-12, "vertex 5 x coordinate"));
-    PetscCall(PicurvAssertRealNear(2.0, cell.vertices[5].y, 1.0e-12, "vertex 5 y coordinate"));
-    PetscCall(PicurvAssertRealNear(2.0, cell.vertices[5].z, 1.0e-12, "vertex 5 z coordinate"));
+    PetscCall(PicurvAssertRealNear(0.25, cell.vertices[0].x, 1.0e-12, "vertex 0 x coordinate"));
+    PetscCall(PicurvAssertRealNear(0.25, cell.vertices[0].y, 1.0e-12, "vertex 0 y coordinate"));
+    PetscCall(PicurvAssertRealNear(0.25, cell.vertices[0].z, 1.0e-12, "vertex 0 z coordinate"));
+    PetscCall(PicurvAssertRealNear(0.50, cell.vertices[5].x, 1.0e-12, "vertex 5 x coordinate"));
+    PetscCall(PicurvAssertRealNear(0.50, cell.vertices[5].y, 1.0e-12, "vertex 5 y coordinate"));
+    PetscCall(PicurvAssertRealNear(0.50, cell.vertices[5].z, 1.0e-12, "vertex 5 z coordinate"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
