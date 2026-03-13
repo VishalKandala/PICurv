@@ -16,6 +16,11 @@
  * @param ibm  (Optional) Pointer to IBM data. Pass NULL if disabled.
  * @param fsi  (Optional) Pointer to FSI data. Pass NULL if disabled.
  * @return PetscErrorCode 0 on success.
+ *
+ * @note Testing status:
+ *       The explicit RK path remains on the near-term backlog for direct
+ *       positive-path bespoke coverage; today it is weaker than the dual-time
+ *       path in the test surface.
  */
 extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
 
@@ -57,6 +62,11 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  * @param ibm Parameter `ibm` passed to `MomentumSolver_DualTime_Picard_RK4()`.
  * @param fsi Parameter `fsi` passed to `MomentumSolver_DualTime_Picard_RK4()`.
  * @return PetscErrorCode 0 on success.
+ *
+ * @note Testing status:
+ *       This solver is covered primarily through runtime smoke and orchestration
+ *       tests. A smaller direct invariant-style positive-path harness remains
+ *       part of the next-gap backlog.
  */
 PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
 

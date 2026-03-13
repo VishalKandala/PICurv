@@ -61,8 +61,8 @@ static PetscErrorCode TestEulerianDataProcessingPipelineRunsConfiguredKernels(vo
     PetscCall(DMDAVecGetArrayRead(user->da, user->P_nodal, (void *)&p_nodal_arr));
     PetscCall(PicurvAssertRealNear(9.0, PetscRealPart(p_nodal_arr[0][0][0]), 1.0e-12,
                                    "Eulerian pipeline should execute CellToNodeAverage for P->P_nodal"));
-    PetscCall(PicurvAssertRealNear(-1.0, PetscRealPart(p_nodal_arr[3][3][3]), 1.0e-12,
-                                   "Eulerian pipeline should leave non-computed boundary nodes unchanged"));
+    PetscCall(PicurvAssertRealNear(-1.0, PetscRealPart(p_nodal_arr[user->KM][user->JM][user->IM]), 1.0e-12,
+                                   "Eulerian pipeline should leave the extra non-physical boundary node unchanged"));
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->P_nodal, (void *)&p_nodal_arr));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));

@@ -13,6 +13,7 @@ import sys
 from types import SimpleNamespace
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -92,6 +93,231 @@ def write_canonical_picgrid(path: Path, dims=(3, 3, 3)) -> Path:
     return path
 
 
+def write_executable(path: Path, content: str) -> Path:
+    """!
+    @brief Write a small executable script used by CLI subprocess tests.
+    @param[in] path Filesystem path argument passed to `write_executable()`.
+    @param[in] content Script body argument passed to `write_executable()`.
+    @return Value returned by `write_executable()`.
+    """
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def make_fake_scancel_env(tmp_path: Path):
+    """!
+    @brief Create a fake `scancel` executable and environment override for CLI tests.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Value returned by `make_fake_scancel_env()`.
+    """
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    log_path = tmp_path / "scancel.log"
+    write_executable(
+        bin_dir / "scancel",
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "printf '%s\\n' \"$*\" >> \"$SCANCEL_LOG_PATH\"",
+                "exit \"${SCANCEL_EXIT_CODE:-0}\"",
+            ]
+        )
+        + "\n",
+    )
+    return (
+        {
+            "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
+            "SCANCEL_LOG_PATH": str(log_path),
+        },
+        log_path,
+    )
+
+
+def make_fake_sbatch_env(tmp_path: Path, mode: str = "ok"):
+    """!
+    @brief Create a fake `sbatch` executable and environment override for direct module tests.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] mode Argument passed to `make_fake_sbatch_env()`.
+    @return Value returned by `make_fake_sbatch_env()`.
+    """
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir(exist_ok=True)
+    log_path = tmp_path / "sbatch.log"
+    write_executable(
+        bin_dir / "sbatch",
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "printf '%s\\n' \"$*\" >> \"$SBATCH_LOG_PATH\"",
+                "if [ \"${SBATCH_MODE:-ok}\" = \"fail\" ]; then",
+                "  printf '%s\\n' \"${SBATCH_ERROR_TEXT:-submit failed}\" >&2",
+                "  exit \"${SBATCH_EXIT_CODE:-7}\"",
+                "fi",
+                "case \"$*\" in",
+                "  *--dependency=afterok:*) job_id=\"${SBATCH_POST_JOB_ID:-1002}\" ;;",
+                "  *) job_id=\"${SBATCH_SOLVE_JOB_ID:-1001}\" ;;",
+                "esac",
+                "if [ \"${SBATCH_MODE:-ok}\" = \"malformed\" ]; then",
+                "  printf '%s\\n' \"${SBATCH_STDOUT_TEXT:-not a valid sbatch response}\"",
+                "  exit 0",
+                "fi",
+                "printf 'Submitted batch job %s\\n' \"$job_id\"",
+            ]
+        )
+        + "\n",
+    )
+    return (
+        {
+            "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
+            "SBATCH_LOG_PATH": str(log_path),
+            "SBATCH_MODE": mode,
+        },
+        log_path,
+    )
+
+
+def create_summary_run_dir(
+    tmp_path: Path,
+    name: str = "demo_run",
+    particle_console_output_frequency: int = 2,
+    include_summary_logs: bool = True,
+    include_particle_snapshot: bool = True,
+) -> Path:
+    """!
+    @brief Create a run directory populated with summary-capable artifacts.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] name Argument passed to `create_summary_run_dir()`.
+    @param[in] particle_console_output_frequency Argument passed to `create_summary_run_dir()`.
+    @param[in] include_summary_logs Argument passed to `create_summary_run_dir()`.
+    @param[in] include_particle_snapshot Argument passed to `create_summary_run_dir()`.
+    @return Value returned by `create_summary_run_dir()`.
+    """
+    run_dir = tmp_path / "runs" / name
+    config_dir = run_dir / "config"
+    logs_dir = run_dir / "logs"
+    scheduler_dir = run_dir / "scheduler"
+    config_dir.mkdir(parents=True)
+    logs_dir.mkdir()
+    scheduler_dir.mkdir()
+
+    (config_dir / "monitor.yml").write_text(
+        "\n".join(
+            [
+                "logging:",
+                "  verbosity: INFO",
+                "profiling:",
+                "  timestep_output:",
+                "    mode: selected",
+                "    functions:",
+                "      - AdvanceSimulation",
+                "io:",
+                "  data_output_frequency: 2",
+                f"  particle_console_output_frequency: {particle_console_output_frequency}",
+                "  particle_log_interval: 2",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (config_dir / "case.yml").write_text(
+        "\n".join(
+            [
+                "models:",
+                "  physics:",
+                "    particles:",
+                "      count: 120",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": name,
+                "launch_mode": "local",
+                "created_at": "2026-03-10T12:00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    if include_summary_logs:
+        (logs_dir / "Continuity_Metrics.log").write_text(
+            "\n".join(
+                [
+                    "Timestep   | Block  | Max Divergence     | Max Divergence Location ([k][j][i]=idx) | Sum(RHS)           | Total Flux In      | Total Flux Out     | Net Flux",
+                    "------------------------------------------------------------------------------------------------------------------------------------------",
+                    "10         | 0      | 1.0000000000e-03   | ([0][0][0] = 0)                         | 2.0000000000e-04   | 1.0000000000e+00   | 9.9000000000e-01   | 1.0000000000e-02",
+                    "10         | 1      | -2.5000000000e-03  | ([1][0][1] = 9)                         | 1.5000000000e-04   | 1.0000000000e+00   | 9.8500000000e-01   | 1.5000000000e-02",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "Particle_Metrics.log").write_text(
+            "\n".join(
+                [
+                    "Stage              | Timestep   | Total Ptls   | Lost       | Migrated   | Occupied Cells  | Imbalance  | Mig Passes",
+                    "----------------------------------------------------------------------------------------------------------------------------",
+                    "AfterAdvection     | 10         | 120          | 2          | 5          | 40              | 1.25       | 2",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
+            "Step: 10 | PseudoIter(k): 4| | Pseudo-cfl: 2.5000 |dUk|: 1.000000e-06 | |dUk|/|dUprev|: 1.500000e-01 | |Rk|: 2.000000e-05 | |Rk|/|Rprev|: 3.000000e-02\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "Poisson_Solver_Convergence_History_Block_0.log").write_text(
+            "\n".join(
+                [
+                    "--- Convergence for Timestep 10, Block 0 ---",
+                    "ts: 10    | block: 0  | iter: 7   | Unprecond Norm:  1.23456e-04 | True Norm:  7.89012e-05 | Rel Norm:  2.34567e-03",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "Profiling_Timestep_Summary.csv").write_text(
+            "\n".join(
+                [
+                    "step,function,calls,step_time_s",
+                    "10,AdvanceSimulation,1,0.400000",
+                    "10,FlowSolver,1,0.300000",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    if include_particle_snapshot:
+        (scheduler_dir / f"{name}_solver.log").write_text(
+            "\n".join(
+                [
+                    "Particle states at step 8:",
+                    "| Rank | PID | CellID | Position | Velocity | Weights |",
+                    "| 0 | 101 | (1, 2, 2) | (0.0, 0.1, 0.2) | (0.5, 1.0, 1.5) | (0.4, 0.5, 0.6) |",
+                    "| 1 | 102 | (4, 5, 5) | (0.3, 0.4, 0.5) | (0.0, 0.5, 0.0) | (0.7, 0.8, 0.9) |",
+                    "",
+                    "Particle states at step 10:",
+                    "| Rank | PID | CellID | Position | Velocity | Weights |",
+                    "| 0 | 101 | (1, 2, 3) | (0.1, 0.2, 0.3) | (1.0, 2.0, 2.0) | (0.5, 0.6, 0.7) |",
+                    "| 1 | 102 | (4, 5, 6) | (0.4, 0.5, 0.6) | (0.0, 1.0, 0.0) | (0.8, 0.9, 1.0) |",
+                    "| 1 | 103 | (4, 5, 6) | (0.7, 0.8, 0.9) | (0.5, 0.5, 0.5) | (1.1, 1.2, 1.3) |",
+                    "",
+                    "Progress: 10/100",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    return run_dir
+
+
 def test_top_level_help_smoke():
     """!
     @brief Test that top level help smoke.
@@ -141,6 +367,28 @@ def test_submit_help_smoke():
     assert "--run-dir" in result.stdout
     assert "--study-dir" in result.stdout
     assert "--force" in result.stdout
+
+
+def test_sweep_help_smoke():
+    """!
+    @brief Test that sweep help smoke.
+    """
+    result = run_picurv(["sweep", "--help"])
+    assert result.returncode == 0
+    assert "--study" in result.stdout
+    assert "--cluster" in result.stdout
+    assert "--no-submit" in result.stdout
+
+
+def test_cancel_help_smoke():
+    """!
+    @brief Test that cancel help smoke.
+    """
+    result = run_picurv(["cancel", "--help"])
+    assert result.returncode == 0
+    assert "--run-dir" in result.stdout
+    assert "--stage {all,solve,post-process}" in result.stdout
+    assert "--dry-run" in result.stdout
 
 
 def test_removed_selector_aliases_are_rejected():
@@ -622,128 +870,96 @@ def test_local_solve_wrapper_log_is_routed_to_scheduler_dir(tmp_path):
     assert (run_dir / "scheduler").is_dir()
 
 
+def test_execute_command_writes_scheduler_log_and_sets_log_level(tmp_path):
+    """!
+    @brief Test that execute_command launches a real subprocess and writes scheduler logs.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    exe = write_executable(
+        tmp_path / "fake_runtime.sh",
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "printf 'PWD=%s\\n' \"$PWD\"",
+                "printf 'LOG_LEVEL=%s\\n' \"${LOG_LEVEL:-}\"",
+                "printf 'ARGS=%s\\n' \"$*\"",
+                "mkdir -p results",
+                "printf 'ready\\n'",
+            ]
+        )
+        + "\n",
+    )
+
+    picurv.execute_command(
+        [str(exe), "--flag", "value"],
+        str(run_dir),
+        os.path.join("scheduler", "stage.log"),
+        {"logging": {"verbosity": "debug"}},
+    )
+
+    log_text = (run_dir / "scheduler" / "stage.log").read_text(encoding="utf-8")
+    assert f"PWD={run_dir}" in log_text
+    assert "LOG_LEVEL=DEBUG" in log_text
+    assert "ARGS=--flag value" in log_text
+    assert (run_dir / "results").is_dir()
+
+
+def test_execute_command_basename_log_uses_logs_dir_and_inherits_env(tmp_path, monkeypatch):
+    """!
+    @brief Test that basename log filenames are routed to `logs/` with inherited env vars.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] monkeypatch Pytest monkeypatch fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    exe = write_executable(
+        tmp_path / "fake_inherit_runtime.sh",
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "printf 'LOG_LEVEL=%s\\n' \"${LOG_LEVEL:-}\"",
+            ]
+        )
+        + "\n",
+    )
+    monkeypatch.setenv("LOG_LEVEL", "TRACE")
+
+    picurv.execute_command([str(exe)], str(run_dir), "plain.log", None)
+
+    log_text = (run_dir / "logs" / "plain.log").read_text(encoding="utf-8")
+    assert "LOG_LEVEL=TRACE" in log_text
+
+
+def test_execute_command_missing_binary_exits_cleanly(tmp_path):
+    """!
+    @brief Test that execute_command exits cleanly when the binary cannot be found.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    with pytest.raises(SystemExit) as exc_info:
+        picurv.execute_command(
+            [str(tmp_path / "does-not-exist")],
+            str(run_dir),
+            os.path.join("scheduler", "missing.log"),
+            {},
+        )
+
+    assert exc_info.value.code == 1
+
+
 def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
     """!
     @brief Test that summarize aggregates available per-step artifacts into JSON.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
-    run_dir = tmp_path / "runs" / "demo_run"
-    config_dir = run_dir / "config"
-    logs_dir = run_dir / "logs"
-    scheduler_dir = run_dir / "scheduler"
-    config_dir.mkdir(parents=True)
-    logs_dir.mkdir()
-    scheduler_dir.mkdir()
-
-    (config_dir / "monitor.yml").write_text(
-        "\n".join(
-            [
-                "logging:",
-                "  verbosity: INFO",
-                "profiling:",
-                "  timestep_output:",
-                "    mode: selected",
-                "    functions:",
-                "      - AdvanceSimulation",
-                "io:",
-                "  data_output_frequency: 2",
-                "  particle_log_interval: 2",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (config_dir / "case.yml").write_text(
-        "\n".join(
-            [
-                "models:",
-                "  physics:",
-                "    particles:",
-                "      count: 120",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (run_dir / "manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "demo_run",
-                "launch_mode": "local",
-                "created_at": "2026-03-10T12:00:00",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    (logs_dir / "Continuity_Metrics.log").write_text(
-        "\n".join(
-            [
-                "Timestep   | Block  | Max Divergence     | Max Divergence Location ([k][j][i]=idx) | Sum(RHS)           | Total Flux In      | Total Flux Out     | Net Flux",
-                "------------------------------------------------------------------------------------------------------------------------------------------",
-                "10         | 0      | 1.0000000000e-03   | ([0][0][0] = 0)                         | 2.0000000000e-04   | 1.0000000000e+00   | 9.9000000000e-01   | 1.0000000000e-02",
-                "10         | 1      | -2.5000000000e-03  | ([1][0][1] = 9)                         | 1.5000000000e-04   | 1.0000000000e+00   | 9.8500000000e-01   | 1.5000000000e-02",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (logs_dir / "Particle_Metrics.log").write_text(
-        "\n".join(
-            [
-                "Stage              | Timestep   | Total Ptls   | Lost       | Migrated   | Occupied Cells  | Imbalance  | Mig Passes",
-                "----------------------------------------------------------------------------------------------------------------------------",
-                "AfterAdvection     | 10         | 120          | 2          | 5          | 40              | 1.25       | 2",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (logs_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
-        "Step: 10 | PseudoIter(k): 4| | Pseudo-cfl: 2.5000 |dUk|: 1.000000e-06 | |dUk|/|dUprev|: 1.500000e-01 | |Rk|: 2.000000e-05 | |Rk|/|Rprev|: 3.000000e-02\n",
-        encoding="utf-8",
-    )
-    (logs_dir / "Poisson_Solver_Convergence_History_Block_0.log").write_text(
-        "\n".join(
-            [
-                "--- Convergence for Timestep 10, Block 0 ---",
-                "ts: 10    | block: 0  | iter: 7   | Unprecond Norm:  1.23456e-04 | True Norm:  7.89012e-05 | Rel Norm:  2.34567e-03",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (logs_dir / "Profiling_Timestep_Summary.csv").write_text(
-        "\n".join(
-            [
-                "step,function,calls,step_time_s",
-                "10,AdvanceSimulation,1,0.400000",
-                "10,FlowSolver,1,0.300000",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (scheduler_dir / "demo_run_solver.log").write_text(
-        "\n".join(
-            [
-                "Particle states at step 8:",
-                "| Rank | PID | CellID | Position | Velocity | Weights |",
-                "| 0 | 101 | (1, 2, 2) | (0.0, 0.1, 0.2) | (0.5, 1.0, 1.5) | (0.4, 0.5, 0.6) |",
-                "| 1 | 102 | (4, 5, 5) | (0.3, 0.4, 0.5) | (0.0, 0.5, 0.0) | (0.7, 0.8, 0.9) |",
-                "",
-                "Particle states at step 10:",
-                "| Rank | PID | CellID | Position | Velocity | Weights |",
-                "| 0 | 101 | (1, 2, 3) | (0.1, 0.2, 0.3) | (1.0, 2.0, 2.0) | (0.5, 0.6, 0.7) |",
-                "| 1 | 102 | (4, 5, 6) | (0.4, 0.5, 0.6) | (0.0, 1.0, 0.0) | (0.8, 0.9, 1.0) |",
-                "| 1 | 103 | (4, 5, 6) | (0.7, 0.8, 0.9) | (0.5, 0.5, 0.5) | (1.1, 1.2, 1.3) |",
-                "",
-                "Progress: 10/100",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    run_dir = create_summary_run_dir(tmp_path)
 
     result = run_picurv(
         [
@@ -788,6 +1004,70 @@ def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["cell_changes"] == 2
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["new_count"] == 1
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["gone_count"] == 0
+
+
+def test_summarize_text_output_renders_human_readable_sections(tmp_path):
+    """!
+    @brief Test that summarize text output renders the main summary sections.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path)
+
+    result = run_picurv(["summarize", "--run-dir", str(run_dir), "--latest"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "RUN STEP SUMMARY" in result.stdout
+    assert "Step           : 10 (latest_available)" in result.stdout
+    assert "Particle Snapshot (sampled):" in result.stdout
+    assert "Profiling:" in result.stdout
+
+
+def test_summarize_invalid_step_fails_with_available_step_hint(tmp_path):
+    """!
+    @brief Test that summarize rejects explicit steps missing from the available artifacts.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path)
+
+    result = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--step", "999", "--format", "json"],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 1
+    assert "Requested step 999 is not present" in result.stderr
+    assert "Available steps include" in result.stderr
+
+
+def test_summarize_missing_run_artifacts_fails_cleanly(tmp_path):
+    """!
+    @brief Test that summarize fails when no summary-capable runtime artifacts exist.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_summary_logs=False, include_particle_snapshot=False)
+
+    result = run_picurv(["summarize", "--run-dir", str(run_dir), "--latest"], cwd=tmp_path)
+
+    assert result.returncode == 1
+    assert "No summary-capable run artifacts were found" in result.stderr
+
+
+def test_summarize_no_snapshot_reports_snapshot_unavailable(tmp_path):
+    """!
+    @brief Test that summarize reports unavailable particle snapshots when cadence is enabled but no stream log exists.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_particle_snapshot=False)
+
+    result = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--latest", "--format", "json"],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["particle_snapshot"]["available"] is False
+    assert payload["profiling"]["available"] is True
 
 
 def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):
@@ -2516,6 +2796,66 @@ def create_staged_study_dir(
     return study_dir
 
 
+def test_submit_sbatch_process_boundary_parses_job_id(tmp_path, monkeypatch):
+    """!
+    @brief Test that submit_sbatch calls a real `sbatch` subprocess and parses its job id.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] monkeypatch Pytest monkeypatch fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    script_path = tmp_path / "solver.sbatch"
+    script_path.write_text("#!/bin/bash\n", encoding="utf-8")
+    env, log_path = make_fake_sbatch_env(tmp_path, mode="ok")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    metadata = picurv.submit_sbatch(str(script_path), dependency="7001")
+
+    assert metadata["job_id"] == "1002"
+    assert metadata["command"] == ["sbatch", "--dependency=afterok:7001", str(script_path)]
+    assert log_path.read_text(encoding="utf-8").strip() == f"--dependency=afterok:7001 {script_path}"
+
+
+def test_submit_sbatch_rejects_unparseable_output(tmp_path, monkeypatch):
+    """!
+    @brief Test that submit_sbatch exits when sbatch output does not contain a job id.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] monkeypatch Pytest monkeypatch fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    script_path = tmp_path / "solver.sbatch"
+    script_path.write_text("#!/bin/bash\n", encoding="utf-8")
+    env, _ = make_fake_sbatch_env(tmp_path, mode="malformed")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    with pytest.raises(SystemExit) as exc_info:
+        picurv.submit_sbatch(str(script_path))
+
+    assert exc_info.value.code == 1
+
+
+def test_submit_sbatch_propagates_nonzero_exit_code(tmp_path, monkeypatch):
+    """!
+    @brief Test that submit_sbatch propagates sbatch subprocess failures.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] monkeypatch Pytest monkeypatch fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    script_path = tmp_path / "solver.sbatch"
+    script_path.write_text("#!/bin/bash\n", encoding="utf-8")
+    env, _ = make_fake_sbatch_env(tmp_path, mode="fail")
+    env["SBATCH_EXIT_CODE"] = "9"
+    env["SBATCH_ERROR_TEXT"] = "scheduler unavailable"
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    with pytest.raises(SystemExit) as exc_info:
+        picurv.submit_sbatch(str(script_path))
+
+    assert exc_info.value.code == 9
+
+
 def test_submit_run_dir_dry_run_prints_planned_sbatch_calls(tmp_path):
     """!
     @brief Test that submit dry-run prints solver and dependent post sbatch commands.
@@ -2756,6 +3096,230 @@ def test_submit_rejects_non_slurm_or_malformed_submission_metadata(tmp_path):
     malformed_result = run_picurv(["submit", "--run-dir", str(malformed_run_dir), "--dry-run"], cwd=tmp_path)
     assert malformed_result.returncode == 1
     assert "does not contain scheduler submission metadata" in malformed_result.stderr
+
+
+def test_cancel_run_dir_dry_run_prints_requested_stage_commands(tmp_path):
+    """!
+    @brief Test that cancel dry-run prints the recorded scancel commands for requested stages.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "901"},
+        post_meta={"submitted": True, "job_id": "902"},
+    )
+
+    result = run_picurv(["cancel", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
+
+    assert result.returncode == 0
+    assert "Would run: scancel 901  # stage(s): solve" in result.stdout
+    assert "Would run: scancel 902  # stage(s): post-process" in result.stdout
+    assert "Dry-run only. No jobs were canceled." in result.stdout
+
+
+def test_cancel_stage_solve_uses_scancel_stubbed_at_process_boundary(tmp_path):
+    """!
+    @brief Test that cancel can target the solve stage through a process-boundary scancel stub.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "911"},
+        post_meta={"submitted": True, "job_id": "922"},
+    )
+    env, log_path = make_fake_scancel_env(tmp_path)
+
+    result = run_picurv(
+        ["cancel", "--run-dir", str(run_dir), "--stage", "solve"],
+        cwd=tmp_path,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert log_path.read_text(encoding="utf-8").strip() == "911"
+    assert "Canceled Slurm job 911 for stage(s): solve" in result.stdout
+
+
+def test_cancel_stage_post_process_uses_scancel_stubbed_at_process_boundary(tmp_path):
+    """!
+    @brief Test that cancel can target the post-process stage through a process-boundary scancel stub.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "933"},
+        post_meta={"submitted": True, "job_id": "944"},
+    )
+    env, log_path = make_fake_scancel_env(tmp_path)
+
+    result = run_picurv(
+        ["cancel", "--run-dir", str(run_dir), "--stage", "post-process"],
+        cwd=tmp_path,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert log_path.read_text(encoding="utf-8").strip() == "944"
+    assert "Canceled Slurm job 944 for stage(s): post-process" in result.stdout
+
+
+def test_cancel_stage_all_deduplicates_recorded_job_ids(tmp_path):
+    """!
+    @brief Test that cancel --stage all de-duplicates shared recorded job ids.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "955"},
+        post_meta={"submitted": True, "job_id": "955"},
+    )
+    env, log_path = make_fake_scancel_env(tmp_path)
+
+    result = run_picurv(["cancel", "--run-dir", str(run_dir)], cwd=tmp_path, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert log_path.read_text(encoding="utf-8").splitlines() == ["955"]
+    assert "Canceled Slurm job 955 for stage(s): solve, post-process" in result.stdout
+
+
+def test_cancel_rejects_non_slurm_or_missing_submission_metadata(tmp_path):
+    """!
+    @brief Test that cancel fails cleanly for local launch metadata or missing submission metadata.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    local_run_dir = create_staged_run_dir(tmp_path, name="local_cancel", launch_mode="local")
+    local_result = run_picurv(["cancel", "--run-dir", str(local_run_dir), "--dry-run"], cwd=tmp_path)
+    assert local_result.returncode == 1
+    assert "is not Slurm" in local_result.stderr
+
+    malformed_run_dir = tmp_path / "runs" / "missing_cancel_meta"
+    (malformed_run_dir / "scheduler").mkdir(parents=True)
+    malformed_result = run_picurv(["cancel", "--run-dir", str(malformed_run_dir)], cwd=tmp_path)
+    assert malformed_result.returncode == 1
+    assert "does not contain scheduler submission metadata" in malformed_result.stderr
+
+
+def test_cancel_fails_when_requested_stages_have_no_recorded_submitted_job_ids(tmp_path):
+    """!
+    @brief Test that cancel fails when the requested stages have no submitted job ids to cancel.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": False},
+        post_meta={"submitted": True},
+    )
+
+    result = run_picurv(["cancel", "--run-dir", str(run_dir), "--stage", "solve"], cwd=tmp_path)
+
+    assert result.returncode == 1
+    assert "Skipping stage 'solve': job was generated but not submitted" in result.stdout
+    assert "No submitted Slurm job IDs were found" in result.stderr
+
+
+def test_cancel_run_jobs_module_dry_run_reports_requested_stage_commands(tmp_path, capsys):
+    """!
+    @brief Test that direct cancel_run_jobs dry-run reports the selected stage commands.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] capsys Pytest output-capture fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "1201"},
+        post_meta={"submitted": True, "job_id": "1202"},
+    )
+
+    picurv.cancel_run_jobs(SimpleNamespace(run_dir=str(run_dir), stage="all", dry_run=True))
+
+    captured = capsys.readouterr()
+    assert "Would run: scancel 1201  # stage(s): solve" in captured.out
+    assert "Would run: scancel 1202  # stage(s): post-process" in captured.out
+    assert "Dry-run only. No jobs were canceled." in captured.out
+
+
+def test_cancel_run_jobs_module_uses_scancel_process_boundary(tmp_path, monkeypatch, capsys):
+    """!
+    @brief Test that direct cancel_run_jobs uses a real `scancel` subprocess.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] monkeypatch Pytest monkeypatch fixture supplied to the function.
+    @param[in] capsys Pytest output-capture fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "1301"},
+        post_meta={"submitted": True, "job_id": "1302"},
+    )
+    env, log_path = make_fake_scancel_env(tmp_path)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    picurv.cancel_run_jobs(SimpleNamespace(run_dir=str(run_dir), stage="post-process", dry_run=False))
+
+    captured = capsys.readouterr()
+    assert log_path.read_text(encoding="utf-8").strip() == "1302"
+    assert "Canceled Slurm job 1302 for stage(s): post-process" in captured.out
+
+
+def test_cancel_run_jobs_module_surfaces_scancel_failures(tmp_path, monkeypatch):
+    """!
+    @brief Test that direct cancel_run_jobs exits when `scancel` fails.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] monkeypatch Pytest monkeypatch fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "1401"},
+        post_meta={"submitted": True, "job_id": "1402"},
+    )
+    env, _ = make_fake_scancel_env(tmp_path)
+    env["SCANCEL_EXIT_CODE"] = "4"
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    with pytest.raises(SystemExit) as exc_info:
+        picurv.cancel_run_jobs(SimpleNamespace(run_dir=str(run_dir), stage="solve", dry_run=False))
+
+    assert exc_info.value.code == 1
+
+
+def test_sweep_workflow_module_no_submit_writes_study_artifacts(tmp_path):
+    """!
+    @brief Test that direct sweep_workflow writes case and scheduler artifacts in no-submit mode.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    original_cwd = os.getcwd()
+
+    try:
+        os.chdir(tmp_path)
+        picurv.sweep_workflow(
+            SimpleNamespace(
+                study=str(valid / "study.yml"),
+                cluster=str(valid / "cluster.yml"),
+                no_submit=True,
+            )
+        )
+    finally:
+        os.chdir(original_cwd)
+
+    studies_dir = tmp_path / "studies"
+    study_dirs = [p for p in studies_dir.iterdir() if p.is_dir()]
+    assert len(study_dirs) == 1
+    study_dir = study_dirs[0]
+    submission = json.loads((study_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
+    case_index_lines = (study_dir / "scheduler" / "case_index.tsv").read_text(encoding="utf-8").splitlines()
+
+    assert submission["launch_mode"] == "slurm"
+    assert submission["no_submit"] is True
+    assert submission["solver_array"]["submitted"] is False
+    assert submission["post_array"]["submitted"] is False
+    assert len(case_index_lines) >= 1
+    assert (study_dir / "scheduler" / "solver_array.sbatch").is_file()
+    assert (study_dir / "scheduler" / "post_array.sbatch").is_file()
 
 
 def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):

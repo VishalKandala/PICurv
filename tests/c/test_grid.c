@@ -17,17 +17,19 @@ static PetscErrorCode TestComputeLocalBoundingBoxUniformGrid(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     BoundingBox bbox;
+    PetscReal expected_max = 0.0;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     PetscCall(ComputeLocalBoundingBox(user, &bbox));
+    expected_max = ((PetscReal)(user->IM - 1) / (PetscReal)user->IM) + 1.0e-6;
 
     PetscCall(PicurvAssertRealNear(-1.0e-6, bbox.min_coords.x, 1.0e-10, "bbox min x"));
     PetscCall(PicurvAssertRealNear(-1.0e-6, bbox.min_coords.y, 1.0e-10, "bbox min y"));
     PetscCall(PicurvAssertRealNear(-1.0e-6, bbox.min_coords.z, 1.0e-10, "bbox min z"));
-    PetscCall(PicurvAssertRealNear(3.0 + 1.0e-6, bbox.max_coords.x, 1.0e-10, "bbox max x"));
-    PetscCall(PicurvAssertRealNear(3.0 + 1.0e-6, bbox.max_coords.y, 1.0e-10, "bbox max y"));
-    PetscCall(PicurvAssertRealNear(3.0 + 1.0e-6, bbox.max_coords.z, 1.0e-10, "bbox max z"));
+    PetscCall(PicurvAssertRealNear(expected_max, bbox.max_coords.x, 1.0e-10, "bbox max x"));
+    PetscCall(PicurvAssertRealNear(expected_max, bbox.max_coords.y, 1.0e-10, "bbox max y"));
+    PetscCall(PicurvAssertRealNear(expected_max, bbox.max_coords.z, 1.0e-10, "bbox max z"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);

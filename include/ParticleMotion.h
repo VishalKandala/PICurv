@@ -386,6 +386,11 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
  *                     The function updates particle status fields and performs migration.
  *
  * @return PetscErrorCode 0 on success, non-zero on failure.
+ *
+ * @note Testing status:
+ *       Direct coverage currently focuses on restart fast-path ownership transfer.
+ *       Non-restart multi-pass migration behavior remains part of the next
+ *       simulation-core test backlog.
  */
 PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user);
 
@@ -420,6 +425,12 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user);
  * @param[in] bboxlist  An array of BoundingBox structures for ALL MPI ranks, indexed 0 to (size-1).
  *                      This array must be up-to-date and available on all ranks.
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ *
+ * @note Testing status:
+ *       Direct unit coverage currently pins the prior-cell fast path and the
+ *       local guess-then-verify path. Multi-pass migration, newcomer flagging,
+ *       and several lost/migration edge cases are still targeted for future
+ *       bespoke tests.
  */
 PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist);
 

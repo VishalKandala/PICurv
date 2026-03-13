@@ -8,6 +8,7 @@ simulator_exe="$(cd "$(dirname "${simulator_exe_input}")" && pwd)/$(basename "${
 postprocessor_exe="$(cd "$(dirname "${postprocessor_exe_input}")" && pwd)/$(basename "${postprocessor_exe_input}")"
 mpi_launcher="${3:?missing MPI launcher}"
 nprocs="${4:-1}"
+smoke_mode="${5:-standard}"
 picurv_exe="$(dirname "${simulator_exe}")/picurv"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
@@ -785,6 +786,198 @@ with open(post_path, "w", encoding="utf-8") as f:
 PY
 }
 
+prepare_flat_case_particles_stress() {
+  local case_dir="$1"
+  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+import sys
+import yaml
+case_path, solver_path, monitor_path, post_path = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+with open(monitor_path, "r", encoding="utf-8") as f:
+    monitor_cfg = yaml.safe_load(f)
+with open(post_path, "r", encoding="utf-8") as f:
+    post_cfg = yaml.safe_load(f)
+
+case_cfg.setdefault("run_control", {})
+case_cfg["run_control"]["start_step"] = 0
+case_cfg["run_control"]["total_steps"] = 6
+case_cfg["run_control"]["dt_physical"] = 0.001
+case_cfg.setdefault("grid", {}).setdefault("programmatic_settings", {})
+grid = case_cfg["grid"]["programmatic_settings"]
+grid["im"] = 10
+grid["jm"] = 10
+grid["km"] = 20
+case_cfg.setdefault("models", {}).setdefault("physics", {})
+case_cfg["models"]["physics"]["particles"] = {
+    "count": 96,
+    "init_mode": "PointSource",
+    "restart_mode": "init",
+    "point_source": {"x": 0.5, "y": 0.5, "z": 0.5},
+}
+case_cfg["models"]["physics"]["turbulence"] = {"les": False}
+
+solver_cfg.setdefault("operation_mode", {})
+solver_cfg["operation_mode"]["eulerian_field_source"] = "solve"
+
+monitor_cfg.setdefault("io", {})
+monitor_cfg["io"]["data_output_frequency"] = 2
+monitor_cfg["io"]["particle_console_output_frequency"] = 0
+monitor_cfg["io"]["particle_log_interval"] = 2
+
+post_cfg.setdefault("run_control", {})
+post_cfg["run_control"]["start_step"] = 0
+post_cfg["run_control"]["end_step"] = 6
+post_cfg["run_control"]["step_interval"] = 2
+post_cfg.setdefault("io", {})
+post_cfg["io"]["output_directory"] = "viz/particle_stress"
+post_cfg["io"]["output_filename_prefix"] = "Field"
+post_cfg["io"]["output_particles"] = True
+
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+with open(monitor_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(monitor_cfg, f, sort_keys=False)
+with open(post_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(post_cfg, f, sort_keys=False)
+PY
+}
+
+prepare_flat_case_parabolic_stress() {
+  local case_dir="$1"
+  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+import sys
+import yaml
+case_path, solver_path, monitor_path, post_path = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+with open(monitor_path, "r", encoding="utf-8") as f:
+    monitor_cfg = yaml.safe_load(f)
+with open(post_path, "r", encoding="utf-8") as f:
+    post_cfg = yaml.safe_load(f)
+
+case_cfg.setdefault("run_control", {})
+case_cfg["run_control"]["start_step"] = 0
+case_cfg["run_control"]["total_steps"] = 4
+case_cfg["run_control"]["dt_physical"] = 0.001
+case_cfg.setdefault("grid", {}).setdefault("programmatic_settings", {})
+grid = case_cfg["grid"]["programmatic_settings"]
+grid["im"] = 8
+grid["jm"] = 8
+grid["km"] = 16
+case_cfg.setdefault("models", {}).setdefault("physics", {})
+case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["boundary_conditions"] = [
+    {"face": "-Xi", "type": "WALL", "handler": "noslip"},
+    {"face": "+Xi", "type": "WALL", "handler": "noslip"},
+    {"face": "-Eta", "type": "WALL", "handler": "noslip"},
+    {"face": "+Eta", "type": "WALL", "handler": "noslip"},
+    {"face": "-Zeta", "type": "INLET", "handler": "parabolic", "params": {"v_max": 1.5}},
+    {"face": "+Zeta", "type": "OUTLET", "handler": "conservation"},
+]
+
+solver_cfg.setdefault("operation_mode", {})
+solver_cfg["operation_mode"]["eulerian_field_source"] = "solve"
+
+monitor_cfg.setdefault("io", {})
+monitor_cfg["io"]["data_output_frequency"] = 1
+monitor_cfg["io"]["particle_console_output_frequency"] = 0
+monitor_cfg["io"]["particle_log_interval"] = 1
+
+post_cfg.setdefault("run_control", {})
+post_cfg["run_control"]["start_step"] = 0
+post_cfg["run_control"]["end_step"] = 4
+post_cfg["run_control"]["step_interval"] = 1
+post_cfg.setdefault("io", {})
+post_cfg["io"]["output_directory"] = "viz/parabolic_stress"
+post_cfg["io"]["output_filename_prefix"] = "Field"
+post_cfg["io"]["output_particles"] = False
+
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+with open(monitor_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(monitor_cfg, f, sort_keys=False)
+with open(post_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(post_cfg, f, sort_keys=False)
+PY
+}
+
+prepare_flat_case_periodic_flux_stress() {
+  local case_dir="$1"
+  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+import sys
+import yaml
+case_path, solver_path, monitor_path, post_path = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+with open(monitor_path, "r", encoding="utf-8") as f:
+    monitor_cfg = yaml.safe_load(f)
+with open(post_path, "r", encoding="utf-8") as f:
+    post_cfg = yaml.safe_load(f)
+
+case_cfg.setdefault("run_control", {})
+case_cfg["run_control"]["start_step"] = 0
+case_cfg["run_control"]["total_steps"] = 4
+case_cfg["run_control"]["dt_physical"] = 0.001
+case_cfg.setdefault("grid", {}).setdefault("programmatic_settings", {})
+grid = case_cfg["grid"]["programmatic_settings"]
+grid["im"] = 8
+grid["jm"] = 8
+grid["km"] = 16
+case_cfg.setdefault("models", {}).setdefault("domain", {})
+case_cfg["models"]["domain"]["blocks"] = 1
+case_cfg["models"]["domain"]["i_periodic"] = False
+case_cfg["models"]["domain"]["j_periodic"] = False
+case_cfg["models"]["domain"]["k_periodic"] = True
+case_cfg.setdefault("models", {}).setdefault("physics", {})
+case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["boundary_conditions"] = [
+    {"face": "-Xi", "type": "WALL", "handler": "noslip"},
+    {"face": "+Xi", "type": "WALL", "handler": "noslip"},
+    {"face": "-Eta", "type": "WALL", "handler": "noslip"},
+    {"face": "+Eta", "type": "WALL", "handler": "noslip"},
+    {"face": "-Zeta", "type": "PERIODIC", "handler": "constant_flux", "params": {"target_flux": 1.0, "apply_trim": True}},
+    {"face": "+Zeta", "type": "PERIODIC", "handler": "constant_flux", "params": {"target_flux": 1.0, "apply_trim": True}},
+]
+
+solver_cfg.setdefault("operation_mode", {})
+solver_cfg["operation_mode"]["eulerian_field_source"] = "solve"
+
+monitor_cfg.setdefault("io", {})
+monitor_cfg["io"]["data_output_frequency"] = 1
+monitor_cfg["io"]["particle_console_output_frequency"] = 0
+monitor_cfg["io"]["particle_log_interval"] = 1
+
+post_cfg.setdefault("run_control", {})
+post_cfg["run_control"]["start_step"] = 0
+post_cfg["run_control"]["end_step"] = 4
+post_cfg["run_control"]["step_interval"] = 1
+post_cfg.setdefault("io", {})
+post_cfg["io"]["output_directory"] = "viz/periodic_flux_stress"
+post_cfg["io"]["output_filename_prefix"] = "Field"
+post_cfg["io"]["output_particles"] = False
+
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+with open(monitor_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(monitor_cfg, f, sort_keys=False)
+with open(post_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(post_cfg, f, sort_keys=False)
+PY
+}
+
 run_case_workflow() {
   local case_dir="$1"
   local case_file="$2"
@@ -1109,17 +1302,182 @@ run_multi_rank_runtime_smoke() {
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-init rank count in runtime summary"
 }
 
+run_stress_smoke() {
+  local particle_case="${tmp_root}/flat-particles-stress"
+  local restart_case="${tmp_root}/restart-chain-stress"
+  local parabolic_case="${tmp_root}/flat-parabolic-stress"
+  local periodic_case="${tmp_root}/flat-periodic-flux-stress"
+  local mpi_particle_case="${tmp_root}/flat-particles-stress-mpi"
+  local saved_nprocs="${nprocs}"
+  local stress_mpi_nprocs=2
+  local periodic_nprocs=2
+
+  "${picurv_exe}" init flat_channel --dest "${particle_case}" >/dev/null
+  prepare_flat_case_particles_stress "${particle_case}"
+  run_case_workflow \
+    "${particle_case}" \
+    "${particle_case}/flat_channel.yml" \
+    "${particle_case}/Imp-MG-Standard.yml" \
+    "${particle_case}/Standard_Output.yml" \
+    "${particle_case}/standard_analysis.yml" \
+    "flat_particles_stress"
+  require_count_ge "${LAST_RUN_DIR}/results/particles" "*.dat" 2 "stress particle snapshots"
+  require_count_ge "${LAST_RUN_DIR}/viz/particle_stress" "*.vtp" 1 "stress particle VTP files"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 96" "stress particle count in runtime summary"
+
+  "${picurv_exe}" init flat_channel --dest "${restart_case}" >/dev/null
+  prepare_flat_restart_equivalence_case "${restart_case}" 0 3 "solve" "" "viz/restart_chain_base" 0 3
+  run_case_workflow \
+    "${restart_case}" \
+    "${restart_case}/flat_channel.yml" \
+    "${restart_case}/Imp-MG-Standard.yml" \
+    "${restart_case}/Standard_Output.yml" \
+    "${restart_case}/standard_analysis.yml" \
+    "restart_chain_base"
+  local restart_base_run="${LAST_RUN_DIR}"
+  prepare_flat_restart_equivalence_case "${restart_case}" 2 2 "solve" "${restart_base_run}" "viz/restart_chain_mid" 2 4
+  run_case_workflow \
+    "${restart_case}" \
+    "${restart_case}/flat_channel.yml" \
+    "${restart_case}/Imp-MG-Standard.yml" \
+    "${restart_case}/Standard_Output.yml" \
+    "${restart_case}/standard_analysis.yml" \
+    "restart_chain_mid"
+  local restart_mid_run="${LAST_RUN_DIR}"
+  prepare_flat_restart_equivalence_case "${restart_case}" 4 2 "solve" "${restart_mid_run}" "viz/restart_chain_final" 4 6
+  run_case_workflow \
+    "${restart_case}" \
+    "${restart_case}/flat_channel.yml" \
+    "${restart_case}/Imp-MG-Standard.yml" \
+    "${restart_case}/Standard_Output.yml" \
+    "${restart_case}/standard_analysis.yml" \
+    "restart_chain_final"
+  require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "restart-chain continuity metrics log"
+
+  "${picurv_exe}" init flat_channel --dest "${parabolic_case}" >/dev/null
+  prepare_flat_case_parabolic_stress "${parabolic_case}"
+  run_case_workflow \
+    "${parabolic_case}" \
+    "${parabolic_case}/flat_channel.yml" \
+    "${parabolic_case}/Imp-MG-Standard.yml" \
+    "${parabolic_case}/Standard_Output.yml" \
+    "${parabolic_case}/standard_analysis.yml" \
+    "flat_parabolic_stress"
+  require_count_ge "${LAST_RUN_DIR}/viz/parabolic_stress" "*.vts" 1 "parabolic stress VTS files"
+
+  if [[ "${saved_nprocs}" -gt 1 ]]; then
+    stress_mpi_nprocs=$((saved_nprocs + 1))
+    periodic_nprocs="${saved_nprocs}"
+  fi
+
+  nprocs="${periodic_nprocs}"
+  "${picurv_exe}" init flat_channel --dest "${periodic_case}" >/dev/null
+  prepare_flat_case_periodic_flux_stress "${periodic_case}"
+  (
+    cd "${periodic_case}"
+    ./picurv validate \
+      --case "${periodic_case}/flat_channel.yml" \
+      --solver "${periodic_case}/Imp-MG-Standard.yml" \
+      --monitor "${periodic_case}/Standard_Output.yml" \
+      --post "${periodic_case}/standard_analysis.yml" >/dev/null
+    ./picurv run \
+      --solve \
+      --post-process \
+      -n "${periodic_nprocs}" \
+      --case "${periodic_case}/flat_channel.yml" \
+      --solver "${periodic_case}/Imp-MG-Standard.yml" \
+      --monitor "${periodic_case}/Standard_Output.yml" \
+      --post "${periodic_case}/standard_analysis.yml" \
+      --dry-run \
+      --format json >"${tmp_root}/flat_periodic_flux_stress_plan.json"
+  )
+  python3 - "${tmp_root}/flat_periodic_flux_stress_plan.json" <<'PY'
+import json
+import sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    payload = json.load(f)
+stages = payload.get("stages", {})
+assert payload.get("mode") == "dry-run"
+assert "solve" in stages and "post-process" in stages
+solve_launch = [str(item) for item in stages["solve"].get("launch_command", [])]
+post_launch = [str(item) for item in stages["post-process"].get("launch_command", [])]
+assert any(item.endswith("simulator") for item in solve_launch)
+assert any(item.endswith("postprocessor") for item in post_launch)
+PY
+
+  nprocs="${stress_mpi_nprocs}"
+  "${picurv_exe}" init flat_channel --dest "${mpi_particle_case}" >/dev/null
+  prepare_flat_case_particles_stress "${mpi_particle_case}"
+  python3 - "${mpi_particle_case}/standard_analysis.yml" <<'PY'
+import sys
+import yaml
+post_path = sys.argv[1]
+with open(post_path, "r", encoding="utf-8") as f:
+    post_cfg = yaml.safe_load(f)
+post_cfg.setdefault("io", {})
+post_cfg["io"]["output_directory"] = "viz/particle_stress_mpi"
+with open(post_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(post_cfg, f, sort_keys=False)
+PY
+  run_case_workflow \
+    "${mpi_particle_case}" \
+    "${mpi_particle_case}/flat_channel.yml" \
+    "${mpi_particle_case}/Imp-MG-Standard.yml" \
+    "${mpi_particle_case}/Standard_Output.yml" \
+    "${mpi_particle_case}/standard_analysis.yml" \
+    "flat_particles_stress_mpi"
+  nprocs="${saved_nprocs}"
+  require_count_ge "${LAST_RUN_DIR}/viz/particle_stress_mpi" "*.vtp" 1 "MPI particle stress VTP files"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${stress_mpi_nprocs}" "MPI stress rank count in runtime summary"
+}
+
+run_periodic_dev_smoke() {
+  local periodic_case="${tmp_root}/flat-periodic-flux-dev"
+  local saved_nprocs="${nprocs}"
+  local periodic_nprocs="${nprocs}"
+
+  if [[ "${periodic_nprocs}" -lt 2 ]]; then
+    periodic_nprocs=2
+  fi
+
+  nprocs="${periodic_nprocs}"
+  "${picurv_exe}" init flat_channel --dest "${periodic_case}" >/dev/null
+  prepare_flat_case_periodic_flux_stress "${periodic_case}"
+  run_case_workflow \
+    "${periodic_case}" \
+    "${periodic_case}/flat_channel.yml" \
+    "${periodic_case}/Imp-MG-Standard.yml" \
+    "${periodic_case}/Standard_Output.yml" \
+    "${periodic_case}/standard_analysis.yml" \
+    "flat_periodic_flux_dev"
+  require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "periodic dev continuity metrics log"
+  require_count_ge "${LAST_RUN_DIR}/viz/periodic_flux_stress" "*.vts" 1 "periodic dev post VTS files"
+  nprocs="${saved_nprocs}"
+}
+
 require_executable "${simulator_exe}" "simulator"
 require_executable "${postprocessor_exe}" "postprocessor"
 require_executable "${picurv_exe}" "picurv conductor"
 parse_mpi_launcher "${mpi_launcher}"
 python3 -c "import yaml" >/dev/null 2>&1 || die "python dependency 'pyyaml' is required for smoke profile mutation."
+case "${smoke_mode}" in
+  standard|stress|periodic-dev) ;;
+  *) die "unknown smoke mode '${smoke_mode}' (expected 'standard', 'stress', or 'periodic-dev')" ;;
+esac
 
 echo "==> PICurv smoke: simulator help"
 run_help_smoke "${simulator_exe}" "PICurv Simulator"
 
 echo "==> PICurv smoke: postprocessor help"
 run_help_smoke "${postprocessor_exe}" "Unified Post-Processing Tool"
+
+if [[ "${smoke_mode}" == "periodic-dev" ]]; then
+  echo "==> PICurv smoke: periodic development runtime harness"
+  run_periodic_dev_smoke
+  echo "PICurv periodic-dev smoke completed successfully."
+  exit 0
+fi
 
 echo "==> PICurv smoke: case init and source metadata"
 run_case_init_smoke
@@ -1139,6 +1497,11 @@ if [[ "${nprocs}" -gt 1 ]]; then
 else
   echo "==> PICurv smoke: full end-to-end runtime sequences"
   run_full_runtime_smoke
+fi
+
+if [[ "${smoke_mode}" == "stress" ]]; then
+  echo "==> PICurv smoke: stress extensions"
+  run_stress_smoke
 fi
 
 echo "PICurv smoke completed successfully."

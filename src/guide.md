@@ -67,6 +67,14 @@ The source tree is broadly touched by current tests, but function-level direct d
 - runtime-heavy modules (`runloop.c`, `solvers.c`, `poisson.c`, particle stack) are strongly smoke-covered
 - utility-heavy modules (`wallfunction.c`, `walkingsearch.c`, `Filter.c`) rely more on focused unit tests and have less API prose density
 
+Current next-gap priorities:
+
+- direct walking-search branch coverage for locate/migrate edge cases
+- direct positive-path momentum solver harnesses, especially explicit RK
+- deeper bespoke Poisson/multigrid coverage beyond helper-level invariants
+- non-restart MPI migration and multi-pass particle handoff coverage
+- richer-runtime fixture variants beyond the tiny Cartesian baseline
+
 When expanding docs, prefer module-level execution narratives plus targeted API notes for high-risk entry points rather than trying to document every internal helper in one pass.
 
 ## Related Docs

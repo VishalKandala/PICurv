@@ -28,6 +28,17 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
 /** @brief Destroys contexts previously created by `PicurvCreateMinimalContexts`. */
 PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx, UserCtx **user);
 
+/** @brief Builds a tiny runtime context through the real setup path for behavior-level tests. */
+PetscErrorCode PicurvBuildTinyRuntimeContext(const char *bcs_contents,
+                                             PetscBool enable_particles,
+                                             SimCtx **simCtx_out,
+                                             UserCtx **user_out,
+                                             char *tmpdir,
+                                             size_t tmpdir_len);
+
+/** @brief Finalizes and frees a runtime context built by `PicurvBuildTinyRuntimeContext`. */
+PetscErrorCode PicurvDestroyRuntimeContext(SimCtx **simCtx_ptr);
+
 /** @brief Fills metric vectors with identity metrics for Cartesian-reference tests. */
 PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user);
 

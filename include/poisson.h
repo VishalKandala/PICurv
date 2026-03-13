@@ -18,6 +18,10 @@
  *
  * @param usermg The UserMG context containing the entire multigrid hierarchy.
  * @return PetscErrorCode 0 on success.
+ *
+ * @note Testing status:
+ *       This routine is exercised in runtime smoke, but still needs deeper
+ *       direct bespoke coverage for debugging and branch isolation.
  */
 extern PetscErrorCode PoissonSolver_MG(UserMG *usermg);
 
@@ -32,6 +36,10 @@ extern PetscErrorCode PoissonSolver_MG(UserMG *usermg);
  *
  * @param user The UserCtx for the grid level on which to assemble the matrix.
  * @return PetscErrorCode 0 on success.
+ *
+ * @note Testing status:
+ *       Direct unit coverage exists for core operator assembly, but periodic and
+ *       immersed-boundary stencil branches remain thinner than the Cartesian baseline.
  */
 extern PetscErrorCode PoissonLHSNew(UserCtx *user);
 
@@ -83,6 +91,10 @@ PetscErrorCode CorrectChannelFluxProfile(UserCtx *user);
  *
  * @param user The UserCtx containing the Ucont and Phi vectors.
  * @return PetscErrorCode 0 on success.
+ *
+ * @note Testing status:
+ *       Direct unit coverage exists for basic projection invariants; periodic
+ *       and immersed-boundary correction branches remain part of the next-gap backlog.
  */
 extern PetscErrorCode Projection(UserCtx *user);
 

@@ -7,6 +7,8 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import subprocess
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +31,37 @@ def load_picurv_module():
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
+
+
+def run_picurv(args, cwd=REPO_ROOT, env=None):
+    """!
+    @brief Run the `picurv` CLI and capture the completed-process result.
+    @param[in] args Command-line style argument list supplied to the function.
+    @param[in] cwd Working directory override supplied to the function.
+    @param[in] env Environment override mapping supplied to the function.
+    @return Value returned by `run_picurv()`.
+    """
+    cmd = [sys.executable, str(PICURV)] + list(args)
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+    return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False, env=merged_env)
+
+
+def run_checked(cmd, cwd, env=None):
+    """!
+    @brief Run a support command required by a maintenance CLI test and assert success.
+    @param[in] cmd Command list argument passed to `run_checked()`.
+    @param[in] cwd Working directory argument passed to `run_checked()`.
+    @param[in] env Environment override mapping supplied to the function.
+    @return Value returned by `run_checked()`.
+    """
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+    result = subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False, env=merged_env)
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    return result
 
 
 @contextmanager
@@ -57,7 +90,22 @@ def make_fake_source_repo(root: Path) -> Path:
     (root / "examples" / "demo" / "nested").mkdir(parents=True)
     (root / "bin").mkdir()
 
-    (root / "Makefile").write_text("all:\n\t@echo ok\n", encoding="utf-8")
+    (root / "Makefile").write_text(
+        "\n".join(
+            [
+                "all:",
+                "\t@echo building default",
+                "",
+                "clean-project:",
+                "\t@echo cleaning project",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (root / "src" / "placeholder.c").write_text("/* placeholder */\n", encoding="utf-8")
+    (root / "include" / "placeholder.h").write_text("/* placeholder */\n", encoding="utf-8")
+    (root / "scripts" / "placeholder.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     (root / "examples" / "demo" / "case.yml").write_text("case: baseline\n", encoding="utf-8")
     (root / "examples" / "demo" / "guide.md").write_text("# demo\n", encoding="utf-8")
     (root / "examples" / "demo" / "nested" / "notes.txt").write_text("nested template file\n", encoding="utf-8")
@@ -65,6 +113,30 @@ def make_fake_source_repo(root: Path) -> Path:
     (root / "bin" / "postprocessor").write_text("postprocessor-v1\n", encoding="utf-8")
     (root / "bin" / "picurv").write_text("picurv-v1\n", encoding="utf-8")
     return root
+
+
+def make_fake_git_source_clone(tmp_path: Path) -> Path:
+    """!
+    @brief Create a minimal git-backed fake source repo clone with an origin remote.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Value returned by `make_fake_git_source_clone()`.
+    """
+    seed_root = tmp_path / "seed"
+    origin_dir = tmp_path / "origin.git"
+    source_root = tmp_path / "source"
+    origin_url = origin_dir.resolve().as_uri()
+    git_env = {"TMPDIR": str(tmp_path.resolve())}
+
+    make_fake_source_repo(seed_root)
+    run_checked(["git", "init"], cwd=seed_root, env=git_env)
+    run_checked(["git", "config", "user.email", "tests@example.com"], cwd=seed_root, env=git_env)
+    run_checked(["git", "config", "user.name", "PICurv Tests"], cwd=seed_root, env=git_env)
+    run_checked(["git", "add", "."], cwd=seed_root, env=git_env)
+    run_checked(["git", "commit", "-m", "initial fixture"], cwd=seed_root, env=git_env)
+    run_checked(["git", "clone", "--bare", "--no-hardlinks", str(seed_root), str(origin_dir)], cwd=tmp_path, env=git_env)
+    run_checked(["git", "clone", origin_url, str(source_root)], cwd=tmp_path, env=git_env)
+
+    return source_root
 
 
 def test_init_case_writes_origin_metadata_and_copies_binaries(tmp_path):
@@ -502,3 +574,134 @@ def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
     assert captured["command"] == ["git", "pull", "--rebase"]
     assert captured["run_dir"] == str(source_root.resolve())
     assert captured["log_filename"] == "pull-source.log"
+
+
+def test_build_cli_uses_case_metadata_and_writes_build_log(tmp_path):
+    """!
+    @brief Test that the real build CLI resolves the source root from case metadata and writes build.log.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    picurv.write_case_origin_metadata(str(case_dir), str(source_root), template_name="demo")
+
+    result = run_picurv(["build", "--case-dir", str(case_dir), "clean-project"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    build_log = source_root / "logs" / "build.log"
+    assert build_log.exists()
+    assert "cleaning project" in build_log.read_text(encoding="utf-8")
+
+
+def test_sync_binaries_cli_refreshes_case_from_metadata(tmp_path):
+    """!
+    @brief Test that the real sync-binaries CLI refreshes a case using metadata-derived source context.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    picurv.write_case_origin_metadata(str(case_dir), str(source_root), template_name="demo")
+    (case_dir / "simulator").write_text("stale\n", encoding="utf-8")
+
+    result = run_picurv(["sync-binaries", "--case-dir", str(case_dir)], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    metadata = json.loads((case_dir / picurv.CASE_ORIGIN_METADATA_FILENAME).read_text(encoding="utf-8"))
+    assert metadata["source_repo_root"] == str(source_root.resolve())
+    assert (case_dir / "simulator").read_text(encoding="utf-8") == "simulator-v1\n"
+    assert (case_dir / "postprocessor").read_text(encoding="utf-8") == "postprocessor-v1\n"
+    assert (case_dir / "picurv").read_text(encoding="utf-8") == "picurv-v1\n"
+
+
+def test_sync_config_cli_bootstraps_template_files_and_runtime_config(tmp_path):
+    """!
+    @brief Test that the real sync-config CLI copies template-managed files and seeds runtime config.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    (source_root / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).write_text(
+        "default_execution:\n  launcher: mpirun\n  launcher_args: [--bind-to, none]\nlocal_execution: {}\ncluster_execution: {}\n",
+        encoding="utf-8",
+    )
+    (source_root / "examples" / "demo" / picurv.RUNTIME_EXECUTION_EXAMPLE_FILENAME).write_text(
+        "default_execution:\n  launcher: should_not_copy\n",
+        encoding="utf-8",
+    )
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+
+    result = run_picurv(
+        [
+            "sync-config",
+            "--case-dir",
+            str(case_dir),
+            "--source-root",
+            str(source_root),
+            "--template-name",
+            "demo",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    runtime_cfg = yaml.safe_load((case_dir / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).read_text(encoding="utf-8"))
+    assert (case_dir / "guide.md").read_text(encoding="utf-8") == "# demo\n"
+    assert (case_dir / "nested" / "notes.txt").read_text(encoding="utf-8") == "nested template file\n"
+    assert runtime_cfg["default_execution"]["launcher"] == "mpirun"
+    assert not (case_dir / picurv.RUNTIME_EXECUTION_EXAMPLE_FILENAME).exists()
+
+
+def test_status_source_cli_reports_json_for_real_case(tmp_path):
+    """!
+    @brief Test that the real status-source CLI emits JSON drift data for an initialized case.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+
+    picurv.sync_case_config_command(
+        SimpleNamespace(
+            case_dir=str(case_dir),
+            source_root=str(source_root),
+            template_name="demo",
+            overwrite=False,
+            prune=False,
+        )
+    )
+    picurv.sync_case_binaries_command(SimpleNamespace(case_dir=str(case_dir), source_root=str(source_root)))
+
+    (case_dir / "simulator").write_text("simulator-local\n", encoding="utf-8")
+    (case_dir / "case.yml").write_text("case: customized\n", encoding="utf-8")
+
+    result = run_picurv(["status-source", "--case-dir", str(case_dir), "--format", "json"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    payload = json.loads(result.stdout)
+    assert "simulator" in payload["binaries"]["case_bin_different"]
+    assert "case.yml" in payload["config"]["case_modified_files"]
+
+
+def test_pull_source_cli_runs_git_pull_against_real_repo(tmp_path):
+    """!
+    @brief Test that the real pull-source CLI runs git pull in a real repo resolved from case metadata.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    source_root = make_fake_git_source_clone(tmp_path)
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    picurv.write_case_origin_metadata(str(case_dir), str(source_root), template_name="demo")
+
+    result = run_picurv(["pull-source", "--case-dir", str(case_dir)], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    pull_log = source_root / "logs" / "pull-source.log"
+    assert pull_log.exists()
+    assert "Already up to date." in pull_log.read_text(encoding="utf-8")

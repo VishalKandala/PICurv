@@ -5,6 +5,10 @@
 
 #include "test_support.h"
 
+#include "grid.h"
+#include "io.h"
+#include "setup.h"
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,6 +41,54 @@ static PetscErrorCode DestroyDMIfSet(DM *dm)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Destroys a PETSc matrix only when the handle is non-null.
+ */
+
+static PetscErrorCode DestroyMatIfSet(Mat *mat)
+{
+    PetscFunctionBeginUser;
+    if (mat && *mat) {
+        PetscCall(MatDestroy(mat));
+    }
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Destroys a PETSc KSP only when the handle is non-null.
+ */
+
+static PetscErrorCode DestroyKSPIfSet(KSP *ksp)
+{
+    PetscFunctionBeginUser;
+    if (ksp && *ksp) {
+        PetscCall(KSPDestroy(ksp));
+    }
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Destroys a PETSc nullspace only when the handle is non-null.
+ */
+
+static PetscErrorCode DestroyNullSpaceIfSet(MatNullSpace *nullsp)
+{
+    PetscFunctionBeginUser;
+    if (nullsp && *nullsp) {
+        PetscCall(MatNullSpaceDestroy(nullsp));
+    }
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Destroys a PETSc random generator only when the handle is non-null.
+ */
+
+static PetscErrorCode DestroyRandomIfSet(PetscRandom *rand_ctx)
+{
+    PetscFunctionBeginUser;
+    if (rand_ctx && *rand_ctx) {
+        PetscCall(PetscRandomDestroy(rand_ctx));
+    }
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Registers one DMSwarm field used by the C test fixtures.
  */
 
@@ -44,6 +96,39 @@ static PetscErrorCode RegisterSwarmFieldForTests(DM swarm, const char *field_nam
 {
     PetscFunctionBeginUser;
     PetscCall(DMSwarmRegisterPetscDatatypeField(swarm, field_name, field_dim, dtype));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Allocates and zeroes a global vector from the provided DM.
+ */
+
+static PetscErrorCode CreateZeroedGlobalVector(DM dm, Vec *vec)
+{
+    PetscFunctionBeginUser;
+    PetscCall(DMCreateGlobalVector(dm, vec));
+    PetscCall(VecSet(*vec, 0.0));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Allocates and zeroes a local vector from the provided DM.
+ */
+
+static PetscErrorCode CreateZeroedLocalVector(DM dm, Vec *vec)
+{
+    PetscFunctionBeginUser;
+    PetscCall(DMCreateLocalVector(dm, vec));
+    PetscCall(VecSet(*vec, 0.0));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Duplicates and zeroes a vector.
+ */
+
+static PetscErrorCode CreateZeroedDuplicate(Vec src, Vec *vec)
+{
+    PetscFunctionBeginUser;
+    PetscCall(VecDuplicate(src, vec));
+    PetscCall(VecSet(*vec, 0.0));
     PetscFunctionReturn(0);
 }
 /**
@@ -94,6 +179,126 @@ PetscErrorCode PicurvMakeTempDir(char *path, size_t path_len)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Writes one small temporary text file used by the richer runtime fixtures.
+ */
+
+static PetscErrorCode WriteTextFileForTests(const char *path, const char *contents)
+{
+    FILE *file = NULL;
+
+    PetscFunctionBeginUser;
+    file = fopen(path, "w");
+    PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to open '%s' for writing.", path);
+    fputs(contents, file);
+    fclose(file);
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Creates a tiny control-file bundle used by richer runtime fixtures built through the setup path.
+ */
+
+static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
+                                               PetscBool enable_particles,
+                                               char *tmpdir,
+                                               size_t tmpdir_len,
+                                               char *control_path,
+                                               size_t control_path_len)
+{
+    char bcs_path[PETSC_MAX_PATH_LEN];
+    char post_path[PETSC_MAX_PATH_LEN];
+    char output_dir[PETSC_MAX_PATH_LEN];
+    char log_dir[PETSC_MAX_PATH_LEN];
+    char control_buffer[8192];
+    const char *particle_block = NULL;
+    const char *default_bcs =
+        "-Xi WALL noslip\n"
+        "+Xi WALL noslip\n"
+        "-Eta WALL noslip\n"
+        "+Eta WALL noslip\n"
+        "-Zeta INLET constant_velocity vx=0.0 vy=0.0 vz=1.5\n"
+        "+Zeta OUTLET conservation\n";
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvMakeTempDir(tmpdir, tmpdir_len));
+    PetscCall(PetscSNPrintf(bcs_path, sizeof(bcs_path), "%s/bcs.run", tmpdir));
+    PetscCall(PetscSNPrintf(post_path, sizeof(post_path), "%s/post.run", tmpdir));
+    PetscCall(PetscSNPrintf(output_dir, sizeof(output_dir), "%s/results", tmpdir));
+    PetscCall(PetscSNPrintf(log_dir, sizeof(log_dir), "%s/logs", tmpdir));
+    PetscCall(PetscSNPrintf(control_path, control_path_len, "%s/test.control", tmpdir));
+
+    PetscCall(WriteTextFileForTests(bcs_path, bcs_contents ? bcs_contents : default_bcs));
+    PetscCall(WriteTextFileForTests(
+        post_path,
+        "startTime = 0\n"
+        "endTime = 1\n"
+        "timeStep = 1\n"
+        "output_particles = false\n"));
+
+    if (enable_particles) {
+        particle_block =
+            "-numParticles 8\n"
+            "-pinit 2\n"
+            "-psrc_x 0.5\n"
+            "-psrc_y 0.5\n"
+            "-psrc_z 0.5\n"
+            "-particle_restart_mode init\n";
+    } else {
+        particle_block =
+            "-numParticles 0\n"
+            "-pinit 2\n";
+    }
+
+    PetscCall(PetscSNPrintf(
+        control_buffer,
+        sizeof(control_buffer),
+        "-start_step 0\n"
+        "-totalsteps 2\n"
+        "-ren 100.0\n"
+        "-dt 0.001\n"
+        "-finit 1\n"
+        "-ucont_x 0.0\n"
+        "-ucont_y 0.0\n"
+        "-ucont_z 1.5\n"
+        "-bcs_files %s\n"
+        "-profiling_timestep_mode off\n"
+        "-profiling_final_summary true\n"
+        "-postprocessing_config_file %s\n"
+        "-grid\n"
+        "-im 6\n"
+        "-jm 6\n"
+        "-km 6\n"
+        "-xMins 0.0\n"
+        "-xMaxs 1.0\n"
+        "-yMins 0.0\n"
+        "-yMaxs 1.0\n"
+        "-zMins 0.0\n"
+        "-zMaxs 1.0\n"
+        "-rxs 1.0\n"
+        "-rys 1.0\n"
+        "-rzs 1.0\n"
+        "-cgrids 0\n"
+        "-nblk 1\n"
+        "-euler_field_source solve\n"
+        "-mom_solver_type EXPLICIT_RK\n"
+        "-mg_level 1\n"
+        "-poisson 0\n"
+        "-tio 0\n"
+        "-particle_console_output_freq 0\n"
+        "-logfreq 1\n"
+        "-output_dir %s\n"
+        "-restart_dir %s\n"
+        "-log_dir %s\n"
+        "%s",
+        bcs_path,
+        post_path,
+        output_dir,
+        output_dir,
+        log_dir,
+        particle_block));
+    PetscCall(WriteTextFileForTests(control_path, control_buffer));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Builds minimal SimCtx and UserCtx fixtures for C unit tests.
  */
 
@@ -101,6 +306,10 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
+    BoundingBox *boxes = NULL;
+    PetscInt da_mx = mx + 1;
+    PetscInt da_my = my + 1;
+    PetscInt da_mz = mz + 1;
 
     PetscFunctionBeginUser;
     if (!simCtx_out || !user_out) {
@@ -143,72 +352,130 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     user->IM = mx;
     user->JM = my;
     user->KM = mz;
+    user->Min_X = 0.0;
+    user->Min_Y = 0.0;
+    user->Min_Z = 0.0;
+    user->Max_X = 1.0;
+    user->Max_Y = 1.0;
+    user->Max_Z = 1.0;
+    user->rx = 1.0;
+    user->ry = 1.0;
+    user->rz = 1.0;
+    user->bbox.min_coords.x = 0.0;
+    user->bbox.min_coords.y = 0.0;
+    user->bbox.min_coords.z = 0.0;
+    user->bbox.max_coords.x = 1.0;
+    user->bbox.max_coords.y = 1.0;
+    user->bbox.max_coords.z = 1.0;
     simCtx->usermg.mgctx[0].user = user;
     for (PetscMPIInt rank_idx = 0; rank_idx < simCtx->size; ++rank_idx) {
         simCtx->bboxlist[rank_idx].min_coords.x = 0.0;
         simCtx->bboxlist[rank_idx].min_coords.y = 0.0;
         simCtx->bboxlist[rank_idx].min_coords.z = 0.0;
-        simCtx->bboxlist[rank_idx].max_coords.x = (PetscReal)(mx - 1);
-        simCtx->bboxlist[rank_idx].max_coords.y = (PetscReal)(my - 1);
-        simCtx->bboxlist[rank_idx].max_coords.z = (PetscReal)(mz - 1);
+        simCtx->bboxlist[rank_idx].max_coords.x = 1.0;
+        simCtx->bboxlist[rank_idx].max_coords.y = 1.0;
+        simCtx->bboxlist[rank_idx].max_coords.z = 1.0;
     }
 
     PetscCall(DMDACreate3d(PETSC_COMM_WORLD,
                            DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
                            DMDA_STENCIL_BOX,
-                           mx, my, mz,
+                           da_mx, da_my, da_mz,
                            PETSC_DECIDE, PETSC_DECIDE, PETSC_DECIDE,
                            1, 1,
                            NULL, NULL, NULL,
                            &user->da));
     PetscCall(DMSetUp(user->da));
-    PetscCall(DMDASetUniformCoordinates(user->da, 0.0, (PetscReal)(mx - 1), 0.0, (PetscReal)(my - 1), 0.0, (PetscReal)(mz - 1)));
+    PetscCall(DMGetCoordinateDM(user->da, &user->fda));
+    PetscCall(PetscObjectReference((PetscObject)user->fda));
+    PetscCall(DMDASetUniformCoordinates(user->da, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0));
+    PetscCall(DMDAGetLocalInfo(user->da, &user->info));
+    PetscCall(ComputeLocalBoundingBox(user, &user->bbox));
+    PetscCall(GatherAllBoundingBoxes(user, &boxes));
+    PetscCall(BroadcastAllBoundingBoxes(user, &boxes));
+    for (PetscMPIInt rank_idx = 0; rank_idx < simCtx->size; ++rank_idx) {
+        simCtx->bboxlist[rank_idx] = boxes[rank_idx];
+    }
+    free(boxes);
 
-    PetscCall(DMDACreate3d(PETSC_COMM_WORLD,
-                           DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
-                           DMDA_STENCIL_BOX,
-                           mx, my, mz,
-                           PETSC_DECIDE, PETSC_DECIDE, PETSC_DECIDE,
-                           3, 1,
-                           NULL, NULL, NULL,
-                           &user->fda));
-    PetscCall(DMSetUp(user->fda));
-    PetscCall(DMDASetUniformCoordinates(user->fda, 0.0, (PetscReal)(mx - 1), 0.0, (PetscReal)(my - 1), 0.0, (PetscReal)(mz - 1)));
-    PetscCall(DMDAGetLocalInfo(user->fda, &user->info));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->P));
+    PetscCall(CreateZeroedLocalVector(user->da, &user->lP));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->Phi));
+    PetscCall(CreateZeroedLocalVector(user->da, &user->lPhi));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->Nvert));
+    PetscCall(CreateZeroedLocalVector(user->da, &user->lNvert));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->ParticleCount));
+    PetscCall(CreateZeroedLocalVector(user->da, &user->lParticleCount));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->Psi));
+    PetscCall(CreateZeroedLocalVector(user->da, &user->lPsi));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->Qcrit));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->P_nodal));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->Psi_nodal));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->Aj));
+    PetscCall(CreateZeroedLocalVector(user->da, &user->lAj));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->Diffusivity));
+    PetscCall(CreateZeroedLocalVector(user->da, &user->lDiffusivity));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->B));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->R));
 
-    PetscCall(DMCreateGlobalVector(user->da, &user->P));
-    PetscCall(DMCreateLocalVector(user->da, &user->lP));
-    PetscCall(DMCreateGlobalVector(user->da, &user->Nvert));
-    PetscCall(DMCreateLocalVector(user->da, &user->lNvert));
-    PetscCall(DMCreateGlobalVector(user->da, &user->ParticleCount));
-    PetscCall(DMCreateLocalVector(user->da, &user->lParticleCount));
-    PetscCall(DMCreateGlobalVector(user->da, &user->Psi));
-    PetscCall(DMCreateLocalVector(user->da, &user->lPsi));
-    PetscCall(DMCreateGlobalVector(user->da, &user->Qcrit));
-    PetscCall(DMCreateGlobalVector(user->da, &user->P_nodal));
-    PetscCall(DMCreateGlobalVector(user->da, &user->Psi_nodal));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Ucat));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->lUcat));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Ucont));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->lUcont));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Csi));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->lCsi));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->Eta));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lEta));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->Zet));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lZet));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Cent));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->lCent));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->GridSpace));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->lGridSpace));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->Centx));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->Centy));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->Centz));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Ucat_nodal));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->DiffusivityGradient));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->lDiffusivityGradient));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Rhs));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->dUcont));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->pUcont));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Bcs.Ubcs));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Bcs.Uch));
 
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Ucat));
-    PetscCall(DMCreateLocalVector(user->fda, &user->lUcat));
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Ucont));
-    PetscCall(DMCreateLocalVector(user->fda, &user->lUcont));
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Csi));
-    PetscCall(DMCreateLocalVector(user->fda, &user->lCsi));
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Eta));
-    PetscCall(DMCreateLocalVector(user->fda, &user->lEta));
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Zet));
-    PetscCall(DMCreateLocalVector(user->fda, &user->lZet));
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Cent));
-    PetscCall(DMCreateLocalVector(user->fda, &user->lCent));
-    PetscCall(DMCreateGlobalVector(user->fda, &user->Ucat_nodal));
-
-    PetscCall(VecZeroEntries(user->P));
-    PetscCall(VecZeroEntries(user->Nvert));
-    PetscCall(VecZeroEntries(user->ParticleCount));
-    PetscCall(VecZeroEntries(user->Psi));
-    PetscCall(VecZeroEntries(user->Ucat));
-    PetscCall(VecZeroEntries(user->Ucont));
-    PetscCall(VecZeroEntries(user->Cent));
+    PetscCall(CreateZeroedDuplicate(user->Ucont, &user->Ucont_o));
+    PetscCall(CreateZeroedDuplicate(user->lUcont, &user->lUcont_o));
+    PetscCall(CreateZeroedDuplicate(user->Ucont, &user->Ucont_rm1));
+    PetscCall(CreateZeroedDuplicate(user->lUcont, &user->lUcont_rm1));
+    PetscCall(CreateZeroedDuplicate(user->Ucat, &user->Ucat_o));
+    PetscCall(CreateZeroedDuplicate(user->P, &user->P_o));
+    PetscCall(CreateZeroedDuplicate(user->Nvert, &user->Nvert_o));
+    PetscCall(CreateZeroedLocalVector(user->da, &user->lNvert_o));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->ICsi));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lICsi));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->IEta));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lIEta));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->IZet));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lIZet));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->JCsi));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lJCsi));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->JEta));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lJEta));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->JZet));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lJZet));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->KCsi));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lKCsi));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->KEta));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lKEta));
+    PetscCall(CreateZeroedDuplicate(user->Csi, &user->KZet));
+    PetscCall(CreateZeroedDuplicate(user->lCsi, &user->lKZet));
+    PetscCall(CreateZeroedDuplicate(user->Aj, &user->IAj));
+    PetscCall(CreateZeroedDuplicate(user->lAj, &user->lIAj));
+    PetscCall(CreateZeroedDuplicate(user->Aj, &user->JAj));
+    PetscCall(CreateZeroedDuplicate(user->lAj, &user->lJAj));
+    PetscCall(CreateZeroedDuplicate(user->Aj, &user->KAj));
+    PetscCall(CreateZeroedDuplicate(user->lAj, &user->lKAj));
 
     PetscCall(PicurvPopulateIdentityMetrics(user));
 
@@ -225,11 +492,37 @@ PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user)
     Cmpnts ***csi = NULL;
     Cmpnts ***eta = NULL;
     Cmpnts ***zet = NULL;
+    Cmpnts ***icsi = NULL;
+    Cmpnts ***ieta = NULL;
+    Cmpnts ***izet = NULL;
+    Cmpnts ***jcsi = NULL;
+    Cmpnts ***jeta = NULL;
+    Cmpnts ***jzet = NULL;
+    Cmpnts ***kcsi = NULL;
+    Cmpnts ***keta = NULL;
+    Cmpnts ***kzet = NULL;
+    PetscReal ***aj = NULL;
+    PetscReal ***iaj = NULL;
+    PetscReal ***jaj = NULL;
+    PetscReal ***kaj = NULL;
 
     PetscFunctionBeginUser;
     PetscCall(DMDAVecGetArray(user->fda, user->Csi, &csi));
     PetscCall(DMDAVecGetArray(user->fda, user->Eta, &eta));
     PetscCall(DMDAVecGetArray(user->fda, user->Zet, &zet));
+    PetscCall(DMDAVecGetArray(user->fda, user->ICsi, &icsi));
+    PetscCall(DMDAVecGetArray(user->fda, user->IEta, &ieta));
+    PetscCall(DMDAVecGetArray(user->fda, user->IZet, &izet));
+    PetscCall(DMDAVecGetArray(user->fda, user->JCsi, &jcsi));
+    PetscCall(DMDAVecGetArray(user->fda, user->JEta, &jeta));
+    PetscCall(DMDAVecGetArray(user->fda, user->JZet, &jzet));
+    PetscCall(DMDAVecGetArray(user->fda, user->KCsi, &kcsi));
+    PetscCall(DMDAVecGetArray(user->fda, user->KEta, &keta));
+    PetscCall(DMDAVecGetArray(user->fda, user->KZet, &kzet));
+    PetscCall(DMDAVecGetArray(user->da, user->Aj, &aj));
+    PetscCall(DMDAVecGetArray(user->da, user->IAj, &iaj));
+    PetscCall(DMDAVecGetArray(user->da, user->JAj, &jaj));
+    PetscCall(DMDAVecGetArray(user->da, user->KAj, &kaj));
 
     for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
         for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
@@ -237,6 +530,19 @@ PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user)
                 csi[k][j][i].x = 1.0; csi[k][j][i].y = 0.0; csi[k][j][i].z = 0.0;
                 eta[k][j][i].x = 0.0; eta[k][j][i].y = 1.0; eta[k][j][i].z = 0.0;
                 zet[k][j][i].x = 0.0; zet[k][j][i].y = 0.0; zet[k][j][i].z = 1.0;
+                icsi[k][j][i] = csi[k][j][i];
+                ieta[k][j][i] = eta[k][j][i];
+                izet[k][j][i] = zet[k][j][i];
+                jcsi[k][j][i] = csi[k][j][i];
+                jeta[k][j][i] = eta[k][j][i];
+                jzet[k][j][i] = zet[k][j][i];
+                kcsi[k][j][i] = csi[k][j][i];
+                keta[k][j][i] = eta[k][j][i];
+                kzet[k][j][i] = zet[k][j][i];
+                aj[k][j][i] = 1.0;
+                iaj[k][j][i] = 1.0;
+                jaj[k][j][i] = 1.0;
+                kaj[k][j][i] = 1.0;
             }
         }
     }
@@ -244,6 +550,19 @@ PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user)
     PetscCall(DMDAVecRestoreArray(user->fda, user->Csi, &csi));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Eta, &eta));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Zet, &zet));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->ICsi, &icsi));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->IEta, &ieta));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->IZet, &izet));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->JCsi, &jcsi));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->JEta, &jeta));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->JZet, &jzet));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->KCsi, &kcsi));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->KEta, &keta));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->KZet, &kzet));
+    PetscCall(DMDAVecRestoreArray(user->da, user->Aj, &aj));
+    PetscCall(DMDAVecRestoreArray(user->da, user->IAj, &iaj));
+    PetscCall(DMDAVecRestoreArray(user->da, user->JAj, &jaj));
+    PetscCall(DMDAVecRestoreArray(user->da, user->KAj, &kaj));
 
     PetscCall(DMGlobalToLocalBegin(user->fda, user->Csi, INSERT_VALUES, user->lCsi));
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Csi, INSERT_VALUES, user->lCsi));
@@ -251,8 +570,34 @@ PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user)
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Eta, INSERT_VALUES, user->lEta));
     PetscCall(DMGlobalToLocalBegin(user->fda, user->Zet, INSERT_VALUES, user->lZet));
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Zet, INSERT_VALUES, user->lZet));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->ICsi, INSERT_VALUES, user->lICsi));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->ICsi, INSERT_VALUES, user->lICsi));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->IEta, INSERT_VALUES, user->lIEta));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->IEta, INSERT_VALUES, user->lIEta));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->IZet, INSERT_VALUES, user->lIZet));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->IZet, INSERT_VALUES, user->lIZet));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->JCsi, INSERT_VALUES, user->lJCsi));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->JCsi, INSERT_VALUES, user->lJCsi));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->JEta, INSERT_VALUES, user->lJEta));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->JEta, INSERT_VALUES, user->lJEta));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->JZet, INSERT_VALUES, user->lJZet));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->JZet, INSERT_VALUES, user->lJZet));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->KCsi, INSERT_VALUES, user->lKCsi));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->KCsi, INSERT_VALUES, user->lKCsi));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->KEta, INSERT_VALUES, user->lKEta));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->KEta, INSERT_VALUES, user->lKEta));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->KZet, INSERT_VALUES, user->lKZet));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->KZet, INSERT_VALUES, user->lKZet));
     PetscCall(DMGlobalToLocalBegin(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
     PetscCall(DMGlobalToLocalEnd(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Aj, INSERT_VALUES, user->lAj));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Aj, INSERT_VALUES, user->lAj));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->IAj, INSERT_VALUES, user->lIAj));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->IAj, INSERT_VALUES, user->lIAj));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->JAj, INSERT_VALUES, user->lJAj));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->JAj, INSERT_VALUES, user->lJAj));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->KAj, INSERT_VALUES, user->lKAj));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->KAj, INSERT_VALUES, user->lKAj));
     PetscCall(DMGlobalToLocalBegin(user->da, user->P, INSERT_VALUES, user->lP));
     PetscCall(DMGlobalToLocalEnd(user->da, user->P, INSERT_VALUES, user->lP));
     PetscCall(DMGlobalToLocalBegin(user->da, user->Psi, INSERT_VALUES, user->lPsi));
@@ -283,8 +628,12 @@ PetscErrorCode PicurvCreateSwarmPair(UserCtx *user, PetscInt nlocal, const char 
     PetscCall(DMSwarmSetCellDM(user->swarm, user->da));
     PetscCall(RegisterSwarmFieldForTests(user->swarm, "position", 3, PETSC_REAL));
     PetscCall(RegisterSwarmFieldForTests(user->swarm, "velocity", 3, PETSC_REAL));
+    PetscCall(RegisterSwarmFieldForTests(user->swarm, "DMSwarm_CellID", 3, PETSC_INT));
     PetscCall(RegisterSwarmFieldForTests(user->swarm, "weight", 3, PETSC_REAL));
+    PetscCall(RegisterSwarmFieldForTests(user->swarm, "Diffusivity", 1, PETSC_REAL));
+    PetscCall(RegisterSwarmFieldForTests(user->swarm, "DiffusivityGradient", 3, PETSC_REAL));
     PetscCall(RegisterSwarmFieldForTests(user->swarm, "Psi", 1, PETSC_REAL));
+    PetscCall(RegisterSwarmFieldForTests(user->swarm, "DMSwarm_location_status", 1, PETSC_INT));
     PetscCall(DMSwarmFinalizeFieldRegister(user->swarm));
     PetscCall(DMSwarmSetLocalSizes(user->swarm, nlocal, 0));
 
@@ -296,6 +645,54 @@ PetscErrorCode PicurvCreateSwarmPair(UserCtx *user, PetscInt nlocal, const char 
     PetscCall(RegisterSwarmFieldForTests(user->post_swarm, post_field_name, 1, PETSC_REAL));
     PetscCall(DMSwarmFinalizeFieldRegister(user->post_swarm));
     PetscCall(DMSwarmSetLocalSizes(user->post_swarm, nlocal, 0));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Builds a tiny runtime context through the real setup path for behavior-level tests.
+ */
+
+PetscErrorCode PicurvBuildTinyRuntimeContext(const char *bcs_contents,
+                                             PetscBool enable_particles,
+                                             SimCtx **simCtx_out,
+                                             UserCtx **user_out,
+                                             char *tmpdir,
+                                             size_t tmpdir_len)
+{
+    char control_path[PETSC_MAX_PATH_LEN];
+    SimCtx *simCtx = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx output cannot be NULL.");
+
+    PetscCall(PetscOptionsClear(NULL));
+    PetscCall(PrepareTinyRuntimeConfig(bcs_contents, enable_particles, tmpdir, tmpdir_len, control_path, sizeof(control_path)));
+    PetscCall(PetscOptionsSetValue(NULL, "-control_file", control_path));
+    PetscCall(CreateSimulationContext(0, NULL, &simCtx));
+    simCtx->exec_mode = EXEC_MODE_SOLVER;
+    PetscCall(SetupSimulationEnvironment(simCtx));
+    PetscCall(SetupGridAndSolvers(simCtx));
+    PetscCall(SetupBoundaryConditions(simCtx));
+    PetscCall(SetupDomainRankInfo(simCtx));
+
+    *simCtx_out = simCtx;
+    if (user_out) {
+        *user_out = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    }
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Finalizes and frees a runtime context built by `PicurvBuildTinyRuntimeContext`.
+ */
+
+PetscErrorCode PicurvDestroyRuntimeContext(SimCtx **simCtx_ptr)
+{
+    PetscFunctionBeginUser;
+    if (simCtx_ptr && *simCtx_ptr) {
+        PetscCall(FinalizeSimulation(*simCtx_ptr));
+        PetscCall(PetscFree(*simCtx_ptr));
+        *simCtx_ptr = NULL;
+    }
+    PetscCall(PetscOptionsClear(NULL));
     PetscFunctionReturn(0);
 }
 /**
@@ -354,14 +751,50 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
         PetscCall(DestroyVecIfSet(&user->lDiffusivity));
         PetscCall(DestroyVecIfSet(&user->DiffusivityGradient));
         PetscCall(DestroyVecIfSet(&user->lDiffusivityGradient));
+        PetscCall(DestroyVecIfSet(&user->CS));
+        PetscCall(DestroyVecIfSet(&user->lCs));
         PetscCall(DestroyVecIfSet(&user->Nu_t));
         PetscCall(DestroyVecIfSet(&user->lNu_t));
+        PetscCall(DestroyVecIfSet(&user->Ucont_o));
+        PetscCall(DestroyVecIfSet(&user->lUcont_o));
+        PetscCall(DestroyVecIfSet(&user->Ucat_o));
+        PetscCall(DestroyVecIfSet(&user->P_o));
+        PetscCall(DestroyVecIfSet(&user->Nvert_o));
+        PetscCall(DestroyVecIfSet(&user->lNvert_o));
+        PetscCall(DestroyVecIfSet(&user->Ucont_rm1));
+        PetscCall(DestroyVecIfSet(&user->lUcont_rm1));
+        PetscCall(DestroyVecIfSet(&user->Rhs));
+        PetscCall(DestroyVecIfSet(&user->dUcont));
+        PetscCall(DestroyVecIfSet(&user->pUcont));
+        PetscCall(DestroyVecIfSet(&user->CellFieldAtCorner));
+        PetscCall(DestroyVecIfSet(&user->lCellFieldAtCorner));
+        PetscCall(DestroyVecIfSet(&user->B));
+        PetscCall(DestroyVecIfSet(&user->R));
         PetscCall(DestroyVecIfSet(&user->Cent));
         PetscCall(DestroyVecIfSet(&user->lCent));
+        PetscCall(DestroyVecIfSet(&user->GridSpace));
+        PetscCall(DestroyVecIfSet(&user->lGridSpace));
+        PetscCall(DestroyVecIfSet(&user->Centx));
+        PetscCall(DestroyVecIfSet(&user->Centy));
+        PetscCall(DestroyVecIfSet(&user->Centz));
         PetscCall(DestroyVecIfSet(&user->Ucat_nodal));
+        PetscCall(DestroyVecIfSet(&user->Bcs.Ubcs));
+        PetscCall(DestroyVecIfSet(&user->Bcs.Uch));
+        PetscCall(DestroyMatIfSet(&user->A));
+        PetscCall(DestroyMatIfSet(&user->C));
+        PetscCall(DestroyKSPIfSet(&user->ksp));
+        PetscCall(DestroyNullSpaceIfSet(&user->nullsp));
+        PetscCall(PetscFree(user->RankCellInfoMap));
+        user->RankCellInfoMap = NULL;
+        for (PetscInt face = BC_FACE_NEG_X; face <= BC_FACE_POS_Z; ++face) {
+            if (user->boundary_faces[face].params) {
+                FreeBC_ParamList(user->boundary_faces[face].params);
+                user->boundary_faces[face].params = NULL;
+            }
+        }
 
-        PetscCall(DestroyDMIfSet(&user->da));
         PetscCall(DestroyDMIfSet(&user->fda));
+        PetscCall(DestroyDMIfSet(&user->da));
         PetscCall(PetscFree(user));
         if (user_ptr) {
             *user_ptr = NULL;
@@ -369,6 +802,7 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
     }
 
     if (simCtx) {
+        PetscCall(DestroyRandomIfSet(&simCtx->BrownianMotionRNG));
         PetscCall(PetscFree(simCtx->bboxlist));
         PetscCall(PetscFree(simCtx->usermg.mgctx));
         PetscCall(PetscFree(simCtx->pps));

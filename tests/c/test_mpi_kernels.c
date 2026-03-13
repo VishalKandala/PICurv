@@ -5,6 +5,7 @@
 
 #include "test_support.h"
 
+#include "ParticleMotion.h"
 #include "ParticleSwarm.h"
 #include "grid.h"
 
@@ -55,6 +56,7 @@ static PetscErrorCode TestBoundingBoxCollectivesMultiRank(void)
     PetscMPIInt rank = 0, size = 1;
     PetscReal global_min_x = 0.0;
     PetscReal global_max_x = 0.0;
+    PetscReal expected_global_max_x = 0.0;
 
     PetscFunctionBeginUser;
     PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
@@ -62,6 +64,7 @@ static PetscErrorCode TestBoundingBoxCollectivesMultiRank(void)
     PetscCall(PicurvAssertBool((PetscBool)(size >= 2), "unit-mpi requires at least two MPI ranks"));
 
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 6, 4));
+    expected_global_max_x = ((PetscReal)(user->IM - 1) / (PetscReal)user->IM) + 1.0e-6;
     PetscCall(ComputeLocalBoundingBox(user, &local_bbox));
     PetscCall(GatherAllBoundingBoxes(user, &boxes));
     PetscCall(BroadcastAllBoundingBoxes(user, &boxes));
@@ -79,9 +82,67 @@ static PetscErrorCode TestBoundingBoxCollectivesMultiRank(void)
     PetscCallMPI(MPI_Allreduce(&local_bbox.min_coords.x, &global_min_x, 1, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD));
     PetscCallMPI(MPI_Allreduce(&local_bbox.max_coords.x, &global_max_x, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
     PetscCall(PicurvAssertBool((PetscBool)(global_min_x <= 0.0), "global min x should include domain start"));
-    PetscCall(PicurvAssertBool((PetscBool)(global_max_x >= 7.0), "global max x should include domain end"));
+    PetscCall(PicurvAssertRealNear(expected_global_max_x, global_max_x, 1.0e-10, "global max x should match the normalized physical-node domain end"));
 
     free(boxes);
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests restart fast-path migration using preloaded cell ownership metadata.
+ */
+
+static PetscErrorCode TestRestartCellIdMigrationMovesParticleToOwner(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    RankCellInfo my_cell_info;
+    PetscMPIInt rank = 0, size = 1;
+    PetscInt *cell_ids = NULL;
+    PetscReal *positions = NULL;
+    PetscInt nlocal = 0;
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    PetscCall(PicurvAssertIntEqual(2, size, "restart migration unit test expects exactly two MPI ranks"));
+
+    PetscCall(PetscMemzero(&my_cell_info, sizeof(my_cell_info)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &my_cell_info.xs_cell, &my_cell_info.xm_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &my_cell_info.ys_cell, &my_cell_info.ym_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &my_cell_info.zs_cell, &my_cell_info.zm_cell));
+    PetscCall(PetscMalloc1(size, &user->RankCellInfoMap));
+    PetscCallMPI(MPI_Allgather(&my_cell_info, sizeof(RankCellInfo), MPI_BYTE,
+                               user->RankCellInfoMap, sizeof(RankCellInfo), MPI_BYTE,
+                               PETSC_COMM_WORLD));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    if (rank == 0) {
+        cell_ids[0] = user->RankCellInfoMap[1].xs_cell;
+        cell_ids[1] = user->RankCellInfoMap[1].ys_cell;
+        cell_ids[2] = user->RankCellInfoMap[1].zs_cell;
+        positions[0] = 0.875;
+        positions[1] = 0.5;
+        positions[2] = 0.5;
+    } else {
+        cell_ids[0] = user->RankCellInfoMap[1].xs_cell;
+        cell_ids[1] = user->RankCellInfoMap[1].ys_cell;
+        cell_ids[2] = user->RankCellInfoMap[1].zs_cell;
+        positions[0] = 0.95;
+        positions[1] = 0.5;
+        positions[2] = 0.5;
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+
+    PetscCall(MigrateRestartParticlesUsingCellID(user));
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(PicurvAssertIntEqual((rank == 0) ? 0 : 2, nlocal,
+                                   "restart migration should move the foreign particle onto the owning rank"));
+
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -95,6 +156,7 @@ int main(int argc, char **argv)
     const PicurvTestCase cases[] = {
         {"distribute-particles-collective-consistency", TestDistributeParticlesCollectiveConsistency},
         {"bounding-box-collectives-multi-rank", TestBoundingBoxCollectivesMultiRank},
+        {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv MPI-focused runtime tests");

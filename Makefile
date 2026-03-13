@@ -99,8 +99,8 @@ TEST_NPROCS ?= 1
 TEST_MPI_NPROCS ?= 2
 SMOKE_MPI_NPROCS ?= $(TEST_MPI_NPROCS)
 SMOKE_MPI_MATRIX_NPROCS ?= 2 3
-PY_COVERAGE_MIN ?= 30
-C_COVERAGE_MIN ?= 55
+PY_COVERAGE_MIN ?= 40
+C_COVERAGE_MIN ?= 70
 
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
@@ -151,6 +151,7 @@ POSTPROCESSOR_EXE := $(BINDIR)/postprocessor
 CONDUCTOR_EXE     := $(BINDIR)/picurv
 DOCTOR_EXE        := $(TESTBINDIR)/doctor
 UNIT_GEOMETRY_EXE := $(TESTBINDIR)/unit_geometry
+UNIT_SETUP_EXE    := $(TESTBINDIR)/unit_setup
 UNIT_SOLVER_EXE   := $(TESTBINDIR)/unit_solver
 UNIT_PARTICLES_EXE := $(TESTBINDIR)/unit_particles
 UNIT_IO_EXE       := $(TESTBINDIR)/unit_io
@@ -165,10 +166,12 @@ UNIT_BOUNDARIES_EXE := $(TESTBINDIR)/unit_boundaries
 UNIT_POISSON_RHS_EXE := $(TESTBINDIR)/unit_poisson_rhs
 UNIT_RUNTIME_EXE := $(TESTBINDIR)/unit_runtime
 UNIT_MPI_EXE := $(TESTBINDIR)/unit_mpi
+UNIT_PERIODIC_DEV_EXE := $(TESTBINDIR)/unit_periodic_dev
 TEST_CFLAGS_TO_USE := $(CFLAGS_TO_USE) -I$(TESTCDIR)
 TEST_SUPPORT_OBJ  := $(TESTOBJDIR)/test_support.o
 DOCTOR_OBJ        := $(TESTOBJDIR)/test_install_check.o
 UNIT_GEOMETRY_OBJ := $(TESTOBJDIR)/test_geometry.o
+UNIT_SETUP_OBJ    := $(TESTOBJDIR)/test_setup_lifecycle.o
 UNIT_SOLVER_OBJ   := $(TESTOBJDIR)/test_solver_kernels.o
 UNIT_PARTICLES_OBJ := $(TESTOBJDIR)/test_particle_kernels.o
 UNIT_IO_OBJ       := $(TESTOBJDIR)/test_io.o
@@ -184,6 +187,7 @@ UNIT_BOUNDARIES_OBJ := $(TESTOBJDIR)/test_boundaries.o
 UNIT_POISSON_RHS_OBJ := $(TESTOBJDIR)/test_poisson_rhs.o
 UNIT_RUNTIME_OBJ := $(TESTOBJDIR)/test_runtime_kernels.o
 UNIT_MPI_OBJ := $(TESTOBJDIR)/test_mpi_kernels.o
+UNIT_PERIODIC_DEV_OBJ := $(TESTOBJDIR)/test_periodic_dev.o
 TEST_COMMON_OBJS  := $(sort $(filter-out $(OBJDIR)/simulator.o $(OBJDIR)/postprocessor.o,$(SIMULATOR_OBJS) $(POSTPROCESSOR_OBJS)))
 
 # ==============================================================================
@@ -240,11 +244,15 @@ $(TEST_POSTPROCESSOR_IMPL_OBJ): $(SRCDIR)/postprocessor.c | dirs
 	@echo "--- Compiling Test Support Source: $< (no main) ---"
 	$(CC_TO_USE) $(TEST_CFLAGS_TO_USE) -DPICURV_POSTPROCESSOR_NO_MAIN -c $< -o $@
 
-$(DOCTOR_EXE): $(DOCTOR_OBJ) $(TEST_SUPPORT_OBJ) | dirs
+$(DOCTOR_EXE): $(DOCTOR_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
 $(UNIT_GEOMETRY_EXE): $(UNIT_GEOMETRY_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
+$(UNIT_SETUP_EXE): $(UNIT_SETUP_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
@@ -304,6 +312,10 @@ $(UNIT_MPI_EXE): $(UNIT_MPI_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_PERIODIC_DEV_EXE): $(UNIT_PERIODIC_DEV_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 ## @target dirs
 ## @brief (Internal) Ensures all necessary build directories exist.
 dirs: 
@@ -312,7 +324,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix unit unit-geometry unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi ctest ctest-geometry ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -334,10 +346,10 @@ coverage-python:
 	@python3 scripts/python_coverage_gate.py --min-line "$(PY_COVERAGE_MIN)" --output-dir "coverage/python"
 
 ## @target coverage-c
-## @brief Rebuilds with gcov flags, runs unit+smoke, and enforces C line-coverage threshold.
+## @brief Rebuilds with gcov flags, runs unit+smoke plus MPI/stress validation layers, and enforces C line-coverage threshold.
 coverage-c:
 	@$(MAKE) --no-print-directory cleanobj clean-unit SYSTEM=$(SYSTEM)
-	@$(MAKE) --no-print-directory COVERAGE=1 unit smoke SYSTEM=$(SYSTEM)
+	@$(MAKE) --no-print-directory COVERAGE=1 unit smoke unit-mpi smoke-mpi smoke-mpi-matrix smoke-stress SYSTEM=$(SYSTEM)
 	@python3 scripts/c_coverage_gate.py --src-dir "$(SRCDIR)" --obj-dir "$(OBJDIR)" --output-dir "coverage/c" --min-line "$(C_COVERAGE_MIN)"
 
 ## @target coverage
@@ -370,6 +382,11 @@ install-check: doctor
 ## @target unit-geometry
 ## @brief Runs the geometry and interpolation C unit tests.
 unit-geometry: $(UNIT_GEOMETRY_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
+## @target unit-setup
+## @brief Runs setup, lifecycle, and cleanup C unit tests.
+unit-setup: $(UNIT_SETUP_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
 
 ## @target unit-solver
@@ -430,9 +447,18 @@ unit-runtime: $(UNIT_RUNTIME_EXE)
 unit-mpi: $(UNIT_MPI_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_MPI_NPROCS) $<
 
+## @target unit-periodic-dev
+## @brief Runs non-gating periodic-boundary development harnesses.
+unit-periodic-dev: $(UNIT_PERIODIC_DEV_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
+## @target unit-simulation
+## @brief Runs the simulation-core debugging suites without the setup/post/IO layers.
+unit-simulation: unit-boundaries unit-solver unit-poisson-rhs unit-runtime unit-particles
+
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
-unit: unit-geometry unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime
+unit: unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime
 
 ## @target ctest
 ## @brief Compatibility alias for `unit`.
@@ -441,6 +467,10 @@ ctest: unit
 ## @target ctest-geometry
 ## @brief Compatibility alias for `unit-geometry`.
 ctest-geometry: unit-geometry
+
+## @target ctest-setup
+## @brief Compatibility alias for `unit-setup`.
+ctest-setup: unit-setup
 
 ## @target ctest-solver
 ## @brief Compatibility alias for `unit-solver`.
@@ -505,6 +535,16 @@ smoke-mpi-matrix: simulator postprocessor conductor
 		bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$$n"; \
 	done
 
+## @target smoke-stress
+## @brief Runs opt-in medium-budget smoke stress checks that extend, but do not replace, the default smoke gate.
+smoke-stress: simulator postprocessor conductor
+	@bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$(TEST_NPROCS)" "stress"
+
+## @target smoke-periodic-dev
+## @brief Runs the non-gating periodic-boundary smoke harness against the current in-development runtime path.
+smoke-periodic-dev: simulator postprocessor conductor
+	@bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$(TEST_NPROCS)" "periodic-dev"
+
 ## @target check
 ## @brief Runs the full local validation sweep (Python, doctor, unit, smoke).
 check:
@@ -531,6 +571,11 @@ check-full: check
 	@$(MAKE) --no-print-directory unit-mpi SYSTEM=$(SYSTEM)
 	@$(MAKE) --no-print-directory smoke-mpi SYSTEM=$(SYSTEM)
 	@$(MAKE) --no-print-directory smoke-mpi-matrix SYSTEM=$(SYSTEM)
+
+## @target check-stress
+## @brief Runs `check-full` plus the opt-in smoke stress tier.
+check-stress: check-full
+	@$(MAKE) --no-print-directory smoke-stress SYSTEM=$(SYSTEM)
 
 ## @target build-docs
 ## @brief Generates Doxygen documentation for the project.
