@@ -187,6 +187,7 @@ static PetscErrorCode TestSharedRuntimeFixtureContracts(void)
     PetscCall(PicurvAssertBool((PetscBool)(simCtx->bboxlist[simCtx->rank].max_coords.x >= user->bbox.max_coords.x - 1.0e-10),
                                "runtime fixture rank bbox entry should include the local bbox extent"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(FreeLifecycleContext(&simCtx));
     PetscFunctionReturn(0);
 }
@@ -227,6 +228,7 @@ static PetscErrorCode TestSetupLifecycleCoreSolverSetup(void)
                                    "InitializeEulerianState should initialize a spatially consistent interior field"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(FreeLifecycleContext(&simCtx));
     PetscFunctionReturn(0);
 }
@@ -265,6 +267,7 @@ static PetscErrorCode TestSetupLifecycleParticleInitialization(void)
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(FreeLifecycleContext(&simCtx));
     PetscFunctionReturn(0);
 }
@@ -329,6 +332,7 @@ static PetscErrorCode TestSetupLifecycleCleanupAcrossInitializationStates(void)
     PetscCall(PicurvAssertBool((PetscBool)(context_only != NULL), "CreateSimulationContext should allocate the top-level SimCtx"));
     PetscCall(PicurvAssertIntEqual(1, context_only->block_number, "CreateSimulationContext should parse the configured block count"));
     PetscCall(PetscOptionsClear(NULL));
+    PetscCall(PicurvRemoveTempDir(context_tmpdir));
     PetscCall(FreeLifecycleContext(&context_only));
 
     PetscCall(BuildContextOnly(&grid_only, grid_tmpdir, sizeof(grid_tmpdir)));
@@ -336,6 +340,7 @@ static PetscErrorCode TestSetupLifecycleCleanupAcrossInitializationStates(void)
     PetscCall(SetupGridAndSolvers(grid_only));
     PetscCall(PicurvAssertBool((PetscBool)(grid_only->usermg.mgctx[grid_only->usermg.mglevels - 1].user->Ucont != NULL),
                                "SetupGridAndSolvers should allocate baseline Eulerian vectors"));
+    PetscCall(PicurvRemoveTempDir(grid_tmpdir));
     PetscCall(FreeLifecycleContext(&grid_only));
     PetscFunctionReturn(0);
 }

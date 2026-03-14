@@ -62,6 +62,7 @@ static PetscErrorCode TestComputeParticleMSDWritesCSV(void)
     PetscCall(PicurvAssertBool((PetscBool)(strstr(row, "2") != NULL),
                                "MSD CSV row should include the particle count"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -91,6 +92,7 @@ static PetscErrorCode TestComputeParticleMSDEmptySwarmNoOutput(void)
     PetscCall(PicurvAssertBool((PetscBool)!exists,
                                "ComputeParticleMSD should not write output when no particles are present"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }

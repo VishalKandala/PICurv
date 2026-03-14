@@ -51,6 +51,9 @@ PetscErrorCode PicurvCreateSwarmPair(UserCtx *user, PetscInt nlocal, const char 
 /** @brief Creates a unique temporary directory path and materializes the directory. */
 PetscErrorCode PicurvMakeTempDir(char *path, size_t path_len);
 
+/** @brief Recursively removes a temporary directory created by PicurvMakeTempDir. */
+PetscErrorCode PicurvRemoveTempDir(const char *path);
+
 /** @brief Ensures a directory exists, creating it if required. */
 PetscErrorCode PicurvEnsureDir(const char *path);
 

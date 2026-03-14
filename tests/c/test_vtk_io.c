@@ -191,6 +191,7 @@ static PetscErrorCode TestCreateVTKFileFromMetadataWritesStructuredGrid(void)
 
     PetscCall(PetscFree(meta.coords));
     PetscCall(PetscFree(meta.point_data_fields[0].data));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
 /**

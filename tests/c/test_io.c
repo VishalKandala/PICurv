@@ -53,6 +53,7 @@ static PetscErrorCode TestVerifyPathExistence(void)
 
     PetscCall(VerifyPathExistence(filepath, PETSC_FALSE, PETSC_FALSE, "temp file", &exists));
     PetscCall(PicurvAssertBool(exists, "VerifyPathExistence should find the temp file"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
 /**
@@ -90,6 +91,7 @@ static PetscErrorCode TestWriteAndReadSimulationFields(void)
     PetscCall(PicurvAssertVecConstant(user->Ucat, 2.0, 1.0e-12, "ReadSimulationFields should restore Ucat"));
     PetscCall(PicurvAssertVecConstant(user->Ucont, 3.0, 1.0e-12, "ReadSimulationFields should restore Ucont"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -129,6 +131,7 @@ static PetscErrorCode TestParsePostProcessingSettings(void)
     PetscCall(PicurvAssertBool((PetscBool)(strcmp(simCtx->pps->output_prefix, "SmokeField") == 0),
                                "ParsePostProcessingSettings should parse output_prefix"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -266,6 +269,7 @@ static PetscErrorCode CaptureBannerOutput(SimCtx *simCtx, char *captured, size_t
     bytes_read = fread(captured, 1, captured_len - 1, capture_file);
     captured[bytes_read] = '\0';
     fclose(capture_file);
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
 /**

@@ -179,6 +179,27 @@ PetscErrorCode PicurvMakeTempDir(char *path, size_t path_len)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Recursively removes a temporary directory created by PicurvMakeTempDir.
+ */
+
+PetscErrorCode PicurvRemoveTempDir(const char *path)
+{
+    char cmd[512];
+
+    PetscFunctionBeginUser;
+    if (!path || path[0] == '\0') PetscFunctionReturn(0);
+    /* Safety: only remove paths under /tmp/picurv-test- */
+    if (strncmp(path, "/tmp/picurv-test-", 17) != 0) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+                "Refusing to remove path outside /tmp/picurv-test-*: '%s'", path);
+    }
+    PetscCall(PetscSNPrintf(cmd, sizeof(cmd), "rm -rf '%s'", path));
+    if (system(cmd) != 0) {
+        PetscCall(PetscPrintf(PETSC_COMM_SELF, "Warning: failed to remove temp dir '%s'\n", path));
+    }
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Writes one small temporary text file used by the richer runtime fixtures.
  */
 
