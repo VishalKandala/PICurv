@@ -1538,6 +1538,9 @@ require_executable "${simulator_exe}" "simulator"
 require_executable "${postprocessor_exe}" "postprocessor"
 require_executable "${picurv_exe}" "picurv conductor"
 parse_mpi_launcher "${mpi_launcher}"
+# Export so that 'picurv run' also uses the same MPI launcher
+# (picurv checks PICURV_MPI_LAUNCHER -> MPI_LAUNCHER env -> .picurv-execution.yml -> fallback mpiexec).
+export PICURV_MPI_LAUNCHER="${mpi_launcher}"
 python3 -c "import yaml" >/dev/null 2>&1 || die "python dependency 'pyyaml' is required for smoke profile mutation."
 case "${smoke_mode}" in
   standard|stress|periodic-dev) ;;
