@@ -98,7 +98,28 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 45_Particle_Initialization_and_Restart**
 
-@section p50_field_init_sec 5. Field Initialization Mode
+@section p50_interp_sec 5. Interpolation Method
+
+- Schema home: `solver.yml -> interpolation.method`
+- Canonical values:
+  - `Trilinear`
+  - `CornerAveraged`
+- Python hook:
+  - `normalize_interpolation_method()` in `scripts/picurv`
+- Generated mapping:
+  - `interpolation_method` -> `-interpolation_method`
+- C enum/storage:
+  - `InterpolationMethod` in `include/variables.h`
+- C parser:
+  - `-interpolation_method` in @ref CreateSimulationContext (`src/setup.c`)
+- Runtime dispatch:
+  - @ref InterpolateEulerFieldToSwarm in `src/interpolation.c`
+- Tests/docs to update:
+  - `tests/test_cli_smoke.py`
+  - **@subpage 27_Trilinear_Interpolation_and_Projection**
+  - **@subpage 45_Particle_Initialization_and_Restart**
+
+@section p50_field_init_sec 6. Field Initialization Mode
 
 - Schema home: `case.yml -> properties.initial_conditions.mode`
 - Canonical values:
@@ -120,7 +141,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 33_Initial_Conditions**
 
-@section p50_analytical_sec 6. Analytical Type
+@section p50_analytical_sec 7. Analytical Type
 
 - Schema home: `solver.yml -> operation_mode.analytical_type`
 - Canonical values:
@@ -140,7 +161,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - **@subpage 08_Solver_Reference**
   - **@subpage 32_Analytical_Solutions**
 
-@section p50_grid_sec 7. Grid Selector / Generator Selector
+@section p50_grid_sec 8. Grid Selector / Generator Selector
 
 - Schema homes:
   - `case.yml -> grid.mode`
@@ -165,7 +186,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - **@subpage 07_Case_Reference**
   - **@subpage 48_Grid_Generator_Guide**
 
-@section p50_profiling_sec 8. Profiling Selector
+@section p50_profiling_sec 9. Profiling Selector
 
 - Schema home: `monitor.yml -> profiling.timestep_output.mode`
 - Canonical values:
@@ -189,7 +210,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 09_Monitor_Reference**
 
-@section p50_post_sec 9. Postprocessing / Statistics Tasks
+@section p50_post_sec 10. Postprocessing / Statistics Tasks
 
 - Schema home: `post.yml -> statistics_pipeline`
 - Canonical values:
@@ -207,7 +228,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 10_Post_Processing_Reference**
 
-@section p50_related_sec 10. Related Pages
+@section p50_related_sec 11. Related Pages
 
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**

@@ -314,6 +314,59 @@ static PetscErrorCode TestInterpolateAllFieldsToSwarmConstantFields(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests the corner-averaged (legacy) interpolation path on constant fields.
+ */
+
+static PetscErrorCode TestInterpolateAllFieldsToSwarmCornerAveragedConstantFields(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***grad = NULL;
+    PetscReal *velocity = NULL;
+    PetscReal *diffusivity = NULL;
+    PetscReal *diffusivity_gradient = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->interpolationMethod = INTERP_CORNER_AVERAGED;
+    PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
+    PetscCall(VecSet(user->Ucat, 2.0));
+    PetscCall(VecSet(user->Diffusivity, 0.25));
+
+    PetscCall(DMDAVecGetArray(user->fda, user->DiffusivityGradient, &grad));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+                grad[k][j][i].x = 0.1;
+                grad[k][j][i].y = 0.2;
+                grad[k][j][i].z = 0.3;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->DiffusivityGradient, &grad));
+    PetscCall(SyncRuntimeFieldGhosts(user));
+    PetscCall(SeedSingleParticle(user, 0, 0, 0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ACTIVE_AND_LOCATED));
+
+    PetscCall(InterpolateAllFieldsToSwarm(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "velocity", NULL, NULL, (void **)&velocity));
+    PetscCall(DMSwarmGetField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmGetField(user->swarm, "DiffusivityGradient", NULL, NULL, (void **)&diffusivity_gradient));
+    PetscCall(PicurvAssertRealNear(2.0, velocity[0], 1.0e-12, "CornerAveraged: interpolated velocity x should match constant Eulerian field"));
+    PetscCall(PicurvAssertRealNear(2.0, velocity[1], 1.0e-12, "CornerAveraged: interpolated velocity y should match constant Eulerian field"));
+    PetscCall(PicurvAssertRealNear(2.0, velocity[2], 1.0e-12, "CornerAveraged: interpolated velocity z should match constant Eulerian field"));
+    PetscCall(PicurvAssertRealNear(0.25, diffusivity[0], 1.0e-12, "CornerAveraged: interpolated scalar diffusivity should match constant Eulerian field"));
+    PetscCall(PicurvAssertRealNear(0.1, diffusivity_gradient[0], 1.0e-12, "CornerAveraged: interpolated diffusivity-gradient x component"));
+    PetscCall(PicurvAssertRealNear(0.2, diffusivity_gradient[1], 1.0e-12, "CornerAveraged: interpolated diffusivity-gradient y component"));
+    PetscCall(PicurvAssertRealNear(0.3, diffusivity_gradient[2], 1.0e-12, "CornerAveraged: interpolated diffusivity-gradient z component"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DiffusivityGradient", NULL, NULL, (void **)&diffusivity_gradient));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmRestoreField(user->swarm, "velocity", NULL, NULL, (void **)&velocity));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests particle-to-grid scattering using known cell occupancy and scalar values.
  */
 
@@ -1073,6 +1126,7 @@ int main(int argc, char **argv)
         {"set-initial-interior-field-ignores-non-ucont-request", TestSetInitialInteriorFieldIgnoresNonUcontRequest},
         {"set-initial-interior-field-constant-profile-on-z-inlet", TestSetInitialInteriorFieldConstantProfileOnZInlet},
         {"interpolate-all-fields-to-swarm-constant-fields", TestInterpolateAllFieldsToSwarmConstantFields},
+        {"interpolate-all-fields-to-swarm-corner-averaged-constant-fields", TestInterpolateAllFieldsToSwarmCornerAveragedConstantFields},
         {"scatter-all-particle-fields-to-euler-fields-averages-psi", TestScatterAllParticleFieldsToEulerFieldsAveragesPsi},
         {"calculate-particle-count-per-cell-counts-global-cell-ids", TestCalculateParticleCountPerCellCountsGlobalCellIDs},
         {"reset-all-particle-statuses-leaves-lost-particles-untouched", TestResetAllParticleStatusesLeavesLostParticlesUntouched},

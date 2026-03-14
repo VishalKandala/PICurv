@@ -2419,6 +2419,16 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                                     f"  {solver_path}: unsupported keys in momentum_solver.dual_time_picard_rk4.pseudo_cfl: {unknown_pcfl_keys}."
                                 )
 
+    # --- solver.yml: interpolation section ---
+    interp_cfg = solver_cfg.get('interpolation', {}) if isinstance(solver_cfg, dict) else {}
+    if interp_cfg is not None and not isinstance(interp_cfg, dict):
+        errors.append(f"  {solver_path}: 'interpolation' must be a mapping when provided.")
+    elif isinstance(interp_cfg, dict) and 'method' in interp_cfg:
+        try:
+            normalize_interpolation_method(interp_cfg['method'])
+        except ValueError as e:
+            errors.append(f"  {solver_path}: {e}")
+
     # --- monitor.yml: basic structure ---
     if not isinstance(monitor_cfg, dict) or not monitor_cfg:
         errors.append(f"  {monitor_path}: monitor config is empty or not a valid YAML mapping.")
@@ -3050,8 +3060,7 @@ def render_slurm_script(
             lines.append(f"export {key}={shlex.quote(str(value))}")
 
     cmd = " ".join(shlex.quote(str(tok)) for tok in command)
-    lines.append(cmd)
-    lines.append('echo "[$(date)] Job completed."')
+    lines.append(f"exec {cmd}")
 
     os.makedirs(os.path.dirname(script_path), exist_ok=True)
     with open(script_path, "w") as f:
@@ -3821,6 +3830,27 @@ def normalize_particle_init_mode(value: str) -> int:
         )
     return mapped
 
+def normalize_interpolation_method(value: str) -> int:
+    """!
+    @brief Maps interpolation method names to C enum/int codes (-interpolation_method).
+    @param[in] value Canonical interpolation method name.
+    @return Integer code accepted by -interpolation_method.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if value is None:
+        raise ValueError("interpolation method cannot be None")
+
+    mapped = {
+        "Trilinear": 0,
+        "CornerAveraged": 1,
+    }.get(str(value).strip())
+    if mapped is None:
+        raise ValueError(
+            f"Unknown interpolation_method '{value}'. Use one of: "
+            "'Trilinear', 'CornerAveraged'."
+        )
+    return mapped
+
 def append_passthrough_flags(control_lines: list, options: dict):
     """!
     @brief Appends raw CLI flags to the control list from a {flag: value} dict.
@@ -4011,6 +4041,15 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                     level_num = level_name.split('_')[-1]
                     for key, value in settings.items():
                         flags[f"-ps_mg_levels_{level_num}_{key}"] = format_flag_value(value)
+    interp_cfg = solver_cfg.get('interpolation', {})
+    if isinstance(interp_cfg, dict):
+        interp_method_str = interp_cfg.get('method', 'Trilinear')
+    else:
+        interp_method_str = 'Trilinear'
+    interp_code = normalize_interpolation_method(interp_method_str)
+    flags['-interpolation_method'] = interp_code
+    print(f"  - Interpolation Method: {interp_method_str} (Code: {interp_code})")
+
     if 'petsc_passthrough_options' in solver_cfg:
         passthrough = solver_cfg['petsc_passthrough_options']
         if passthrough:
@@ -4536,8 +4575,7 @@ def render_slurm_array_stage_script(
             return tok
         return shlex.quote(str(tok))
 
-    lines.append(" ".join(_token(t) for t in cmd))
-    lines.append('echo "[$(date)] Completed case ${CASE_ID}"')
+    lines.append(f"exec {' '.join(_token(t) for t in cmd)}")
 
     os.makedirs(os.path.dirname(script_path), exist_ok=True)
     with open(script_path, "w") as f:

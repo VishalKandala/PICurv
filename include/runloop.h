@@ -27,6 +27,7 @@
 #include "setup.h"          // Functions  related to setup
 #include "solvers.h"
 
+
 /**
  * @brief Installs lightweight signal handlers for graceful shutdown requests.
  *
@@ -83,7 +84,7 @@ PetscReal RuntimeWalltimeGuardRequiredHeadroom(PetscReal min_seconds, PetscReal 
  * @return PetscBool `PETSC_TRUE` when shutdown should be requested.
  */
 PetscBool RuntimeWalltimeGuardShouldTrigger(PetscInt completed_steps, PetscInt warmup_steps, PetscReal remaining_seconds, PetscReal min_seconds, PetscReal multiplier, PetscReal warmup_average_seconds, PetscReal ewma_seconds, PetscReal latest_step_seconds, PetscReal *required_headroom_seconds_out);
- 
+
 /**
  * @brief Copies the current time step's solution fields into history vectors
  *        (e.g., U(t_n) -> U_o, U_o -> U_rm1) for the next time step's calculations.

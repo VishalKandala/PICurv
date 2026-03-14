@@ -325,9 +325,13 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user);
 /**
  * @brief Applies periodic boundary conditions by copying data across domain boundaries for all relevant fields.
  *
- * This function orchestrates the periodic update. It first performs a single, collective
- * ghost-cell exchange for all fields. Then, it calls a generic helper routine to perform
- * the memory copy for each individual field by name.
+ * This is the canonical periodic orchestrator for geometric consistency. It updates
+ * `Ucat`, `P`, and `Nvert` through the generic field transfer helper and also updates
+ * staggered `Ucont` periodicity via `ApplyUcontPeriodicBCs()` and
+ * `EnforceUcontPeriodicity()`.
+ *
+ * Future extension rule: add new periodic variables by extending the existing field
+ * string dispatchers and invoking them from this orchestrator.
  *
  * @param user The main UserCtx struct.
  * @return PetscErrorCode 0 on success.

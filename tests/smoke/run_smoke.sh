@@ -537,6 +537,68 @@ with open(post_path, "w", encoding="utf-8") as f:
 PY
 }
 
+prepare_flat_case_particles_corner_averaged() {
+  local case_dir="$1"
+  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+import sys
+import yaml
+case_path, solver_path, monitor_path, post_path = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+with open(monitor_path, "r", encoding="utf-8") as f:
+    monitor_cfg = yaml.safe_load(f)
+with open(post_path, "r", encoding="utf-8") as f:
+    post_cfg = yaml.safe_load(f)
+
+case_cfg.setdefault("run_control", {})
+case_cfg["run_control"]["start_step"] = 0
+case_cfg["run_control"]["total_steps"] = 3
+case_cfg["run_control"]["dt_physical"] = 0.001
+case_cfg.setdefault("grid", {}).setdefault("programmatic_settings", {})
+grid = case_cfg["grid"]["programmatic_settings"]
+grid["im"] = 8
+grid["jm"] = 8
+grid["km"] = 16
+case_cfg.setdefault("models", {}).setdefault("physics", {})
+case_cfg["models"]["physics"]["particles"] = {
+    "count": 32,
+    "init_mode": "PointSource",
+    "restart_mode": "init",
+    "point_source": {"x": 0.5, "y": 0.5, "z": 0.5},
+}
+case_cfg["models"]["physics"]["turbulence"] = {"les": False}
+
+solver_cfg.setdefault("operation_mode", {})
+solver_cfg["operation_mode"]["eulerian_field_source"] = "solve"
+solver_cfg["interpolation"] = {"method": "CornerAveraged"}
+
+monitor_cfg.setdefault("io", {})
+monitor_cfg["io"]["data_output_frequency"] = 1
+monitor_cfg["io"]["particle_console_output_frequency"] = 0
+monitor_cfg["io"]["particle_log_interval"] = 1
+
+post_cfg.setdefault("run_control", {})
+post_cfg["run_control"]["start_step"] = 0
+post_cfg["run_control"]["end_step"] = 3
+post_cfg["run_control"]["step_interval"] = 1
+post_cfg.setdefault("io", {})
+post_cfg["io"]["output_directory"] = "viz/particle_corner_averaged_smoke"
+post_cfg["io"]["output_filename_prefix"] = "Field"
+post_cfg["io"]["output_particles"] = True
+
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+with open(monitor_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(monitor_cfg, f, sort_keys=False)
+with open(post_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(post_cfg, f, sort_keys=False)
+PY
+}
+
 prepare_flat_restart_variant() {
   local case_path="$1"
   local solver_path="$2"
@@ -1081,6 +1143,7 @@ run_full_runtime_smoke() {
   local flat_les_case="${tmp_root}/flat-les"
   local bent_case="${tmp_root}/bent"
   local flat_particles_case="${tmp_root}/flat-particles"
+  local flat_particles_ca_case="${tmp_root}/flat-particles-ca"
   local brownian_case="${tmp_root}/brownian"
 
   "${picurv_exe}" init flat_channel --dest "${flat_les_case}" >/dev/null
@@ -1140,6 +1203,21 @@ run_full_runtime_smoke() {
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "particle runtime banner disabled particle console cadence"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling  : every 1 particle(s)" "particle runtime banner row sampling"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Initialization Mode: Point Source" "particle runtime banner initialization mode"
+  require_file_contains "${LAST_SOLVER_LOG}" "Interpolation Method       : Trilinear (direct cell-center)" "particle runtime banner default interpolation method"
+
+  "${picurv_exe}" init flat_channel --dest "${flat_particles_ca_case}" >/dev/null
+  prepare_flat_case_particles_corner_averaged "${flat_particles_ca_case}"
+  run_case_workflow \
+    "${flat_particles_ca_case}" \
+    "${flat_particles_ca_case}/flat_channel.yml" \
+    "${flat_particles_ca_case}/Imp-MG-Standard.yml" \
+    "${flat_particles_ca_case}/Standard_Output.yml" \
+    "${flat_particles_ca_case}/standard_analysis.yml" \
+    "flat_particles_corner_averaged"
+
+  require_count_ge "${LAST_RUN_DIR}/results/particles" "*.dat" 1 "corner-averaged particle snapshot files"
+  require_count_ge "${LAST_RUN_DIR}/viz/particle_corner_averaged_smoke" "*.vtp" 1 "corner-averaged particle VTP files"
+  require_file_contains "${LAST_SOLVER_LOG}" "Interpolation Method       : CornerAveraged (legacy)" "corner-averaged runtime banner interpolation method"
 
   local case_restart_load="${flat_particles_case}/case_restart_load.yml"
   local solver_restart_load="${flat_particles_case}/solver_restart_load.yml"

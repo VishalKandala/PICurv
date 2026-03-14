@@ -39,6 +39,9 @@ PetscErrorCode PicurvBuildTinyRuntimeContext(const char *bcs_contents,
 /** @brief Finalizes and frees a runtime context built by `PicurvBuildTinyRuntimeContext`. */
 PetscErrorCode PicurvDestroyRuntimeContext(SimCtx **simCtx_ptr);
 
+/** @brief Populates cell center coordinates for a uniform grid on [0,1]^3. */
+PetscErrorCode PicurvPopulateUniformCellCenters(UserCtx *user);
+
 /** @brief Fills metric vectors with identity metrics for Cartesian-reference tests. */
 PetscErrorCode PicurvPopulateIdentityMetrics(UserCtx *user);
 

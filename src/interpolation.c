@@ -540,6 +540,33 @@ static inline void ComputeTrilinearWeights(PetscReal a1, PetscReal a2, PetscReal
         w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
 }
 
+/**
+ * @brief Unclamped trilinear weights for boundary extrapolation.
+ * @details Identical to ComputeTrilinearWeights() but without clamping
+ *          a1, a2, a3 to [0,1]. Allows weights outside [0,1] for linear
+ *          extrapolation at non-periodic boundaries. Weights still sum to 1.0.
+ */
+static inline void ComputeTrilinearWeightsUnclamped(PetscReal a1, PetscReal a2, PetscReal a3, PetscReal *w) {
+    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Computing unclamped weights for a1=%f, a2=%f, a3=%f.\n", a1, a2, a3);
+
+    const PetscReal oa1 = 1.0 - a1;
+    const PetscReal oa2 = 1.0 - a2;
+    const PetscReal oa3 = 1.0 - a3;
+
+    w[0] = oa1 * oa2 * oa3;
+    w[1] = a1  * oa2 * oa3;
+    w[2] = oa1 * a2  * oa3;
+    w[3] = a1  * a2  * oa3;
+    w[4] = oa1 * oa2 * a3;
+    w[5] = a1  * oa2 * a3;
+    w[6] = oa1 * a2  * a3;
+    w[7] = a1  * a2  * a3;
+
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Unclamped weights - "
+        "w0=%f, w1=%f, w2=%f, w3=%f, w4=%f, w5=%f, w6=%f, w7=%f.\n",
+        w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
+}
+
 #undef __FUNCT
 #define __FUNCT "TrilinearInterpolation_Scalar"
 
@@ -811,13 +838,225 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "InterpolateEulerFieldToSwarm"
+#define __FUNCT__ "InterpolateEulerFieldFromCenterToSwarm"
 
 /**
- * @brief Internal helper implementation: `InterpolateEulerFieldToSwarm()`.
- * @details Local to this translation unit.
+ * @brief Direct cell-center trilinear interpolation (second-order on curvilinear grids).
+ * @details For each particle, determines the 8 nearest cell centers via octant
+ *          detection, constructs a dual cell, computes face-distance-based
+ *          trilinear weights, and interpolates directly from cell-centered data.
+ *          At non-periodic boundaries where the dual cell cannot be fully formed,
+ *          octant clamping with unclamped trilinear extrapolation preserves
+ *          second-order accuracy. Periodic boundaries use ghost cell data directly.
+ *          No intermediate corner staging or extra ghost exchange is needed.
  */
-PetscErrorCode InterpolateEulerFieldToSwarm(
+static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
+    UserCtx    *user,
+    Vec         fieldLocal_cellCentered,
+    const char *fieldName,
+    const char *swarmOutFieldName)
+{
+    PetscErrorCode ierr;
+    DM             swarm = user->swarm;
+    PetscInt       bs;
+    DMDALocalInfo  info;
+    PetscMPIInt    rank;
+    void          *fieldPtr = NULL;
+    Cmpnts       ***cent = NULL;
+
+    PetscInt  *cellIDs = NULL;
+    PetscReal *weights = NULL;
+    PetscInt64 *pids = NULL;
+    void      *swarmOut = NULL;
+    PetscReal *pos = NULL;
+    PetscInt  *status = NULL;
+    PetscInt   nLocal;
+
+    PetscFunctionBegin;
+    PROFILE_FUNCTION_BEGIN;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    ierr = VecGetBlockSize(fieldLocal_cellCentered, &bs); CHKERRQ(ierr);
+    if (bs != 1 && bs != 3) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP, "BlockSize must be 1 or 3.");
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting direct cell-center interpolation for field '%s'...\n", fieldName);
+
+    /* Number of physical cells in each direction */
+    PetscInt nCellsX = info.mx - 2;
+    PetscInt nCellsY = info.my - 2;
+    PetscInt nCellsZ = info.mz - 2;
+
+    /* Periodic flags per direction */
+    PetscBool x_periodic = (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC);
+    PetscBool y_periodic = (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC);
+    PetscBool z_periodic = (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC);
+
+    /* Get read-only arrays for the cell-centered field and cell center coordinates */
+    DM dm_field = (bs == 3) ? user->fda : user->da;
+    ierr = DMDAVecGetArrayRead(dm_field, fieldLocal_cellCentered, &fieldPtr); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCent, (void *)&cent); CHKERRQ(ierr);
+
+    /* Retrieve swarm fields */
+    ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pids); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut); CHKERRQ(ierr);
+
+    /* Loop over each local particle */
+    for (PetscInt p = 0; p < nLocal; p++) {
+
+        Particle particle;
+        ierr = UnpackSwarmFields(p, pids, weights, pos, cellIDs, NULL, status, NULL, NULL, NULL, &particle); CHKERRQ(ierr);
+
+        /* Step 1: Get host cell indices and existing weights */
+        PetscInt ci = particle.cell[0];
+        PetscInt cj = particle.cell[1];
+        PetscInt ck = particle.cell[2];
+        PetscReal a1 = particle.weights.x;
+        PetscReal a2 = particle.weights.y;
+        PetscReal a3 = particle.weights.z;
+
+        /* Step 2: Determine octant */
+        PetscInt oi = (a1 < 0.5) ? -1 : 0;
+        PetscInt oj = (a2 < 0.5) ? -1 : 0;
+        PetscInt ok = (a3 < 0.5) ? -1 : 0;
+        PetscInt bi = ci + oi;
+        PetscInt bj = cj + oj;
+        PetscInt bk = ck + ok;
+
+        /* Step 3: Clamp octant at non-periodic boundaries */
+        PetscBool needs_unclamped = PETSC_FALSE;
+
+        if (!x_periodic) {
+            if (bi < 0)              { bi = 0;            needs_unclamped = PETSC_TRUE; }
+            if (bi + 1 >= nCellsX)   { bi = nCellsX - 2;  needs_unclamped = PETSC_TRUE; }
+        }
+        if (!y_periodic) {
+            if (bj < 0)              { bj = 0;            needs_unclamped = PETSC_TRUE; }
+            if (bj + 1 >= nCellsY)   { bj = nCellsY - 2;  needs_unclamped = PETSC_TRUE; }
+        }
+        if (!z_periodic) {
+            if (bk < 0)              { bk = 0;            needs_unclamped = PETSC_TRUE; }
+            if (bk + 1 >= nCellsZ)   { bk = nCellsZ - 2;  needs_unclamped = PETSC_TRUE; }
+        }
+
+        /* Step 4: Bounds check — dual cell stencil must fit in ghosted region */
+        if (bi + 1 < info.gxs || bi + 1 >= info.gxs + info.gxm - 1 ||
+            bj + 1 < info.gys || bj + 1 >= info.gys + info.gym - 1 ||
+            bk + 1 < info.gzs || bk + 1 >= info.gzs + info.gzm - 1)
+        {
+            LOG_ALLOW(LOCAL, LOG_WARNING,
+                "[Rank %d] Particle PID %lld: dual cell (%d,%d,%d) out of ghosted region. Zeroing '%s'.\n",
+                rank, (long long)particle.PID, bi, bj, bk, fieldName);
+            if (bs == 3) {
+                ((PetscReal*)swarmOut)[3*p + 0] = 0.0;
+                ((PetscReal*)swarmOut)[3*p + 1] = 0.0;
+                ((PetscReal*)swarmOut)[3*p + 2] = 0.0;
+            } else {
+                ((PetscReal*)swarmOut)[p] = 0.0;
+            }
+            continue;
+        }
+
+        /* Step 5: Construct dual cell from lCent (shifted index: cent[k+1][j+1][i+1] for cell (i,j,k))
+         * Vertex ordering follows GetCellVerticesFromGrid() convention (walkingsearch.c:423-430). */
+        Cell dual_cell;
+        dual_cell.vertices[0] = cent[bk + 1][bj + 1][bi + 1];   /* (bi,   bj,   bk  ) */
+        dual_cell.vertices[1] = cent[bk + 1][bj + 1][bi + 2];   /* (bi+1, bj,   bk  ) */
+        dual_cell.vertices[2] = cent[bk + 1][bj + 2][bi + 2];   /* (bi+1, bj+1, bk  ) */
+        dual_cell.vertices[3] = cent[bk + 1][bj + 2][bi + 1];   /* (bi,   bj+1, bk  ) */
+        dual_cell.vertices[4] = cent[bk + 2][bj + 2][bi + 1];   /* (bi,   bj+1, bk+1) */
+        dual_cell.vertices[5] = cent[bk + 2][bj + 2][bi + 2];   /* (bi+1, bj+1, bk+1) */
+        dual_cell.vertices[6] = cent[bk + 2][bj + 1][bi + 2];   /* (bi+1, bj,   bk+1) */
+        dual_cell.vertices[7] = cent[bk + 2][bj + 1][bi + 1];   /* (bi,   bj,   bk+1) */
+
+        /* Step 6: Compute face distances from particle to dual cell faces */
+        PetscReal d[NUM_FACES];
+        ierr = CalculateDistancesToCellFaces(particle.loc, &dual_cell, d, 1e-11); CHKERRQ(ierr);
+
+        /* Step 7: Compute trilinear parametric coordinates from face distances */
+        PetscReal a1_new = d[LEFT]   / (d[LEFT]   + d[RIGHT]);
+        PetscReal a2_new = d[BOTTOM] / (d[BOTTOM] + d[TOP]);
+        PetscReal a3_new = d[BACK]   / (d[FRONT]  + d[BACK]);
+
+        LOG_ALLOW(LOCAL, LOG_VERBOSE,
+            "[Rank %d] PID %lld: dual base=(%d,%d,%d), new weights=(%.4f,%.4f,%.4f), unclamped=%d\n",
+            rank, (long long)particle.PID, bi, bj, bk, a1_new, a2_new, a3_new, (int)needs_unclamped);
+
+        /* Step 8: Call TrilinearInterpolation directly with shifted dual-cell indices.
+         * Shifted index: pass (bi+1, bj+1, bk+1) so the kernel accesses
+         * field[bk+1..bk+2][bj+1..bj+2][bi+1..bi+2] = cells (bi..bi+1, bj..bj+1, bk..bk+1). */
+        if (bs == 1) {
+            PetscReal ***fieldScal = (PetscReal ***)fieldPtr;
+            PetscReal val;
+            if (needs_unclamped) {
+                PetscReal w[8];
+                ComputeTrilinearWeightsUnclamped(a1_new, a2_new, a3_new, w);
+                val = w[0] * fieldScal[bk+1][bj+1][bi+1] + w[1] * fieldScal[bk+1][bj+1][bi+2]
+                    + w[2] * fieldScal[bk+1][bj+2][bi+1] + w[3] * fieldScal[bk+1][bj+2][bi+2]
+                    + w[4] * fieldScal[bk+2][bj+1][bi+1] + w[5] * fieldScal[bk+2][bj+1][bi+2]
+                    + w[6] * fieldScal[bk+2][bj+2][bi+1] + w[7] * fieldScal[bk+2][bj+2][bi+2];
+            } else {
+                ierr = TrilinearInterpolation_Scalar(fieldName, fieldScal,
+                    bi + 1, bj + 1, bk + 1, a1_new, a2_new, a3_new, &val); CHKERRQ(ierr);
+            }
+            ((PetscReal*)swarmOut)[p] = val;
+        } else {
+            Cmpnts ***fieldVec = (Cmpnts ***)fieldPtr;
+            Cmpnts vec;
+            if (needs_unclamped) {
+                PetscReal w[8];
+                ComputeTrilinearWeightsUnclamped(a1_new, a2_new, a3_new, w);
+                vec.x = w[0]*fieldVec[bk+1][bj+1][bi+1].x + w[1]*fieldVec[bk+1][bj+1][bi+2].x
+                      + w[2]*fieldVec[bk+1][bj+2][bi+1].x + w[3]*fieldVec[bk+1][bj+2][bi+2].x
+                      + w[4]*fieldVec[bk+2][bj+1][bi+1].x + w[5]*fieldVec[bk+2][bj+1][bi+2].x
+                      + w[6]*fieldVec[bk+2][bj+2][bi+1].x + w[7]*fieldVec[bk+2][bj+2][bi+2].x;
+                vec.y = w[0]*fieldVec[bk+1][bj+1][bi+1].y + w[1]*fieldVec[bk+1][bj+1][bi+2].y
+                      + w[2]*fieldVec[bk+1][bj+2][bi+1].y + w[3]*fieldVec[bk+1][bj+2][bi+2].y
+                      + w[4]*fieldVec[bk+2][bj+1][bi+1].y + w[5]*fieldVec[bk+2][bj+1][bi+2].y
+                      + w[6]*fieldVec[bk+2][bj+2][bi+1].y + w[7]*fieldVec[bk+2][bj+2][bi+2].y;
+                vec.z = w[0]*fieldVec[bk+1][bj+1][bi+1].z + w[1]*fieldVec[bk+1][bj+1][bi+2].z
+                      + w[2]*fieldVec[bk+1][bj+2][bi+1].z + w[3]*fieldVec[bk+1][bj+2][bi+2].z
+                      + w[4]*fieldVec[bk+2][bj+1][bi+1].z + w[5]*fieldVec[bk+2][bj+1][bi+2].z
+                      + w[6]*fieldVec[bk+2][bj+2][bi+1].z + w[7]*fieldVec[bk+2][bj+2][bi+2].z;
+            } else {
+                ierr = TrilinearInterpolation_Vector(fieldName, fieldVec,
+                    bi + 1, bj + 1, bk + 1, a1_new, a2_new, a3_new, &vec); CHKERRQ(ierr);
+            }
+            ((PetscReal*)swarmOut)[3*p + 0] = vec.x;
+            ((PetscReal*)swarmOut)[3*p + 1] = vec.y;
+            ((PetscReal*)swarmOut)[3*p + 2] = vec.z;
+        }
+    }
+
+    /* Restore arrays and swarm fields */
+    ierr = DMDAVecRestoreArrayRead(dm_field, fieldLocal_cellCentered, &fieldPtr); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCent, (void *)&cent); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pids); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished direct cell-center interpolation for field '%s'.\n", fieldName);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateEulerFieldFromCornerToSwarm"
+
+/**
+ * @brief Corner-averaged interpolation path (legacy).
+ * @details Stages cell-centered data to corners via unweighted averaging,
+ *          then trilinear interpolation from corners to particles.
+ *          Local to this translation unit.
+ */
+static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     UserCtx    *user,
     Vec         fieldLocal_cellCentered,
     const char *fieldName,
@@ -1117,6 +1356,35 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished for field '%s'.\n", fieldName);
     PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "InterpolateEulerFieldToSwarm"
+
+/**
+ * @brief Dispatches grid-to-particle interpolation to the method selected in the control file.
+ * @details Routes to InterpolateEulerFieldFromCenterToSwarm (direct trilinear, second-order)
+ *          or InterpolateEulerFieldFromCornerToSwarm (corner-averaged, legacy) based on
+ *          user->simCtx->interpolationMethod.
+ */
+PetscErrorCode InterpolateEulerFieldToSwarm(
+    UserCtx    *user,
+    Vec         fieldLocal_cellCentered,
+    const char *fieldName,
+    const char *swarmOutFieldName)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBegin;
+
+    if (user->simCtx->interpolationMethod == INTERP_TRILINEAR) {
+        ierr = InterpolateEulerFieldFromCenterToSwarm(user, fieldLocal_cellCentered,
+                                                       fieldName, swarmOutFieldName); CHKERRQ(ierr);
+    } else {
+        ierr = InterpolateEulerFieldFromCornerToSwarm(user, fieldLocal_cellCentered,
+                                                       fieldName, swarmOutFieldName); CHKERRQ(ierr);
+    }
+
     PetscFunctionReturn(0);
 }
 

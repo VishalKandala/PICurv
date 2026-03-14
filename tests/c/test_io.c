@@ -323,6 +323,8 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
                                   "DisplayBanner should omit particle restart mode when no particles are configured"));
     PetscCall(AssertCapturedOmits(captured, "Particle Initialization Mode",
                                   "DisplayBanner should omit particle initialization mode when no particles are configured"));
+    PetscCall(AssertCapturedOmits(captured, "Interpolation Method",
+                                  "DisplayBanner should omit interpolation method when no particles are configured"));
 
     simCtx->StartStep = 3;
     simCtx->np = 8;
@@ -340,6 +342,8 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
                                      "DisplayBanner should include particle restart mode for restarted particle runs"));
     PetscCall(AssertCapturedContains(captured, "Particle Initialization Mode: Point Source",
                                      "DisplayBanner should include particle initialization mode when particles are configured"));
+    PetscCall(AssertCapturedContains(captured, "Interpolation Method       : Trilinear (direct cell-center)",
+                                     "DisplayBanner should include default interpolation method when particles are configured"));
     PetscCall(AssertCapturedOmits(captured, "Particles Initialized At",
                                   "DisplayBanner should omit inlet-face placement details for point-source particle initialization"));
 

@@ -159,6 +159,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->np = 0; simCtx->readFields = PETSC_FALSE;
     simCtx->dm_swarm = NULL; simCtx->bboxlist = NULL;
     simCtx->ParticleInitialization = PARTICLE_INIT_SURFACE_RANDOM;
+    simCtx->interpolationMethod = INTERP_TRILINEAR;
     strcpy(simCtx->particleRestartMode,"load");
     simCtx->particlesLostLastStep = 0;
     simCtx->particlesMigratedLastStep = 0;
@@ -551,6 +552,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     PetscInt temp_pinit = (PetscInt)PARTICLE_INIT_SURFACE_RANDOM;
     ierr = PetscOptionsGetInt(NULL, NULL, "-pinit", &temp_pinit, NULL); CHKERRQ(ierr);
     simCtx->ParticleInitialization = (ParticleInitializationType)temp_pinit;
+    PetscInt temp_interp = (PetscInt)INTERP_TRILINEAR;
+    ierr = PetscOptionsGetInt(NULL, NULL, "-interpolation_method", &temp_interp, NULL); CHKERRQ(ierr);
+    simCtx->interpolationMethod = (InterpolationMethod)temp_interp;
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Interpolation method: %s\n",
+              simCtx->interpolationMethod == INTERP_TRILINEAR ? "Trilinear (direct cell-center)" : "CornerAveraged (legacy)");
     ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_x", &simCtx->psrc_x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_y", &simCtx->psrc_y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_z", &simCtx->psrc_z, NULL); CHKERRQ(ierr);

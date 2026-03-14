@@ -471,6 +471,17 @@ typedef enum {
     PARTICLE_INIT_SURFACE_EDGES  = 3  /**< Deterministic placement at inlet face edges */
 } ParticleInitializationType;
 
+/**
+ * @brief Selects the grid-to-particle interpolation method.
+ *
+ * - INTERP_TRILINEAR: Direct trilinear from 8 nearest cell centers (second-order on curvilinear grids).
+ * - INTERP_CORNER_AVERAGED: Legacy center-to-corner average, then trilinear from corners.
+ */
+typedef enum {
+    INTERP_TRILINEAR       = 0,
+    INTERP_CORNER_AVERAGED = 1
+} InterpolationMethod;
+
 /** @brief Context for Multigrid operations. */
 typedef struct MGCtx {
   UserCtx  *user;
@@ -685,6 +696,7 @@ typedef struct SimCtx {
     DM        dm_swarm;
     BoundingBox *bboxlist;
     ParticleInitializationType ParticleInitialization;
+    InterpolationMethod interpolationMethod;
     char particleRestartMode[16];
     PetscInt particlesLostLastStep;
     PetscInt migrationPassesLastStep;

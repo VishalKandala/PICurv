@@ -34,6 +34,7 @@ Particle controls include:
 - particle count,
 - initialization modes (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`),
 - restart modes (`init`, `load`),
+- grid-to-particle interpolation method (`Trilinear` direct cell-center or `CornerAveraged` legacy),
 - scalar micromixing update path (IEM-style `Psi` model).
 
 @section p12_solver_sec 3. Numerical Solver Stack

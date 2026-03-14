@@ -56,6 +56,7 @@
     "-imm",
     "-imp_stol",
     "-inlet",
+    "-interpolation_method",
     "-inv",
     "-j_homo_filter",
     "-j_periodic",
