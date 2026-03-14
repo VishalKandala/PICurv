@@ -52,7 +52,9 @@ LINKER_TO_USE := $(CLINKER)
 LIBS_TO_USE   := $(PETSC_LIB)
 
 # --- 5. Execution Environment ---
-MPI_LAUNCHER  := mpiexec
+# Use PETSc's own mpiexec (matches the MPI that PETSc was built with).
+# Falls back to system mpiexec when MPIEXEC is not set (e.g. pkg-config path).
+MPI_LAUNCHER  := $(if $(MPIEXEC),$(MPIEXEC),mpiexec)
 NPROCS ?= 2
 
 # --- 6. Optional Build Add-ons (controlled from command line) ---
