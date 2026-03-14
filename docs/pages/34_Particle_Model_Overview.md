@@ -18,6 +18,13 @@ Typical order inside coupled step:
 
 Each stage relies on valid `DMSwarm_CellID`, interpolation weights, and synchronized ghost data.
 
+Step 1 dispatches through @ref InterpolateEulerFieldToSwarm, which selects between two interpolation paths based on `SimCtx.interpolationMethod`:
+
+- **Trilinear** (default): direct interpolation from the 8 nearest cell centers, second-order on curvilinear grids.
+- **CornerAveraged** (legacy): two-stage center-to-corner averaging then trilinear from corners.
+
+See **@subpage 27_Trilinear_Interpolation_and_Projection** for method details and configuration.
+
 @section p34_fields_sec 2. Core Particle Fields In Use
 
 Commonly used swarm fields include:

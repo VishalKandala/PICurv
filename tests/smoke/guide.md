@@ -33,7 +33,8 @@ The documentation pages refer to smoke sequences using these labels:
 - `S0`: template matrix init/validate/dry-run checks
 - `S1`: tiny flat solve+post
 - `S1b`: tiny bent solve+post
-- `S2`: tiny flat particle solve+post
+- `S2`: tiny flat particle solve+post (default Trilinear interpolation)
+- `S2b`: tiny flat particle solve+post with `CornerAveraged` interpolation (legacy path regression)
 - `S3`: particle restart branches (`load`, `init`)
 - `S4`: analytical Brownian path with particle VTP + MSD CSV
 - `S5`: multi-rank tiny runtime paths (flat/bent + particle restart branches)

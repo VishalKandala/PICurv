@@ -477,12 +477,44 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     PetscCall(CreateZeroedDuplicate(user->Aj, &user->KAj));
     PetscCall(CreateZeroedDuplicate(user->lAj, &user->lKAj));
 
+    PetscCall(PicurvPopulateUniformCellCenters(user));
     PetscCall(PicurvPopulateIdentityMetrics(user));
 
     *simCtx_out = simCtx;
     *user_out = user;
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Populates cell center coordinates for a uniform grid on [0,1]^3.
+ *
+ * Uses the shifted-index convention: cell (i,j,k) is stored at array index
+ * (i+1, j+1, k+1). For mx cells on [0,1], cell i has center at (i+0.5)/mx.
+ */
+PetscErrorCode PicurvPopulateUniformCellCenters(UserCtx *user)
+{
+    Cmpnts ***cent = NULL;
+    PetscInt mx = user->IM;
+    PetscInt my = user->JM;
+    PetscInt mz = user->KM;
+
+    PetscFunctionBeginUser;
+    PetscCall(DMDAVecGetArray(user->fda, user->Cent, &cent));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; k++) {
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; j++) {
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; i++) {
+                cent[k][j][i].x = (i - 0.5) / (PetscReal)mx;
+                cent[k][j][i].y = (j - 0.5) / (PetscReal)my;
+                cent[k][j][i].z = (k - 0.5) / (PetscReal)mz;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Cent, &cent));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Cent, INSERT_VALUES, user->lCent));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Cent, INSERT_VALUES, user->lCent));
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Populates identity metric vectors on the minimal grid fixture.
  */

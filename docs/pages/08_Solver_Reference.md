@@ -96,7 +96,21 @@ Mappings:
 - `multigrid.post_sweeps` -> `-mg_post_it`
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
 
-@section p08_petsc_sec 6. petsc_passthrough_options
+@section p08_interp_sec 6. interpolation
+
+```yaml
+interpolation:
+  method: "Trilinear"     # default; or "CornerAveraged"
+```
+
+Mappings:
+- `method` -> `-interpolation_method` (`Trilinear` = `0`, `CornerAveraged` = `1`)
+
+The **Trilinear** method (default) performs direct trilinear interpolation from the 8 nearest cell centers, providing second-order accuracy on both uniform and curvilinear grids. The **CornerAveraged** method is the legacy two-stage path (center-to-corner average, then trilinear from corners), which is second-order only on uniform Cartesian grids.
+
+See **@subpage 27_Trilinear_Interpolation_and_Projection** for algorithmic details.
+
+@section p08_petsc_sec 7. petsc_passthrough_options
 
 Advanced escape hatch for raw PETSc flags:
 
@@ -108,7 +122,7 @@ petsc_passthrough_options:
 
 These are passed into PETSc options DB and consumed by runtime calls like `KSPSetFromOptions`.
 
-@section p08_next_steps_sec 7. Next Steps
+@section p08_next_steps_sec 8. Next Steps
 
 Proceed to **@subpage 09_Monitor_Reference**.
 

@@ -86,7 +86,20 @@ pressure_solver:
         ksp_type: "gmres"      # -> -ps_mg_levels_2_ksp_type "gmres"
 
 # ==============================================================================
-# 4. PETSC PASSTHROUGH OPTIONS (FOR ADVANCED USERS)
+# 4. INTERPOLATION
+#    Controls grid-to-particle interpolation numerics.
+# ==============================================================================
+interpolation:
+  # Method for interpolating Eulerian fields to particle positions.
+  # Options:
+  #   - "Trilinear"       (default) Direct trilinear from 8 nearest cell centers.
+  #                        Second-order on both uniform and curvilinear grids.
+  #   - "CornerAveraged"  Legacy two-stage: center->corner average, then trilinear
+  #                        from corners. Second-order only on uniform Cartesian grids.
+  method: "Trilinear"     # -> -interpolation_method
+
+# ==============================================================================
+# 5. PETSC PASSTHROUGH OPTIONS (FOR ADVANCED USERS)
 # ==============================================================================
 petsc_passthrough_options:
   # --- Top-level KSP settings ---

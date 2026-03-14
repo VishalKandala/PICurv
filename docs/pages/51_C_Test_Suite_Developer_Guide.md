@@ -160,6 +160,7 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `set-initial-interior-field-ignores-non-ucont-request`
   - `set-initial-interior-field-constant-profile-on-z-inlet`
   - `interpolate-all-fields-to-swarm-constant-fields`
+  - `interpolate-all-fields-to-swarm-corner-averaged-constant-fields`
   - `scatter-all-particle-fields-to-euler-fields-averages-psi`
   - `calculate-particle-count-per-cell-counts-global-cell-ids`
   - `reset-all-particle-statuses-leaves-lost-particles-untouched`

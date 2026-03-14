@@ -67,6 +67,7 @@ For each run, `picurv` generates:
 - `operation_mode.analytical_type` -> `-analytical_type`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
 - Solver-specific block support currently includes `momentum_solver.dual_time_picard_rk4`.
+- `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.
 
 Analytical-mode compatibility rule:

@@ -16,8 +16,8 @@ models:
   physics:
     particles:
       count: 50000
-      init_mode: "Surface"   # Surface | Volume | PointSource | SurfaceEdges
-      restart_mode: "init"   # init | load
+      init_mode: "Surface"            # Surface | Volume | PointSource | SurfaceEdges
+      restart_mode: "init"            # init | load
       point_source:
         x: 0.5
         y: 0.5
@@ -30,6 +30,8 @@ Mapping to control flags:
 - `init_mode` -> `-pinit`
 - `restart_mode` -> `-particle_restart_mode`
 - `point_source` -> `-psrc_x/-psrc_y/-psrc_z` (required when `init_mode` is `PointSource`)
+
+Note: The interpolation method (`Trilinear` / `CornerAveraged`) is configured in `solver.yml`, not `case.yml`. See **@subpage 08_Solver_Reference** and **@subpage 27_Trilinear_Interpolation_and_Projection**.
 
 @section p45_mode_values_sec 2. Accepted `init_mode` Values
 

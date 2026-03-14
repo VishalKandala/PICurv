@@ -261,7 +261,8 @@ The current smoke runner verifies:
 - restart dry-run planning resolves `run_control.restart_from_run_dir` into the expected restart source directory
 - tiny end-to-end solve + post run (flat channel)
 - tiny end-to-end solve + post run (bent channel)
-- tiny end-to-end particle solve + post run (flat channel)
+- tiny end-to-end particle solve + post run (flat channel, default Trilinear interpolation)
+- tiny end-to-end particle solve + post run with corner-averaged interpolation (legacy regression)
 - restart execution with both particle modes (`load` and `init`)
 - restart-equivalence check for flat channel (continuous tiny run vs split restart tiny run continuity metric agreement)
 - tiny end-to-end analytical Brownian run with particle VTP + MSD CSV output
@@ -374,7 +375,8 @@ The smoke suite uses these named runtime sequences:
 - `S0`: template matrix init/validate/dry-run across `flat_channel`, `bent_channel`, and `brownian_motion`
 - `S1`: tiny flat-channel solve+post run
 - `S1b`: tiny bent-channel solve+post run
-- `S2`: tiny flat-channel solve+post with particles enabled
+- `S2`: tiny flat-channel solve+post with particles enabled (default Trilinear interpolation)
+- `S2b`: tiny flat-channel particle solve+post with `CornerAveraged` interpolation (legacy path regression)
 - `S3`: tiny restart runs from `S2` with `particle_restart_mode=load` and `particle_restart_mode=init`
 - `S4`: tiny Brownian analytical solve+post with particle outputs and MSD statistics
 - `S5`: multi-rank tiny solve+post runs for flat and bent channels, plus flat particle base/restart (`load` and `init`) branches
@@ -395,7 +397,7 @@ Runtime file coverage map (unit targets + runtime sequences):
 - `src/ParticleSwarm.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
 - `src/grid.c`: `unit-grid`, `unit-setup`, `S1`, `S1b`, `S2`, `S4`, `S5`, `S6`, `S8`
 - `src/initialcondition.c`: `unit-runtime`, `S1`, `S1b`, `S2`, `S4`, `S5`, `S6`
-- `src/interpolation.c`: `unit-geometry`, `unit-particles`, `S2`, `S3`, `S4`, `S5`
+- `src/interpolation.c`: `unit-geometry`, `unit-runtime`, `unit-particles`, `S2`, `S2b`, `S3`, `S4`, `S5`
 - `src/io.c`: `unit-io`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
 - `src/les.c`: `unit-solver`, `unit-runtime`
 - `src/logging.c`: `unit-logging`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`, `S8`
