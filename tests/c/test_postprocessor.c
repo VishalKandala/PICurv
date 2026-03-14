@@ -151,6 +151,7 @@ static PetscErrorCode TestGlobalStatisticsPipelineWritesMSDCSV(void)
     PetscCall(GlobalStatisticsPipeline(user, &pps, 1));
     PetscCall(PicurvAssertFileExists(csv_path, "GlobalStatisticsPipeline should dispatch ComputeMSD and emit CSV output"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -179,6 +180,7 @@ static PetscErrorCode TestWriteEulerianFileWritesVTS(void)
     PetscCall(WriteEulerianFile(user, &pps, 3));
     PetscCall(PicurvAssertFileExists(vtk_path, "WriteEulerianFile should emit a .vts file for requested output fields"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -224,6 +226,7 @@ static PetscErrorCode TestWriteParticleFileWritesVTP(void)
     PetscCall(WriteParticleFile(user, &pps, 4));
     PetscCall(PicurvAssertFileExists(vtk_path, "WriteParticleFile should emit a .vtp file for requested particle fields"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }

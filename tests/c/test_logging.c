@@ -157,6 +157,7 @@ static PetscErrorCode CaptureLoggingOutput(UserCtx *user,
     bytes_read = fread(captured, 1, captured_len - 1, capture_file);
     captured[bytes_read] = '\0';
     fclose(capture_file);
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
 
@@ -393,6 +394,7 @@ static PetscErrorCode TestLoggingFileParsingAndFormattingHelpers(void)
     PrintProgressBar(0, 0, 0, 0.00);
     PetscCall(PetscPrintf(PETSC_COMM_SELF, "\n"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
 /**
@@ -478,6 +480,7 @@ static PetscErrorCode TestLoggingContinuityAndFieldDiagnostics(void)
     PetscCall(PicurvAssertBool((PetscBool)(ierr_minmax != 0),
                                "LOG_FIELD_MIN_MAX should reject unknown field names"));
 
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -599,6 +602,7 @@ static PetscErrorCode TestParticleMetricsLogging(void)
     PetscCall(PicurvAssertFileExists(metrics_path, "LOG_PARTICLE_METRICS should write Particle_Metrics.log"));
     PetscCall(AssertFileContains(metrics_path, "Timestep Metrics", "Particle metrics log should include the caller-provided stage label"));
     PetscCall(AssertFileContains(metrics_path, "Occupied Cells", "Particle metrics log should include the metrics table header"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -682,6 +686,7 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
                                  "profiling final summary should include selected functions"));
     PetscCall(AssertFileContains(summary_path, "UnselectedHelper",
                                  "profiling final summary should include total-time entries for unselected functions"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
 /**
