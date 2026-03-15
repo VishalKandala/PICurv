@@ -48,6 +48,12 @@ PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
     return (strcmp(analytical_type, "TGV3D") == 0) ? PETSC_TRUE : PETSC_FALSE;
 }
 
+/**
+ * @brief Implementation of \ref AnalyticalTypeSupportsInterpolationError().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @see AnalyticalTypeSupportsInterpolationError()
+ */
 PetscBool AnalyticalTypeSupportsInterpolationError(const char *analytical_type)
 {
     if (!analytical_type) return PETSC_FALSE;
