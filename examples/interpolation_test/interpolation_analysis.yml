@@ -1,0 +1,41 @@
+# ==============================================================================
+#  INTERPOLATION ACCURACY TEST CASE
+#  post.yml
+#
+#  Primary output: particle VTP files with position, velocity, and pid fields.
+#  These can be compared against exact TGV3D analytical velocities to quantify
+#  interpolation error (L2 norm, Linf norm, per-component statistics).
+#
+#  The analytical reference velocity at particle position (x,y,z) at time t is:
+#    u_exact =  sin(x)*cos(y)*cos(z) * exp(-2*nu*t)
+#    v_exact = -cos(x)*sin(y)*cos(z) * exp(-2*nu*t)
+#    w_exact =  0
+#  where nu = 1/Re = 0.01.
+# ==============================================================================
+
+run_control:
+  start_step: 0
+  end_step: 200
+  step_interval: 10          # Match data_output_frequency from monitor
+
+# Eulerian pipeline: minimal. Include nodal average for optional ParaView
+# inspection of the analytical field.
+eulerian_pipeline:
+  - task: nodal_average
+    input_field: Ucat
+    output_field: Ucat_nodal
+
+io:
+  output_directory: "viz"
+  output_filename_prefix: "Field"
+  particle_filename_prefix: "Particle"
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"
+  eulerian_fields:
+    - Ucat_nodal
+  output_particles: true
+  particle_fields:
+    - 'position'
+    - 'velocity'
+    - 'pid'

@@ -1754,15 +1754,35 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
     ierr = VecNorm(errorVec, NORM_2, &Interpolation_error); CHKERRQ(ierr);
     ierr = VecNorm(errorVec,NORM_INFINITY,&Maximum_Interpolation_error); CHKERRQ(ierr);
     
-    ErrorPercentage = (AnalyticalSolution_magnitude > 0) ? 
+    ErrorPercentage = (AnalyticalSolution_magnitude > 0) ?
                       (Interpolation_error / AnalyticalSolution_magnitude * 100.0) : 0.0;
-    
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Interpolation error (%%): %g\n", ErrorPercentage);
-    PetscPrintf(PETSC_COMM_WORLD, "Interpolation error (%%): %g\n", ErrorPercentage);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Maximum Interpolation error: %g\n", Maximum_Interpolation_error);
-    PetscPrintf(PETSC_COMM_WORLD, "Maximum Interpolation error: %g\n", Maximum_Interpolation_error);
 
-    
+    /* --- CSV output (always, rank 0 only) --- */
+    if (simCtx->rank == 0) {
+        char csv_path[PETSC_MAX_PATH_LEN];
+        snprintf(csv_path, sizeof(csv_path), "%s/interpolation_error.csv", simCtx->log_dir);
+        FILE *f = fopen(csv_path, "a");
+        if (f) {
+            if (ftell(f) == 0) {
+                fprintf(f, "step,time,L2_error,Linf_error,L2_analytical,error_pct\n");
+            }
+            PetscReal t = (PetscReal)simCtx->ti * simCtx->dt;
+            fprintf(f, "%d,%.6e,%.6e,%.6e,%.6e,%.4f\n",
+                    (int)simCtx->step, t,
+                    Interpolation_error, Maximum_Interpolation_error,
+                    AnalyticalSolution_magnitude, ErrorPercentage);
+            fclose(f);
+        }
+    }
+
+    /* --- Console output (only at INFO level or above) --- */
+    if (get_log_level() >= LOG_INFO) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Interpolation error (%%): %g\n", ErrorPercentage);
+        PetscPrintf(PETSC_COMM_WORLD, "Interpolation error (%%): %g\n", ErrorPercentage);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Maximum Interpolation error: %g\n", Maximum_Interpolation_error);
+        PetscPrintf(PETSC_COMM_WORLD, "Maximum Interpolation error: %g\n", Maximum_Interpolation_error);
+    }
+
     ierr = VecDestroy(&analyticalvelocityVec); CHKERRQ(ierr);
     ierr = VecDestroy(&errorVec); CHKERRQ(ierr);
     ierr = DMSwarmDestroyGlobalVectorFromField(swarm, "position", &positionVec); CHKERRQ(ierr);

@@ -726,7 +726,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             }
             if (simCtx->np > 0) {
                 ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
-                if (get_log_level() >= LOG_INFO && strcmp(simCtx->eulerianSource,"analytical") == 0) {
+                if (strcmp(simCtx->eulerianSource, "analytical") == 0 &&
+                    AnalyticalTypeSupportsInterpolationError(simCtx->AnalyticalSolutionType)) {
                     LOG_INTERPOLATION_ERROR(user);
                 }
             }

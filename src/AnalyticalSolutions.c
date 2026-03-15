@@ -48,6 +48,13 @@ PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
     return (strcmp(analytical_type, "TGV3D") == 0) ? PETSC_TRUE : PETSC_FALSE;
 }
 
+PetscBool AnalyticalTypeSupportsInterpolationError(const char *analytical_type)
+{
+    if (!analytical_type) return PETSC_FALSE;
+    if (strcmp(analytical_type, "ZERO_FLOW") == 0) return PETSC_FALSE;
+    return PETSC_TRUE;
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalGridInfo"
 /**
