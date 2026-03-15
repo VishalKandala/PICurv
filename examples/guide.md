@@ -7,6 +7,7 @@ This directory contains runnable case templates used by `./bin/picurv init` and 
 - `flat_channel/`: baseline first-run case using programmatic grid generation.
 - `bent_channel/`: file-based curvilinear grid ingestion and curved-geometry BC behavior.
 - `brownian_motion/`: analytical zero-flow particle diffusion verification workflow.
+- `interpolation_test/`: TGV3D analytical flow interpolation accuracy test with 10k particles.
 - `master_template/`: exhaustive reference templates for all config roles.
 
 ## How To Start A New Study

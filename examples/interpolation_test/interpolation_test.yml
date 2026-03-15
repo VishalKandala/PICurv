@@ -1,0 +1,111 @@
+# ==============================================================================
+#  INTERPOLATION ACCURACY TEST CASE
+#  case.yml
+#
+#  PURPOSE:
+#  Test the accuracy of grid-to-particle interpolation using the 3D Taylor-Green
+#  Vortex (TGV3D) analytical flow field. The analytical velocity is known exactly
+#  at every point, so interpolated particle velocities can be compared against
+#  the true value to quantify interpolation error.
+#
+#  PARAMETER CHOICES (justified below):
+#
+#  L_ref = 1.0 m, U_ref = 1.0 m/s  --> T_ref = 1.0 s
+#  rho   = 1.0 kg/m^3, mu = 0.01 Pa.s  --> Re = rho*U*L/mu = 100
+#  --> nu = 1/Re = 0.01
+#
+#  dt_phys = 0.01 s  --> dt* = 0.01
+#  N_steps = 200     --> t_final* = 2.0
+#
+#  TGV3D velocity decay factor at t*=2.0:
+#    exp(-2 * nu * k^2 * t) = exp(-2 * 0.01 * 1 * 2.0) = exp(-0.04) ~ 0.961
+#  The flow remains at 96% of initial strength throughout the run.
+#
+#  Particle CFL estimate:
+#    |u_max| * dt* / dx = 1.0 * 0.01 / 0.196 ~ 0.05  (well under 1)
+#
+#  DOMAIN NOTE:
+#  SetAnalyticalGridInfo overrides domain bounds for TGV3D to:
+#    X: [0, 2*pi],  Y: [0, 2*pi],  Z: [0, 0.2*pi]
+#  The Z-extent is thin (~0.628). With km=32, dz ~ 0.02 vs dx ~ 0.20.
+#  TGV has w = 0, so particles do not drift in Z. The anisotropic grid
+#  means Z-interpolation error will be much smaller than X/Y error.
+#
+#  NOTE: WALL boundaries are used because periodic BCs do not wrap
+#        particles in the current solver. TGV3D is vortical with no net
+#        transport, so particles circulate locally and remain interior.
+# ==============================================================================
+
+properties:
+  scaling:
+    length_ref: 1.0         # meters
+    velocity_ref: 1.0       # m/s; T_ref = L_ref/U_ref = 1.0 s
+  fluid:
+    density: 1.0            # kg/m^3
+    viscosity: 0.01         # Pa.s  --> Re = rho*U*L/mu = 100
+  initial_conditions:
+    mode: "Zero"            # Analytical mode overrides the Eulerian field
+
+run_control:
+  start_step: 0
+  total_steps: 200          # t_final* = 200 * 0.01 = 2.0
+  dt_physical: 0.01         # dt* = dt_phys / T_ref = 0.01
+
+grid:
+  mode: programmatic_c
+  programmatic_settings:
+    # 32^3 cells: baseline resolution for interpolation error measurement.
+    # Cell size: dx = dy = 2*pi/32 ~ 0.196, dz = 0.2*pi/32 ~ 0.020.
+    # For grid convergence studies, vary im/jm/km (16, 64, 128).
+    im: 32
+    jm: 32
+    km: 32
+    # Domain bounds are overridden by SetAnalyticalGridInfo for TGV3D.
+    # These placeholders satisfy the YAML schema validator.
+    xMins: 0.0
+    xMaxs: 6.2832
+    yMins: 0.0
+    yMaxs: 6.2832
+    zMins: 0.0
+    zMaxs: 0.6283
+    rxs: 1.0                # Uniform grid -- no stretching
+    rys: 1.0
+    rzs: 1.0
+    cgrids: 0               # Cartesian
+
+models:
+  domain:
+    blocks: 1
+
+  physics:
+    turbulence:
+      les: false            # No LES -- analytical flow only
+
+    particles:
+      count: 10000          # Moderate ensemble for interpolation error statistics
+      init_mode: "Volume"   # Random seeding throughout the domain
+      restart_mode: "init"
+
+# WALL BCs on all faces.
+# TGV3D velocity is zero at domain boundaries (sin(0) = sin(2*pi) = 0),
+# so particles near walls have near-zero velocity and drift minimally.
+# The analytical engine overrides boundary velocities each step.
+boundary_conditions:
+  - face: "-Xi"
+    type: WALL
+    handler: noslip
+  - face: "+Xi"
+    type: WALL
+    handler: noslip
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  - face: "-Zeta"
+    type: WALL
+    handler: noslip
+  - face: "+Zeta"
+    type: WALL
+    handler: noslip

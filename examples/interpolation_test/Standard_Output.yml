@@ -1,0 +1,39 @@
+# ==============================================================================
+#  INTERPOLATION ACCURACY TEST CASE
+#  monitor.yml
+# ==============================================================================
+
+io:
+  # Output every 10 steps --> 20 snapshots over 200-step run.
+  # Frequent enough to track interpolation error evolution as particles
+  # traverse cells; infrequent enough to keep disk usage modest.
+  data_output_frequency: 10
+
+  # Particle console output aligned with data cadence.
+  particle_console_output_frequency: 10
+
+  # Within each snapshot, print every 100th particle row in the log.
+  # 10000/100 = 100 rows per snapshot -- sufficient for spot-checking.
+  particle_log_interval: 100
+
+  directories:
+    output: "output"
+    restart: "restart"
+    log: "logs"
+    eulerian_subdir: "eulerian"
+    particle_subdir: "particles"
+
+logging:
+  # Interpolation error is always written to logs/interpolation_error.csv
+  # regardless of verbosity. Set to INFO to also see error on console.
+  verbosity: "WARNING"
+  enabled_functions: []
+
+profiling:
+  timestep_output:
+    mode: "off"
+
+solver_monitoring:
+  # Analytical mode skips the Poisson solve; KSP monitoring is moot.
+  -ksp_monitor: false
+  -ksp_converged_reason: false

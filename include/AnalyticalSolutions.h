@@ -57,6 +57,18 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user);
  */
 PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type);
 
+/**
+ * @brief Reports whether an analytical type has a non-trivial velocity field
+ *        for which interpolation error measurement is meaningful.
+ *
+ * Types with identically zero velocity (e.g. ZERO_FLOW) return PETSC_FALSE
+ * because the interpolation error is trivially zero and uninformative.
+ *
+ * @param analytical_type Analytical solution type string.
+ * @return PETSC_TRUE if interpolation error is meaningful, PETSC_FALSE otherwise.
+ */
+PetscBool AnalyticalTypeSupportsInterpolationError(const char *analytical_type);
+
 #undef __FUNCT__
 #define __FUNCT__ "AnalyticalSolutionEngine"
 /**

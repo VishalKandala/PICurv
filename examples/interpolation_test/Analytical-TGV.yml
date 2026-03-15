@@ -1,0 +1,30 @@
+# ==============================================================================
+#  INTERPOLATION ACCURACY TEST CASE
+#  solver.yml
+#
+#  CRITICAL SETTINGS:
+#  - eulerian_field_source: analytical  -->  bypasses NS solve entirely
+#  - analytical_type: TGV3D             -->  sets 3D Taylor-Green Vortex field
+#  - interpolation.method: Trilinear    -->  tests the default (recommended) method
+#
+#  With these settings:
+#  1. No momentum/Poisson solve runs -- the Eulerian field is set analytically.
+#  2. Particles are advected in the known TGV3D velocity field.
+#  3. Interpolated particle velocities can be compared against the exact
+#     analytical solution (available via SetAnalyticalSolutionForParticles).
+#
+#  TGV3D velocity at position (x,y,z) at time t:
+#    u =  sin(x)*cos(y)*cos(z) * exp(-2*nu*t)
+#    v = -cos(x)*sin(y)*cos(z) * exp(-2*nu*t)
+#    w =  0
+#  where nu = 1/Re.
+# ==============================================================================
+
+operation_mode:
+  eulerian_field_source: "analytical"   # Bypasses NS/Poisson solve
+  analytical_type: "TGV3D"             # 3D Taylor-Green Vortex
+
+# Interpolation method under test.
+# Change to "CornerAveraged" to compare against the legacy method.
+interpolation:
+  method: "Trilinear"                  # Direct cell-center trilinear (2nd order)
