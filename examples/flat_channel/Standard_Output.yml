@@ -21,3 +21,7 @@ io:
   data_output_frequency: 100 # -> -tio
   particle_console_output_frequency: 100 # -> -particle_console_output_freq
   particle_log_interval: 100  # -> -logfreq (row subsampling within snapshots)
+
+  directories:
+    output: "output"
+    restart: "restart"

@@ -8,7 +8,7 @@ This directory holds executable smoke assets for the canonical `make smoke` fami
 - `bin/picurv init` produces a self-contained case with copied binaries and origin metadata.
 - Template matrix init/validate/dry-run coverage across `flat_channel`, `bent_channel`, and `brownian_motion`.
 - `picurv run --dry-run --format json` emits valid solve/post plans.
-- Restart planning resolves `run_control.restart_from_run_dir` correctly.
+- Restart planning resolves the `--restart-from` CLI flag correctly.
 - Tiny real solve+post paths for flat, bent, and particle-enabled flat cases.
 - Restart branch coverage (`load` and `init`) including restart-equivalence checks.
 - Analytical Brownian runtime path including particle output and MSD statistics.

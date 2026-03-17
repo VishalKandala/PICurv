@@ -18,8 +18,8 @@ io:
   particle_console_output_frequency: 100
   particle_log_interval: 10
   directories:
-    output: "results"
-    restart: "results"
+    output: "output"
+    restart: "restart"
     log: "logs"
     eulerian_subdir: "eulerian"
     particle_subdir: "particles"

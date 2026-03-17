@@ -1394,12 +1394,14 @@ def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str):
     return list(dict.fromkeys(output_paths))
 
 
-def is_restart_execution(case_cfg: dict, solver_cfg: dict) -> bool:
+def needs_restart_source(case_cfg: dict, solver_cfg: dict) -> bool:
     """!
-    @brief Return True when the solver will read restart data.
-    @param[in] case_cfg Argument passed to `is_restart_execution()`.
-    @param[in] solver_cfg Argument passed to `is_restart_execution()`.
-    @return Value returned by `is_restart_execution()`.
+    @brief Return True when the solver requires restart data from disk.
+    @details Correctly identifies that analytical + init + start_step > 0 does NOT
+             need a restart source (C code never reads from restart_dir in that case).
+    @param[in] case_cfg Parsed case YAML dictionary.
+    @param[in] solver_cfg Parsed solver YAML dictionary.
+    @return True if a restart source (--restart-from or --continue) is required.
     """
     try:
         start_step = int(case_cfg.get("run_control", {}).get("start_step", 0) or 0)
@@ -1408,54 +1410,251 @@ def is_restart_execution(case_cfg: dict, solver_cfg: dict) -> bool:
     eulerian_source = str(
         (solver_cfg.get("operation_mode", {}) or {}).get("eulerian_field_source", "solve")
     ).strip().lower()
-    return start_step > 0 or eulerian_source == "load"
+    particle_restart_mode = str(
+        (case_cfg.get("models", {}).get("physics", {}).get("particles", {}) or {}).get("restart_mode", "init")
+    ).strip().lower()
+    euler_needs = (eulerian_source == "load") or (eulerian_source == "solve" and start_step > 0)
+    particle_needs = (particle_restart_mode == "load")
+    return euler_needs or particle_needs
 
 
-def resolve_restart_source_from_run_dir(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict, case_path: str, strict: bool = True) -> str:
+def resolve_run_output_dir(run_dir: str, monitor_cfg: dict) -> str:
     """!
-    @brief Resolve an automated restart source directory from a prior run directory.
-    @param[in] case_cfg Argument passed to `resolve_restart_source_from_run_dir()`.
-    @param[in] solver_cfg Argument passed to `resolve_restart_source_from_run_dir()`.
-    @param[in] monitor_cfg Argument passed to `resolve_restart_source_from_run_dir()`.
-    @param[in] case_path Argument passed to `resolve_restart_source_from_run_dir()`.
-    @param[in] strict Argument passed to `resolve_restart_source_from_run_dir()`.
-    @return Value returned by `resolve_restart_source_from_run_dir()`.
+    @brief Resolve the output data directory within a run directory.
+    @param[in] run_dir Path to the run directory.
+    @param[in] monitor_cfg Parsed monitor YAML dictionary.
+    @return Absolute path to the output directory.
     """
-    run_ctrl = case_cfg.get("run_control", {}) or {}
-    restart_from_run_dir = run_ctrl.get("restart_from_run_dir")
-    if not restart_from_run_dir:
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    output_rel = dirs.get("output", "output")
+    return os.path.abspath(os.path.join(run_dir, output_rel))
+
+
+def resolve_run_restart_dir(run_dir: str, monitor_cfg: dict) -> str:
+    """!
+    @brief Resolve the restart staging directory within a run directory.
+    @param[in] run_dir Path to the run directory.
+    @param[in] monitor_cfg Parsed monitor YAML dictionary.
+    @return Absolute path to the restart directory.
+    """
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    restart_rel = dirs.get("restart", "restart")
+    return os.path.abspath(os.path.join(run_dir, restart_rel))
+
+
+def populate_restart_directory(source_output: str, target_restart: str, start_step: int, monitor_cfg: dict):
+    """!
+    @brief Copy checkpoint files for a specific step from source output to target restart.
+    @param[in] source_output Path to the source output directory containing checkpoint data.
+    @param[in] target_restart Path to the target restart directory to populate.
+    @param[in] start_step The step number whose checkpoint files should be copied.
+    @param[in] monitor_cfg Parsed monitor YAML dictionary (for subdirectory names).
+    """
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    euler_sub = dirs.get("eulerian_subdir", "eulerian")
+    particle_sub = dirs.get("particle_subdir", "particles")
+
+    if os.path.exists(target_restart):
+        shutil.rmtree(target_restart)
+    os.makedirs(os.path.join(target_restart, euler_sub), exist_ok=True)
+    os.makedirs(os.path.join(target_restart, particle_sub), exist_ok=True)
+
+    step_str = f"{start_step:05d}"
+    for subdir in [euler_sub, particle_sub]:
+        src = os.path.join(source_output, subdir)
+        dst = os.path.join(target_restart, subdir)
+        if not os.path.isdir(src):
+            continue
+        for f_name in glob.glob(os.path.join(src, f"*{step_str}_0.*")):
+            shutil.copy2(f_name, dst)
+
+    copied = glob.glob(os.path.join(target_restart, "**", f"*{step_str}_0.*"), recursive=True)
+    if not copied:
+        raise ValueError(f"No checkpoint files found for step {start_step} in {source_output}")
+    print(f"[INFO] Populated restart directory with {len(copied)} file(s) for step {start_step}: {target_restart}")
+
+
+def detect_last_checkpoint_step(output_dir: str, euler_subdir: str = "eulerian"):
+    """!
+    @brief Scan output directory for the highest step number available.
+    @param[in] output_dir Path to the output directory.
+    @param[in] euler_subdir Name of the eulerian subdirectory.
+    @return The highest step number found, or None if no checkpoints exist.
+    """
+    import re as _re
+    euler_path = os.path.join(output_dir, euler_subdir)
+    if not os.path.isdir(euler_path):
         return None
+    pattern = _re.compile(r"ufield(\d{5})_0\.dat")
+    steps = [int(m.group(1)) for fname in os.listdir(euler_path) if (m := pattern.match(fname))]
+    return max(steps) if steps else None
 
-    if not is_restart_execution(case_cfg, solver_cfg):
+
+def validate_load_mode_step_range(source_output: str, start_step: int, total_steps: int, monitor_cfg: dict):
+    """!
+    @brief Validate that all required eulerian step files exist for "load" mode.
+    @details Checks that ufield files exist for every step from start_step through
+             start_step + total_steps (inclusive). Reports missing steps clearly.
+    @param[in] source_output Path to the output directory containing eulerian data.
+    @param[in] start_step First step that will be loaded.
+    @param[in] total_steps Number of steps to run.
+    @param[in] monitor_cfg Parsed monitor YAML dictionary (for subdirectory names).
+    """
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    euler_sub = dirs.get("eulerian_subdir", "eulerian")
+    euler_path = os.path.join(source_output, euler_sub)
+
+    missing = []
+    for step in range(start_step, start_step + total_steps + 1):
+        expected = os.path.join(euler_path, f"ufield{step:05d}_0.dat")
+        if not os.path.isfile(expected):
+            missing.append(step)
+
+    if missing:
+        sample = missing[:3] + (["..."] if len(missing) > 6 else []) + missing[-3:]
         raise ValueError(
-            "run_control.restart_from_run_dir is set, but this case is not configured to read restart data. "
-            "Set run_control.start_step > 0 or solver.operation_mode.eulerian_field_source: load."
+            f"Eulerian 'load' mode: {len(missing)} step file(s) missing in {euler_path}. "
+            f"Missing steps include: {sample}"
         )
 
-    restart_run_dir = resolve_path(case_path, restart_from_run_dir)
-    if strict and not os.path.isdir(restart_run_dir):
-        raise ValueError(f"run_control.restart_from_run_dir does not exist: {restart_run_dir}")
 
-    previous_monitor_path = os.path.join(restart_run_dir, "config", "monitor.yml")
-    if strict and not os.path.isfile(previous_monitor_path):
+def read_monitor_from_run(run_dir: str) -> dict:
+    """!
+    @brief Read the monitor.yml from a run directory's config/ subdirectory.
+    @param[in] run_dir Path to the run directory.
+    @return Parsed monitor YAML dictionary.
+    """
+    monitor_path = os.path.join(run_dir, "config", "monitor.yml")
+    if not os.path.isfile(monitor_path):
+        raise ValueError(f"Run directory is missing config/monitor.yml: {monitor_path}")
+    return read_yaml_file(monitor_path)
+
+
+def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: dict, run_dir: str):
+    """!
+    @brief Resolve the restart source directory based on --restart-from or --continue CLI flags.
+    @details Implements the full restart resolution logic including smart resolution for
+             --continue (checks restart/ first for user-curated data, falls back to output/)
+             and direct reference for eulerian "load" mode.
+    @param[in] args Parsed CLI arguments (must have restart_from, continue_run, run_dir attrs).
+    @param[in] case_cfg Parsed case YAML dictionary.
+    @param[in] solver_cfg Parsed solver YAML dictionary.
+    @param[in] monitor_cfg Parsed monitor YAML dictionary.
+    @param[in] run_dir Path to the current run directory.
+    @return Tuple of (restart_source_dir, continue_mode) where restart_source_dir is the
+            resolved path (or None) and continue_mode is a boolean.
+    """
+    try:
+        start_step = int(case_cfg.get("run_control", {}).get("start_step", 0) or 0)
+    except (TypeError, ValueError):
+        start_step = 0
+    try:
+        total_steps = int(case_cfg.get("run_control", {}).get("total_steps", 0) or 0)
+    except (TypeError, ValueError):
+        total_steps = 0
+
+    eulerian_source = str(
+        (solver_cfg.get("operation_mode", {}) or {}).get("eulerian_field_source", "solve")
+    ).strip().lower()
+
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    euler_sub = dirs.get("eulerian_subdir", "eulerian")
+    particle_sub = dirs.get("particle_subdir", "particles")
+
+    requires_source = needs_restart_source(case_cfg, solver_cfg)
+    restart_from = getattr(args, 'restart_from', None)
+    continue_run = getattr(args, 'continue_run', False)
+
+    if restart_from and continue_run:
+        raise ValueError("--restart-from and --continue are mutually exclusive.")
+
+    if restart_from:
+        # === MODE 1: New run, restart from another run ===
+        source_run = os.path.abspath(restart_from)
+        if not os.path.isdir(source_run):
+            raise ValueError(f"--restart-from run directory does not exist: {source_run}")
+        source_monitor = read_monitor_from_run(source_run)
+        source_output = resolve_run_output_dir(source_run, source_monitor)
+        if not os.path.isdir(source_output):
+            raise ValueError(f"Source output directory does not exist: {source_output}")
+
+        if not requires_source:
+            # R7: analytical + init — warn that --restart-from is unused
+            print(
+                "[WARN] --restart-from specified but no data will be read "
+                "(analytical + init does not need restart data).",
+                file=sys.stderr,
+            )
+            return None, False
+
+        if eulerian_source == "load":
+            # R3/R4/R5: Direct reference to source output
+            validate_load_mode_step_range(source_output, start_step, total_steps, source_monitor)
+            return source_output, False
+        else:
+            # R1/R2/R6: Copy checkpoint to new run's restart/
+            target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
+            populate_restart_directory(source_output, target_restart, start_step, monitor_cfg)
+            return target_restart, False
+
+    elif continue_run:
+        # === MODE 2: Continue in-place ===
+        continue_run_dir = getattr(args, 'run_dir', None)
+        if not continue_run_dir:
+            raise ValueError("--continue requires --run-dir.")
+        continue_run_dir = os.path.abspath(continue_run_dir)
+        if not os.path.isdir(continue_run_dir):
+            raise ValueError(f"--run-dir does not exist: {continue_run_dir}")
+
+        source_output = resolve_run_output_dir(continue_run_dir, monitor_cfg)
+        target_restart = resolve_run_restart_dir(continue_run_dir, monitor_cfg)
+
+        # Warn if start_step != last checkpoint
+        last_step = detect_last_checkpoint_step(source_output, euler_sub)
+        if last_step is not None and last_step != start_step:
+            print(
+                f"[WARN] start_step={start_step} but last checkpoint in output is step {last_step}.",
+                file=sys.stderr,
+            )
+
+        if eulerian_source == "load":
+            # C3/C4: Direct reference to output/ (all euler steps there, can't copy)
+            return source_output, True
+        elif not requires_source:
+            # C6: analytical + init — only log-append behavior, no data needed
+            return None, True
+        else:
+            # C1/C2/C5: Smart resolution for solve/analytical
+            step_str = f"{start_step:05d}"
+            restart_has_files = False
+            if os.path.isdir(target_restart):
+                restart_has_files = any(
+                    glob.glob(os.path.join(target_restart, sub, f"*{step_str}_0.*"))
+                    for sub in [euler_sub, particle_sub]
+                )
+
+            if restart_has_files:
+                # User curated restart/ (warm-up-and-discard workflow)
+                print(f"[INFO] Using curated restart directory: {target_restart}")
+                return target_restart, True
+            elif os.path.isdir(source_output):
+                # Auto-populate restart/ from output/
+                populate_restart_directory(source_output, target_restart, start_step, monitor_cfg)
+                return target_restart, True
+            else:
+                raise ValueError(
+                    f"Neither restart/ nor output/ contain data for step {start_step}. "
+                    f"Checked: {target_restart}, {source_output}"
+                )
+
+    elif requires_source:
         raise ValueError(
-            f"restart source run directory is missing config/monitor.yml: {previous_monitor_path}"
+            "Restart data required but no source specified. Use:\n"
+            "  --restart-from <run_dir>  (new run from another run's data)\n"
+            "  --continue --run-dir <run_dir>  (resume in same directory)"
         )
 
-    previous_monitor_cfg = monitor_cfg
-    if os.path.isfile(previous_monitor_path):
-        previous_monitor_cfg = read_yaml_file(previous_monitor_path)
-
-    previous_dirs = previous_monitor_cfg.get("io", {}).get("directories", {}) or {}
-    restart_rel = previous_dirs.get("restart", previous_dirs.get("output", "results"))
-    restart_source_dir = os.path.abspath(os.path.join(restart_run_dir, restart_rel))
-
-    if strict and not os.path.isdir(restart_source_dir):
-        raise ValueError(
-            f"resolved restart source directory does not exist: {restart_source_dir}"
-        )
-
-    return restart_source_dir
+    return None, False
 
 def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
     """!
@@ -2452,10 +2651,12 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             errors.append(f"  {monitor_path}: 'solver_monitoring' must be a mapping of <flag>: <value>.")
 
     if not errors:
-        try:
-            resolve_restart_source_from_run_dir(case_cfg, solver_cfg, monitor_cfg, case_path, strict=True)
-        except ValueError as e:
-            errors.append(f"  {case_path}: {e}")
+        if needs_restart_source(case_cfg, solver_cfg):
+            warnings.append(
+                f"{case_path}: This configuration requires restart data (start_step > 0, "
+                "eulerian_field_source='load', or particle restart_mode='load'). "
+                "Use --restart-from or --continue when running."
+            )
 
     if errors:
         _print_validation_errors(errors)
@@ -4057,7 +4258,7 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                 flags[key] = format_flag_value(value)
     return flags
 
-def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_files, restart_source_dir=None):
+def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_files, restart_source_dir=None, continue_mode=False):
     """!
     @brief Generates the main .control file for the C-solver.
     @details Orchestrates the conversion of all YAML configurations (case, solver, monitor)
@@ -4068,6 +4269,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     @param[in] num_procs Argument passed to `generate_solver_control_file()`.
     @param[in] monitor_files Argument passed to `generate_solver_control_file()`.
     @param[in] restart_source_dir Argument passed to `generate_solver_control_file()`.
+    @param[in] continue_mode If True, appends -continue_mode flag for the C solver.
     @return Value returned by `generate_solver_control_file()`.
     """
     print("[INFO] Generating master solver control file...")
@@ -4226,7 +4428,9 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         if 'particle_subdir' in dirs: control_lines.append(f"-particle_subdir {dirs['particle_subdir']}")
     if restart_source_dir:
         control_lines.append(f"-restart_dir {restart_source_dir}")
-        
+    if continue_mode:
+        control_lines.append("-continue_mode true")
+
     final_content = generate_header(run_id, source_files) + "\n".join(control_lines)
     control_file_path = os.path.join(run_dir, "config", f"{run_id}.control")
     with open(control_file_path, "w") as f: f.write(final_content)
@@ -4439,7 +4643,7 @@ def resolve_post_source_directory(run_dir: str, monitor_cfg: dict, post_cfg: dic
     @param[in] strict Argument passed to `resolve_post_source_directory()`.
     @return Value returned by `resolve_post_source_directory()`.
     """
-    solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
+    solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'output')
     solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
     source_dir_template = get_post_source_directory_template(post_cfg)
     if source_dir_template == '<solver_output_dir>':
@@ -4856,7 +5060,7 @@ def _resolve_post_source_directory_preview(run_dir: str, monitor_cfg: dict, post
     @param[in] post_cfg Argument passed to `_resolve_post_source_directory_preview()`.
     @return Value returned by `_resolve_post_source_directory_preview()`.
     """
-    solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'results')
+    solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'output')
     solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
     source_dir_template = get_post_source_directory_template(post_cfg)
     if source_dir_template == '<solver_output_dir>':
@@ -4936,6 +5140,13 @@ def build_run_dry_plan(args) -> dict:
             fail_cli_usage("--scheduler requires --cluster in this version.")
         plan["launch_mode"] = "local"
 
+    # --- Guard: restart flags without --solve ---
+    if not args.solve:
+        if getattr(args, 'restart_from', None):
+            print("[WARNING] --restart-from has no effect without --solve and will be ignored.", file=sys.stderr)
+        if getattr(args, 'continue_run', False):
+            print("[WARNING] --continue has no effect without --solve and will be ignored.", file=sys.stderr)
+
     if args.solve:
         case_path = os.path.abspath(args.case)
         solver_path = os.path.abspath(args.solver)
@@ -4944,14 +5155,41 @@ def build_run_dry_plan(args) -> dict:
         solver_cfg = read_yaml_file(solver_path)
         loaded_monitor_cfg = read_yaml_file(monitor_path)
         validate_solver_configs(loaded_case_cfg, solver_cfg, loaded_monitor_cfg, case_path, solver_path, monitor_path)
-        resolved_restart_source_dir = resolve_restart_source_from_run_dir(
-            loaded_case_cfg, solver_cfg, loaded_monitor_cfg, case_path, strict=True
-        )
 
-        case_name = os.path.splitext(os.path.basename(case_path))[0]
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        run_id = f"{case_name}_{timestamp}"
-        run_dir = os.path.abspath(os.path.join("runs", run_id))
+        continue_mode = getattr(args, 'continue_run', False)
+
+        if continue_mode:
+            # --continue reuses existing run directory
+            if not args.run_dir:
+                fail_cli_usage("--continue requires --run-dir.")
+            run_dir = os.path.abspath(args.run_dir)
+            if not os.path.isdir(run_dir):
+                emit_structured_error(
+                    ERROR_CODE_CFG_FILE_NOT_FOUND,
+                    key="run-dir",
+                    file_path=run_dir,
+                    message="Specified run directory not found.",
+                )
+                sys.exit(1)
+            run_id = os.path.basename(run_dir)
+        else:
+            case_name = os.path.splitext(os.path.basename(case_path))[0]
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            run_id = f"{case_name}_{timestamp}"
+            run_dir = os.path.abspath(os.path.join("runs", run_id))
+
+        try:
+            resolved_restart_source_dir, is_continue = resolve_restart_source(
+                args, loaded_case_cfg, solver_cfg, loaded_monitor_cfg, run_dir
+            )
+        except ValueError as e:
+            emit_structured_error(
+                ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                key="restart",
+                file_path=case_path,
+                message=str(e),
+            )
+            sys.exit(1)
 
         config_dir = os.path.join(run_dir, "config")
         scheduler_dir = os.path.join(run_dir, "scheduler")
@@ -4968,7 +5206,7 @@ def build_run_dry_plan(args) -> dict:
                 run_dir,
                 config_dir,
                 logs_dir,
-                os.path.join(run_dir, "results"),
+                os.path.join(run_dir, "output"),
                 scheduler_dir,
                 os.path.join(config_dir, "case.yml"),
                 os.path.join(config_dir, "solver.yml"),
@@ -5022,6 +5260,8 @@ def build_run_dry_plan(args) -> dict:
             }
         if resolved_restart_source_dir:
             plan["stages"]["solve"]["restart_source_directory"] = resolved_restart_source_dir
+        if is_continue:
+            plan["stages"]["solve"]["continue_mode"] = True
 
     if args.post_process:
         post_path = os.path.abspath(args.post)
@@ -5201,6 +5441,18 @@ def validate_workflow(args):
     if solver_group_selected and not all([args.case, args.solver, args.monitor]):
         fail_cli_usage("When solver validation is requested, --case, --solver, and --monitor are all required.")
 
+    # --- Guard: restart flags without solver group ---
+    restart_from = getattr(args, 'restart_from', None)
+    continue_run = getattr(args, 'continue_run', False)
+    run_dir_val = getattr(args, 'run_dir', None)
+    if not solver_group_selected:
+        if restart_from:
+            print("[WARNING] --restart-from has no effect without --case/--solver/--monitor and will be ignored.", file=sys.stderr)
+        if continue_run:
+            print("[WARNING] --continue has no effect without --case/--solver/--monitor and will be ignored.", file=sys.stderr)
+    if continue_run and not run_dir_val:
+        fail_cli_usage("--continue requires --run-dir.")
+
     if solver_group_selected:
         case_path = os.path.abspath(args.case)
         solver_path = os.path.abspath(args.solver)
@@ -5210,6 +5462,16 @@ def validate_workflow(args):
         monitor_cfg = read_yaml_file(monitor_path)
         validate_solver_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
         checked.extend([case_path, solver_path, monitor_path])
+
+        # Validate restart flags if provided
+        if restart_from or continue_run:
+            target_run_dir = os.path.abspath(run_dir_val) if run_dir_val else os.path.abspath("runs/_validate_dummy")
+            try:
+                resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, target_run_dir)
+                print("[SUCCESS] Restart source validation passed.")
+            except ValueError as e:
+                print(f"[ERROR] Restart validation failed: {e}", file=sys.stderr)
+                sys.exit(1)
 
     post_cfg = None
     if args.post:
@@ -5247,6 +5509,23 @@ def validate_workflow(args):
         study_cfg = read_yaml_file(study_path)
         validate_study_config(study_cfg, study_path)
         checked.append(study_path)
+
+    if post_cfg is not None and run_dir_val:
+        post_path = os.path.abspath(args.post)
+        validate_run_dir = os.path.abspath(run_dir_val)
+        if os.path.isdir(validate_run_dir):
+            monitor_for_post = monitor_cfg if solver_group_selected else None
+            if monitor_for_post is None:
+                config_dir_candidate = os.path.join(validate_run_dir, "config")
+                monitor_candidate = os.path.join(config_dir_candidate, "monitor.yml")
+                if os.path.isfile(monitor_candidate):
+                    monitor_for_post = read_yaml_file(monitor_candidate)
+            if monitor_for_post is not None:
+                resolved_source = _resolve_post_source_directory_preview(validate_run_dir, monitor_for_post, post_cfg)
+                if os.path.isdir(resolved_source) and os.listdir(resolved_source):
+                    print(f"[SUCCESS] Post-processor source data directory exists: {resolved_source}")
+                else:
+                    print(f"[WARNING] Post-processor source data directory is missing or empty: {resolved_source}", file=sys.stderr)
 
     if args.strict and post_cfg is not None:
         post_path = os.path.abspath(args.post)
@@ -5349,6 +5628,13 @@ def run_workflow(args):
         print("[FATAL] --scheduler requires --cluster in this version.", file=sys.stderr)
         sys.exit(1)
 
+    # --- Guard: restart flags without --solve ---
+    if not args.solve:
+        if getattr(args, 'restart_from', None):
+            print("[WARNING] --restart-from has no effect without --solve and will be ignored.", file=sys.stderr)
+        if getattr(args, 'continue_run', False):
+            print("[WARNING] --continue has no effect without --solve and will be ignored.", file=sys.stderr)
+
     # --- Stage 1: Solver (if requested) ---
     if args.solve:
         walltime_guard_policy = resolve_walltime_guard_policy(cluster_cfg) if cluster_mode else None
@@ -5364,20 +5650,52 @@ def run_workflow(args):
             configs['case'], configs['solver'], configs['monitor'],
             args.case, args.solver, args.monitor
         )
-        resolved_restart_source_dir = resolve_restart_source_from_run_dir(
-            configs["case"], configs["solver"], configs["monitor"], configs["case_path"], strict=True
-        )
         print("[SUCCESS] All configuration files passed validation.\n")
 
-        case_name = os.path.splitext(os.path.basename(args.case))[0]
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        run_id = f"{case_name}_{timestamp}"
-        run_dir = os.path.abspath(os.path.join("runs", run_id))
+        continue_mode = getattr(args, 'continue_run', False)
+
+        if continue_mode:
+            if not args.run_dir:
+                fail_cli_usage("--continue requires --run-dir.")
+            run_dir = os.path.abspath(args.run_dir)
+            if not os.path.isdir(run_dir):
+                emit_structured_error(
+                    ERROR_CODE_CFG_FILE_NOT_FOUND,
+                    key="run-dir",
+                    file_path=run_dir,
+                    message="Specified run directory not found.",
+                )
+                sys.exit(1)
+            run_id = os.path.basename(run_dir)
+        else:
+            case_name = os.path.splitext(os.path.basename(args.case))[0]
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            run_id = f"{case_name}_{timestamp}"
+            run_dir = os.path.abspath(os.path.join("runs", run_id))
+
+        try:
+            resolved_restart_source_dir, is_continue = resolve_restart_source(
+                args, configs["case"], configs["solver"], configs["monitor"], run_dir
+            )
+        except ValueError as e:
+            emit_structured_error(
+                ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                key="restart",
+                file_path=args.case,
+                message=str(e),
+            )
+            sys.exit(1)
 
         config_dir = os.path.join(run_dir, "config")
-        for d in [config_dir, "logs", "results", os.path.join(run_dir, "scheduler")]:
-            os.makedirs(d, exist_ok=True)
-        print(f"[INFO] Created new self-contained run directory: {os.path.relpath(run_dir)}")
+        if not continue_mode:
+            for d in [config_dir, os.path.join(run_dir, "scheduler")]:
+                os.makedirs(d, exist_ok=True)
+        else:
+            os.makedirs(config_dir, exist_ok=True)
+        if continue_mode:
+            print(f"[INFO] Continuing in existing run directory: {os.path.relpath(run_dir)}")
+        else:
+            print(f"[INFO] Created new self-contained run directory: {os.path.relpath(run_dir)}")
 
         shutil.copy(args.case, os.path.join(config_dir, "case.yml"))
         shutil.copy(args.solver, os.path.join(config_dir, "solver.yml"))
@@ -5389,7 +5707,9 @@ def run_workflow(args):
         source_files = {'Case': args.case, 'Solver': args.solver, 'Monitor': args.monitor}
         monitor_files = prepare_monitor_files(run_dir, run_id, configs['monitor'], source_files)
         if resolved_restart_source_dir:
-            print(f"[INFO] Automated restart source: {resolved_restart_source_dir}")
+            print(f"[INFO] Restart source: {resolved_restart_source_dir}")
+        if is_continue:
+            print("[INFO] Continue mode: logs will be appended, not overwritten.")
         control_file = generate_solver_control_file(
             run_dir,
             run_id,
@@ -5397,6 +5717,7 @@ def run_workflow(args):
             solver_num_procs_effective,
             monitor_files,
             restart_source_dir=resolved_restart_source_dir,
+            continue_mode=is_continue,
         )
 
         solver_exe = resolve_runtime_executable("simulator")
@@ -5609,7 +5930,7 @@ def run_workflow(args):
             print(f"  Post MPI procs  : {post_num_procs_effective}")
         if args.solve and configs:
             total_steps = configs['case'].get('run_control', {}).get('total_steps', '?')
-            result_dir = os.path.join(run_dir, configs['monitor'].get('io', {}).get('directories', {}).get('output', 'results'))
+            result_dir = os.path.join(run_dir, configs['monitor'].get('io', {}).get('directories', {}).get('output', 'output'))
             print(f"  Steps run      : {total_steps}")
             print(f"  Solver output  : {os.path.relpath(result_dir)}")
         if 'post-process' in stages_completed and output_dir_abs:
@@ -5674,7 +5995,7 @@ def sweep_workflow(args):
         config_dir = os.path.join(run_dir, "config")
         os.makedirs(config_dir, exist_ok=True)
         os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
-        os.makedirs(os.path.join(run_dir, "results"), exist_ok=True)
+        os.makedirs(os.path.join(run_dir, "output"), exist_ok=True)
 
         case_cfg = copy.deepcopy(base_case)
         solver_cfg = copy.deepcopy(base_solver)
@@ -7495,11 +7816,11 @@ def _add_run_parser(subparsers):
             "  - --num-procs applies to solver stage launches.\n"
             "  - Post-processing defaults to a single MPI rank/task.\n\n"
             "Examples:\n"
-            "  picurv run --solve --post-process -n 8 --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
+            "  picurv run --solve -n 8 --case case.yml --solver solver.yml --monitor monitor.yml\n"
+            "  picurv run --solve --restart-from runs/old_run --case case.yml --solver solver.yml --monitor monitor.yml\n"
+            "  picurv run --solve --continue --run-dir runs/my_run --case case.yml --solver solver.yml --monitor monitor.yml\n"
             "  picurv run --post-process --run-dir runs/my_run --post post.yml\n"
-            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
-            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
-            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run --format json"
+            "  picurv run --solve --case case.yml --solver solver.yml --monitor monitor.yml --dry-run"
         ),
         epilog="Next: run `picurv validate ...` first for config-only checks.",
     )
@@ -7511,9 +7832,21 @@ def _add_run_parser(subparsers):
     solver_group.add_argument("--case", help="Path to the case definition file (e.g., case.yml).")
     solver_group.add_argument("--solver", help="Path to the solver settings profile (e.g., solver.yml).")
     solver_group.add_argument("--monitor", help="Path to the monitoring and I/O profile (e.g., monitor.yml).")
+    solver_group.add_argument(
+        "--restart-from",
+        help="Path to an existing run directory to restart from.\n"
+             "Creates a new run directory and copies/references checkpoint data from the source.",
+    )
+    run_group.add_argument(
+        "--continue",
+        action="store_true",
+        dest="continue_run",
+        help="Continue a previous run in-place. Requires --run-dir.\n"
+             "Appends to existing output and logs instead of creating a new run.",
+    )
 
     post_group = p_run.add_argument_group("post-processor inputs (required for --post-process)")
-    post_group.add_argument("--run-dir", help="Path to an existing run directory to post-process.\n(Not needed if running with --solve in the same command).")
+    post_group.add_argument("--run-dir", help="Path to an existing run directory.\n(Used with --post-process or --continue).")
     post_group.add_argument("--post", help="Path to the post-processing recipe file (e.g., post.yml).")
 
     p_run.add_argument(
@@ -7583,6 +7916,9 @@ def _add_validate_parser(subparsers):
     p_validate.add_argument("--case", help="Path to case.yml")
     p_validate.add_argument("--solver", help="Path to solver.yml")
     p_validate.add_argument("--monitor", help="Path to monitor.yml")
+    p_validate.add_argument("--restart-from", help="Path to a run directory to validate restart from.")
+    p_validate.add_argument("--continue", action="store_true", dest="continue_run", help="Validate continue-in-place mode. Requires --run-dir.")
+    p_validate.add_argument("--run-dir", help="Path to an existing run directory (for --continue validation).")
     p_validate.add_argument("--post", help="Path to post.yml")
     p_validate.add_argument("--cluster", help="Path to cluster.yml")
     p_validate.add_argument("--study", help="Path to study.yml")

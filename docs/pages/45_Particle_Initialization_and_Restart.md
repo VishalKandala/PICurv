@@ -94,6 +94,7 @@ Operational note:
 - For a run completed through step `N`, use `start_step: N`.
 - Choose `restart_mode: load` to continue the existing particle swarm.
 - Choose `restart_mode: init` to reseed a fresh particle population in the restarted flow field.
+- Point `picurv` at the previous run with `--restart-from <previous_run_dir>` on the CLI (or `--continue` to resume the most recent run of the same case).
 
 For loaded particles, fast migration path:
 

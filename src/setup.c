@@ -73,10 +73,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->tiout = 10; simCtx->particleConsoleOutputFreq = simCtx->tiout;
     simCtx->StartTime = 0.0; simCtx->dt = 0.001;
     simCtx->OnlySetup = PETSC_FALSE;
+    simCtx->continueMode = PETSC_FALSE;
     simCtx->logviewer = NULL;
     strcpy(simCtx->eulerianSource,"solve");
-    strcpy(simCtx->restart_dir,"results");
-    strcpy(simCtx->output_dir,"results");
+    strcpy(simCtx->restart_dir,"restart");
+    strcpy(simCtx->output_dir,"output");
     strcpy(simCtx->log_dir,"logs");
     strcpy(simCtx->euler_subdir,"eulerian");
     strcpy(simCtx->particle_subdir,"particles");
@@ -311,6 +312,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-start_step", &simCtx->StartStep, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL,NULL, "-totalsteps", &simCtx->StepsToRun, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-only_setup", &simCtx->OnlySetup, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetBool(NULL, NULL, "-continue_mode", &simCtx->continueMode, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-dt", &simCtx->dt, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-tio", &simCtx->tiout, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-particle_console_output_freq", &simCtx->particleConsoleOutputFreq, &particle_console_output_freq_flg); CHKERRQ(ierr);
@@ -754,12 +756,19 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
     if (rank == 0){
       if(simCtx->exec_mode == EXEC_MODE_SOLVER){
         // --- Prepare Log Directory ---
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating/cleaning log directory: %s\n", simCtx->log_dir);
-        ierr = PetscRMTree(simCtx->log_dir); // Wipes the directory and its contents
-        if (ierr) { /* Ignore file-not-found error, but fail on others */
-            PetscError(PETSC_COMM_SELF, __LINE__, __FUNCT__, __FILE__, ierr, PETSC_ERROR_INITIAL, "Could not remove existing log directory '%s'. Check permissions.", simCtx->log_dir);
+        if (!simCtx->continueMode) {
+            // Only wipe logs on fresh runs; continue mode appends to existing logs.
+            LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating/cleaning log directory: %s\n", simCtx->log_dir);
+            ierr = PetscRMTree(simCtx->log_dir); // Wipes the directory and its contents
+            if (ierr) { /* Ignore file-not-found error, but fail on others */
+                PetscError(PETSC_COMM_SELF, __LINE__, __FUNCT__, __FILE__, ierr, PETSC_ERROR_INITIAL, "Could not remove existing log directory '%s'. Check permissions.", simCtx->log_dir);
+            }
+            ierr = PetscMkdir(simCtx->log_dir); CHKERRQ(ierr);
+        } else {
+            // In continue mode, ensure log directory exists but don't wipe it.
+            LOG_ALLOW(GLOBAL, LOG_DEBUG, "Continue mode: preserving existing log directory: %s\n", simCtx->log_dir);
+            ierr = PetscMkdir(simCtx->log_dir); CHKERRQ(ierr);
         }
-        ierr = PetscMkdir(simCtx->log_dir); CHKERRQ(ierr);
 
         // --- Prepare Output Directories ---
         char path_buffer[PETSC_MAX_PATH_LEN];

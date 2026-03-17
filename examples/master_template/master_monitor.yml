@@ -80,8 +80,8 @@ io:
   # Specifies subdirectory names within the run folder. If omitted, C-code
   # defaults will be used.
   directories:
-    output: "results"   # [string] -> -output_dir
-    restart: "results"  # [string] -> -restart_dir
+    output: "output"    # [string] -> -output_dir
+    restart: "restart"  # [string] -> -restart_dir
     log: "logs"         # [string] -> -log_dir
     eulerian_subdir: "eulerian"  # [string] -> -euler_subdir
     particle_subdir: "particles" # [string] -> -particle_subdir

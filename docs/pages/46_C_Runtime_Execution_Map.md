@@ -148,7 +148,7 @@ Additional fast diagnostics:
 
 - compare `manifest.json` + generated `config/*.control` against expected YAML role settings
 - run `picurv run --dry-run --format json` to verify launch-mode/rank assumptions before expensive runs
-- for restart issues, verify `restart_from_run_dir` resolution and generated `-restart_dir` in control artifacts
+- for restart issues, verify `--restart-from` / `--continue` resolution and the generated `-restart_dir` in control artifacts
 
 @section p46_refs_sec 9. Related Pages
 

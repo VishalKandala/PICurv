@@ -3435,10 +3435,11 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 	// Only rank 0 handles the file.
         if (!rank) {
           ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir, bi); CHKERRQ(ierr);
-	  // On the very first step of the entire simulation, TRUNCATE the file.
-	  if (simCtx->step == simCtx->StartStep + 1) {
+	  // On the very first step of a fresh run, TRUNCATE the file.
+	  // In continue mode, always APPEND to preserve existing data.
+	  if (simCtx->step == simCtx->StartStep + 1 && !simCtx->continueMode) {
 	    monctx->file_handle = fopen(filen, "w");
-	  } else { // For all subsequent steps, APPEND to the file.
+	  } else { // For all subsequent steps (or continue mode), APPEND.
 	    monctx->file_handle = fopen(filen, "a");
 	  }
  

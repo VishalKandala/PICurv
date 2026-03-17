@@ -886,9 +886,9 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open log file: %s", filen);
         }
 
-        // Write a header only for the very first block (bi=0) on the very
-        // first timestep (ti=StartStep + 1). This ensures it's written only once.
-        if (ti == simCtx->StartStep + 1 && bi == 0) {
+        // Write a header only when the file is empty and it's the first block (bi=0).
+        // Using ftell() instead of step comparison ensures correctness across continuations.
+        if (ftell(f) == 0 && bi == 0) {
             PetscFPrintf(PETSC_COMM_SELF, f, "%-10s | %-6s | %-18s | %-30s | %-18s | %-18s | %-18s | %-18s\n",
                          "Timestep", "Block", "Max Divergence", "Max Divergence Location ([k][j][i]=idx)", "Sum(RHS)","Total Flux In", "Total Flux Out", "Net Flux");
             PetscFPrintf(PETSC_COMM_SELF, f, "------------------------------------------------------------------------------------------------------------------------------------------\n");
@@ -1099,7 +1099,7 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
 
     if (should_write && simCtx->rank == 0) {
         snprintf(filen, sizeof(filen), "%s/%s", simCtx->log_dir, simCtx->profilingTimestepFile);
-        if (step == simCtx->StartStep + 1) {
+        if (step == simCtx->StartStep + 1 && !simCtx->continueMode) {
             f = fopen(filen, "w");
             if (!f) {
                 SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open profiling timestep log file: %s", filen);
@@ -1109,6 +1109,9 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
             f = fopen(filen, "a");
             if (!f) {
                 SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open profiling timestep log file: %s", filen);
+            }
+            if (step == simCtx->StartStep + 1 && ftell(f) == 0) {
+                PetscFPrintf(PETSC_COMM_SELF, f, "step,function,calls,step_time_s\n");
             }
         }
 
@@ -1176,12 +1179,20 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
         char filen[PETSC_MAX_PATH_LEN + 128];
         ierr = PetscSNPrintf(filen, sizeof(filen), "%s/ProfilingSummary_%s.log",simCtx->log_dir,exec_mode_modifier); CHKERRQ(ierr);
 
-        // Open the log file in write mode.
-        f = fopen(filen,"w");
-        if(!f){
-            SETERRQ(PETSC_COMM_SELF,PETSC_ERR_FILE_OPEN,"Cannot Open log file: %s",filen);
+        // Open the log file: append with section label in continue mode, truncate otherwise.
+        if (simCtx->continueMode) {
+            f = fopen(filen, "a");
+            if (!f) {
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open log file: %s", filen);
+            }
+            fprintf(f, "\n=== Continuation from step %" PetscInt_FMT " ===\n", simCtx->StartStep);
+        } else {
+            f = fopen(filen, "w");
+            if (!f) {
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open log file: %s", filen);
+            }
         }
-       
+
         // --- Step 1: Sort the data for readability ---
         qsort(g_profiler_registry, g_profiler_count, sizeof(ProfiledFunction), _CompareProfiledFunctions);
 
@@ -1871,7 +1882,7 @@ PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
         f = fopen(filen, "a");
         if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open particle log file: %s", filen);
 
-        if (simCtx->step == simCtx->StartStep + 1) {
+        if (ftell(f) == 0) {
             PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10s | %-12s | %-10s | %-10s | %-15s | %-10s | %-10s\n",
                             "Stage", "Timestep", "Total Ptls", "Lost", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes");
             PetscFPrintf(PETSC_COMM_SELF, f, "----------------------------------------------------------------------------------------------------------------------------\n");

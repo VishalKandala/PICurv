@@ -34,10 +34,8 @@ run_control:
   # Total simulation time = total_steps * dt_physical.
   total_steps: 2000
 
-  # Optional: point to a previous run directory to automate restart source
-  # resolution. picurv will inspect <that_run>/config/monitor.yml and map
-  # the old restart directory into the new control file automatically.
-  # restart_from_run_dir: "../runs/flat_channel_20260303-120000"
+  # Restart: use the --restart-from CLI flag to point at a previous run
+  # directory. See `picurv run --help` for details.
 
   # The physical time increment for each step, in seconds [s].
   dt_physical: 0.001

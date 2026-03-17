@@ -21,7 +21,8 @@ Key rule:
 
 - every `picurv run --solve ...` creates a fresh run directory,
 - `picurv` does not mutate an old run directory in place when you start a new solve,
-- restart workflows read from an existing run but still create a new run directory for the restarted continuation.
+- restart workflows (`--restart-from`) read from an existing run but still create a new run directory for the restarted continuation,
+- continuation workflows (`--continue --run-dir`) resume inside the same run directory.
 
 `run_id` is generated automatically as `<case_basename>_<timestamp>`.
 
@@ -62,7 +63,7 @@ A typical run directory contains:
 
 - `runs/<run_id>/config/`: generated `.control`, BC files, copied YAML inputs, and `post.run`
 - `runs/<run_id>/logs/`: solver/postprocessor runtime logs and metrics written by PICurv itself
-- `runs/<run_id>/results/`: solver outputs when monitor paths use the default layout
+- `runs/<run_id>/output/`: solver outputs when monitor paths use the default layout
 - `runs/<run_id>/scheduler/`: generated Slurm scripts, `submission.json`, and cluster stdout/stderr in cluster mode
 - `runs/<run_id>/manifest.json`: top-level run metadata
 
@@ -99,44 +100,79 @@ This gives three clean cases:
 - cluster login-node users can edit `.picurv-execution.yml` when needed,
 - batch users can reuse that same file unless `cluster.yml` needs a batch-specific override.
 
-@section p52_restart_sec 5. Restart From An Existing Run
+@section p52_restart_sec 5. Restart And Continuation
 
-Restart uses the normal solve workflow.
+Restart and continuation use the normal solve workflow.
 There is no separate restart command.
+The restart source is specified entirely through CLI flags rather than YAML keys.
 
-Example:
+Three scenarios are supported:
 
-```yaml
-run_control:
-  start_step: 500
-  total_steps: 1000
-  restart_from_run_dir: "../runs/flat_channel_20260303-120000"
+@subsection p52_restart_cfd 5.1 CFD Restart (New Run, Continue Solving)
+
+Use `--restart-from` to create a new run that continues solving from another run's checkpoint data.
+
+```bash
+picurv run --solve --restart-from runs/old_run \
+  --case case.yml --solver solver.yml --monitor monitor.yml
 ```
 
-```yaml
-operation_mode:
-  eulerian_field_source: "load"
+Relevant YAML settings:
+
+- `case.yml`: set `start_step` to the checkpoint step (e.g. 500) and `total_steps` to the desired additional count.
+- `solver.yml`: set `eulerian_field_source: "solve"` so the solver advances the Eulerian fields from the restart state.
+
+Operational meaning:
+
+- PICurv copies the checkpoint from `runs/old_run` into the new run's `restart/` directory,
+- the solver loads that checkpoint and continues from step 501,
+- all new output is written into a fresh `runs/<new_run_id>/` directory.
+
+@subsection p52_restart_particle 5.2 Particle-Tracking Restart (New Run, Pre-Computed Flow)
+
+Use `--restart-from` when the Eulerian flow is already computed and you only need to track particles through it.
+
+```bash
+picurv run --solve --restart-from runs/old_flow_run \
+  --case case.yml --solver solver.yml --monitor monitor.yml
 ```
 
-```yaml
-models:
-  physics:
-    particles:
-      restart_mode: "load"   # or "init"
+Relevant YAML settings:
+
+- `solver.yml`: set `eulerian_field_source: "load"` so the solver reads pre-computed Eulerian fields instead of advancing them.
+
+Operational meaning:
+
+- PICurv points `restart_dir` directly at the source run's output (no file copy),
+- the solver loads the pre-computed flow fields from that source,
+- particle tracking proceeds using the loaded fields,
+- all new output is written into a fresh `runs/<new_run_id>/` directory.
+
+@subsection p52_continue 5.3 Continue In-Place (Same Run Directory)
+
+Use `--continue --run-dir` to resume a run that was interrupted or stopped early, writing into the same run directory.
+
+```bash
+picurv run --solve --continue --run-dir runs/my_run \
+  --case case.yml --solver solver.yml --monitor monitor.yml
 ```
 
 Operational meaning:
 
-- previous run ended at step `500`,
-- new run loads state from that old run,
-- first new advanced step is `501`,
-- new run finishes at `1500`,
-- restarted continuation is written into a new `runs/<new_run_id>/` directory.
+- PICurv copies the latest checkpoint from `output/` to `restart/` inside `runs/my_run/`,
+- the solver resumes from that checkpoint,
+- logs append to the existing log files,
+- all output stays within the same `runs/my_run/` directory.
 
-Before launching:
+@subsection p52_restart_notes 5.4 Notes
+
+When `start_step > 0`, the initial Eulerian state is always loaded from the restart source regardless of the `eulerian_field_source` setting.
+The `eulerian_field_source` value only controls what happens on subsequent steps: `"solve"` advances the fields, `"load"` reads pre-computed fields.
+
+Before launching any restart or continuation:
 
 - verify restart source files exist for the requested step,
-- use `start_step` equal to the saved step, not the next desired step,
+- use `start_step` equal to the saved checkpoint step, not the next desired step,
 - verify `monitor.yml` directory names match the source run layout.
 
 @section p52_post_sec 6. Postprocess An Existing Run

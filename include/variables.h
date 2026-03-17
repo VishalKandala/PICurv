@@ -616,6 +616,7 @@ typedef struct SimCtx {
     PetscReal StartTime;
     PetscReal dt;
     PetscBool OnlySetup;
+    PetscBool continueMode;
     PetscViewer logviewer;
     ExecutionMode exec_mode;
     char eulerianSource[PETSC_MAX_PATH_LEN];
