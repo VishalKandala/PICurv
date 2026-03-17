@@ -85,7 +85,7 @@ runs/
 `- flat_channel_YYYYMMDD-HHMMSS/
    |- config/
    |- logs/
-   |- results/
+   |- output/
    `- viz/
 ```
 
@@ -93,7 +93,7 @@ Interpretation:
 
 - `config/`: exact runtime artifact snapshot for reproducibility,
 - `logs/`: function-level and solver monitor traces,
-- `results/`: solver field outputs,
+- `output/`: solver field outputs,
 - `viz/`: postprocessed VTK files for ParaView.
 
 @section p02_checks_sec 7. First Validation Checks

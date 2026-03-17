@@ -322,7 +322,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
                 FILE *f;
                 char filen[PETSC_MAX_PATH_LEN + 128];
                 ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Momentum_Solver_Convergence_History_Block_%1d.log", simCtx->log_dir, bi); CHKERRQ(ierr);
-                if(simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1) f = fopen(filen, "w");
+                if(simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode) f = fopen(filen, "w");
                 else f = fopen(filen, "a");
                 
                 PetscFPrintf(PETSC_COMM_WORLD, f, "Step: %d | PseudoIter(k): %d| | Pseudo-cfl: %.4f |dUk|: %le | |dUk|/|dUprev|: %le | |Rk|: %le | |Rk|/|Rprev|: %le \n",

@@ -120,7 +120,7 @@ Check these locations:
 
 - `runs/<run_id>/config/` (generated control artifacts)
 - `runs/<run_id>/logs/` (run logs)
-- `results/` (solver outputs, if configured)
+- `output/` (solver outputs, if configured)
 - `viz/` or configured post output directory (VTK files)
 
 Quick sanity check in ParaView:

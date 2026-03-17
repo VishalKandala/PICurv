@@ -200,7 +200,17 @@ Verification:
 run_control:
   start_step: 500
   total_steps: 1000
-  restart_from_run_dir: "../runs/flat_channel_20260303-120000"
+```
+
+Pass `--restart-from` on the CLI to point at the previous run:
+
+```bash
+./bin/picurv run --solve --post-process \
+  --restart-from ../runs/flat_channel_20260303-120000 \
+  --case restart_case/case.yml \
+  --solver restart_case/solver.yml \
+  --monitor restart_case/monitor.yml \
+  --post restart_case/post.yml
 ```
 
 Meaning:
@@ -210,7 +220,7 @@ Meaning:
 - The first new step advanced is step 501.
 - `total_steps` is the number of additional steps to run.
 - In this example, the restarted run advances from step 501 through step 1500.
-- If `restart_from_run_dir` is set, `picurv` automatically resolves the previous run's restart directory from that run's `config/monitor.yml` and injects the correct `-restart_dir` into the new control file.
+- When `--restart-from` is given, `picurv` automatically resolves the previous run's restart directory from that run's `config/monitor.yml` and injects the correct `-restart_dir` into the new control file.
 
 Typical full field restart (`solver.yml`):
 
@@ -245,28 +255,19 @@ Common combinations:
 - Flow restart + fresh particles: `start_step > 0`, `eulerian_field_source: load`, `restart_mode: init`
 - Analytical mode is different: `eulerian_field_source: analytical` regenerates the analytical field at the requested `(t, step)` instead of loading restart files.
 
-Command example:
-
-```bash
-./bin/picurv run --solve --post-process \
-  --case restart_case/case.yml \
-  --solver restart_case/solver.yml \
-  --monitor restart_case/monitor.yml \
-  --post restart_case/post.yml
-```
-
 How to think about this workflow:
 
 - restart uses the normal `run --solve` path; there is no separate restart command,
 - the new run directory is a fresh run artifact,
 - the saved field state is loaded from existing restart/output files referenced by the current restart path contract,
-- `run_control.restart_from_run_dir` is the preferred way to point `picurv` at the old run automatically,
+- `--restart-from` on the CLI is the preferred way to point `picurv` at the old run automatically,
+- use `--continue` as a shorthand when resuming from the most recent run of the same case,
 - the old run directory is not mutated in place by `picurv`.
 
 Before launching a restart, verify:
 
 - the previous run actually wrote solver outputs for the target `start_step`,
-- `run_control.restart_from_run_dir` points to the intended previous run directory (if you use automated restart resolution),
+- the `--restart-from` path points to the intended previous run directory,
 - `monitor.yml -> io.directories.restart` points to the intended restart directory name,
 - `monitor.yml -> io.directories.output` matches where the prior run wrote field data,
 - restart source files for the requested step exist,

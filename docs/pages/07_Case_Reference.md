@@ -55,14 +55,16 @@ run_control:
   dt_physical: 0.0001
   start_step: 0
   total_steps: 2000
-  restart_from_run_dir: "../runs/flat_channel_20260303-120000"  # optional
 ```
 
 Mappings:
 - `dt_physical` -> `-dt` (non-dimensionalized)
 - `start_step` -> `-start_step`
 - `total_steps` -> `-totalsteps`
-- `restart_from_run_dir` -> `picurv` resolves the prior run's actual restart source directory and emits `-restart_dir <absolute_previous_source>`
+
+Restart is handled via CLI flags rather than `case.yml` keys:
+- `--restart-from <previous_run_dir>` -> `picurv` resolves the prior run's actual restart source directory and emits `-restart_dir <absolute_previous_source>`
+- `--continue` -> shorthand for resuming from the most recent run of the same case
 
 @section p07_grid_sec 3. grid
 

@@ -358,23 +358,28 @@ PY
 run_restart_resolution_smoke() {
   local restart_root="${tmp_root}/restart-smoke"
   local prior_run="${restart_root}/old_run"
-  local prior_restart_dir="${prior_run}/prior_results"
+  local prior_output_dir="${prior_run}/output"
   local case_cfg="${restart_root}/case.yml"
   local solver_cfg="${restart_root}/solver.yml"
   local monitor_cfg="${restart_root}/monitor.yml"
-  local post_cfg="${restart_root}/post.yml"
   local plan_json="${tmp_root}/restart-plan.json"
 
-  mkdir -p "${restart_root}" "${prior_run}/config" "${prior_restart_dir}"
+  mkdir -p "${restart_root}" "${prior_run}/config" "${prior_output_dir}/eulerian"
   cp "${valid_fixtures_dir}/case.yml" "${case_cfg}"
   cp "${valid_fixtures_dir}/solver.yml" "${solver_cfg}"
   cp "${valid_fixtures_dir}/monitor.yml" "${monitor_cfg}"
-  cp "${valid_fixtures_dir}/post.yml" "${post_cfg}"
   cat >"${prior_run}/config/monitor.yml" <<'YAML'
 io:
   directories:
-    restart: "prior_results"
+    output: "output"
+    restart: "restart"
 YAML
+
+  # Create fake step files for load mode validation (steps 5-15)
+  for step in $(seq 5 15); do
+    printf -v stepfmt "%05d" "${step}"
+    touch "${prior_output_dir}/eulerian/ufield${stepfmt}_0.dat"
+  done
 
   python3 - "${case_cfg}" "${solver_cfg}" <<'PY'
 import sys
@@ -386,7 +391,7 @@ with open(solver_path, "r", encoding="utf-8") as f:
     solver_cfg = yaml.safe_load(f)
 case_cfg.setdefault("run_control", {})
 case_cfg["run_control"]["start_step"] = 5
-case_cfg["run_control"]["restart_from_run_dir"] = "old_run"
+case_cfg["run_control"]["total_steps"] = 10
 solver_cfg.setdefault("operation_mode", {})
 solver_cfg["operation_mode"]["eulerian_field_source"] = "load"
 with open(case_path, "w", encoding="utf-8") as f:
@@ -399,16 +404,15 @@ PY
     cd "${restart_root}"
     "${picurv_exe}" run \
       --solve \
-      --post-process \
+      --restart-from "${prior_run}" \
       --case "${case_cfg}" \
       --solver "${solver_cfg}" \
       --monitor "${monitor_cfg}" \
-      --post "${post_cfg}" \
       --dry-run \
       --format json >"${plan_json}"
   )
 
-  python3 - "${plan_json}" "${prior_restart_dir}" <<'PY'
+  python3 - "${plan_json}" "${prior_output_dir}" <<'PY'
 import json
 import os
 import sys
@@ -417,7 +421,8 @@ expected_restart = os.path.abspath(sys.argv[2])
 with open(plan_path, "r", encoding="utf-8") as f:
     payload = json.load(f)
 solve_stage = payload.get("stages", {}).get("solve", {})
-assert solve_stage.get("restart_source_directory") == expected_restart
+assert solve_stage.get("restart_source_directory") == expected_restart, \
+    f"Expected {expected_restart}, got {solve_stage.get('restart_source_directory')}"
 PY
 }
 
@@ -620,7 +625,6 @@ with open(post_path, "r", encoding="utf-8") as f:
 case_cfg.setdefault("run_control", {})
 case_cfg["run_control"]["start_step"] = 1
 case_cfg["run_control"]["total_steps"] = 1
-case_cfg["run_control"]["restart_from_run_dir"] = restart_dir
 case_cfg.setdefault("models", {}).setdefault("physics", {}).setdefault("particles", {})
 case_cfg["models"]["physics"]["particles"]["restart_mode"] = particle_mode
 
@@ -696,10 +700,9 @@ case_cfg.setdefault("run_control", {})
 case_cfg["run_control"]["start_step"] = int(start_step)
 case_cfg["run_control"]["total_steps"] = int(total_steps)
 case_cfg["run_control"]["dt_physical"] = 0.001
-if restart_run_dir:
-    case_cfg["run_control"]["restart_from_run_dir"] = restart_run_dir
-else:
-    case_cfg["run_control"].pop("restart_from_run_dir", None)
+# restart_from_run_dir removed from case.yml; restart is now handled via
+# --restart-from CLI flag. The restart_run_dir variable is passed to picurv
+# via --restart-from on the command line instead.
 
 case_cfg.setdefault("grid", {}).setdefault("programmatic_settings", {})
 grid = case_cfg["grid"]["programmatic_settings"]
@@ -1047,10 +1050,15 @@ run_case_workflow() {
   local monitor_file="$4"
   local post_file="$5"
   local label="$6"
+  local restart_from="${7:-}"  # Optional: --restart-from <run_dir>
   local output_log="${tmp_root}/${label}.log"
   local before_runs="${tmp_root}/${label}.runs.before"
   local after_runs="${tmp_root}/${label}.runs.after"
   local created_run=""
+  local restart_args=()
+  if [[ -n "${restart_from}" ]]; then
+    restart_args=("--restart-from" "${restart_from}")
+  fi
   mkdir -p "${case_dir}/runs"
   find "${case_dir}/runs" -mindepth 1 -maxdepth 1 -type d | sort >"${before_runs}"
   (
@@ -1062,7 +1070,8 @@ run_case_workflow() {
       --case "${case_file}" \
       --solver "${solver_file}" \
       --monitor "${monitor_file}" \
-      --post "${post_file}" >"${output_log}" 2>&1
+      --post "${post_file}" \
+      "${restart_args[@]}" >"${output_log}" 2>&1
   ) || {
     echo "Smoke failure: workflow '${label}' failed." >&2
     sed -n '1,220p' "${output_log}" >&2
@@ -1126,7 +1135,8 @@ run_restart_equivalence_smoke() {
     "${split_case}/Imp-MG-Standard.yml" \
     "${split_case}/Standard_Output.yml" \
     "${split_case}/standard_analysis.yml" \
-    "restart_equiv_split_restart"
+    "restart_equiv_split_restart" \
+    "${split_base_run}"
 
   split_restart_run="${LAST_RUN_DIR}"
   split_continuity_log="${split_restart_run}/logs/Continuity_Metrics.log"
@@ -1197,7 +1207,7 @@ run_full_runtime_smoke() {
 
   local base_particles_run
   base_particles_run="${LAST_RUN_DIR}"
-  require_count_ge "${base_particles_run}/results/particles" "*.dat" 1 "particle snapshot files"
+  require_count_ge "${base_particles_run}/output/particles" "*.dat" 1 "particle snapshot files"
   require_count_ge "${base_particles_run}/viz/particle_smoke" "*.vtp" 1 "particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 32" "particle runtime banner particle count"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "particle runtime banner disabled particle console cadence"
@@ -1215,7 +1225,7 @@ run_full_runtime_smoke() {
     "${flat_particles_ca_case}/standard_analysis.yml" \
     "flat_particles_corner_averaged"
 
-  require_count_ge "${LAST_RUN_DIR}/results/particles" "*.dat" 1 "corner-averaged particle snapshot files"
+  require_count_ge "${LAST_RUN_DIR}/output/particles" "*.dat" 1 "corner-averaged particle snapshot files"
   require_count_ge "${LAST_RUN_DIR}/viz/particle_corner_averaged_smoke" "*.vtp" 1 "corner-averaged particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Interpolation Method       : CornerAveraged (legacy)" "corner-averaged runtime banner interpolation method"
 
@@ -1232,11 +1242,12 @@ run_full_runtime_smoke() {
     "${solver_restart_load}" \
     "${flat_particles_case}/Standard_Output.yml" \
     "${post_restart_load}" \
-    "flat_particles_restart_load"
+    "flat_particles_restart_load" \
+    "${base_particles_run}"
 
   local restart_load_run
   restart_load_run="${LAST_RUN_DIR}"
-  require_count_ge "${restart_load_run}/results/particles" "*.dat" 1 "restart-load particle snapshots"
+  require_count_ge "${restart_load_run}/output/particles" "*.dat" 1 "restart-load particle snapshots"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : load" "restart load branch"
 
   local case_restart_init="${flat_particles_case}/case_restart_init.yml"
@@ -1252,11 +1263,12 @@ run_full_runtime_smoke() {
     "${solver_restart_init}" \
     "${flat_particles_case}/Standard_Output.yml" \
     "${post_restart_init}" \
-    "flat_particles_restart_init"
+    "flat_particles_restart_init" \
+    "${base_particles_run}"
 
   local restart_init_run
   restart_init_run="${LAST_RUN_DIR}"
-  require_count_ge "${restart_init_run}/results/particles" "*.dat" 1 "restart-init particle snapshots"
+  require_count_ge "${restart_init_run}/output/particles" "*.dat" 1 "restart-init particle snapshots"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : init" "restart init branch"
 
   run_restart_equivalence_smoke
@@ -1335,7 +1347,7 @@ run_multi_rank_runtime_smoke() {
 
   local base_particles_run
   base_particles_run="${LAST_RUN_DIR}"
-  require_count_ge "${base_particles_run}/results/particles" "*.dat" 1 "MPI particle snapshot files"
+  require_count_ge "${base_particles_run}/output/particles" "*.dat" 1 "MPI particle snapshot files"
   require_count_ge "${base_particles_run}/viz/particle_smoke" "*.vtp" 1 "MPI particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI particle run rank count in runtime summary"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 32" "MPI particle runtime banner particle count"
@@ -1356,8 +1368,9 @@ run_multi_rank_runtime_smoke() {
     "${solver_restart_load}" \
     "${flat_particles_case}/Standard_Output.yml" \
     "${post_restart_load}" \
-    "flat_particles_mpi_restart_load"
-  require_count_ge "${LAST_RUN_DIR}/results/particles" "*.dat" 1 "MPI restart-load particle snapshots"
+    "flat_particles_mpi_restart_load" \
+    "${base_particles_run}"
+  require_count_ge "${LAST_RUN_DIR}/output/particles" "*.dat" 1 "MPI restart-load particle snapshots"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : load" "MPI restart load branch"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-load rank count in runtime summary"
 
@@ -1374,8 +1387,9 @@ run_multi_rank_runtime_smoke() {
     "${solver_restart_init}" \
     "${flat_particles_case}/Standard_Output.yml" \
     "${post_restart_init}" \
-    "flat_particles_mpi_restart_init"
-  require_count_ge "${LAST_RUN_DIR}/results/particles" "*.dat" 1 "MPI restart-init particle snapshots"
+    "flat_particles_mpi_restart_init" \
+    "${base_particles_run}"
+  require_count_ge "${LAST_RUN_DIR}/output/particles" "*.dat" 1 "MPI restart-init particle snapshots"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : init" "MPI restart init branch"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-init rank count in runtime summary"
 }
@@ -1399,7 +1413,7 @@ run_stress_smoke() {
     "${particle_case}/Standard_Output.yml" \
     "${particle_case}/standard_analysis.yml" \
     "flat_particles_stress"
-  require_count_ge "${LAST_RUN_DIR}/results/particles" "*.dat" 2 "stress particle snapshots"
+  require_count_ge "${LAST_RUN_DIR}/output/particles" "*.dat" 2 "stress particle snapshots"
   require_count_ge "${LAST_RUN_DIR}/viz/particle_stress" "*.vtp" 1 "stress particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 96" "stress particle count in runtime summary"
 
@@ -1420,7 +1434,8 @@ run_stress_smoke() {
     "${restart_case}/Imp-MG-Standard.yml" \
     "${restart_case}/Standard_Output.yml" \
     "${restart_case}/standard_analysis.yml" \
-    "restart_chain_mid"
+    "restart_chain_mid" \
+    "${restart_base_run}"
   local restart_mid_run="${LAST_RUN_DIR}"
   prepare_flat_restart_equivalence_case "${restart_case}" 4 2 "solve" "${restart_mid_run}" "viz/restart_chain_final" 4 6
   run_case_workflow \
@@ -1429,7 +1444,8 @@ run_stress_smoke() {
     "${restart_case}/Imp-MG-Standard.yml" \
     "${restart_case}/Standard_Output.yml" \
     "${restart_case}/standard_analysis.yml" \
-    "restart_chain_final"
+    "restart_chain_final" \
+    "${restart_mid_run}"
   require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "restart-chain continuity metrics log"
 
   "${picurv_exe}" init flat_channel --dest "${parabolic_case}" >/dev/null

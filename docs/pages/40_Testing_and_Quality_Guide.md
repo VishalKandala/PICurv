@@ -258,7 +258,7 @@ The current smoke runner verifies:
 - `bin/picurv init` creates a self-contained case with copied binaries + origin metadata
 - template matrix init/validate/dry-run checks across `flat_channel`, `bent_channel`, and `brownian_motion`
 - `picurv run --dry-run --format json` emits a valid solve/post execution plan
-- restart dry-run planning resolves `run_control.restart_from_run_dir` into the expected restart source directory
+- restart dry-run planning resolves `--restart-from` into the expected restart source directory
 - tiny end-to-end solve + post run (flat channel)
 - tiny end-to-end solve + post run (bent channel)
 - tiny end-to-end particle solve + post run (flat channel, default Trilinear interpolation)

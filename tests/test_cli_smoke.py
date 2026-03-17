@@ -724,11 +724,11 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
     run_dir = tmp_path / "existing_run"
     config_dir = run_dir / "config"
     logs_dir = run_dir / "logs"
-    results_dir = run_dir / "results"
+    output_dir = run_dir / "output"
     config_dir.mkdir(parents=True)
     logs_dir.mkdir()
-    results_dir.mkdir()
-    (results_dir / "dummy.dat").write_text("0\n", encoding="utf-8")
+    output_dir.mkdir()
+    (output_dir / "dummy.dat").write_text("0\n", encoding="utf-8")
 
     shutil.copy2(valid / "case.yml", config_dir / "case.yml")
     shutil.copy2(valid / "monitor.yml", config_dir / "monitor.yml")
@@ -1072,7 +1072,7 @@ def test_summarize_no_snapshot_reports_snapshot_unavailable(tmp_path):
 
 def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):
     """!
-    @brief Test that dry run restart from missing run dir fails.
+    @brief Test that --restart-from with a nonexistent directory fails.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -1081,7 +1081,6 @@ def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
     solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
     case_cfg["run_control"]["start_step"] = 3
-    case_cfg["run_control"]["restart_from_run_dir"] = "does_not_exist"
     solver_cfg.setdefault("operation_mode", {})
     solver_cfg["operation_mode"]["eulerian_field_source"] = "load"
 
@@ -1094,24 +1093,21 @@ def test_dry_run_restart_from_missing_run_dir_fails(tmp_path):
         [
             "run",
             "--solve",
-            "--post-process",
+            "--restart-from",
+            str(tmp_path / "does_not_exist"),
             "--case",
             str(case_path),
             "--solver",
             str(solver_path),
             "--monitor",
             str(valid / "monitor.yml"),
-            "--post",
-            str(valid / "post.yml"),
             "--dry-run",
-            "--format",
-            "json",
         ],
         cwd=tmp_path,
     )
 
     assert result.returncode == 1
-    assert "restart_from_run_dir does not exist" in result.stderr
+    assert "does not exist" in result.stderr
 
 
 def test_post_process_run_dir_missing_config_inputs_fails(tmp_path):
@@ -1866,9 +1862,9 @@ def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
     assert "-profile_config_file" in content
 
 
-def test_restart_from_run_dir_resolves_previous_restart_directory(tmp_path):
+def test_restart_from_copies_checkpoint_and_sets_restart_dir(tmp_path):
     """!
-    @brief Test that restart from run dir resolves previous restart directory.
+    @brief Test that --restart-from copies checkpoint files and sets -restart_dir in control file.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -1877,43 +1873,58 @@ def test_restart_from_run_dir_resolves_previous_restart_directory(tmp_path):
     solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
     monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
 
-    previous_run_dir = tmp_path / "old_run"
-    (previous_run_dir / "config").mkdir(parents=True)
-    (previous_run_dir / "prior_results").mkdir()
+    # Create a fake source run directory with checkpoint files at step 5
+    source_run_dir = tmp_path / "old_run"
+    (source_run_dir / "config").mkdir(parents=True)
+    source_output = source_run_dir / "output" / "eulerian"
+    source_output.mkdir(parents=True)
+    source_particles = source_run_dir / "output" / "particles"
+    source_particles.mkdir(parents=True)
 
-    previous_monitor_cfg = {
+    # Create fake checkpoint files for step 5
+    (source_output / "ufield00005_0.dat").write_text("euler_data")
+    (source_output / "vfield00005_0.dat").write_text("euler_data")
+    (source_particles / "pfield00005_0.dat").write_text("particle_data")
+
+    source_monitor_cfg = {
         "io": {
             "directories": {
-                "restart": "prior_results",
+                "output": "output",
+                "restart": "restart",
             }
         }
     }
-    picurv.write_yaml_file(str(previous_run_dir / "config" / "monitor.yml"), previous_monitor_cfg)
+    picurv.write_yaml_file(str(source_run_dir / "config" / "monitor.yml"), source_monitor_cfg)
 
     case_cfg["run_control"]["start_step"] = 5
-    case_cfg["run_control"]["restart_from_run_dir"] = "old_run"
     case_path = tmp_path / "case_restart.yml"
     picurv.write_yaml_file(str(case_path), case_cfg)
 
-    resolved = picurv.resolve_restart_source_from_run_dir(
-        case_cfg,
-        solver_cfg,
-        monitor_cfg,
-        str(case_path),
-        strict=True,
-    )
-    assert resolved == str(previous_run_dir / "prior_results")
+    # Simulate CLI args
+    args = SimpleNamespace(restart_from=str(source_run_dir), continue_run=False, run_dir=None)
+    new_run_dir = tmp_path / "new_run"
+    new_run_dir.mkdir()
 
-    run_dir = tmp_path / "new_run"
-    (run_dir / "config").mkdir(parents=True)
+    resolved, is_continue = picurv.resolve_restart_source(
+        args, case_cfg, solver_cfg, monitor_cfg, str(new_run_dir)
+    )
+
+    assert not is_continue
+    assert resolved is not None
+    # Verify files were copied to new_run/restart/
+    assert (Path(resolved) / "eulerian" / "ufield00005_0.dat").exists()
+    assert (Path(resolved) / "particles" / "pfield00005_0.dat").exists()
+
+    # Verify control file uses the resolved path
+    (new_run_dir / "config").mkdir(parents=True)
     source_files = {
         "Case": str(case_path),
         "Solver": str(valid / "solver.yml"),
         "Monitor": str(valid / "monitor.yml"),
     }
-    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    monitor_files = picurv.prepare_monitor_files(str(new_run_dir), "demo_run", monitor_cfg, source_files)
     control_file = picurv.generate_solver_control_file(
-        str(run_dir),
+        str(new_run_dir),
         "demo_run",
         {
             "case": case_cfg,
@@ -1930,6 +1941,287 @@ def test_restart_from_run_dir_resolves_previous_restart_directory(tmp_path):
 
     content = Path(control_file).read_text(encoding="utf-8")
     assert f"-restart_dir {resolved}" in content
+
+
+def test_restart_from_load_mode_uses_direct_reference(tmp_path):
+    """!
+    @brief Test that --restart-from with eulerian "load" mode uses direct reference (no copy).
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    # Setup source run with all step files for "load" mode
+    source_run_dir = tmp_path / "flow_run"
+    (source_run_dir / "config").mkdir(parents=True)
+    source_output = source_run_dir / "output" / "eulerian"
+    source_output.mkdir(parents=True)
+
+    case_cfg["run_control"]["start_step"] = 0
+    case_cfg["run_control"]["total_steps"] = 3
+    solver_cfg.setdefault("operation_mode", {})
+    solver_cfg["operation_mode"]["eulerian_field_source"] = "load"
+
+    # Create step files 0-3
+    for step in range(4):
+        (source_output / f"ufield{step:05d}_0.dat").write_text("data")
+
+    source_monitor_cfg = {"io": {"directories": {"output": "output"}}}
+    picurv.write_yaml_file(str(source_run_dir / "config" / "monitor.yml"), source_monitor_cfg)
+
+    args = SimpleNamespace(restart_from=str(source_run_dir), continue_run=False, run_dir=None)
+    new_run_dir = tmp_path / "new_run"
+    new_run_dir.mkdir()
+
+    resolved, is_continue = picurv.resolve_restart_source(
+        args, case_cfg, solver_cfg, monitor_cfg, str(new_run_dir)
+    )
+
+    assert not is_continue
+    # Direct reference: points to source output, not a copy
+    assert resolved == str(source_run_dir / "output")
+
+
+def test_restart_from_load_mode_missing_step_files_fails(tmp_path):
+    """!
+    @brief Test that load mode with missing step files raises error.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    source_run_dir = tmp_path / "flow_run"
+    (source_run_dir / "config").mkdir(parents=True)
+    source_output = source_run_dir / "output" / "eulerian"
+    source_output.mkdir(parents=True)
+
+    case_cfg["run_control"]["start_step"] = 0
+    case_cfg["run_control"]["total_steps"] = 5
+    solver_cfg.setdefault("operation_mode", {})
+    solver_cfg["operation_mode"]["eulerian_field_source"] = "load"
+
+    # Only create steps 0 and 1, missing 2-5
+    (source_output / "ufield00000_0.dat").write_text("data")
+    (source_output / "ufield00001_0.dat").write_text("data")
+
+    source_monitor_cfg = {"io": {"directories": {"output": "output"}}}
+    picurv.write_yaml_file(str(source_run_dir / "config" / "monitor.yml"), source_monitor_cfg)
+
+    args = SimpleNamespace(restart_from=str(source_run_dir), continue_run=False, run_dir=None)
+
+    with pytest.raises(ValueError, match="step file.*missing"):
+        picurv.resolve_restart_source(
+            args, case_cfg, solver_cfg, monitor_cfg, str(tmp_path / "new_run")
+        )
+
+
+def test_continue_mode_auto_populates_restart(tmp_path):
+    """!
+    @brief Test that --continue auto-populates restart/ from output/ when restart/ is empty.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    run_dir = tmp_path / "my_run"
+    output_dir = run_dir / "output" / "eulerian"
+    output_dir.mkdir(parents=True)
+    (run_dir / "output" / "particles").mkdir()
+
+    case_cfg["run_control"]["start_step"] = 10
+
+    # Create checkpoint at step 10
+    (output_dir / "ufield00010_0.dat").write_text("euler")
+    (run_dir / "output" / "particles" / "pfield00010_0.dat").write_text("particle")
+
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
+
+    resolved, is_continue = picurv.resolve_restart_source(
+        args, case_cfg, solver_cfg, monitor_cfg, str(run_dir)
+    )
+
+    assert is_continue
+    assert resolved is not None
+    # Auto-populated restart/ should contain the checkpoint files
+    assert (Path(resolved) / "eulerian" / "ufield00010_0.dat").exists()
+
+
+def test_continue_mode_prefers_curated_restart(tmp_path):
+    """!
+    @brief Test that --continue uses curated restart/ over output/ (warm-up-and-discard).
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    run_dir = tmp_path / "my_run"
+
+    # Both output/ and restart/ exist, restart/ has curated files
+    (run_dir / "output" / "eulerian").mkdir(parents=True)
+    (run_dir / "output" / "eulerian" / "ufield00010_0.dat").write_text("output_version")
+    (run_dir / "restart" / "eulerian").mkdir(parents=True)
+    (run_dir / "restart" / "eulerian" / "ufield00010_0.dat").write_text("curated_version")
+
+    case_cfg["run_control"]["start_step"] = 10
+
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
+
+    resolved, is_continue = picurv.resolve_restart_source(
+        args, case_cfg, solver_cfg, monitor_cfg, str(run_dir)
+    )
+
+    assert is_continue
+    # Should use restart/ (curated) not output/
+    assert resolved == str(run_dir / "restart")
+
+
+def test_continue_mode_sets_continue_mode_flag(tmp_path):
+    """!
+    @brief Test that --continue produces -continue_mode true in control file.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    run_dir = tmp_path / "my_run"
+    (run_dir / "config").mkdir(parents=True)
+
+    source_files = {
+        "Case": str(valid / "case.yml"),
+        "Solver": str(valid / "solver.yml"),
+        "Monitor": str(valid / "monitor.yml"),
+    }
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo_run",
+        {
+            "case": case_cfg,
+            "case_path": str(valid / "case.yml"),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        1,
+        monitor_files,
+        continue_mode=True,
+    )
+
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert "-continue_mode true" in content
+
+
+def test_restart_from_and_continue_mutually_exclusive(tmp_path):
+    """!
+    @brief Test that --restart-from and --continue together raise an error.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    case_cfg["run_control"]["start_step"] = 5
+
+    args = SimpleNamespace(restart_from="/some/dir", continue_run=True, run_dir="/some/dir")
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        picurv.resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, str(tmp_path))
+
+
+def test_continue_without_run_dir_fails(tmp_path):
+    """!
+    @brief Test that --continue without --run-dir raises an error.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    case_cfg["run_control"]["start_step"] = 5
+
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=None)
+
+    with pytest.raises(ValueError, match="--continue requires --run-dir"):
+        picurv.resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, str(tmp_path))
+
+
+def test_needs_restart_source_analytical_init_no_source(tmp_path):
+    """!
+    @brief Test that analytical + init + start_step > 0 does not need restart source (F3).
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+
+    case_cfg["run_control"]["start_step"] = 10
+    solver_cfg.setdefault("operation_mode", {})
+    solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
+    # Ensure particle restart mode is init (not load)
+    case_cfg.setdefault("models", {}).setdefault("physics", {}).setdefault("particles", {})
+    case_cfg["models"]["physics"]["particles"]["restart_mode"] = "init"
+
+    assert not picurv.needs_restart_source(case_cfg, solver_cfg)
+
+
+def test_needs_restart_source_required_when_load_mode():
+    """!
+    @brief Test that needs_restart_source is True when eulerian is "load".
+    """
+    picurv = load_picurv_module()
+    case_cfg = {"run_control": {"start_step": 0}}
+    solver_cfg = {"operation_mode": {"eulerian_field_source": "load"}}
+    assert picurv.needs_restart_source(case_cfg, solver_cfg)
+
+
+def test_needs_restart_source_no_flags_start_step_zero():
+    """!
+    @brief Test that needs_restart_source is False for standard fresh run.
+    """
+    picurv = load_picurv_module()
+    case_cfg = {"run_control": {"start_step": 0}}
+    solver_cfg = {"operation_mode": {"eulerian_field_source": "solve"}}
+    assert not picurv.needs_restart_source(case_cfg, solver_cfg)
+
+
+def test_no_restart_flags_with_restart_needed_fails(tmp_path):
+    """!
+    @brief Test that start_step > 0 without --restart-from or --continue raises error (F5).
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    case_cfg["run_control"]["start_step"] = 5
+
+    args = SimpleNamespace(restart_from=None, continue_run=False, run_dir=None)
+
+    with pytest.raises(ValueError, match="Restart data required"):
+        picurv.resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, str(tmp_path))
 
 
 def test_dry_run_local_solver_vs_post_proc_counts():
