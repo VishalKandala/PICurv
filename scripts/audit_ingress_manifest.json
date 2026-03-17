@@ -22,6 +22,7 @@
     "-cgrids",
     "-clark",
     "-const_cs",
+    "-continue_mode",
     "-control_file",
     "-cop",
     "-cstart",
