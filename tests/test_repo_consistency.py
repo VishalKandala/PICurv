@@ -35,6 +35,12 @@ EXAMPLE_BUNDLES = [
         "post": "examples/brownian_motion/brownian_analysis.yml",
     },
     {
+        "case": "examples/interpolation_test/interpolation_test.yml",
+        "solver": "examples/interpolation_test/Analytical-TGV.yml",
+        "monitor": "examples/interpolation_test/Standard_Output.yml",
+        "post": "examples/interpolation_test/interpolation_analysis.yml",
+    },
+    {
         "case": "examples/master_template/master_case.yml",
         "solver": "examples/master_template/master_solver.yml",
         "monitor": "examples/master_template/master_monitor.yml",
@@ -50,6 +56,10 @@ STUDY_BUNDLES = [
     {
         "cluster": "examples/bent_channel/slurm_cluster.yml",
         "study": "examples/bent_channel/timestep_sensitivity_study.yml",
+    },
+    {
+        "cluster": "examples/bent_channel/slurm_cluster.yml",
+        "study": "examples/interpolation_test/particle_count_study.yml",
     },
     {
         "cluster": "examples/master_template/master_cluster.yml",

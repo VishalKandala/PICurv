@@ -63,6 +63,136 @@ Output files:
 
 ---
 
+## Particle Count Study
+
+This example also supports a particle-count sensitivity study where only
+`models.physics.particles.count` changes while the grid, timestep, analytical
+field, and interpolation method remain fixed.
+
+Recommended counts:
+
+- 50,000
+- 500,000
+- 5,000,000
+
+### Option A: Local Parameter Study
+
+For a workstation or quick debugging workflow, repeat the same run with
+different case variants. Keep:
+
+- `Analytical-TGV.yml`
+- `Standard_Output.yml`
+- `interpolation_analysis.yml`
+
+unchanged, and change only `models.physics.particles.count` in copied case
+files such as:
+
+- `interpolation_test_np_50000.yml`
+- `interpolation_test_np_500000.yml`
+- `interpolation_test_np_5000000.yml`
+
+Example local command:
+
+```bash
+./bin/picurv run --solve --post-process -n 4 \
+  --case  examples/interpolation_test/interpolation_test_np_50000.yml \
+  --solver examples/interpolation_test/Analytical-TGV.yml \
+  --monitor examples/interpolation_test/Standard_Output.yml \
+  --post examples/interpolation_test/interpolation_analysis.yml
+```
+
+After each run, compare:
+
+- `<run_dir>/logs/interpolation_error.csv`
+- max `L2_u`, `L2_v`, `Linf_u`, `Linf_v`
+- optional wall-clock/runtime usage from solver logs or scheduler accounting
+
+Use this path when you want a quick manual comparison without Slurm study
+artifacts.
+
+### Option B: Job-Based Study with `picurv sweep`
+
+For a cluster or any workflow where you want generated study artifacts and one
+aggregate comparison table, use the provided:
+
+- `particle_count_study.yml`
+
+This study uses explicit CSV metrics from `logs/interpolation_error.csv` rather
+than the default `msd_final` shorthand.
+
+Stage the study without submitting jobs:
+
+```bash
+./bin/picurv sweep \
+  --study examples/interpolation_test/particle_count_study.yml \
+  --cluster config/schedulers/slurm_default.yml \
+  --no-submit
+```
+
+Submit immediately:
+
+```bash
+./bin/picurv sweep \
+  --study examples/interpolation_test/particle_count_study.yml \
+  --cluster config/schedulers/slurm_default.yml
+```
+
+What to inspect before submission:
+
+- `studies/<study_id>/cases/case_####/` contains one generated case per count
+- each generated `interpolation_test.yml` has the intended
+  `models.physics.particles.count`
+- generated scheduler scripts under `studies/<study_id>/scheduler/`
+
+What to inspect after completion:
+
+- `studies/<study_id>/results/metrics_table.csv`
+- per-case `logs/interpolation_error.csv`
+- scheduler stdout/stderr files for any failed array task
+
+Use this path when you want a reproducible study directory and cluster-managed
+execution.
+
+### Cluster Workflow Checklist
+
+1. Push the repo changes from your workstation and pull them on the cluster.
+2. Build or confirm `./bin/picurv`, `bin/simulator`, and `bin/postprocessor`.
+3. Copy the interpolation example into a working case directory on the cluster.
+4. Copy `particle_count_study.yml` into that directory.
+5. Adjust `base_configs` paths in the study file if you changed the directory
+   layout.
+6. Create or edit a Slurm profile based on `config/schedulers/slurm_default.yml`
+   with your account, partition, memory, walltime, and launcher settings.
+7. Validate the base case files:
+
+```bash
+./bin/picurv validate \
+  --case interpolation_test.yml \
+  --solver Analytical-TGV.yml \
+  --monitor Standard_Output.yml \
+  --post interpolation_analysis.yml
+```
+
+8. Stage first with `--no-submit` and inspect generated study cases.
+9. Submit the study after confirming the three particle counts are correct.
+10. Review `results/metrics_table.csv` when all array tasks finish.
+
+Operational note:
+
+- The 5,000,000-particle case can require much more memory and runtime than the
+  50k and 500k cases.
+- Size `cluster.yml` for the most expensive case because the same scheduler
+  profile is reused for every job in the study.
+- Start with a conservative `execution.max_concurrent_array_tasks` setting.
+
+### Which Workflow Should I Use?
+
+- Use the local path for quick debugging and metric sanity checks.
+- Use the job-based path for production studies, scheduler arrays, and
+  `metrics_table.csv` aggregation.
+
+---
+
 ## Verification Procedure
 
 ### Step 1: Load interpolation error output
@@ -166,4 +296,5 @@ This example is intentionally modular:
 ## Live Docs
 
 - https://vishalkandala.me/picurv-docs/32_Analytical_Solutions.html
+- https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
 - https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html

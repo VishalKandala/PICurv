@@ -9,6 +9,13 @@ This directory stores reusable `study.yml` definitions for `picurv sweep` workfl
 - optional plotting directives,
 - execution controls for scheduler array behavior.
 
+Parameter keys may target nested config values such as
+`case.models.physics.particles.count`.
+
+Use explicit metric specs whenever the study signal comes from a non-default
+CSV or log artifact. For example, interpolation studies can aggregate values
+from `logs/interpolation_error.csv` instead of using `msd_final`.
+
 ## How To Use
 
 ```bash
@@ -23,6 +30,10 @@ This directory stores reusable `study.yml` definitions for `picurv sweep` workfl
 2. Keep study parameters physically meaningful and isolated where possible.
 3. Start with a small sweep subset to verify orchestration and metric extraction.
 4. Scale up parameter space only after logs/results schema look correct.
+
+If you are not using a scheduler, emulate a study locally by repeating
+`picurv run` with a few controlled config variants instead of using
+`picurv sweep`.
 
 ## Reference Files
 
