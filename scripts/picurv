@@ -1474,20 +1474,53 @@ def populate_restart_directory(source_output: str, target_restart: str, start_st
     print(f"[INFO] Populated restart directory with {len(copied)} file(s) for step {start_step}: {target_restart}")
 
 
-def detect_last_checkpoint_step(output_dir: str, euler_subdir: str = "eulerian"):
+def detect_last_checkpoint_step(output_dir: str, euler_subdir: str = "eulerian", particle_subdir: str = "particles"):
     """!
     @brief Scan output directory for the highest step number available.
+    @details Checks eulerian files first (ufield), then falls back to particle
+             files (position) for analytical-mode cases that have no eulerian output.
     @param[in] output_dir Path to the output directory.
     @param[in] euler_subdir Name of the eulerian subdirectory.
+    @param[in] particle_subdir Name of the particle subdirectory.
     @return The highest step number found, or None if no checkpoints exist.
     """
     import re as _re
     euler_path = os.path.join(output_dir, euler_subdir)
-    if not os.path.isdir(euler_path):
-        return None
-    pattern = _re.compile(r"ufield(\d{5})_0\.dat")
-    steps = [int(m.group(1)) for fname in os.listdir(euler_path) if (m := pattern.match(fname))]
-    return max(steps) if steps else None
+    if os.path.isdir(euler_path):
+        pattern = _re.compile(r"ufield(\d{5})_0\.dat")
+        steps = [int(m.group(1)) for fname in os.listdir(euler_path) if (m := pattern.match(fname))]
+        if steps:
+            return max(steps)
+    particle_path = os.path.join(output_dir, particle_subdir)
+    if os.path.isdir(particle_path):
+        pattern = _re.compile(r"position(\d{5})_0\.dat")
+        steps = [int(m.group(1)) for fname in os.listdir(particle_path) if (m := pattern.match(fname))]
+        if steps:
+            return max(steps)
+    return None
+
+
+def detect_case_completion_status(run_dir: str, monitor_cfg: dict, target_final_step: int) -> dict:
+    """!
+    @brief Determine whether a study case is complete, partially complete, or empty.
+    @param[in] run_dir Path to the case run directory.
+    @param[in] monitor_cfg Parsed monitor YAML dictionary.
+    @param[in] target_final_step The step number the case should reach for completion.
+    @return Dictionary with keys 'last_step' (int or None), 'target_step' (int),
+            and 'status' ('complete', 'partial', or 'empty').
+    """
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    euler_sub = dirs.get("eulerian_subdir", "eulerian")
+    particle_sub = dirs.get("particle_subdir", "particles")
+    output_dir = resolve_run_output_dir(run_dir, monitor_cfg)
+    last_step = detect_last_checkpoint_step(output_dir, euler_sub, particle_sub)
+    if last_step is not None and last_step >= target_final_step:
+        status = "complete"
+    elif last_step is not None:
+        status = "partial"
+    else:
+        status = "empty"
+    return {"last_step": last_step, "target_step": target_final_step, "status": status}
 
 
 def validate_load_mode_step_range(source_output: str, start_step: int, total_steps: int, monitor_cfg: dict):
@@ -1745,6 +1778,71 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
                 val = gen.get(key)
                 if isinstance(val, str):
                     gen[key] = resolve_path(case_anchor_path, val)
+
+
+def prepare_case_for_continuation(run_dir: str, case_id: str, last_step: int,
+                                   target_final_step: int, cluster_cfg: dict):
+    """!
+    @brief Set up a partially-completed study case for continuation in-place.
+    @details Updates the case config with new start_step/total_steps, sets particle
+             restart_mode to 'load' if checkpoint exists, populates the restart
+             directory, and regenerates the solver control file with continue_mode.
+             Delegates all restart resolution to resolve_restart_source().
+    @param[in] run_dir Path to the case run directory.
+    @param[in] case_id The case identifier (e.g. 'case_0002').
+    @param[in] last_step The last checkpoint step found in the output directory.
+    @param[in] target_final_step The step number the case should reach for completion.
+    @param[in] cluster_cfg Parsed cluster YAML dictionary (for num_procs, walltime guard).
+    @return The absolute path to the regenerated control file.
+    """
+    config_dir = os.path.join(run_dir, "config")
+    case_cfg = read_yaml_file(os.path.join(config_dir, "case.yml"))
+    solver_cfg = read_yaml_file(os.path.join(config_dir, "solver.yml"))
+    monitor_cfg = read_yaml_file(os.path.join(config_dir, "monitor.yml"))
+
+    remaining = target_final_step - last_step
+    case_cfg["run_control"]["start_step"] = last_step
+    case_cfg["run_control"]["total_steps"] = remaining
+    print(f"[INFO] {case_id}: updating start_step={last_step}, total_steps={remaining}")
+
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    particle_sub = dirs.get("particle_subdir", "particles")
+    output_dir = resolve_run_output_dir(run_dir, monitor_cfg)
+    particle_ckpt = os.path.join(output_dir, particle_sub, f"position{last_step:05d}_0.dat")
+    particles_cfg = (case_cfg.get("models", {}).get("physics", {}) or {}).get("particles")
+    if particles_cfg is not None and os.path.isfile(particle_ckpt):
+        current_mode = str(particles_cfg.get("restart_mode", "init")).strip().lower()
+        if current_mode != "load":
+            particles_cfg["restart_mode"] = "load"
+            print(f"[INFO] {case_id}: setting particle restart_mode='load' (checkpoint found)")
+
+    write_yaml_file(os.path.join(config_dir, "case.yml"), case_cfg)
+
+    mock_args = argparse.Namespace(restart_from=None, continue_run=True, run_dir=run_dir)
+    restart_source_dir, continue_mode = resolve_restart_source(
+        mock_args, case_cfg, solver_cfg, monitor_cfg, run_dir
+    )
+
+    source_files = {
+        'Case': os.path.join(config_dir, "case.yml"),
+        'Solver': os.path.join(config_dir, "solver.yml"),
+        'Monitor': os.path.join(config_dir, "monitor.yml"),
+    }
+    monitor_files = prepare_monitor_files(run_dir, case_id, monitor_cfg, source_files)
+    cluster_tasks = get_cluster_total_tasks(cluster_cfg)
+    configs = {
+        "case": case_cfg, "case_path": source_files['Case'],
+        "solver": solver_cfg, "solver_path": source_files['Solver'],
+        "monitor": monitor_cfg, "monitor_path": source_files['Monitor'],
+        "walltime_guard_policy": resolve_walltime_guard_policy(cluster_cfg),
+    }
+    control_file = generate_solver_control_file(
+        run_dir, case_id, configs, cluster_tasks, monitor_files,
+        restart_source_dir=restart_source_dir, continue_mode=continue_mode,
+    )
+    print(f"[SUCCESS] {case_id}: regenerated control file for continuation")
+    return control_file
+
 
 def is_valid_email(email: str) -> bool:
     """!
@@ -3508,16 +3606,17 @@ def parse_slurm_job_id(sbatch_output: str) -> str:
     match = re.search(r"Submitted batch job\s+(\d+)", sbatch_output or "")
     return match.group(1) if match else None
 
-def submit_sbatch(script_path: str, dependency: str = None) -> dict:
+def submit_sbatch(script_path: str, dependency: str = None, dependency_type: str = "afterok") -> dict:
     """!
     @brief Submit sbatch script and return submission metadata.
     @param[in] script_path Argument passed to `submit_sbatch()`.
     @param[in] dependency Argument passed to `submit_sbatch()`.
+    @param[in] dependency_type Slurm dependency type (default: afterok). Common values: afterok, afterany.
     @return Value returned by `submit_sbatch()`.
     """
     cmd = ["sbatch"]
     if dependency:
-        cmd.append(f"--dependency=afterok:{dependency}")
+        cmd.append(f"--dependency={dependency_type}:{dependency}")
     cmd.append(script_path)
     result = subprocess.run(cmd, text=True, capture_output=True, check=False)
     metadata = {
@@ -4849,6 +4948,69 @@ def render_slurm_array_stage_script(
         f.write("\n".join(lines) + "\n")
     os.chmod(script_path, 0o755)
 
+
+def render_metrics_aggregate_script(
+    script_path: str,
+    job_name: str,
+    cluster_cfg: dict,
+    study_dir: str,
+    picurv_path: str,
+):
+    """!
+    @brief Generate a single-node sbatch script that runs metrics aggregation.
+    @param[in] script_path Path to write the sbatch script.
+    @param[in] job_name Slurm job name.
+    @param[in] cluster_cfg Parsed cluster YAML dictionary.
+    @param[in] study_dir Absolute path to the study directory.
+    @param[in] picurv_path Absolute path to the picurv script.
+    """
+    resources = cluster_cfg.get("resources", {})
+    notifications = cluster_cfg.get("notifications", {}) or {}
+    execution = cluster_cfg.get("execution", {}) or {}
+    module_setup = execution.get("module_setup", []) or []
+
+    scheduler_dir = os.path.join(study_dir, "scheduler")
+    lines = [
+        "#!/bin/bash",
+        f"#SBATCH --job-name={job_name}",
+        "#SBATCH --nodes=1",
+        "#SBATCH --ntasks-per-node=1",
+        "#SBATCH --mem=4G",
+        "#SBATCH --time=00:10:00",
+        f"#SBATCH --output={os.path.join(scheduler_dir, 'metrics_%j.out')}",
+        f"#SBATCH --error={os.path.join(scheduler_dir, 'metrics_%j.err')}",
+        f"#SBATCH --account={resources['account']}",
+    ]
+    partition = resources.get("partition")
+    if partition:
+        lines.append(f"#SBATCH --partition={partition}")
+    mail_user = notifications.get("mail_user")
+    mail_type = notifications.get("mail_type")
+    if mail_user:
+        lines.append(f"#SBATCH --mail-user={mail_user}")
+    if mail_type:
+        lines.append(f"#SBATCH --mail-type={mail_type}")
+
+    lines.extend([
+        "",
+        "set -euo pipefail",
+        'echo "[$(date)] Running metrics aggregation"',
+        "",
+    ])
+    for setup_line in module_setup:
+        lines.append(str(setup_line))
+
+    lines.append(
+        f"exec {shlex.quote(picurv_path)} sweep --reaggregate"
+        f" --study-dir {shlex.quote(study_dir)}"
+    )
+
+    os.makedirs(os.path.dirname(script_path), exist_ok=True)
+    with open(script_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(script_path, 0o755)
+
+
 def extract_metric_from_csv(case_dir: str, spec: dict):
     """!
     @brief Extract a scalar metric from a CSV source.
@@ -6006,6 +6168,33 @@ def run_workflow(args):
             print(f"  Submission meta: {os.path.relpath(submission_file)}")
         print("=" * 60)
 
+
+def parse_case_index_tsv(tsv_path: str) -> list:
+    """!
+    @brief Parse a case_index.tsv file back into a list of case entry dicts.
+    @param[in] tsv_path Path to the case_index.tsv file.
+    @return List of dicts with keys: index, case_id, run_dir, control_file,
+            post_recipe_file, log_level, post_prefix.
+    """
+    entries = []
+    with open(tsv_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t")
+            entries.append({
+                "index": int(parts[0]),
+                "case_id": parts[1],
+                "run_dir": parts[2],
+                "control_file": parts[3],
+                "post_recipe_file": parts[4],
+                "log_level": parts[5],
+                "post_prefix": parts[6],
+            })
+    return entries
+
+
 def sweep_workflow(args):
     """!
     @brief Study/sweep orchestration using Slurm job arrays.
@@ -6166,11 +6355,23 @@ def sweep_workflow(args):
     )
     print(f"[SUCCESS] Generated Slurm array scripts in {os.path.relpath(scheduler_dir)}")
 
+    picurv_path = os.path.abspath(os.path.join(INVOKED_SCRIPT_DIR, "picurv"))
+    metrics_aggregate_script = os.path.join(scheduler_dir, "metrics_aggregate.sbatch")
+    render_metrics_aggregate_script(
+        metrics_aggregate_script,
+        f"{study_id}_metrics",
+        cluster_cfg,
+        study_dir,
+        picurv_path,
+    )
+    print(f"[SUCCESS] Generated metrics aggregation script: {os.path.relpath(metrics_aggregate_script)}")
+
     submission = {
         "launch_mode": "slurm",
         "study_id": study_id,
         "solver_array": {"script": solver_array_script, "submitted": False},
         "post_array": {"script": post_array_script, "submitted": False},
+        "metrics_aggregate": {"script": metrics_aggregate_script, "submitted": False},
         "no_submit": bool(args.no_submit),
     }
     if not args.no_submit:
@@ -6181,8 +6382,13 @@ def sweep_workflow(args):
         submission["post_array"].update(post_submit)
         submission["post_array"]["submitted"] = True
         submission["post_array"]["dependency"] = f"afterok:{solver_submit['job_id']}"
-        print(f"[SUCCESS] Submitted solver array job: {solver_submit['job_id']}")
-        print(f"[SUCCESS] Submitted post array job:   {post_submit['job_id']}")
+        metrics_submit = submit_sbatch(metrics_aggregate_script, dependency=post_submit["job_id"], dependency_type="afterany")
+        submission["metrics_aggregate"].update(metrics_submit)
+        submission["metrics_aggregate"]["submitted"] = True
+        submission["metrics_aggregate"]["dependency"] = f"afterany:{post_submit['job_id']}"
+        print(f"[SUCCESS] Submitted solver array job:  {solver_submit['job_id']}")
+        print(f"[SUCCESS] Submitted post array job:    {post_submit['job_id']}")
+        print(f"[SUCCESS] Submitted metrics agg. job:  {metrics_submit['job_id']}")
 
     metrics_csv = aggregate_study_metrics(study_cfg, case_entries, results_dir)
     plots = generate_study_plots(study_cfg, metrics_csv, os.path.join(results_dir, "plots"))
@@ -6220,6 +6426,277 @@ def sweep_workflow(args):
         print(f"  Metrics table   : {os.path.relpath(metrics_csv)}")
     if plots:
         print(f"  Plots           : {os.path.relpath(os.path.join(results_dir, 'plots'))}")
+    print("=" * 60)
+
+
+def sweep_continue_workflow(args):
+    """!
+    @brief Continue a partially-completed Slurm parameter sweep study.
+    @details Detects incomplete cases, prepares them for continuation (updating
+             start_step, populating restart directories, regenerating control files),
+             and submits new solver/post/metrics Slurm jobs. If all cases are already
+             complete, performs metrics aggregation automatically.
+    @param[in] args Parsed CLI arguments with study_dir and optional cluster override.
+    """
+    study_dir = os.path.abspath(args.study_dir)
+    manifest_path = os.path.join(study_dir, "study_manifest.json")
+    if not os.path.isfile(manifest_path):
+        print(f"[FATAL] Study manifest not found: {manifest_path}", file=sys.stderr)
+        sys.exit(1)
+    manifest = _read_json_if_exists(manifest_path)
+    study_id = manifest["study_id"]
+
+    study_path = os.path.join(study_dir, "study.yml")
+    cluster_path = os.path.abspath(args.cluster) if args.cluster else os.path.join(study_dir, "cluster.yml")
+    study_cfg = read_yaml_file(study_path)
+    cluster_cfg = read_yaml_file(cluster_path)
+    validate_study_config(study_cfg, study_path)
+    validate_cluster_config(cluster_cfg, cluster_path)
+
+    if args.cluster:
+        shutil.copy(os.path.abspath(args.cluster), os.path.join(study_dir, "cluster.yml"))
+        print(f"[INFO] Updated study cluster config from: {os.path.relpath(args.cluster)}")
+
+    scheduler_dir = os.path.join(study_dir, "scheduler")
+    cases_dir = os.path.join(study_dir, "cases")
+    results_dir = os.path.join(study_dir, "results")
+    case_index_file = os.path.join(scheduler_dir, "case_index.tsv")
+    if not os.path.isfile(case_index_file):
+        print(f"[FATAL] Case index not found: {case_index_file}", file=sys.stderr)
+        sys.exit(1)
+
+    parsed_entries = parse_case_index_tsv(case_index_file)
+
+    base_cfgs = study_cfg["base_configs"]
+    base_paths = {k: resolve_path(study_path, v) for k, v in base_cfgs.items()}
+    base_case = read_yaml_file(base_paths["case"])
+
+    combinations = expand_parameter_matrix(study_cfg["parameters"])
+    if len(combinations) != len(parsed_entries):
+        print(
+            f"[FATAL] Parameter matrix ({len(combinations)} cases) does not match "
+            f"case_index.tsv ({len(parsed_entries)} entries).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"\n[INFO] Study: {study_id}")
+    print(f"[INFO] Scanning {len(combinations)} case(s) for completion status...")
+
+    incomplete_indices = []
+    all_case_entries = []
+    for idx, combo in enumerate(combinations):
+        case_id = f"case_{idx:04d}"
+        entry = parsed_entries[idx]
+        entry["parameters"] = combo
+        run_dir = entry["run_dir"]
+
+        effective_case = copy.deepcopy(base_case)
+        for full_key, value in combo.items():
+            root, nested = full_key.split(".", 1)
+            if root == "case":
+                _deep_set(effective_case, nested, value)
+        try:
+            eff_start = int(effective_case.get("run_control", {}).get("start_step", 0) or 0)
+        except (TypeError, ValueError):
+            eff_start = 0
+        eff_total = int(effective_case["run_control"]["total_steps"])
+        target = eff_start + eff_total
+
+        monitor_cfg = read_yaml_file(os.path.join(run_dir, "config", "monitor.yml"))
+        status = detect_case_completion_status(run_dir, monitor_cfg, target)
+        entry["_status"] = status
+
+        if status["status"] == "complete":
+            print(f"  {case_id}: complete (step {status['last_step']}/{target})")
+        elif status["status"] == "partial":
+            print(f"  {case_id}: incomplete (step {status['last_step']}/{target}) — will continue")
+            incomplete_indices.append(idx)
+        else:
+            print(f"  {case_id}: no checkpoint — will re-run from scratch")
+            incomplete_indices.append(idx)
+
+        all_case_entries.append(entry)
+
+    if not incomplete_indices:
+        print("\n[INFO] All cases are complete. Running metrics aggregation...")
+        metrics_csv = aggregate_study_metrics(study_cfg, all_case_entries, results_dir)
+        plots = generate_study_plots(study_cfg, metrics_csv, os.path.join(results_dir, "plots"))
+        print("\n" + "=" * 60)
+        print("              STUDY CONTINUATION SUMMARY")
+        print("=" * 60)
+        print(f"  Study ID        : {study_id}")
+        print(f"  Status          : ALL COMPLETE")
+        if metrics_csv:
+            print(f"  Metrics table   : {os.path.relpath(metrics_csv)}")
+        if plots:
+            print(f"  Plots           : {os.path.relpath(os.path.join(results_dir, 'plots'))}")
+        print("=" * 60)
+        return
+
+    print(f"\n[INFO] {len(incomplete_indices)} incomplete case(s) to continue/re-run.")
+
+    skipped = []
+    for idx in incomplete_indices:
+        entry = all_case_entries[idx]
+        status = entry["_status"]
+        if status["status"] == "partial":
+            prepare_case_for_continuation(
+                entry["run_dir"], entry["case_id"],
+                status["last_step"], status["target_step"],
+                cluster_cfg,
+            )
+        elif status["status"] == "empty":
+            print(f"[INFO] {entry['case_id']}: re-running from scratch (no control file changes)")
+
+    solver_array_spec = ",".join(str(i) for i in incomplete_indices)
+    max_conc = study_cfg.get("execution", {}).get("max_concurrent_array_tasks")
+    if max_conc:
+        solver_array_spec = f"{solver_array_spec}%{max_conc}"
+
+    max_idx = len(combinations) - 1
+    post_array_spec = f"0-{max_idx}"
+    if max_conc:
+        post_array_spec = f"{post_array_spec}%{max_conc}"
+
+    solver_exe = resolve_runtime_executable("simulator")
+    post_exe = resolve_runtime_executable("postprocessor")
+
+    solver_continue_script = os.path.join(scheduler_dir, "solver_continue_array.sbatch")
+    post_continue_script = os.path.join(scheduler_dir, "post_continue_array.sbatch")
+    render_slurm_array_stage_script(
+        solver_continue_script,
+        f"{study_id}_solve_cont",
+        cluster_cfg,
+        solver_array_spec,
+        case_index_file,
+        "solve",
+        solver_exe, post_exe,
+        os.path.join(scheduler_dir, "solver_cont_%A_%a.out"),
+        os.path.join(scheduler_dir, "solver_cont_%A_%a.err"),
+    )
+    render_slurm_array_stage_script(
+        post_continue_script,
+        f"{study_id}_post_cont",
+        cluster_cfg,
+        post_array_spec,
+        case_index_file,
+        "post",
+        solver_exe, post_exe,
+        os.path.join(scheduler_dir, "post_cont_%A_%a.out"),
+        os.path.join(scheduler_dir, "post_cont_%A_%a.err"),
+    )
+
+    picurv_path = os.path.abspath(os.path.join(INVOKED_SCRIPT_DIR, "picurv"))
+    metrics_aggregate_script = os.path.join(scheduler_dir, "metrics_continue_aggregate.sbatch")
+    render_metrics_aggregate_script(
+        metrics_aggregate_script,
+        f"{study_id}_metrics_cont",
+        cluster_cfg,
+        study_dir,
+        picurv_path,
+    )
+    print(f"[SUCCESS] Generated continuation scripts in {os.path.relpath(scheduler_dir)}")
+
+    submission = {
+        "launch_mode": "slurm",
+        "study_id": study_id,
+        "continuation": True,
+        "incomplete_cases": [all_case_entries[i]["case_id"] for i in incomplete_indices],
+        "solver_continue_array": {"script": solver_continue_script, "submitted": False},
+        "post_continue_array": {"script": post_continue_script, "submitted": False},
+        "metrics_aggregate": {"script": metrics_aggregate_script, "submitted": False},
+        "no_submit": bool(args.no_submit),
+    }
+    if not args.no_submit:
+        solver_submit = submit_sbatch(solver_continue_script)
+        submission["solver_continue_array"].update(solver_submit)
+        submission["solver_continue_array"]["submitted"] = True
+        post_submit = submit_sbatch(post_continue_script, dependency=solver_submit["job_id"])
+        submission["post_continue_array"].update(post_submit)
+        submission["post_continue_array"]["submitted"] = True
+        submission["post_continue_array"]["dependency"] = f"afterok:{solver_submit['job_id']}"
+        metrics_submit = submit_sbatch(metrics_aggregate_script, dependency=post_submit["job_id"], dependency_type="afterany")
+        submission["metrics_aggregate"].update(metrics_submit)
+        submission["metrics_aggregate"]["submitted"] = True
+        submission["metrics_aggregate"]["dependency"] = f"afterany:{post_submit['job_id']}"
+        print(f"[SUCCESS] Submitted continuation solver array: {solver_submit['job_id']}")
+        print(f"[SUCCESS] Submitted continuation post array:   {post_submit['job_id']}")
+        print(f"[SUCCESS] Submitted metrics aggregation job:   {metrics_submit['job_id']}")
+
+    write_json_file(os.path.join(scheduler_dir, "submission_continue.json"), submission)
+
+    manifest["continuation"] = {
+        "continued_at": datetime.now().isoformat(),
+        "incomplete_cases": [all_case_entries[i]["case_id"] for i in incomplete_indices],
+        "submission": submission,
+    }
+    write_json_file(manifest_path, manifest)
+
+    print("\n" + "=" * 60)
+    print("              STUDY CONTINUATION SUMMARY")
+    print("=" * 60)
+    print(f"  Study ID          : {study_id}")
+    print(f"  Incomplete cases  : {len(incomplete_indices)}/{len(combinations)}")
+    print(f"  Solver array spec : {solver_array_spec}")
+    print(f"  Post array spec   : {post_array_spec}")
+    print(f"  Solver script     : {os.path.relpath(solver_continue_script)}")
+    print(f"  Post script       : {os.path.relpath(post_continue_script)}")
+    print(f"  Metrics script    : {os.path.relpath(metrics_aggregate_script)}")
+    if not args.no_submit:
+        print(f"  [Metrics aggregation will run automatically after post-processing]")
+    else:
+        print(f"  [--no-submit] Scripts generated but not submitted.")
+        print(f"  After manual submission and completion, run:")
+        print(f"    picurv sweep --reaggregate --study-dir {os.path.relpath(study_dir)}")
+    print("=" * 60)
+
+
+def sweep_reaggregate_workflow(args):
+    """!
+    @brief Re-run metrics aggregation and plot generation for an existing study.
+    @param[in] args Parsed CLI arguments with study_dir.
+    """
+    study_dir = os.path.abspath(args.study_dir)
+    study_path = os.path.join(study_dir, "study.yml")
+    if not os.path.isfile(study_path):
+        print(f"[FATAL] Study config not found: {study_path}", file=sys.stderr)
+        sys.exit(1)
+    study_cfg = read_yaml_file(study_path)
+    validate_study_config(study_cfg, study_path)
+
+    case_index_file = os.path.join(study_dir, "scheduler", "case_index.tsv")
+    if not os.path.isfile(case_index_file):
+        print(f"[FATAL] Case index not found: {case_index_file}", file=sys.stderr)
+        sys.exit(1)
+
+    parsed_entries = parse_case_index_tsv(case_index_file)
+    combinations = expand_parameter_matrix(study_cfg["parameters"])
+    if len(combinations) != len(parsed_entries):
+        print(
+            f"[FATAL] Parameter matrix ({len(combinations)} cases) does not match "
+            f"case_index.tsv ({len(parsed_entries)} entries).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    case_entries = []
+    for idx, combo in enumerate(combinations):
+        entry = parsed_entries[idx]
+        entry["parameters"] = combo
+        case_entries.append(entry)
+
+    results_dir = os.path.join(study_dir, "results")
+    metrics_csv = aggregate_study_metrics(study_cfg, case_entries, results_dir)
+    plots = generate_study_plots(study_cfg, metrics_csv, os.path.join(results_dir, "plots"))
+
+    print("\n" + "=" * 60)
+    print("              REAGGREGATION SUMMARY")
+    print("=" * 60)
+    if metrics_csv:
+        print(f"  Metrics table   : {os.path.relpath(metrics_csv)}")
+    if plots:
+        print(f"  Plots generated : {len(plots)}")
     print("=" * 60)
 
 
@@ -7941,19 +8418,28 @@ def _add_sweep_parser(subparsers):
     """
     p_sweep = subparsers.add_parser(
         "sweep",
-        help="Launch a Slurm-based parameter sweep/study.",
+        help="Launch or continue a Slurm-based parameter sweep/study.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Launch matrix studies from study.yml + cluster.yml.\n\n"
+            "Launch matrix studies from study.yml + cluster.yml, continue\n"
+            "partially-completed studies, or re-aggregate metrics.\n\n"
             "Examples:\n"
             "  picurv sweep --study study.yml --cluster cluster.yml\n"
-            "  picurv sweep --study study.yml --cluster cluster.yml --no-submit"
+            "  picurv sweep --study study.yml --cluster cluster.yml --no-submit\n"
+            "  picurv sweep --continue --study-dir studies/<id>\n"
+            "  picurv sweep --continue --study-dir studies/<id> --cluster cluster_more_time.yml\n"
+            "  picurv sweep --reaggregate --study-dir studies/<id>"
         ),
         epilog="Next: inspect studies/<study_id>/results/metrics_table.csv for aggregated metrics.",
     )
-    p_sweep.add_argument("--study", required=True, help="Path to study.yml defining parameter matrix and metrics.")
-    p_sweep.add_argument("--cluster", required=True, help="Path to cluster.yml defining Slurm resources.")
+    p_sweep.add_argument("--study", help="Path to study.yml defining parameter matrix and metrics.")
+    p_sweep.add_argument("--cluster", help="Path to cluster.yml defining Slurm resources.")
     p_sweep.add_argument("--no-submit", action="store_true", help="Generate all study artifacts without submitting jobs.")
+    p_sweep.add_argument("--study-dir", help="Path to an existing study directory (for --continue/--reaggregate).")
+    p_sweep.add_argument("--continue", action="store_true", dest="continue_study",
+                         help="Continue a partially-completed study. Requires --study-dir.")
+    p_sweep.add_argument("--reaggregate", action="store_true",
+                         help="Re-run metrics aggregation on a completed study. Requires --study-dir.")
     return p_sweep
 
 
@@ -8362,6 +8848,21 @@ def dispatch_command(args):
         run_workflow(args)
         return
     if args.command == "sweep":
+        if args.continue_study:
+            if not args.study_dir:
+                fail_cli_usage("--continue requires --study-dir.")
+            sweep_continue_workflow(args)
+            return
+        if args.reaggregate:
+            if not args.study_dir:
+                fail_cli_usage("--reaggregate requires --study-dir.")
+            sweep_reaggregate_workflow(args)
+            return
+        # Default: launch new study
+        if not args.study:
+            fail_cli_usage("--study is required when launching a new sweep.")
+        if not args.cluster:
+            fail_cli_usage("--cluster is required when launching a new sweep.")
         sweep_workflow(args)
         return
     if args.command == "validate":

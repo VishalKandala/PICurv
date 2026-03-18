@@ -45,6 +45,10 @@
   - added `picurv cancel` so Slurm jobs can be stopped by `--run-dir` instead of manual job-id lookup.
   - added scheduler artifact generation and submission metadata (`solver.sbatch`, `post.sbatch`, `submission.json`, `manifest.json`).
   - added `picurv sweep` for parameter studies using Slurm job arrays with post-stage dependency chaining.
+  - added `picurv sweep --continue --study-dir <path>` for resuming partially-completed studies: detects per-case completion status, prepares checkpoint restarts via `resolve_restart_source`, and submits sparse solver arrays for incomplete cases only.
+  - added `picurv sweep --reaggregate --study-dir <path>` for manual metrics re-aggregation on existing study outputs.
+  - added automatic post-completion metrics aggregation via a chained Slurm job (`metrics_aggregate.sbatch`, `afterany` dependency on post array).
+  - `detect_last_checkpoint_step` now falls back to particle checkpoint files (`position*.dat`) for analytical-mode cases with no eulerian output.
   - added study aggregation outputs (`metrics_table.csv`, `results/plots`, `summary.json`).
   - added templates: `master_cluster.yml`, `master_study.yml`.
   - added docs pages: cluster run guide and sweep/study guide.

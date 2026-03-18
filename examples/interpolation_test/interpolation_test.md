@@ -146,9 +146,23 @@ What to inspect before submission:
 
 What to inspect after completion:
 
-- `studies/<study_id>/results/metrics_table.csv`
+- `studies/<study_id>/results/metrics_table.csv` (auto-collected by chained metrics job)
 - per-case `logs/interpolation_error.csv`
 - scheduler stdout/stderr files for any failed array task
+
+If a case is killed by the walltime guard (common for large particle counts),
+continue the study:
+
+```bash
+./bin/picurv sweep --continue --study-dir studies/<study_id>
+```
+
+To increase walltime for the remaining cases, pass a different cluster config:
+
+```bash
+./bin/picurv sweep --continue --study-dir studies/<study_id> \
+  --cluster config/schedulers/slurm_longer.yml
+```
 
 Use this path when you want a reproducible study directory and cluster-managed
 execution.
