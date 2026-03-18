@@ -1518,6 +1518,25 @@ def validate_load_mode_step_range(source_output: str, start_step: int, total_ste
         )
 
 
+def validate_particle_checkpoint(source_dir: str, start_step: int, monitor_cfg: dict):
+    """!
+    @brief Validate that particle checkpoint files exist for the given step.
+    @details Checks that at least a position file exists at the expected step in
+             the particle subdirectory.
+    @param[in] source_dir Path to the directory containing the particle subdirectory.
+    @param[in] start_step The step number whose particle checkpoint is expected.
+    @param[in] monitor_cfg Parsed monitor YAML dictionary (for subdirectory names).
+    """
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    particle_sub = dirs.get("particle_subdir", "particles")
+    particle_path = os.path.join(source_dir, particle_sub)
+    expected = os.path.join(particle_path, f"position{start_step:05d}_0.dat")
+    if not os.path.isfile(expected):
+        raise ValueError(
+            f"Particle restart_mode='load' but checkpoint not found: {expected}"
+        )
+
+
 def read_monitor_from_run(run_dir: str) -> dict:
     """!
     @brief Read the monitor.yml from a run directory's config/ subdirectory.
@@ -1561,6 +1580,11 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
     euler_sub = dirs.get("eulerian_subdir", "eulerian")
     particle_sub = dirs.get("particle_subdir", "particles")
 
+    particle_restart_mode = str(
+        (case_cfg.get("models", {}).get("physics", {}).get("particles", {}) or {}).get("restart_mode", "init")
+    ).strip().lower()
+    particle_needs = (particle_restart_mode == "load")
+
     requires_source = needs_restart_source(case_cfg, solver_cfg)
     restart_from = getattr(args, 'restart_from', None)
     continue_run = getattr(args, 'continue_run', False)
@@ -1590,11 +1614,15 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         if eulerian_source == "load":
             # R3/R4/R5: Direct reference to source output
             validate_load_mode_step_range(source_output, start_step, total_steps, source_monitor)
+            if particle_needs:
+                validate_particle_checkpoint(source_output, start_step, source_monitor)
             return source_output, False
         else:
             # R1/R2/R6: Copy checkpoint to new run's restart/
             target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
             populate_restart_directory(source_output, target_restart, start_step, monitor_cfg)
+            if particle_needs:
+                validate_particle_checkpoint(target_restart, start_step, monitor_cfg)
             return target_restart, False
 
     elif continue_run:
@@ -1619,18 +1647,16 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
 
         if eulerian_source == "load":
             # C3/C4: Direct reference to output/ (all euler steps there, can't copy)
+            validate_load_mode_step_range(source_output, start_step, total_steps, monitor_cfg)
+            if particle_needs:
+                validate_particle_checkpoint(source_output, start_step, monitor_cfg)
             return source_output, True
         elif not requires_source:
             # C6: analytical + init — only log-append behavior, no data needed
             return None, True
         else:
             # C1/C2/C5: Smart resolution for solve/analytical
-            # Determine which components actually need restart data
-            particle_restart_mode = str(
-                (case_cfg.get("models", {}).get("physics", {}).get("particles", {}) or {}).get("restart_mode", "init")
-            ).strip().lower()
             euler_needs = (eulerian_source == "solve" and start_step > 0)
-            particle_needs = (particle_restart_mode == "load")
 
             step_str = f"{start_step:05d}"
             needed_subs = []
