@@ -1,0 +1,39 @@
+base_configs:
+  case: "interpolation_test.yml"
+  solver: "Analytical-TGV.yml"
+  monitor: "Standard_Output.yml"
+  post: "interpolation_analysis.yml"
+
+study_type: "sensitivity"
+
+parameters:
+  case.models.physics.particles.count: [50000, 500000, 5000000]
+
+metrics:
+  - name: max_L2_u
+    source: "statistics_csv"
+    file_glob: "logs/interpolation_error.csv"
+    column: "L2_u"
+    reduction: "max"
+  - name: max_L2_v
+    source: "statistics_csv"
+    file_glob: "logs/interpolation_error.csv"
+    column: "L2_v"
+    reduction: "max"
+  - name: max_Linf_u
+    source: "statistics_csv"
+    file_glob: "logs/interpolation_error.csv"
+    column: "Linf_u"
+    reduction: "max"
+  - name: max_Linf_v
+    source: "statistics_csv"
+    file_glob: "logs/interpolation_error.csv"
+    column: "Linf_v"
+    reduction: "max"
+
+plotting:
+  enabled: false
+
+execution:
+  # Tune conservatively first when the 5M-particle case is included.
+  max_concurrent_array_tasks: 1

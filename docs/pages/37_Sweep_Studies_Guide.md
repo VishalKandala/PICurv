@@ -56,6 +56,15 @@ A study definition usually specifies:
 
 Each combination yields a generated run with fully materialized config set.
 
+Parameter keys can target nested case/solver/monitor/post values such as:
+
+- `case.models.physics.particles.count`
+- `case.run_control.dt_physical`
+
+Not every study should use the default `msd_final` metric shorthand. Cases that
+write other scalar diagnostics, such as `logs/interpolation_error.csv`, should
+define explicit CSV metrics instead.
+
 @section p37_outputs_sec 4. Outputs and Aggregates
 
 Expected study outputs include:
@@ -82,6 +91,10 @@ Recommended workflow:
 3. launch full array, either directly with `picurv sweep ...` or later with `picurv submit --study-dir ...`,
 4. inspect aggregate outputs,
 5. archive the exact study file with results for reproducibility.
+
+`picurv sweep` is the scheduler-backed study path. For local parameter studies,
+repeat `picurv run` manually across a small set of edited case variants and
+compare the resulting run directories.
 
 For fragile metrics, add smoke tests or fixture-based validation before large queue submissions.
 
