@@ -152,6 +152,19 @@ If a study was staged with `--no-submit`, submit it later with:
 ./bin/picurv submit --study-dir studies/<study_id>
 ```
 
+If any case is killed (e.g. walltime), continue the study (optionally with a different cluster config):
+
+```bash
+./bin/picurv sweep --continue --study-dir studies/<study_id>
+./bin/picurv sweep --continue --study-dir studies/<study_id> --cluster cluster_more_time.yml
+```
+
+Re-aggregate metrics manually if the automatic metrics job did not run:
+
+```bash
+./bin/picurv sweep --reaggregate --study-dir studies/<study_id>
+```
+
 Generated Slurm solver jobs now enable an automatic runtime walltime guard by default. After the
 first 10 completed steps, PICurv estimates timestep cost, then exits through the same graceful
 final-write path before remaining walltime gets too tight. Tune it in `cluster.yml` only when the

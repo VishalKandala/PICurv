@@ -360,17 +360,33 @@ Notes:
 @section p05_sweep_sec 6. sweep: Parameter Study via Slurm Arrays
 
 ```bash
+# Launch new study
 ./bin/picurv sweep \
   --study my_study/study.yml \
   --cluster my_study/cluster.yml [--no-submit]
+
+# Continue a partially-completed study
+./bin/picurv sweep --continue --study-dir studies/<study_id> \
+  [--cluster cluster_more_time.yml]
+
+# Re-aggregate metrics manually
+./bin/picurv sweep --reaggregate --study-dir studies/<study_id>
 ```
 
-Behavior:
+Behavior (new study):
 - expands parameter matrix from `study.yml`
 - materializes case directories under `studies/<study_id>/cases/`
-- generates `solver_array.sbatch` and `post_array.sbatch`
-- submits post array with `afterok:<solver_jobid>` dependency (unless `--no-submit`)
-- aggregates metrics and emits plots in `studies/<study_id>/results/`
+- generates `solver_array.sbatch`, `post_array.sbatch`, and `metrics_aggregate.sbatch`
+- submits solver → post (`afterok`) → metrics (`afterany`) chain (unless `--no-submit`)
+
+Behavior (`--continue`):
+- detects per-case completion status (complete / partial / empty)
+- if all cases complete, auto-aggregates metrics and exits
+- otherwise prepares continuation for incomplete cases (checkpoint restart via `resolve_restart_source`)
+- submits sparse solver array (incomplete cases only) → full post array → metrics aggregation
+
+Behavior (`--reaggregate`):
+- re-runs metrics collection and plot generation on existing study outputs
 
 @section p05_validate_sec 7. validate: Config-Only Checks
 
@@ -442,11 +458,17 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
   - `--dry-run`
 
 `sweep`:
-- required:
-  - `--study <study.yml>`
-  - `--cluster <cluster.yml>`
-- optional:
-  - `--no-submit`
+- new study mode (default):
+  - `--study <study.yml>` (required)
+  - `--cluster <cluster.yml>` (required)
+  - `--no-submit` (optional)
+- continuation mode:
+  - `--continue` (required)
+  - `--study-dir <path>` (required)
+  - `--cluster <cluster.yml>` (optional; overrides original cluster resources)
+- reaggregation mode:
+  - `--reaggregate` (required)
+  - `--study-dir <path>` (required)
 
 `init`:
 - positional:

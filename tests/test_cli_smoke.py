@@ -378,6 +378,9 @@ def test_sweep_help_smoke():
     assert "--study" in result.stdout
     assert "--cluster" in result.stdout
     assert "--no-submit" in result.stdout
+    assert "--study-dir" in result.stdout
+    assert "--continue" in result.stdout
+    assert "--reaggregate" in result.stdout
 
 
 def test_cancel_help_smoke():
@@ -3612,6 +3615,7 @@ def test_sweep_workflow_module_no_submit_writes_study_artifacts(tmp_path):
     assert len(case_index_lines) >= 1
     assert (study_dir / "scheduler" / "solver_array.sbatch").is_file()
     assert (study_dir / "scheduler" / "post_array.sbatch").is_file()
+    assert (study_dir / "scheduler" / "metrics_aggregate.sbatch").is_file()
 
 
 def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):

@@ -73,6 +73,7 @@ Expected study outputs include:
 - `studies/<study_id>/scheduler/case_index.tsv`
 - `studies/<study_id>/scheduler/solver_array.sbatch`
 - `studies/<study_id>/scheduler/post_array.sbatch`
+- `studies/<study_id>/scheduler/metrics_aggregate.sbatch`
 - `studies/<study_id>/scheduler/solver_<array_jobid>_<taskid>.out/.err` after submission
 - `studies/<study_id>/scheduler/post_<array_jobid>_<taskid>.out/.err` after submission
 - `studies/<study_id>/scheduler/submission.json` (when jobs are submitted)
@@ -82,6 +83,10 @@ Expected study outputs include:
 
 This keeps raw run data and comparative study diagnostics in one reproducible structure.
 
+Metrics aggregation runs automatically as a Slurm job chained after the post-processing
+array (`afterany` dependency). If the automatic metrics job fails (e.g. Python unavailable
+on compute nodes), use `--reaggregate` manually.
+
 @section p37_operations_sec 5. Operational Workflow
 
 Recommended workflow:
@@ -89,7 +94,7 @@ Recommended workflow:
 1. run a tiny subset locally or with `--no-submit`,
 2. verify parameter substitution and metric extraction,
 3. launch full array, either directly with `picurv sweep ...` or later with `picurv submit --study-dir ...`,
-4. inspect aggregate outputs,
+4. inspect aggregate outputs (auto-collected by the metrics Slurm job, or via `--reaggregate`),
 5. archive the exact study file with results for reproducibility.
 
 `picurv sweep` is the scheduler-backed study path. For local parameter studies,
@@ -102,12 +107,55 @@ Implementation details worth knowing:
 
 - case expansion uses cartesian product over all `parameters.*` lists.
 - generated case configs are revalidated through the same solver/post validators used by `picurv run`.
-- post array submission depends on solver array completion (`afterok:<jobid>`) unless `--no-submit` is used.
+- submission chain: solver array → post array (`afterok`) → metrics job (`afterany`).
 - `scheduler/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.
 - generator/file grid external paths are rewritten to absolute paths during case materialization so they remain valid in `studies/<study_id>/cases/...`.
 - generated `solver_array.sbatch` exports walltime metadata for the runtime walltime guard, while `post_array.sbatch` remains a plain post-processing launcher.
 
-@section p37_refs_sec 6. Related Pages
+@section p37_continue_sec 6. Continuing a Partially-Completed Study
+
+If any solver case is killed (e.g. by the walltime guard or Slurm time limit),
+the entire post array is cancelled (`afterok` dependency). Use `--continue` to
+resume the study:
+
+```bash
+./bin/picurv sweep --continue --study-dir studies/<study_id>
+```
+
+To override cluster resources (e.g. increase walltime):
+
+```bash
+./bin/picurv sweep --continue --study-dir studies/<study_id> \
+  --cluster cluster_more_time.yml
+```
+
+What `--continue` does:
+
+1. Reads the original `study.yml` and `case_index.tsv` from the study directory.
+2. Classifies each case as **complete**, **partial**, or **empty** by scanning checkpoints.
+3. If all cases are complete, auto-aggregates metrics and exits (no jobs submitted).
+4. For partial cases: updates `case.yml` (`start_step`, `total_steps`), sets particle
+   `restart_mode` to `load` when a checkpoint exists, and delegates to `resolve_restart_source`
+   for the full restart scenario matrix.
+5. For empty cases (no checkpoint): re-runs from scratch with unmodified control files.
+6. Submits a sparse solver array (incomplete cases only) → full post array → metrics aggregation.
+
+Repeated continuation is safe: the target step count is always computed from the
+original `study.yml`, not from the (potentially modified) per-case `case.yml`.
+
+@section p37_reaggregate_sec 7. Manual Metrics Re-Aggregation
+
+If the automatic metrics Slurm job fails or you want to re-collect metrics after
+manual intervention:
+
+```bash
+./bin/picurv sweep --reaggregate --study-dir studies/<study_id>
+```
+
+This reads all case outputs, writes `results/metrics_table.csv`, and generates
+plots (if enabled in `study.yml`).
+
+@section p37_refs_sec 8. Related Pages
 
 - **@subpage 36_Cluster_Run_Guide**
 - **@subpage 10_Post_Processing_Reference**

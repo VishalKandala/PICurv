@@ -367,8 +367,20 @@ What you get:
 
 - expanded case matrix,
 - scheduler array scripts,
-- aggregated metrics table,
+- aggregated metrics table (auto-collected after jobs complete),
 - optional plots.
+
+If a case is killed (e.g. walltime), continue the study:
+
+```bash
+./bin/picurv sweep --continue --study-dir studies/<study_id>
+```
+
+Re-aggregate metrics manually:
+
+```bash
+./bin/picurv sweep --reaggregate --study-dir studies/<study_id>
+```
 
 See **@subpage 37_Sweep_Studies_Guide** for full contract details.
 
