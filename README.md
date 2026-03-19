@@ -48,9 +48,15 @@ export PETSC_ARCH=arch-linux-c-debug
 ./scripts/picurv build
 ```
 
-After build, use the installed conductor from `bin/` for init/validate/run commands.
+3. Add `picurv` to your PATH (one-time):
+```bash
+echo 'source /path/to/PICurv/etc/picurv.sh' >> ~/.bashrc
+source ~/.bashrc
+```
 
-3. Initialize an example:
+After build, `picurv` is available as a command from any directory.
+
+4. Initialize an example:
 ```bash
 ./bin/picurv init flat_channel --dest my_case
 ```
@@ -62,7 +68,7 @@ directory so it is self-contained and runnable with `./picurv ...`.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
 
-4. Validate configs (no run yet):
+5. Validate configs (no run yet):
 ```bash
 ./bin/picurv validate \
   --case my_case/flat_channel.yml \
@@ -71,7 +77,7 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
   --post my_case/standard_analysis.yml
 ```
 
-5. Preview planned launch/artifacts:
+6. Preview planned launch/artifacts:
 ```bash
 ./bin/picurv run --solve --post-process \
   --case my_case/flat_channel.yml \
@@ -81,7 +87,7 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
   --dry-run
 ```
 
-6. Run solver + post:
+7. Run solver + post:
 ```bash
 ./bin/picurv run --solve --post-process -n 4 \
   --case my_case/flat_channel.yml \

@@ -133,4 +133,6 @@ cd "${REPO_ROOT}"
 [[ -x "${REPO_ROOT}/bin/picurv" ]] || die "Missing binary: bin/picurv"
 
 log "Bootstrap complete."
-log "Run: ./bin/picurv --help"
+log "To add picurv to your PATH, run:"
+log "  echo 'source ${REPO_ROOT}/etc/picurv.sh' >> ~/.bashrc && source ~/.bashrc"
+log "Then verify with: picurv --help"
