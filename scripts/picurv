@@ -3190,11 +3190,12 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
     if errors:
         _print_validation_errors(errors)
 
-def validate_study_config(study_cfg: dict, study_path: str):
+def validate_study_config(study_cfg: dict, study_path: str, skip_base_file_check: bool = False):
     """!
     @brief Validate sweep/study specification from study.yml.
     @param[in] study_cfg Argument passed to `validate_study_config()`.
     @param[in] study_path Argument passed to `validate_study_config()`.
+    @param[in] skip_base_file_check When True, skip file-existence check for base_configs paths.
     """
     errors = []
     if not isinstance(study_cfg, dict) or not study_cfg:
@@ -3209,7 +3210,7 @@ def validate_study_config(study_cfg: dict, study_path: str):
             path_val = base_cfgs.get(req)
             if not path_val or not isinstance(path_val, str):
                 errors.append(f"  {study_path}: base_configs.{req} must be a path string.")
-            else:
+            elif not skip_base_file_check:
                 resolved = resolve_path(study_path, path_val)
                 if not os.path.isfile(resolved):
                     errors.append(f"  {study_path}: base_configs.{req} does not exist: {resolved}")
@@ -6450,7 +6451,7 @@ def sweep_continue_workflow(args):
     cluster_path = os.path.abspath(args.cluster) if args.cluster else os.path.join(study_dir, "cluster.yml")
     study_cfg = read_yaml_file(study_path)
     cluster_cfg = read_yaml_file(cluster_path)
-    validate_study_config(study_cfg, study_path)
+    validate_study_config(study_cfg, study_path, skip_base_file_check=True)
     validate_cluster_config(cluster_cfg, cluster_path)
 
     if args.cluster:
@@ -6663,7 +6664,7 @@ def sweep_reaggregate_workflow(args):
         print(f"[FATAL] Study config not found: {study_path}", file=sys.stderr)
         sys.exit(1)
     study_cfg = read_yaml_file(study_path)
-    validate_study_config(study_cfg, study_path)
+    validate_study_config(study_cfg, study_path, skip_base_file_check=True)
 
     case_index_file = os.path.join(study_dir, "scheduler", "case_index.tsv")
     if not os.path.isfile(case_index_file):
