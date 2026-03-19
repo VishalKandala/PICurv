@@ -106,7 +106,12 @@ Add to your shell profile (`~/.bashrc` or equivalent):
 ```bash
 export PETSC_DIR=/path/to/petsc
 export PETSC_ARCH=arch-linux-c-debug
+source /path/to/PICurv/etc/picurv.sh
 ```
+
+The `etc/picurv.sh` script sets `PICURV_DIR` and adds `bin/` to your `PATH` so
+that `picurv` is available as a command from any directory. It is idempotent and
+safe to source multiple times.
 
 Reload and verify:
 
@@ -114,6 +119,7 @@ Reload and verify:
 source ~/.bashrc
 echo "$PETSC_DIR"
 echo "$PETSC_ARCH"
+picurv --help
 ```
 
 Verify PETSc has DMSwarm headers:
