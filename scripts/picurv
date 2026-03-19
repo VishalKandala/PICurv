@@ -961,12 +961,10 @@ def list_source_binaries(source_project_root: str):
         raise ValueError(f"Source bin directory not found: {source_bin_dir}. Run 'picurv build' first.")
     binaries = sorted(
         f for f in os.listdir(source_bin_dir)
-        if os.path.isfile(os.path.join(source_bin_dir, f))
+        if os.path.isfile(os.path.join(source_bin_dir, f)) and f != "picurv"
     )
     if not binaries:
         raise ValueError(f"Source bin directory contains no files: {source_bin_dir}")
-    if "picurv" in binaries:
-        binaries = [b for b in binaries if b != "picurv"] + ["picurv"]
     return source_bin_dir, binaries
 
 
@@ -8167,13 +8165,13 @@ def init_case(args):
             print(f"  - {profile_name}")
         print("       Edit account/partition/module_setup and any batch-specific launcher overrides before using --cluster.")
 
-    print("[INFO] Copying project binaries for a self-contained case...")
+    print("[INFO] Copying runtime binaries (simulator, postprocessor)...")
     try:
         copied_binaries = sync_case_binaries(dest_path, source_project_root)
         for dest_file_path in copied_binaries:
             print(f"  - Copied '{os.path.basename(dest_file_path)}'")
-        print("[SUCCESS] Binaries are now available in your study directory.")
-        print("          You can now 'cd' into your study and run commands locally (e.g., './picurv ...').")
+        print("[SUCCESS] Runtime binaries are now available in your case directory.")
+        print("          Ensure 'picurv' is on your PATH (source etc/picurv.sh).")
         print("          If your cluster/login node needs custom MPI launcher tokens, edit '.picurv-execution.yml'.")
     except ValueError as exc:
         print(f"[WARNING] {exc}", file=sys.stderr)
