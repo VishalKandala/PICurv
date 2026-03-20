@@ -64,6 +64,7 @@ Use this checklist when adding a new particle model constant, source term, or in
 - C parser consumes keys without unknown-key warnings.
 - Runtime behavior changes only when new key is explicitly set.
 - Existing templates/run paths still work with omitted new keys.
+- Verification-only source overrides should live in `verification_sources.*` and be used only when no ordinary end-to-end path can test the feature.
 
 See also **@subpage 17_Workflow_Extensibility** for higher-level workflow expansion patterns.
 For selector-by-selector hook points, use **@subpage 50_Modular_Selector_Extension_Guide**.
@@ -89,4 +90,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

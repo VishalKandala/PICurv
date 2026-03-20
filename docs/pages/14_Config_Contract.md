@@ -66,6 +66,7 @@ For each run, `picurv` generates:
 - `operation_mode.eulerian_field_source` -> `-euler_field_source`
 - `operation_mode.analytical_type` -> `-analytical_type`
 - `operation_mode.uniform_flow.{u,v,w}` -> `-analytical_uniform_u/-analytical_uniform_v/-analytical_uniform_w` for `UNIFORM_FLOW`
+- `verification.sources.diffusivity.*` -> `-verification_diffusivity_*`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
 - Solver-specific block support currently includes `momentum_solver.dual_time_picard_rk4`.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
@@ -75,6 +76,12 @@ Analytical-mode compatibility rule:
 
 - when `operation_mode.eulerian_field_source: analytical` is selected, the current launcher contract requires `case.yml -> grid.mode: programmatic_c`.
 - this reflects the current C analytical ingestion path, which does not consume `file`/`grid_gen` geometry in the standard way.
+
+Verification-pathway rule:
+
+- `solver.yml -> verification.sources.diffusivity` is reserved for verification-only source overrides when no cleaner end-to-end path exists.
+- it is only valid for analytical solver runs.
+- new verification source overrides belong in `verification_sources.*`, with production call sites kept as thin delegation points.
 
 @section p14_monitor_sec 5. Monitor Contract Highlights
 

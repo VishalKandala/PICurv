@@ -261,3 +261,73 @@ def test_parse_solver_config_maps_uniform_flow_velocity_flags():
     assert flags["-analytical_uniform_u"] == 0.5
     assert flags["-analytical_uniform_v"] == -0.25
     assert flags["-analytical_uniform_w"] == 0.125
+
+
+def test_parse_solver_config_maps_verification_diffusivity_flags():
+    """!
+    @brief Test that parse_solver_config maps verification diffusivity settings into control flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "operation_mode": {
+            "eulerian_field_source": "analytical",
+            "analytical_type": "ZERO_FLOW",
+        },
+        "verification": {
+            "sources": {
+                "diffusivity": {
+                    "mode": "analytical",
+                    "profile": "LINEAR_X",
+                    "gamma0": 1.0e-3,
+                    "slope_x": 2.0e-4,
+                }
+            }
+        },
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-verification_diffusivity_mode"] == '"analytical"'
+    assert flags["-verification_diffusivity_profile"] == '"LINEAR_X"'
+    assert flags["-verification_diffusivity_gamma0"] == 1.0e-3
+    assert flags["-verification_diffusivity_slope_x"] == 2.0e-4
+
+
+def test_validate_rejects_verification_diffusivity_for_non_analytical_solver(tmp_path):
+    """!
+    @brief Test that validate rejects verification diffusivity overrides outside analytical mode.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["verification"] = {
+        "sources": {
+            "diffusivity": {
+                "mode": "analytical",
+                "profile": "LINEAR_X",
+                "gamma0": 1.0e-3,
+                "slope_x": 2.0e-4,
+            }
+        }
+    }
+
+    solver_path = tmp_path / "solver_invalid_verification.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--post",
+            str(valid / "post.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "verification.sources.diffusivity is only valid" in result.stderr

@@ -147,6 +147,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
 - Canonical values:
   - `TGV3D`
   - `ZERO_FLOW`
+  - `UNIFORM_FLOW`
 - Python hook:
   - `normalize_analytical_type()` in `scripts/picurv`
 - Generated mapping:
@@ -161,7 +162,36 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - **@subpage 08_Solver_Reference**
   - **@subpage 32_Analytical_Solutions**
 
-@section p50_grid_sec 8. Grid Selector / Generator Selector
+@section p50_verification_sources_sec 8. Verification Source Overrides
+
+- Schema home: `solver.yml -> verification.sources.*`
+- Design intent:
+  - reserved for verification-only source injections when no ordinary end-to-end path is sufficient
+  - keep runtime call sites thin and centralize override implementations in `verification_sources.*`
+- Current support:
+  - `verification.sources.diffusivity`
+  - profile `LINEAR_X`
+- Python hooks:
+  - validation and flag emission in `scripts/picurv`
+- Generated mapping:
+  - `verification.sources.diffusivity.mode` -> `-verification_diffusivity_mode`
+  - `verification.sources.diffusivity.profile` -> `-verification_diffusivity_profile`
+  - `verification.sources.diffusivity.gamma0` -> `-verification_diffusivity_gamma0`
+  - `verification.sources.diffusivity.slope_x` -> `-verification_diffusivity_slope_x`
+- C storage/parser:
+  - `verificationDiffusivity` in `SimCtx`
+  - option parsing in @ref CreateSimulationContext
+- Runtime:
+  - `src/verification_sources.c`
+  - thin delegation from `src/rhs.c`
+- Tests/docs to update:
+  - `tests/test_config_regressions.py`
+  - `tests/c/test_poisson_rhs.c`
+  - `tests/c/test_runtime_kernels.c`
+  - **@subpage 08_Solver_Reference**
+  - **@subpage 16_Config_Extension_Playbook**
+
+@section p50_grid_sec 9. Grid Selector / Generator Selector
 
 - Schema homes:
   - `case.yml -> grid.mode`
@@ -186,7 +216,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - **@subpage 07_Case_Reference**
   - **@subpage 48_Grid_Generator_Guide**
 
-@section p50_profiling_sec 9. Profiling Selector
+@section p50_profiling_sec 10. Profiling Selector
 
 - Schema home: `monitor.yml -> profiling.timestep_output.mode`
 - Canonical values:
@@ -210,7 +240,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 09_Monitor_Reference**
 
-@section p50_post_sec 10. Postprocessing / Statistics Tasks
+@section p50_post_sec 11. Postprocessing / Statistics Tasks
 
 - Schema home: `post.yml -> statistics_pipeline`
 - Canonical values:
@@ -257,4 +287,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-
