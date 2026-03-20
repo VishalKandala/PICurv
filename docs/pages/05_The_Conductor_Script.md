@@ -14,7 +14,9 @@ picurv [COMMAND] [ARGS...]
 ```
 
 After `make all`, `bin/picurv` is a symlink to `scripts/picurv` (the single source of truth).
-Source `etc/picurv.sh` to add `bin/` to your PATH so `picurv` works from any directory.
+Source `etc/picurv.sh` to add `bin/` to your PATH and expose `scripts/` as a
+fallback so `picurv` works from any directory even if `bin/picurv` is
+temporarily absent before `make conductor` recreates the symlink.
 If `bin/picurv` does not exist yet, run `./scripts/picurv build` or `make conductor`.
 
 Primary commands:

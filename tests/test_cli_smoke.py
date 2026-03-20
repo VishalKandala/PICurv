@@ -105,6 +105,38 @@ def write_executable(path: Path, content: str) -> Path:
     return path
 
 
+def test_env_script_falls_back_to_scripts_when_bin_launcher_is_missing(tmp_path):
+    """!
+    @brief Test that sourcing `etc/picurv.sh` still exposes `picurv` if `bin/picurv` is absent.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    repo = tmp_path / "repo"
+    (repo / "etc").mkdir(parents=True)
+    (repo / "bin").mkdir()
+    (repo / "scripts").mkdir()
+
+    shutil.copy2(REPO_ROOT / "etc" / "picurv.sh", repo / "etc" / "picurv.sh")
+    shutil.copy2(REPO_ROOT / "scripts" / "picurv", repo / "scripts" / "picurv")
+    (repo / "scripts" / "picurv").chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "source etc/picurv.sh && command -v picurv && printf '%s\\n' \"$PICURV_DIR\"",
+        ],
+        cwd=str(repo),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    stdout_lines = result.stdout.strip().splitlines()
+    assert stdout_lines == [str(repo / "scripts" / "picurv"), str(repo.resolve())]
+
+
 def make_fake_scancel_env(tmp_path: Path):
     """!
     @brief Create a fake `scancel` executable and environment override for CLI tests.
