@@ -35,9 +35,9 @@ If PETSc is not installed yet, let the script build it:
 
 The script installs system and Python dependencies, verifies PETSc/DMSwarm visibility, then builds:
 
-- `bin/simulator`
-- `bin/postprocessor`
-- `bin/picurv`
+- `bin/simulator` (compiled C solver)
+- `bin/postprocessor` (compiled C post-processor)
+- `bin/picurv` (symlink to `scripts/picurv`, the Python conductor)
 
 @section p01_install_tools_sec 3. Install Base Toolchain (Manual Path)
 
@@ -144,8 +144,9 @@ cd PICurv
 
 Expected binaries:
 
-- `bin/simulator`
-- `bin/postprocessor`
+- `bin/simulator` (compiled C solver)
+- `bin/postprocessor` (compiled C post-processor)
+- `bin/picurv` (symlink → `scripts/picurv`)
 
 Useful variants:
 
@@ -154,7 +155,7 @@ Useful variants:
 ./scripts/picurv build SYSTEM=cluster
 ```
 
-After the build creates `bin/picurv`, prefer `./bin/picurv` for normal help, validation, and run commands.
+After `source etc/picurv.sh`, use `picurv` directly from any directory.
 
 @section p01_verify_sec 8. Verify Installation
 

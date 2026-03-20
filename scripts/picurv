@@ -8165,10 +8165,22 @@ def init_case(args):
             print(f"  - {profile_name}")
         print("       Edit account/partition/module_setup and any batch-specific launcher overrides before using --cluster.")
 
-    print("[SUCCESS] Case directory is ready.")
+    if getattr(args, "pin_binaries", False):
+        print("[INFO] Pinning runtime binaries into case directory...")
+        try:
+            copied_binaries = sync_case_binaries(dest_path, source_project_root)
+            for dest_file_path in copied_binaries:
+                print(f"  - Pinned '{os.path.basename(dest_file_path)}'")
+            print("[SUCCESS] Case directory is ready with pinned binaries.")
+            print("          These local copies will be used instead of bin/ originals.")
+        except ValueError as exc:
+            print(f"[WARNING] {exc}", file=sys.stderr)
+            print("          No binaries were pinned. Run 'picurv build' first.", file=sys.stderr)
+    else:
+        print("[SUCCESS] Case directory is ready.")
+        print("          Runtime binaries (simulator, postprocessor) are resolved from bin/ automatically.")
+        print("          To pin specific binary versions, re-run with --pin-binaries or use: picurv sync-binaries")
     print("          Ensure 'picurv' is on your PATH (source etc/picurv.sh) to run from any directory.")
-    print("          Runtime binaries (simulator, postprocessor) are resolved from bin/ automatically.")
-    print("          To pin specific binary versions into this case, run: picurv sync-binaries")
 
 
 def sync_case_binaries_command(args):
@@ -8612,6 +8624,12 @@ def _add_init_parser(subparsers):
     p_init.add_argument(
         "--source-root",
         help="Optional override for the PICurv source repository root.\nUseful when running from a copied case without metadata.",
+    )
+    p_init.add_argument(
+        "--pin-binaries",
+        action="store_true",
+        default=False,
+        help="Copy simulator and postprocessor into the case directory.\nUse this to freeze specific binary versions for reproducibility\nor to protect running jobs from concurrent rebuilds.",
     )
     return p_init
 

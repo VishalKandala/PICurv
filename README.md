@@ -10,7 +10,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Particle tracking with PETSc `DMSwarm`
 - Grid-particle interpolation and particle-grid projection
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`)
-- YAML-driven orchestration through the conductor (`./scripts/picurv`, installed to `./bin/picurv` after build)
+- YAML-driven orchestration through the conductor (`scripts/picurv`, symlinked to `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Staged Slurm workflows with `--no-submit`, delayed `submit`, and run-directory-based `cancel`
 - Graceful final snapshot writes on early shutdown signals (`SIGUSR1`, `SIGTERM`, `SIGINT`) at safe checkpoints
@@ -58,11 +58,20 @@ After build, `picurv` is available as a command from any directory.
 
 4. Initialize an example:
 ```bash
-./bin/picurv init flat_channel --dest my_case
+picurv init flat_channel --dest my_case
 ```
 
 `init` creates the case directory with config files. Runtime binaries (`simulator`, `postprocessor`)
 are resolved from the project `bin/` directory via PATH — no copies are placed in the case.
+To pin specific binary versions (e.g. before submitting a Slurm job while continuing development):
+```bash
+picurv init flat_channel --dest my_case --pin-binaries
+```
+This copies `simulator` and `postprocessor` into the case directory so they are isolated from
+repo rebuilds. `picurv` itself is never copied — it is always used from PATH and is safe to
+update at any time since it only launches the C binaries, not run during solver execution.
+Equivalent manual step after init: `picurv sync-binaries --case-dir my_case`.
+
 `init` also writes `.picurv-origin.json`, which records the source repo path so maintenance
 commands can rebuild, pull, and resync from the original code directory.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.

@@ -10,10 +10,12 @@ It is also the primary user-facing contract layer: many defaults, aliases, and t
 @section p05_usage_sec 1. General Usage
 
 ```bash
-./bin/picurv [COMMAND] [ARGS...]
+picurv [COMMAND] [ARGS...]
 ```
 
-If `bin/picurv` does not exist yet, use `./scripts/picurv build` once to install it.
+After `make all`, `bin/picurv` is a symlink to `scripts/picurv` (the single source of truth).
+Source `etc/picurv.sh` to add `bin/` to your PATH so `picurv` works from any directory.
+If `bin/picurv` does not exist yet, run `./scripts/picurv build` or `make conductor`.
 
 Primary commands:
 - `init`
@@ -56,7 +58,7 @@ Help:
 @section p05_init_sec 2. init: Create A New Case Directory
 
 ```bash
-./bin/picurv init <template_name> [--dest <new_dir>]
+picurv init <template_name> [--dest <new_dir>] [--pin-binaries]
 ```
 
 Behavior:
@@ -66,19 +68,23 @@ Behavior:
 - writes `.picurv-origin.json` with the source repo path and template name,
 - writes `.picurv-execution.yml` for optional site-specific launcher overrides,
 - seeds that file from a repo-root `.picurv-execution.yml` when the source clone already has one, otherwise from inert defaults,
-- does **not** copy binaries; runtime executables are resolved from the project `bin/` directory via PATH.
+- does **not** copy binaries by default; runtime executables are resolved from the project `bin/` directory via PATH.
 
-To pin specific binary versions into a case directory, run `picurv sync-binaries` after init.
+Binary pinning (`--pin-binaries`):
+
+- when `--pin-binaries` is passed, `simulator` and `postprocessor` are copied into the case directory,
+- case-local copies take precedence over `bin/` originals at runtime (`resolve_runtime_executable` checks the invocation directory first),
+- use this when submitting Slurm jobs and you may rebuild the repo before the job runs,
+- `picurv` itself is never copied — it is always used from PATH and is safe to update mid-run since it only launches the C binaries.
+
+Equivalent manual step (after init): `picurv sync-binaries --case-dir <case>`.
 
 Examples:
 
 ```bash
-./bin/picurv init flat_channel --dest my_first_case
-./bin/picurv init bent_channel --dest my_bent_case
+picurv init flat_channel --dest my_first_case
+picurv init bent_channel --dest my_bent_case --pin-binaries
 ```
-
-Use `init` when you want a runnable starting point. Ensure `picurv` is on your PATH
-(source `etc/picurv.sh`) to run from any directory.
 
 @section p05_build_sec 3. build: Build Project Executables
 
@@ -476,6 +482,7 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
 - optional:
   - `--dest <dir>`
   - `--source-root <repo>`
+  - `--pin-binaries` (copy `simulator`/`postprocessor` into the case for version-pinning)
 
 `build`:
 - optional:
@@ -604,7 +611,40 @@ For prebuilt reusable profiles, also see the local guides under:
 - `config/schedulers/`
 - `examples/master_template/`
 
-@section p05_artifacts_sec 12. Generated Runtime Artifacts
+@section p05_binaries_sec 12. Binary Resolution and Rebuild Safety
+
+`picurv` resolves `simulator` and `postprocessor` at launch time using this precedence:
+
+1. **Invocation directory** — if the binary exists as a sibling of the invoked `picurv` script
+   (e.g. case-local copies from `--pin-binaries` or `sync-binaries`), it is used first.
+2. **Project `bin/` directory** — the default location after `make all`.
+
+`bin/picurv` is a symlink to `scripts/picurv`. This means:
+
+- there is exactly one source file (`scripts/picurv`), so code changes never drift,
+- `make conductor` recreates the symlink (idempotent),
+- `etc/picurv.sh` adds `bin/` to PATH so `picurv` works from any directory.
+
+**Rebuilding while jobs are running:**
+
+- Updating `picurv` (the Python script) mid-run is always safe — it is only used to launch jobs,
+  not during solver execution.
+- Rebuilding `simulator`/`postprocessor` (`make all`) overwrites the binaries in `bin/`.
+  If a Slurm job references `bin/simulator` by absolute path and has not yet started, the running
+  binary may be replaced before execution begins.
+- To protect against this, use `--pin-binaries` at init time or `sync-binaries` before submission.
+  Case-local copies are isolated from repo rebuilds.
+
+**Recommended workflow for concurrent development and production:**
+
+```bash
+picurv init flat_channel --dest production_case --pin-binaries
+picurv run --solve --cluster cluster.yml ...   # uses case-local binaries
+# safe to rebuild in the repo now — production_case has its own copies
+make all
+```
+
+@section p05_artifacts_sec 13. Generated Runtime Artifacts
 
 Single run (`run`):
 - `runs/<run_id>/config/*.control`, `bcs*.run`, `post.run`, plus optional `whitelist.run` / `profile.run` sidecars when enabled
@@ -625,7 +665,7 @@ Sweep (`sweep`):
 - `studies/<study_id>/results/plots/*.png` (if plotting enabled and matplotlib available)
 - `studies/<study_id>/study_manifest.json`
 
-@section p05_next_steps_sec 13. Next Steps
+@section p05_next_steps_sec 14. Next Steps
 
 - Config contract: **@subpage 14_Config_Contract**
 - User workflows: **@subpage 11_User_How_To_Guides**

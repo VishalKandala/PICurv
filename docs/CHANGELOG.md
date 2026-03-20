@@ -18,8 +18,9 @@
   - renamed the conductor from `pic.flow` to `picurv`.
   - renamed the main solver executable from `picsolver` to `simulator`.
   - `init` now creates config-only case directories; binaries are resolved from `bin/` via PATH.
+  - `init --pin-binaries` copies `simulator`/`postprocessor` into the case for version-pinning (protects running jobs from concurrent rebuilds).
   - `bin/picurv` is now a symlink to `scripts/picurv` (single source of truth).
-  - `sync-binaries` pins specific binary versions into a case directory (optional, for version-pinning).
+  - `sync-binaries` pins specific binary versions into a case directory (optional, equivalent to `--pin-binaries` after init).
   - removed the temporary `--copy-binaries` init flag.
 
 - Grid contract correction:
