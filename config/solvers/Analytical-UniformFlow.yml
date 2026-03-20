@@ -1,0 +1,13 @@
+operation_mode:
+  eulerian_field_source: "analytical"
+  analytical_type: "UNIFORM_FLOW"
+  uniform_flow:
+    u: 0.1
+    v: 0.0
+    w: 0.0
+
+interpolation:
+  method: "Trilinear"
+
+petsc_passthrough_options:
+  -schmidt_number: 1.0e12

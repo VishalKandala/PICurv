@@ -13,6 +13,8 @@ This directory stores reusable `solver.yml` profiles that define numerical strat
 ## 2. Included Profiles
 
 - `Imp-MG-Standard.yml`: baseline implicit multigrid-oriented setup for general use.
+- `Analytical-UniformFlow.yml`: reusable constant-velocity analytical profile for deterministic particle advection checks.
+- `Analytical-Zero-Verification-LinearDiffusivity.yml`: reusable verification-oriented zero-flow profile with linear diffusivity override for `grad(Gamma)` drift checks.
 
 For full schema coverage, see:
 - `examples/master_template/master_solver.yml`
@@ -34,6 +36,8 @@ Use `strategy.momentum_solver` with exact values:
 - `Dual Time Picard RK4`
 
 Any newly introduced selector should only be exposed after parser normalization, runtime dispatch, and docs/tests are updated in one cohesive change.
+
+Verification-only source overrides should stay under the structured `verification.*` namespace and be implemented in `verification_sources.*` rather than as one-off production flags.
 
 ## 5. CFD Tuning Order (Practical)
 

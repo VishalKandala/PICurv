@@ -1,0 +1,14 @@
+operation_mode:
+  eulerian_field_source: "analytical"
+  analytical_type: "ZERO_FLOW"
+
+verification:
+  sources:
+    diffusivity:
+      mode: "analytical"
+      profile: "LINEAR_X"
+      gamma0: 0.002
+      slope_x: 0.001
+
+interpolation:
+  method: "Trilinear"
