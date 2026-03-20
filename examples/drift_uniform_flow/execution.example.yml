@@ -1,0 +1,14 @@
+# Optional shared runtime launcher overrides.
+# This file is safe to leave unchanged on ordinary local machines.
+#
+# Example override:
+# default_execution:
+#   launcher: "mpirun"
+#   launcher_args:
+#     - --bind-to
+#     - none
+default_execution: {}
+
+local_execution: {}
+
+cluster_execution: {}
