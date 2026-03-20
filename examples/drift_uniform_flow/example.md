@@ -22,10 +22,10 @@ setting an effectively infinite Schmidt number.
 
 ```bash
 ./bin/picurv run --solve --post-process -n 4 \
-  --case  examples/drift_uniform_flow/case.yml \
-  --solver examples/drift_uniform_flow/solver.yml \
-  --monitor examples/drift_uniform_flow/monitor.yml \
-  --post examples/drift_uniform_flow/post.yml
+  --case  examples/drift_uniform_flow/drift_uniform_flow.yml \
+  --solver examples/drift_uniform_flow/Analytical-UniformFlow.yml \
+  --monitor examples/drift_uniform_flow/Standard_Output.yml \
+  --post examples/drift_uniform_flow/uniform_flow_analysis.yml
 ```
 
 Primary output:

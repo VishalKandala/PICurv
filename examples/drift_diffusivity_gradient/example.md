@@ -28,10 +28,10 @@ but it is centered around that drifting mean.
 
 ```bash
 ./bin/picurv run --solve --post-process -n 4 \
-  --case  examples/drift_diffusivity_gradient/case.yml \
-  --solver examples/drift_diffusivity_gradient/solver.yml \
-  --monitor examples/drift_diffusivity_gradient/monitor.yml \
-  --post examples/drift_diffusivity_gradient/post.yml
+  --case  examples/drift_diffusivity_gradient/drift_diffusivity_gradient.yml \
+  --solver examples/drift_diffusivity_gradient/Analytical-Zero-Verification-LinearDiffusivity.yml \
+  --monitor examples/drift_diffusivity_gradient/Standard_Output.yml \
+  --post examples/drift_diffusivity_gradient/drift_diffusivity_gradient_analysis.yml
 ```
 
 Primary output:

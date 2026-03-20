@@ -171,17 +171,17 @@ Analytical zero-flow Brownian verification:
 
 Analytical uniform-flow deterministic drift verification:
 
-- case: `examples/drift_uniform_flow/case.yml`
-- solver: `examples/drift_uniform_flow/solver.yml`
-- monitor: `examples/drift_uniform_flow/monitor.yml`
-- post: `examples/drift_uniform_flow/post.yml`
+- case: `examples/drift_uniform_flow/drift_uniform_flow.yml`
+- solver: `examples/drift_uniform_flow/Analytical-UniformFlow.yml`
+- monitor: `examples/drift_uniform_flow/Standard_Output.yml`
+- post: `examples/drift_uniform_flow/uniform_flow_analysis.yml`
 
 Analytical zero-flow plus verification-source diffusivity drift verification:
 
-- case: `examples/drift_diffusivity_gradient/case.yml`
-- solver: `examples/drift_diffusivity_gradient/solver.yml`
-- monitor: `examples/drift_diffusivity_gradient/monitor.yml`
-- post: `examples/drift_diffusivity_gradient/post.yml`
+- case: `examples/drift_diffusivity_gradient/drift_diffusivity_gradient.yml`
+- solver: `examples/drift_diffusivity_gradient/Analytical-Zero-Verification-LinearDiffusivity.yml`
+- monitor: `examples/drift_diffusivity_gradient/Standard_Output.yml`
+- post: `examples/drift_diffusivity_gradient/drift_diffusivity_gradient_analysis.yml`
 
 These are examples, not fixed bundles.
 You can intentionally swap roles when the contract makes sense.
