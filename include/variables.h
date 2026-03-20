@@ -194,6 +194,15 @@ typedef struct MigrationInfo {
     PetscInt target_rank;
 } MigrationInfo;
 
+/** @brief Verification-only analytical diffusivity override settings. */
+typedef struct VerificationDiffusivityConfig {
+    PetscBool enabled;
+    char mode[32];
+    char profile[32];
+    PetscReal gamma0;
+    PetscReal slope_x;
+} VerificationDiffusivityConfig;
+
 
 //--------------------------------------------------------------------------------
 //                 4. BOUNDARY CONDITION SYSTEM ENUMS
@@ -655,6 +664,7 @@ typedef struct SimCtx {
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
     Cmpnts    AnalyticalUniformVelocity;
+    VerificationDiffusivityConfig verificationDiffusivity;
     
     //================ Group 6: Physical & Geometric Parameters ================
     PetscInt  NumberOfBodies;

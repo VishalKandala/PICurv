@@ -27,6 +27,8 @@ Mappings:
 - `analytical_type` -> `-analytical_type`
 - `uniform_flow.u/v/w` -> `-analytical_uniform_u/-analytical_uniform_v/-analytical_uniform_w` when `analytical_type: "UNIFORM_FLOW"`
 
+`uniform_flow` is only valid when `analytical_type: "UNIFORM_FLOW"`.
+
 @section p08_strategy_sec 2. strategy
 
 ```yaml
@@ -115,7 +117,30 @@ The **Trilinear** method (default) performs direct trilinear interpolation from 
 
 See **@subpage 27_Trilinear_Interpolation_and_Projection** for algorithmic details.
 
-@section p08_petsc_sec 7. petsc_passthrough_options
+@section p08_verification_sec 7. verification
+
+```yaml
+verification:
+  sources:
+    diffusivity:
+      mode: "analytical"
+      profile: "LINEAR_X"
+      gamma0: 1.0e-3
+      slope_x: 2.0e-4
+```
+
+Mappings:
+- `verification.sources.diffusivity.mode` -> `-verification_diffusivity_mode`
+- `verification.sources.diffusivity.profile` -> `-verification_diffusivity_profile`
+- `verification.sources.diffusivity.gamma0` -> `-verification_diffusivity_gamma0`
+- `verification.sources.diffusivity.slope_x` -> `-verification_diffusivity_slope_x`
+
+Rules:
+- this path is verification-only and should be used only when no ordinary end-to-end workflow can expose the behavior under test
+- it is only valid with `operation_mode.eulerian_field_source: "analytical"`
+- new verification source overrides must be implemented in `include/verification_sources.h` and `src/verification_sources.c`
+
+@section p08_petsc_sec 8. petsc_passthrough_options
 
 Advanced escape hatch for raw PETSc flags:
 

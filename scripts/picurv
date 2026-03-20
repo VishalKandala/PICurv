@@ -2741,6 +2741,63 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                             "operation_mode.eulerian_field_source is 'analytical'."
                         )
 
+        verification_cfg = solver_cfg.get('verification', {})
+        if verification_cfg is not None and not isinstance(verification_cfg, dict):
+            errors.append(f"  {solver_path}: 'verification' must be a mapping when provided.")
+        elif isinstance(verification_cfg, dict) and verification_cfg:
+            sources_cfg = verification_cfg.get('sources', {})
+            if sources_cfg is not None and not isinstance(sources_cfg, dict):
+                errors.append(f"  {solver_path}: 'verification.sources' must be a mapping when provided.")
+            elif isinstance(sources_cfg, dict) and sources_cfg:
+                diff_cfg = sources_cfg.get('diffusivity')
+                if diff_cfg is None:
+                    errors.append(
+                        f"  {solver_path}: unsupported verification.sources entries {sorted(sources_cfg.keys())}. "
+                        "Currently supported: 'diffusivity'."
+                    )
+                elif not isinstance(diff_cfg, dict):
+                    errors.append(f"  {solver_path}: 'verification.sources.diffusivity' must be a mapping.")
+                else:
+                    if eulerian_source_mode != "analytical":
+                        errors.append(
+                            f"  {solver_path}: verification.sources.diffusivity is only valid when "
+                            "operation_mode.eulerian_field_source is 'analytical'."
+                        )
+                    mode = diff_cfg.get('mode')
+                    profile = diff_cfg.get('profile')
+                    if str(mode).strip().lower() != "analytical":
+                        errors.append(
+                            f"  {solver_path}: verification.sources.diffusivity.mode must be 'analytical'."
+                        )
+                    if str(profile).strip().upper() != "LINEAR_X":
+                        errors.append(
+                            f"  {solver_path}: verification.sources.diffusivity.profile must be 'LINEAR_X'."
+                        )
+                    for key in ("gamma0", "slope_x"):
+                        if key not in diff_cfg:
+                            errors.append(
+                                f"  {solver_path}: verification.sources.diffusivity.{key} is required."
+                            )
+                        else:
+                            try:
+                                float(diff_cfg[key])
+                            except (TypeError, ValueError):
+                                errors.append(
+                                    f"  {solver_path}: verification.sources.diffusivity.{key} must be numeric."
+                                )
+                unknown_source_keys = sorted(set(sources_cfg.keys()) - {"diffusivity"})
+                if unknown_source_keys:
+                    errors.append(
+                        f"  {solver_path}: unsupported verification.sources entries: {unknown_source_keys}. "
+                        "Currently supported: 'diffusivity'."
+                    )
+            unknown_verification_keys = sorted(set(verification_cfg.keys()) - {"sources"})
+            if unknown_verification_keys:
+                errors.append(
+                    f"  {solver_path}: unsupported verification keys: {unknown_verification_keys}. "
+                    "Currently supported: 'sources'."
+                )
+
         ms_cfg = solver_cfg.get('momentum_solver', {})
         if ms_cfg is not None and not isinstance(ms_cfg, dict):
             errors.append(f"  {solver_path}: 'momentum_solver' must be a mapping when provided.")
@@ -4350,6 +4407,27 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                     raise ValueError(f"operation_mode.uniform_flow.{exc.args[0]} is required when analytical_type is 'UNIFORM_FLOW'.") from exc
                 except (TypeError, ValueError) as exc:
                     raise ValueError("operation_mode.uniform_flow.{u,v,w} must be numeric when analytical_type is 'UNIFORM_FLOW'.") from exc
+
+    verification_cfg = solver_cfg.get('verification', {})
+    if verification_cfg:
+        if not isinstance(verification_cfg, dict):
+            raise ValueError("verification must be a mapping when provided.")
+        sources_cfg = verification_cfg.get('sources', {})
+        if not isinstance(sources_cfg, dict):
+            raise ValueError("verification.sources must be a mapping when provided.")
+        diff_cfg = sources_cfg.get('diffusivity')
+        if diff_cfg is not None:
+            if not isinstance(diff_cfg, dict):
+                raise ValueError("verification.sources.diffusivity must be a mapping.")
+            try:
+                flags['-verification_diffusivity_mode'] = f"\"{str(diff_cfg['mode']).strip().lower()}\""
+                flags['-verification_diffusivity_profile'] = f"\"{str(diff_cfg['profile']).strip().upper()}\""
+                flags['-verification_diffusivity_gamma0'] = float(diff_cfg['gamma0'])
+                flags['-verification_diffusivity_slope_x'] = float(diff_cfg['slope_x'])
+            except KeyError as exc:
+                raise ValueError(f"verification.sources.diffusivity.{exc.args[0]} is required.") from exc
+            except (TypeError, ValueError) as exc:
+                raise ValueError("verification.sources.diffusivity.{gamma0,slope_x} must be numeric and mode/profile must be scalar strings.") from exc
 
     selected_solver = None
     if 'strategy' in solver_cfg:

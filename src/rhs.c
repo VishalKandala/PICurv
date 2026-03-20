@@ -1,4 +1,5 @@
 #include "rhs.h"
+#include "verification_sources.h"
 
 #undef __FUNCT__
 #define __FUNCT__ "Convection"
@@ -1972,6 +1973,12 @@ PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+
+    if (VerificationDiffusivityOverrideActive(user->simCtx)) {
+        ierr = ApplyVerificationDiffusivityOverride(user); CHKERRQ(ierr);
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
 
     // ------------------------------------------------------------------------
     // 1. Parameter Setup & Safety Checks

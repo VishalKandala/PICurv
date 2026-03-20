@@ -120,6 +120,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->AnalyticalUniformVelocity.x = 0.0;
     simCtx->AnalyticalUniformVelocity.y = 0.0;
     simCtx->AnalyticalUniformVelocity.z = 0.0;
+    simCtx->verificationDiffusivity.enabled = PETSC_FALSE;
+    strcpy(simCtx->verificationDiffusivity.mode, "");
+    strcpy(simCtx->verificationDiffusivity.profile, "");
+    simCtx->verificationDiffusivity.gamma0 = 0.0;
+    simCtx->verificationDiffusivity.slope_x = 0.0;
 
     // --- Group 6: Physical & Geometric Parameters ---
     simCtx->NumberOfBodies = 1; simCtx->Flux_in = 1.0; simCtx->angle = 0.0;
@@ -460,6 +465,35 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_u", &simCtx->AnalyticalUniformVelocity.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_v", &simCtx->AnalyticalUniformVelocity.y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_w", &simCtx->AnalyticalUniformVelocity.z, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL, NULL, "-verification_diffusivity_mode",
+                                 simCtx->verificationDiffusivity.mode,
+                                 sizeof(simCtx->verificationDiffusivity.mode), NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL, NULL, "-verification_diffusivity_profile",
+                                 simCtx->verificationDiffusivity.profile,
+                                 sizeof(simCtx->verificationDiffusivity.profile), NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_diffusivity_gamma0",
+                               &simCtx->verificationDiffusivity.gamma0, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-verification_diffusivity_slope_x",
+                               &simCtx->verificationDiffusivity.slope_x, NULL); CHKERRQ(ierr);
+    simCtx->verificationDiffusivity.enabled =
+      (PetscBool)(simCtx->verificationDiffusivity.mode[0] != '\0' ||
+                  simCtx->verificationDiffusivity.profile[0] != '\0');
+    if (simCtx->verificationDiffusivity.enabled) {
+      if (strcmp(simCtx->eulerianSource, "analytical") != 0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+                "verification diffusivity overrides require -euler_field_source \"analytical\".");
+      }
+      if (strcmp(simCtx->verificationDiffusivity.mode, "analytical") != 0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                "Unsupported -verification_diffusivity_mode '%s'. Only 'analytical' is supported.",
+                simCtx->verificationDiffusivity.mode);
+      }
+      if (strcmp(simCtx->verificationDiffusivity.profile, "LINEAR_X") != 0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                "Unsupported -verification_diffusivity_profile '%s'. Only 'LINEAR_X' is supported.",
+                simCtx->verificationDiffusivity.profile);
+      }
+    }
     // NOTE: cdisx,cdisy,cdisz haven't been parsed, add if necessary.
 
      //  --- Group 6

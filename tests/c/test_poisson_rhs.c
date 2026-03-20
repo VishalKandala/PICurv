@@ -7,6 +7,7 @@
 
 #include "poisson.h"
 #include "rhs.h"
+#include "verification_sources.h"
 /**
  * @brief Allocates Poisson/RHS support vectors required by the tests.
  */
@@ -242,6 +243,53 @@ static PetscErrorCode TestComputeEulerianDiffusivityGradientConstantField(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests verification-driven linear diffusivity override and its gradient.
+ */
+
+static PetscErrorCode TestComputeEulerianDiffusivityVerificationLinearX(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal ***diff_arr = NULL;
+    Cmpnts ***grad_arr = NULL;
+    Cmpnts ***cent = NULL;
+    const PetscReal gamma0 = 0.5;
+    const PetscReal slope_x = 0.25;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
+    simCtx->verificationDiffusivity.enabled = PETSC_TRUE;
+    PetscCall(PetscStrncpy(simCtx->verificationDiffusivity.mode, "analytical", sizeof(simCtx->verificationDiffusivity.mode)));
+    PetscCall(PetscStrncpy(simCtx->verificationDiffusivity.profile, "LINEAR_X", sizeof(simCtx->verificationDiffusivity.profile)));
+    simCtx->verificationDiffusivity.gamma0 = gamma0;
+    simCtx->verificationDiffusivity.slope_x = slope_x;
+
+    PetscCall(PicurvAssertBool(VerificationDiffusivityOverrideActive(simCtx),
+                               "verification diffusivity override should report as active"));
+    PetscCall(ComputeEulerianDiffusivity(user));
+    PetscCall(ComputeEulerianDiffusivityGradient(user));
+
+    PetscCall(DMDAVecGetArrayRead(user->da, user->Diffusivity, &diff_arr));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(PicurvAssertRealNear(gamma0 + slope_x * cent[2][2][2].x, diff_arr[2][2][2], 1.0e-12,
+                                   "verification override should populate the linear diffusivity field"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->Diffusivity, &diff_arr));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->DiffusivityGradient, &grad_arr));
+    PetscCall(PicurvAssertRealNear(slope_x, grad_arr[2][2][2].x, 1.0e-12,
+                                   "linear verification diffusivity should yield constant x gradient"));
+    PetscCall(PicurvAssertRealNear(0.0, grad_arr[2][2][2].y, 1.0e-12,
+                                   "linear verification diffusivity should keep y gradient zero"));
+    PetscCall(PicurvAssertRealNear(0.0, grad_arr[2][2][2].z, 1.0e-12,
+                                   "linear verification diffusivity should keep z gradient zero"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->DiffusivityGradient, &grad_arr));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests that the Poisson null-space operator removes the mean from a constant field.
  */
 
@@ -392,6 +440,7 @@ int main(int argc, char **argv)
         {"viscous-uniform-field", TestViscousUniformField},
         {"compute-rhs-zero-field-no-forcing", TestComputeRHSZeroFieldNoForcing},
         {"compute-eulerian-diffusivity-gradient-constant-field", TestComputeEulerianDiffusivityGradientConstantField},
+        {"compute-eulerian-diffusivity-verification-linear-x", TestComputeEulerianDiffusivityVerificationLinearX},
         {"poisson-null-space-function-removes-mean", TestPoissonNullSpaceFunctionRemovesMean},
         {"poisson-lhs-new-assembles-operator", TestPoissonLHSNewAssemblesOperator},
         {"projection-zero-phi-leaves-velocity-unchanged", TestProjectionZeroPhiLeavesVelocityUnchanged},

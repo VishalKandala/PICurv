@@ -186,6 +186,40 @@ static PetscErrorCode TestUpdateParticlePositionWithoutBrownianContribution(void
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests particle position updates driven only by diffusivity-gradient drift.
+ */
+
+static PetscErrorCode TestUpdateParticlePositionDiffusivityGradientOnly(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Particle particle;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->dt = 0.5;
+
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    particle.loc.x = 0.25;
+    particle.loc.y = 0.5;
+    particle.loc.z = 0.75;
+    particle.vel.x = 0.0;
+    particle.vel.y = 0.0;
+    particle.vel.z = 0.0;
+    particle.diffusivitygradient.x = 0.2;
+    particle.diffusivitygradient.y = -0.1;
+    particle.diffusivitygradient.z = 0.3;
+    particle.diffusivity = 0.0;
+
+    PetscCall(UpdateParticlePosition(user, &particle));
+    PetscCall(PicurvAssertRealNear(0.35, particle.loc.x, 1.0e-12, "drift-only x position update"));
+    PetscCall(PicurvAssertRealNear(0.45, particle.loc.y, 1.0e-12, "drift-only y position update"));
+    PetscCall(PicurvAssertRealNear(0.90, particle.loc.z, 1.0e-12, "drift-only z position update"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests IEM relaxation updates for particle-carried fields.
  */
 
@@ -1122,6 +1156,7 @@ int main(int argc, char **argv)
         {"is-particle-inside-bbox-basic-cases", TestIsParticleInsideBoundingBoxBasicCases},
         {"update-particle-weights-computes-expected-ratios", TestUpdateParticleWeightsComputesExpectedRatios},
         {"update-particle-position-without-brownian-contribution", TestUpdateParticlePositionWithoutBrownianContribution},
+        {"update-particle-position-diffusivity-gradient-only", TestUpdateParticlePositionDiffusivityGradientOnly},
         {"update-particle-field-iem-relaxation", TestUpdateParticleFieldIEMRelaxation},
         {"set-initial-interior-field-ignores-non-ucont-request", TestSetInitialInteriorFieldIgnoresNonUcontRequest},
         {"set-initial-interior-field-constant-profile-on-z-inlet", TestSetInitialInteriorFieldConstantProfileOnZInlet},

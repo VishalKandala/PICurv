@@ -82,6 +82,9 @@ Grid behavior:
 - so `programmatic_settings` still provides dimensions and bounds,
 - but the analytical engine populates both Eulerian cell-center and boundary velocity data with the configured constant vector.
 
+Verification-only source overrides such as `solver.yml -> verification.sources.diffusivity` may be paired with `ZERO_FLOW` when the analytical velocity field itself should remain quiescent.
+Those overrides are not general production modeling features; they exist only for otherwise-unreachable end-to-end verification scenarios.
+
 @section p32_particles_sec 6. Particle Consistency
 
 Particle-side analytical initialization hooks exist via @ref SetAnalyticalSolutionForParticles so particle fields can remain consistent with analytical Eulerian state when desired.
