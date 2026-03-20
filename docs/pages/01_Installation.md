@@ -109,9 +109,10 @@ export PETSC_ARCH=arch-linux-c-debug
 source /path/to/PICurv/etc/picurv.sh
 ```
 
-The `etc/picurv.sh` script sets `PICURV_DIR` and adds `bin/` to your `PATH` so
-that `picurv` is available as a command from any directory. It is idempotent and
-safe to source multiple times.
+The `etc/picurv.sh` script sets `PICURV_DIR`, adds `bin/` to your `PATH` for
+compiled executables, and also exposes `scripts/` as a fallback so `picurv`
+still resolves if `bin/picurv` is temporarily absent before a rebuild. It is
+idempotent and safe to source multiple times.
 
 Reload and verify:
 

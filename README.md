@@ -54,7 +54,10 @@ echo 'source /path/to/PICurv/etc/picurv.sh' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-After build, `picurv` is available as a command from any directory.
+After build, `picurv` is available as a command from any directory. The
+environment script keeps `bin/` first on `PATH` for compiled executables and
+also exposes `scripts/` as a fallback so `picurv` still resolves if a pull or
+rebase removes `bin/picurv` before the conductor symlink is rebuilt.
 
 4. Initialize an example:
 ```bash
