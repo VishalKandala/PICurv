@@ -17,8 +17,10 @@
 - Executable naming refresh:
   - renamed the conductor from `pic.flow` to `picurv`.
   - renamed the main solver executable from `picsolver` to `simulator`.
-  - `init` now produces self-contained case directories built around `picurv`, `simulator`, and `postprocessor`.
-  - removed the temporary `--copy-binaries` init flag; copying built executables is now unconditional.
+  - `init` now creates config-only case directories; binaries are resolved from `bin/` via PATH.
+  - `bin/picurv` is now a symlink to `scripts/picurv` (single source of truth).
+  - `sync-binaries` pins specific binary versions into a case directory (optional, for version-pinning).
+  - removed the temporary `--copy-binaries` init flag.
 
 - Grid contract correction:
   - `programmatic_c.im/jm/km` are now treated as cell counts as documented.

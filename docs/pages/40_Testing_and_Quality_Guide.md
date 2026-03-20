@@ -255,7 +255,7 @@ The current smoke runner verifies:
 
 - `bin/simulator` launches and responds to `-help`
 - `bin/postprocessor` launches and responds to `-help`
-- `bin/picurv init` creates a self-contained case with copied binaries + origin metadata
+- `bin/picurv init` creates a case directory with origin metadata (no binary copies)
 - template matrix init/validate/dry-run checks across `flat_channel`, `bent_channel`, and `brownian_motion`
 - `picurv run --dry-run --format json` emits a valid solve/post execution plan
 - restart dry-run planning resolves `--restart-from` into the expected restart source directory

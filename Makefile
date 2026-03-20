@@ -223,11 +223,11 @@ $(POSTPROCESSOR_EXE): $(POSTPROCESSOR_OBJS) | dirs
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 	@echo "--- Build Complete: $(@) ---"
 
-# This rule copies the source script to the bin directory and makes it executable.
+# This rule symlinks the conductor script into the bin directory so PATH-based
+# access always uses the single source of truth in scripts/.
 $(CONDUCTOR_EXE): $(SCRIPTDIR)/picurv | dirs
 	@echo "--- Installing Conductor Script: $(@) ---"
-	@cp $< $@
-	@chmod +x $@
+	@ln -sf ../scripts/picurv $@
 
 # Generic rule for compiling any .c file from SRCDIR into an object file in OBJDIR.
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | dirs

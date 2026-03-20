@@ -61,7 +61,7 @@ my_case/
 `- standard_analysis.yml
 ```
 
-`init` also copies the built executables into the new case directory, so you can run the case in place with `./picurv ...` after build.
+`init` creates the case directory with config files. Runtime binaries (`simulator`, `postprocessor`) are resolved from the project `bin/` directory via PATH — source `etc/picurv.sh` to set it up.
 
 These are the four runtime roles:
 

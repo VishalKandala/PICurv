@@ -66,9 +66,9 @@ Behavior:
 - writes `.picurv-origin.json` with the source repo path and template name,
 - writes `.picurv-execution.yml` for optional site-specific launcher overrides,
 - seeds that file from a repo-root `.picurv-execution.yml` when the source clone already has one, otherwise from inert defaults,
-- copies the full executable set from `bin/` into the new case directory so the case is self-contained,
-- includes `picurv`, `simulator`, and `postprocessor` when they exist in `bin/`,
-- copies built executables when they exist in the source repo `bin/`.
+- does **not** copy binaries; runtime executables are resolved from the project `bin/` directory via PATH.
+
+To pin specific binary versions into a case directory, run `picurv sync-binaries` after init.
 
 Examples:
 
@@ -77,8 +77,8 @@ Examples:
 ./bin/picurv init bent_channel --dest my_bent_case
 ```
 
-Use `init` when you want a runnable starting point that you can `cd` into and launch with `./picurv ...`.
-Use reusable profile libraries directly when you already have your own case directory layout.
+Use `init` when you want a runnable starting point. Ensure `picurv` is on your PATH
+(source `etc/picurv.sh`) to run from any directory.
 
 @section p05_build_sec 3. build: Build Project Executables
 
@@ -107,10 +107,10 @@ Examples:
 
 @section p05_sync_sec 3b. sync-binaries / sync-config / pull-source / status-source
 
-These commands are intended for self-contained case directories created by `init`.
+These commands are intended for case directories created by `init`.
 
-`sync-binaries` refreshes the case-local copies of `picurv`, `simulator`, and `postprocessor`
-from the source repo `bin/`:
+`sync-binaries` copies `simulator` and `postprocessor` from the source repo `bin/`
+into a case directory for version-pinning (optional — normally binaries are resolved via PATH):
 
 ```bash
 ./my_case/picurv sync-binaries
