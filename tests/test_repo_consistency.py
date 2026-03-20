@@ -41,6 +41,18 @@ EXAMPLE_BUNDLES = [
         "post": "examples/interpolation_test/interpolation_analysis.yml",
     },
     {
+        "case": "examples/drift_uniform_flow/case.yml",
+        "solver": "examples/drift_uniform_flow/solver.yml",
+        "monitor": "examples/drift_uniform_flow/monitor.yml",
+        "post": "examples/drift_uniform_flow/post.yml",
+    },
+    {
+        "case": "examples/drift_diffusivity_gradient/case.yml",
+        "solver": "examples/drift_diffusivity_gradient/solver.yml",
+        "monitor": "examples/drift_diffusivity_gradient/monitor.yml",
+        "post": "examples/drift_diffusivity_gradient/post.yml",
+    },
+    {
         "case": "examples/master_template/master_case.yml",
         "solver": "examples/master_template/master_solver.yml",
         "monitor": "examples/master_template/master_monitor.yml",

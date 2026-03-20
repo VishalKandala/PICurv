@@ -169,10 +169,55 @@ Analytical zero-flow Brownian verification:
 - monitor: `examples/brownian_motion/Standard_Output.yml`
 - post: `examples/brownian_motion/brownian_analysis.yml`
 
+Analytical uniform-flow deterministic drift verification:
+
+- case: `examples/drift_uniform_flow/case.yml`
+- solver: `examples/drift_uniform_flow/solver.yml`
+- monitor: `examples/drift_uniform_flow/monitor.yml`
+- post: `examples/drift_uniform_flow/post.yml`
+
+Analytical zero-flow plus verification-source diffusivity drift verification:
+
+- case: `examples/drift_diffusivity_gradient/case.yml`
+- solver: `examples/drift_diffusivity_gradient/solver.yml`
+- monitor: `examples/drift_diffusivity_gradient/monitor.yml`
+- post: `examples/drift_diffusivity_gradient/post.yml`
+
 These are examples, not fixed bundles.
 You can intentionally swap roles when the contract makes sense.
 
-@section p49_config_patterns_sec 5. Configuration Patterns Worth Reusing
+@section p49_drift_verification_sec 5. Drift Verification Workflow
+
+Use the drift examples as separate, end-to-end checks for the two deterministic particle-position terms:
+
+- `examples/drift_uniform_flow/` isolates the carrier-velocity term in `X_new = X_old + (vel + diffusivitygradient) * dt + Brownian`.
+- `examples/drift_diffusivity_gradient/` isolates the diffusivity-gradient term while keeping the carrier flow at zero.
+
+The intended policy is:
+
+- prefer ordinary production pathways first,
+- use analytical solver modes when the solver already supports them,
+- only use `verification.*` overrides when there is no cleaner end-to-end way to prescribe the field needed for verification.
+
+For the current diffusivity-drift case, the curated source override lives behind:
+
+```yaml
+verification:
+  sources:
+    diffusivity:
+      mode: "analytical"
+      profile: "LINEAR_X"
+      gamma0: 1.0e-3
+      slope_x: 2.0e-4
+```
+
+Contributor note:
+
+- new verification source injections must be implemented in `include/verification_sources.h` and `src/verification_sources.c`
+- production call sites should stay thin and delegate into that module
+- do not introduce one-off verification flags directly into unrelated solver files unless there is no alternative and the delegation point remains explicit
+
+@section p49_config_patterns_sec 6. Configuration Patterns Worth Reusing
 
 Minimal zero-flow startup:
 
@@ -251,7 +296,7 @@ Expected step range:
 - first new step is `501`
 - final step after this run is `1500`
 
-@section p49_choose_sec 6. Which Example To Start From
+@section p49_choose_sec 7. Which Example To Start From
 
 Choose `flat_channel` when:
 

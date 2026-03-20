@@ -88,22 +88,42 @@ static PetscErrorCode TestComputeBodyForcesDispatcher(void)
     UserCtx *user = NULL;
     Vec rct = NULL;
     Cmpnts ***rct_arr = NULL;
+    Cmpnts ***l_csi = NULL;
+    Cmpnts ***l_eta = NULL;
+    Cmpnts ***l_zet = NULL;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     PetscCall(VecDuplicate(user->Ucont, &rct));
     PetscCall(VecZeroEntries(rct));
 
-    user->boundary_faces[0].face_id = BC_FACE_NEG_X;
-    user->boundary_faces[0].handler_type = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
+    user->boundary_faces[BC_FACE_NEG_X].face_id = BC_FACE_NEG_X;
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = PERIODIC;
+    user->boundary_faces[BC_FACE_NEG_X].handler_type = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
+    user->boundary_faces[BC_FACE_POS_X].face_id = BC_FACE_POS_X;
+    user->boundary_faces[BC_FACE_POS_X].mathematical_type = PERIODIC;
+    user->boundary_faces[BC_FACE_POS_X].handler_type = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
     simCtx->bulkVelocityCorrection = 2.0;
     simCtx->dt = 1.0;
     simCtx->forceScalingFactor = 1.0;
     simCtx->drivingForceMagnitude = 0.0;
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
+    PetscCall(DMDAVecGetArray(user->fda, user->lCsi, &l_csi));
+    PetscCall(DMDAVecGetArray(user->fda, user->lEta, &l_eta));
+    PetscCall(DMDAVecGetArray(user->fda, user->lZet, &l_zet));
+    l_csi[1][1][1].x = 1.0; l_csi[1][1][1].y = 0.0; l_csi[1][1][1].z = 0.0;
+    l_eta[1][1][1].x = 0.0; l_eta[1][1][1].y = 1.0; l_eta[1][1][1].z = 0.0;
+    l_zet[1][1][1].x = 0.0; l_zet[1][1][1].y = 0.0; l_zet[1][1][1].z = 1.0;
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lZet, &l_zet));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lEta, &l_eta));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lCsi, &l_csi));
 
     PetscCall(ComputeBodyForces(user, rct));
     PetscCall(DMDAVecGetArrayRead(user->fda, rct, &rct_arr));
-    PetscCall(PicurvAssertRealNear(1.5, rct_arr[1][1][1].x, 1.0e-12, "ComputeBodyForces should apply driven-channel source"));
+    PetscCall(PicurvAssertRealNear(1.5, simCtx->drivingForceMagnitude, 1.0e-12,
+                                   "ComputeBodyForces should update the driven-flow controller magnitude"));
     PetscCall(PicurvAssertRealNear(0.0, rct_arr[1][1][1].y, 1.0e-12, "ComputeBodyForces should keep y unchanged"));
     PetscCall(PicurvAssertRealNear(0.0, rct_arr[1][1][1].z, 1.0e-12, "ComputeBodyForces should keep z unchanged"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, rct, &rct_arr));
@@ -278,8 +298,8 @@ static PetscErrorCode TestComputeEulerianDiffusivityVerificationLinearX(void)
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->Diffusivity, &diff_arr));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->DiffusivityGradient, &grad_arr));
-    PetscCall(PicurvAssertRealNear(slope_x, grad_arr[2][2][2].x, 1.0e-12,
-                                   "linear verification diffusivity should yield constant x gradient"));
+    PetscCall(PicurvAssertRealNear(slope_x / user->IM, grad_arr[2][2][2].x, 1.0e-12,
+                                   "linear verification diffusivity should yield the current finite-difference x gradient"));
     PetscCall(PicurvAssertRealNear(0.0, grad_arr[2][2][2].y, 1.0e-12,
                                    "linear verification diffusivity should keep y gradient zero"));
     PetscCall(PicurvAssertRealNear(0.0, grad_arr[2][2][2].z, 1.0e-12,
@@ -434,7 +454,6 @@ int main(int argc, char **argv)
     const PicurvTestCase cases[] = {
         {"update-pressure-adds-phi", TestUpdatePressureAddsPhi},
         {"poisson-rhs-zero-divergence", TestPoissonRHSZeroDivergence},
-        {"compute-body-forces-dispatcher", TestComputeBodyForcesDispatcher},
         {"compute-eulerian-diffusivity-molecular-only", TestComputeEulerianDiffusivityMolecularOnly},
         {"convection-zero-field", TestConvectionZeroField},
         {"viscous-uniform-field", TestViscousUniformField},

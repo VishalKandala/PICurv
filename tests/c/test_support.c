@@ -365,6 +365,11 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     PetscCall(PetscCalloc1(1, &simCtx->usermg.mgctx));
     simCtx->usermg.mgctx[0].thislevel = 0;
     PetscCall(PetscCalloc1(simCtx->size, &simCtx->bboxlist));
+    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &simCtx->BrownianMotionRNG));
+    PetscCall(PetscRandomSetType(simCtx->BrownianMotionRNG, PETSCRAND48));
+    PetscCall(PetscRandomSetInterval(simCtx->BrownianMotionRNG, 0.0, 1.0));
+    PetscCall(PetscRandomSetSeed(simCtx->BrownianMotionRNG, 12345));
+    PetscCall(PetscRandomSeed(simCtx->BrownianMotionRNG));
 
     user->simCtx = simCtx;
     user->_this = 0;
