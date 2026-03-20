@@ -1577,6 +1577,53 @@ def test_init_does_not_copy_any_binaries(tmp_path):
         assert not (out_dir / exe_name).exists()
 
 
+def test_init_pin_binaries_copies_simulator_and_postprocessor(tmp_path):
+    """!
+    @brief Test that init --pin-binaries copies simulator and postprocessor but not picurv.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    fake_root = tmp_path / "fake_root"
+    template_dir = fake_root / "examples" / "demo_case"
+    bin_dir = fake_root / "bin"
+    (fake_root / "src").mkdir(parents=True)
+    (fake_root / "include").mkdir()
+    (fake_root / "scripts").mkdir()
+    template_dir.mkdir(parents=True)
+    bin_dir.mkdir(parents=True)
+    (fake_root / "Makefile").write_text("all:\n\t@echo ok\n", encoding="utf-8")
+
+    (template_dir / "case.yml").write_text("run_control:\n  start_step: 0\n", encoding="utf-8")
+    for exe_name in ("picurv", "simulator", "postprocessor"):
+        exe_path = bin_dir / exe_name
+        exe_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        exe_path.chmod(0o755)
+
+    original_cwd = Path.cwd()
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    try:
+        os.chdir(work_dir)
+        picurv.init_case(
+            SimpleNamespace(
+                template_name="demo_case",
+                dest_name="pinned_out",
+                source_root=str(fake_root),
+                pin_binaries=True,
+            )
+        )
+    finally:
+        os.chdir(original_cwd)
+
+    out_dir = work_dir / "pinned_out"
+    assert (out_dir / picurv.CASE_ORIGIN_METADATA_FILENAME).is_file()
+    for exe_name in ("simulator", "postprocessor"):
+        assert (out_dir / exe_name).is_file()
+        assert not (out_dir / exe_name).is_symlink()
+    assert not (out_dir / "picurv").exists()
+
+
 def test_empty_enabled_functions_omits_whitelist_and_uses_c_default(tmp_path):
     """!
     @brief Test that empty enabled functions omits whitelist and uses c default.

@@ -34,14 +34,12 @@ From repository root:
 
 ```bash
 ./scripts/picurv build
+source etc/picurv.sh
 ```
 
-Once that completes, use `./bin/picurv` for the remaining commands in this guide.
-
-Expected binaries:
-
-- `bin/simulator`
-- `bin/postprocessor`
+The first command builds `bin/simulator`, `bin/postprocessor`, and creates
+`bin/picurv` (a symlink to `scripts/picurv`). The second adds `bin/` to your PATH
+so `picurv` works from any directory. Add the source line to `~/.bashrc` to make it permanent.
 
 If build fails, go to **@subpage 01_Installation** and verify PETSc/MPI toolchain setup.
 

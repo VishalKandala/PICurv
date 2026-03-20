@@ -355,7 +355,41 @@ Verification:
 - check `Stats_msd.csv` in the run directory root, unless `statistics_pipeline.output_prefix`
   includes an explicit path.
 
-@section p11_sweep_sec 5. Sweep Studies
+@section p11_init_sec 5. Case Initialization and Binary Management
+
+@subsection p11_init_basic_ssec 5.1 Initialize a New Case
+
+```bash
+picurv init flat_channel --dest my_case
+```
+
+This copies template files and writes metadata. Runtime binaries (`simulator`, `postprocessor`)
+are resolved from the project `bin/` directory via PATH — no copies are placed in the case.
+
+@subsection p11_init_pin_ssec 5.2 Pin Binaries for Reproducibility
+
+```bash
+picurv init flat_channel --dest my_case --pin-binaries
+```
+
+Use `--pin-binaries` when you plan to submit Slurm jobs and may rebuild the repo before
+the job executes. Case-local copies take precedence over `bin/` originals at runtime.
+
+Equivalent manual step after init:
+
+```bash
+picurv sync-binaries --case-dir my_case
+```
+
+@subsection p11_rebuild_ssec 5.3 Rebuild Safety
+
+- `picurv` (the Python conductor) can be updated at any time — it only launches jobs,
+  it does not run during solver execution.
+- `simulator` and `postprocessor` in `bin/` are overwritten by `make all`. If a queued
+  Slurm job references them by absolute path, the running binary may change.
+- Use `--pin-binaries` or `sync-binaries` before submission to protect running jobs.
+
+@section p11_sweep_sec 6. Sweep Studies
 
 ```bash
 ./bin/picurv sweep \
@@ -384,7 +418,7 @@ Re-aggregate metrics manually:
 
 See **@subpage 37_Sweep_Studies_Guide** for full contract details.
 
-@section p11_next_steps_sec 6. Next Steps
+@section p11_next_steps_sec 7. Next Steps
 
 - Full capability map: **@subpage 12_Capabilities_Summary**
 - Config references: **@subpage 07_Case_Reference**, **@subpage 08_Solver_Reference**, **@subpage 09_Monitor_Reference**, **@subpage 10_Post_Processing_Reference**
