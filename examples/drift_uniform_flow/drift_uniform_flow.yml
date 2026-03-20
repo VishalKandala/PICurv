@@ -1,6 +1,6 @@
 # ==============================================================================
 #  DETERMINISTIC ADVECTION DRIFT VERIFICATION
-#  case.yml
+#  drift_uniform_flow.yml
 # ==============================================================================
 
 properties:
@@ -54,20 +54,20 @@ models:
 
 boundary_conditions:
   - face: "-Xi"
-    type: PERIODIC
-    handler: geometric
+    type: WALL
+    handler: noslip
   - face: "+Xi"
-    type: PERIODIC
-    handler: geometric
+    type: WALL
+    handler: noslip
   - face: "-Eta"
-    type: PERIODIC
-    handler: geometric
+    type: WALL
+    handler: noslip
   - face: "+Eta"
-    type: PERIODIC
-    handler: geometric
+    type: WALL
+    handler: noslip
   - face: "-Zeta"
-    type: PERIODIC
-    handler: geometric
+    type: WALL
+    handler: noslip
   - face: "+Zeta"
-    type: PERIODIC
-    handler: geometric
+    type: WALL
+    handler: noslip

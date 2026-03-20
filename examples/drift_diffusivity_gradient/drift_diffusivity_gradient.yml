@@ -1,6 +1,6 @@
 # ==============================================================================
 #  DIFFUSIVITY-GRADIENT DRIFT VERIFICATION
-#  case.yml
+#  drift_diffusivity_gradient.yml
 # ==============================================================================
 
 properties:
