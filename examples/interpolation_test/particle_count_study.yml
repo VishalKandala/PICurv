@@ -10,25 +10,20 @@ parameters:
   case.models.physics.particles.count: [50000, 500000, 5000000]
 
 metrics:
-  - name: max_L2_u
+  - name: max_L2_error
     source: "statistics_csv"
     file_glob: "logs/interpolation_error.csv"
-    column: "L2_u"
+    column: "L2_error"
     reduction: "max"
-  - name: max_L2_v
+  - name: max_Linf_error
     source: "statistics_csv"
     file_glob: "logs/interpolation_error.csv"
-    column: "L2_v"
+    column: "Linf_error"
     reduction: "max"
-  - name: max_Linf_u
+  - name: max_error_pct
     source: "statistics_csv"
     file_glob: "logs/interpolation_error.csv"
-    column: "Linf_u"
-    reduction: "max"
-  - name: max_Linf_v
-    source: "statistics_csv"
-    file_glob: "logs/interpolation_error.csv"
-    column: "Linf_v"
+    column: "error_pct"
     reduction: "max"
 
 plotting:
