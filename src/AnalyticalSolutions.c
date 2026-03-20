@@ -34,6 +34,9 @@
 // This function is not visible outside this file, enforcing modularity.
 static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx);
 static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx);
+static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx);
+static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCtx *simCtx);
+static PetscErrorCode SetAnalyticalSolutionForParticles_UniformFlow(Vec tempVec, SimCtx *simCtx);
 
 /**
  * @brief Implementation of \ref AnalyticalTypeRequiresCustomGeometry().
@@ -57,7 +60,7 @@ PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
 PetscBool AnalyticalTypeSupportsInterpolationError(const char *analytical_type)
 {
     if (!analytical_type) return PETSC_FALSE;
-    if (strcmp(analytical_type, "ZERO_FLOW") == 0) return PETSC_FALSE;
+    if (strcmp(analytical_type, "ZERO_FLOW") == 0 || strcmp(analytical_type, "UNIFORM_FLOW") == 0) return PETSC_FALSE;
     return PETSC_TRUE;
 }
 
@@ -188,6 +191,10 @@ PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx)
     else if (strcmp(simCtx->AnalyticalSolutionType, "ZERO_FLOW") == 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applying Analytical Solution: Zero Background Flow (ZERO_FLOW).\n");
         ierr = SetAnalyticalSolution_ZeroFlow(simCtx); CHKERRQ(ierr);
+    }
+    else if (strcmp(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW") == 0) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Applying Analytical Solution: Uniform Background Flow (UNIFORM_FLOW).\n");
+        ierr = SetAnalyticalSolution_UniformFlow(simCtx); CHKERRQ(ierr);
     }
     /*
      * --- EXTENSIBILITY HOOK ---
@@ -390,6 +397,65 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "SetAnalyticalSolution_UniformFlow"
+/**
+ * @brief Internal helper implementation: `SetAnalyticalSolution_UniformFlow()`.
+ * @details Local to this translation unit.
+ */
+static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    const Cmpnts uniform_velocity = simCtx->AnalyticalUniformVelocity;
+
+    PetscFunctionBeginUser;
+
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        UserCtx *user = &user_finest[bi];
+        DMDALocalInfo info = user->info;
+        PetscInt      xs = info.xs, xe = info.xs + info.xm;
+        PetscInt      ys = info.ys, ye = info.ys + info.ym;
+        PetscInt      zs = info.zs, ze = info.zs + info.zm;
+        PetscInt      mx = info.mx, my = info.my, mz = info.mz;
+        PetscInt      lxs = (xs == 0) ? xs + 1 : xs, lxe = (xe == mx) ? xe - 1 : xe;
+        PetscInt      lys = (ys == 0) ? ys + 1 : ys, lye = (ye == my) ? ye - 1 : ye;
+        PetscInt      lzs = (zs == 0) ? zs + 1 : zs, lze = (ze == mz) ? ze - 1 : ze;
+        Cmpnts      ***ucat, ***ubcs;
+
+        ierr = DMDAVecGetArray(user->fda, user->Ucat, &ucat); CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
+
+        for (PetscInt k = lzs; k < lze; k++) {
+            for (PetscInt j = lys; j < lye; j++) {
+                for (PetscInt i = lxs; i < lxe; i++) {
+                    ucat[k][j][i] = uniform_velocity;
+                }
+            }
+        }
+
+        if (xs == 0) for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) ubcs[k][j][xs] = uniform_velocity;
+        if (xe == mx) for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) ubcs[k][j][xe - 1] = uniform_velocity;
+        if (ys == 0) for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) ubcs[k][ys][i] = uniform_velocity;
+        if (ye == my) for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) ubcs[k][ye - 1][i] = uniform_velocity;
+        if (zs == 0) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) ubcs[zs][j][i] = uniform_velocity;
+        if (ze == mz) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) ubcs[ze - 1][j][i] = uniform_velocity;
+
+        ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->Ucat, &ucat); CHKERRQ(ierr);
+
+        ierr = VecZeroEntries(user->P);        CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "P");    CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user);          CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user);         CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "P");    CHKERRQ(ierr);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolutionForParticles_TGV3D"
 /**
  * @brief Internal helper implementation: `SetAnalyticalSolutionForParticles_TGV3D()`.
@@ -433,6 +499,33 @@ static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCt
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "SetAnalyticalSolutionForParticles_UniformFlow"
+/**
+ * @brief Internal helper implementation: `SetAnalyticalSolutionForParticles_UniformFlow()`.
+ * @details Local to this translation unit.
+ */
+static PetscErrorCode SetAnalyticalSolutionForParticles_UniformFlow(Vec tempVec, SimCtx *simCtx)
+{
+    PetscErrorCode ierr;
+    PetscInt nLocal;
+    PetscReal *data;
+    const Cmpnts uniform_velocity = simCtx->AnalyticalUniformVelocity;
+
+    PetscFunctionBeginUser;
+
+    ierr = VecGetLocalSize(tempVec, &nLocal); CHKERRQ(ierr);
+    ierr = VecGetArray(tempVec, &data); CHKERRQ(ierr);
+    for (PetscInt i = 0; i < nLocal; i += 3) {
+        data[i] = uniform_velocity.x;
+        data[i + 1] = uniform_velocity.y;
+        data[i + 2] = uniform_velocity.z;
+    }
+    ierr = VecRestoreArray(tempVec, &data); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolutionForParticles"
 /**
  * @brief Implementation of \ref SetAnalyticalSolutionForParticles().
@@ -453,6 +546,11 @@ PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
     if (simCtx->AnalyticalSolutionType && strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using TGV3D solution.\n");
         ierr = SetAnalyticalSolutionForParticles_TGV3D(tempVec, simCtx); CHKERRQ(ierr);
+        return 0;
+    }
+    if (simCtx->AnalyticalSolutionType && strcmp(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW") == 0) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using UNIFORM_FLOW solution.\n");
+        ierr = SetAnalyticalSolutionForParticles_UniformFlow(tempVec, simCtx); CHKERRQ(ierr);
         return 0;
     }
     

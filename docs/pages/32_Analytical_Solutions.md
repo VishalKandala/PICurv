@@ -30,6 +30,7 @@ Current launcher contract:
 
 - `TGV3D`
 - `ZERO_FLOW`
+- `UNIFORM_FLOW`
 
 Implementation touchpoints:
 
@@ -65,11 +66,27 @@ Grid behavior:
 - so `programmatic_settings` still matters,
 - but the flow field itself is imposed analytically as zero everywhere.
 
-@section p32_particles_sec 5. Particle Consistency
+@section p32_uniform_sec 5. UNIFORM_FLOW Details
+
+`UNIFORM_FLOW` sets a constant Eulerian velocity field everywhere in the domain while keeping pressure zero.
+It is intended for deterministic particle-advection verification, where cloud centre-of-mass motion should match the configured constant velocity exactly.
+
+Configuration:
+
+- `solver.yml -> operation_mode.analytical_type: "UNIFORM_FLOW"`
+- `solver.yml -> operation_mode.uniform_flow.{u,v,w}`
+
+Grid behavior:
+
+- `UNIFORM_FLOW` uses the standard programmatic-grid fallback path,
+- so `programmatic_settings` still provides dimensions and bounds,
+- but the analytical engine populates both Eulerian cell-center and boundary velocity data with the configured constant vector.
+
+@section p32_particles_sec 6. Particle Consistency
 
 Particle-side analytical initialization hooks exist via @ref SetAnalyticalSolutionForParticles so particle fields can remain consistent with analytical Eulerian state when desired.
 
-@section p32_extension_sec 6. Adding A New Analytical Type
+@section p32_extension_sec 7. Adding A New Analytical Type
 
 1. add a new branch in function @ref AnalyticalSolutionEngine for the new type,
 2. define geometry policy in function @ref AnalyticalTypeRequiresCustomGeometry for that type,
@@ -104,4 +121,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

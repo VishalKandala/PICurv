@@ -2694,9 +2694,37 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             analytical_type = op_mode_cfg.get('analytical_type')
             if analytical_type is not None:
                 try:
-                    normalize_analytical_type(analytical_type)
+                    normalized_analytical_type = normalize_analytical_type(analytical_type)
                 except ValueError as e:
                     errors.append(f"  {solver_path}: {e}")
+                else:
+                    uniform_flow_cfg = op_mode_cfg.get('uniform_flow')
+                    if uniform_flow_cfg is not None and not isinstance(uniform_flow_cfg, dict):
+                        errors.append(f"  {solver_path}: 'operation_mode.uniform_flow' must be a mapping when provided.")
+                    elif normalized_analytical_type == "UNIFORM_FLOW":
+                        if not isinstance(uniform_flow_cfg, dict):
+                            errors.append(
+                                f"  {solver_path}: operation_mode.uniform_flow is required when "
+                                "operation_mode.analytical_type is 'UNIFORM_FLOW'."
+                            )
+                        else:
+                            for coord in ("u", "v", "w"):
+                                if coord not in uniform_flow_cfg:
+                                    errors.append(
+                                        f"  {solver_path}: operation_mode.uniform_flow.{coord} is required for UNIFORM_FLOW."
+                                    )
+                                else:
+                                    try:
+                                        float(uniform_flow_cfg[coord])
+                                    except (TypeError, ValueError):
+                                        errors.append(
+                                            f"  {solver_path}: operation_mode.uniform_flow.{coord} must be numeric."
+                                        )
+                    elif uniform_flow_cfg is not None:
+                        errors.append(
+                            f"  {solver_path}: operation_mode.uniform_flow is only valid when "
+                            "operation_mode.analytical_type is 'UNIFORM_FLOW'."
+                        )
 
             if eulerian_source_mode == "analytical":
                 if grid_mode != 'programmatic_c':
@@ -4052,10 +4080,10 @@ def normalize_analytical_type(value: str) -> str:
         raise ValueError("analytical_type cannot be None")
 
     normalized = str(value).strip().upper().replace("-", "_").replace(" ", "_")
-    if normalized not in {"TGV3D", "ZERO_FLOW"}:
+    if normalized not in {"TGV3D", "ZERO_FLOW", "UNIFORM_FLOW"}:
         raise ValueError(
             f"Unknown operation_mode.analytical_type '{value}'. "
-            "Use one of: 'TGV3D', 'ZERO_FLOW'."
+            "Use one of: 'TGV3D', 'ZERO_FLOW', 'UNIFORM_FLOW'."
         )
     return normalized
 
@@ -4310,6 +4338,18 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         if 'analytical_type' in op_mode and op_mode.get('analytical_type') is not None:
             normalized_analytical_type = normalize_analytical_type(op_mode.get('analytical_type'))
             flags['-analytical_type'] = f"\"{normalized_analytical_type}\""
+            if normalized_analytical_type == "UNIFORM_FLOW":
+                uniform_flow_cfg = op_mode.get('uniform_flow', {})
+                if not isinstance(uniform_flow_cfg, dict):
+                    raise ValueError("operation_mode.uniform_flow must be a mapping when analytical_type is 'UNIFORM_FLOW'.")
+                try:
+                    flags['-analytical_uniform_u'] = float(uniform_flow_cfg['u'])
+                    flags['-analytical_uniform_v'] = float(uniform_flow_cfg['v'])
+                    flags['-analytical_uniform_w'] = float(uniform_flow_cfg['w'])
+                except KeyError as exc:
+                    raise ValueError(f"operation_mode.uniform_flow.{exc.args[0]} is required when analytical_type is 'UNIFORM_FLOW'.") from exc
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("operation_mode.uniform_flow.{u,v,w} must be numeric when analytical_type is 'UNIFORM_FLOW'.") from exc
 
     selected_solver = None
     if 'strategy' in solver_cfg:

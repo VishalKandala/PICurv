@@ -417,6 +417,15 @@ def test_removed_selector_aliases_are_rejected():
         raise AssertionError(f"{func.__name__} unexpectedly accepted deprecated input {value!r}")
 
 
+def test_normalize_analytical_type_accepts_uniform_flow():
+    """!
+    @brief Test that normalize_analytical_type accepts the UNIFORM_FLOW selector.
+    """
+    picurv = load_picurv_module()
+
+    assert picurv.normalize_analytical_type("uniform flow") == "UNIFORM_FLOW"
+
+
 def test_picgrid_validation_requires_canonical_header(tmp_path):
     """!
     @brief Test that picgrid validation requires canonical header.

@@ -65,6 +65,7 @@ For each run, `picurv` generates:
 
 - `operation_mode.eulerian_field_source` -> `-euler_field_source`
 - `operation_mode.analytical_type` -> `-analytical_type`
+- `operation_mode.uniform_flow.{u,v,w}` -> `-analytical_uniform_u/-analytical_uniform_v/-analytical_uniform_w` for `UNIFORM_FLOW`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
 - Solver-specific block support currently includes `momentum_solver.dual_time_picard_rk4`.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
