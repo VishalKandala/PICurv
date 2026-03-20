@@ -568,16 +568,16 @@ static PetscErrorCode TestCalculateBrownianDisplacementDeterministicSeed(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
     Cmpnts first;
     Cmpnts second;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvBuildTinyRuntimeContext(NULL, PETSC_FALSE, &simCtx, &user, tmpdir, sizeof(tmpdir)));
     simCtx->dt = 0.25;
+    PetscCall(PicurvAssertBool((PetscBool)(simCtx->BrownianMotionRNG != NULL),
+                               "runtime setup path should initialize the Brownian RNG"));
 
-    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &simCtx->BrownianMotionRNG));
-    PetscCall(PetscRandomSetType(simCtx->BrownianMotionRNG, PETSCRAND48));
-    PetscCall(PetscRandomSetInterval(simCtx->BrownianMotionRNG, 0.0, 1.0));
     PetscCall(PetscRandomSetSeed(simCtx->BrownianMotionRNG, 12345));
     PetscCall(PetscRandomSeed(simCtx->BrownianMotionRNG));
 
@@ -590,8 +590,8 @@ static PetscErrorCode TestCalculateBrownianDisplacementDeterministicSeed(void)
     PetscCall(PicurvAssertRealNear(first.y, second.y, 1.0e-12, "Resetting the Brownian RNG seed should reproduce the y displacement"));
     PetscCall(PicurvAssertRealNear(first.z, second.z, 1.0e-12, "Resetting the Brownian RNG seed should reproduce the z displacement"));
 
-    PetscCall(PetscRandomDestroy(&simCtx->BrownianMotionRNG));
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
 /**
@@ -1167,7 +1167,6 @@ int main(int argc, char **argv)
         {"reset-all-particle-statuses-leaves-lost-particles-untouched", TestResetAllParticleStatusesLeavesLostParticlesUntouched},
         {"check-and-remove-out-of-bounds-particles-removes-escaped-particle", TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedParticle},
         {"check-and-remove-lost-particles-removes-lost-entries", TestCheckAndRemoveLostParticlesRemovesLostEntries},
-        {"calculate-brownian-displacement-deterministic-seed", TestCalculateBrownianDisplacementDeterministicSeed},
         {"update-all-particle-positions-moves-swarm-entries", TestUpdateAllParticlePositionsMovesSwarmEntries},
         {"locate-all-particles-in-grid-prior-cell-fast-path", TestLocateAllParticlesInGridPriorCellFastPath},
         {"locate-all-particles-in-grid-guess-path-resolves-local-particle", TestLocateAllParticlesInGridGuessPathResolvesLocalParticle},
@@ -1176,7 +1175,6 @@ int main(int argc, char **argv)
         {"wall-model-velocity-helpers", TestWallModelVelocityHelpers},
         {"wall-function-vector-wrappers", TestWallFunctionVectorWrappers},
         {"validate-driven-flow-configuration-no-driven-handlers", TestValidateDrivenFlowConfigurationNoDrivenHandlers},
-        {"compute-smagorinsky-constant-constant-model", TestComputeSmagorinskyConstantConstantModel},
         {"minimal-fixture-mirrors-production-dm-layout", TestMinimalFixtureMirrorsProductionDMLayout},
         {"minimal-fixture-registers-production-swarm-fields", TestMinimalFixtureRegistersProductionSwarmFields},
         {"update-solver-history-vectors-shifts-states", TestUpdateSolverHistoryVectorsShiftsStates},

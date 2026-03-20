@@ -22,23 +22,23 @@ operation_mode:
   # The current C analytical path expects case.yml to use grid.mode: programmatic_c.
   analytical_type: "TGV3D"        # -> -analytical_type
   # Parameters for analytical_type: "UNIFORM_FLOW".
-  # These are ignored for other analytical types.
-  uniform_flow:
-    u: 0.0                        # -> -analytical_uniform_u
-    v: 0.0                        # -> -analytical_uniform_v
-    w: 0.0                        # -> -analytical_uniform_w
+  # Uncomment this block only when analytical_type = "UNIFORM_FLOW".
+  # uniform_flow:
+  #   u: 0.0                      # -> -analytical_uniform_u
+  #   v: 0.0                      # -> -analytical_uniform_v
+  #   w: 0.0                      # -> -analytical_uniform_w
 
 # Verification-only source overrides.
 # Use these only when ordinary end-to-end setup cannot expose the behavior you need to test.
 # New verification-pathway source injections must be implemented in
 # include/verification_sources.h and src/verification_sources.c.
-verification:
-  sources:
-    diffusivity:
-      mode: "analytical"          # Verification-only selector; currently fixed to analytical
-      profile: "LINEAR_X"         # Supported today: LINEAR_X
-      gamma0: 1.0e-3              # -> -verification_diffusivity_gamma0
-      slope_x: 2.0e-4             # -> -verification_diffusivity_slope_x
+# verification:
+#   sources:
+#     diffusivity:
+#       mode: "analytical"        # Verification-only selector; currently fixed to analytical
+#       profile: "LINEAR_X"       # Supported today: LINEAR_X
+#       gamma0: 1.0e-3            # -> -verification_diffusivity_gamma0
+#       slope_x: 2.0e-4           # -> -verification_diffusivity_slope_x
 
 # ==============================================================================
 # 2. PRIMARY SOLVER STRATEGY & TOLERANCES
