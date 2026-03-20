@@ -139,9 +139,9 @@ def make_fake_git_source_clone(tmp_path: Path) -> Path:
     return source_root
 
 
-def test_init_case_writes_origin_metadata_and_copies_binaries(tmp_path):
+def test_init_case_writes_origin_metadata_without_binaries(tmp_path):
     """!
-    @brief Test that init case writes origin metadata and copies binaries.
+    @brief Test that init writes origin metadata but does not copy binaries.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -160,9 +160,8 @@ def test_init_case_writes_origin_metadata_and_copies_binaries(tmp_path):
     assert metadata["template_name"] == "demo"
     assert metadata["template_managed_files"] == ["case.yml", "guide.md", "nested/notes.txt"]
     assert (case_dir / "case.yml").read_text(encoding="utf-8") == "case: baseline\n"
-    assert (case_dir / "simulator").read_text(encoding="utf-8") == "simulator-v1\n"
-    assert (case_dir / "postprocessor").read_text(encoding="utf-8") == "postprocessor-v1\n"
-    assert (case_dir / "picurv").read_text(encoding="utf-8") == "picurv-v1\n"
+    for exe_name in ("picurv", "simulator", "postprocessor"):
+        assert not (case_dir / exe_name).exists()
     runtime_cfg = yaml.safe_load((case_dir / picurv.RUNTIME_EXECUTION_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert runtime_cfg == {
         "default_execution": {},
@@ -324,7 +323,7 @@ def test_sync_case_binaries_command_refreshes_case_and_bootstraps_metadata(tmp_p
     assert metadata["source_repo_root"] == str(source_root.resolve())
     assert (case_dir / "simulator").read_text(encoding="utf-8") == "simulator-v1\n"
     assert (case_dir / "postprocessor").read_text(encoding="utf-8") == "postprocessor-v1\n"
-    assert (case_dir / "picurv").read_text(encoding="utf-8") == "picurv-v1\n"
+    assert not (case_dir / "picurv").exists()
 
 
 def test_sync_config_preserves_modified_files_without_overwrite(tmp_path):
@@ -614,7 +613,7 @@ def test_sync_binaries_cli_refreshes_case_from_metadata(tmp_path):
     assert metadata["source_repo_root"] == str(source_root.resolve())
     assert (case_dir / "simulator").read_text(encoding="utf-8") == "simulator-v1\n"
     assert (case_dir / "postprocessor").read_text(encoding="utf-8") == "postprocessor-v1\n"
-    assert (case_dir / "picurv").read_text(encoding="utf-8") == "picurv-v1\n"
+    assert not (case_dir / "picurv").exists()
 
 
 def test_sync_config_cli_bootstraps_template_files_and_runtime_config(tmp_path):

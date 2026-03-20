@@ -970,7 +970,7 @@ def list_source_binaries(source_project_root: str):
 
 def sync_case_binaries(case_dir: str, source_project_root: str):
     """!
-    @brief Copy current source-repo binaries into a case directory, refreshing picurv last.
+    @brief Copy current source-repo binaries into a case directory for version-pinning.
     @param[in] case_dir Argument passed to `sync_case_binaries()`.
     @param[in] source_project_root Argument passed to `sync_case_binaries()`.
     @return Value returned by `sync_case_binaries()`.
@@ -8100,9 +8100,9 @@ def cancel_run_jobs(args):
 def init_case(args):
     """!
     @brief Implements the 'init' command.
-    @details Creates a new case study directory by copying a template and then
-             copies the project's executables into it so the case directory is
-             runnable on its own.
+    @details Creates a new case study directory by copying a template.
+             Runtime binaries are resolved from the project bin/ directory
+             via PATH; use 'sync-binaries' to pin specific versions locally.
     @param[in] args The command-line arguments parsed by argparse.
     """
     context = resolve_case_origin_context(source_root_override=getattr(args, "source_root", None))
@@ -8165,20 +8165,10 @@ def init_case(args):
             print(f"  - {profile_name}")
         print("       Edit account/partition/module_setup and any batch-specific launcher overrides before using --cluster.")
 
-    print("[INFO] Copying runtime binaries (simulator, postprocessor)...")
-    try:
-        copied_binaries = sync_case_binaries(dest_path, source_project_root)
-        for dest_file_path in copied_binaries:
-            print(f"  - Copied '{os.path.basename(dest_file_path)}'")
-        print("[SUCCESS] Runtime binaries are now available in your case directory.")
-        print("          Ensure 'picurv' is on your PATH (source etc/picurv.sh).")
-        print("          If your cluster/login node needs custom MPI launcher tokens, edit '.picurv-execution.yml'.")
-    except ValueError as exc:
-        print(f"[WARNING] {exc}", file=sys.stderr)
-        print("          No binaries were copied. Run 'picurv build' first, or add 'SYSTEM=cluster' when building on a cluster.", file=sys.stderr)
-    except Exception as e:
-        print(f"[ERROR] Failed to process binaries: {e}", file=sys.stderr)
-        print("        Your case files were copied, but you will need to run commands from the project root.", file=sys.stderr)
+    print("[SUCCESS] Case directory is ready.")
+    print("          Ensure 'picurv' is on your PATH (source etc/picurv.sh) to run from any directory.")
+    print("          Runtime binaries (simulator, postprocessor) are resolved from bin/ automatically.")
+    print("          To pin specific binary versions into this case, run: picurv sync-binaries")
 
 
 def sync_case_binaries_command(args):
@@ -8674,14 +8664,15 @@ def _add_sync_binaries_parser(subparsers):
     """
     p_sync_binaries = subparsers.add_parser(
         "sync-binaries",
-        help="Refresh a case directory's copied executables from the source repo.",
+        help="Pin specific binary versions into a case directory (optional).",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Update case-local copies of picurv/simulator/postprocessor from the source repository.\n\n"
+            "Copy simulator/postprocessor from the source repo bin/ into a case directory.\n"
+            "This is optional — binaries are normally resolved via PATH. Use this only\n"
+            "when you need to pin a specific build into a case for reproducibility.\n\n"
             "Examples:\n"
-            "  ./picurv sync-binaries\n"
-            "  ./bin/picurv sync-binaries --case-dir my_case\n"
-            "  ./picurv sync-binaries --source-root /path/to/PICurv"
+            "  picurv sync-binaries --case-dir my_case\n"
+            "  picurv sync-binaries --source-root /path/to/PICurv"
         ),
         epilog="Next: run `./picurv build ...` first if the source repo bin/ is out of date.",
     )

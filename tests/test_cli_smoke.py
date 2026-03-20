@@ -1533,9 +1533,9 @@ def test_case_local_copied_picurv_prefers_local_binaries(tmp_path):
     assert payload["stages"]["post-process"]["launch_command"][0] == str(case_dir / "postprocessor")
 
 
-def test_init_always_copies_full_executable_set(tmp_path):
+def test_init_does_not_copy_any_binaries(tmp_path):
     """!
-    @brief Test that init copies runtime binaries but not the conductor script.
+    @brief Test that init copies only template files, no binaries.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -1573,11 +1573,8 @@ def test_init_always_copies_full_executable_set(tmp_path):
 
     out_dir = work_dir / "demo_out"
     assert (out_dir / picurv.CASE_ORIGIN_METADATA_FILENAME).is_file()
-    for exe_name in ("simulator", "postprocessor"):
-        exe_path = out_dir / exe_name
-        assert exe_path.is_file()
-        assert not exe_path.is_symlink()
-    assert not (out_dir / "picurv").exists()
+    for exe_name in ("picurv", "simulator", "postprocessor"):
+        assert not (out_dir / exe_name).exists()
 
 
 def test_empty_enabled_functions_omits_whitelist_and_uses_c_default(tmp_path):

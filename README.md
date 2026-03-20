@@ -61,10 +61,10 @@ After build, `picurv` is available as a command from any directory.
 ./bin/picurv init flat_channel --dest my_case
 ```
 
-If project binaries are already built, `init` copies the available executables into the new case
-directory so it is self-contained and runnable with `./picurv ...`.
-`init` also writes `.picurv-origin.json`, which records the source repo path so the case-local
-`./picurv` can later rebuild, pull, and resync from the original code directory.
+`init` creates the case directory with config files. Runtime binaries (`simulator`, `postprocessor`)
+are resolved from the project `bin/` directory via PATH — no copies are placed in the case.
+`init` also writes `.picurv-origin.json`, which records the source repo path so maintenance
+commands can rebuild, pull, and resync from the original code directory.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
 
@@ -98,20 +98,19 @@ You can reuse and recombine them instead of rewriting a monolithic config for ev
 `-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution. `picurv init` now creates an inert `.picurv-execution.yml` in each new case; leave it unchanged for ordinary local runs, or edit it when your login node / cluster needs custom MPI launcher tokens. For a cluster-specific clone, the clean setup is to create one ignored repo-root `.picurv-execution.yml`; `init` will seed new cases from it automatically, and `sync-config` will create a missing case-local file from it without overwriting existing case-local edits. Existing cases can still start from [execution.example.yml](config/runtime/execution.example.yml). Local multi-rank precedence is: `PICURV_MPI_LAUNCHER`, then `MPI_LAUNCHER`, then nearest `.picurv-execution.yml`, then legacy `.picurv-local.yml`, then default `mpiexec`. Cluster job generation uses `cluster.yml.execution` first, then `.picurv-execution.yml`, then the built-in cluster default.
 For batch-policy files, prefer local operational names such as `short_job.local.yml` / `long_job.local.yml` instead of committing account/module-specific scheduler profiles.
 
-## Case Maintenance From A Self-Contained Case
+## Case Maintenance
 
-After `init`, you can stay inside the case directory and still operate on the original source repo:
+After `init`, you can operate on the original source repo from anywhere using `picurv` on PATH:
 
 ```bash
-cd my_case
-./picurv status-source           # inspect code/template drift before syncing
-./picurv build                  # rebuild in the source repo (defaults to `make all`)
-./picurv build clean-project    # clean in the source repo
-./picurv pull-source            # git pull --rebase in the source repo
-./picurv sync-binaries          # refresh copied executables in this case
-./picurv sync-config            # copy updated template files, preserve modified files
-./picurv sync-config --overwrite
-./picurv sync-config --prune    # remove stale template-managed files removed upstream
+picurv status-source --case-dir my_case  # inspect code/template drift before syncing
+picurv build                             # rebuild in the source repo (defaults to `make all`)
+picurv build clean-project               # clean in the source repo
+picurv pull-source --case-dir my_case    # git pull --rebase in the source repo
+picurv sync-binaries --case-dir my_case  # pin specific binary versions into the case (optional)
+picurv sync-config --case-dir my_case    # copy updated template files, preserve modified files
+picurv sync-config --case-dir my_case --overwrite
+picurv sync-config --case-dir my_case --prune  # remove stale template-managed files
 ```
 
 If the case predates `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
