@@ -16,11 +16,16 @@ For the full commented template, see:
 operation_mode:
   eulerian_field_source: "solve"
   analytical_type: "TGV3D"
+  uniform_flow:
+    u: 0.0
+    v: 0.0
+    w: 0.0
 ```
 
 Mappings:
 - `eulerian_field_source` -> `-euler_field_source` (`solve`, `load`, `analytical`)
 - `analytical_type` -> `-analytical_type`
+- `uniform_flow.u/v/w` -> `-analytical_uniform_u/-analytical_uniform_v/-analytical_uniform_w` when `analytical_type: "UNIFORM_FLOW"`
 
 @section p08_strategy_sec 2. strategy
 
@@ -155,4 +160,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

@@ -18,9 +18,15 @@ operation_mode:
   # 'load':  Load pre-computed field data from disk.
   eulerian_field_source: "solve"  # -> -euler_field_source
   # Optional analytical solution selector used when eulerian_field_source = "analytical".
-  # Supported values today: "TGV3D", "ZERO_FLOW".
+  # Supported values today: "TGV3D", "ZERO_FLOW", "UNIFORM_FLOW".
   # The current C analytical path expects case.yml to use grid.mode: programmatic_c.
   analytical_type: "TGV3D"        # -> -analytical_type
+  # Parameters for analytical_type: "UNIFORM_FLOW".
+  # These are ignored for other analytical types.
+  uniform_flow:
+    u: 0.0                        # -> -analytical_uniform_u
+    v: 0.0                        # -> -analytical_uniform_v
+    w: 0.0                        # -> -analytical_uniform_w
 
 # ==============================================================================
 # 2. PRIMARY SOLVER STRATEGY & TOLERANCES

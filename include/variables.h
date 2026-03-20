@@ -654,6 +654,7 @@ typedef struct SimCtx {
     PetscBool ps_ksp_pic_monitor_true_residual; // Parsed once from options for custom Poisson monitor logging.
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
+    Cmpnts    AnalyticalUniformVelocity;
     
     //================ Group 6: Physical & Geometric Parameters ================
     PetscInt  NumberOfBodies;

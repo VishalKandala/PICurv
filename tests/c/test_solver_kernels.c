@@ -101,7 +101,7 @@ static PetscErrorCode TestAnalyticalGeometrySelection(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests analytical solution engine ZERO_FLOW and unknown-type dispatch.
+ * @brief Tests analytical solution engine ZERO_FLOW, UNIFORM_FLOW, and unknown-type dispatch.
  */
 
 static PetscErrorCode TestAnalyticalSolutionEngineDispatch(void)
@@ -109,6 +109,8 @@ static PetscErrorCode TestAnalyticalSolutionEngineDispatch(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     PetscErrorCode ierr_unknown = 0;
+    Cmpnts ***ucat = NULL;
+    Cmpnts ***ubcs = NULL;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
@@ -121,6 +123,23 @@ static PetscErrorCode TestAnalyticalSolutionEngineDispatch(void)
     PetscCall(PicurvAssertVecConstant(user->Ucat, 0.0, 1.0e-12, "ZERO_FLOW should zero the Eulerian velocity field"));
     PetscCall(PicurvAssertVecConstant(user->P, 0.0, 1.0e-12, "ZERO_FLOW should zero the pressure field"));
     PetscCall(PicurvAssertVecConstant(user->Bcs.Ubcs, 0.0, 1.0e-12, "ZERO_FLOW should zero boundary-condition velocity data"));
+
+    simCtx->AnalyticalUniformVelocity.x = 1.25;
+    simCtx->AnalyticalUniformVelocity.y = -0.5;
+    simCtx->AnalyticalUniformVelocity.z = 0.75;
+    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
+    PetscCall(AnalyticalSolutionEngine(simCtx));
+    PetscCall(PicurvAssertVecConstant(user->P, 0.0, 1.0e-12, "UNIFORM_FLOW should keep the pressure field zero"));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(PicurvAssertRealNear(1.25, ucat[1][1][1].x, 1.0e-12, "UNIFORM_FLOW should impose the configured x velocity"));
+    PetscCall(PicurvAssertRealNear(-0.5, ucat[1][1][1].y, 1.0e-12, "UNIFORM_FLOW should impose the configured y velocity"));
+    PetscCall(PicurvAssertRealNear(0.75, ucat[1][1][1].z, 1.0e-12, "UNIFORM_FLOW should impose the configured z velocity"));
+    PetscCall(PicurvAssertRealNear(1.25, ubcs[0][1][1].x, 1.0e-12, "UNIFORM_FLOW should populate boundary x velocity"));
+    PetscCall(PicurvAssertRealNear(-0.5, ubcs[0][1][1].y, 1.0e-12, "UNIFORM_FLOW should populate boundary y velocity"));
+    PetscCall(PicurvAssertRealNear(0.75, ubcs[0][1][1].z, 1.0e-12, "UNIFORM_FLOW should populate boundary z velocity"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
 
     PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "NOT_A_REAL_ANALYTICAL_TYPE", sizeof(simCtx->AnalyticalSolutionType)));
     PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
@@ -203,7 +222,7 @@ static PetscErrorCode TestAnalyticalSolutionEngineTaylorGreenSamples(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests particle analytical-solution dispatch for TGV3D and non-TGV no-op paths.
+ * @brief Tests particle analytical-solution dispatch for TGV3D, UNIFORM_FLOW, and non-analytical no-op paths.
  */
 
 static PetscErrorCode TestAnalyticalSolutionForParticlesDispatch(void)
@@ -255,6 +274,26 @@ static PetscErrorCode TestAnalyticalSolutionForParticlesDispatch(void)
                                    "Non-TGV particle dispatch should preserve the y component"));
     PetscCall(PicurvAssertRealNear(5.0, data[2], 1.0e-12,
                                    "Non-TGV particle dispatch should preserve the z component"));
+    PetscCall(VecRestoreArray(tempVec, &data));
+
+    simCtx.AnalyticalUniformVelocity.x = 0.125;
+    simCtx.AnalyticalUniformVelocity.y = -0.25;
+    simCtx.AnalyticalUniformVelocity.z = 0.375;
+    PetscCall(PetscStrncpy(simCtx.AnalyticalSolutionType, "UNIFORM_FLOW", sizeof(simCtx.AnalyticalSolutionType)));
+    PetscCall(SetAnalyticalSolutionForParticles(tempVec, &simCtx));
+    PetscCall(VecGetArray(tempVec, &data));
+    PetscCall(PicurvAssertRealNear(0.125, data[0], 1.0e-12,
+                                   "UNIFORM_FLOW particle dispatch should populate the x velocity"));
+    PetscCall(PicurvAssertRealNear(-0.25, data[1], 1.0e-12,
+                                   "UNIFORM_FLOW particle dispatch should populate the y velocity"));
+    PetscCall(PicurvAssertRealNear(0.375, data[2], 1.0e-12,
+                                   "UNIFORM_FLOW particle dispatch should populate the z velocity"));
+    PetscCall(PicurvAssertRealNear(0.125, data[3], 1.0e-12,
+                                   "UNIFORM_FLOW particle dispatch should use the same x velocity for each particle"));
+    PetscCall(PicurvAssertRealNear(-0.25, data[4], 1.0e-12,
+                                   "UNIFORM_FLOW particle dispatch should use the same y velocity for each particle"));
+    PetscCall(PicurvAssertRealNear(0.375, data[5], 1.0e-12,
+                                   "UNIFORM_FLOW particle dispatch should use the same z velocity for each particle"));
     PetscCall(VecRestoreArray(tempVec, &data));
 
     PetscCall(VecDestroy(&tempVec));

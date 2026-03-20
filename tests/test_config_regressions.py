@@ -236,3 +236,28 @@ def test_dry_run_json_reports_predicted_statistics_csv_artifact(tmp_path):
     payload = json.loads(result.stdout)
     expected_stats_path = str((Path(payload["run_dir_preview"]) / "stats" / "BrownianStats_msd.csv").resolve())
     assert expected_stats_path in payload["artifacts"]
+
+
+def test_parse_solver_config_maps_uniform_flow_velocity_flags():
+    """!
+    @brief Test that parse_solver_config maps UNIFORM_FLOW settings into control flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "operation_mode": {
+            "eulerian_field_source": "analytical",
+            "analytical_type": "UNIFORM_FLOW",
+            "uniform_flow": {
+                "u": 0.5,
+                "v": -0.25,
+                "w": 0.125,
+            },
+        }
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-analytical_type"] == '"UNIFORM_FLOW"'
+    assert flags["-analytical_uniform_u"] == 0.5
+    assert flags["-analytical_uniform_v"] == -0.25
+    assert flags["-analytical_uniform_w"] == 0.125

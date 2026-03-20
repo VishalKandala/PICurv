@@ -25,7 +25,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `case.models.physics.particles.*` | `-numParticles`, `-pinit`, `-particle_restart_mode`, `-psrc_*` | `src/setup.c` | `src/ParticleSwarm.c`, `src/ParticleMotion.c`, statistics kernels |
 | `solver.interpolation.method` | `-interpolation_method` | `src/setup.c` | `src/interpolation.c` (dispatch in @ref InterpolateEulerFieldToSwarm) |
 | `case.boundary_conditions` | `bcs*.run` rows | BC parser path (`src/Boundaries.c` + helpers) | BC handler factory and boundary application |
-| `solver.operation_mode.*` | `-euler_field_source`, `-analytical_type` | `src/setup.c` | `src/initialcondition.c`, `src/grid.c`, `src/AnalyticalSolutions.c` |
+| `solver.operation_mode.*` | `-euler_field_source`, `-analytical_type`, `-analytical_uniform_u/-v/-w` | `src/setup.c` | `src/initialcondition.c`, `src/grid.c`, `src/AnalyticalSolutions.c` |
 | `solver.strategy/tolerances/momentum_solver.*` | solver flags (`-mom_*`, pseudo-CFL, etc.) | `src/setup.c` | `src/momentumsolvers.c` |
 | `solver.pressure_solver.*` | `-poisson_tol`, `-mg_*`, prefixed PETSc flags | `src/setup.c` + PETSc options db | `src/poisson.c` |
 | `solver.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc KSP/PC stack, mostly in `src/poisson.c` |

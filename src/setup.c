@@ -117,6 +117,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->InitialConstantContra.x = 0.0;
     simCtx->InitialConstantContra.y = 0.0;
     simCtx->InitialConstantContra.z = 0.0;
+    simCtx->AnalyticalUniformVelocity.x = 0.0;
+    simCtx->AnalyticalUniformVelocity.y = 0.0;
+    simCtx->AnalyticalUniformVelocity.z = 0.0;
 
     // --- Group 6: Physical & Geometric Parameters ---
     simCtx->NumberOfBodies = 1; simCtx->Flux_in = 1.0; simCtx->angle = 0.0;
@@ -454,6 +457,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_y", &simCtx->InitialConstantContra.y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_z", &simCtx->InitialConstantContra.z, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_u", &simCtx->AnalyticalUniformVelocity.x, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_v", &simCtx->AnalyticalUniformVelocity.y, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_w", &simCtx->AnalyticalUniformVelocity.z, NULL); CHKERRQ(ierr);
     // NOTE: cdisx,cdisy,cdisz haven't been parsed, add if necessary.
 
      //  --- Group 6

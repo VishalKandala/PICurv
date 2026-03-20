@@ -11,12 +11,23 @@
 PetscErrorCode FlowSolver(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
-    UserMG         *usermg = &simCtx->usermg;
-    PetscInt       level = usermg->mglevels - 1;
-    UserCtx        *user = usermg->mgctx[level].user;
+    UserMG         *usermg = NULL;
+    PetscInt       level;
+    UserCtx        *user = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+
+    if (simCtx->mom_solver_type != MOMENTUM_SOLVER_DUALTIME_PICARD_RK4 &&
+        simCtx->mom_solver_type != MOMENTUM_SOLVER_EXPLICIT_RK) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                "Unknown momentum solver type %d. Supported values are EXPLICIT_RK and DUALTIME_PICARD_RK4.",
+                simCtx->mom_solver_type);
+    }
+
+    usermg = &simCtx->usermg;
+    level  = usermg->mglevels - 1;
+    user   = usermg->mgctx[level].user;
     LOG_ALLOW(GLOBAL, LOG_INFO, "[Step %d] Entering orchestrator...\n", simCtx->step);
 
     /*
@@ -94,10 +105,6 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     } else if(simCtx->mom_solver_type == MOMENTUM_SOLVER_EXPLICIT_RK) {   
     // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
     ierr = MomentumSolver_Explicit_RungeKutta4(user, NULL, NULL); CHKERRQ(ierr);
-    } else {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                "Unknown momentum solver type %d. Supported values are EXPLICIT_RK and DUALTIME_PICARD_RK4.",
-                simCtx->mom_solver_type);
     }
 // ========================================================================
 //   SECTION: Pressure-Poisson Solver
