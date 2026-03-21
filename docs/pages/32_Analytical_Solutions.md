@@ -81,6 +81,7 @@ Grid behavior:
 - `UNIFORM_FLOW` uses the standard programmatic-grid fallback path,
 - so `programmatic_settings` still provides dimensions and bounds,
 - but the analytical engine populates both Eulerian cell-center and boundary velocity data with the configured constant vector.
+- the implementation works in curvilinear form: it sets `Ucont` (contravariant flux) using face-metric dot products and derives `Ucat` via `Contra2Cart`, ensuring correctness on non-Cartesian grids.
 
 Verification-only source overrides such as `solver.yml -> verification.sources.diffusivity` may be paired with `ZERO_FLOW` when the analytical velocity field itself should remain quiescent.
 Those overrides are not general production modeling features; they exist only for otherwise-unreachable end-to-end verification scenarios.
