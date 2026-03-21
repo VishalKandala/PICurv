@@ -187,13 +187,16 @@ run_case_init_smoke() {
   local case_dir="${tmp_root}/case-from-init"
   "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
 
-  require_executable "${case_dir}/picurv" "case-local picurv"
-  require_executable "${case_dir}/simulator" "case-local simulator"
-  require_executable "${case_dir}/postprocessor" "case-local postprocessor"
   require_file "${case_dir}/.picurv-origin.json" "case origin metadata"
+  require_file "${case_dir}/.picurv-execution.yml" "case runtime execution config"
+
+  if [[ -e "${case_dir}/picurv" || -e "${case_dir}/simulator" || -e "${case_dir}/postprocessor" ]]; then
+    echo "Smoke failure: init should not create case-local executables without --pin-binaries." >&2
+    exit 1
+  fi
 
   local status_json="${tmp_root}/status.json"
-  "${case_dir}/picurv" status-source --case-dir "${case_dir}" --format json >"${status_json}"
+  "${picurv_exe}" status-source --case-dir "${case_dir}" --format json >"${status_json}"
   python3 - "${status_json}" <<'PY'
 import json
 import sys
@@ -282,11 +285,10 @@ for template_name in templates:
     if init_res.returncode != 0:
         fail(f"{template_name}: init failed:\n{init_res.stdout}\n{init_res.stderr}")
 
-    local_picurv = os.path.join(case_dir, "picurv")
     case_file, solver_file, monitor_file, post_file = discover_case_bundle(case_dir, template_name)
 
     validate_cmd = [
-        local_picurv,
+        picurv_exe,
         "validate",
         "--case", os.path.join(case_dir, case_file),
         "--solver", os.path.join(case_dir, solver_file),
@@ -298,7 +300,7 @@ for template_name in templates:
         fail(f"{template_name}: validate failed:\n{validate_res.stdout}\n{validate_res.stderr}")
 
     dry_cmd = [
-        local_picurv,
+        picurv_exe,
         "run",
         "--solve",
         "--post-process",
@@ -319,9 +321,9 @@ for template_name in templates:
         fail(f"{template_name}: dry-run payload missing solve/post-process stages: {payload}")
     solve_launch = stages["solve"].get("launch_command", [])
     post_launch = stages["post-process"].get("launch_command", [])
-    if not solve_launch or not str(solve_launch[0]).endswith("simulator"):
+    if not solve_launch or not any(str(token).endswith("simulator") for token in solve_launch):
         fail(f"{template_name}: solve launch command does not target simulator: {solve_launch}")
-    if not post_launch or not str(post_launch[0]).endswith("postprocessor"):
+    if not post_launch or not any(str(token).endswith("postprocessor") for token in post_launch):
         fail(f"{template_name}: post launch command does not target postprocessor: {post_launch}")
 
 print("template matrix smoke validated: " + ", ".join(templates))
@@ -350,8 +352,8 @@ assert payload.get("mode") == "dry-run"
 stages = payload.get("stages", {})
 assert "solve" in stages
 assert "post-process" in stages
-assert stages["solve"]["launch_command"][0].endswith("simulator")
-assert stages["post-process"]["launch_command"][0].endswith("postprocessor")
+assert any(str(token).endswith("simulator") for token in stages["solve"]["launch_command"])
+assert any(str(token).endswith("postprocessor") for token in stages["post-process"]["launch_command"])
 PY
 }
 
@@ -1063,7 +1065,7 @@ run_case_workflow() {
   find "${case_dir}/runs" -mindepth 1 -maxdepth 1 -type d | sort >"${before_runs}"
   (
     cd "${case_dir}"
-    ./picurv run \
+    "${picurv_exe}" run \
       --solve \
       --post-process \
       -n "${nprocs}" \
@@ -1168,8 +1170,8 @@ run_full_runtime_smoke() {
 
   local flat_les_run
   flat_les_run="${LAST_RUN_DIR}"
-  require_dir "${flat_les_run}/results" "flat LES results directory"
-  require_count_ge "${flat_les_run}/results" "*.dat" 1 "flat LES result data files"
+  require_dir "${flat_les_run}/output/eulerian" "flat LES Eulerian output directory"
+  require_count_ge "${flat_les_run}/output/eulerian" "*.dat" 1 "flat LES Eulerian data files"
   require_count_ge "${flat_les_run}/viz/les_smoke" "*.vts" 1 "flat LES post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Run Mode                   : Full Simulation" "runtime banner run mode"
   require_file_contains "${LAST_SOLVER_LOG}" "Field/Restart Cadence      : every 1 step(s)" "runtime banner field cadence"
@@ -1191,8 +1193,8 @@ run_full_runtime_smoke() {
 
   local bent_run
   bent_run="${LAST_RUN_DIR}"
-  require_dir "${bent_run}/results" "bent results directory"
-  require_count_ge "${bent_run}/results" "*.dat" 1 "bent result data files"
+  require_dir "${bent_run}/output/eulerian" "bent Eulerian output directory"
+  require_count_ge "${bent_run}/output/eulerian" "*.dat" 1 "bent Eulerian data files"
   require_count_ge "${bent_run}/viz/bent_smoke" "*.vts" 1 "bent post VTS files"
 
   "${picurv_exe}" init flat_channel --dest "${flat_particles_case}" >/dev/null
@@ -1312,7 +1314,7 @@ run_multi_rank_runtime_smoke() {
 
   local flat_run
   flat_run="${LAST_RUN_DIR}"
-  require_count_ge "${flat_run}/results" "*.dat" 1 "flat MPI result data files"
+  require_count_ge "${flat_run}/output/eulerian" "*.dat" 1 "flat MPI Eulerian data files"
   require_count_ge "${flat_run}/viz/les_smoke" "*.vts" 1 "flat MPI post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "flat MPI rank count in runtime summary"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 0" "flat MPI runtime banner particle count"
@@ -1331,7 +1333,7 @@ run_multi_rank_runtime_smoke() {
 
   local bent_run
   bent_run="${LAST_RUN_DIR}"
-  require_count_ge "${bent_run}/results" "*.dat" 1 "bent MPI result data files"
+  require_count_ge "${bent_run}/output/eulerian" "*.dat" 1 "bent MPI Eulerian data files"
   require_count_ge "${bent_run}/viz/bent_smoke" "*.vts" 1 "bent MPI post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "bent MPI rank count in runtime summary"
 
@@ -1469,12 +1471,12 @@ run_stress_smoke() {
   prepare_flat_case_periodic_flux_stress "${periodic_case}"
   (
     cd "${periodic_case}"
-    ./picurv validate \
+    "${picurv_exe}" validate \
       --case "${periodic_case}/flat_channel.yml" \
       --solver "${periodic_case}/Imp-MG-Standard.yml" \
       --monitor "${periodic_case}/Standard_Output.yml" \
       --post "${periodic_case}/standard_analysis.yml" >/dev/null
-    ./picurv run \
+    "${picurv_exe}" run \
       --solve \
       --post-process \
       -n "${periodic_nprocs}" \

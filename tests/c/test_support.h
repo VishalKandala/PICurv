@@ -25,6 +25,16 @@ PetscErrorCode PicurvRunTests(const char *suite_name, const PicurvTestCase *case
 /** @brief Creates minimal PETSc/solver contexts used by isolated kernel tests. */
 PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_out, PetscInt mx, PetscInt my, PetscInt mz);
 
+/** @brief Creates minimal PETSc/solver contexts with optional periodic DM boundaries. */
+PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
+                                                          UserCtx **user_out,
+                                                          PetscInt mx,
+                                                          PetscInt my,
+                                                          PetscInt mz,
+                                                          PetscBool x_periodic,
+                                                          PetscBool y_periodic,
+                                                          PetscBool z_periodic);
+
 /** @brief Destroys contexts previously created by `PicurvCreateMinimalContexts`. */
 PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx, UserCtx **user);
 

@@ -342,6 +342,26 @@ Coverage artifacts:
 - Python summary: `coverage/python/summary.txt`
 - C summary: `coverage/c/summary.txt`
 
+@subsection p40_coverage_followup_ssec 8.1 Coverage Follow-Up Snapshot (2026-03-20)
+
+This dated snapshot records non-periodic C sources that still look thinly exercised after the
+`2026-03-20` local audit. Treat these numbers as test-readiness guidance for future work, not as
+evidence of confirmed product defects.
+
+- `src/BodyForces.c`: `11.69%`
+- `src/AnalyticalSolutions.c`: `23.93%`
+- `src/les.c`: `22.58%`
+- `src/poisson.c`: `45.66%`
+- `src/rhs.c`: `61.95%`
+- `src/runloop.c`: `64.76%`
+- `src/Boundaries.c`: `68.10%`
+
+Next test work priorities from this snapshot:
+
+- analytical/body-force/LES model paths need more direct unit coverage rather than relying mainly on indirect runtime exercise
+- Poisson/RHS/runtime orchestration paths need deeper nontrivial-branch coverage beyond the current helper-heavy surface
+- boundary coverage is close to the gate threshold but still thin outside the stable non-periodic path
+
 @section p40_troubleshooting_sec 9. Common Failure Modes
 
 Common issues:
@@ -446,6 +466,12 @@ P1 (next):
 - deeper `PoissonSolver_MG` and periodic/IBM stencil behavior checks beyond the current helper-level `unit-poisson-rhs` surface
 - broader richer-runtime fixture variants so grid/setup/metric tests cover more than the tiny Cartesian baseline
 - broaden the MPI rank matrix to larger optional decompositions (for example `SMOKE_MPI_MATRIX_NPROCS="2 3 4 6"`) in CI/nightly profiles
+- coverage follow-up from the `2026-03-20` audit:
+  - add direct harnesses for `src/AnalyticalSolutions.c` (`23.93%`) and `src/BodyForces.c` (`11.69%`)
+  - broaden LES-model-path tests for `src/les.c` (`22.58%`)
+  - deepen direct Poisson/RHS coverage for `src/poisson.c` (`45.66%`) and `src/rhs.c` (`61.95%`)
+  - expand runtime orchestration branch coverage for `src/runloop.c` (`64.76%`)
+  - add more non-periodic boundary edge-case coverage for `src/Boundaries.c` (`68.10%`)
 
 P2 (deeper hardening):
 

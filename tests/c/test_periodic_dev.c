@@ -86,7 +86,7 @@ static PetscErrorCode TestTransferPeriodicFaceFieldCopiesXFaces(void)
     PetscReal expected_pos_ghost = 0.0;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
     MarkXPeriodic(user);
 
     PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
@@ -135,7 +135,7 @@ static PetscErrorCode TestApplyMetricsPeriodicBCsCopiesAjFaces(void)
     PetscReal expected_pos_ghost = 0.0;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
     MarkXPeriodic(user);
 
     PetscCall(DMDAVecGetArray(user->da, user->Aj, &aj));
@@ -184,7 +184,7 @@ static PetscErrorCode TestPeriodicDrivenConstantHandlerBehavior(void)
 
     PetscFunctionBeginUser;
     PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 6, 6, 6, PETSC_FALSE, PETSC_FALSE, PETSC_TRUE));
     PetscCall(PicurvPopulateIdentityMetrics(user));
     PetscCall(VecSet(user->Ucont, 1.0));
     PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));

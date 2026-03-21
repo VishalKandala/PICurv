@@ -129,6 +129,10 @@ CFLAGS_TO_USE += --coverage
 LIBS_TO_USE += --coverage
 endif
 
+ifneq ($(wildcard $(OBJDIR)/*.gcno $(TESTOBJDIR)/*.gcno),)
+LIBS_TO_USE += --coverage
+endif
+
 # --- 3. Source & Object File Definitions ---
 # Explicitly list the object files required for each final executable.
 SIMULATOR_OBJS := $(addprefix $(OBJDIR)/, \
@@ -168,6 +172,7 @@ UNIT_RUNTIME_EXE := $(TESTBINDIR)/unit_runtime
 UNIT_MPI_EXE := $(TESTBINDIR)/unit_mpi
 UNIT_PERIODIC_DEV_EXE := $(TESTBINDIR)/unit_periodic_dev
 TEST_CFLAGS_TO_USE := $(CFLAGS_TO_USE) -I$(TESTCDIR)
+DEPFLAGS := -MMD -MP
 TEST_SUPPORT_OBJ  := $(TESTOBJDIR)/test_support.o
 DOCTOR_OBJ        := $(TESTOBJDIR)/test_install_check.o
 UNIT_GEOMETRY_OBJ := $(TESTOBJDIR)/test_geometry.o
@@ -189,6 +194,7 @@ UNIT_RUNTIME_OBJ := $(TESTOBJDIR)/test_runtime_kernels.o
 UNIT_MPI_OBJ := $(TESTOBJDIR)/test_mpi_kernels.o
 UNIT_PERIODIC_DEV_OBJ := $(TESTOBJDIR)/test_periodic_dev.o
 TEST_COMMON_OBJS  := $(sort $(filter-out $(OBJDIR)/simulator.o $(OBJDIR)/postprocessor.o,$(SIMULATOR_OBJS) $(POSTPROCESSOR_OBJS)))
+DEPFILES := $(wildcard $(OBJDIR)/*.d) $(wildcard $(TESTOBJDIR)/*.d)
 
 # ==============================================================================
 # --- 5. Build Targets & Rules ---
@@ -232,17 +238,17 @@ $(CONDUCTOR_EXE): $(SCRIPTDIR)/picurv | dirs
 # Generic rule for compiling any .c file from SRCDIR into an object file in OBJDIR.
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | dirs
 	@echo "--- Compiling: $< ---"
-	$(CC_TO_USE) $(CFLAGS_TO_USE) -c $< -o $@
+	$(CC_TO_USE) $(CFLAGS_TO_USE) $(DEPFLAGS) -c $< -o $@
 
 # Generic rule for compiling any test .c file from TESTCDIR into TESTOBJDIR.
 $(TESTOBJDIR)/%.o: $(TESTCDIR)/%.c | dirs
 	@echo "--- Compiling Test: $< ---"
-	$(CC_TO_USE) $(TEST_CFLAGS_TO_USE) -c $< -o $@
+	$(CC_TO_USE) $(TEST_CFLAGS_TO_USE) $(DEPFLAGS) -c $< -o $@
 
 # Test-only object build for postprocessor orchestration APIs without the executable main().
 $(TEST_POSTPROCESSOR_IMPL_OBJ): $(SRCDIR)/postprocessor.c | dirs
 	@echo "--- Compiling Test Support Source: $< (no main) ---"
-	$(CC_TO_USE) $(TEST_CFLAGS_TO_USE) -DPICURV_POSTPROCESSOR_NO_MAIN -c $< -o $@
+	$(CC_TO_USE) $(TEST_CFLAGS_TO_USE) $(DEPFLAGS) -DPICURV_POSTPROCESSOR_NO_MAIN -c $< -o $@
 
 $(DOCTOR_EXE): $(DOCTOR_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
@@ -368,7 +374,7 @@ doctor:
 		echo "PICurv doctor: PETSC_DIR points to a missing directory: $$PETSC_DIR"; \
 		exit 1; \
 	fi
-	$(if $(findstring n,$(MAKEFLAGS)),@echo "$(MAKE) --no-print-directory doctor-runner SYSTEM=$(SYSTEM)",@$(MAKE) --no-print-directory doctor-runner SYSTEM=$(SYSTEM))
+	$(if $(or $(filter n,$(MAKEFLAGS)),$(findstring --just-print,$(MAKEFLAGS)),$(findstring --dry-run,$(MAKEFLAGS)),$(findstring --recon,$(MAKEFLAGS))),@echo "$(MAKE) --no-print-directory doctor-runner SYSTEM=$(SYSTEM)",@$(MAKE) --no-print-directory doctor-runner SYSTEM=$(SYSTEM))
 
 ## @target doctor-runner
 ## @brief (Internal) Builds and runs the PETSc installation smoke binary.
@@ -644,3 +650,5 @@ show-config:
 	@echo "LINKER_TO_USE=$(LINKER_TO_USE)"
 	@echo "LIBS_TO_USE=$(LIBS_TO_USE)"
 	@echo "MPI_LAUNCHER=$(MPI_LAUNCHER)"
+
+-include $(DEPFILES)
