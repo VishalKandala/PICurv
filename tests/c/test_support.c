@@ -320,10 +320,16 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
     PetscFunctionReturn(0);
 }
 /**
- * @brief Builds minimal SimCtx and UserCtx fixtures for C unit tests.
+ * @brief Builds minimal SimCtx and UserCtx fixtures for C unit tests with configurable periodicity.
  */
-
-PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_out, PetscInt mx, PetscInt my, PetscInt mz)
+PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
+                                                          UserCtx **user_out,
+                                                          PetscInt mx,
+                                                          PetscInt my,
+                                                          PetscInt mz,
+                                                          PetscBool x_periodic,
+                                                          PetscBool y_periodic,
+                                                          PetscBool z_periodic)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -331,6 +337,10 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     PetscInt da_mx = mx + 1;
     PetscInt da_my = my + 1;
     PetscInt da_mz = mz + 1;
+    DMBoundaryType x_boundary = x_periodic ? DM_BOUNDARY_PERIODIC : DM_BOUNDARY_NONE;
+    DMBoundaryType y_boundary = y_periodic ? DM_BOUNDARY_PERIODIC : DM_BOUNDARY_NONE;
+    DMBoundaryType z_boundary = z_periodic ? DM_BOUNDARY_PERIODIC : DM_BOUNDARY_NONE;
+    PetscInt stencil_width = (x_periodic || y_periodic || z_periodic) ? 3 : 1;
 
     PetscFunctionBeginUser;
     if (!simCtx_out || !user_out) {
@@ -356,6 +366,9 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     simCtx->StepsToRun = 1;
     simCtx->step = 1;
     simCtx->np = 0;
+    simCtx->i_periodic = x_periodic ? 1 : 0;
+    simCtx->j_periodic = y_periodic ? 1 : 0;
+    simCtx->k_periodic = z_periodic ? 1 : 0;
     PetscCall(PetscStrncpy(simCtx->euler_subdir, "euler", sizeof(simCtx->euler_subdir)));
     PetscCall(PetscStrncpy(simCtx->particle_subdir, "particles", sizeof(simCtx->particle_subdir)));
     PetscCall(PetscStrncpy(simCtx->output_dir, "/tmp", sizeof(simCtx->output_dir)));
@@ -404,11 +417,11 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
     }
 
     PetscCall(DMDACreate3d(PETSC_COMM_WORLD,
-                           DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
+                           x_boundary, y_boundary, z_boundary,
                            DMDA_STENCIL_BOX,
                            da_mx, da_my, da_mz,
                            PETSC_DECIDE, PETSC_DECIDE, PETSC_DECIDE,
-                           1, 1,
+                           1, stencil_width,
                            NULL, NULL, NULL,
                            &user->da));
     PetscCall(DMSetUp(user->da));
@@ -508,6 +521,16 @@ PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_o
 
     *simCtx_out = simCtx;
     *user_out = user;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Builds minimal SimCtx and UserCtx fixtures for C unit tests.
+ */
+PetscErrorCode PicurvCreateMinimalContexts(SimCtx **simCtx_out, UserCtx **user_out, PetscInt mx, PetscInt my, PetscInt mz)
+{
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(simCtx_out, user_out, mx, my, mz, PETSC_FALSE, PETSC_FALSE, PETSC_FALSE));
     PetscFunctionReturn(0);
 }
 

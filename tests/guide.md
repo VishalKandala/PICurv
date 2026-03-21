@@ -179,6 +179,12 @@ Useful env knobs:
   - add deeper `PoissonSolver_MG` and periodic/IBM stencil checks beyond the current `Projection`/`PoissonLHSNew` helper surface
 - grid/metrics/setup:
   - broaden the richer runtime fixture to more geometry/topology variants; current setup coverage is production-faithful but still mostly tiny Cartesian cases
+- coverage follow-up:
+  - `2026-03-20` audit snapshot: `src/AnalyticalSolutions.c` (`23.93%`) and `src/BodyForces.c` (`11.69%`) still need direct unit harnesses
+  - `2026-03-20` audit snapshot: `src/les.c` (`22.58%`) still needs broader LES-model-path coverage
+  - `2026-03-20` audit snapshot: `src/poisson.c` (`45.66%`) and `src/rhs.c` (`61.95%`) still need deeper direct branch coverage
+  - `2026-03-20` audit snapshot: `src/runloop.c` (`64.76%`) still needs more runtime-orchestration branch coverage
+  - `2026-03-20` audit snapshot: `src/Boundaries.c` (`68.10%`) still needs additional non-periodic boundary edge-case coverage
 - periodic BC:
   - keep routing new periodic work into `unit-periodic-dev` and `smoke-periodic-dev` until the product runtime path is stable enough for the default gate
 
