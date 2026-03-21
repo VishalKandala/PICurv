@@ -12,17 +12,17 @@ parameters:
 metrics:
   - name: max_L2_error
     source: "statistics_csv"
-    file_glob: "logs/interpolation_error.csv"
+    file_glob: "logs/interpolation_metrics.csv"
     column: "L2_error"
     reduction: "max"
   - name: max_Linf_error
     source: "statistics_csv"
-    file_glob: "logs/interpolation_error.csv"
+    file_glob: "logs/interpolation_metrics.csv"
     column: "Linf_error"
     reduction: "max"
   - name: max_error_pct
     source: "statistics_csv"
-    file_glob: "logs/interpolation_error.csv"
+    file_glob: "logs/interpolation_metrics.csv"
     column: "error_pct"
     reduction: "max"
 
