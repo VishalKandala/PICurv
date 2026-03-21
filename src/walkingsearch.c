@@ -974,6 +974,9 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    if (user && user->simCtx) {
+        user->simCtx->searchMetrics.searchAttempts++;
+    }
 
     // --- 1. Initialize the Search ---
     ierr = InitializeTraversalParameters(user, particle, &idx, &idy, &idz, &traversal_steps); CHKERRQ(ierr);
@@ -994,31 +997,37 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         if (idx < 0) {
             idx = 0;
             hit_boundary = PETSC_TRUE;
+            user->simCtx->searchMetrics.boundaryClampCount++;
             LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global i-min boundary, clamped to idx=0.\n", (long long)particle->PID);
         }
         if (idx >= (user->IM - 1)) {
             idx = user->IM - 2;
             hit_boundary = PETSC_TRUE;
+            user->simCtx->searchMetrics.boundaryClampCount++;
             LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global i-max boundary, clamped to idx=%d.\n", (long long)particle->PID, idx);
         }
         if (idy < 0) {
             idy = 0;
             hit_boundary = PETSC_TRUE;
+            user->simCtx->searchMetrics.boundaryClampCount++;
             LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global j-min boundary, clamped to idy=0.\n", (long long)particle->PID);
         }
         if (idy >= (user->JM - 1)) {
             idy = user->JM - 2;
             hit_boundary = PETSC_TRUE;
+            user->simCtx->searchMetrics.boundaryClampCount++;
             LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global j-max boundary, clamped to idy=%d.\n", (long long)particle->PID, idy);
         }
         if (idz < 0) {
             idz = 0;
             hit_boundary = PETSC_TRUE;
+            user->simCtx->searchMetrics.boundaryClampCount++;
             LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global k-min boundary, clamped to idz=0.\n", (long long)particle->PID);
         }
         if (idz >= (user->KM - 1)) {
             idz = user->KM - 2;
             hit_boundary = PETSC_TRUE;
+            user->simCtx->searchMetrics.boundaryClampCount++;
             LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global k-max boundary, clamped to idz=%d.\n", (long long)particle->PID, idz);
         }
 
@@ -1047,6 +1056,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
             if (repeatedIndexCount > REPEAT_COUNT_THRESHOLD) {
                 // Only apply tie-breaker if we are stuck for the right reason (on a boundary)
                 if (last_position_result >= 1) {
+                    user->simCtx->searchMetrics.tieBreakCount++;
                     LOG_ALLOW(LOCAL, LOG_WARNING, "[PID %lld]: Stuck on boundary of cell (%d,%d,%d) for %d steps. Applying enhanced tie-breaker.\n",
                               (long long)particle->PID, idx, idy, idz, repeatedIndexCount);
                     
@@ -1097,6 +1107,10 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
             ierr = UpdateCellIndicesBasedOnDistances(distances, &idx, &idy, &idz); CHKERRQ(ierr);
         }
     }
+
+    user->simCtx->searchMetrics.traversalStepsSum += traversal_steps;
+    user->simCtx->searchMetrics.maxTraversalSteps = PetscMax(user->simCtx->searchMetrics.maxTraversalSteps,
+                                                             traversal_steps);
 
     // --- 3. Finalize and Determine Actionable Status ---
     if (idx == -1 || (!search_concluded && traversal_steps >= MAX_TRAVERSAL)) {

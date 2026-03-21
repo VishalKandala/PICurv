@@ -70,7 +70,8 @@ Watch for:
 
 - excessive migration pass counts,
 - repeated `LOST` particles,
-- non-convergence of settlement loop.
+- non-convergence of settlement loop,
+- elevated traversal effort or repeated tie-break/boundary-clamp events in `logs/search_metrics.csv`.
 
 These usually indicate domain-decomposition mismatch, bounding-box mismatch, or invalid particle coordinates.
 

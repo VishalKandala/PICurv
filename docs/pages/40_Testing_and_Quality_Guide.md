@@ -236,6 +236,7 @@ Current C test files and their main purpose:
 - `tests/c/test_vtk_io.c`: VTK prep/writer checks (Eulerian + particle data shaping)
 - `tests/c/test_postprocessor.c`: postprocessor pipeline/orchestration checks
 - `tests/c/test_statistics.c`: statistics-kernel checks (MSD CSV behavior)
+- runtime `search_metrics.csv` instrumentation complements `Particle_Metrics.log` for particle-enabled runs and is covered through logging/runtime test surfaces plus the `examples/search_robustness/` bundle
 - `tests/c/test_grid.c`: bounding-box exchange checks
 - `tests/c/test_metric.c`: metric and face-geometry checks
 - `tests/c/test_boundaries.c`: boundary factory plus direct handler-behavior checks
@@ -266,6 +267,7 @@ The current smoke runner verifies:
 - restart execution with both particle modes (`load` and `init`)
 - restart-equivalence check for flat channel (continuous tiny run vs split restart tiny run continuity metric agreement)
 - tiny end-to-end analytical Brownian run with particle VTP + MSD CSV output
+- the `examples/search_robustness/` family provides a dedicated end-to-end runtime characterization path for search and migration observability
 - multi-rank tiny solve + post runs for flat and bent channels (`make smoke-mpi`)
 - multi-rank flat particle runtime + restart (`load`/`init`) runs (`make smoke-mpi`)
 - rank-matrix MPI runtime sweep across flat+bent+flat-particle-restart (`make smoke-mpi-matrix`)

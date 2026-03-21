@@ -13,6 +13,7 @@ This directory stores reusable `monitor.yml` profiles for solver observability. 
 ## 2. Included Profiles
 
 - `Standard_Output.yml`: recommended default for most runs.
+- `examples/search_robustness/Search_Robustness_Output.yml`: search-focused monitor profile that keeps runtime quiet by default while preserving `search_metrics.csv`.
 
 For exhaustive schema coverage, see:
 - `examples/master_template/master_monitor.yml`
@@ -36,6 +37,11 @@ warnings, graceful-shutdown notices, and the startup banner summary.
 
 Use `INFO` when you want more live progress detail, and reserve high verbosity
 (`DEBUG+`) for short diagnostic runs only.
+
+For particle-enabled runs, note that some runtime artifacts are written
+independently of console verbosity. In particular, `logs/search_metrics.csv` is
+always emitted by the runtime when particle tracking is active; allow-listing
+`LOG_SEARCH_METRICS` only controls the optional compact console summary.
 
 ## 5. CFD-Oriented Monitoring Advice
 

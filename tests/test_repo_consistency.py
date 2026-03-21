@@ -35,6 +35,18 @@ EXAMPLE_BUNDLES = [
         "post": "examples/brownian_motion/brownian_analysis.yml",
     },
     {
+        "case": "examples/search_robustness/search_robustness_cartesian.yml",
+        "solver": "examples/search_robustness/Analytical-Zero.yml",
+        "monitor": "examples/search_robustness/Search_Robustness_Output.yml",
+        "post": "examples/search_robustness/search_robustness_analysis.yml",
+    },
+    {
+        "case": "examples/search_robustness/search_robustness_curvilinear.yml",
+        "solver": "examples/search_robustness/Imp-MG-Standard.yml",
+        "monitor": "examples/search_robustness/Search_Robustness_Output.yml",
+        "post": "examples/search_robustness/search_robustness_analysis.yml",
+    },
+    {
         "case": "examples/interpolation_test/interpolation_test.yml",
         "solver": "examples/interpolation_test/Analytical-TGV.yml",
         "monitor": "examples/interpolation_test/Standard_Output.yml",

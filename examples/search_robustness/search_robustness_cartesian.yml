@@ -1,0 +1,76 @@
+# ==============================================================================
+#  SEARCH ROBUSTNESS CHARACTERIZATION: CARTESIAN LOCALIZED STRESS
+# ==============================================================================
+
+properties:
+  scaling:
+    length_ref: 1.0
+    velocity_ref: 1.0
+  fluid:
+    density: 1.0
+    viscosity: 0.001
+  initial_conditions:
+    mode: "Zero"
+
+run_control:
+  start_step: 0
+  total_steps: 60
+  dt_physical: 0.01
+
+grid:
+  mode: programmatic_c
+  da_processors_x: 2
+  da_processors_y: 1
+  da_processors_z: 1
+  programmatic_settings:
+    im: 32
+    jm: 32
+    km: 32
+    xMins: 0.0
+    xMaxs: 1.0
+    yMins: 0.0
+    yMaxs: 1.0
+    zMins: 0.0
+    zMaxs: 1.0
+    rxs: 1.0
+    rys: 1.0
+    rzs: 1.0
+    cgrids: 0
+
+models:
+  domain:
+    blocks: 1
+
+  physics:
+    turbulence:
+      les: false
+
+    particles:
+      count: 20000
+      init_mode: "PointSource"
+      restart_mode: "init"
+      point_source:
+        # With the documented 2x1x1 decomposition this lies on the x-rank interface.
+        x: 0.5
+        y: 0.5
+        z: 0.5
+
+boundary_conditions:
+  - face: "-Xi"
+    type: WALL
+    handler: noslip
+  - face: "+Xi"
+    type: WALL
+    handler: noslip
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  - face: "-Zeta"
+    type: WALL
+    handler: noslip
+  - face: "+Zeta"
+    type: WALL
+    handler: noslip

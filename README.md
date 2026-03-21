@@ -9,6 +9,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Incompressible flow solve (fractional-step projection) on curvilinear grids
 - Particle tracking with PETSc `DMSwarm`
 - Grid-particle interpolation and particle-grid projection
+- Runtime search/migration observability via `logs/search_metrics.csv` for particle-enabled runs
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`)
 - YAML-driven orchestration through the conductor (`scripts/picurv`, symlinked to `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
@@ -64,6 +65,11 @@ rebase removes `bin/picurv` before the conductor symlink is rebuilt.
 picurv init flat_channel --dest my_case
 ```
 
+For search and migration robustness characterization specifically, start from:
+```bash
+picurv init search_robustness --dest my_search_case
+```
+
 `init` creates the case directory with config files. Runtime binaries (`simulator`, `postprocessor`)
 are resolved from the project `bin/` directory via PATH — no copies are placed in the case.
 To pin specific binary versions (e.g. before submitting a Slurm job while continuing development):
@@ -79,6 +85,8 @@ Equivalent manual step after init: `picurv sync-binaries --case-dir my_case`.
 commands can rebuild, pull, and resync from the original code directory.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
+The `search_robustness` example family adds a dedicated `search_metrics.csv` runtime artifact
+for particle walking-search and migration observability.
 
 5. Validate configs (no run yet):
 ```bash

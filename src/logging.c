@@ -25,6 +25,42 @@ static char** gAllowedFunctions = NULL;
  */
 static int gNumAllowed = 0;
 
+enum {
+    SEARCH_METRIC_SUM_SEARCH_ATTEMPTS = 0,
+    SEARCH_METRIC_SUM_TRAVERSAL_STEPS,
+    SEARCH_METRIC_SUM_TIE_BREAKS,
+    SEARCH_METRIC_SUM_BOUNDARY_CLAMPS,
+    SEARCH_METRIC_SUM_BBOX_GUESS_SUCCESS,
+    SEARCH_METRIC_SUM_BBOX_GUESS_FALLBACK,
+    SEARCH_METRIC_MAX_TRAVERSAL_STEPS,
+    SEARCH_METRIC_MAX_PASS_DEPTH,
+    SEARCH_METRIC_REDUCTION_LEN
+};
+
+/**
+ * @brief Internal reduction callback for packed search metrics.
+ * @details Local to this translation unit.
+ */
+static void SearchMetricsReduceOp(void *invec, void *inoutvec, int *len, MPI_Datatype *datatype)
+{
+    PetscReal *in = (PetscReal *)invec;
+    PetscReal *inout = (PetscReal *)inoutvec;
+    (void)datatype;
+
+    for (int idx = 0; idx < *len; idx += SEARCH_METRIC_REDUCTION_LEN) {
+        inout[idx + SEARCH_METRIC_SUM_SEARCH_ATTEMPTS] += in[idx + SEARCH_METRIC_SUM_SEARCH_ATTEMPTS];
+        inout[idx + SEARCH_METRIC_SUM_TRAVERSAL_STEPS] += in[idx + SEARCH_METRIC_SUM_TRAVERSAL_STEPS];
+        inout[idx + SEARCH_METRIC_SUM_TIE_BREAKS] += in[idx + SEARCH_METRIC_SUM_TIE_BREAKS];
+        inout[idx + SEARCH_METRIC_SUM_BOUNDARY_CLAMPS] += in[idx + SEARCH_METRIC_SUM_BOUNDARY_CLAMPS];
+        inout[idx + SEARCH_METRIC_SUM_BBOX_GUESS_SUCCESS] += in[idx + SEARCH_METRIC_SUM_BBOX_GUESS_SUCCESS];
+        inout[idx + SEARCH_METRIC_SUM_BBOX_GUESS_FALLBACK] += in[idx + SEARCH_METRIC_SUM_BBOX_GUESS_FALLBACK];
+        inout[idx + SEARCH_METRIC_MAX_TRAVERSAL_STEPS] = PetscMax(inout[idx + SEARCH_METRIC_MAX_TRAVERSAL_STEPS],
+                                                                   in[idx + SEARCH_METRIC_MAX_TRAVERSAL_STEPS]);
+        inout[idx + SEARCH_METRIC_MAX_PASS_DEPTH] = PetscMax(inout[idx + SEARCH_METRIC_MAX_PASS_DEPTH],
+                                                             in[idx + SEARCH_METRIC_MAX_PASS_DEPTH]);
+    }
+}
+
 // --------------------- Function Implementations ---------------------
 
 /**
@@ -1800,6 +1836,129 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
     ierr = DMSwarmDestroyGlobalVectorFromField(swarm, "velocity", &velocityVec); CHKERRQ(ierr);
     
     return 0;
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ResetSearchMetrics"
+/**
+ * @brief Implementation of \ref ResetSearchMetrics().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see ResetSearchMetrics()
+ */
+PetscErrorCode ResetSearchMetrics(SimCtx *simCtx)
+{
+    PetscFunctionBeginUser;
+    if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL for ResetSearchMetrics.");
+
+    simCtx->searchMetrics.searchAttempts = 0;
+    simCtx->searchMetrics.traversalStepsSum = 0;
+    simCtx->searchMetrics.maxTraversalSteps = 0;
+    simCtx->searchMetrics.tieBreakCount = 0;
+    simCtx->searchMetrics.boundaryClampCount = 0;
+    simCtx->searchMetrics.bboxGuessSuccessCount = 0;
+    simCtx->searchMetrics.bboxGuessFallbackCount = 0;
+    simCtx->searchMetrics.maxParticlePassDepth = 0;
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LOG_SEARCH_METRICS"
+/**
+ * @brief Implementation of \ref LOG_SEARCH_METRICS().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LOG_SEARCH_METRICS()
+ */
+PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    SimCtx *simCtx = NULL;
+    PetscInt totalParticles = 0;
+    PetscReal local_metrics[SEARCH_METRIC_REDUCTION_LEN] = {0.0};
+    PetscReal global_metrics[SEARCH_METRIC_REDUCTION_LEN] = {0.0};
+    PetscReal meanTraversalSteps = 0.0;
+    MPI_Op reduction_op = MPI_OP_NULL;
+
+    PetscFunctionBeginUser;
+    if (!user || !user->simCtx) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx and SimCtx are required for LOG_SEARCH_METRICS.");
+    }
+    simCtx = user->simCtx;
+
+    if (simCtx->np <= 0) {
+        PetscFunctionReturn(0);
+    }
+
+    ierr = DMSwarmGetSize(user->swarm, &totalParticles); CHKERRQ(ierr);
+
+    local_metrics[SEARCH_METRIC_SUM_SEARCH_ATTEMPTS] = (PetscReal)simCtx->searchMetrics.searchAttempts;
+    local_metrics[SEARCH_METRIC_SUM_TRAVERSAL_STEPS] = (PetscReal)simCtx->searchMetrics.traversalStepsSum;
+    local_metrics[SEARCH_METRIC_SUM_TIE_BREAKS] = (PetscReal)simCtx->searchMetrics.tieBreakCount;
+    local_metrics[SEARCH_METRIC_SUM_BOUNDARY_CLAMPS] = (PetscReal)simCtx->searchMetrics.boundaryClampCount;
+    local_metrics[SEARCH_METRIC_SUM_BBOX_GUESS_SUCCESS] = (PetscReal)simCtx->searchMetrics.bboxGuessSuccessCount;
+    local_metrics[SEARCH_METRIC_SUM_BBOX_GUESS_FALLBACK] = (PetscReal)simCtx->searchMetrics.bboxGuessFallbackCount;
+    local_metrics[SEARCH_METRIC_MAX_TRAVERSAL_STEPS] = (PetscReal)simCtx->searchMetrics.maxTraversalSteps;
+    local_metrics[SEARCH_METRIC_MAX_PASS_DEPTH] = (PetscReal)simCtx->searchMetrics.maxParticlePassDepth;
+
+    ierr = MPI_Op_create(SearchMetricsReduceOp, PETSC_TRUE, &reduction_op); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(local_metrics, global_metrics, SEARCH_METRIC_REDUCTION_LEN, MPIU_REAL, reduction_op, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Op_free(&reduction_op); CHKERRMPI(ierr);
+    reduction_op = MPI_OP_NULL;
+
+    if (global_metrics[SEARCH_METRIC_SUM_SEARCH_ATTEMPTS] > 0.0) {
+        meanTraversalSteps = global_metrics[SEARCH_METRIC_SUM_TRAVERSAL_STEPS] /
+                             global_metrics[SEARCH_METRIC_SUM_SEARCH_ATTEMPTS];
+    }
+
+    if (simCtx->rank == 0) {
+        char csv_path[PETSC_MAX_PATH_LEN];
+        FILE *f = NULL;
+
+        snprintf(csv_path, sizeof(csv_path), "%s/search_metrics.csv", simCtx->log_dir);
+        f = fopen(csv_path, "a");
+        if (!f) {
+            LOG_ALLOW(GLOBAL, LOG_WARNING, "LOG_SEARCH_METRICS: could not open '%s' for writing.\n", csv_path);
+        } else {
+            if (ftell(f) == 0) {
+                fprintf(f,
+                        "step,time,total_particles,lost,migrated,migration_passes,search_attempts,"
+                        "mean_traversal_steps,max_traversal_steps,tie_break_count,boundary_clamp_count,"
+                        "bbox_guess_success_count,bbox_guess_fallback_count,max_particle_pass_depth,load_imbalance\n");
+            }
+            fprintf(f,
+                    "%d,%.6e,%d,%d,%d,%d,%d,%.6e,%d,%d,%d,%d,%d,%d,%.6e\n",
+                    (int)simCtx->step,
+                    (double)simCtx->ti,
+                    (int)totalParticles,
+                    (int)simCtx->particlesLostLastStep,
+                    (int)simCtx->particlesMigratedLastStep,
+                    (int)simCtx->migrationPassesLastStep,
+                    (int)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_SEARCH_ATTEMPTS] + 0.5),
+                    (double)meanTraversalSteps,
+                    (int)PetscFloorReal(global_metrics[SEARCH_METRIC_MAX_TRAVERSAL_STEPS] + 0.5),
+                    (int)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_TIE_BREAKS] + 0.5),
+                    (int)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_BOUNDARY_CLAMPS] + 0.5),
+                    (int)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_BBOX_GUESS_SUCCESS] + 0.5),
+                    (int)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_BBOX_GUESS_FALLBACK] + 0.5),
+                    (int)PetscFloorReal(global_metrics[SEARCH_METRIC_MAX_PASS_DEPTH] + 0.5),
+                    (double)simCtx->particleLoadImbalance);
+            fclose(f);
+        }
+    }
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG,
+              "Search metrics: lost=%d migrated=%d passes=%d traversal(mean/max)=%.2f/%d tie_breaks=%d max_pass_depth=%d\n",
+              (int)simCtx->particlesLostLastStep,
+              (int)simCtx->particlesMigratedLastStep,
+              (int)simCtx->migrationPassesLastStep,
+              (double)meanTraversalSteps,
+              (int)PetscFloorReal(global_metrics[SEARCH_METRIC_MAX_TRAVERSAL_STEPS] + 0.5),
+              (int)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_TIE_BREAKS] + 0.5),
+              (int)PetscFloorReal(global_metrics[SEARCH_METRIC_MAX_PASS_DEPTH] + 0.5));
+
+    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__

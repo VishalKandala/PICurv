@@ -607,6 +607,47 @@ static PetscErrorCode TestParticleMetricsLogging(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests file-backed search metrics logging with the compact CSV contract.
+ */
+
+static PetscErrorCode TestSearchMetricsLogging(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char metrics_path[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PetscCall(SeedLoggingParticleFixture(&simCtx, &user));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    simCtx->step = 2;
+    simCtx->ti = 0.2;
+    simCtx->particlesLostLastStep = 1;
+    simCtx->particlesMigratedLastStep = 2;
+    simCtx->migrationPassesLastStep = 3;
+    simCtx->particleLoadImbalance = 1.5;
+    simCtx->searchMetrics.searchAttempts = 4;
+    simCtx->searchMetrics.traversalStepsSum = 10;
+    simCtx->searchMetrics.maxTraversalSteps = 6;
+    simCtx->searchMetrics.tieBreakCount = 1;
+    simCtx->searchMetrics.boundaryClampCount = 2;
+    simCtx->searchMetrics.bboxGuessSuccessCount = 3;
+    simCtx->searchMetrics.bboxGuessFallbackCount = 1;
+    simCtx->searchMetrics.maxParticlePassDepth = 3;
+
+    PetscCall(LOG_SEARCH_METRICS(user));
+
+    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/search_metrics.csv", simCtx->log_dir));
+    PetscCall(PicurvAssertFileExists(metrics_path, "LOG_SEARCH_METRICS should write search_metrics.csv"));
+    PetscCall(AssertFileContains(metrics_path, "search_attempts", "Search metrics CSV header should include search_attempts"));
+    PetscCall(AssertFileContains(metrics_path, "max_particle_pass_depth", "Search metrics CSV header should include max_particle_pass_depth"));
+    PetscCall(AssertFileContains(metrics_path, "2.500000e+00", "Search metrics CSV should record the mean traversal steps"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests stdout field-anatomy logging on the corrected production-like DM fixture.
  */
 
@@ -707,6 +748,7 @@ int main(int argc, char **argv)
         {"particle-field-table-logging", TestParticleFieldTableLogging},
         {"particle-console-snapshot-logging", TestParticleConsoleSnapshotLogging},
         {"particle-metrics-logging", TestParticleMetricsLogging},
+        {"search-metrics-logging", TestSearchMetricsLogging},
         {"field-anatomy-logging", TestFieldAnatomyLogging},
         {"profiling-lifecycle-helpers", TestProfilingLifecycleHelpers},
     };

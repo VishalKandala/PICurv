@@ -3,6 +3,8 @@
 This directory provides fully commented template files for all major YAML roles. These files are designed as contract references and onboarding aids, not direct production inputs.
 
 A practical pattern is: initialize a runnable example first, then use these templates to discover advanced options and copy only the relevant blocks into your case-local configs.
+For search and migration observability patterns, the dedicated reference bundle
+is `examples/search_robustness/`.
 
 ## Template Files
 
@@ -40,6 +42,7 @@ Launcher-related note:
 ## Related Docs
 
 - `master_template.md`
+- `../search_robustness/search_robustness.md`
 - https://vishalkandala.me/picurv-docs/14_Config_Contract.html
 - https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html
 - https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html

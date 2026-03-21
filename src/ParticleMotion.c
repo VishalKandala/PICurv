@@ -1515,6 +1515,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    ierr = ResetSearchMetrics(user->simCtx); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "LocateAllParticlesInGrid (Orchestrator) - Beginning particle settlement process.\n");
 
     // This loop ensures that particles that jump across multiple ranks are
@@ -1632,11 +1633,13 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 
 		  // If the guess finds a DIFFERENT rank, we can mark for migration and skip the walk.
 		  if (guessed_owner_rank != MPI_PROC_NULL && guessed_owner_rank != rank) {
+		    user->simCtx->searchMetrics.bboxGuessSuccessCount++;
 		    LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] Guess SUCCESS: Found migration target Rank %d. Finalizing.\n", current_particle.PID, guessed_owner_rank);
 		    final_status = MIGRATING_OUT;
 		    current_particle.destination_rank = guessed_owner_rank;
 		  } 
 		  else {
+		    user->simCtx->searchMetrics.bboxGuessFallbackCount++;
 
 		    // This block runs if the guess either failed (rank is NULL) or found the particle is local (rank is self).
 		    // In BOTH cases, the situation is unresolved, and we MUST fall back to the robust walk.
@@ -1709,6 +1712,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 
     user->simCtx->particlesMigratedLastStep = total_migrated_this_timestep;
     user->simCtx->migrationPassesLastStep = passes;
+    user->simCtx->searchMetrics.maxParticlePassDepth = PetscMax(user->simCtx->searchMetrics.maxParticlePassDepth, passes);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Location completed in %d passes.\n", passes);
 

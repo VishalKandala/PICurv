@@ -1,0 +1,30 @@
+# ==============================================================================
+#  SEARCH ROBUSTNESS CHARACTERIZATION MONITOR
+# ==============================================================================
+
+io:
+  data_output_frequency: 10
+  particle_console_output_frequency: 0
+  particle_log_interval: 100
+
+  directories:
+    output: "output"
+    restart: "restart"
+    log: "logs"
+    eulerian_subdir: "eulerian"
+    particle_subdir: "particles"
+
+logging:
+  # search_metrics.csv is always written for particle-enabled runs.
+  # Raise verbosity to DEBUG to also see compact LOG_SEARCH_METRICS summaries.
+  verbosity: "WARNING"
+  enabled_functions:
+    - LOG_SEARCH_METRICS
+
+profiling:
+  timestep_output:
+    mode: "off"
+
+solver_monitoring:
+  -ksp_monitor: false
+  -ksp_converged_reason: false

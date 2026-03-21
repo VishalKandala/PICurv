@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+- Search robustness observability:
+  - added always-on aggregate search instrumentation for particle-enabled runs.
+  - added `logs/search_metrics.csv` with timestep-level search, traversal, tie-break, boundary-clamp, bbox-guess, and pass-depth signals.
+  - added `LOG_SEARCH_METRICS` for compact DEBUG-gated console summaries when explicitly allow-listed.
+  - added the `examples/search_robustness/` example family with Cartesian and curvilinear localized-stress variants.
+
 - Profiling/logging cleanup:
   - removed the `LOG_PROFILE` log level from the C logging enum and all code paths.
   - per-step profiling summaries no longer use a special log level.
