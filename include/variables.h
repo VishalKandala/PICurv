@@ -116,9 +116,9 @@ typedef struct FlowWave {
     PetscReal t, f;
 } FlowWave;
 
-/** @brief Legacy boundary condition data. Likely superseded by the newer BC system. */
+/** @brief Boundary condition data used by the BC pipeline and ghost cell machinery. */
 typedef struct BCS {
-  Vec Ubcs;   ///< Boundary condition velocity values. (Comment: "An ugly hack, waste of memory")
+  Vec Ubcs;   ///< Physical Cartesian velocity at boundary faces. Full 3D array but only boundary-face entries are meaningful; interior is unused. Consumed by UpdateDummyCells for ghost cell extrapolation.
   Vec Uch;    ///< Characteristic velocity for boundary conditions.
 } BCS;
 

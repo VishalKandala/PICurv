@@ -15,7 +15,9 @@
  *
  * 2.  **Separation of Concerns:** The role of this engine is to set the **physical state** of the
  *     fluid at a given time `t`. This involves:
- *     - Setting the values of fields (`Ucat`, `P`) in the physical interior of the domain.
+ *     - For most types (TGV3D, ZERO_FLOW): setting `Ucat` and `P` directly.
+ *     - For curvilinear-aware types (UNIFORM_FLOW): setting `Ucont` via metric
+ *       dot products and deriving `Ucat` through `Contra2Cart`.
  *     - Declaring the physical values on the boundaries by populating the boundary condition
  *       vector (`user->Bcs.Ubcs`).
  *     It does NOT implement the numerical scheme for ghost cells. Instead, after setting the
@@ -407,6 +409,9 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
     PetscErrorCode ierr;
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
     const Cmpnts uniform_velocity = simCtx->AnalyticalUniformVelocity;
+    const PetscReal u = uniform_velocity.x;
+    const PetscReal v = uniform_velocity.y;
+    const PetscReal w = uniform_velocity.z;
 
     PetscFunctionBeginUser;
 
@@ -417,22 +422,32 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
         PetscInt      ys = info.ys, ye = info.ys + info.ym;
         PetscInt      zs = info.zs, ze = info.zs + info.zm;
         PetscInt      mx = info.mx, my = info.my, mz = info.mz;
-        PetscInt      lxs = (xs == 0) ? xs + 1 : xs, lxe = (xe == mx) ? xe - 1 : xe;
-        PetscInt      lys = (ys == 0) ? ys + 1 : ys, lye = (ye == my) ? ye - 1 : ye;
-        PetscInt      lzs = (zs == 0) ? zs + 1 : zs, lze = (ze == mz) ? ze - 1 : ze;
-        Cmpnts      ***ucat, ***ubcs;
 
-        ierr = DMDAVecGetArray(user->fda, user->Ucat, &ucat); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
+        // --- Step 1: Set Ucont (contravariant flux) using metric dot products ---
+        // U^i = g_i · u_phys, where g_i is the face area vector (Csi, Eta, Zet).
+        // This is the curvilinear form: the volume flux through each face.
+        // We loop over ALL owned nodes (including boundary faces) because Contra2Cart
+        // averages adjacent face values — boundary faces must carry valid fluxes.
+        Cmpnts ***ucont, ***ubcs;
+        const Cmpnts ***csi, ***eta, ***zet;
 
-        for (PetscInt k = lzs; k < lze; k++) {
-            for (PetscInt j = lys; j < lye; j++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    ucat[k][j][i] = uniform_velocity;
+        ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont);         CHKERRQ(ierr);
+        ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs);      CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi);       CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta);       CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet);       CHKERRQ(ierr);
+
+        for (PetscInt k = zs; k < ze; k++) {
+            for (PetscInt j = ys; j < ye; j++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    ucont[k][j][i].x = csi[k][j][i].x * u + csi[k][j][i].y * v + csi[k][j][i].z * w;
+                    ucont[k][j][i].y = eta[k][j][i].x * u + eta[k][j][i].y * v + eta[k][j][i].z * w;
+                    ucont[k][j][i].z = zet[k][j][i].x * u + zet[k][j][i].y * v + zet[k][j][i].z * w;
                 }
             }
         }
 
+        // --- Step 2: Set Ubcs at boundaries (physical Cartesian velocity) ---
         if (xs == 0) for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) ubcs[k][j][xs] = uniform_velocity;
         if (xe == mx) for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) ubcs[k][j][xe - 1] = uniform_velocity;
         if (ys == 0) for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) ubcs[k][ys][i] = uniform_velocity;
@@ -440,16 +455,24 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
         if (zs == 0) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) ubcs[zs][j][i] = uniform_velocity;
         if (ze == mz) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) ubcs[ze - 1][j][i] = uniform_velocity;
 
-        ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(user->fda, user->Ucat, &ucat); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs);  CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont);    CHKERRQ(ierr);
 
-        ierr = VecZeroEntries(user->P);        CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "P");    CHKERRQ(ierr);
-        ierr = UpdateDummyCells(user);          CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user);         CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "P");    CHKERRQ(ierr);
+        // --- Step 3: Zero pressure ---
+        ierr = VecZeroEntries(user->P); CHKERRQ(ierr);
+
+        // --- Step 4: Finalize state — derive Ucat from Ucont via metric inversion ---
+        ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
+        ierr = Contra2Cart(user);                CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Ucat");  CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "P");     CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user);           CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user);          CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Ucat");  CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "P");     CHKERRQ(ierr);
     }
 
     PetscFunctionReturn(0);

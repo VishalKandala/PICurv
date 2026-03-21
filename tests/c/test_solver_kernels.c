@@ -124,21 +124,50 @@ static PetscErrorCode TestAnalyticalSolutionEngineDispatch(void)
     PetscCall(PicurvAssertVecConstant(user->P, 0.0, 1.0e-12, "ZERO_FLOW should zero the pressure field"));
     PetscCall(PicurvAssertVecConstant(user->Bcs.Ubcs, 0.0, 1.0e-12, "ZERO_FLOW should zero boundary-condition velocity data"));
 
+    /* UNIFORM_FLOW now works in curvilinear form (sets Ucont via metric dot products,
+       derives Ucat via Contra2Cart).  The test grid needs identity metrics so the
+       transformation is invertible and Ucat recovers the physical velocity exactly. */
+    {
+        Cmpnts ***l_csi, ***l_eta, ***l_zet;
+        DMDALocalInfo linfo;
+        PetscCall(DMDAGetLocalInfo(user->fda, &linfo));
+        PetscCall(DMDAVecGetArray(user->fda, user->lCsi, &l_csi));
+        PetscCall(DMDAVecGetArray(user->fda, user->lEta, &l_eta));
+        PetscCall(DMDAVecGetArray(user->fda, user->lZet, &l_zet));
+        for (PetscInt k = linfo.zs; k < linfo.zs + linfo.zm; k++)
+            for (PetscInt j = linfo.ys; j < linfo.ys + linfo.ym; j++)
+                for (PetscInt i = linfo.xs; i < linfo.xs + linfo.xm; i++) {
+                    l_csi[k][j][i] = (Cmpnts){1.0, 0.0, 0.0};
+                    l_eta[k][j][i] = (Cmpnts){0.0, 1.0, 0.0};
+                    l_zet[k][j][i] = (Cmpnts){0.0, 0.0, 1.0};
+                }
+        PetscCall(DMDAVecRestoreArray(user->fda, user->lZet, &l_zet));
+        PetscCall(DMDAVecRestoreArray(user->fda, user->lEta, &l_eta));
+        PetscCall(DMDAVecRestoreArray(user->fda, user->lCsi, &l_csi));
+    }
+
     simCtx->AnalyticalUniformVelocity.x = 1.25;
     simCtx->AnalyticalUniformVelocity.y = -0.5;
     simCtx->AnalyticalUniformVelocity.z = 0.75;
     PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
     PetscCall(AnalyticalSolutionEngine(simCtx));
     PetscCall(PicurvAssertVecConstant(user->P, 0.0, 1.0e-12, "UNIFORM_FLOW should keep the pressure field zero"));
+
+    Cmpnts ***ucont = NULL;
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
     PetscCall(PicurvAssertRealNear(1.25, ucat[1][1][1].x, 1.0e-12, "UNIFORM_FLOW should impose the configured x velocity"));
     PetscCall(PicurvAssertRealNear(-0.5, ucat[1][1][1].y, 1.0e-12, "UNIFORM_FLOW should impose the configured y velocity"));
     PetscCall(PicurvAssertRealNear(0.75, ucat[1][1][1].z, 1.0e-12, "UNIFORM_FLOW should impose the configured z velocity"));
+    PetscCall(PicurvAssertRealNear(1.25, ucont[1][1][1].x, 1.0e-12, "UNIFORM_FLOW should set contravariant x flux (identity metric)"));
+    PetscCall(PicurvAssertRealNear(-0.5, ucont[1][1][1].y, 1.0e-12, "UNIFORM_FLOW should set contravariant y flux (identity metric)"));
+    PetscCall(PicurvAssertRealNear(0.75, ucont[1][1][1].z, 1.0e-12, "UNIFORM_FLOW should set contravariant z flux (identity metric)"));
     PetscCall(PicurvAssertRealNear(1.25, ubcs[0][1][1].x, 1.0e-12, "UNIFORM_FLOW should populate boundary x velocity"));
     PetscCall(PicurvAssertRealNear(-0.5, ubcs[0][1][1].y, 1.0e-12, "UNIFORM_FLOW should populate boundary y velocity"));
     PetscCall(PicurvAssertRealNear(0.75, ubcs[0][1][1].z, 1.0e-12, "UNIFORM_FLOW should populate boundary z velocity"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
 
     PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "NOT_A_REAL_ANALYTICAL_TYPE", sizeof(simCtx->AnalyticalSolutionType)));
@@ -442,6 +471,7 @@ int main(int argc, char **argv)
         {"les-filter-paths", TestLESTestFilterPaths},
         {"compute-eddy-viscosity-les-deterministic-field", TestComputeEddyViscosityLESDeterministicField},
         {"flow-solver-rejects-unsupported-momentum-solver-type", TestFlowSolverRejectsUnsupportedMomentumSolverType},
+        {"analytical-solution-engine-dispatch", TestAnalyticalSolutionEngineDispatch},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv solver utility tests");
