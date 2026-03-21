@@ -3554,17 +3554,24 @@ def normalize_cluster_launcher(execution: dict) -> tuple[str | None, list[str]]:
     )
 
 
-def build_local_launch_command(executable: str, executable_args: list, num_procs: int, config_search_anchor: str = None) -> list:
+def build_local_launch_command(
+    executable: str,
+    executable_args: list,
+    num_procs: int,
+    config_search_anchor: str = None,
+    allow_single_rank_launcher_override: bool = False,
+) -> list:
     """!
     @brief Build local launcher command, allowing env or shared config overrides for login-node MPI quirks.
     @param[in] executable Argument passed to `build_local_launch_command()`.
     @param[in] executable_args Argument passed to `build_local_launch_command()`.
     @param[in] num_procs Argument passed to `build_local_launch_command()`.
     @param[in] config_search_anchor Argument passed to `build_local_launch_command()`.
+    @param[in] allow_single_rank_launcher_override When true, explicit launcher overrides also apply to 1-rank commands.
     @return Value returned by `build_local_launch_command()`.
     """
     command = [executable] + executable_args
-    if num_procs <= 1:
+    if num_procs <= 1 and not allow_single_rank_launcher_override:
         return command
 
     launcher_override = os.environ.get("PICURV_MPI_LAUNCHER")
@@ -3573,6 +3580,7 @@ def build_local_launch_command(executable: str, executable_args: list, num_procs
 
     try:
         if launcher_override is not None:
+            explicit_launcher_config = True
             launcher, launcher_args = split_launcher_tokens(
                 launcher_override,
                 label="local MPI launcher override",
@@ -3582,6 +3590,9 @@ def build_local_launch_command(executable: str, executable_args: list, num_procs
             local_execution = resolve_runtime_execution_context(runtime_execution_cfg, "local")
             configured_launcher = local_execution.get("launcher")
             configured_args = local_execution.get("launcher_args") or []
+            explicit_launcher_config = configured_launcher is not None or bool(configured_args)
+            if num_procs <= 1 and not explicit_launcher_config:
+                return command
             launcher, launcher_args = split_launcher_tokens(
                 configured_launcher if configured_launcher is not None else "mpiexec",
                 configured_args,
@@ -5690,7 +5701,13 @@ def build_run_dry_plan(args) -> dict:
                 "launch_command_string": _command_to_string(post_cmd),
             }
         else:
-            post_cmd = [post_exe] + post_args
+            post_cmd = build_local_launch_command(
+                post_exe,
+                post_args,
+                post_num_procs_effective,
+                config_search_anchor=case_path,
+                allow_single_rank_launcher_override=True,
+            )
             post_stream_log = os.path.join(run_dir, "scheduler", f"{run_id}_{output_prefix}.log")
             plan["artifacts"].append(post_stream_log)
             plan["stages"]["post-process"] = {
@@ -6219,7 +6236,13 @@ def run_workflow(args):
                 print(f"[SUCCESS] Submitted post job: {submit_info['job_id']}")
             stages_completed.append('post-process')
         else:
-            command = [post_exe] + post_args
+            command = build_local_launch_command(
+                post_exe,
+                post_args,
+                post_num_procs_effective,
+                config_search_anchor=case_path,
+                allow_single_rank_launcher_override=True,
+            )
             execute_command(command, run_dir, os.path.join("scheduler", f"{run_id}_{output_prefix}.log"), monitor_cfg)
             stages_completed.append('post-process')
 
