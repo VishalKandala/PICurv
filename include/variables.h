@@ -203,6 +203,18 @@ typedef struct VerificationDiffusivityConfig {
     PetscReal slope_x;
 } VerificationDiffusivityConfig;
 
+/** @brief Aggregated per-timestep search instrumentation counters. */
+typedef struct SearchMetricsState {
+    PetscInt searchAttempts;
+    PetscInt traversalStepsSum;
+    PetscInt maxTraversalSteps;
+    PetscInt tieBreakCount;
+    PetscInt boundaryClampCount;
+    PetscInt bboxGuessSuccessCount;
+    PetscInt bboxGuessFallbackCount;
+    PetscInt maxParticlePassDepth;
+} SearchMetricsState;
+
 
 //--------------------------------------------------------------------------------
 //                 4. BOUNDARY CONDITION SYSTEM ENUMS
@@ -715,6 +727,7 @@ typedef struct SimCtx {
     PetscInt particlesMigratedLastStep;
     PetscInt occupiedCellCount;
     PetscReal particleLoadImbalance;
+    SearchMetricsState searchMetrics;
     PetscRandom BrownianMotionRNG;
     PetscReal C_IEM;
 

@@ -696,6 +696,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             
             // h. (Optional) Calculate advanced particle metrics for logging/debugging.
             ierr = CalculateAdvancedParticleMetrics(user); CHKERRQ(ierr);
+            ierr = LOG_SEARCH_METRICS(user); CHKERRQ(ierr);
 
             ierr = LOG_PARTICLE_METRICS(user, "Timestep Metrics"); CHKERRQ(ierr);
 

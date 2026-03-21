@@ -14,7 +14,10 @@ Parameter keys may target nested config values such as
 
 Use explicit metric specs whenever the study signal comes from a non-default
 CSV or log artifact. For example, interpolation studies can aggregate values
-from `logs/interpolation_error.csv` instead of using `msd_final`.
+from `logs/interpolation_error.csv` instead of using `msd_final`. Search and
+migration characterization studies can likewise aggregate columns from
+`logs/search_metrics.csv`, such as `lost`, `migration_passes`,
+`mean_traversal_steps`, or `tie_break_count`.
 
 ## How To Use
 

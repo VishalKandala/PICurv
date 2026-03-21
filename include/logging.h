@@ -834,6 +834,14 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
 PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user);
 
 /**
+ * @brief Resets the aggregate per-timestep search instrumentation counters.
+ *
+ * @param simCtx Simulation context whose search metrics should be zeroed.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ResetSearchMetrics(SimCtx *simCtx);
+
+/**
  * @brief Computes advanced particle statistics and stores them in SimCtx.
  *
  * This function calculates:
@@ -847,6 +855,17 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user);
  * @return     PetscErrorCode 0 on success.
  */
 PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user);
+
+/**
+ * @brief Writes compact runtime search metrics to CSV and optionally to console.
+ *
+ * The CSV artifact is always written for particle-enabled runs. Console output
+ * remains gated by normal logging level and function allow-listing.
+ *
+ * @param user Pointer to the UserCtx.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user);
 
 /**
  * @brief Logs particle swarm metrics, adapting its behavior based on a boolean flag in SimCtx.

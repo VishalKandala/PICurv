@@ -704,6 +704,9 @@ static PetscErrorCode TestLocateAllParticlesInGridPriorCellFastPath(void)
     PetscCall(PicurvAssertIntEqual(1, cell_ids[1], "prior-cell fast path should preserve the j cell id"));
     PetscCall(PicurvAssertIntEqual(1, cell_ids[2], "prior-cell fast path should preserve the k cell id"));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status[0], "prior-cell fast path should mark the particle ACTIVE_AND_LOCATED"));
+    PetscCall(PicurvAssertIntEqual(1, simCtx->searchMetrics.searchAttempts, "prior-cell fast path should record one search attempt"));
+    PetscCall(PicurvAssertBool((PetscBool)(simCtx->searchMetrics.traversalStepsSum > 0), "prior-cell fast path should accumulate traversal steps"));
+    PetscCall(PicurvAssertIntEqual(1, simCtx->searchMetrics.maxParticlePassDepth, "prior-cell fast path should report one settlement pass"));
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
 
@@ -755,6 +758,9 @@ static PetscErrorCode TestLocateAllParticlesInGridGuessPathResolvesLocalParticle
     PetscCall(PicurvAssertIntEqual(2, cell_ids[1], "guess-path location should resolve the j cell id"));
     PetscCall(PicurvAssertIntEqual(2, cell_ids[2], "guess-path location should resolve the k cell id"));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status[0], "guess-path location should mark the particle ACTIVE_AND_LOCATED"));
+    PetscCall(PicurvAssertIntEqual(1, simCtx->searchMetrics.searchAttempts, "guess-path location should perform one robust search"));
+    PetscCall(PicurvAssertIntEqual(1, simCtx->searchMetrics.bboxGuessFallbackCount, "guess-path location should record one bbox fallback"));
+    PetscCall(PicurvAssertIntEqual(0, simCtx->searchMetrics.bboxGuessSuccessCount, "guess-path local resolution should not count as remote bbox success"));
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
 

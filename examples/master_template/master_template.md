@@ -13,6 +13,9 @@ This directory contains fully commented reference templates for all major workfl
 - `master_study.yml`
 
 These files are intended to document contract breadth and option interactions. They are not meant to be executed directly as-is.
+For a concrete end-to-end observability example focused on particle settlement,
+search effort, and migration behavior, use `examples/search_robustness/` as the
+paired runtime reference.
 
 ## 2. Recommended Usage Pattern
 
@@ -45,3 +48,4 @@ For shared site MPI quirks across login-node and batch runs, `picurv init` now c
 - Extension playbook: https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html
 - Workflow extensibility notes: https://vishalkandala.me/picurv-docs/17_Workflow_Extensibility.html
 - Conductor CLI: https://vishalkandala.me/picurv-docs/05_The_Conductor_Script.html
+- Search robustness example: ../search_robustness/search_robustness.md

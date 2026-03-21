@@ -23,11 +23,16 @@ logging:
   # Options: ERROR, WARNING, INFO, DEBUG, TRACE, VERBOSE
   # WARNING is the production default: quiet runtime, still shows warnings.
   # The startup banner remains visible and reports walltime-guard status.
+  # Runtime metrics such as logs/search_metrics.csv may still be written even
+  # when console verbosity stays low.
   verbosity: WARNING
 
   # --- Function Allow-List ---
   # For targeted debugging. If this list is empty, picurv omits the whitelist
   # file so the C runtime falls back to its built-in default allow-list.
+  # Example: allow-list LOG_SEARCH_METRICS with DEBUG verbosity when you want
+  # compact console summaries in addition to the always-written
+  # logs/search_metrics.csv artifact for particle-enabled runs.
   enabled_functions: []
 
 # ==============================================================================

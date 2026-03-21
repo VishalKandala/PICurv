@@ -1,0 +1,9 @@
+operation_mode:
+  eulerian_field_source: "analytical"
+  analytical_type: "ZERO_FLOW"
+
+interpolation:
+  method: "Trilinear"
+
+petsc_passthrough_options:
+  -schmidt_number: 1.0

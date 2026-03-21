@@ -54,6 +54,10 @@ Post statistics currently include global kernels such as:
 - @ref ComputeParticleMSD
 
 Additional health indicators are available from migration counters and settlement-pass counts stored in `SimCtx` fields updated by location logic.
+For particle-enabled runs, the runtime also writes `logs/search_metrics.csv`
+with aggregated search-attempt, traversal, tie-break, boundary-clamp,
+bbox-guess, and pass-depth signals. The `examples/search_robustness/` bundle is
+the dedicated end-to-end reference for interpreting that artifact.
 
 @section p34_extension_sec 5. Extending To New Closures
 
@@ -98,4 +102,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-
