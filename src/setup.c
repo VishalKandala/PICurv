@@ -885,11 +885,30 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
               if (!exists){
                 LOG_ALLOW(GLOBAL, LOG_INFO, "Creating post-processing Particle output directory: %s\n", path_buffer);
                 ierr = PetscMkdirRecursive(path_buffer); CHKERRQ(ierr);
-              }  
+              }
             }
-          } 
-        }  
-      } 
+          }
+        }
+
+        // Statistics output directory
+        if(pps->statistics_pipeline[0] != '\0'){
+          const char *last_slash_stats = strrchr(pps->statistics_output_prefix, '/');
+          if(last_slash_stats){
+            size_t dir_len = last_slash_stats - pps->statistics_output_prefix;
+            if(dir_len > 0){
+              if(dir_len >= sizeof(path_buffer)) SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Post-processing statistics output prefix path is too long.");
+              strncpy(path_buffer, pps->statistics_output_prefix, dir_len);
+              path_buffer[dir_len] = '\0';
+
+              ierr = PetscTestDirectory(path_buffer, 'r', &exists); CHKERRQ(ierr);
+              if (!exists){
+                LOG_ALLOW(GLOBAL, LOG_INFO, "Creating post-processing Statistics output directory: %s\n", path_buffer);
+                ierr = PetscMkdirRecursive(path_buffer); CHKERRQ(ierr);
+              }
+            }
+          }
+        }
+      }
     }
     
     // Synchronize all processes before proceeding

@@ -112,6 +112,48 @@ def test_generate_post_recipe_supports_legacy_aliases_and_legacy_input_extension
     assert "statistics_output_prefix = stats/BrownianStats" in content
 
 
+def test_generate_post_recipe_defaults_statistics_output_prefix_under_monitor_output_root(tmp_path):
+    """!
+    @brief Test that bare statistics prefixes default under the monitor output root statistics subdirectory.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+
+    post_cfg = {
+        "statistics_pipeline": {
+            "tasks": [{"task": "msd"}],
+        },
+        "io": {
+            "output_directory": "viz",
+            "output_filename_prefix": "Field",
+            "particle_filename_prefix": "Particle",
+        },
+    }
+    monitor_cfg = {
+        "io": {
+            "directories": {
+                "output": "results",
+            },
+        },
+    }
+
+    recipe_path = Path(
+        picurv.generate_post_recipe_file(
+            str(run_dir),
+            "demo_run",
+            post_cfg,
+            {"Case": "case.yml", "Post-Profile": "post.yml"},
+            monitor_cfg,
+        )
+    )
+    content = recipe_path.read_text(encoding="utf-8")
+
+    assert "statistics_pipeline = ComputeMSD" in content
+    assert "statistics_output_prefix = results/statistics/Stats" in content
+
+
 def test_validate_post_rejects_unsupported_eulerian_task(tmp_path):
     """!
     @brief Test that validate post rejects unsupported eulerian task.
@@ -194,6 +236,34 @@ def test_statistics_output_artifacts_are_relative_to_run_directory(tmp_path):
     stats_paths = picurv.get_post_statistics_output_artifacts(post_cfg, str(tmp_path))
 
     assert stats_paths == [str((tmp_path / "stats" / "BrownianStats_msd.csv").resolve())]
+
+
+def test_statistics_output_artifacts_default_under_monitor_output_statistics_dir(tmp_path):
+    """!
+    @brief Test that bare statistics prefixes default under the monitor output root statistics subdirectory.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    post_cfg = {
+        "statistics_pipeline": {
+            "tasks": [{"task": "msd"}],
+        },
+        "io": {
+            "output_directory": "viz",
+            "output_filename_prefix": "Field",
+        },
+    }
+    monitor_cfg = {
+        "io": {
+            "directories": {
+                "output": "results",
+            },
+        },
+    }
+
+    stats_paths = picurv.get_post_statistics_output_artifacts(post_cfg, str(tmp_path), monitor_cfg)
+
+    assert stats_paths == [str((tmp_path / "results" / "statistics" / "Stats_msd.csv").resolve())]
 
 
 def test_dry_run_json_reports_predicted_statistics_csv_artifact(tmp_path):

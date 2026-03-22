@@ -10,7 +10,11 @@ parameters:
   case.run_control.dt_physical: [0.001, 0.0005, 0.00025]
 
 metrics:
-  - msd_final
+  - name: final_msd_total
+    source: "statistics_csv"
+    file_glob: "**/*_msd.csv"
+    column: "MSD_total"
+    reduction: "last"
 
 plotting:
   enabled: true
@@ -18,4 +22,3 @@ plotting:
 
 execution:
   max_concurrent_array_tasks: 2
-

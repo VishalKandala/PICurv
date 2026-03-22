@@ -1347,6 +1347,24 @@ def get_post_statistics_task_tokens(post_cfg: dict):
     return tokens
 
 
+def get_monitor_output_directory(monitor_cfg: dict, default: str = "output") -> str:
+    """!
+    @brief Resolve the solver output root from monitor.yml, preserving the default layout.
+    @param[in] monitor_cfg Argument passed to `get_monitor_output_directory()`.
+    @param[in] default Argument passed to `get_monitor_output_directory()`.
+    @return Value returned by `get_monitor_output_directory()`.
+    """
+    io_cfg = monitor_cfg.get("io")
+    if isinstance(io_cfg, dict):
+        directories = io_cfg.get("directories")
+        if isinstance(directories, dict):
+            output_dir = directories.get("output")
+            if isinstance(output_dir, str) and output_dir.strip():
+                return output_dir.strip()
+
+    return default
+
+
 def get_post_statistics_output_prefix(post_cfg: dict, default: str = "Stats") -> str:
     """!
     @brief Resolve the statistics CSV prefix, preserving legacy top-level override support.
@@ -1367,17 +1385,37 @@ def get_post_statistics_output_prefix(post_cfg: dict, default: str = "Stats") ->
     return default
 
 
-def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str):
+def resolve_post_statistics_output_prefix(post_cfg: dict, monitor_cfg=None, default: str = "Stats") -> str:
+    """!
+    @brief Resolve the runtime statistics prefix, routing bare basenames under the monitor output root.
+    @param[in] post_cfg Argument passed to `resolve_post_statistics_output_prefix()`.
+    @param[in] monitor_cfg Optional monitor configuration used to anchor the default statistics home.
+    @param[in] default Argument passed to `resolve_post_statistics_output_prefix()`.
+    @return Value returned by `resolve_post_statistics_output_prefix()`.
+    """
+    prefix = get_post_statistics_output_prefix(post_cfg, default=default).strip()
+    if os.path.isabs(prefix):
+        return prefix
+
+    if os.path.dirname(prefix):
+        return prefix
+
+    monitor_output_dir = get_monitor_output_directory(monitor_cfg or {})
+    return os.path.join(monitor_output_dir, "statistics", prefix)
+
+
+def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str, monitor_cfg=None):
     """!
     @brief Predict statistics CSV output paths relative to the postprocessor runtime cwd.
     @param[in] post_cfg Argument passed to `get_post_statistics_output_artifacts()`.
     @param[in] run_dir Argument passed to `get_post_statistics_output_artifacts()`.
+    @param[in] monitor_cfg Optional monitor configuration used to anchor the default statistics home.
     @return Value returned by `get_post_statistics_output_artifacts()`.
     """
     token_to_suffix = {
         "ComputeMSD": "_msd.csv",
     }
-    prefix = get_post_statistics_output_prefix(post_cfg)
+    prefix = resolve_post_statistics_output_prefix(post_cfg, monitor_cfg)
     if os.path.isabs(prefix):
         base_path = os.path.abspath(prefix)
     else:
@@ -4746,7 +4784,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     print(f"[SUCCESS] Generated solver control file: {os.path.relpath(control_file_path)}")
     return os.path.abspath(control_file_path)
 
-def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_files: dict) -> str:
+def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_files: dict, monitor_cfg=None) -> str:
     """!
     @brief Generates a key=value config file (post.run) for the C post-processor.
     @details Translates the structured post-processing YAML into the specific flat
@@ -4756,6 +4794,7 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     @param[in] run_id The unique identifier for the run.
     @param[in] post_cfg The parsed post-profile YAML configuration dictionary.
     @param[in] source_files A dictionary of source files for the header.
+    @param[in] monitor_cfg Optional parsed monitor YAML configuration dictionary.
     @return The absolute path to the generated post.run recipe file.
     """
     print("[INFO] Generating post-processor recipe file (post.run)...")
@@ -4819,7 +4858,8 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
 
     if statistics_pipeline_parts:
         c_config['statistics_pipeline'] = ";".join(statistics_pipeline_parts)
-    if statistics_output_prefix is None:
+        statistics_output_prefix = resolve_post_statistics_output_prefix(post_cfg, monitor_cfg)
+    elif statistics_output_prefix is None:
         statistics_output_prefix = post_cfg.get('statistics_output_prefix')
     if statistics_output_prefix:
         c_config['statistics_output_prefix'] = statistics_output_prefix
@@ -5694,7 +5734,7 @@ def build_run_dry_plan(args) -> dict:
         post_exe = resolve_runtime_executable("postprocessor")
         post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_path]
         plan["artifacts"].extend([post_recipe_path, output_dir_abs])
-        plan["artifacts"].extend(get_post_statistics_output_artifacts(post_cfg, run_dir))
+        plan["artifacts"].extend(get_post_statistics_output_artifacts(post_cfg, run_dir, loaded_monitor_cfg))
 
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
@@ -6200,12 +6240,12 @@ def run_workflow(args):
         output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
         os.makedirs(output_dir_abs, exist_ok=True)
         print(f"[INFO] Post-processor output directory: {os.path.relpath(output_dir_abs)}")
-        statistics_output_paths = get_post_statistics_output_artifacts(post_cfg, run_dir)
+        statistics_output_paths = get_post_statistics_output_artifacts(post_cfg, run_dir, monitor_cfg)
         for stats_path in statistics_output_paths:
             print(f"[INFO] Statistics CSV output: {os.path.relpath(stats_path)}")
 
         source_files_post = {'Case': case_path, 'Post-Profile': args.post}
-        post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_cfg, source_files_post)
+        post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_cfg, source_files_post, monitor_cfg)
 
         post_exe = resolve_runtime_executable("postprocessor")
         post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_file]
@@ -6448,7 +6488,7 @@ def sweep_workflow(args):
             post_cfg['source_data'] = {}
         post_cfg['source_data']['directory'] = source_dir
         output_prefix = post_cfg.get("io", {}).get("output_filename_prefix", "post")
-        post_recipe = generate_post_recipe_file(run_dir, case_id, post_cfg, {'Case': case_path, 'Post-Profile': post_path})
+        post_recipe = generate_post_recipe_file(run_dir, case_id, post_cfg, {'Case': case_path, 'Post-Profile': post_path}, monitor_cfg)
 
         case_entries.append({
             "index": idx,
