@@ -469,9 +469,13 @@ int main(int argc, char **argv)
     PetscErrorCode ierr;
     const PicurvTestCase cases[] = {
         {"les-filter-paths", TestLESTestFilterPaths},
+        {"analytical-geometry-selection", TestAnalyticalGeometrySelection},
+        {"analytical-solution-engine-dispatch", TestAnalyticalSolutionEngineDispatch},
+        {"analytical-solution-engine-taylor-green-samples", TestAnalyticalSolutionEngineTaylorGreenSamples},
+        {"analytical-solution-for-particles-dispatch", TestAnalyticalSolutionForParticlesDispatch},
         {"compute-eddy-viscosity-les-deterministic-field", TestComputeEddyViscosityLESDeterministicField},
         {"flow-solver-rejects-unsupported-momentum-solver-type", TestFlowSolverRejectsUnsupportedMomentumSolverType},
-        {"analytical-solution-engine-dispatch", TestAnalyticalSolutionEngineDispatch},
+        {"driven-channel-flow-source", TestDrivenChannelFlowSource},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv solver utility tests");
