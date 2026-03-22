@@ -1189,7 +1189,6 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     DM da = user->da, fda = user->fda;
     DMDALocalInfo info = user->info;
     PetscInt i,j,k;
-    PetscReal dpdc, dpde,dpdz;
     // --- Local Grid Indices and Parameters ---
     PetscInt xs = info.xs, xe = xs + info.xm, mx = info.mx;
     PetscInt ys = info.ys, ye = ys + info.ym, my = info.my;
@@ -1378,7 +1377,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     for (k = lzs; k < lze; k++) {
         for (j = lys; j < lye; j++) {
             for (i = lxs; i < lxe; i++) {
-                PetscReal dpdc, dpde, dpdz;
+                PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
 	dpdc = p[k][j][i+1] - p[k][j][i];
 
 	if ((j==my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
@@ -1612,6 +1611,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     for (k=lzs; k<lze; k++) {
       for (j=lys; j<lye; j++) {	  
 	i=xs;
+	PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
 
 	dpdc = p[k][j][i+1] - p[k][j][i];
 	
@@ -1694,6 +1694,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
       for (i=lxs; i<lxe; i++) {	  
 
 	j=ys;
+	PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
 
 	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) || nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
 	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
@@ -1778,6 +1779,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
       for (i=lxs; i<lxe; i++) {
 
 	k=zs; 
+	PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
 
 	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
 	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {

@@ -219,7 +219,7 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     PetscBool *placement_successful_out)
 {
     SimCtx *simCtx = user->simCtx;
-    PetscReal global_logic_i, global_logic_j, global_logic_k;
+    PetscReal global_logic_i = 0.0, global_logic_j = 0.0, global_logic_k = 0.0;
     PetscErrorCode ierr;
     PetscMPIInt rank_for_logging;
 

@@ -559,19 +559,19 @@ static PetscErrorCode SetAnalyticalSolutionForParticles_UniformFlow(Vec tempVec,
 PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
 {
     PetscErrorCode ierr;
+    const char *analytical_type = simCtx->AnalyticalSolutionType[0] ? simCtx->AnalyticalSolutionType : "default";
 
     PetscFunctionBeginUser;
     
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Type: %s\n", 
-              simCtx->AnalyticalSolutionType ? simCtx->AnalyticalSolutionType : "default");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Type: %s\n", analytical_type);
     
     // Check for specific analytical solution types
-    if (simCtx->AnalyticalSolutionType && strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
+    if (strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using TGV3D solution.\n");
         ierr = SetAnalyticalSolutionForParticles_TGV3D(tempVec, simCtx); CHKERRQ(ierr);
         return 0;
     }
-    if (simCtx->AnalyticalSolutionType && strcmp(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW") == 0) {
+    if (strcmp(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW") == 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using UNIFORM_FLOW solution.\n");
         ierr = SetAnalyticalSolutionForParticles_UniformFlow(tempVec, simCtx); CHKERRQ(ierr);
         return 0;

@@ -2533,7 +2533,7 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering VolumeFlux to enforce no-penetration condition.\n");
 
   //Mohsen March 2017
-  PetscReal *lIB_Flux, *lIB_area,*IB_Flux,*IB_Area;
+  PetscReal *lIB_Flux = NULL, *lIB_area = NULL, *IB_Flux = NULL, *IB_Area = NULL;
   if (NumberOfBodies > 1) { 
   
     lIB_Flux=(PetscReal *)calloc(NumberOfBodies,sizeof(PetscReal));
@@ -2729,7 +2729,7 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
 
   PetscReal correction;
 
-  PetscReal *Correction;
+  PetscReal *Correction = NULL;
   if (NumberOfBodies > 1) {
       Correction=(PetscReal *)calloc(NumberOfBodies,sizeof(PetscReal));
       for (ibi=0; ibi<NumberOfBodies; ibi++) Correction[ibi]=0.0;
