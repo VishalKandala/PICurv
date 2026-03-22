@@ -555,6 +555,11 @@ def test_pull_source_repo_updates_all_tracking_branches_by_default(tmp_path):
         captured["rebase"] = rebase
 
     def fail_execute(*args, **kwargs):
+        """!
+        @brief Fail immediately if the single-branch executor is used on the default multi-branch path.
+        @param[in] args Positional arguments passed to `fail_execute()`.
+        @param[in] kwargs Keyword arguments passed to `fail_execute()`.
+        """
         raise AssertionError("execute_command should not be used for default multi-branch pull-source")
 
     original_pull_all = picurv.pull_all_source_branches
