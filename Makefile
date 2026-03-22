@@ -618,11 +618,11 @@ clean-project: cleanobj clean-unit clean-project-docs clean-project-tags
 	@echo "Project cleaned."
 
 ## @target cleanobj
-## @brief (Internal) Removes object files and executables.
+## @brief (Internal) Removes object files and compiled executables while preserving the conductor launcher.
 cleanobj:
-	@echo "--- Removing object files and compiled executables"
+	@echo "--- Removing object files and compiled executables (preserving picurv launcher)"
 	@rm -rf $(OBJDIR) 
-	@rm -f $(SIMULATOR_EXE) $(POSTPROCESSOR_EXE) $(CONDUCTOR_EXE)
+	@rm -f $(SIMULATOR_EXE) $(POSTPROCESSOR_EXE)
 
 ## @target clean-unit
 ## @brief Removes compiled C test objects and binaries.
