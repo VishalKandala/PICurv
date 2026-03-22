@@ -152,11 +152,12 @@ that no longer exist in the source template. User-created case files are not pru
 `sync-config` does not copy `execution.example.yml` into a case; instead it creates
 `.picurv-execution.yml` only when the case does not already have one.
 
-`pull-source` runs `git pull --rebase` in the original source repo so you can update code
-without leaving the case directory:
+`pull-source` refreshes every local branch with a configured upstream, then restores the
+branch you started on, so you can update code without leaving the case directory:
 
 ```bash
 ./my_case/picurv pull-source
+./my_case/picurv pull-source --current-branch-only
 ./my_case/picurv pull-source --no-rebase
 ./my_case/picurv pull-source --remote origin --branch main
 ```
