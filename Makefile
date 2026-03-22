@@ -88,6 +88,7 @@ SRCDIR := src
 INCDIR := include
 OBJDIR := obj
 BINDIR := bin
+LOGDIR := logs
 DOCSDIR := docs
 SCRIPTDIR := scripts
 TESTCDIR := tests/c
@@ -101,6 +102,9 @@ SMOKE_MPI_NPROCS ?= $(TEST_MPI_NPROCS)
 SMOKE_MPI_MATRIX_NPROCS ?= 2 3
 PY_COVERAGE_MIN ?= 40
 C_COVERAGE_MIN ?= 70
+BUILD_LOG := $(LOGDIR)/build.log
+BUILD_WARNINGS_LOG := $(LOGDIR)/build.warnings.log
+BUILD_AUDIT_GOALS ?= cleanobj clean-unit all unit
 
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
@@ -330,7 +334,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -583,14 +587,25 @@ check-full: check
 check-stress: check-full
 	@$(MAKE) --no-print-directory smoke-stress SYSTEM=$(SYSTEM)
 
+## @target audit-build
+## @brief Runs a clean compilation audit and writes full and warning-only logs under `logs/`.
+audit-build:
+	@mkdir -p $(LOGDIR)
+	@rm -f $(BUILD_LOG) $(BUILD_WARNINGS_LOG)
+	@echo "==> Running compilation audit ($(BUILD_AUDIT_GOALS))..."
+	@/bin/bash -o pipefail -c '$(MAKE) --no-print-directory $(BUILD_AUDIT_GOALS) SYSTEM=$(SYSTEM) 2>&1 | tee "$(BUILD_LOG)"'
+	@grep -E "warning:" "$(BUILD_LOG)" > "$(BUILD_WARNINGS_LOG)" || true
+	@echo "Compilation log: $(BUILD_LOG)"
+	@echo "Compilation warnings: $(BUILD_WARNINGS_LOG)"
+
 ## @target build-docs
 ## @brief Generates Doxygen documentation for the project.
 build-docs: dirs
 	@echo "==> Generating Doxygen documentation..."
-	@mkdir -p logs
+	@mkdir -p $(LOGDIR)
 	@doxygen docs/Doxyfile
 	@echo "HTML documentation generated in docs_build/html/index.html"
-	@echo "Doxygen warnings log: logs/doxygen.warnings"
+	@echo "Doxygen warnings log: $(LOGDIR)/doxygen.warnings"
 
 ## @target open-docs
 ## @brief Opens the generated documentation in a web browser.

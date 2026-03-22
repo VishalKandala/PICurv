@@ -23,6 +23,7 @@ Canonical commands:
 - `make coverage-python`
 - `make coverage-c`
 - `make coverage`
+- `make audit-build`
 - `make doctor`
 - `make unit`
 - `make unit-geometry`
@@ -65,6 +66,7 @@ Fast local checks:
 python3 scripts/audit_function_docs.py
 make test
 make coverage-python
+make audit-build
 make doctor
 make unit-setup
 make unit-simulation
@@ -82,6 +84,7 @@ Guidance:
 - Use `python3 scripts/audit_function_docs.py` when changing C/Python function signatures, docstrings, or test helpers.
 - Use `make test` when working on `scripts/picurv`, schemas, or repository metadata.
 - Use `python3 scripts/check_markdown_links.py` when changing docs/examples.
+- Use `make audit-build` when you want a clean compilation audit with `logs/build.log` and `logs/build.warnings.log` captured under the repo `logs/` directory.
 - Use `make doctor` after provisioning PETSc on a new machine.
 - Use `make unit-setup` when changing setup, teardown, initialization, or rank-info lifecycle code.
 - Use `make unit-simulation` for the normal simulation-core debugging loop (`unit-boundaries + unit-solver + unit-poisson-rhs + unit-runtime + unit-particles`).

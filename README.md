@@ -126,6 +126,7 @@ After `init`, you can operate on the original source repo from anywhere using `p
 picurv status-source --case-dir my_case  # inspect code/template drift before syncing
 picurv build                             # rebuild in the source repo (defaults to `make all`)
 picurv build clean-project               # clean in the source repo
+make audit-build                         # rebuild with repo-level logging under `logs/`
 picurv pull-source --case-dir my_case    # git pull --rebase in the source repo
 picurv sync-binaries --case-dir my_case  # pin specific binary versions into the case (optional)
 picurv sync-config --case-dir my_case    # copy updated template files, preserve modified files
@@ -136,6 +137,9 @@ picurv sync-config --case-dir my_case --prune  # remove stale template-managed f
 If the case predates `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
 If `sync-config` cannot infer the template, also pass `--template-name <example_name>`.
 `--prune` only removes files previously tracked as template-managed, so user-created files are left alone.
+`picurv build` writes `logs/build.log` in the source repo. Direct `make all` keeps
+its normal stdout-only behavior; use `make audit-build` when you want `logs/build.log`
+plus `logs/build.warnings.log` for a warning audit.
 
 ## Cluster and Sweep Workflow
 
