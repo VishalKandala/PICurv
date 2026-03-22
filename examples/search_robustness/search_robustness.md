@@ -40,6 +40,8 @@ Columns:
 - `time`
 - `total_particles`
 - `lost`
+- `lost_cumulative`
+  cumulative lost-particle count over the current run only; this is intentionally not restored from restart state
 - `migrated`
 - `migration_passes`
 - `search_attempts`

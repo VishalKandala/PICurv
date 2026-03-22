@@ -171,6 +171,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->interpolationMethod = INTERP_TRILINEAR;
     strcpy(simCtx->particleRestartMode,"load");
     simCtx->particlesLostLastStep = 0;
+    simCtx->particlesLostCumulative = 0;
     simCtx->particlesMigratedLastStep = 0;
     simCtx->occupiedCellCount = 0;
     simCtx->particleLoadImbalance = 0.0;

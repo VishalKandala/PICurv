@@ -591,6 +591,7 @@ static PetscErrorCode TestParticleMetricsLogging(void)
     simCtx->StartStep = 0;
     simCtx->step = 1;
     simCtx->particlesLostLastStep = 1;
+    simCtx->particlesLostCumulative = 7;
     simCtx->particlesMigratedLastStep = 2;
     simCtx->migrationPassesLastStep = 3;
 
@@ -602,6 +603,8 @@ static PetscErrorCode TestParticleMetricsLogging(void)
     PetscCall(PicurvAssertFileExists(metrics_path, "LOG_PARTICLE_METRICS should write Particle_Metrics.log"));
     PetscCall(AssertFileContains(metrics_path, "Timestep Metrics", "Particle metrics log should include the caller-provided stage label"));
     PetscCall(AssertFileContains(metrics_path, "Occupied Cells", "Particle metrics log should include the metrics table header"));
+    PetscCall(AssertFileContains(metrics_path, "Lost Total", "Particle metrics log should include the cumulative-loss column"));
+    PetscCall(AssertFileContains(metrics_path, "| 1          | 7          | 2", "Particle metrics log should record both per-step and cumulative loss values"));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -624,6 +627,7 @@ static PetscErrorCode TestSearchMetricsLogging(void)
     simCtx->step = 2;
     simCtx->ti = 0.2;
     simCtx->particlesLostLastStep = 1;
+    simCtx->particlesLostCumulative = 7;
     simCtx->particlesMigratedLastStep = 2;
     simCtx->migrationPassesLastStep = 3;
     simCtx->particleLoadImbalance = 1.5;
@@ -642,7 +646,8 @@ static PetscErrorCode TestSearchMetricsLogging(void)
     PetscCall(PicurvAssertFileExists(metrics_path, "LOG_SEARCH_METRICS should write search_metrics.csv"));
     PetscCall(AssertFileContains(metrics_path, "search_attempts", "Search metrics CSV header should include search_attempts"));
     PetscCall(AssertFileContains(metrics_path, "max_particle_pass_depth", "Search metrics CSV header should include max_particle_pass_depth"));
-    PetscCall(AssertFileContains(metrics_path, "2.500000e+00", "Search metrics CSV should record the mean traversal steps"));
+    PetscCall(AssertFileContains(metrics_path, "lost_cumulative", "Search metrics CSV header should include the cumulative-loss column"));
+    PetscCall(AssertFileContains(metrics_path, "2,2.000000e-01,2,1,7,2,3,4,2.500000e+00", "Search metrics CSV should record both per-step and cumulative loss values"));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);

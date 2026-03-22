@@ -8,7 +8,7 @@
 
 - Search robustness observability:
   - added always-on aggregate search instrumentation for particle-enabled runs.
-  - added `logs/search_metrics.csv` with timestep-level search, traversal, tie-break, boundary-clamp, bbox-guess, and pass-depth signals.
+  - added `logs/search_metrics.csv` with timestep-level search, traversal, tie-break, boundary-clamp, bbox-guess, pass-depth, per-step loss, and run-local cumulative loss signals.
   - added `LOG_SEARCH_METRICS` for compact DEBUG-gated console summaries when explicitly allow-listed.
   - added the `examples/search_robustness/` example family with Cartesian and curvilinear localized-stress variants.
 

@@ -7421,15 +7421,36 @@ def _parse_particle_metrics_log(filepath: str) -> dict:
             step = _parse_int_loose(parts[1])
             if step is None:
                 continue
-            rows_by_step[step] = {
+            row = {
                 "stage": parts[0],
                 "total_particles": _parse_int_loose(parts[2]),
                 "lost_particles": _parse_int_loose(parts[3]),
-                "migrated_particles": _parse_int_loose(parts[4]),
-                "occupied_cells": _parse_int_loose(parts[5]),
-                "load_imbalance": _parse_float_loose(parts[6]),
-                "migration_passes": _parse_int_loose(parts[7]),
+                "lost_particles_cumulative": None,
+                "migrated_particles": None,
+                "occupied_cells": None,
+                "load_imbalance": None,
+                "migration_passes": None,
             }
+            if len(parts) >= 9:
+                row.update(
+                    {
+                        "lost_particles_cumulative": _parse_int_loose(parts[4]),
+                        "migrated_particles": _parse_int_loose(parts[5]),
+                        "occupied_cells": _parse_int_loose(parts[6]),
+                        "load_imbalance": _parse_float_loose(parts[7]),
+                        "migration_passes": _parse_int_loose(parts[8]),
+                    }
+                )
+            else:
+                row.update(
+                    {
+                        "migrated_particles": _parse_int_loose(parts[4]),
+                        "occupied_cells": _parse_int_loose(parts[5]),
+                        "load_imbalance": _parse_float_loose(parts[6]),
+                        "migration_passes": _parse_int_loose(parts[7]),
+                    }
+                )
+            rows_by_step[step] = row
     return rows_by_step
 
 
@@ -8142,9 +8163,15 @@ def render_run_summary(payload: dict, output_format: str = "text"):
     particles = payload.get("particles", {})
     print("\n  Particles:")
     if particles.get("available"):
+        loss_summary = f"lost={particles.get('lost_particles')}"
+        if particles.get("lost_particles_cumulative") is not None:
+            loss_summary = (
+                f"lost(step/total)={particles.get('lost_particles')}/"
+                f"{particles.get('lost_particles_cumulative')}"
+            )
         print(
             "    "
-            f"total={particles.get('total_particles')} lost={particles.get('lost_particles')} "
+            f"total={particles.get('total_particles')} {loss_summary} "
             f"migrated={particles.get('migrated_particles')} occupied={particles.get('occupied_cells')} "
             f"imbalance={_format_summary_float(particles.get('load_imbalance'), '.2f')}"
         )

@@ -291,9 +291,9 @@ def create_summary_run_dir(
         (logs_dir / "Particle_Metrics.log").write_text(
             "\n".join(
                 [
-                    "Stage              | Timestep   | Total Ptls   | Lost       | Migrated   | Occupied Cells  | Imbalance  | Mig Passes",
-                    "----------------------------------------------------------------------------------------------------------------------------",
-                    "AfterAdvection     | 10         | 120          | 2          | 5          | 40              | 1.25       | 2",
+                    "Stage              | Timestep   | Total Ptls   | Lost       | Lost Total | Migrated   | Occupied Cells  | Imbalance  | Mig Passes",
+                    "-------------------------------------------------------------------------------------------------------------------------------------------",
+                    "AfterAdvection     | 10         | 120          | 2          | 7          | 5          | 40              | 1.25       | 2",
                 ]
             )
             + "\n",
@@ -1028,6 +1028,8 @@ def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
     assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 4
     assert payload["poisson"]["blocks"][0]["iterations"] == 7
     assert payload["particles"]["total_particles"] == 120
+    assert payload["particles"]["lost_particles"] == 2
+    assert payload["particles"]["lost_particles_cumulative"] == 7
     assert payload["profiling"]["available"] is True
     assert payload["profiling"]["functions"][0]["function"] == "AdvanceSimulation"
     assert payload["particle_snapshot"]["available"] is True
@@ -1063,6 +1065,7 @@ def test_summarize_text_output_renders_human_readable_sections(tmp_path):
     assert "RUN STEP SUMMARY" in result.stdout
     assert "Step           : 10 (latest_available)" in result.stdout
     assert "Particle Snapshot (sampled):" in result.stdout
+    assert "lost(step/total)=2/7" in result.stdout
     assert "Profiling:" in result.stdout
 
 

@@ -290,7 +290,7 @@ Examples:
 Typical sources:
 
 - `logs/Continuity_Metrics.log`
-- `logs/Particle_Metrics.log`
+- `logs/Particle_Metrics.log` (per-step `Lost` plus run-local `Lost Total` when available)
 - `logs/Momentum_Solver_Convergence_History_Block_*.log`
 - `logs/Poisson_Solver_Convergence_History_Block_*.log`
 - `logs/Profiling_Timestep_Summary.csv` when enabled

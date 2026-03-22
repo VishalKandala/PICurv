@@ -71,7 +71,8 @@ Watch for:
 - excessive migration pass counts,
 - repeated `LOST` particles,
 - non-convergence of settlement loop,
-- elevated traversal effort or repeated tie-break/boundary-clamp events in `logs/search_metrics.csv`.
+- elevated traversal effort or repeated tie-break/boundary-clamp events in `logs/search_metrics.csv`,
+- increasing `lost` or `lost_cumulative` even when migration otherwise appears healthy.
 
 These usually indicate domain-decomposition mismatch, bounding-box mismatch, or invalid particle coordinates.
 

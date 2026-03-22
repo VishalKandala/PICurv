@@ -723,6 +723,7 @@ typedef struct SimCtx {
     InterpolationMethod interpolationMethod;
     char particleRestartMode[16];
     PetscInt particlesLostLastStep;
+    PetscInt particlesLostCumulative;
     PetscInt migrationPassesLastStep;
     PetscInt particlesMigratedLastStep;
     PetscInt occupiedCellCount;
