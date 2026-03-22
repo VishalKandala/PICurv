@@ -37,9 +37,10 @@ models:
       init_mode: "PointSource"
       restart_mode: "init"
       point_source:
-        # Mid-domain localized seed for the bundled bent-channel grid.
-        x: 9.75
-        y: 5.25
+        # Physical image of the logical center node (i,j,k)=(10,10,72).
+        # With the documented 2x1x1 decomposition this lies on the x-rank interface.
+        x: 12.8284271
+        y: 2.17157288
         z: 1.0
 
 boundary_conditions:
