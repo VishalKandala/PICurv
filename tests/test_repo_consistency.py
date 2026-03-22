@@ -111,6 +111,25 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def test_clean_project_dry_run_preserves_picurv_launcher():
+    """!
+    @brief Test that `make -n clean-project` preserves the `bin/picurv` launcher.
+    """
+    result = subprocess.run(
+        ["make", "-n", "clean-project"],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    dry_run_output = result.stdout
+    assert "rm -f bin/simulator bin/postprocessor" in dry_run_output
+    assert "bin/picurv" not in dry_run_output
+
+
 def test_all_example_bundles_validate():
     """!
     @brief Test that all example bundles validate.
