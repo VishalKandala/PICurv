@@ -2685,6 +2685,8 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         if op_mode_cfg is not None and not isinstance(op_mode_cfg, dict):
             errors.append(f"  {solver_path}: 'operation_mode' must be a mapping when provided.")
         elif isinstance(op_mode_cfg, dict):
+            eulerian_source_mode = None
+            normalized_analytical_type = None
             if 'eulerian_field_source' in op_mode_cfg:
                 try:
                     eulerian_source_mode = normalize_eulerian_field_source(op_mode_cfg.get('eulerian_field_source'))
@@ -2727,19 +2729,36 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                         )
 
             if eulerian_source_mode == "analytical":
-                if grid_mode != 'programmatic_c':
-                    errors.append(
-                        f"  {case_path}: grid.mode '{grid_mode}' is not supported when "
-                        "operation_mode.eulerian_field_source is 'analytical'. "
-                        "The current C analytical path consumes only grid.mode = 'programmatic_c'."
-                    )
-                elif isinstance(grid_cfg.get('programmatic_settings'), dict):
-                    missing_dims = [key for key in ('im', 'jm', 'km') if key not in grid_cfg['programmatic_settings']]
-                    if missing_dims:
+                effective_analytical_type = normalized_analytical_type or "TGV3D"
+                if effective_analytical_type == "TGV3D":
+                    if grid_mode != 'programmatic_c':
                         errors.append(
-                            f"  {case_path}: grid.programmatic_settings must include {missing_dims} when "
-                            "operation_mode.eulerian_field_source is 'analytical'."
+                            f"  {case_path}: analytical type '{effective_analytical_type}' requires grid.mode "
+                            "'programmatic_c'. File-backed analytical ingestion is only supported for "
+                            "ZERO_FLOW and UNIFORM_FLOW."
                         )
+                    elif isinstance(grid_cfg.get('programmatic_settings'), dict):
+                        missing_dims = [key for key in ('im', 'jm', 'km') if key not in grid_cfg['programmatic_settings']]
+                        if missing_dims:
+                            errors.append(
+                                f"  {case_path}: grid.programmatic_settings must include {missing_dims} when "
+                                f"operation_mode.analytical_type resolves to '{effective_analytical_type}'."
+                            )
+                else:
+                    if grid_mode not in {'programmatic_c', 'file'}:
+                        errors.append(
+                            f"  {case_path}: grid.mode '{grid_mode}' is not supported when "
+                            f"operation_mode.analytical_type is '{effective_analytical_type}'. "
+                            "Use 'programmatic_c' or 'file'."
+                        )
+                    elif grid_mode == 'programmatic_c' and isinstance(grid_cfg.get('programmatic_settings'), dict):
+                        missing_dims = [key for key in ('im', 'jm', 'km') if key not in grid_cfg['programmatic_settings']]
+                        if missing_dims:
+                            errors.append(
+                                f"  {case_path}: grid.programmatic_settings must include {missing_dims} when "
+                                f"operation_mode.analytical_type is '{effective_analytical_type}' and "
+                                "grid.mode is 'programmatic_c'."
+                            )
 
         verification_cfg = solver_cfg.get('verification', {})
         if verification_cfg is not None and not isinstance(verification_cfg, dict):

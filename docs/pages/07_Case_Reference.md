@@ -76,7 +76,8 @@ Supported modes:
 Mode compatibility note:
 
 - for normal `solve` and `load` workflows, all three grid modes are supported.
-- for `solver.yml -> operation_mode.eulerian_field_source: analytical`, the current contract requires `grid.mode: programmatic_c`.
+- for `solver.yml -> operation_mode.eulerian_field_source: analytical`, `TGV3D` requires `grid.mode: programmatic_c`.
+- `ZERO_FLOW` and `UNIFORM_FLOW` support `grid.mode: programmatic_c` and `grid.mode: file`.
 
 Optional global DMDA layout hints apply to all grid modes:
 

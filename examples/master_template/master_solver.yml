@@ -19,7 +19,8 @@ operation_mode:
   eulerian_field_source: "solve"  # -> -euler_field_source
   # Optional analytical solution selector used when eulerian_field_source = "analytical".
   # Supported values today: "TGV3D", "ZERO_FLOW", "UNIFORM_FLOW".
-  # The current C analytical path expects case.yml to use grid.mode: programmatic_c.
+  # TGV3D currently requires case.yml to use grid.mode: programmatic_c.
+  # ZERO_FLOW and UNIFORM_FLOW also support file-based grid ingestion.
   analytical_type: "TGV3D"        # -> -analytical_type
   # Parameters for analytical_type: "UNIFORM_FLOW".
   # Uncomment this block only when analytical_type = "UNIFORM_FLOW".

@@ -19,23 +19,27 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
-    if(strcmp(simCtx->eulerianSource,"analytical")==0){
-        if (AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) {
-            ierr = SetAnalyticalGridInfo(user); CHKERRQ(ierr);
-        } else {
+    if(strcmp(simCtx->eulerianSource,"analytical")==0 &&
+       AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)){
+        ierr = SetAnalyticalGridInfo(user); CHKERRQ(ierr);
+    } else if (simCtx->generate_grid) {
+        if (strcmp(simCtx->eulerianSource, "analytical") == 0) {
             LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
-                           "Rank %d: Analytical type '%s' uses programmatic grid fallback for block %d.\n",
+                           "Rank %d: Analytical type '%s' uses programmatic grid ingestion for block %d.\n",
                            simCtx->rank, simCtx->AnalyticalSolutionType, user->_this);
-            ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
-        }
-    }else{ // eulerianSource is "solve" or "load"
-        if (simCtx->generate_grid) {
+        } else {
             LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
-            ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
+        }
+        ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
+    } else {
+        if (strcmp(simCtx->eulerianSource, "analytical") == 0) {
+            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
+                           "Rank %d: Analytical type '%s' uses file-based grid ingestion for block %d.\n",
+                           simCtx->rank, simCtx->AnalyticalSolutionType, user->_this);
         } else {
             LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is file-based. Calling file parser.\n", simCtx->rank, user->_this);
-            ierr = ReadGridFile(user); CHKERRQ(ierr);
         }
+        ierr = ReadGridFile(user); CHKERRQ(ierr);
     }
 
     PROFILE_FUNCTION_END;
