@@ -55,9 +55,10 @@ Post statistics currently include global kernels such as:
 
 Additional health indicators are available from migration counters and settlement-pass counts stored in `SimCtx` fields updated by location logic.
 For particle-enabled runs, the runtime also writes `logs/search_metrics.csv`
-with aggregated search-attempt, traversal, tie-break, boundary-clamp,
-bbox-guess, and pass-depth signals. The `examples/search_robustness/` bundle is
-the dedicated end-to-end reference for interpreting that artifact.
+with per-step and cumulative loss plus aggregated search-attempt, traversal,
+tie-break, boundary-clamp, bbox-guess, and pass-depth signals. The
+`examples/search_robustness/` bundle is the dedicated end-to-end reference for
+interpreting that artifact.
 
 @section p34_extension_sec 5. Extending To New Closures
 

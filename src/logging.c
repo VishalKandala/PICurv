@@ -1923,16 +1923,17 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
         } else {
             if (ftell(f) == 0) {
                 fprintf(f,
-                        "step,time,total_particles,lost,migrated,migration_passes,search_attempts,"
+                        "step,time,total_particles,lost,lost_cumulative,migrated,migration_passes,search_attempts,"
                         "mean_traversal_steps,max_traversal_steps,tie_break_count,boundary_clamp_count,"
                         "bbox_guess_success_count,bbox_guess_fallback_count,max_particle_pass_depth,load_imbalance\n");
             }
             fprintf(f,
-                    "%d,%.6e,%d,%d,%d,%d,%d,%.6e,%d,%d,%d,%d,%d,%d,%.6e\n",
+                    "%d,%.6e,%d,%d,%d,%d,%d,%d,%.6e,%d,%d,%d,%d,%d,%d,%.6e\n",
                     (int)simCtx->step,
                     (double)simCtx->ti,
                     (int)totalParticles,
                     (int)simCtx->particlesLostLastStep,
+                    (int)simCtx->particlesLostCumulative,
                     (int)simCtx->particlesMigratedLastStep,
                     (int)simCtx->migrationPassesLastStep,
                     (int)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_SEARCH_ATTEMPTS] + 0.5),
@@ -1949,8 +1950,9 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     }
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "Search metrics: lost=%d migrated=%d passes=%d traversal(mean/max)=%.2f/%d tie_breaks=%d max_pass_depth=%d\n",
+              "Search metrics: lost(step/total)=%d/%d migrated=%d passes=%d traversal(mean/max)=%.2f/%d tie_breaks=%d max_pass_depth=%d\n",
               (int)simCtx->particlesLostLastStep,
+              (int)simCtx->particlesLostCumulative,
               (int)simCtx->particlesMigratedLastStep,
               (int)simCtx->migrationPassesLastStep,
               (double)meanTraversalSteps,
@@ -2042,14 +2044,14 @@ PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
         if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open particle log file: %s", filen);
 
         if (ftell(f) == 0) {
-            PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10s | %-12s | %-10s | %-10s | %-15s | %-10s | %-10s\n",
-                            "Stage", "Timestep", "Total Ptls", "Lost", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes");
-            PetscFPrintf(PETSC_COMM_SELF, f, "----------------------------------------------------------------------------------------------------------------------------\n");
+            PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10s | %-12s | %-10s | %-10s | %-10s | %-15s | %-10s | %-10s\n",
+                            "Stage", "Timestep", "Total Ptls", "Lost", "Lost Total", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes");
+            PetscFPrintf(PETSC_COMM_SELF, f, "-------------------------------------------------------------------------------------------------------------------------------------------\n");
         }
 
-        PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10d | %-12d | %-10d | %-10d | %-15d | %-10.2f | %-10d\n",
+        PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10d | %-12d | %-10d | %-10d | %-10d | %-15d | %-10.2f | %-10d\n",
                         stage_label, (int)simCtx->step, (int)totalParticles, (int)simCtx->particlesLostLastStep,
-                        (int)simCtx->particlesMigratedLastStep, (int)simCtx->occupiedCellCount,
+                        (int)simCtx->particlesLostCumulative, (int)simCtx->particlesMigratedLastStep, (int)simCtx->occupiedCellCount,
                         (double)simCtx->particleLoadImbalance, (int)simCtx->migrationPassesLastStep);
         fclose(f);
     }

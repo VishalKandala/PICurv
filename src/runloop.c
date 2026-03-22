@@ -648,6 +648,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         
         if (simCtx->np > 0) {
             LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Lagrangian particle system...\n");
+            simCtx->particlesLostLastStep = 0;
 
             // a. Update Eulerian Transport Properties:
             // Optimization: Only recalculate if turbulence is active (Nu_t changes).
@@ -677,9 +678,10 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             // d. Remove any particles that are now lost or out of the global domain.
             ierr = CheckAndRemoveLostParticles(user, &removed_local_lost, &removed_global_lost); CHKERRQ(ierr);
             //ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, simCtx->bboxlist); CHKERRQ(ierr);
+            simCtx->particlesLostLastStep = removed_global_lost;
+            simCtx->particlesLostCumulative += removed_global_lost;
             if (removed_global_lost> 0) { // if(removed_global_lost + removed_global_ob > 0){
                 LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %d particles globally this step.\n", removed_global_lost); // removed_global_lost + removed_global_ob;
-                simCtx->particlesLostLastStep = removed_global_lost;
             }
 
             // e. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the
