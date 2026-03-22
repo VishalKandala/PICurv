@@ -8,7 +8,7 @@
 #                            + (y_n(t) - y_n(0))^2
 #                            + (z_n(t) - z_n(0))^2 ]
 #
-#  Output: BrownianStats_msd.csv
+#  Output: output/statistics/BrownianStats_msd.csv
 #
 #  Verification check (see README_verification.md):
 #    Fit a line through MSD vs t data.

@@ -45,7 +45,7 @@ the statistical noise at N = 50000.
   --post examples/brownian_motion/brownian_analysis.yml
 ```
 
-Output file: `<run_dir>/BrownianStats_msd.csv`
+Output file: `<run_dir>/output/statistics/BrownianStats_msd.csv`
 
 ---
 
@@ -57,7 +57,7 @@ Output file: `<run_dir>/BrownianStats_msd.csv`
 import numpy as np
 import pandas as pd
 
-df = pd.read_csv("BrownianStats_msd.csv")
+df = pd.read_csv("output/statistics/BrownianStats_msd.csv")
 # Actual columns include: step, t, N, MSD_x, MSD_y, MSD_z, MSD_total, ...
 t   = df["t"].values             # Non-dimensional time
 msd = df["MSD_total"].values     # Total MSD

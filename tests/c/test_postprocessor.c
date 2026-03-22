@@ -6,6 +6,7 @@
 #include "test_support.h"
 
 #include "postprocessor.h"
+#include "setup.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -155,6 +156,72 @@ static PetscErrorCode TestGlobalStatisticsPipelineWritesMSDCSV(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Tests that postprocessor setup creates nested statistics directories without clobbering existing contents.
+ */
+
+static PetscErrorCode TestSetupSimulationEnvironmentCreatesStatisticsDirectoryWithoutClobbering(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PostProcessParams *pps = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char post_path[PETSC_MAX_PATH_LEN];
+    char source_dir[PETSC_MAX_PATH_LEN];
+    char stats_dir[PETSC_MAX_PATH_LEN];
+    char stats_prefix[PETSC_MAX_PATH_LEN];
+    char sentinel_path[PETSC_MAX_PATH_LEN];
+    PetscBool exists = PETSC_FALSE;
+    FILE *file = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PetscNew(&simCtx->pps));
+    pps = simCtx->pps;
+    PetscCall(PetscMemzero(pps, sizeof(*pps)));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+
+    PetscCall(PetscSNPrintf(post_path, sizeof(post_path), "%s/post.run", tmpdir));
+    file = fopen(post_path, "w");
+    PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to create post config %s.", post_path);
+    fputs("startTime = 0\nendTime = 0\ntimeStep = 1\n", file);
+    fclose(file);
+    file = NULL;
+
+    PetscCall(PetscSNPrintf(source_dir, sizeof(source_dir), "%s/output", tmpdir));
+    PetscCall(PicurvEnsureDir(source_dir));
+    PetscCall(PetscSNPrintf(stats_dir, sizeof(stats_dir), "%s/output/statistics", tmpdir));
+    PetscCall(PetscSNPrintf(stats_prefix, sizeof(stats_prefix), "%s/BrownianStats", stats_dir));
+    PetscCall(PetscSNPrintf(sentinel_path, sizeof(sentinel_path), "%s/sentinel.keep", stats_dir));
+
+    simCtx->exec_mode = EXEC_MODE_POSTPROCESSOR;
+    simCtx->generate_grid = PETSC_TRUE;
+    PetscCall(PetscStrncpy(simCtx->PostprocessingControlFile, post_path, sizeof(simCtx->PostprocessingControlFile)));
+    PetscCall(PetscStrncpy(pps->source_dir, source_dir, sizeof(pps->source_dir)));
+    PetscCall(PetscSNPrintf(pps->output_prefix, sizeof(pps->output_prefix), "%s/viz/Field", tmpdir));
+    PetscCall(PetscStrncpy(pps->statistics_pipeline, "ComputeMSD", sizeof(pps->statistics_pipeline)));
+    PetscCall(PetscStrncpy(pps->statistics_output_prefix, stats_prefix, sizeof(pps->statistics_output_prefix)));
+
+    PetscCall(SetupSimulationEnvironment(simCtx));
+    PetscCall(PetscTestDirectory(stats_dir, 'r', &exists));
+    PetscCall(PicurvAssertBool(exists,
+                               "SetupSimulationEnvironment should create the statistics directory when it is missing"));
+
+    file = fopen(sentinel_path, "w");
+    PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to create statistics sentinel %s.", sentinel_path);
+    fputs("keep\n", file);
+    fclose(file);
+    file = NULL;
+
+    PetscCall(SetupSimulationEnvironment(simCtx));
+    PetscCall(PicurvAssertFileExists(sentinel_path,
+                                     "SetupSimulationEnvironment should preserve existing statistics directory contents on repeat runs"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
 /**
  * @brief Tests VTS emission for Eulerian post-processing output.
  */
@@ -242,6 +309,7 @@ int main(int argc, char **argv)
         {"eulerian-data-processing-pipeline-runs-configured-kernels", TestEulerianDataProcessingPipelineRunsConfiguredKernels},
         {"particle-data-processing-pipeline-computes-specific-ke", TestParticleDataProcessingPipelineComputesSpecificKE},
         {"global-statistics-pipeline-writes-msd-csv", TestGlobalStatisticsPipelineWritesMSDCSV},
+        {"setup-simulation-environment-creates-statistics-directory-without-clobbering", TestSetupSimulationEnvironmentCreatesStatisticsDirectoryWithoutClobbering},
         {"write-eulerian-file-writes-vts", TestWriteEulerianFileWritesVTS},
         {"write-particle-file-writes-vtp", TestWriteParticleFileWritesVTP},
     };

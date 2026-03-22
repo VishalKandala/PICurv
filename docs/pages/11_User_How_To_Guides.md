@@ -352,8 +352,8 @@ statistics_pipeline:
 
 Verification:
 
-- check `Stats_msd.csv` in the run directory root, unless `statistics_pipeline.output_prefix`
-  includes an explicit path.
+- check `output/statistics/Stats_msd.csv` by default, unless `statistics_pipeline.output_prefix`
+  includes an explicit relative or absolute path.
 
 @section p11_init_sec 5. Case Initialization and Binary Management
 

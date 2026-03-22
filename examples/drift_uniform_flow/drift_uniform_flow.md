@@ -30,7 +30,7 @@ setting an effectively infinite Schmidt number.
 
 Primary output:
 
-- `<run_dir>/UniformFlowDrift_msd.csv`
+- `<run_dir>/output/statistics/UniformFlowDrift_msd.csv`
 
 ## Verification
 

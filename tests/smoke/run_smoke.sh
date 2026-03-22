@@ -1357,7 +1357,7 @@ run_full_runtime_smoke() {
   brownian_run="${LAST_RUN_DIR}"
   require_count_ge "${brownian_run}/viz/brownian_smoke" "*.vts" 1 "brownian eulerian VTS files"
   require_count_ge "${brownian_run}/viz/brownian_smoke" "*.vtp" 1 "brownian particle VTP files"
-  require_file "${brownian_run}/BrownianStats_msd.csv" "brownian MSD statistics CSV"
+  require_file "${brownian_run}/output/statistics/BrownianStats_msd.csv" "brownian MSD statistics CSV"
   require_file_contains "${LAST_SOLVER_LOG}" "Analytical Solution Type" "analytical runtime branch"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 64" "brownian runtime banner particle count"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "brownian runtime banner disabled particle console cadence"
