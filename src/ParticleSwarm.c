@@ -335,7 +335,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                 particle_placed_by_this_rank = PETSC_FALSE; // Relies on migration
             }
         }else if(simCtx->ParticleInitialization == PARTICLE_INIT_VOLUME){ // --- 5.b. Volumetric Initialization ---
-            PetscBool can_place_volumetrically;
+            PetscBool can_place_volumetrically = PETSC_FALSE;
             ierr = DetermineVolumetricInitializationParameters(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
                                                             rand_logic_i, rand_logic_j, rand_logic_k,
                                                             &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,

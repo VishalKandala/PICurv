@@ -1462,8 +1462,8 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    if(!simCtx->output_dir){
-        SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE, "Output directory was not set before calling WriteFieldData().");
+    if(!simCtx->current_io_directory){
+        SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE, "I/O context directory was not set before calling WriteFieldData().");
     }
 
     /* ------------------------------------------------------------ */
@@ -2050,6 +2050,8 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
     PetscFunctionBeginUser;
 
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "DisplayBanner - UserCtx pointer is NULL.");
+    global_min_coords = user->bbox.min_coords;
+    global_max_coords = user->bbox.max_coords;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     if (rank == 0) {
