@@ -135,6 +135,8 @@ def make_fake_git_source_clone(tmp_path: Path) -> Path:
     run_checked(["git", "commit", "-m", "initial fixture"], cwd=seed_root, env=git_env)
     run_checked(["git", "clone", "--bare", "--no-hardlinks", str(seed_root), str(origin_dir)], cwd=tmp_path, env=git_env)
     run_checked(["git", "clone", origin_url, str(source_root)], cwd=tmp_path, env=git_env)
+    run_checked(["git", "config", "user.email", "tests@example.com"], cwd=source_root, env=git_env)
+    run_checked(["git", "config", "user.name", "PICurv Tests"], cwd=source_root, env=git_env)
 
     return source_root
 
