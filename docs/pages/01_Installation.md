@@ -154,9 +154,13 @@ Useful variants:
 ```bash
 ./scripts/picurv build clean-project
 ./scripts/picurv build SYSTEM=cluster
+make audit-build
 ```
 
 After `source etc/picurv.sh`, use `picurv` directly from any directory.
+`./scripts/picurv build` writes `logs/build.log` in the source repo. If you are
+auditing compiler warnings from a direct Make invocation, use `make audit-build`
+to generate both `logs/build.log` and `logs/build.warnings.log`.
 
 @section p01_verify_sec 8. Verify Installation
 

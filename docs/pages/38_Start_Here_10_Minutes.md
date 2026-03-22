@@ -41,7 +41,9 @@ The first command builds `bin/simulator`, `bin/postprocessor`, and creates
 `bin/picurv` (a symlink to `scripts/picurv`). The second adds `bin/` to your PATH
 for compiled executables and `scripts/` as a fallback for `picurv`, so the
 command still works from any directory even if the symlink has not been rebuilt
-yet. Add the source line to `~/.bashrc` to make it permanent.
+yet. Add the source line to `~/.bashrc` to make it permanent. The build stream is
+also written to `logs/build.log`. If you later run `make` directly and want the
+same repo-level log files, use `make audit-build`.
 
 If build fails, go to **@subpage 01_Installation** and verify PETSc/MPI toolchain setup.
 

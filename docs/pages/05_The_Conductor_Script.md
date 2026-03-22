@@ -101,7 +101,20 @@ Behavior:
 - resolves the source repo from `.picurv-origin.json` when run from an initialized case,
 - passes any trailing arguments directly through to the Make/build layer,
 - can rebuild or clean the source repo without leaving a copied case directory,
+- writes the streamed build output to `logs/build.log` in the source repo,
 - is the recommended command for normal users instead of invoking `make` manually.
+
+Direct `make all` keeps the traditional stdout-only behavior. When you want the
+same source-repo build plus a warnings-only artifact, use:
+
+```bash
+make audit-build
+```
+
+This writes:
+
+- `logs/build.log`
+- `logs/build.warnings.log`
 
 Examples:
 
@@ -111,6 +124,7 @@ Examples:
 ./scripts/picurv build SYSTEM=cluster
 ./scripts/picurv build postprocessor
 ./my_case/picurv build clean-project
+make audit-build
 ```
 
 @section p05_sync_sec 3b. sync-binaries / sync-config / pull-source / status-source
