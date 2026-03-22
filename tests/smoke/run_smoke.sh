@@ -852,6 +852,57 @@ with open(post_path, "w", encoding="utf-8") as f:
     yaml.safe_dump(post_cfg, f, sort_keys=False)
 PY
 }
+prepare_bent_case_analytical_uniform_tiny() {
+  local case_dir="$1"
+  python3 - "${case_dir}/bent_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+import sys
+import yaml
+case_path, solver_path, monitor_path, post_path = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+with open(monitor_path, "r", encoding="utf-8") as f:
+    monitor_cfg = yaml.safe_load(f)
+with open(post_path, "r", encoding="utf-8") as f:
+    post_cfg = yaml.safe_load(f)
+
+case_cfg.setdefault("run_control", {})
+case_cfg["run_control"]["start_step"] = 0
+case_cfg["run_control"]["total_steps"] = 3
+case_cfg["run_control"]["dt_physical"] = 0.001
+case_cfg.setdefault("models", {}).setdefault("physics", {})
+case_cfg["models"]["physics"]["particles"] = {"count": 0}
+
+solver_cfg.setdefault("operation_mode", {})
+solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
+solver_cfg["operation_mode"]["analytical_type"] = "UNIFORM_FLOW"
+solver_cfg["operation_mode"]["uniform_flow"] = {"u": 0.05, "v": -0.02, "w": 0.1}
+
+monitor_cfg.setdefault("io", {})
+monitor_cfg["io"]["data_output_frequency"] = 1
+monitor_cfg["io"]["particle_console_output_frequency"] = 0
+monitor_cfg["io"]["particle_log_interval"] = 1
+
+post_cfg.setdefault("run_control", {})
+post_cfg["run_control"]["start_step"] = 0
+post_cfg["run_control"]["end_step"] = 3
+post_cfg["run_control"]["step_interval"] = 1
+post_cfg.setdefault("io", {})
+post_cfg["io"]["output_directory"] = "viz/bent_analytical_smoke"
+post_cfg["io"]["output_filename_prefix"] = "Field"
+
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+with open(monitor_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(monitor_cfg, f, sort_keys=False)
+with open(post_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(post_cfg, f, sort_keys=False)
+PY
+}
+
 
 prepare_flat_case_particles_stress() {
   local case_dir="$1"
@@ -1197,6 +1248,23 @@ run_full_runtime_smoke() {
   require_count_ge "${bent_run}/output/eulerian" "*.dat" 1 "bent Eulerian data files"
   require_count_ge "${bent_run}/viz/bent_smoke" "*.vts" 1 "bent post VTS files"
 
+  local bent_analytical_case="${tmp_root}/bent-analytical"
+  "${picurv_exe}" init bent_channel --dest "${bent_analytical_case}" >/dev/null
+  prepare_bent_case_analytical_uniform_tiny "${bent_analytical_case}"
+  run_case_workflow \
+    "${bent_analytical_case}" \
+    "${bent_analytical_case}/bent_channel.yml" \
+    "${bent_analytical_case}/Imp-MG-Standard.yml" \
+    "${bent_analytical_case}/Standard_Output.yml" \
+    "${bent_analytical_case}/standard_analysis.yml" \
+    "bent_analytical_uniform"
+
+  local bent_analytical_run
+  bent_analytical_run="${LAST_RUN_DIR}"
+  require_dir "${bent_analytical_run}/output/eulerian" "bent analytical Eulerian output directory"
+  require_count_ge "${bent_analytical_run}/output/eulerian" "*.dat" 1 "bent analytical Eulerian data files"
+  require_count_ge "${bent_analytical_run}/viz/bent_analytical_smoke" "*.vts" 1 "bent analytical post VTS files"
+  require_file_contains "${LAST_SOLVER_LOG}" "Analytical Solution Type : UNIFORM_FLOW" "bent analytical uniform-flow runtime branch"
   "${picurv_exe}" init flat_channel --dest "${flat_particles_case}" >/dev/null
   prepare_flat_case_particles_base "${flat_particles_case}"
   run_case_workflow \

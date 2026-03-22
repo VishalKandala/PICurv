@@ -22,9 +22,9 @@ Runtime dispatch is handled by function @ref AnalyticalSolutionEngine in analyti
 
 Current launcher contract:
 
-- analytical mode should be paired with `case.yml -> grid.mode: programmatic_c`
-- `picurv` now validates this explicitly before runtime
-- this avoids misleading combinations where `file` or `grid_gen` looks valid in YAML but is not consumed by the current C analytical grid path
+- `TGV3D` should be paired with `case.yml -> grid.mode: programmatic_c`
+- `ZERO_FLOW` and `UNIFORM_FLOW` support `case.yml -> grid.mode: programmatic_c` and `case.yml -> grid.mode: file`
+- `grid_gen` remains outside the current documented analytical contract
 
 @section p32_types_sec 2. Supported Types In Current Code
 
@@ -62,8 +62,8 @@ It is useful for controlled particle-motion or postprocessing validation scenari
 
 Grid behavior:
 
-- `ZERO_FLOW` uses the programmatic-grid parsing path for dimensions and bounds,
-- so `programmatic_settings` still matters,
+- `ZERO_FLOW` uses the standard analytical grid-ingestion split,
+- with `programmatic_settings` for `grid.mode: programmatic_c` and `-grid_file` ingestion for `grid.mode: file`,
 - but the flow field itself is imposed analytically as zero everywhere.
 
 @section p32_uniform_sec 5. UNIFORM_FLOW Details
@@ -78,8 +78,8 @@ Configuration:
 
 Grid behavior:
 
-- `UNIFORM_FLOW` uses the standard programmatic-grid fallback path,
-- so `programmatic_settings` still provides dimensions and bounds,
+- `UNIFORM_FLOW` uses the standard analytical grid-ingestion split,
+- with `programmatic_settings` for `grid.mode: programmatic_c` and `-grid_file` ingestion for `grid.mode: file`,
 - but the analytical engine populates both Eulerian cell-center and boundary velocity data with the configured constant vector.
 - the implementation works in curvilinear form: it sets `Ucont` (contravariant flux) using face-metric dot products and derives `Ucat` via `Contra2Cart`, ensuring correctness on non-Cartesian grids.
 

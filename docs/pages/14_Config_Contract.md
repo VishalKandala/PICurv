@@ -74,8 +74,9 @@ For each run, `picurv` generates:
 
 Analytical-mode compatibility rule:
 
-- when `operation_mode.eulerian_field_source: analytical` is selected, the current launcher contract requires `case.yml -> grid.mode: programmatic_c`.
-- this reflects the current C analytical ingestion path, which does not consume `file`/`grid_gen` geometry in the standard way.
+- when `operation_mode.eulerian_field_source: analytical` is selected, `TGV3D` still requires `case.yml -> grid.mode: programmatic_c`.
+- `ZERO_FLOW` and `UNIFORM_FLOW` support `case.yml -> grid.mode: programmatic_c` and `case.yml -> grid.mode: file`.
+- `grid_gen` remains outside the current documented analytical contract.
 
 Verification-pathway rule:
 

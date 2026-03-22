@@ -97,9 +97,10 @@ Curvilinear localized stress:
 The Cartesian case fixes the seed on the documented x-rank interface for the
 `2 x 1 x 1` decomposition in the case file. The curvilinear case uses the
 bundled bent-channel grid in this directory with a mid-domain localized seed to
-stress geometry and migration together. Because the current analytical path only supports
-`grid.mode: programmatic_c`, the curvilinear variant uses a solve-mode profile
-with zero initial conditions instead of `ZERO_FLOW`.
+stress geometry and migration together. This curvilinear variant intentionally
+keeps a solve-mode profile with zero initial conditions so search robustness is
+characterized against the standard file-grid solve path, even though analytical
+file-grid runs are now supported for `ZERO_FLOW` and `UNIFORM_FLOW`.
 
 ## Console Behavior
 

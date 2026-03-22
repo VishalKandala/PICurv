@@ -76,9 +76,9 @@ Some launcher behaviors depend on other config selections before values ever rea
   accepts `peak_velocity_physical` as the preferred YAML input and maps it to the inlet-aligned
   `-ucont_*` component that C later interprets as `Vmax`.
 - `solver.operation_mode.eulerian_field_source: analytical`
-  currently requires `case.grid.mode: programmatic_c` at launcher validation time because the
-  active C ingestion path for analytical runs does not consume file/grid-gen geometry in the same
-  way as standard solve mode.
+  routes through the analytical grid-ingestion split:
+  `TGV3D` still requires `case.grid.mode: programmatic_c`, while `ZERO_FLOW` and `UNIFORM_FLOW`
+  accept `case.grid.mode: programmatic_c` or `case.grid.mode: file`.
 - `case.properties.initial_conditions.mode`
   is now an explicit launcher requirement even though raw C has its own internal default.
 
