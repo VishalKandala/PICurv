@@ -4906,13 +4906,10 @@ def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg:
     @param[in] log_filename Argument passed to `execute_command()`.
     @param[in] monitor_cfg Argument passed to `execute_command()`.
     """
-    if os.path.dirname(log_filename):
-        log_path = os.path.join(run_dir, log_filename)
-    else:
-        log_path = os.path.join(run_dir, "logs", log_filename)
+    log_path = resolve_command_log_path(run_dir, log_filename)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
-    print(f"[INFO] Launching Command...\n  > {' '.join(command)}")
+    print(f"[INFO] Launching Command...\n  > {format_command_for_display(command)}")
     print(f"       Log file: {os.path.relpath(log_path)}")
     print("-" * 60)
 
@@ -4937,7 +4934,7 @@ def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg:
     try:
         # Pass the constructed keyword arguments dictionary to Popen
         process = subprocess.Popen(command, **popen_kwargs)
-        
+
         with open(log_path, "w") as log_file:
             for line in process.stdout:
                 sys.stdout.write(line)
@@ -4957,6 +4954,334 @@ def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg:
     except Exception as e:
         print(f"[FATAL] An unexpected error occurred during execution: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def format_command_for_display(command: list) -> str:
+    """!
+    @brief Render a shell-safe command string for console and log output.
+    @param[in] command Argument passed to `format_command_for_display()`.
+    @return Value returned by `format_command_for_display()`.
+    """
+    return " ".join(shlex.quote(str(part)) for part in command)
+
+
+def resolve_command_log_path(run_dir: str, log_filename: str) -> str:
+    """!
+    @brief Resolve a command log filename relative to the run directory.
+    @param[in] run_dir Argument passed to `resolve_command_log_path()`.
+    @param[in] log_filename Argument passed to `resolve_command_log_path()`.
+    @return Value returned by `resolve_command_log_path()`.
+    """
+    if os.path.dirname(log_filename):
+        return os.path.join(run_dir, log_filename)
+    return os.path.join(run_dir, "logs", log_filename)
+
+
+class CommandExecutionError(RuntimeError):
+    """!
+    @brief Raised when an external command exits unsuccessfully.
+    """
+
+    def __init__(self, command: list, returncode: int, details: str = None):
+        """!
+        @brief Initialize a command execution error.
+        @param[in] command Argument passed to `__init__()`.
+        @param[in] returncode Argument passed to `__init__()`.
+        @param[in] details Argument passed to `__init__()`.
+        """
+        self.command = command
+        self.returncode = returncode
+        self.details = details
+        detail_suffix = f": {details}" if details else ""
+        super().__init__(
+            f"Command failed with exit code {returncode}: {format_command_for_display(command)}{detail_suffix}"
+        )
+
+
+def _run_captured_command(command: list, run_dir: str) -> subprocess.CompletedProcess:
+    """!
+    @brief Run a command and capture combined stdout/stderr details for later inspection.
+    @param[in] command Argument passed to `_run_captured_command()`.
+    @param[in] run_dir Argument passed to `_run_captured_command()`.
+    @return Value returned by `_run_captured_command()`.
+    """
+    try:
+        return subprocess.run(
+            command,
+            cwd=run_dir,
+            text=True,
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError as exc:
+        raise CommandExecutionError(command, 1, f"Command not found or is not executable: '{command[0]}'") from exc
+
+
+def _require_successful_command(command: list, result: subprocess.CompletedProcess):
+    """!
+    @brief Raise `CommandExecutionError` when a captured command failed.
+    @param[in] command Argument passed to `_require_successful_command()`.
+    @param[in] result Argument passed to `_require_successful_command()`.
+    """
+    if result.returncode == 0:
+        return
+    details = (result.stderr or result.stdout).strip()
+    raise CommandExecutionError(command, result.returncode, details or None)
+
+
+def _capture_command_stdout(command: list, run_dir: str) -> str:
+    """!
+    @brief Run a command, require success, and return stripped stdout text.
+    @param[in] command Argument passed to `_capture_command_stdout()`.
+    @param[in] run_dir Argument passed to `_capture_command_stdout()`.
+    @return Value returned by `_capture_command_stdout()`.
+    """
+    result = _run_captured_command(command, run_dir)
+    _require_successful_command(command, result)
+    return result.stdout.strip()
+
+
+def _stream_command_to_console_and_log(command: list, run_dir: str, log_file):
+    """!
+    @brief Stream command output to stdout and an already-open log file.
+    @param[in] command Argument passed to `_stream_command_to_console_and_log()`.
+    @param[in] run_dir Argument passed to `_stream_command_to_console_and_log()`.
+    @param[in] log_file Argument passed to `_stream_command_to_console_and_log()`.
+    """
+    display = format_command_for_display(command)
+    print(f"[INFO] Running: {display}")
+    log_file.write(f"$ {display}\n")
+    log_file.flush()
+
+    popen_kwargs = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "cwd": run_dir,
+        "bufsize": 1,
+        "universal_newlines": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+
+    try:
+        process = subprocess.Popen(command, **popen_kwargs)
+    except FileNotFoundError as exc:
+        raise CommandExecutionError(command, 1, f"Command not found or is not executable: '{command[0]}'") from exc
+
+    with process:
+        for line in process.stdout:
+            sys.stdout.write(line)
+            log_file.write(line)
+    return_code = process.wait()
+    log_file.write("\n")
+    log_file.flush()
+    if return_code != 0:
+        raise CommandExecutionError(command, return_code)
+
+
+def _get_git_head_state(run_dir: str) -> dict:
+    """!
+    @brief Capture the current git HEAD branch name and commit hash.
+    @param[in] run_dir Argument passed to `_get_git_head_state()`.
+    @return Value returned by `_get_git_head_state()`.
+    """
+    head_commit = _capture_command_stdout(["git", "rev-parse", "--verify", "HEAD"], run_dir)
+    branch_result = _run_captured_command(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], run_dir)
+    branch_name = branch_result.stdout.strip() if branch_result.returncode == 0 else None
+    return {"branch": branch_name, "commit": head_commit}
+
+
+def _get_local_branches_with_upstreams(run_dir: str) -> list[tuple[str, str | None]]:
+    """!
+    @brief Return local branch names plus their configured upstreams.
+    @param[in] run_dir Argument passed to `_get_local_branches_with_upstreams()`.
+    @return Value returned by `_get_local_branches_with_upstreams()`.
+    """
+    output = _capture_command_stdout(
+        ["git", "for-each-ref", "--sort=refname", "--format=%(refname:short)\t%(upstream:short)", "refs/heads"],
+        run_dir,
+    )
+    branches = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        branch_name, _, upstream_name = line.partition("\t")
+        branches.append((branch_name, upstream_name or None))
+    return branches
+
+
+def _working_tree_has_tracked_changes(run_dir: str) -> bool:
+    """!
+    @brief Return `True` when the repository has staged or unstaged tracked changes.
+    @param[in] run_dir Argument passed to `_working_tree_has_tracked_changes()`.
+    @return Value returned by `_working_tree_has_tracked_changes()`.
+    """
+    command = ["git", "status", "--porcelain", "--untracked-files=no"]
+    result = _run_captured_command(command, run_dir)
+    _require_successful_command(command, result)
+    return bool(result.stdout.strip())
+
+
+def _attempt_pull_cleanup(run_dir: str, rebase: bool, log_file):
+    """!
+    @brief Best-effort cleanup after a failed `git pull` so the original branch can be restored.
+    @param[in] run_dir Argument passed to `_attempt_pull_cleanup()`.
+    @param[in] rebase Argument passed to `_attempt_pull_cleanup()`.
+    @param[in] log_file Argument passed to `_attempt_pull_cleanup()`.
+    """
+    cleanup_command = ["git", "rebase", "--abort"] if rebase else ["git", "merge", "--abort"]
+    result = _run_captured_command(cleanup_command, run_dir)
+    if result.returncode == 0:
+        print(f"[INFO] Cleaned up the interrupted {'rebase' if rebase else 'merge'} state.")
+        log_file.write(f"$ {format_command_for_display(cleanup_command)}\n")
+        if result.stdout:
+            sys.stdout.write(result.stdout)
+            log_file.write(result.stdout)
+        if result.stderr:
+            sys.stderr.write(result.stderr)
+            log_file.write(result.stderr)
+        log_file.write("\n")
+        log_file.flush()
+        return
+
+    details = (result.stderr or result.stdout).strip()
+    if details:
+        message = (
+            f"[WARNING] Could not clean up a failed {'rebase' if rebase else 'merge'} automatically: {details}"
+        )
+        print(message, file=sys.stderr)
+        log_file.write(message + "\n")
+        log_file.flush()
+
+
+def _restore_git_head(run_dir: str, original_head: dict, log_file):
+    """!
+    @brief Restore the repository back to the branch or detached commit it started on.
+    @param[in] run_dir Argument passed to `_restore_git_head()`.
+    @param[in] original_head Argument passed to `_restore_git_head()`.
+    @param[in] log_file Argument passed to `_restore_git_head()`.
+    """
+    current_state = _get_git_head_state(run_dir)
+    if original_head["branch"]:
+        if current_state["branch"] == original_head["branch"]:
+            return
+        _stream_command_to_console_and_log(["git", "checkout", original_head["branch"]], run_dir, log_file)
+        return
+
+    if current_state["branch"] is None and current_state["commit"] == original_head["commit"]:
+        return
+    _stream_command_to_console_and_log(["git", "checkout", "--detach", original_head["commit"]], run_dir, log_file)
+
+
+def pull_all_source_branches(run_dir: str, log_filename: str, rebase: bool = True):
+    """!
+    @brief Refresh every local tracking branch in the source repository, then restore the starting branch.
+    @param[in] run_dir Argument passed to `pull_all_source_branches()`.
+    @param[in] log_filename Argument passed to `pull_all_source_branches()`.
+    @param[in] rebase Argument passed to `pull_all_source_branches()`.
+    """
+    log_path = resolve_command_log_path(run_dir, log_filename)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    print("\n" + "="*23 + " PULL SOURCE STAGE " + "="*22)
+    print("[INFO] Refreshing all local source branches that track an upstream.")
+    print(f"       Log file: {os.path.relpath(log_path)}")
+    print("-" * 60)
+
+    try:
+        original_head = _get_git_head_state(run_dir)
+        if _working_tree_has_tracked_changes(run_dir):
+            raise RuntimeError(
+                "Multi-branch pull requires a clean tracked working tree in the source repository. "
+                "Commit or stash those changes first, or rerun with --current-branch-only."
+            )
+        branches = _get_local_branches_with_upstreams(run_dir)
+    except (CommandExecutionError, RuntimeError) as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(getattr(exc, "returncode", 1))
+
+    if not branches:
+        print("[FATAL] No local branches were found in the source repository.", file=sys.stderr)
+        sys.exit(1)
+
+    if original_head["branch"]:
+        branches = [item for item in branches if item[0] != original_head["branch"]] + [
+            item for item in branches if item[0] == original_head["branch"]
+        ]
+
+    skipped_branches = []
+    current_operation = None
+    pull_error = None
+    restore_error = None
+
+    with open(log_path, "w", encoding="utf-8") as log_file:
+        log_file.write(f"# PICurv pull-source all-branch sync\n")
+        log_file.write(f"# repository: {os.path.abspath(run_dir)}\n")
+        log_file.write(f"# started: {datetime.now().isoformat()}\n")
+        log_file.write(
+            f"# original head: {original_head['branch'] if original_head['branch'] else original_head['commit']}\n\n"
+        )
+
+        try:
+            for branch_name, upstream_name in branches:
+                if not upstream_name:
+                    warning = f"[WARNING] Skipping branch '{branch_name}' because it has no configured upstream."
+                    print(warning, file=sys.stderr)
+                    log_file.write(warning + "\n")
+                    skipped_branches.append(branch_name)
+                    continue
+
+                print(f"[INFO] Refreshing branch '{branch_name}' from '{upstream_name}'.")
+                log_file.write(f"[INFO] Refreshing branch '{branch_name}' from '{upstream_name}'.\n")
+
+                current_operation = f"checkout:{branch_name}"
+                _stream_command_to_console_and_log(["git", "checkout", branch_name], run_dir, log_file)
+
+                pull_command = ["git", "pull"]
+                if rebase:
+                    pull_command.append("--rebase")
+                current_operation = f"pull:{branch_name}"
+                _stream_command_to_console_and_log(pull_command, run_dir, log_file)
+                current_operation = None
+        except CommandExecutionError as exc:
+            pull_error = exc
+            if current_operation and current_operation.startswith("pull:"):
+                _attempt_pull_cleanup(run_dir, rebase, log_file)
+        finally:
+            try:
+                _restore_git_head(run_dir, original_head, log_file)
+            except CommandExecutionError as exc:
+                restore_error = exc
+
+    print("-" * 60)
+    if pull_error:
+        if restore_error:
+            print(
+                f"[FATAL] Multi-branch pull failed and the original branch could not be restored. "
+                f"Check log: {os.path.relpath(log_path)}",
+                file=sys.stderr,
+            )
+            sys.exit(restore_error.returncode)
+        print(
+            f"[FATAL] Multi-branch pull failed. Original branch restored. "
+            f"Check log: {os.path.relpath(log_path)}",
+            file=sys.stderr,
+        )
+        sys.exit(pull_error.returncode)
+
+    if restore_error:
+        print(
+            f"[FATAL] Branch updates completed, but the original branch could not be restored. "
+            f"Check log: {os.path.relpath(log_path)}",
+            file=sys.stderr,
+        )
+        sys.exit(restore_error.returncode)
+
+    if skipped_branches:
+        print(f"[WARNING] Skipped branches with no upstream: {', '.join(skipped_branches)}", file=sys.stderr)
+    print("[SUCCESS] All local tracking branches are up to date.")
 
 def auto_identify_run_inputs(config_dir: str):
     """!
@@ -8468,7 +8793,7 @@ def sync_case_config_command(args):
 
 def pull_source_repo(args):
     """!
-    @brief Run git pull in the source repository resolved from a case directory.
+    @brief Refresh source branches in the repository resolved from a case directory.
     @param[in] args Command-line style argument list supplied to the function.
     """
     try:
@@ -8481,11 +8806,22 @@ def pull_source_repo(args):
         print(f"[FATAL] {exc}", file=sys.stderr)
         sys.exit(1)
 
-    command = ["git", "pull"]
-    if not getattr(args, "no_rebase", False):
-        command.append("--rebase")
+    rebase = not getattr(args, "no_rebase", False)
     remote = getattr(args, "remote", None)
     branch = getattr(args, "branch", None)
+    current_branch_only = (
+        getattr(args, "current_branch_only", False)
+        or remote is not None
+        or branch is not None
+    )
+
+    if not current_branch_only:
+        pull_all_source_branches(source_project_root, "pull-source.log", rebase=rebase)
+        return
+
+    command = ["git", "pull"]
+    if rebase:
+        command.append("--rebase")
     if remote:
         command.append(remote)
         if branch:
@@ -8945,12 +9281,15 @@ def _add_pull_source_parser(subparsers):
     """
     p_pull = subparsers.add_parser(
         "pull-source",
-        help="Run git pull in the source repo resolved from a case directory.",
+        help="Refresh source branches from an initialized case directory.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Update the source repository without leaving an initialized case directory.\n\n"
+            "By default this refreshes every local branch that tracks an upstream,\n"
+            "then restores the branch you started on.\n\n"
             "Examples:\n"
             "  ./picurv pull-source\n"
+            "  ./picurv pull-source --current-branch-only\n"
             "  ./picurv pull-source --no-rebase\n"
             "  ./picurv pull-source --remote origin --branch main"
         ),
@@ -8960,6 +9299,11 @@ def _add_pull_source_parser(subparsers):
     p_pull.add_argument("--source-root", help="Optional override for the PICurv source repository root.")
     p_pull.add_argument("--remote", help="Optional git remote name (e.g., origin).")
     p_pull.add_argument("--branch", help="Optional branch name. If provided without --remote, origin is assumed.")
+    p_pull.add_argument(
+        "--current-branch-only",
+        action="store_true",
+        help="Only pull the currently checked out branch instead of iterating across all local tracking branches.",
+    )
     p_pull.add_argument("--no-rebase", action="store_true", help="Use plain git pull instead of git pull --rebase.")
     return p_pull
 

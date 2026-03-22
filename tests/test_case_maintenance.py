@@ -530,9 +530,60 @@ def test_compute_case_source_status_reports_runtime_config_seed_match(tmp_path):
     assert status["runtime_execution"]["case_matches_repo_seed"] is True
 
 
-def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
+def test_pull_source_repo_updates_all_tracking_branches_by_default(tmp_path):
     """!
-    @brief Test that pull source repo uses git pull rebase by default.
+    @brief Test that pull source repo updates all tracking branches by default.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    picurv.write_case_origin_metadata(str(case_dir), str(source_root), template_name="demo")
+
+    captured = {}
+
+    def fake_pull_all(run_dir, log_filename, rebase=True):
+        """!
+        @brief Record multi-branch pull requests without invoking Git.
+        @param[in] run_dir Argument passed to `fake_pull_all()`.
+        @param[in] log_filename Argument passed to `fake_pull_all()`.
+        @param[in] rebase Argument passed to `fake_pull_all()`.
+        """
+        captured["run_dir"] = run_dir
+        captured["log_filename"] = log_filename
+        captured["rebase"] = rebase
+
+    def fail_execute(*args, **kwargs):
+        raise AssertionError("execute_command should not be used for default multi-branch pull-source")
+
+    original_pull_all = picurv.pull_all_source_branches
+    original_execute = picurv.execute_command
+    picurv.pull_all_source_branches = fake_pull_all
+    picurv.execute_command = fail_execute
+    try:
+        picurv.pull_source_repo(
+            SimpleNamespace(
+                case_dir=str(case_dir),
+                source_root=None,
+                remote=None,
+                branch=None,
+                current_branch_only=False,
+                no_rebase=False,
+            )
+        )
+    finally:
+        picurv.pull_all_source_branches = original_pull_all
+        picurv.execute_command = original_execute
+
+    assert captured["run_dir"] == str(source_root.resolve())
+    assert captured["log_filename"] == "pull-source.log"
+    assert captured["rebase"] is True
+
+
+def test_pull_source_repo_uses_git_pull_rebase_for_current_branch_only(tmp_path):
+    """!
+    @brief Test that pull source repo preserves the legacy single-branch path when requested.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -545,7 +596,7 @@ def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
 
     def fake_execute(command, run_dir, log_filename, monitor_cfg=None):
         """!
-        @brief Record pull-command execution requests without invoking Git.
+        @brief Record single-branch pull requests without invoking Git.
         @param[in] command Argument passed to `fake_execute()`.
         @param[in] run_dir Argument passed to `fake_execute()`.
         @param[in] log_filename Argument passed to `fake_execute()`.
@@ -564,6 +615,7 @@ def test_pull_source_repo_uses_git_pull_rebase_by_default(tmp_path):
                 source_root=None,
                 remote=None,
                 branch=None,
+                current_branch_only=True,
                 no_rebase=False,
             )
         )
@@ -687,9 +739,9 @@ def test_status_source_cli_reports_json_for_real_case(tmp_path):
     assert "case.yml" in payload["config"]["case_modified_files"]
 
 
-def test_pull_source_cli_runs_git_pull_against_real_repo(tmp_path):
+def test_pull_source_cli_updates_all_local_tracking_branches_and_restores_original_branch(tmp_path):
     """!
-    @brief Test that the real pull-source CLI runs git pull in a real repo resolved from case metadata.
+    @brief Test that the real pull-source CLI updates every local tracking branch and returns to the starting branch.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -698,9 +750,49 @@ def test_pull_source_cli_runs_git_pull_against_real_repo(tmp_path):
     case_dir.mkdir()
     picurv.write_case_origin_metadata(str(case_dir), str(source_root), template_name="demo")
 
-    result = run_picurv(["pull-source", "--case-dir", str(case_dir)], cwd=tmp_path)
+    git_env = {"TMPDIR": str(tmp_path.resolve())}
+    origin_url = (tmp_path / "origin.git").resolve().as_uri()
+    default_branch = run_checked(["git", "branch", "--show-current"], cwd=source_root, env=git_env).stdout.strip()
+
+    run_checked(["git", "checkout", "-b", "feature"], cwd=source_root, env=git_env)
+    (source_root / "feature.txt").write_text("feature branch seed\n", encoding="utf-8")
+    run_checked(["git", "add", "feature.txt"], cwd=source_root, env=git_env)
+    run_checked(["git", "commit", "-m", "add feature branch"], cwd=source_root, env=git_env)
+    run_checked(["git", "push", "-u", "origin", "feature"], cwd=source_root, env=git_env)
+    run_checked(["git", "checkout", default_branch], cwd=source_root, env=git_env)
+
+    updater = tmp_path / "updater"
+    run_checked(["git", "clone", origin_url, str(updater)], cwd=tmp_path, env=git_env)
+    run_checked(["git", "config", "user.email", "tests@example.com"], cwd=updater, env=git_env)
+    run_checked(["git", "config", "user.name", "PICurv Tests"], cwd=updater, env=git_env)
+
+    (updater / "README.md").write_text("default branch update\n", encoding="utf-8")
+    run_checked(["git", "add", "README.md"], cwd=updater, env=git_env)
+    run_checked(["git", "commit", "-m", "update default branch"], cwd=updater, env=git_env)
+    run_checked(["git", "push", "origin", default_branch], cwd=updater, env=git_env)
+
+    run_checked(["git", "checkout", "feature"], cwd=updater, env=git_env)
+    (updater / "feature.txt").write_text("feature branch update\n", encoding="utf-8")
+    run_checked(["git", "add", "feature.txt"], cwd=updater, env=git_env)
+    run_checked(["git", "commit", "-m", "update feature branch"], cwd=updater, env=git_env)
+    run_checked(["git", "push", "origin", "feature"], cwd=updater, env=git_env)
+
+    default_before = run_checked(["git", "rev-parse", default_branch], cwd=source_root, env=git_env).stdout.strip()
+    feature_before = run_checked(["git", "rev-parse", "feature"], cwd=source_root, env=git_env).stdout.strip()
+    default_remote = run_checked(["git", "ls-remote", "origin", f"refs/heads/{default_branch}"], cwd=source_root, env=git_env).stdout.split()[0]
+    feature_remote = run_checked(["git", "ls-remote", "origin", "refs/heads/feature"], cwd=source_root, env=git_env).stdout.split()[0]
+
+    result = run_picurv(["pull-source", "--case-dir", str(case_dir)], cwd=tmp_path, env=git_env)
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert default_before != default_remote
+    assert feature_before != feature_remote
+    assert run_checked(["git", "branch", "--show-current"], cwd=source_root, env=git_env).stdout.strip() == default_branch
+    assert run_checked(["git", "rev-parse", default_branch], cwd=source_root, env=git_env).stdout.strip() == default_remote
+    assert run_checked(["git", "rev-parse", "feature"], cwd=source_root, env=git_env).stdout.strip() == feature_remote
+
     pull_log = source_root / "logs" / "pull-source.log"
     assert pull_log.exists()
-    assert "Already up to date." in pull_log.read_text(encoding="utf-8")
+    log_text = pull_log.read_text(encoding="utf-8")
+    assert "Refreshing branch 'feature'" in log_text
+    assert f"Refreshing branch '{default_branch}'" in log_text
