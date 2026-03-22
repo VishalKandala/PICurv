@@ -454,6 +454,7 @@ int main(int argc, char **argv)
     const PicurvTestCase cases[] = {
         {"update-pressure-adds-phi", TestUpdatePressureAddsPhi},
         {"poisson-rhs-zero-divergence", TestPoissonRHSZeroDivergence},
+        {"compute-body-forces-dispatcher", TestComputeBodyForcesDispatcher},
         {"compute-eulerian-diffusivity-molecular-only", TestComputeEulerianDiffusivityMolecularOnly},
         {"convection-zero-field", TestConvectionZeroField},
         {"viscous-uniform-field", TestViscousUniformField},

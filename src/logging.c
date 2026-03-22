@@ -1806,8 +1806,8 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
 
     /* --- CSV output (always, rank 0 only) --- */
     if (simCtx->rank == 0) {
-        char csv_path[PETSC_MAX_PATH_LEN];
-        snprintf(csv_path, sizeof(csv_path), "%s/interpolation_error.csv", simCtx->log_dir);
+        char csv_path[PETSC_MAX_PATH_LEN + 32];
+        ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/interpolation_error.csv", simCtx->log_dir); CHKERRQ(ierr);
         FILE *f = fopen(csv_path, "a");
         if (f) {
             if (ftell(f) == 0) {
@@ -1913,10 +1913,10 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     }
 
     if (simCtx->rank == 0) {
-        char csv_path[PETSC_MAX_PATH_LEN];
+        char csv_path[PETSC_MAX_PATH_LEN + 32];
         FILE *f = NULL;
 
-        snprintf(csv_path, sizeof(csv_path), "%s/search_metrics.csv", simCtx->log_dir);
+        ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/search_metrics.csv", simCtx->log_dir); CHKERRQ(ierr);
         f = fopen(csv_path, "a");
         if (!f) {
             LOG_ALLOW(GLOBAL, LOG_WARNING, "LOG_SEARCH_METRICS: could not open '%s' for writing.\n", csv_path);
