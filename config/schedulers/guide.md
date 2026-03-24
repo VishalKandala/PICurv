@@ -7,6 +7,7 @@ This directory stores reusable scheduler profiles for `picurv` cluster runs and 
 - partition/account settings,
 - walltime and resource requests,
 - batch launcher behavior (`srun`, `mpirun`, etc. as expected by site policy),
+- the fact that post-stage launchers are rewritten to one rank/task regardless of solver allocation,
 - output/logging file conventions,
 - array/dependency settings used by `picurv sweep`.
 

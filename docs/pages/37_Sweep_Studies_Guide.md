@@ -118,6 +118,7 @@ Implementation details worth knowing:
 - `scheduler/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.
 - generator/file grid external paths are rewritten to absolute paths during case materialization so they remain valid in `studies/<study_id>/cases/...`.
 - generated `solver_array.sbatch` exports walltime metadata for the runtime walltime guard, while `post_array.sbatch` remains a plain post-processing launcher.
+- `post_array.sbatch` is rendered with `nodes=1`, `ntasks_per_node=1`, and a single-rank launcher command even if the solver array uses more tasks or the cluster launcher args include `-n`/`-np`.
 
 @section p37_continue_sec 6. Continuing a Partially-Completed Study
 

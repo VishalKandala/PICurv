@@ -4188,9 +4188,12 @@ def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
     assert "export PICURV_WALLTIME_LIMIT_SECONDS=600" in solver_script
 
     post_script = (study_dir / "scheduler" / "post_array.sbatch").read_text(encoding="utf-8")
+    assert "#SBATCH --nodes=1" in post_script
+    assert "#SBATCH --ntasks-per-node=1" in post_script
     assert f"#SBATCH --output={study_dir / 'scheduler' / 'post_%A_%a.out'}" in post_script
     assert f"#SBATCH --error={study_dir / 'scheduler' / 'post_%A_%a.err'}" in post_script
     assert "PICURV_JOB_START_EPOCH" not in post_script
+    assert "srun -n 1 " in post_script
 
     sample_control = next((study_dir / "cases").glob("*/config/*.control"))
     sample_control_text = sample_control.read_text(encoding="utf-8")
@@ -4199,6 +4202,104 @@ def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
 
     assert not (study_dir / "logs").exists()
 
+
+def test_sweep_no_submit_forces_single_rank_post_for_mpirun_launcher(tmp_path):
+    """!
+    @brief Test that sweep-generated post array scripts force serial post even with mpirun cluster launchers.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    cluster_override = tmp_path / "cluster_tmp_mpirun_ntasks2.yml"
+    cluster_override.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  type: slurm",
+                "",
+                "resources:",
+                "  account: \"test_account\"",
+                "  partition: \"compute\"",
+                "  nodes: 1",
+                "  ntasks_per_node: 2",
+                "  mem: \"4G\"",
+                "  time: \"00:10:00\"",
+                "",
+                "notifications:",
+                "  mail_user: null",
+                "  mail_type: null",
+                "",
+                "execution:",
+                "  module_setup:",
+                "    - \"module purge\"",
+                "  launcher: \"mpirun\"",
+                "  launcher_args:",
+                "    - --bind-to",
+                "    - none",
+                "    - -np",
+                "    - \"2\"",
+                "  extra_sbatch: {}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_picurv(
+        [
+            "sweep",
+            "--study",
+            str(valid / "study.yml"),
+            "--cluster",
+            str(cluster_override),
+            "--no-submit",
+        ],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+
+    study_dir = next((tmp_path / "studies").iterdir())
+    post_script = (study_dir / "scheduler" / "post_array.sbatch").read_text(encoding="utf-8")
+    assert "#SBATCH --nodes=1" in post_script
+    assert "#SBATCH --ntasks-per-node=1" in post_script
+    assert "mpirun --bind-to none -np 1 " in post_script
+    assert "mpirun --bind-to none -np 2 " not in post_script
+
+
+
+def test_dry_run_local_post_forces_single_rank_launcher_override(tmp_path):
+    """!
+    @brief Test that local post dry-run strips multi-rank launcher overrides down to one task.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--post-process",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--post",
+            str(valid / "post.yml"),
+            "--num-procs",
+            "4",
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        env={"PICURV_MPI_LAUNCHER": "mpirun --from-env -np 8"},
+    )
+    assert result.returncode == 0, result.stderr
+
+    payload = json.loads(result.stdout)
+    assert payload["stages"]["solve"]["launch_command"][:2] == ["mpirun", "--from-env"]
+    assert payload["stages"]["post-process"]["num_procs_effective"] == 1
+    assert "mpirun --from-env -n 1" in payload["stages"]["post-process"]["launch_command_string"]
+    assert "-np 8" not in payload["stages"]["post-process"]["launch_command_string"]
 
 def test_markdown_link_checker_passes():
     """!

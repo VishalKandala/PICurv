@@ -44,8 +44,8 @@
 
 - Workflow launch policy update:
   - `run --num-procs` now applies to solver stage sizing.
-  - post stage defaults to single-rank execution in local mode.
-  - generated `post.sbatch` now defaults to single-task resources (`nodes=1`, `ntasks_per_node=1`).
+  - post stage is forced to single-rank execution in local mode.
+  - generated `post.sbatch` now uses forced single-task resources (`nodes=1`, `ntasks_per_node=1`).
   - manifests/dry-run plans now expose stage-specific MPI counts.
 
 - Cluster orchestration and sweeps:
