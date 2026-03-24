@@ -47,6 +47,10 @@ A study definition usually specifies:
 - `parameters`:
   - non-empty mapping of `<target>.<yaml.path>` -> non-empty list of values
   - `<target>` must be one of `case`, `solver`, `monitor`, `post`
+- `parameter_sets`:
+  - optional alternative to `parameters` for coupled overrides that should move together
+  - non-empty list of explicit `<target>.<yaml.path>` -> scalar bundles
+  - provide exactly one of `parameters` or `parameter_sets`
 - `metrics` (optional):
   - list of metric specs or metric names for aggregation
 - `plotting` (optional):
@@ -112,7 +116,7 @@ For fragile metrics, add smoke tests or fixture-based validation before large qu
 
 Implementation details worth knowing:
 
-- case expansion uses cartesian product over all `parameters.*` lists.
+- case expansion uses cartesian product over all `parameters.*` lists, or explicit paired bundles from `parameter_sets` when coupled overrides must move together.
 - generated case configs are revalidated through the same solver/post validators used by `picurv run`.
 - submission chain: solver array → post array (`afterok`) → metrics job (`afterany`).
 - `scheduler/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.

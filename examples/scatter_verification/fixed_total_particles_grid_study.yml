@@ -1,0 +1,58 @@
+base_configs:
+  case: "scatter_verification.yml"
+  solver: "Analytical-Zero-Verification-Scalar.yml"
+  monitor: "Standard_Output.yml"
+  post: "scatter_verification_analysis.yml"
+
+study_type: "grid_independence"
+
+parameter_sets:
+  - case.grid.programmatic_settings.im: 8
+    case.grid.programmatic_settings.jm: 8
+    case.grid.programmatic_settings.km: 8
+    case.models.physics.particles.count: 32768
+  - case.grid.programmatic_settings.im: 16
+    case.grid.programmatic_settings.jm: 16
+    case.grid.programmatic_settings.km: 16
+    case.models.physics.particles.count: 32768
+  - case.grid.programmatic_settings.im: 32
+    case.grid.programmatic_settings.jm: 32
+    case.grid.programmatic_settings.km: 32
+    case.models.physics.particles.count: 32768
+  - case.grid.programmatic_settings.im: 64
+    case.grid.programmatic_settings.jm: 64
+    case.grid.programmatic_settings.km: 64
+    case.models.physics.particles.count: 32768
+
+metrics:
+  - name: final_relative_L2_error
+    source: "statistics_csv"
+    file_glob: "logs/scatter_metrics.csv"
+    column: "relative_L2_error"
+    reduction: "last"
+  - name: final_Linf_error
+    source: "statistics_csv"
+    file_glob: "logs/scatter_metrics.csv"
+    column: "Linf_error"
+    reduction: "last"
+  - name: final_occupancy_fraction
+    source: "statistics_csv"
+    file_glob: "logs/scatter_metrics.csv"
+    column: "occupancy_fraction"
+    reduction: "last"
+  - name: final_mean_particles_per_occupied_cell
+    source: "statistics_csv"
+    file_glob: "logs/scatter_metrics.csv"
+    column: "mean_particles_per_occupied_cell"
+    reduction: "last"
+  - name: final_conservation_error_abs
+    source: "statistics_csv"
+    file_glob: "logs/scatter_metrics.csv"
+    column: "conservation_error_abs"
+    reduction: "last"
+
+plotting:
+  enabled: false
+
+execution:
+  max_concurrent_array_tasks: 1

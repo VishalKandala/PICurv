@@ -1,5 +1,7 @@
 // logging.c
 #include "logging.h"
+#include "AnalyticalSolutions.h"
+#include "verification_sources.h"
 
 /* Maximum temporary buffer size for converting numbers to strings */
 #define TMP_BUF_SIZE 128
@@ -1846,6 +1848,157 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
     ierr = DMSwarmDestroyGlobalVectorFromField(swarm, "velocity", &velocityVec); CHKERRQ(ierr);
     
     return 0;
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LOG_SCATTER_METRICS"
+/**
+ * @brief Implementation of \ref LOG_SCATTER_METRICS().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LOG_SCATTER_METRICS()
+ */
+PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    SimCtx        *simCtx = NULL;
+    DMDALocalInfo  info;
+    PetscInt       xs, xe, ys, ye, zs, ze, mx, my, mz;
+    PetscInt       lxs, lxe, lys, lye, lzs, lze;
+    Vec            reference_vec = NULL;
+    PetscReal    ***psi = NULL;
+    PetscReal    ***psi_ref = NULL;
+    PetscReal    ***aj = NULL;
+    PetscReal    ***count = NULL;
+    PetscReal     *particle_psi = NULL;
+    PetscInt       nlocal = 0;
+    PetscReal      local_l1 = 0.0, global_l1 = 0.0;
+    PetscReal      local_l2_sq = 0.0, global_l2_sq = 0.0;
+    PetscReal      local_linf = 0.0, global_linf = 0.0;
+    PetscReal      local_ref_l2_sq = 0.0, global_ref_l2_sq = 0.0;
+    PetscReal      local_grid_integral = 0.0, global_grid_integral = 0.0;
+    PetscReal      local_domain_volume = 0.0, global_domain_volume = 0.0;
+    PetscReal      local_particle_sum = 0.0, global_particle_sum = 0.0;
+    PetscInt64     local_particle_count = 0, global_particle_count = 0;
+    PetscInt64     local_cell_count = 0, global_cell_count = 0;
+    PetscInt64     local_occupied_count = 0, global_occupied_count = 0;
+    PetscReal      particle_integral = 0.0;
+    PetscReal      occupancy_fraction = 0.0;
+    PetscReal      mean_particles_per_occupied_cell = 0.0;
+    PetscReal      l2_error = 0.0;
+    PetscReal      relative_l2_error = 0.0;
+
+    PetscFunctionBeginUser;
+    if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    simCtx = user->simCtx;
+    if (!VerificationScalarOverrideActive(simCtx) || !user->swarm || !user->Psi || !user->ParticleCount) {
+        PetscFunctionReturn(0);
+    }
+
+    info = user->info;
+    xs = info.xs; xe = info.xs + info.xm;
+    ys = info.ys; ye = info.ys + info.ym;
+    zs = info.zs; ze = info.zs + info.zm;
+    mx = info.mx; my = info.my; mz = info.mz;
+    lxs = (xs == 0) ? xs + 1 : xs; lxe = (xe == mx) ? xe - 1 : xe;
+    lys = (ys == 0) ? ys + 1 : ys; lye = (ye == my) ? ye - 1 : ye;
+    lzs = (zs == 0) ? zs + 1 : zs; lze = (ze == mz) ? ze - 1 : ze;
+
+    ierr = VecDuplicate(user->Psi, &reference_vec); CHKERRQ(ierr);
+    ierr = SetAnalyticalScalarFieldAtCellCenters(user, reference_vec); CHKERRQ(ierr);
+
+    ierr = DMDAVecGetArrayRead(user->da, user->Psi, &psi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da, reference_vec, &psi_ref); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da, user->Aj, &aj); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da, user->ParticleCount, &count); CHKERRQ(ierr);
+
+    for (PetscInt k = lzs; k < lze; ++k) {
+        for (PetscInt j = lys; j < lye; ++j) {
+            for (PetscInt i = lxs; i < lxe; ++i) {
+                const PetscReal cell_volume = (PetscAbsReal(aj[k][j][i]) > 1.0e-14) ? (1.0 / aj[k][j][i]) : 0.0;
+                const PetscReal err = psi[k][j][i] - psi_ref[k][j][i];
+                local_cell_count += 1;
+                local_domain_volume += cell_volume;
+                local_grid_integral += psi[k][j][i] * cell_volume;
+                local_l1 += PetscAbsReal(err) * cell_volume;
+                local_l2_sq += err * err * cell_volume;
+                local_ref_l2_sq += psi_ref[k][j][i] * psi_ref[k][j][i] * cell_volume;
+                local_linf = PetscMax(local_linf, PetscAbsReal(err));
+                if (count[k][j][i] > 0.0) local_occupied_count += 1;
+            }
+        }
+    }
+
+    ierr = DMDAVecRestoreArrayRead(user->da, user->ParticleCount, &count); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, user->Aj, &aj); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, reference_vec, &psi_ref); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, user->Psi, &psi); CHKERRQ(ierr);
+    ierr = VecDestroy(&reference_vec); CHKERRQ(ierr);
+
+    ierr = DMSwarmGetLocalSize(user->swarm, &nlocal); CHKERRQ(ierr);
+    local_particle_count = (PetscInt64)nlocal;
+    if (nlocal > 0) {
+        ierr = DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&particle_psi); CHKERRQ(ierr);
+        for (PetscInt p = 0; p < nlocal; ++p) local_particle_sum += particle_psi[p];
+        ierr = DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&particle_psi); CHKERRQ(ierr);
+    }
+
+    ierr = MPI_Allreduce(&local_l1, &global_l1, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&local_l2_sq, &global_l2_sq, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&local_linf, &global_linf, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&local_ref_l2_sq, &global_ref_l2_sq, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&local_grid_integral, &global_grid_integral, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&local_domain_volume, &global_domain_volume, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&local_particle_sum, &global_particle_sum, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&local_particle_count, &global_particle_count, 1, MPIU_INT64, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&local_cell_count, &global_cell_count, 1, MPIU_INT64, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(&local_occupied_count, &global_occupied_count, 1, MPIU_INT64, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+
+    l2_error = PetscSqrtReal(global_l2_sq);
+    relative_l2_error = (global_ref_l2_sq > 0.0) ? (l2_error / PetscSqrtReal(global_ref_l2_sq)) : 0.0;
+    occupancy_fraction = (global_cell_count > 0) ? ((PetscReal)global_occupied_count / (PetscReal)global_cell_count) : 0.0;
+    mean_particles_per_occupied_cell =
+      (global_occupied_count > 0) ? ((PetscReal)global_particle_count / (PetscReal)global_occupied_count) : 0.0;
+    particle_integral =
+      (global_particle_count > 0) ? (global_domain_volume * global_particle_sum / (PetscReal)global_particle_count) : 0.0;
+
+    if (simCtx->rank == 0) {
+        char csv_path[PETSC_MAX_PATH_LEN + 32];
+        FILE *f = NULL;
+        ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/scatter_metrics.csv", simCtx->log_dir); CHKERRQ(ierr);
+        f = fopen(csv_path, "a");
+        if (f) {
+            if (ftell(f) == 0) {
+                fprintf(f,
+                        "step,time,total_particles,total_cells,occupied_cells,occupancy_fraction,"
+                        "mean_particles_per_occupied_cell,particle_integral,grid_integral,"
+                        "conservation_error_abs,L1_error,L2_error,Linf_error,relative_L2_error\n");
+            }
+            fprintf(f, "%d,%.6e,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
+                    (int)simCtx->step,
+                    (double)simCtx->ti,
+                    (long long)global_particle_count,
+                    (long long)global_cell_count,
+                    (long long)global_occupied_count,
+                    (double)occupancy_fraction,
+                    (double)mean_particles_per_occupied_cell,
+                    (double)particle_integral,
+                    (double)global_grid_integral,
+                    (double)PetscAbsReal(global_grid_integral - particle_integral),
+                    (double)global_l1,
+                    (double)l2_error,
+                    (double)global_linf,
+                    (double)relative_l2_error);
+            fclose(f);
+        }
+    }
+
+    if (get_log_level() >= LOG_INFO) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Scatter relative L2 error: %.6e\n", (double)relative_l2_error);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Scatter occupancy fraction: %.6e\n", (double)occupancy_fraction);
+    }
+
+    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__

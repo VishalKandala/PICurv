@@ -11,6 +11,7 @@ This directory contains runnable case templates used by `./bin/picurv init` and 
 - `drift_uniform_flow/`: analytical uniform-flow particle advection drift verification.
 - `drift_diffusivity_gradient/`: analytical zero-flow plus verification-source diffusivity-gradient drift verification.
 - `interpolation_test/`: TGV3D analytical flow interpolation accuracy test with 10k particles.
+- `scatter_verification/`: verification-path prescribed scalar truth injection plus runtime particle-to-grid scatter metrics and grid-size sweeps.
 - `master_template/`: exhaustive reference templates for all config roles.
 
 ## How To Start A New Study

@@ -10,12 +10,13 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Particle tracking with PETSc `DMSwarm`
 - Grid-particle interpolation and particle-grid projection
 - Runtime search/migration observability via `logs/search_metrics.csv` for particle-enabled runs
-- Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`)
+- Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
+- Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `logs/scatter_metrics.csv`
 - YAML-driven orchestration through the conductor (`scripts/picurv`, symlinked to `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Staged Slurm workflows with `--no-submit`, delayed `submit`, and run-directory-based `cancel`
 - Graceful final snapshot writes on early shutdown signals (`SIGUSR1`, `SIGTERM`, `SIGINT`) at safe checkpoints
-- Parameter sweep orchestration with Slurm arrays (`study.yml`)
+- Parameter sweep orchestration with Slurm arrays (`study.yml`), including cartesian `parameters` sweeps and explicit coupled `parameter_sets`
 - Solver and postprocessor executables from one build system
 
 ## Requirements
@@ -70,6 +71,11 @@ For search and migration robustness characterization specifically, start from:
 picurv init search_robustness --dest my_search_case
 ```
 
+For prescribed-scalar deposition verification and scatter diagnostics, start from:
+```bash
+picurv init scatter_verification --dest my_scatter_case
+```
+
 `init` creates the case directory with config files. Runtime binaries (`simulator`, `postprocessor`)
 are resolved from the project `bin/` directory via PATH — no copies are placed in the case.
 To pin specific binary versions (e.g. before submitting a Slurm job while continuing development):
@@ -86,7 +92,9 @@ commands can rebuild, pull, and resync from the original code directory.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
 The `search_robustness` example family adds a dedicated `search_metrics.csv` runtime artifact
-for particle walking-search and migration observability.
+for particle walking-search and migration observability. The `scatter_verification` example family
+adds `solver.yml -> verification.sources.scalar`, prescribes particle `Psi` from analytical truth,
+and writes runtime deposition diagnostics to `logs/scatter_metrics.csv`.
 
 5. Validate configs (no run yet):
 ```bash
@@ -182,6 +190,10 @@ Launch a sweep study:
   --study my_case/grid_independence_study.yml \
   --cluster my_case/slurm_cluster.yml
 ```
+
+Study files can define either cartesian products under `parameters:` or explicit coupled bundles
+under `parameter_sets:` when multiple overrides must move together, such as grid size and particle
+count in the scatter-verification studies.
 
 If a study was staged with `--no-submit`, submit it later with:
 

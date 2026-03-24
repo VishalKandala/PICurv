@@ -498,6 +498,50 @@ def test_validate_help_smoke():
     assert "--strict" in result.stdout
 
 
+def test_validate_scatter_verification_example_smoke():
+    """!
+    @brief Test that the scatter verification example validates successfully.
+    """
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            "examples/scatter_verification/scatter_verification.yml",
+            "--solver",
+            "examples/scatter_verification/Analytical-Zero-Verification-Scalar.yml",
+            "--monitor",
+            "examples/scatter_verification/Standard_Output.yml",
+            "--post",
+            "examples/scatter_verification/scatter_verification_analysis.yml",
+        ]
+    )
+    assert result.returncode == 0
+
+
+def test_sweep_scatter_verification_fixed_ppc_no_submit_smoke(tmp_path):
+    """!
+    @brief Test that the fixed-PPC scatter study stages successfully with --no-submit.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    _ = tmp_path
+    result = run_picurv(
+        [
+            "sweep",
+            "--study",
+            "examples/scatter_verification/fixed_ppc_grid_study.yml",
+            "--cluster",
+            str(FIXTURES / "valid" / "cluster.yml"),
+            "--no-submit",
+        ]
+    )
+    assert result.returncode == 0
+    summary_lines = [line for line in result.stdout.splitlines() if "Study directory :" in line]
+    assert summary_lines
+    study_dir = Path(summary_lines[-1].split(":", 1)[1].strip())
+    assert (study_dir / "scheduler" / "case_index.tsv").is_file()
+    shutil.rmtree(study_dir)
+
+
 def test_summarize_help_smoke():
     """!
     @brief Test that summarize help smoke.
@@ -531,6 +575,7 @@ def test_sweep_help_smoke():
     assert "--study-dir" in result.stdout
     assert "--continue" in result.stdout
     assert "--reaggregate" in result.stdout
+    assert "parameter_sets" in result.stdout
 
 
 def test_cancel_help_smoke():

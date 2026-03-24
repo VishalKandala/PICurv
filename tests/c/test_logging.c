@@ -6,6 +6,7 @@
 #include "test_support.h"
 
 #include "logging.h"
+#include "interpolation.h"
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -532,6 +533,80 @@ static PetscErrorCode TestInterpolationErrorLogging(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests file-backed scatter metrics logging against a fully occupied constant field.
+ */
+
+static PetscErrorCode TestScatterMetricsLogging(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char metrics_path[PETSC_MAX_PATH_LEN];
+    PetscReal *positions = NULL;
+    PetscReal *psi = NULL;
+    PetscInt *cell_ids = NULL;
+    PetscInt *status = NULL;
+    PetscInt particle = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 27, "ske"));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    simCtx->np = 27;
+    simCtx->step = 3;
+    simCtx->ti = 0.3;
+    simCtx->verificationScalar.enabled = PETSC_TRUE;
+    PetscCall(PetscStrncpy(simCtx->verificationScalar.mode,
+                           "analytical",
+                           sizeof(simCtx->verificationScalar.mode)));
+    PetscCall(PetscStrncpy(simCtx->verificationScalar.profile,
+                           "CONSTANT",
+                           sizeof(simCtx->verificationScalar.profile)));
+    simCtx->verificationScalar.value = 2.0;
+
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+
+    for (PetscInt k = 0; k < 3; ++k) {
+        for (PetscInt j = 0; j < 3; ++j) {
+            for (PetscInt i = 0; i < 3; ++i) {
+                positions[3 * particle + 0] = (i + 0.5) / 4.0;
+                positions[3 * particle + 1] = (j + 0.5) / 4.0;
+                positions[3 * particle + 2] = (k + 0.5) / 4.0;
+                cell_ids[3 * particle + 0] = i;
+                cell_ids[3 * particle + 1] = j;
+                cell_ids[3 * particle + 2] = k;
+                status[particle] = ACTIVE_AND_LOCATED;
+                psi[particle] = 2.0;
+                ++particle;
+            }
+        }
+    }
+
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+
+    PetscCall(ScatterAllParticleFieldsToEulerFields(user));
+    PetscCall(LOG_SCATTER_METRICS(user));
+
+    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/scatter_metrics.csv", simCtx->log_dir));
+    PetscCall(PicurvAssertFileExists(metrics_path, "LOG_SCATTER_METRICS should write scatter_metrics.csv"));
+    PetscCall(AssertFileContains(metrics_path, "relative_L2_error",
+                                 "Scatter metrics CSV header should include relative_L2_error"));
+    PetscCall(AssertFileContains(metrics_path,
+                                 "3,3.000000e-01,27,27,27,1.000000e+00,1.000000e+00,5.400000e+01,5.400000e+01,0.000000e+00,0.000000e+00,0.000000e+00,0.000000e+00,0.000000e+00",
+                                 "Scatter metrics CSV should record the expected constant-field zero-error row"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests stdout particle-table logging on a production-like swarm fixture.
  */
 
@@ -758,6 +833,7 @@ int main(int argc, char **argv)
         {"logging-file-parsing-and-formatting-helpers", TestLoggingFileParsingAndFormattingHelpers},
         {"logging-continuity-and-field-diagnostics", TestLoggingContinuityAndFieldDiagnostics},
         {"interpolation-error-logging", TestInterpolationErrorLogging},
+        {"scatter-metrics-logging", TestScatterMetricsLogging},
         {"particle-field-table-logging", TestParticleFieldTableLogging},
         {"particle-console-snapshot-logging", TestParticleConsoleSnapshotLogging},
         {"particle-metrics-logging", TestParticleMetricsLogging},

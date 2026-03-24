@@ -38,8 +38,23 @@ operation_mode:
 #     diffusivity:
 #       mode: "analytical"        # Verification-only selector; currently fixed to analytical
 #       profile: "LINEAR_X"       # Supported today: LINEAR_X
-#       gamma0: 1.0e-3            # -> -verification_diffusivity_gamma0
-#       slope_x: 2.0e-4           # -> -verification_diffusivity_slope_x
+#       gamma0: 1.0e-3             # -> -verification_diffusivity_gamma0
+#       slope_x: 2.0e-4            # -> -verification_diffusivity_slope_x
+#
+#     scalar:
+#       mode: "analytical"        # Verification-only selector; currently fixed to analytical
+#       profile: "CONSTANT"       # Supported: CONSTANT, LINEAR_X, SIN_PRODUCT
+#       value: 1.0                 # CONSTANT -> -verification_scalar_value
+#       # phi0: 0.0                # LINEAR_X -> -verification_scalar_phi0
+#       # slope_x: 1.0             # LINEAR_X -> -verification_scalar_slope_x
+#       # amplitude: 1.0           # SIN_PRODUCT -> -verification_scalar_amplitude
+#       # kx: 3.141592653589793    # SIN_PRODUCT -> -verification_scalar_kx
+#       # ky: 3.141592653589793    # SIN_PRODUCT -> -verification_scalar_ky
+#       # kz: 3.141592653589793    # SIN_PRODUCT -> -verification_scalar_kz
+#
+# Scalar verification is intended for runtime diagnostics such as
+# logs/scatter_metrics.csv. It bypasses only the particle Psi evolution path and
+# reuses the production scatter operator.
 
 # ==============================================================================
 # 2. PRIMARY SOLVER STRATEGY & TOLERANCES

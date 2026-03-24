@@ -1,0 +1,24 @@
+run_control:
+  start_step: 0
+  end_step: 0
+  step_interval: 1
+
+eulerian_pipeline:
+  - task: nodal_average
+    input_field: Psi
+    output_field: Psi_nodal
+
+io:
+  output_directory: "viz"
+  output_filename_prefix: "Field"
+  particle_filename_prefix: "Particle"
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"
+  eulerian_fields:
+    - Psi_nodal
+  output_particles: true
+  particle_fields:
+    - position
+    - Psi
+    - pid

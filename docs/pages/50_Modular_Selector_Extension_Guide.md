@@ -170,7 +170,9 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - keep runtime call sites thin and centralize override implementations in `verification_sources.*`
 - Current support:
   - `verification.sources.diffusivity`
-  - profile `LINEAR_X`
+  - `verification.sources.scalar`
+  - diffusivity profile `LINEAR_X`
+  - scalar profiles `CONSTANT`, `LINEAR_X`, `SIN_PRODUCT`
 - Python hooks:
   - validation and flag emission in `scripts/picurv`
 - Generated mapping:
@@ -178,17 +180,33 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `verification.sources.diffusivity.profile` -> `-verification_diffusivity_profile`
   - `verification.sources.diffusivity.gamma0` -> `-verification_diffusivity_gamma0`
   - `verification.sources.diffusivity.slope_x` -> `-verification_diffusivity_slope_x`
+  - `verification.sources.scalar.mode` -> `-verification_scalar_mode`
+  - `verification.sources.scalar.profile` -> `-verification_scalar_profile`
+  - `verification.sources.scalar.value` -> `-verification_scalar_value`
+  - `verification.sources.scalar.phi0` -> `-verification_scalar_phi0`
+  - `verification.sources.scalar.slope_x` -> `-verification_scalar_slope_x`
+  - `verification.sources.scalar.amplitude` -> `-verification_scalar_amplitude`
+  - `verification.sources.scalar.kx/ky/kz` -> `-verification_scalar_kx/-verification_scalar_ky/-verification_scalar_kz`
 - C storage/parser:
-  - `verificationDiffusivity` in `SimCtx`
+  - `verificationDiffusivity` and `verificationScalar` in `SimCtx`
   - option parsing in @ref CreateSimulationContext
 - Runtime:
   - `src/verification_sources.c`
-  - thin delegation from `src/rhs.c`
+  - thin delegation from `src/rhs.c` for diffusivity
+  - analytical scalar truth in `src/AnalyticalSolutions.c`
+  - gated particle-physics bypass in `src/ParticlePhysics.c`
+  - runtime metric writer in `src/logging.c` (`logs/scatter_metrics.csv`)
+- Design boundary:
+  - verification sources exist only for otherwise-unreachable verification scenarios
+  - analytical truth definitions belong in `AnalyticalSolutions`, not in model-evolution code such as `ParticlePhysics`
 - Tests/docs to update:
   - `tests/test_config_regressions.py`
   - `tests/c/test_poisson_rhs.c`
-  - `tests/c/test_runtime_kernels.c`
+  - `tests/c/test_solver_kernels.c`
+  - `tests/c/test_logging.c`
+  - `tests/c/test_setup_lifecycle.c`
   - **@subpage 08_Solver_Reference**
+  - **@subpage 32_Analytical_Solutions**
   - **@subpage 16_Config_Extension_Playbook**
 
 @section p50_grid_sec 9. Grid Selector / Generator Selector

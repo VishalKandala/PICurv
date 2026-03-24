@@ -364,6 +364,40 @@ def test_parse_solver_config_maps_verification_diffusivity_flags():
     assert flags["-verification_diffusivity_slope_x"] == 2.0e-4
 
 
+def test_parse_solver_config_maps_verification_scalar_flags():
+    """!
+    @brief Test that parse_solver_config maps verification scalar settings into control flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "operation_mode": {
+            "eulerian_field_source": "analytical",
+            "analytical_type": "ZERO_FLOW",
+        },
+        "verification": {
+            "sources": {
+                "scalar": {
+                    "mode": "analytical",
+                    "profile": "SIN_PRODUCT",
+                    "amplitude": 2.5,
+                    "kx": 3.141592653589793,
+                    "ky": 1.5707963267948966,
+                    "kz": 0.7853981633974483,
+                }
+            }
+        },
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-verification_scalar_mode"] == '"analytical"'
+    assert flags["-verification_scalar_profile"] == '"SIN_PRODUCT"'
+    assert flags["-verification_scalar_amplitude"] == 2.5
+    assert flags["-verification_scalar_kx"] == 3.141592653589793
+    assert flags["-verification_scalar_ky"] == 1.5707963267948966
+    assert flags["-verification_scalar_kz"] == 0.7853981633974483
+
+
 def test_validate_rejects_verification_diffusivity_for_non_analytical_solver(tmp_path):
     """!
     @brief Test that validate rejects verification diffusivity overrides outside analytical mode.
@@ -402,6 +436,91 @@ def test_validate_rejects_verification_diffusivity_for_non_analytical_solver(tmp
 
     assert result.returncode == 1
     assert "verification.sources.diffusivity is only valid" in result.stderr
+
+
+
+
+def test_validate_rejects_verification_scalar_for_non_analytical_solver(tmp_path):
+    """!
+    @brief Test that validate rejects verification scalar overrides outside analytical mode.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["verification"] = {
+        "sources": {
+            "scalar": {
+                "mode": "analytical",
+                "profile": "CONSTANT",
+                "value": 2.0,
+            }
+        }
+    }
+
+    solver_path = tmp_path / "solver_invalid_scalar_verification.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--post",
+            str(valid / "post.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "verification.sources.scalar is only valid" in result.stderr
+
+
+
+def test_validate_rejects_verification_scalar_missing_required_parameter(tmp_path):
+    """!
+    @brief Test that validate rejects scalar profiles missing required numeric parameters.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["operation_mode"] = {
+        "eulerian_field_source": "analytical",
+        "analytical_type": "ZERO_FLOW",
+    }
+    solver_cfg["verification"] = {
+        "sources": {
+            "scalar": {
+                "mode": "analytical",
+                "profile": "LINEAR_X",
+                "phi0": 1.0,
+            }
+        }
+    }
+
+    solver_path = tmp_path / "solver_invalid_scalar_missing_parameter.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--post",
+            str(valid / "post.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "verification.sources.scalar.slope_x is required" in result.stderr
 
 
 

@@ -834,6 +834,14 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
 PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user);
 
 /**
+ * @brief Logs particle-to-grid scatter verification metrics for the prescribed scalar truth path.
+ *
+ * @param user Primary `UserCtx` input for the operation.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user);
+
+/**
  * @brief Resets the aggregate per-timestep search instrumentation counters.
  *
  * @param simCtx Simulation context whose search metrics should be zeroed.

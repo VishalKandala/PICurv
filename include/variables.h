@@ -203,6 +203,20 @@ typedef struct VerificationDiffusivityConfig {
     PetscReal slope_x;
 } VerificationDiffusivityConfig;
 
+/** @brief Verification-only analytical scalar override settings. */
+typedef struct VerificationScalarConfig {
+    PetscBool enabled;
+    char mode[32];
+    char profile[32];
+    PetscReal value;
+    PetscReal phi0;
+    PetscReal slope_x;
+    PetscReal amplitude;
+    PetscReal kx;
+    PetscReal ky;
+    PetscReal kz;
+} VerificationScalarConfig;
+
 /** @brief Aggregated per-timestep search instrumentation counters. */
 typedef struct SearchMetricsState {
     PetscInt64 searchAttempts;
@@ -683,6 +697,7 @@ typedef struct SimCtx {
     Cmpnts    InitialConstantContra;
     Cmpnts    AnalyticalUniformVelocity;
     VerificationDiffusivityConfig verificationDiffusivity;
+    VerificationScalarConfig verificationScalar;
     
     //================ Group 6: Physical & Geometric Parameters ================
     PetscInt  NumberOfBodies;

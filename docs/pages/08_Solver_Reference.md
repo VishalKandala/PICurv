@@ -127,6 +127,17 @@ verification:
       profile: "LINEAR_X"
       gamma0: 1.0e-3
       slope_x: 2.0e-4
+
+    scalar:
+      mode: "analytical"
+      profile: "CONSTANT"  # or LINEAR_X, SIN_PRODUCT
+      value: 1.0
+      # phi0: 0.0
+      # slope_x: 1.0
+      # amplitude: 1.0
+      # kx: 3.141592653589793
+      # ky: 3.141592653589793
+      # kz: 3.141592653589793
 ```
 
 Mappings:
@@ -134,10 +145,19 @@ Mappings:
 - `verification.sources.diffusivity.profile` -> `-verification_diffusivity_profile`
 - `verification.sources.diffusivity.gamma0` -> `-verification_diffusivity_gamma0`
 - `verification.sources.diffusivity.slope_x` -> `-verification_diffusivity_slope_x`
+- `verification.sources.scalar.mode` -> `-verification_scalar_mode`
+- `verification.sources.scalar.profile` -> `-verification_scalar_profile`
+- `verification.sources.scalar.value` -> `-verification_scalar_value`
+- `verification.sources.scalar.phi0` -> `-verification_scalar_phi0`
+- `verification.sources.scalar.slope_x` -> `-verification_scalar_slope_x`
+- `verification.sources.scalar.amplitude` -> `-verification_scalar_amplitude`
+- `verification.sources.scalar.kx/ky/kz` -> `-verification_scalar_kx/-verification_scalar_ky/-verification_scalar_kz`
 
 Rules:
 - this path is verification-only and should be used only when no ordinary end-to-end workflow can expose the behavior under test
 - it is only valid with `operation_mode.eulerian_field_source: "analytical"`
+- `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `logs/scatter_metrics.csv`
+- scalar profiles currently supported are `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`
 - new verification source overrides must be implemented in `include/verification_sources.h` and `src/verification_sources.c`
 
 @section p08_petsc_sec 8. petsc_passthrough_options

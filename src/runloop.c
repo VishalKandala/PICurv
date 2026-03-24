@@ -7,6 +7,7 @@
 #include <signal.h>
 
 #include "runloop.h"
+#include "verification_sources.h"
 
 static volatile sig_atomic_t g_runtime_shutdown_signal = 0;
 static PetscBool             g_runtime_shutdown_auto_requested = PETSC_FALSE;
@@ -40,6 +41,19 @@ static void RuntimeRequestAutoWalltimeGuard(void)
 static PetscBool RuntimeShutdownRequested(void)
 {
     return (PetscBool)(g_runtime_shutdown_signal != 0 || g_runtime_shutdown_auto_requested);
+}
+
+/**
+ * @brief Applies verification-only scalar truth and refreshes the scattered Eulerian scalar state.
+ * @details Local to this translation unit.
+ */
+static PetscErrorCode RefreshVerificationScalarScatterState(UserCtx *user)
+{
+    PetscFunctionBeginUser;
+    if (!user || !VerificationScalarOverrideActive(user->simCtx)) PetscFunctionReturn(0);
+    PetscCall(ApplyVerificationScalarOverrideToParticles(user));
+    PetscCall(ScatterAllParticleFieldsToEulerFields(user));
+    PetscFunctionReturn(0);
 }
 
 /**
@@ -406,7 +420,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     // --- 3. Finalize State for t=0 ---
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
-    //ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+    ierr = RefreshVerificationScalarScatterState(user); CHKERRQ(ierr);
 
     // --- 4. Initial History and Output ---
     // Update solver history vectors with the t=0 state before the first real step
@@ -422,6 +436,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
         }
+        ierr = LOG_SCATTER_METRICS(user); CHKERRQ(ierr);
     }
 
     if (IsParticleConsoleSnapshotEnabled(simCtx)) {
@@ -471,7 +486,11 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
 
     // 3. Update Eulerian source terms from the loaded particle data.
-    ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+    if (VerificationScalarOverrideActive(simCtx)) {
+        ierr = RefreshVerificationScalarScatterState(user); CHKERRQ(ierr);
+    } else {
+        ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+    }
 
     // --- 4. Initial History and Output ---
     // Update solver history vectors with the t=0 state before the first real step
@@ -487,6 +506,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
         }
+        ierr = LOG_SCATTER_METRICS(user); CHKERRQ(ierr);
     }
 
     if (IsParticleConsoleSnapshotEnabled(simCtx)) {
@@ -733,6 +753,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
                     AnalyticalTypeSupportsInterpolationError(simCtx->AnalyticalSolutionType)) {
                     LOG_INTERPOLATION_ERROR(user);
                 }
+                ierr = LOG_SCATTER_METRICS(user); CHKERRQ(ierr);
             }
         }
 
