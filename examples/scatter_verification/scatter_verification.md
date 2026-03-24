@@ -129,8 +129,8 @@ Interpretation:
 - occupancy should remain comparatively healthy
 - this isolates how the grid itself changes the cell-centered scatter metric
 - it also exercises the new general `parameter_sets` study capability, which is
-  useful any time multiple config keys must move together instead of forming a
-  cartesian product
+  useful any time multiple config keys must move together instead of forming the full
+  cross-product
 
 Stage either study without submitting jobs:
 

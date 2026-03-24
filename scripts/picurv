@@ -4210,7 +4210,7 @@ def expand_study_parameter_combinations(study_cfg: dict) -> list:
 
 def get_study_parameter_keys(study_cfg: dict) -> list:
     """!
-    @brief Collect ordered parameter keys from either cartesian parameters or explicit parameter sets.
+    @brief Collect ordered parameter keys from either cross-product parameter expansions or explicit parameter sets.
     @param[in] study_cfg Argument passed to `get_study_parameter_keys()`.
     @return Value returned by `get_study_parameter_keys()`.
     """
@@ -9929,7 +9929,7 @@ def _add_sweep_parser(subparsers):
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Launch studies from study.yml + cluster.yml, whether the study uses\n"
-            "cartesian parameters or explicit coupled parameter_sets, continue\n"
+            "cross-product parameter combinations or explicit coupled parameter_sets, continue\n"
             "partially-completed studies, or re-aggregate metrics.\n\n"
             "Examples:\n"
             "  picurv sweep --study study.yml --cluster cluster.yml\n"
@@ -9939,11 +9939,11 @@ def _add_sweep_parser(subparsers):
             "  picurv sweep --reaggregate --study-dir studies/<id>"
         ),
         epilog=(
-            "Study files support either cartesian `parameters` or explicit `parameter_sets`.\n"
+            "Study files support either `parameters` cross-product expansion or explicit `parameter_sets`.\n"
             "Next: inspect studies/<study_id>/results/metrics_table.csv for aggregated metrics."
         ),
     )
-    p_sweep.add_argument("--study", help="Path to study.yml defining either cartesian parameters or explicit parameter_sets, plus metrics.")
+    p_sweep.add_argument("--study", help="Path to study.yml defining either a `parameters` cross-product expansion or explicit parameter_sets, plus metrics.")
     p_sweep.add_argument("--cluster", help="Path to cluster.yml defining Slurm resources.")
     p_sweep.add_argument("--no-submit", action="store_true", help="Generate all study artifacts without submitting jobs.")
     p_sweep.add_argument("--study-dir", help="Path to an existing study directory (for --continue/--reaggregate).")
