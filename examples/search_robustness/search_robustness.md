@@ -32,6 +32,8 @@ Shared assets:
 - `Search_Robustness_Output.yml`: shared monitor profile
 - `search_robustness_analysis.yml`: optional particle-visualization/MSD post recipe
 - `search_velocity_study.yml`: sweep-study starter for the deterministic curvilinear migration family
+- `search_robustness_cartesian_dt_study.yml`: paired `dt`/`total_steps` sweep for the Cartesian Brownian baseline
+- `search_robustness_curvilinear_dt_study.yml`: paired `dt`/`total_steps` sweep for the curvilinear Brownian baseline
 
 ## Why `ZERO_FLOW` Still Moves Particles
 

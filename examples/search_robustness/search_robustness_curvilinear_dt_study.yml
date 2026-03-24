@@ -1,0 +1,54 @@
+base_configs:
+  case: "search_robustness_curvilinear.yml"
+  solver: "Imp-MG-Standard.yml"
+  monitor: "Search_Robustness_Output.yml"
+  post: "search_robustness_analysis.yml"
+
+study_type: "timestep_independence"
+
+parameters:
+  case.models.physics.particles.count: [20000]
+  case.run_control:
+    - start_step: 0
+      total_steps: 400
+      dt_physical: 0.005
+    - start_step: 0
+      total_steps: 200
+      dt_physical: 0.01
+    - start_step: 0
+      total_steps: 100
+      dt_physical: 0.02
+    - start_step: 0
+      total_steps: 50
+      dt_physical: 0.04
+
+metrics:
+  - name: run_loss_fraction
+    source: "statistics_csv"
+    file_glob: "logs/search_metrics.csv"
+    column: "lost_cumulative"
+    reduction: "last"
+    normalize_by_parameter: "case.models.physics.particles.count"
+  - name: run_swi_p95
+    source: "statistics_csv"
+    file_glob: "logs/search_metrics.csv"
+    column: "search_work_index"
+    reduction: "p95"
+  - name: run_research_p95
+    source: "statistics_csv"
+    file_glob: "logs/search_metrics.csv"
+    column: "re_search_fraction"
+    reduction: "p95"
+  - name: mean_migration_fraction
+    source: "statistics_csv"
+    file_glob: "logs/search_metrics.csv"
+    numerator_column: "migrated"
+    denominator_column: "search_population"
+    denominator_floor: 1.0
+    reduction: "mean"
+
+plotting:
+  enabled: false
+
+execution:
+  max_concurrent_array_tasks: 1
