@@ -53,7 +53,7 @@ These keys are consumed by `picurv` orchestration only:
 | `cluster.resources.*` | `#SBATCH` directives | `scripts/picurv` (Slurm renderers) | Slurm scheduler |
 | `cluster.notifications.*` | `#SBATCH --mail-*` | `scripts/picurv` | Slurm scheduler |
 | `cluster.execution.module_setup` | pre-launch shell lines in `*.sbatch` | `scripts/picurv` | batch script runtime env |
-| `cluster.execution.launcher*` | launch command (`srun`/`mpirun`) | `scripts/picurv` | solver/post executable launch |
+| `cluster.execution.launcher*` | launch command (`srun`/`mpirun`) | `scripts/picurv` | solver launch plus forced single-rank post launch |
 | `study.base_configs.*` | per-case config materialization | `scripts/picurv` (`sweep_workflow`) | case generation pipeline |
 | `study.parameters` | case matrix expansion | `scripts/picurv` (`expand_parameter_matrix`) | study case synthesis |
 | `study.execution.max_concurrent_array_tasks` | Slurm array `%N` throttle | `scripts/picurv` | Slurm scheduler |

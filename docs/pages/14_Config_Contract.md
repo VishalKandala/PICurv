@@ -17,7 +17,7 @@ It describes the launcher-level contract, which may be stricter or more explicit
 4. `post.yml`: post-processing recipe.
 5. MPI launch settings (`-n`, executable stage selection).
    - `-n/--num-procs` sizes the solver stage launch.
-   - post stage defaults to single-rank execution by workflow policy.
+   - post stage is forced to single-rank execution by workflow policy, even when the solver stage uses more ranks.
    - optional site execution defaults can be supplied via nearest `.picurv-execution.yml`.
 6. (Cluster mode) `cluster.yml`: scheduler/resource/launcher contract.
 7. (Sweep mode) `study.yml`: parameter matrix + metrics/plot contract.

@@ -16,7 +16,7 @@ scheduler:
 
 resources:
   # These resources size solver-stage jobs.
-  # picurv currently schedules post stage as single-task by default.
+  # picurv forces the post stage to one task/rank in generated scripts, independent of solver allocation.
   account: "my_project_account"
   partition: "compute"        # optional
   nodes: 2

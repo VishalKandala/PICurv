@@ -4291,12 +4291,60 @@ def normalize_cluster_launcher(execution: dict) -> tuple[str | None, list[str]]:
     )
 
 
+def strip_launcher_size_flags(launcher_name: str, launcher_args: list[str]) -> list[str]:
+    """!
+    @brief Remove explicit MPI task-count flags from known launchers.
+    @param[in] launcher_name Basename-normalized launcher executable.
+    @param[in] launcher_args Launcher argument list.
+    @return Filtered launcher arguments with explicit size flags removed.
+    """
+    filtered = []
+    idx = 0
+    while idx < len(launcher_args):
+        token = str(launcher_args[idx])
+
+        if launcher_name == "srun":
+            if token in {"-n", "--ntasks"}:
+                idx += 2
+                continue
+            if token.startswith("--ntasks="):
+                idx += 1
+                continue
+        elif launcher_name in {"mpiexec", "mpirun"}:
+            if token in {"-n", "-np"}:
+                idx += 2
+                continue
+            if token.startswith("-n=") or token.startswith("-np="):
+                idx += 1
+                continue
+
+        filtered.append(token)
+        idx += 1
+
+    return filtered
+
+
+def build_serial_post_cluster_config(cluster_cfg: dict, num_procs: int = 1) -> dict:
+    """!
+    @brief Clone cluster config and force a single-node post stage task layout.
+    @param[in] cluster_cfg Base cluster configuration.
+    @param[in] num_procs Number of post tasks to request.
+    @return Cluster configuration specialized for the post stage.
+    """
+    post_cluster_cfg = copy.deepcopy(cluster_cfg)
+    post_cluster_cfg.setdefault("resources", {})
+    post_cluster_cfg["resources"]["nodes"] = 1
+    post_cluster_cfg["resources"]["ntasks_per_node"] = int(num_procs)
+    return post_cluster_cfg
+
+
 def build_local_launch_command(
     executable: str,
     executable_args: list,
     num_procs: int,
     config_search_anchor: str = None,
     allow_single_rank_launcher_override: bool = False,
+    force_num_procs: int | None = None,
 ) -> list:
     """!
     @brief Build local launcher command, allowing env or shared config overrides for login-node MPI quirks.
@@ -4307,8 +4355,9 @@ def build_local_launch_command(
     @param[in] allow_single_rank_launcher_override When true, explicit launcher overrides also apply to 1-rank commands.
     @return Value returned by `build_local_launch_command()`.
     """
+    target_num_procs = force_num_procs if force_num_procs is not None else num_procs
     command = [executable] + executable_args
-    if num_procs <= 1 and not allow_single_rank_launcher_override:
+    if target_num_procs <= 1 and not allow_single_rank_launcher_override:
         return command
 
     launcher_override = os.environ.get("PICURV_MPI_LAUNCHER")
@@ -4328,7 +4377,7 @@ def build_local_launch_command(
             configured_launcher = local_execution.get("launcher")
             configured_args = local_execution.get("launcher_args") or []
             explicit_launcher_config = configured_launcher is not None or bool(configured_args)
-            if num_procs <= 1 and not explicit_launcher_config:
+            if target_num_procs <= 1 and not explicit_launcher_config:
                 return command
             launcher, launcher_args = split_launcher_tokens(
                 configured_launcher if configured_launcher is not None else "mpiexec",
@@ -4343,16 +4392,18 @@ def build_local_launch_command(
         return command
 
     launcher_name = os.path.basename(launcher).lower()
+    if force_num_procs is not None:
+        launcher_args = strip_launcher_size_flags(launcher_name, launcher_args)
     prefix = [launcher] + launcher_args
 
     if launcher_name == "srun":
         has_n = any(token in {"-n", "--ntasks"} for token in launcher_args)
         if not has_n:
-            prefix += ["-n", str(num_procs)]
+            prefix += ["-n", str(target_num_procs)]
     elif launcher_name in {"mpiexec", "mpirun"}:
         has_n = any(token in {"-n", "-np"} for token in launcher_args)
         if not has_n:
-            prefix += ["-n", str(num_procs)]
+            prefix += ["-n", str(target_num_procs)]
 
     return prefix + command
 
@@ -4380,6 +4431,7 @@ def build_cluster_launch_command(
     executable_args: list,
     config_search_anchor: str = None,
     extra_search_anchors=None,
+    force_num_procs: int | None = None,
 ) -> list:
     """!
     @brief Build scheduler launcher command from cluster config plus optional shared execution defaults.
@@ -4405,18 +4457,28 @@ def build_cluster_launch_command(
         print(f"[FATAL] {exc}", file=sys.stderr)
         sys.exit(1)
 
-    ntasks = get_cluster_total_tasks(cluster_cfg)
+    ntasks = int(force_num_procs) if force_num_procs is not None else get_cluster_total_tasks(cluster_cfg)
+    launcher_name = launcher.lower() if launcher else ""
+    if force_num_procs is not None:
+        launcher_args = strip_launcher_size_flags(launcher_name, launcher_args)
 
-    if launcher and launcher.lower() == "srun":
+    if launcher and launcher_name == "srun":
         has_n = any(token in {"-n", "--ntasks"} for token in launcher_args)
         cmd = ["srun"] + launcher_args
         if not has_n:
             cmd += ["-n", str(ntasks)]
         return cmd + [executable] + executable_args
 
-    if launcher and launcher.lower() == "mpirun":
+    if launcher and launcher_name == "mpirun":
         has_np = any(token in {"-np", "-n"} for token in launcher_args)
         cmd = ["mpirun"] + launcher_args
+        if not has_np:
+            cmd += ["-np", str(ntasks)]
+        return cmd + [executable] + executable_args
+
+    if launcher and launcher_name == "mpiexec":
+        has_np = any(token in {"-np", "-n"} for token in launcher_args)
+        cmd = ["mpiexec"] + launcher_args
         if not has_np:
             cmd += ["-np", str(ntasks)]
         return cmd + [executable] + executable_args
@@ -5960,9 +6022,10 @@ def render_slurm_array_stage_script(
     @param[in] stderr_path Argument passed to `render_slurm_array_stage_script()`.
     @return Value returned by `render_slurm_array_stage_script()`.
     """
-    resources = cluster_cfg.get("resources", {})
-    notifications = cluster_cfg.get("notifications", {}) or {}
-    execution = cluster_cfg.get("execution", {}) or {}
+    effective_cluster_cfg = build_serial_post_cluster_config(cluster_cfg) if stage == "post" else cluster_cfg
+    resources = effective_cluster_cfg.get("resources", {})
+    notifications = effective_cluster_cfg.get("notifications", {}) or {}
+    execution = effective_cluster_cfg.get("execution", {}) or {}
     module_setup = execution.get("module_setup", []) or []
     extra_sbatch = execution.get("extra_sbatch")
 
@@ -6017,7 +6080,7 @@ def render_slurm_array_stage_script(
     ])
 
     if stage == "solve":
-        walltime_guard_exports = build_walltime_guard_exports(cluster_cfg)
+        walltime_guard_exports = build_walltime_guard_exports(effective_cluster_cfg)
         for key, value in walltime_guard_exports.items():
             lines.append(f"export {key}={value}")
 
@@ -6028,15 +6091,16 @@ def render_slurm_array_stage_script(
 
     if stage == "solve":
         cmd = build_cluster_launch_command(
-            cluster_cfg,
+            effective_cluster_cfg,
             solver_exe,
             ["-control_file", "$CONTROL_FILE"]
         )
     else:
         cmd = build_cluster_launch_command(
-            cluster_cfg,
+            effective_cluster_cfg,
             post_exe,
-            ["-control_file", "$CONTROL_FILE", "-postprocessing_config_file", "$POST_RECIPE_FILE"]
+            ["-control_file", "$CONTROL_FILE", "-postprocessing_config_file", "$POST_RECIPE_FILE"],
+            force_num_procs=1,
         )
 
     # Keep shell variables unresolved inside sbatch script.
@@ -6730,16 +6794,14 @@ def build_run_dry_plan(args) -> dict:
             if cluster_mode:
                 scheduler_dir = os.path.join(run_dir, "scheduler")
                 post_script = os.path.join(scheduler_dir, "post.sbatch")
-                post_cluster_cfg = copy.deepcopy(cluster_cfg)
-                post_cluster_cfg.setdefault("resources", {})
-                post_cluster_cfg["resources"]["nodes"] = 1
-                post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
+                post_cluster_cfg = build_serial_post_cluster_config(cluster_cfg, post_num_procs_effective)
                 raw_post_cmd = build_cluster_launch_command(
                     post_cluster_cfg,
                     post_exe,
                     post_args,
                     config_search_anchor=case_path,
                     extra_search_anchors=[cluster_path],
+                    force_num_procs=post_num_procs_effective,
                 )
                 post_cmd, _ = build_post_locked_command(
                     run_dir,
@@ -6761,6 +6823,7 @@ def build_run_dry_plan(args) -> dict:
                     post_num_procs_effective,
                     config_search_anchor=case_path,
                     allow_single_rank_launcher_override=True,
+                    force_num_procs=post_num_procs_effective,
                 )
                 post_cmd, _ = build_post_locked_command(
                     run_dir,
@@ -7308,16 +7371,14 @@ def run_workflow(args):
                 post_script = os.path.join(scheduler_dir, "post.sbatch")
                 post_log = os.path.join(scheduler_dir, "post_%j.out")
                 post_err = os.path.join(scheduler_dir, "post_%j.err")
-                post_cluster_cfg = copy.deepcopy(cluster_cfg)
-                post_cluster_cfg.setdefault("resources", {})
-                post_cluster_cfg["resources"]["nodes"] = 1
-                post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
+                post_cluster_cfg = build_serial_post_cluster_config(cluster_cfg, post_num_procs_effective)
                 raw_post_cmd = build_cluster_launch_command(
                     post_cluster_cfg,
                     post_exe,
                     post_args,
                     config_search_anchor=case_path,
                     extra_search_anchors=[cluster_path],
+                    force_num_procs=post_num_procs_effective,
                 )
                 post_cmd, _ = build_post_locked_command(
                     run_dir,
@@ -7369,6 +7430,7 @@ def run_workflow(args):
                     post_num_procs_effective,
                     config_search_anchor=case_path,
                     allow_single_rank_launcher_override=True,
+                    force_num_procs=post_num_procs_effective,
                 )
                 command, _ = build_post_locked_command(
                     run_dir,

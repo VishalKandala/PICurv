@@ -61,7 +61,7 @@ Notes:
 - `--scheduler` is optional and only valid with `--cluster`.
 - if provided, it must match `cluster.yml:scheduler.type`.
 - in cluster mode, solver stage rank count is resolved from `cluster.yml` (`nodes * ntasks_per_node`).
-- post stage stays single-task by default (`nodes=1`, `ntasks_per_node=1`) even when solver stage is multi-rank.
+- post stage is forced to single-task scheduling (`nodes=1`, `ntasks_per_node=1`) and a single-rank launcher command even when solver stage is multi-rank.
 - `cluster.yml` does not currently name the run directory. `picurv` generates `run_id` as `<case_basename>_<timestamp>`, then derives Slurm job names like `<run_id>_solve` and `<run_id>_post`.
 - batch launcher precedence is: `cluster.yml.execution` first, then nearest `.picurv-execution.yml` (`cluster_execution`, then `default_execution`), then built-in `srun`.
 
@@ -102,7 +102,8 @@ This allows consistent local dry-run and cluster production flow from the same i
 - Override that policy in `cluster.yml -> execution.walltime_guard` only when the defaults do not fit your timestep variability or filesystem overhead.
 - Keep an early signal in `cluster.yml -> execution.extra_sbatch.signal` as fallback protection: `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
 - Solver stage uses `cluster.yml` resources directly.
-- Post stage defaults to single-task scheduling (`nodes=1`, `ntasks_per_node=1`) in generated `post.sbatch`.
+- Post stage is always rendered as a single-task job (`nodes=1`, `ntasks_per_node=1`) in generated `post.sbatch`.
+- When the selected launcher is MPI-aware (`srun`, `mpirun`, `mpiexec`), PICurv also strips conflicting size flags and forces the post launch to rank `1`.
 - Slurm stdout/stderr lives under `scheduler/`; solver-generated runtime logs still live under `logs/`.
 - `picurv init` now creates `.picurv-execution.yml` in each new case with inert defaults.
 - If your cluster needs the same MPI launcher tokens for login-node and batch runs, edit that file and let `cluster.yml` override only when batch jobs differ.

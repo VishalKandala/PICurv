@@ -39,7 +39,7 @@ Run solve + post:
   --post my_channel_case/standard_analysis.yml \
   -n 4 --solve --post-process
 ```
-`-n 4` sizes the solver stage. Post-processing defaults to one rank.
+`-n 4` sizes the solver stage. Post-processing is forced to one rank.
 
 ## 4. Common Edits
 
