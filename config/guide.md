@@ -4,6 +4,11 @@ This directory contains reusable YAML profiles and build/runtime configuration a
 
 For CFD users, the key idea is separation of concerns. Instead of creating one monolithic YAML file, PICurv uses role-oriented contracts (`case`, `solver`, `monitor`, `post`, and optional `cluster`/`study`) so you can change numerical strategy without rewriting geometry definitions, or change post outputs without touching solver controls.
 
+Two repo-wide patterns are especially important in the current codebase:
+
+- `solver.yml -> verification.sources.*` is reserved for verification-only injections/overrides when no cleaner end-to-end path exists. For example, `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `logs/scatter_metrics.csv` without changing ordinary production runs.
+- `study.yml` supports either cartesian sweeps under `parameters:` or explicit coupled bundles under `parameter_sets:` when multiple overrides must move together.
+
 ## Sub-guides
 
 - `build/guide.md`
@@ -25,6 +30,7 @@ For CFD users, the key idea is separation of concerns. Instead of creating one m
 6. Generated Slurm solver jobs enable the runtime walltime guard by default; tune it in `cluster.yml -> execution.walltime_guard` only when the default warmup/headroom policy needs adjustment.
 7. Keep `cluster.yml -> execution.extra_sbatch.signal` as the fallback path for preemption/termination signals or runs that may not reach the guard warmup window.
 8. Promote stable reusable profiles back into `config/` so team workflows converge.
+9. When designing verification studies, start from the verification pathway in `solver.yml` rather than embedding one-off study logic into production configs.
 
 ## Common CFD Iteration Patterns
 

@@ -328,7 +328,38 @@ Choose `brownian_motion` when:
 - you want a particle-focused test with minimal flow complexity,
 - you want a reference for `ZERO_FLOW` analytical mode.
 
-@section p49_next_steps_sec 7. Related Pages
+@section p49_scatter_recipe_sec 7. Scatter Verification Recipe
+
+Use `solver.yml -> verification.sources.scalar` when you need a known particle
+scalar truth field and there is no ordinary production workflow that can create
+that truth end-to-end.
+
+Recommended pattern:
+
+- keep `operation_mode.eulerian_field_source: analytical`
+- use `analytical_type: ZERO_FLOW` for pure deposition checks
+- choose a scalar profile under `verification.sources.scalar`
+- reuse the production scatter operator rather than adding a second deposition path
+- read the runtime metric from `logs/scatter_metrics.csv`
+
+Separation rules:
+
+- when `verification.sources.scalar` is absent, ordinary production runs are unchanged
+- only the particle `Psi` update is bypassed in verification mode
+- carrier-flow selection remains independent, so the same scalar truth can later
+  be paired with `UNIFORM_FLOW` or `TGV3D`
+
+This pathway is useful for more than one study. It enables:
+
+- static deposition verification
+- moving-cloud scatter checks
+- conservation diagnostics on deposited scalar fields
+- grid-sensitivity studies using `scatter_metrics.csv`
+- future scalar-transport verification reuse
+
+A complete runnable example is provided in `examples/scatter_verification/`.
+
+@section p49_next_steps_sec 8. Related Pages
 
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 07_Case_Reference**

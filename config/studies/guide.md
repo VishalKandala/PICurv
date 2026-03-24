@@ -5,12 +5,14 @@ This directory stores reusable `study.yml` definitions for `picurv sweep` workfl
 ## Typical Study Contents
 
 - parameter-space definitions (what is varied and over what range),
+- optional explicit `parameter_sets` bundles when multiple keys must move together,
 - metric extraction specs (what performance/accuracy signal to compare),
 - optional plotting directives,
 - execution controls for scheduler array behavior.
 
 Parameter keys may target nested config values such as
-`case.models.physics.particles.count`.
+`case.models.physics.particles.count`. Use `parameters` for cartesian sweeps and
+`parameter_sets` when you need explicit coupled bundles instead.
 
 Use explicit metric specs whenever the study signal comes from a non-default
 CSV or log artifact. For example, interpolation studies can aggregate values

@@ -96,4 +96,40 @@ PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx);
 */
 PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx);
 
+/**
+ * @brief Evaluates the configured verification scalar profile at one physical point.
+ *
+ * @param[in]  simCtx Simulation context providing the scalar verification profile.
+ * @param[in]  x      Physical x coordinate.
+ * @param[in]  y      Physical y coordinate.
+ * @param[in]  z      Physical z coordinate.
+ * @param[in]  t      Simulation time.
+ * @param[out] value  Evaluated scalar value.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode EvaluateAnalyticalScalarProfile(const SimCtx *simCtx,
+                                               PetscReal x,
+                                               PetscReal y,
+                                               PetscReal z,
+                                               PetscReal t,
+                                               PetscReal *value);
+
+/**
+ * @brief Writes the configured verification scalar profile onto a particle swarm scalar field.
+ *
+ * @param[in,out] user             Block-local context providing particle positions.
+ * @param[in]     swarm_field_name Name of the scalar swarm field to overwrite.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, const char *swarm_field_name);
+
+/**
+ * @brief Writes the configured verification scalar profile at physical cell centers into a scalar Vec.
+ *
+ * @param[in]     user      Block-local context providing the cell-center coordinates.
+ * @param[in,out] targetVec Scalar Vec on `user->da` storage to fill with analytical reference values.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode SetAnalyticalScalarFieldAtCellCenters(UserCtx *user, Vec targetVec);
+
 #endif // ANALYTICALSOLUTIONS_H

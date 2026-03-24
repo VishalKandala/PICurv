@@ -1,0 +1,83 @@
+# ==============================================================================
+#  SCATTER VERIFICATION CASE
+#  scatter_verification.yml
+#
+#  PURPOSE:
+#  Measure particle-to-grid scatter behavior using a prescribed analytical
+#  particle scalar field. The run is intentionally deposition-only
+#  (start_step = total_steps = 0): particles are settled, given analytical Psi,
+#  scattered to the Eulerian Psi field, and compared against analytical truth at
+#  physical cell centers.
+#
+#  STUDY KNOBS:
+#  - grid.programmatic_settings.im/jm/km
+#  - models.physics.particles.count
+#
+#  The bundled studies use explicit parameter_sets so grid size and particle
+#  count remain coupled in meaningful ways (fixed total particles or fixed PPC).
+# ==============================================================================
+
+properties:
+  scaling:
+    length_ref: 1.0
+    velocity_ref: 1.0
+  fluid:
+    density: 1.0
+    viscosity: 0.001
+  initial_conditions:
+    mode: "Zero"
+
+run_control:
+  start_step: 0
+  total_steps: 0
+  dt_physical: 0.01
+
+grid:
+  mode: programmatic_c
+  programmatic_settings:
+    im: 16
+    jm: 16
+    km: 16
+    xMins: 0.0
+    xMaxs: 1.0
+    yMins: 0.0
+    yMaxs: 1.0
+    zMins: 0.0
+    zMaxs: 1.0
+    rxs: 1.0
+    rys: 1.0
+    rzs: 1.0
+    cgrids: 0
+
+models:
+  domain:
+    blocks: 1
+
+  physics:
+    turbulence:
+      les: false
+
+    particles:
+      count: 32768
+      init_mode: "Volume"
+      restart_mode: "init"
+
+boundary_conditions:
+  - face: "-Xi"
+    type: WALL
+    handler: noslip
+  - face: "+Xi"
+    type: WALL
+    handler: noslip
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  - face: "-Zeta"
+    type: WALL
+    handler: noslip
+  - face: "+Zeta"
+    type: WALL
+    handler: noslip

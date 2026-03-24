@@ -101,6 +101,80 @@ static PetscErrorCode TestAnalyticalGeometrySelection(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests analytical scalar verification helper routines.
+ */
+
+static PetscErrorCode TestAnalyticalScalarVerificationHelpers(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Vec target = NULL;
+    PetscReal value = 0.0;
+    PetscReal ***target_arr = NULL;
+    PetscReal *positions = NULL;
+    PetscReal *psi = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 2, "ske"));
+    simCtx->verificationScalar.enabled = PETSC_TRUE;
+    PetscCall(PetscStrncpy(simCtx->verificationScalar.mode,
+                           "analytical",
+                           sizeof(simCtx->verificationScalar.mode)));
+
+    PetscCall(PetscStrncpy(simCtx->verificationScalar.profile,
+                           "CONSTANT",
+                           sizeof(simCtx->verificationScalar.profile)));
+    simCtx->verificationScalar.value = 2.5;
+    PetscCall(EvaluateAnalyticalScalarProfile(simCtx, 0.2, 0.3, 0.4, 0.0, &value));
+    PetscCall(PicurvAssertRealNear(2.5, value, 1.0e-12,
+                                   "constant scalar profile should evaluate to the configured value"));
+
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+    positions[0] = 0.1; positions[1] = 0.2; positions[2] = 0.3;
+    positions[3] = 0.8; positions[4] = 0.6; positions[5] = 0.4;
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+
+    PetscCall(SetAnalyticalScalarFieldOnParticles(user, "Psi"));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(PicurvAssertRealNear(2.5, psi[0], 1.0e-12,
+                                   "SetAnalyticalScalarFieldOnParticles should overwrite the first particle scalar"));
+    PetscCall(PicurvAssertRealNear(2.5, psi[1], 1.0e-12,
+                                   "SetAnalyticalScalarFieldOnParticles should overwrite the second particle scalar"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+
+    PetscCall(PetscStrncpy(simCtx->verificationScalar.profile,
+                           "LINEAR_X",
+                           sizeof(simCtx->verificationScalar.profile)));
+    simCtx->verificationScalar.phi0 = 1.0;
+    simCtx->verificationScalar.slope_x = 2.0;
+    PetscCall(EvaluateAnalyticalScalarProfile(simCtx, 0.25, 0.0, 0.0, 0.0, &value));
+    PetscCall(PicurvAssertRealNear(1.5, value, 1.0e-12,
+                                   "linear-x scalar profile should evaluate phi0 + slope_x * x"));
+
+    PetscCall(VecDuplicate(user->Psi, &target));
+    PetscCall(SetAnalyticalScalarFieldAtCellCenters(user, target));
+    PetscCall(DMDAVecGetArrayRead(user->da, target, &target_arr));
+    PetscCall(PicurvAssertRealNear(1.25, target_arr[1][1][1], 1.0e-12,
+                                   "cell-center scalar fill should use the physical x center coordinate"));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, target, &target_arr));
+    PetscCall(VecDestroy(&target));
+
+    PetscCall(PetscStrncpy(simCtx->verificationScalar.profile,
+                           "SIN_PRODUCT",
+                           sizeof(simCtx->verificationScalar.profile)));
+    simCtx->verificationScalar.amplitude = 3.0;
+    simCtx->verificationScalar.kx = PETSC_PI;
+    simCtx->verificationScalar.ky = PETSC_PI;
+    simCtx->verificationScalar.kz = PETSC_PI;
+    PetscCall(EvaluateAnalyticalScalarProfile(simCtx, 0.5, 0.5, 0.5, 0.0, &value));
+    PetscCall(PicurvAssertRealNear(3.0, value, 1.0e-12,
+                                   "sin-product scalar profile should peak at pi/2 in each coordinate"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests analytical solution engine ZERO_FLOW, UNIFORM_FLOW, and unknown-type dispatch.
  */
 
@@ -470,6 +544,7 @@ int main(int argc, char **argv)
     const PicurvTestCase cases[] = {
         {"les-filter-paths", TestLESTestFilterPaths},
         {"analytical-geometry-selection", TestAnalyticalGeometrySelection},
+        {"analytical-scalar-verification-helpers", TestAnalyticalScalarVerificationHelpers},
         {"analytical-solution-engine-dispatch", TestAnalyticalSolutionEngineDispatch},
         {"analytical-solution-engine-taylor-green-samples", TestAnalyticalSolutionEngineTaylorGreenSamples},
         {"analytical-solution-for-particles-dispatch", TestAnalyticalSolutionForParticlesDispatch},

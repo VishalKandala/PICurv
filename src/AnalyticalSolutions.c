@@ -39,6 +39,11 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx);
 static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx);
 static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCtx *simCtx);
 static PetscErrorCode SetAnalyticalSolutionForParticles_UniformFlow(Vec tempVec, SimCtx *simCtx);
+static PetscErrorCode EvaluateConfiguredScalarProfile(const VerificationScalarConfig *cfg,
+                                                      PetscReal x,
+                                                      PetscReal y,
+                                                      PetscReal z,
+                                                      PetscReal *value);
 
 /**
  * @brief Implementation of \ref AnalyticalTypeRequiresCustomGeometry().
@@ -577,5 +582,158 @@ PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
         return 0;
     }
     
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Internal helper that evaluates the configured scalar verification profile.
+ * @details Local to this translation unit.
+ */
+static PetscErrorCode EvaluateConfiguredScalarProfile(const VerificationScalarConfig *cfg,
+                                                      PetscReal x,
+                                                      PetscReal y,
+                                                      PetscReal z,
+                                                      PetscReal *value)
+{
+    PetscFunctionBeginUser;
+    if (!cfg) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "VerificationScalarConfig cannot be NULL.");
+    if (!value) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Scalar output pointer cannot be NULL.");
+
+    if (strcmp(cfg->profile, "CONSTANT") == 0) {
+        *value = cfg->value;
+    } else if (strcmp(cfg->profile, "LINEAR_X") == 0) {
+        *value = cfg->phi0 + cfg->slope_x * x;
+    } else if (strcmp(cfg->profile, "SIN_PRODUCT") == 0) {
+        *value = cfg->amplitude *
+                 PetscSinReal(cfg->kx * x) *
+                 PetscSinReal(cfg->ky * y) *
+                 PetscSinReal(cfg->kz * z);
+    } else {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+                "Unsupported verification scalar profile '%s'.", cfg->profile);
+    }
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "EvaluateAnalyticalScalarProfile"
+/**
+ * @brief Implementation of \ref EvaluateAnalyticalScalarProfile().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @see EvaluateAnalyticalScalarProfile()
+ */
+PetscErrorCode EvaluateAnalyticalScalarProfile(const SimCtx *simCtx,
+                                               PetscReal x,
+                                               PetscReal y,
+                                               PetscReal z,
+                                               PetscReal t,
+                                               PetscReal *value)
+{
+    PetscFunctionBeginUser;
+    (void)t;
+    if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
+    if (!simCtx->verificationScalar.enabled) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+                "EvaluateAnalyticalScalarProfile requires verification scalar mode to be enabled.");
+    }
+    PetscCall(EvaluateConfiguredScalarProfile(&simCtx->verificationScalar, x, y, z, value));
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "SetAnalyticalScalarFieldOnParticles"
+/**
+ * @brief Implementation of \ref SetAnalyticalScalarFieldOnParticles().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @see SetAnalyticalScalarFieldOnParticles()
+ */
+PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, const char *swarm_field_name)
+{
+    PetscErrorCode ierr;
+    PetscInt       nlocal = 0;
+    PetscReal     *positions = NULL;
+    PetscReal     *scalar_values = NULL;
+
+    PetscFunctionBeginUser;
+    if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    if (!user->swarm) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "UserCtx->swarm is NULL.");
+    if (!swarm_field_name) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "swarm_field_name cannot be NULL.");
+
+    ierr = DMSwarmGetLocalSize(user->swarm, &nlocal); CHKERRQ(ierr);
+    if (nlocal == 0) PetscFunctionReturn(0);
+
+    ierr = DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->swarm, swarm_field_name, NULL, NULL, (void **)&scalar_values); CHKERRQ(ierr);
+
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        PetscReal value = 0.0;
+        ierr = EvaluateAnalyticalScalarProfile(user->simCtx,
+                                               positions[3 * p + 0],
+                                               positions[3 * p + 1],
+                                               positions[3 * p + 2],
+                                               user->simCtx->ti,
+                                               &value); CHKERRQ(ierr);
+        scalar_values[p] = value;
+    }
+
+    ierr = DMSwarmRestoreField(user->swarm, swarm_field_name, NULL, NULL, (void **)&scalar_values); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "SetAnalyticalScalarFieldAtCellCenters"
+/**
+ * @brief Implementation of \ref SetAnalyticalScalarFieldAtCellCenters().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @see SetAnalyticalScalarFieldAtCellCenters()
+ */
+PetscErrorCode SetAnalyticalScalarFieldAtCellCenters(UserCtx *user, Vec targetVec)
+{
+    PetscErrorCode  ierr;
+    PetscReal     ***target = NULL;
+    const Cmpnts  ***cent = NULL;
+    DMDALocalInfo   info;
+    PetscInt        xs, xe, ys, ye, zs, ze, mx, my, mz;
+    PetscInt        lxs, lxe, lys, lye, lzs, lze;
+
+    PetscFunctionBeginUser;
+    if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    if (!targetVec) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "targetVec cannot be NULL.");
+
+    info = user->info;
+    xs = info.xs; xe = info.xs + info.xm;
+    ys = info.ys; ye = info.ys + info.ym;
+    zs = info.zs; ze = info.zs + info.zm;
+    mx = info.mx; my = info.my; mz = info.mz;
+    lxs = (xs == 0) ? xs + 1 : xs; lxe = (xe == mx) ? xe - 1 : xe;
+    lys = (ys == 0) ? ys + 1 : ys; lye = (ye == my) ? ye - 1 : ye;
+    lzs = (zs == 0) ? zs + 1 : zs; lze = (ze == mz) ? ze - 1 : ze;
+
+    ierr = VecSet(targetVec, 0.0); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->da, targetVec, &target); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->Cent, &cent); CHKERRQ(ierr);
+
+    for (PetscInt k = lzs; k < lze; ++k) {
+        for (PetscInt j = lys; j < lye; ++j) {
+            for (PetscInt i = lxs; i < lxe; ++i) {
+                PetscReal value = 0.0;
+                ierr = EvaluateAnalyticalScalarProfile(user->simCtx,
+                                                       cent[k][j][i].x,
+                                                       cent[k][j][i].y,
+                                                       cent[k][j][i].z,
+                                                       user->simCtx->ti,
+                                                       &value); CHKERRQ(ierr);
+                target[k][j][i] = value;
+            }
+        }
+    }
+
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->da, targetVec, &target); CHKERRQ(ierr);
     PetscFunctionReturn(0);
 }

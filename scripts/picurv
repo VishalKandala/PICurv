@@ -3487,46 +3487,82 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                 errors.append(f"  {solver_path}: 'verification.sources' must be a mapping when provided.")
             elif isinstance(sources_cfg, dict) and sources_cfg:
                 diff_cfg = sources_cfg.get('diffusivity')
-                if diff_cfg is None:
-                    errors.append(
-                        f"  {solver_path}: unsupported verification.sources entries {sorted(sources_cfg.keys())}. "
-                        "Currently supported: 'diffusivity'."
-                    )
-                elif not isinstance(diff_cfg, dict):
-                    errors.append(f"  {solver_path}: 'verification.sources.diffusivity' must be a mapping.")
-                else:
-                    if eulerian_source_mode != "analytical":
-                        errors.append(
-                            f"  {solver_path}: verification.sources.diffusivity is only valid when "
-                            "operation_mode.eulerian_field_source is 'analytical'."
-                        )
-                    mode = diff_cfg.get('mode')
-                    profile = diff_cfg.get('profile')
-                    if str(mode).strip().lower() != "analytical":
-                        errors.append(
-                            f"  {solver_path}: verification.sources.diffusivity.mode must be 'analytical'."
-                        )
-                    if str(profile).strip().upper() != "LINEAR_X":
-                        errors.append(
-                            f"  {solver_path}: verification.sources.diffusivity.profile must be 'LINEAR_X'."
-                        )
-                    for key in ("gamma0", "slope_x"):
-                        if key not in diff_cfg:
+                scalar_cfg = sources_cfg.get('scalar')
+
+                if diff_cfg is not None:
+                    if not isinstance(diff_cfg, dict):
+                        errors.append(f"  {solver_path}: 'verification.sources.diffusivity' must be a mapping.")
+                    else:
+                        if eulerian_source_mode != "analytical":
                             errors.append(
-                                f"  {solver_path}: verification.sources.diffusivity.{key} is required."
+                                f"  {solver_path}: verification.sources.diffusivity is only valid when "
+                                "operation_mode.eulerian_field_source is 'analytical'."
                             )
-                        else:
-                            try:
-                                float(diff_cfg[key])
-                            except (TypeError, ValueError):
+                        mode = diff_cfg.get('mode')
+                        profile = diff_cfg.get('profile')
+                        if str(mode).strip().lower() != "analytical":
+                            errors.append(
+                                f"  {solver_path}: verification.sources.diffusivity.mode must be 'analytical'."
+                            )
+                        if str(profile).strip().upper() != "LINEAR_X":
+                            errors.append(
+                                f"  {solver_path}: verification.sources.diffusivity.profile must be 'LINEAR_X'."
+                            )
+                        for key in ("gamma0", "slope_x"):
+                            if key not in diff_cfg:
                                 errors.append(
-                                    f"  {solver_path}: verification.sources.diffusivity.{key} must be numeric."
+                                    f"  {solver_path}: verification.sources.diffusivity.{key} is required."
                                 )
-                unknown_source_keys = sorted(set(sources_cfg.keys()) - {"diffusivity"})
+                            else:
+                                try:
+                                    float(diff_cfg[key])
+                                except (TypeError, ValueError):
+                                    errors.append(
+                                        f"  {solver_path}: verification.sources.diffusivity.{key} must be numeric."
+                                    )
+
+                if scalar_cfg is not None:
+                    if not isinstance(scalar_cfg, dict):
+                        errors.append(f"  {solver_path}: 'verification.sources.scalar' must be a mapping.")
+                    else:
+                        if eulerian_source_mode != "analytical":
+                            errors.append(
+                                f"  {solver_path}: verification.sources.scalar is only valid when "
+                                "operation_mode.eulerian_field_source is 'analytical'."
+                            )
+                        mode = scalar_cfg.get('mode')
+                        profile = str(scalar_cfg.get('profile', '')).strip().upper()
+                        if str(mode).strip().lower() != "analytical":
+                            errors.append(
+                                f"  {solver_path}: verification.sources.scalar.mode must be 'analytical'."
+                            )
+                        if profile not in {"CONSTANT", "LINEAR_X", "SIN_PRODUCT"}:
+                            errors.append(
+                                f"  {solver_path}: verification.sources.scalar.profile must be one of CONSTANT, LINEAR_X, SIN_PRODUCT."
+                            )
+                        required_scalar_keys = {
+                            "CONSTANT": ("value",),
+                            "LINEAR_X": ("phi0", "slope_x"),
+                            "SIN_PRODUCT": ("amplitude", "kx", "ky", "kz"),
+                        }.get(profile, ())
+                        for key in required_scalar_keys:
+                            if key not in scalar_cfg:
+                                errors.append(
+                                    f"  {solver_path}: verification.sources.scalar.{key} is required for profile '{profile}'."
+                                )
+                            else:
+                                try:
+                                    float(scalar_cfg[key])
+                                except (TypeError, ValueError):
+                                    errors.append(
+                                        f"  {solver_path}: verification.sources.scalar.{key} must be numeric."
+                                    )
+
+                unknown_source_keys = sorted(set(sources_cfg.keys()) - {"diffusivity", "scalar"})
                 if unknown_source_keys:
                     errors.append(
                         f"  {solver_path}: unsupported verification.sources entries: {unknown_source_keys}. "
-                        "Currently supported: 'diffusivity'."
+                        "Currently supported: 'diffusivity', 'scalar'."
                     )
             unknown_verification_keys = sorted(set(verification_cfg.keys()) - {"sources"})
             if unknown_verification_keys:
@@ -4043,23 +4079,52 @@ def validate_study_config(study_cfg: dict, study_path: str, skip_base_file_check
         )
 
     parameters = study_cfg.get("parameters")
-    if not isinstance(parameters, dict) or not parameters:
-        errors.append(f"  {study_path}: 'parameters' must be a non-empty mapping of key->list.")
+    parameter_sets = study_cfg.get("parameter_sets")
+    allowed_roots = {"case", "solver", "monitor", "post"}
+    if bool(parameters) == bool(parameter_sets):
+        errors.append(f"  {study_path}: provide exactly one of 'parameters' or 'parameter_sets'.")
+    elif parameter_sets:
+        if not isinstance(parameter_sets, list) or not parameter_sets:
+            errors.append(f"  {study_path}: 'parameter_sets' must be a non-empty list of key->value mappings.")
+        else:
+            for set_index, param_set in enumerate(parameter_sets):
+                if not isinstance(param_set, dict) or not param_set:
+                    errors.append(
+                        f"  {study_path}: parameter_sets[{set_index}] must be a non-empty mapping of key->value overrides."
+                    )
+                    continue
+                for key, value in param_set.items():
+                    if not isinstance(key, str) or "." not in key:
+                        errors.append(
+                            f"  {study_path}: parameter_sets[{set_index}] key '{key}' must use '<target>.<yaml.path>' format."
+                        )
+                        continue
+                    root = key.split(".", 1)[0]
+                    if root not in allowed_roots:
+                        errors.append(
+                            f"  {study_path}: parameter_sets[{set_index}] key '{key}' must start with one of {sorted(allowed_roots)}."
+                        )
+                    if isinstance(value, (dict, list)):
+                        errors.append(
+                            f"  {study_path}: parameter_sets[{set_index}] value for '{key}' must be a scalar, not {type(value).__name__}."
+                        )
     else:
-        allowed_roots = {"case", "solver", "monitor", "post"}
-        for key, values in parameters.items():
-            if not isinstance(key, str) or "." not in key:
-                errors.append(
-                    f"  {study_path}: parameter key '{key}' must use '<target>.<yaml.path>' format."
-                )
-                continue
-            root = key.split(".", 1)[0]
-            if root not in allowed_roots:
-                errors.append(
-                    f"  {study_path}: parameter key '{key}' must start with one of {sorted(allowed_roots)}."
-                )
-            if not isinstance(values, list) or len(values) == 0:
-                errors.append(f"  {study_path}: parameters.{key} must be a non-empty list.")
+        if not isinstance(parameters, dict) or not parameters:
+            errors.append(f"  {study_path}: 'parameters' must be a non-empty mapping of key->list.")
+        else:
+            for key, values in parameters.items():
+                if not isinstance(key, str) or "." not in key:
+                    errors.append(
+                        f"  {study_path}: parameter key '{key}' must use '<target>.<yaml.path>' format."
+                    )
+                    continue
+                root = key.split(".", 1)[0]
+                if root not in allowed_roots:
+                    errors.append(
+                        f"  {study_path}: parameter key '{key}' must start with one of {sorted(allowed_roots)}."
+                    )
+                if not isinstance(values, list) or len(values) == 0:
+                    errors.append(f"  {study_path}: parameters.{key} must be a non-empty list.")
 
     metrics = study_cfg.get("metrics", [])
     if metrics is not None and not isinstance(metrics, list):
@@ -4129,6 +4194,40 @@ def expand_parameter_matrix(parameters: dict) -> list:
     for combo in itertools.product(*all_values):
         combos.append(dict(zip(param_keys, combo)))
     return combos
+
+
+def expand_study_parameter_combinations(study_cfg: dict) -> list:
+    """!
+    @brief Expand either cartesian-study parameters or explicit parameter sets.
+    @param[in] study_cfg Argument passed to `expand_study_parameter_combinations()`.
+    @return Value returned by `expand_study_parameter_combinations()`.
+    """
+    parameter_sets = study_cfg.get("parameter_sets")
+    if parameter_sets:
+        return [dict(param_set) for param_set in parameter_sets]
+    return expand_parameter_matrix(study_cfg.get("parameters") or {})
+
+
+def get_study_parameter_keys(study_cfg: dict) -> list:
+    """!
+    @brief Collect ordered parameter keys from either cartesian parameters or explicit parameter sets.
+    @param[in] study_cfg Argument passed to `get_study_parameter_keys()`.
+    @return Value returned by `get_study_parameter_keys()`.
+    """
+    parameters = study_cfg.get("parameters")
+    if isinstance(parameters, dict) and parameters:
+        return list(parameters.keys())
+
+    keys = []
+    parameter_sets = study_cfg.get("parameter_sets") or []
+    for param_set in parameter_sets:
+        if not isinstance(param_set, dict):
+            continue
+        for key in param_set.keys():
+            if key not in keys:
+                keys.append(key)
+    return keys
+
 
 def get_cluster_total_tasks(cluster_cfg: dict) -> int:
     """!
@@ -5240,6 +5339,30 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                 raise ValueError(f"verification.sources.diffusivity.{exc.args[0]} is required.") from exc
             except (TypeError, ValueError) as exc:
                 raise ValueError("verification.sources.diffusivity.{gamma0,slope_x} must be numeric and mode/profile must be scalar strings.") from exc
+
+        scalar_cfg = sources_cfg.get('scalar')
+        if scalar_cfg is not None:
+            if not isinstance(scalar_cfg, dict):
+                raise ValueError("verification.sources.scalar must be a mapping.")
+            try:
+                flags['-verification_scalar_mode'] = f"\"{str(scalar_cfg['mode']).strip().lower()}\""
+                flags['-verification_scalar_profile'] = f"\"{str(scalar_cfg['profile']).strip().upper()}\""
+            except KeyError as exc:
+                raise ValueError(f"verification.sources.scalar.{exc.args[0]} is required.") from exc
+
+            scalar_numeric_keys = {
+                'CONSTANT': ('value',),
+                'LINEAR_X': ('phi0', 'slope_x'),
+                'SIN_PRODUCT': ('amplitude', 'kx', 'ky', 'kz'),
+            }
+            profile = str(scalar_cfg.get('profile', '')).strip().upper()
+            for key in scalar_numeric_keys.get(profile, ()):
+                try:
+                    flags[f'-verification_scalar_{key}'] = float(scalar_cfg[key])
+                except KeyError as exc:
+                    raise ValueError(f"verification.sources.scalar.{exc.args[0]} is required.") from exc
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"verification.sources.scalar.{key} must be numeric.") from exc
 
     selected_solver = None
     if 'strategy' in solver_cfg:
@@ -6375,7 +6498,7 @@ def infer_plot_x_axis(study_cfg: dict, rows: list):
     @param[in] rows Argument passed to `infer_plot_x_axis()`.
     @return Value returned by `infer_plot_x_axis()`.
     """
-    params = list((study_cfg.get("parameters") or {}).keys())
+    params = get_study_parameter_keys(study_cfg)
     if not params or not rows:
         return None, None
 
@@ -6435,7 +6558,7 @@ def generate_study_plots(study_cfg: dict, metrics_csv: str, plots_dir: str):
         return []
 
     metric_keys = []
-    param_keys = list((study_cfg.get("parameters") or {}).keys())
+    param_keys = get_study_parameter_keys(study_cfg)
     for key in rows[0].keys():
         if key in {"case_id"}:
             continue
@@ -7569,7 +7692,7 @@ def sweep_workflow(args):
     validate_solver_configs(base_case, base_solver, base_monitor, base_paths["case"], base_paths["solver"], base_paths["monitor"])
     validate_post_config(base_post, base_paths["post"])
 
-    combinations = expand_parameter_matrix(study_cfg["parameters"])
+    combinations = expand_study_parameter_combinations(study_cfg)
     if not combinations:
         print("[FATAL] Study parameter matrix expanded to zero cases.", file=sys.stderr)
         sys.exit(1)
@@ -7809,7 +7932,7 @@ def sweep_continue_workflow(args):
     base_paths = {k: resolve_path(study_path, v) for k, v in base_cfgs.items()}
     base_case = read_yaml_file(base_paths["case"])
 
-    combinations = expand_parameter_matrix(study_cfg["parameters"])
+    combinations = expand_study_parameter_combinations(study_cfg)
     if len(combinations) != len(parsed_entries):
         print(
             f"[FATAL] Parameter matrix ({len(combinations)} cases) does not match "
@@ -8009,7 +8132,7 @@ def sweep_reaggregate_workflow(args):
         sys.exit(1)
 
     parsed_entries = parse_case_index_tsv(case_index_file)
-    combinations = expand_parameter_matrix(study_cfg["parameters"])
+    combinations = expand_study_parameter_combinations(study_cfg)
     if len(combinations) != len(parsed_entries):
         print(
             f"[FATAL] Parameter matrix ({len(combinations)} cases) does not match "
@@ -9805,7 +9928,8 @@ def _add_sweep_parser(subparsers):
         help="Launch or continue a Slurm-based parameter sweep/study.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Launch matrix studies from study.yml + cluster.yml, continue\n"
+            "Launch studies from study.yml + cluster.yml, whether the study uses\n"
+            "cartesian parameters or explicit coupled parameter_sets, continue\n"
             "partially-completed studies, or re-aggregate metrics.\n\n"
             "Examples:\n"
             "  picurv sweep --study study.yml --cluster cluster.yml\n"
@@ -9814,9 +9938,12 @@ def _add_sweep_parser(subparsers):
             "  picurv sweep --continue --study-dir studies/<id> --cluster cluster_more_time.yml\n"
             "  picurv sweep --reaggregate --study-dir studies/<id>"
         ),
-        epilog="Next: inspect studies/<study_id>/results/metrics_table.csv for aggregated metrics.",
+        epilog=(
+            "Study files support either cartesian `parameters` or explicit `parameter_sets`.\n"
+            "Next: inspect studies/<study_id>/results/metrics_table.csv for aggregated metrics."
+        ),
     )
-    p_sweep.add_argument("--study", help="Path to study.yml defining parameter matrix and metrics.")
+    p_sweep.add_argument("--study", help="Path to study.yml defining either cartesian parameters or explicit parameter_sets, plus metrics.")
     p_sweep.add_argument("--cluster", help="Path to cluster.yml defining Slurm resources.")
     p_sweep.add_argument("--no-submit", action="store_true", help="Generate all study artifacts without submitting jobs.")
     p_sweep.add_argument("--study-dir", help="Path to an existing study directory (for --continue/--reaggregate).")

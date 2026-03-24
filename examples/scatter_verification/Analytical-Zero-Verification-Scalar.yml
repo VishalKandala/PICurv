@@ -1,0 +1,26 @@
+# ==============================================================================
+#  SCATTER VERIFICATION SOLVER PROFILE
+#  Analytical carrier flow is ZERO_FLOW. The scalar truth is injected through the
+#  verification pathway and written onto particle Psi before scatter.
+#
+#  The bundled example uses a smooth trigonometric profile because it creates a
+#  meaningful grid-size trend when scattered cell-centered values are compared to
+#  analytical truth at cell centers.
+# ==============================================================================
+
+operation_mode:
+  eulerian_field_source: "analytical"
+  analytical_type: "ZERO_FLOW"
+
+verification:
+  sources:
+    scalar:
+      mode: "analytical"
+      profile: "SIN_PRODUCT"
+      amplitude: 1.0
+      kx: 3.141592653589793
+      ky: 3.141592653589793
+      kz: 3.141592653589793
+
+interpolation:
+  method: "Trilinear"

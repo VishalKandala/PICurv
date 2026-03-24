@@ -23,6 +23,19 @@ parameters:
   case.grid.programmatic_settings.jm: [32, 48, 64]
   case.grid.programmatic_settings.km: [64, 96, 128]
 
+# For coupled overrides that should move together instead of forming a cartesian
+# product, use parameter_sets instead of parameters. Provide exactly one of the
+# two blocks.
+# parameter_sets:
+#   - case.grid.programmatic_settings.im: 32
+#     case.grid.programmatic_settings.jm: 32
+#     case.grid.programmatic_settings.km: 64
+#     case.models.physics.particles.count: 50000
+#   - case.grid.programmatic_settings.im: 64
+#     case.grid.programmatic_settings.jm: 64
+#     case.grid.programmatic_settings.km: 128
+#     case.models.physics.particles.count: 400000
+
 metrics:
   # String shorthand:
   - msd_final

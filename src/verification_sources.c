@@ -1,5 +1,6 @@
 #include "verification_sources.h"
 
+#include "AnalyticalSolutions.h"
 #include "logging.h"
 #include "setup.h"
 
@@ -11,6 +12,16 @@ PetscBool VerificationDiffusivityOverrideActive(const SimCtx *simCtx)
 {
     if (!simCtx) return PETSC_FALSE;
     return simCtx->verificationDiffusivity.enabled;
+}
+
+/**
+ * @brief Reports whether the verification-only scalar override is enabled.
+ * @details See `include/verification_sources.h` for the public parameter and return contract.
+ */
+PetscBool VerificationScalarOverrideActive(const SimCtx *simCtx)
+{
+    if (!simCtx) return PETSC_FALSE;
+    return simCtx->verificationScalar.enabled;
 }
 
 /**
@@ -65,5 +76,22 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
               (double)simCtx->verificationDiffusivity.gamma0,
               (double)simCtx->verificationDiffusivity.slope_x);
 
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Fills the particle `Psi` field from the configured verification scalar profile.
+ * @details See `include/verification_sources.h` for the public parameter and return contract.
+ */
+PetscErrorCode ApplyVerificationScalarOverrideToParticles(UserCtx *user)
+{
+    PetscFunctionBeginUser;
+    if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    if (!VerificationScalarOverrideActive(user->simCtx)) PetscFunctionReturn(0);
+
+    PetscCall(SetAnalyticalScalarFieldOnParticles(user, "Psi"));
+    LOG_ALLOW(GLOBAL, LOG_DEBUG,
+              "Applied verification scalar override profile '%s' to particle field 'Psi'.\n",
+              user->simCtx->verificationScalar.profile);
     PetscFunctionReturn(0);
 }

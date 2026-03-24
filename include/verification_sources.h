@@ -19,4 +19,20 @@ PetscBool VerificationDiffusivityOverrideActive(const SimCtx *simCtx);
  */
 PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user);
 
+/**
+ * @brief Reports whether a verification-only scalar override is active.
+ *
+ * @param simCtx Simulation context.
+ * @return PETSC_TRUE when a verification scalar source override is enabled.
+ */
+PetscBool VerificationScalarOverrideActive(const SimCtx *simCtx);
+
+/**
+ * @brief Populates the particle `Psi` field from a verification-only source override.
+ *
+ * @param[in,out] user Block-local context whose particle scalar field will be filled.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ApplyVerificationScalarOverrideToParticles(UserCtx *user);
+
 #endif /* VERIFICATION_SOURCES_H */

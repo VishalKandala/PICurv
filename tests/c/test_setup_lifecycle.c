@@ -273,6 +273,47 @@ static PetscErrorCode TestSetupLifecycleParticleInitialization(void)
 }
 
 /**
+ * @brief Tests that step-zero scalar verification emits scatter_metrics.csv during initialized setup.
+ */
+static PetscErrorCode TestSetupLifecycleScatterMetricsAtStepZero(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char metrics_path[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PetscCall(BuildLifecycleContext(PETSC_TRUE, &simCtx, tmpdir, sizeof(tmpdir)));
+    user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
+    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "ZERO_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
+    simCtx->StepsToRun = 0;
+    simCtx->StartStep = 0;
+    simCtx->verificationScalar.enabled = PETSC_TRUE;
+    PetscCall(PetscStrncpy(simCtx->verificationScalar.mode,
+                           "analytical",
+                           sizeof(simCtx->verificationScalar.mode)));
+    PetscCall(PetscStrncpy(simCtx->verificationScalar.profile,
+                           "CONSTANT",
+                           sizeof(simCtx->verificationScalar.profile)));
+    simCtx->verificationScalar.value = 1.25;
+
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(InitializeParticleSwarm(simCtx));
+    PetscCall(PerformInitializedParticleSetup(simCtx));
+
+    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/logs/scatter_metrics.csv", tmpdir));
+    PetscCall(PicurvAssertFileExists(metrics_path,
+                                     "PerformInitializedParticleSetup should emit scatter_metrics.csv for a zero-step scalar verification run"));
+    PetscCall(PicurvAssertBool((PetscBool)(user->swarm != NULL),
+                               "zero-step scalar verification setup should leave the swarm initialized"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(FreeLifecycleContext(&simCtx));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests standalone RNG initialization helpers and minimal-context cleanup.
  */
 static PetscErrorCode TestSetupLifecycleRandomGeneratorsAndCleanup(void)
@@ -354,6 +395,7 @@ int main(int argc, char **argv)
     const PicurvTestCase cases[] = {
         {"setup-lifecycle-core-solver-setup", TestSetupLifecycleCoreSolverSetup},
         {"setup-lifecycle-particle-initialization", TestSetupLifecycleParticleInitialization},
+        {"setup-lifecycle-scatter-metrics-step-zero", TestSetupLifecycleScatterMetricsAtStepZero},
         {"setup-lifecycle-random-generators-and-cleanup", TestSetupLifecycleRandomGeneratorsAndCleanup},
         {"setup-lifecycle-cleanup-across-initialization-states", TestSetupLifecycleCleanupAcrossInitializationStates},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},

@@ -67,6 +67,7 @@ For each run, `picurv` generates:
 - `operation_mode.analytical_type` -> `-analytical_type`
 - `operation_mode.uniform_flow.{u,v,w}` -> `-analytical_uniform_u/-analytical_uniform_v/-analytical_uniform_w` for `UNIFORM_FLOW`
 - `verification.sources.diffusivity.*` -> `-verification_diffusivity_*`
+- `verification.sources.scalar.*` -> `-verification_scalar_*`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
 - Solver-specific block support currently includes `momentum_solver.dual_time_picard_rk4`.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
@@ -80,8 +81,9 @@ Analytical-mode compatibility rule:
 
 Verification-pathway rule:
 
-- `solver.yml -> verification.sources.diffusivity` is reserved for verification-only source overrides when no cleaner end-to-end path exists.
-- it is only valid for analytical solver runs.
+- `solver.yml -> verification.sources.diffusivity` and `solver.yml -> verification.sources.scalar` are reserved for verification-only source overrides when no cleaner end-to-end path exists.
+- they are only valid for analytical solver runs.
+- `verification.sources.scalar` prescribes particle `Psi` and drives the runtime diagnostic `logs/scatter_metrics.csv` while leaving ordinary production runs unchanged when absent.
 - new verification source overrides belong in `verification_sources.*`, with production call sites kept as thin delegation points.
 
 @section p14_monitor_sec 5. Monitor Contract Highlights
