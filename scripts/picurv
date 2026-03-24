@@ -4353,6 +4353,7 @@ def build_local_launch_command(
     @param[in] num_procs Argument passed to `build_local_launch_command()`.
     @param[in] config_search_anchor Argument passed to `build_local_launch_command()`.
     @param[in] allow_single_rank_launcher_override When true, explicit launcher overrides also apply to 1-rank commands.
+    @param[in] force_num_procs Optional explicit MPI rank count override applied after stripping conflicting launcher size flags.
     @return Value returned by `build_local_launch_command()`.
     """
     target_num_procs = force_num_procs if force_num_procs is not None else num_procs
@@ -4440,6 +4441,7 @@ def build_cluster_launch_command(
     @param[in] executable_args Argument passed to `build_cluster_launch_command()`.
     @param[in] config_search_anchor Argument passed to `build_cluster_launch_command()`.
     @param[in] extra_search_anchors Argument passed to `build_cluster_launch_command()`.
+    @param[in] force_num_procs Optional explicit MPI rank count override applied after stripping conflicting launcher size flags.
     @return Value returned by `build_cluster_launch_command()`.
     """
     try:
