@@ -22,6 +22,14 @@ This directory contains runnable case templates used by `./bin/picurv init` and 
    - `./bin/picurv validate --case ... --solver ... --monitor ... --post ...`
 3. Run dry-run planning, then actual solve/post execution.
 
+For long or live runs, keep the full post-analysis window in `post.yml`, then use:
+
+```bash
+./bin/picurv run --post-process --continue --run-dir runs/<run_id> --post my_case/post.yml
+```
+
+PICurv will resume the same recipe from the first unfinished step, cap the launch to the current live solver frontier, and refuse a second concurrent post writer on the same run directory.
+
 `init` creates the case directory with config files — no binaries are copied. Runtime executables (`simulator`, `postprocessor`) are resolved from the project `bin/` directory via PATH. The initializer also writes `.picurv-origin.json` and an inert `.picurv-execution.yml`, which enables maintenance commands (`status-source`, `build`, `pull-source`, `sync-binaries`, `sync-config`) and gives each case a safe place for site-specific launcher overrides when needed. To pin specific binary versions into a case, run `picurv sync-binaries`.
 
 ## Composition Guidance

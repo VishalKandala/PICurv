@@ -93,6 +93,18 @@ Post-process an existing run with a different recipe:
 ./bin/picurv run --post-process --run-dir runs/<run_id> --post alt_analysis.yml
 ```
 
+Catch up the same recipe in batches while the solver is still producing new source steps:
+
+```bash
+./bin/picurv run --post-process --continue --run-dir runs/<run_id> --post post.yml
+```
+
+Operational notes:
+- keep the full logical analysis window in `post.yml`; `--continue` moves the effective launch start internally for the same recipe.
+- if the requested window is already complete for that recipe, PICurv skips the launch and reports that the run is already caught up.
+- if the solver has produced source data only through the current frontier, PICurv launches only the fully available contiguous prefix instead of failing.
+- if another post job already holds the same run directory, PICurv refuses the new writer immediately.
+
 Dry-run planning:
 
 ```bash

@@ -56,10 +56,17 @@ Mappings in generated `post.run`:
 - `end_step` -> `endTime`
 - `step_interval` -> `timeStep`
 
+Operational semantics when launched through `picurv`:
+- keep `start_step` and `end_step` as the full logical analysis window you want the recipe to represent.
+- `picurv run --post-process --continue --run-dir ... --post post.yml` computes an internal effective start step for the same recipe lineage, so you do not need to keep editing `start_step` during batch catch-up.
+- if the recipe changes in a way that affects generated outputs, such as `step_interval`, pipeline tasks, output prefixes, or selected fields, PICurv starts from the configured `start_step` instead of inheriting completion from the previous recipe.
+- on live solver runs, `end_step: -1` still means "up to the last available step", but PICurv now caps each invocation to the highest fully available contiguous source prefix before generating `post.run`.
+
 @section p10_source_sec 3. source_data
 
 - `source_data.directory` -> `source_directory`
 - `<solver_output_dir>` is a supported placeholder resolved by `picurv`.
+- for live post-processing while the solver is still running, PICurv treats a timestep as source-available only when the full required source set for the current recipe exists. For Eulerian-only recipes that means the mandatory field files; for particle/statistics recipes it also requires the particle position file for that timestep.
 
 @section p10_pipelines_sec 4. Processing Pipelines
 
@@ -104,6 +111,7 @@ Mappings:
 Default post input extension remains `dat` unless overridden.
 `statistics_pipeline.output_prefix` is independent of `io.output_directory`; bare basenames
 default under `<monitor output>/statistics/`, while explicit relative or absolute paths are preserved.
+When the same timestep is post-processed again, PICurv now rewrites same-step VTK/VTP outputs and rewrites same-step statistics rows so the final CSV still contains one row per step.
 
 @section p10_next_steps_sec 7. Next Steps
 

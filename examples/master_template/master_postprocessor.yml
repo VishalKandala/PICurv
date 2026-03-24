@@ -23,12 +23,18 @@ source_data:
   directory: "<solver_output_dir>"
 
 run_control:
-  # (Required) The first timestep to process.
+  # (Required) The first timestep in the logical analysis window.
   # Maps to 'startTime' in the generated C-side post.run recipe.
+  # Keep this at the true beginning of the recipe window you care about.
+  # When you launch `picurv run --post-process --continue`, PICurv may
+  # internally resume at a later effective step for the same recipe without
+  # requiring you to edit this value.
   start_step: 0
 
-  # (Required) The last timestep to process.
+  # (Required) The last timestep in the logical analysis window.
   # A value of -1 means "process up to the last available step".
+  # On live solver runs, PICurv caps each launch to the highest fully
+  # available contiguous source step before generating `post.run`.
   # Maps to 'endTime' in the generated C-side post.run recipe.
   end_step: -1
 

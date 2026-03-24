@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -96,14 +97,131 @@ def write_canonical_picgrid(path: Path, dims=(3, 3, 3)) -> Path:
 def write_executable(path: Path, content: str) -> Path:
     """!
     @brief Write a small executable script used by CLI subprocess tests.
-    @param[in] path Filesystem path argument passed to `write_executable()`.
-    @param[in] content Script body argument passed to `write_executable()`.
+    @param[in] path Filesystem path argument passed to the function.
+    @param[in] content Script body argument passed to the function.
     @return Value returned by `write_executable()`.
     """
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
     return path
 
+
+def create_post_run_dir(tmp_path: Path, name: str = "existing_run", case_cfg=None, monitor_cfg=None):
+    """!
+    @brief Create a minimal run directory suitable for post-process CLI tests.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] name Argument passed to `create_post_run_dir()`.
+    @param[in] case_cfg Optional case.yml payload override.
+    @param[in] monitor_cfg Optional monitor.yml payload override.
+    @return Value returned by `create_post_run_dir()`.
+    """
+    if case_cfg is None:
+        case_cfg = yaml.safe_load((FIXTURES / "valid" / "case.yml").read_text(encoding="utf-8"))
+    if monitor_cfg is None:
+        monitor_cfg = yaml.safe_load((FIXTURES / "valid" / "monitor.yml").read_text(encoding="utf-8"))
+
+    run_dir = tmp_path / name
+    config_dir = run_dir / "config"
+    logs_dir = run_dir / "logs"
+    scheduler_dir = run_dir / "scheduler"
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    output_root = run_dir / dirs.get("output", "output")
+
+    config_dir.mkdir(parents=True)
+    logs_dir.mkdir()
+    scheduler_dir.mkdir()
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    (config_dir / "case.yml").write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+    (config_dir / "monitor.yml").write_text(yaml.safe_dump(monitor_cfg, sort_keys=False), encoding="utf-8")
+    (config_dir / f"{name}.control").write_text("# control placeholder\n", encoding="utf-8")
+    return run_dir, case_cfg, monitor_cfg
+
+
+def create_post_source_steps(
+    run_dir: Path,
+    monitor_cfg: dict,
+    steps,
+    include_particles: bool = False,
+    eulerian_ext: str = "dat",
+    particle_ext: str = "dat",
+):
+    """!
+    @brief Materialize solver source artifacts for selected post-processing steps.
+    @param[in] run_dir Argument passed to `create_post_source_steps()`.
+    @param[in] monitor_cfg Argument passed to `create_post_source_steps()`.
+    @param[in] steps Argument passed to `create_post_source_steps()`.
+    @param[in] include_particles Argument passed to `create_post_source_steps()`.
+    @param[in] eulerian_ext Argument passed to `create_post_source_steps()`.
+    @param[in] particle_ext Argument passed to `create_post_source_steps()`.
+    """
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    output_root = run_dir / dirs.get("output", "output")
+    euler_dir = output_root / dirs.get("eulerian_subdir", "eulerian")
+    particle_dir = output_root / dirs.get("particle_subdir", "particles")
+    euler_dir.mkdir(parents=True, exist_ok=True)
+    if include_particles:
+        particle_dir.mkdir(parents=True, exist_ok=True)
+
+    for step in steps:
+        for basename in ("ufield", "vfield", "pfield", "nvfield"):
+            (euler_dir / f"{basename}{step:05d}_0.{eulerian_ext.lstrip('.')}" ).write_text("0\n", encoding="utf-8")
+        if include_particles:
+            (particle_dir / f"position{step:05d}_0.{particle_ext.lstrip('.')}" ).write_text("0\n", encoding="utf-8")
+
+
+def create_post_outputs(
+    run_dir: Path,
+    post_cfg: dict,
+    monitor_cfg: dict,
+    euler_steps=(),
+    particle_steps=(),
+    stats_steps=(),
+):
+    """!
+    @brief Materialize post-processed artifacts for selected steps.
+    @param[in] run_dir Argument passed to `create_post_outputs()`.
+    @param[in] post_cfg Argument passed to `create_post_outputs()`.
+    @param[in] monitor_cfg Argument passed to `create_post_outputs()`.
+    @param[in] euler_steps Argument passed to `create_post_outputs()`.
+    @param[in] particle_steps Argument passed to `create_post_outputs()`.
+    @param[in] stats_steps Argument passed to `create_post_outputs()`.
+    """
+    io_cfg = post_cfg.get("io", {}) or {}
+    output_dir = run_dir / io_cfg.get("output_directory", "viz")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for step in euler_steps:
+        (output_dir / f"{io_cfg.get('output_filename_prefix', 'Field')}_{step:05d}.vts").write_text("vtk\n", encoding="utf-8")
+    for step in particle_steps:
+        (output_dir / f"{io_cfg.get('particle_filename_prefix', 'Particle')}_{step:05d}.vtp").write_text("vtp\n", encoding="utf-8")
+
+    if stats_steps:
+        picurv = load_picurv_module()
+        for stats_path in picurv.get_post_statistics_output_artifacts(post_cfg, str(run_dir), monitor_cfg):
+            stats_file = Path(stats_path)
+            stats_file.parent.mkdir(parents=True, exist_ok=True)
+            rows = ["step,value"] + [f"{step},1.0" for step in stats_steps]
+            stats_file.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def write_legacy_post_recipe(run_dir: Path, run_id: str, post_cfg: dict, monitor_cfg: dict):
+    """!
+    @brief Write a legacy-style post.run file matching the supplied post config.
+    @param[in] run_dir Argument passed to `write_legacy_post_recipe()`.
+    @param[in] run_id Argument passed to `write_legacy_post_recipe()`.
+    @param[in] post_cfg Argument passed to `write_legacy_post_recipe()`.
+    @param[in] monitor_cfg Argument passed to `write_legacy_post_recipe()`.
+    """
+    picurv = load_picurv_module()
+    resolved_source = picurv._resolve_post_source_directory_preview(str(run_dir), monitor_cfg, post_cfg)
+    resolved_post_cfg = picurv.prepare_effective_post_config(post_cfg, resolved_source)
+    recipe_cfg = picurv.build_post_recipe_config(resolved_post_cfg, monitor_cfg)
+    lines = ["# legacy post.run"]
+    for key, value in recipe_cfg.items():
+        if value is not None and str(value) != "":
+            lines.append(f"{key} = {value}")
+    (run_dir / "config" / "post.run").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 def test_env_script_falls_back_to_scripts_when_bin_launcher_is_missing(tmp_path):
     """!
@@ -756,6 +874,242 @@ def test_dry_run_json_output_schema():
     assert payload["stages"]["post-process"]["num_procs_effective"] == 1
 
 
+def test_dry_run_post_process_continue_bootstraps_same_recipe_tail(tmp_path):
+    """!
+    @brief Test that post --continue bootstraps from legacy post.run and resumes at the first unfinished step.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="resume_bootstrap")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_path = tmp_path / "post_resume.yml"
+    post_path.write_text(yaml.safe_dump(post_cfg, sort_keys=False), encoding="utf-8")
+
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 7))
+    write_legacy_post_recipe(run_dir, run_dir.name, post_cfg, monitor_cfg)
+
+    result = run_picurv(
+        [
+            "run",
+            "--post-process",
+            "--continue",
+            "--run-dir",
+            str(run_dir),
+            "--post",
+            str(post_path),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    stage = payload["stages"]["post-process"]
+    assert stage["resume_recipe_match"] is True
+    assert stage["resume_bootstrapped"] is True
+    assert stage["completed_frontier_step"] == 6
+    assert stage["effective_start_step"] == 7
+    assert stage["effective_end_step"] == 10
+    assert stage["launch_command"][0].endswith("post_lock_wrapper.py")
+    assert any(str(REPO_ROOT / "bin" / "postprocessor") == token for token in stage["launch_command"])
+
+
+def test_dry_run_post_process_continue_skips_complete_window(tmp_path):
+    """!
+    @brief Test that post --continue skips launch when the requested window is already fully complete.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="resume_complete")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_path = tmp_path / "post_complete.yml"
+    post_path.write_text(yaml.safe_dump(post_cfg, sort_keys=False), encoding="utf-8")
+
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 11))
+    write_legacy_post_recipe(run_dir, run_dir.name, post_cfg, monitor_cfg)
+
+    result = run_picurv(
+        [
+            "run",
+            "--post-process",
+            "--continue",
+            "--run-dir",
+            str(run_dir),
+            "--post",
+            str(post_path),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    stage = json.loads(result.stdout)["stages"]["post-process"]
+    assert stage["skip_reason"] == "already-complete-window"
+    assert stage["post_skipped_as_complete"] is True
+    assert stage["launch_command"] == []
+
+
+def test_dry_run_post_process_continue_starts_fresh_when_step_interval_changes(tmp_path):
+    """!
+    @brief Test that changing step_interval starts a fresh post lineage instead of resuming the old one.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="resume_interval_change")
+    legacy_post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    current_post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    current_post_cfg["run_control"]["step_interval"] = 2
+    post_path = tmp_path / "post_interval_change.yml"
+    post_path.write_text(yaml.safe_dump(current_post_cfg, sort_keys=False), encoding="utf-8")
+
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
+    create_post_outputs(run_dir, legacy_post_cfg, monitor_cfg, euler_steps=range(0, 7))
+    write_legacy_post_recipe(run_dir, run_dir.name, legacy_post_cfg, monitor_cfg)
+
+    result = run_picurv(
+        [
+            "run",
+            "--post-process",
+            "--continue",
+            "--run-dir",
+            str(run_dir),
+            "--post",
+            str(post_path),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    stage = json.loads(result.stdout)["stages"]["post-process"]
+    assert stage["resume_recipe_match"] is False
+    assert stage["effective_start_step"] == 0
+    assert stage["effective_end_step"] == 10
+
+
+def test_dry_run_post_process_caps_to_current_live_source_frontier(tmp_path):
+    """!
+    @brief Test that post dry-run only launches the currently available contiguous source prefix.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="live_prefix")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_path = tmp_path / "post_live_prefix.yml"
+    post_path.write_text(yaml.safe_dump(post_cfg, sort_keys=False), encoding="utf-8")
+
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 5))
+
+    result = run_picurv(
+        [
+            "run",
+            "--post-process",
+            "--run-dir",
+            str(run_dir),
+            "--post",
+            str(post_path),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    stage = json.loads(result.stdout)["stages"]["post-process"]
+    assert stage["source_frontier_step"] == 4
+    assert stage["effective_start_step"] == 0
+    assert stage["effective_end_step"] == 4
+    assert stage["skip_reason"] is None
+
+
+def test_dry_run_post_process_reports_nothing_available_yet_when_start_is_beyond_frontier(tmp_path):
+    """!
+    @brief Test that post dry-run no-ops when the requested window begins beyond the current source frontier.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="live_none")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_cfg["run_control"]["start_step"] = 5
+    post_cfg["run_control"]["end_step"] = 10
+    post_path = tmp_path / "post_live_none.yml"
+    post_path.write_text(yaml.safe_dump(post_cfg, sort_keys=False), encoding="utf-8")
+
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 5))
+
+    result = run_picurv(
+        [
+            "run",
+            "--post-process",
+            "--run-dir",
+            str(run_dir),
+            "--post",
+            str(post_path),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    stage = json.loads(result.stdout)["stages"]["post-process"]
+    assert stage["skip_reason"] == "nothing-available-yet"
+    assert stage["launch_command"] == []
+
+
+def test_dry_run_post_process_requires_all_requested_output_families_for_resume(tmp_path):
+    """!
+    @brief Test that mixed Eulerian/particle/statistics recipes resume from the first step missing any requested artifact family.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="mixed_resume")
+    post_cfg = {
+        "run_control": {"start_step": 0, "end_step": 3, "step_interval": 1},
+        "io": {
+            "output_directory": "visualization/mixed",
+            "output_filename_prefix": "field_data",
+            "particle_filename_prefix": "particle_data",
+            "eulerian_fields": ["Qcrit"],
+            "output_particles": True,
+            "particle_fields": ["position"],
+        },
+        "statistics_pipeline": {"tasks": ["msd"], "output_prefix": "MixedStats"},
+    }
+    post_path = tmp_path / "post_mixed.yml"
+    post_path.write_text(yaml.safe_dump(post_cfg, sort_keys=False), encoding="utf-8")
+
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 4), include_particles=True)
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 3), particle_steps=range(0, 3), stats_steps=(0, 1))
+    write_legacy_post_recipe(run_dir, run_dir.name, post_cfg, monitor_cfg)
+
+    result = run_picurv(
+        [
+            "run",
+            "--post-process",
+            "--continue",
+            "--run-dir",
+            str(run_dir),
+            "--post",
+            str(post_path),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    stage = json.loads(result.stdout)["stages"]["post-process"]
+    assert stage["completed_frontier_step"] == 1
+    assert stage["effective_start_step"] == 2
+    assert stage["effective_end_step"] == 3
+
+
 def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
     """!
     @brief Test that post process run dir accepts null source data mapping.
@@ -768,15 +1122,14 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
     run_dir = tmp_path / "existing_run"
     config_dir = run_dir / "config"
     logs_dir = run_dir / "logs"
-    output_dir = run_dir / "output"
     config_dir.mkdir(parents=True)
     logs_dir.mkdir()
-    output_dir.mkdir()
-    (output_dir / "dummy.dat").write_text("0\n", encoding="utf-8")
+
 
     shutil.copy2(valid / "case.yml", config_dir / "case.yml")
     shutil.copy2(valid / "monitor.yml", config_dir / "monitor.yml")
     (config_dir / "existing_run.control").write_text("# control placeholder\n", encoding="utf-8")
+    create_post_source_steps(run_dir, picurv.read_yaml_file(str(valid / "monitor.yml")), range(0, 11))
 
     post_cfg = picurv.read_yaml_file(str(valid / "post.yml"))
     post_cfg["source_data"] = None
@@ -836,11 +1189,73 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
         picurv.execute_command = original_execute
 
     assert len(calls) == 1
-    assert calls[0]["command"][0].endswith("/postprocessor")
+    assert calls[0]["command"][0].endswith("post_lock_wrapper.py")
+    assert any(token.endswith("/postprocessor") for token in calls[0]["command"])
     assert calls[0]["log_filename"] == os.path.join("scheduler", "existing_run_eulerian_data.log")
     assert (config_dir / "post.run").is_file()
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["stages_completed_or_submitted"] == ["post-process"]
+
+
+def test_post_lock_wrapper_refuses_second_writer(tmp_path):
+    """!
+    @brief Test that the post lock wrapper refuses a second concurrent writer for the same run directory.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir, _, _ = create_post_run_dir(tmp_path, name="post_lock_run")
+    wrapper_path = Path(picurv.ensure_post_lock_wrapper(str(run_dir)))
+    lock_paths = picurv.get_post_lock_paths(str(run_dir))
+    hold_script = tmp_path / "hold_wrapper.py"
+    hold_script.write_text("import time\ntime.sleep(2)\n", encoding="utf-8")
+
+    first = subprocess.Popen(
+        [
+            str(wrapper_path),
+            "--lock-file",
+            lock_paths["lock_file"],
+            "--metadata-file",
+            lock_paths["metadata_file"],
+            "--run-dir",
+            str(run_dir),
+            "--recipe-fingerprint",
+            "fingerprint-a",
+            "--",
+            sys.executable,
+            str(hold_script),
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        time.sleep(0.25)
+        second = subprocess.run(
+            [
+                str(wrapper_path),
+                "--lock-file",
+                lock_paths["lock_file"],
+                "--metadata-file",
+                lock_paths["metadata_file"],
+                "--run-dir",
+                str(run_dir),
+                "--recipe-fingerprint",
+                "fingerprint-b",
+                "--",
+                sys.executable,
+                "-c",
+                "print('ok')",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        assert second.returncode == 2
+        assert "Post stage already active" in second.stderr
+    finally:
+        stdout, stderr = first.communicate(timeout=10)
+        assert first.returncode == 0, stdout + stderr
 
 
 def test_local_solve_wrapper_log_is_routed_to_scheduler_dir(tmp_path):
@@ -1525,7 +1940,9 @@ def test_case_local_symlinked_picurv_prefers_local_binaries(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["stages"]["solve"]["launch_command"][0] == str(case_dir / "simulator")
-    assert payload["stages"]["post-process"]["launch_command"][0] == str(case_dir / "postprocessor")
+    post_launch = payload["stages"]["post-process"]["launch_command"]
+    assert post_launch[0].endswith("post_lock_wrapper.py")
+    assert str(case_dir / "postprocessor") in post_launch
 
 
 def test_case_local_copied_picurv_prefers_local_binaries(tmp_path):
@@ -1574,7 +1991,9 @@ def test_case_local_copied_picurv_prefers_local_binaries(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["stages"]["solve"]["launch_command"][0] == str(case_dir / "simulator")
-    assert payload["stages"]["post-process"]["launch_command"][0] == str(case_dir / "postprocessor")
+    post_launch = payload["stages"]["post-process"]["launch_command"]
+    assert post_launch[0].endswith("post_lock_wrapper.py")
+    assert str(case_dir / "postprocessor") in post_launch
 
 
 def test_init_does_not_copy_any_binaries(tmp_path):

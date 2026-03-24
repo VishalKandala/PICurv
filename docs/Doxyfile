@@ -76,7 +76,7 @@ GENERATE_TREEVIEW      = NO
 FULL_PATH_NAMES        = NO
 
 #------------------------- Tag/Graphs Cache ----------------
-DOT_GRAPH_MAX_NODES    = 80
+DOT_GRAPH_MAX_NODES    = 128
 DOT_TRANSPARENT        = YES
 
 #------------------------- Layout File -------------------

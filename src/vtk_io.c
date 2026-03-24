@@ -157,68 +157,78 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
     PetscErrorCode ierr = 0;
 
     if (!rank) {
+        char tmp_filename[PETSC_MAX_PATH_LEN];
+        FILE *fp = NULL;
+
+        ierr = PetscSNPrintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", filename);CHKERRQ(ierr);
         LOG_ALLOW(GLOBAL, LOG_INFO, "Rank 0 writing combined VTK file '%s'.\n", filename);
-        FILE *fp = fopen(filename, "wb");
+        fp = fopen(tmp_filename, "wb");
         if (!fp) {
-            LOG_ALLOW(GLOBAL, LOG_ERROR, "fopen failed for %s.\n", filename);
+            LOG_ALLOW(GLOBAL, LOG_ERROR, "fopen failed for %s.\n", tmp_filename);
             return PETSC_ERR_FILE_OPEN;
         }
 
         PetscInt boffset = 0;
-        
+
         ierr = WriteVTKFileHeader(fp, meta, &boffset);
-        if(ierr) { fclose(fp); return ierr; }
+        if (ierr) {
+            fclose(fp);
+            remove(tmp_filename);
+            return ierr;
+        }
 
         if (meta->coords) {
             ierr = WriteVTKAppendedBlock(fp, meta->coords, 3 * meta->npoints, sizeof(PetscScalar));
-            if(ierr) { fclose(fp); return ierr; }
-        }
-        /*
-        // ======== DEBUG: Dump first few values of Ucat_nodal if present ========
-        if (!rank) {
-            for (PetscInt i = 0; i < meta->num_point_data_fields; i++) {
-                const VTKFieldInfo* f = &meta->point_data_fields[i];
-                if (strcasecmp(f->name, "Ucat_nodal") == 0) {
-                    const PetscScalar *a = f->data;
-                    const PetscInt npts = meta->npoints;
-                    const PetscInt nshow = (npts < 5) ? npts : 5;
-
-                    LOG_ALLOW(GLOBAL, LOG_INFO,
-                            "DBG (writer) Ucat_nodal: first %d of %" PetscInt_FMT " tuples:\n",
-                            (int)nshow, npts);
-                    for (PetscInt t = 0; t < nshow; ++t) {
-                        LOG_ALLOW(GLOBAL, LOG_INFO,
-                                "  Ucat_nodal[%3" PetscInt_FMT "] = (%g, %g, %g)\n",
-                                t, (double)a[3*t+0], (double)a[3*t+1], (double)a[3*t+2]);
-                    }
-                }
+            if (ierr) {
+                fclose(fp);
+                remove(tmp_filename);
+                return ierr;
             }
         }
-        */
-        // ======== END DEBUG ========
-               
 
         for (PetscInt i = 0; i < meta->num_point_data_fields; i++) {
-            const VTKFieldInfo* field = &meta->point_data_fields[i];
+            const VTKFieldInfo *field = &meta->point_data_fields[i];
             if (field->data) {
                 ierr = WriteVTKAppendedBlock(fp, field->data, field->num_components * meta->npoints, sizeof(PetscScalar));
-                if(ierr) { fclose(fp); return ierr; }
+                if (ierr) {
+                    fclose(fp);
+                    remove(tmp_filename);
+                    return ierr;
+                }
             }
         }
         if (meta->fileType == VTK_POLYDATA) {
             if (meta->connectivity) {
                 ierr = WriteVTKAppendedBlock(fp, meta->connectivity, meta->npoints, sizeof(PetscInt));
-                if(ierr) { fclose(fp); return ierr; }
+                if (ierr) {
+                    fclose(fp);
+                    remove(tmp_filename);
+                    return ierr;
+                }
             }
             if (meta->offsets) {
                 ierr = WriteVTKAppendedBlock(fp, meta->offsets, meta->npoints, sizeof(PetscInt));
-                if(ierr) { fclose(fp); return ierr; }
+                if (ierr) {
+                    fclose(fp);
+                    remove(tmp_filename);
+                    return ierr;
+                }
             }
         }
         ierr = WriteVTKFileFooter(fp, meta);
-        if(ierr) { fclose(fp); return ierr; }
-        
-        fclose(fp);
+        if (ierr) {
+            fclose(fp);
+            remove(tmp_filename);
+            return ierr;
+        }
+        if (fclose(fp) != 0) {
+            remove(tmp_filename);
+            return PETSC_ERR_FILE_WRITE;
+        }
+        if (rename(tmp_filename, filename) != 0) {
+            remove(tmp_filename);
+            return PETSC_ERR_FILE_WRITE;
+        }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Rank 0 finished writing VTK file '%s'.\n", filename);
     }
     return 0;

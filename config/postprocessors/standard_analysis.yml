@@ -8,6 +8,9 @@
 
 run_control:
   # Process all available timesteps by default.
+  # Keep this as the full logical window for the recipe.
+  # With `picurv run --post-process --continue`, PICurv computes the
+  # effective restart step internally for the same recipe lineage.
   start_step: 0
   end_step: -1
   step_interval: 1

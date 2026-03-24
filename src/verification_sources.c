@@ -5,9 +5,7 @@
 
 /**
  * @brief Reports whether the verification-only diffusivity override is enabled.
- *
- * @param[in] simCtx Simulation context carrying parsed verification settings.
- * @return PETSC_TRUE when `verification.sources.diffusivity` is active.
+ * @details See `include/verification_sources.h` for the public parameter and return contract.
  */
 PetscBool VerificationDiffusivityOverrideActive(const SimCtx *simCtx)
 {
@@ -17,9 +15,7 @@ PetscBool VerificationDiffusivityOverrideActive(const SimCtx *simCtx)
 
 /**
  * @brief Fills the Eulerian diffusivity field from the configured verification profile.
- *
- * @param[in,out] user Block-local user context whose `Diffusivity` field is overridden.
- * @return PetscErrorCode 0 on success.
+ * @details See `include/verification_sources.h` for the public parameter and return contract.
  */
 PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
 {

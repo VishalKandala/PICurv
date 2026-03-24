@@ -690,7 +690,7 @@ int main(int argc, char **argv)
     PostProcessParams *pps = simCtx->pps;
 
     // === VI. PARTICLE INITIALIZATION (if needed) ============================
-    PetscBool needs_particle_stage = (pps->outputParticles || pps->statistics_pipeline[0] != '\0') ? PETSC_TRUE : PETSC_FALSE;
+    PetscBool needs_particle_stage = (pps->outputParticles || pps->particle_pipeline[0] != '\0' || pps->statistics_pipeline[0] != '\0') ? PETSC_TRUE : PETSC_FALSE;
     if(needs_particle_stage) {
         if(simCtx->np > 0){
             ierr = InitializeParticleSwarm(simCtx); CHKERRQ(ierr);

@@ -193,6 +193,22 @@ Use this when:
 
 PICurv will auto-identify the required case/monitor/control artifacts from `runs/<run_id>/config/`.
 
+Operational patterns for post-only reuse:
+
+- Keep `post.yml` as the full analysis window you want, then use `--continue` to skip steps that were already completed for the same recipe. You do not need to keep editing `start_step` during batch catch-up.
+
+```bash
+./bin/picurv run --post-process --continue \
+  --run-dir runs/search_robustness_20260322-073415 \
+  --post search_robustness_analysis.yml
+```
+
+- Live solver example: if `post.yml` requests `0..1000` every `10`, but solver source files currently exist only through step `420`, PICurv launches only `0..420` on the first pass. A later `--continue` run resumes at `430` after those source files appear.
+- Interrupted batch example: if `Field_00070.vts` exists but the required MSD CSV still stops at `60`, step `70` is treated as incomplete and the next `--continue` run restarts from `70`.
+- Explicit rerun example: if you omit `--continue`, PICurv honors the requested window exactly, rewrites any overlapping VTK files for those steps, and rewrites repeated statistics rows so each step still appears once in the final CSV.
+- Changed recipe example: if you point the same `run_dir` at a different `post.yml` recipe, such as adding `Qcrit` or changing the statistics prefix, PICurv starts from that recipe's configured `start_step` instead of inheriting completion from the previous recipe.
+- Concurrency rule: PICurv holds a run-directory post lock while the post stage is active. A second post job targeting the same `runs/<run_id>` is refused immediately so two writers cannot race on the same output tree.
+
 @section p52_cluster_sec 7. Batch Job Generation And Reuse
 
 In cluster mode, `picurv` writes scheduler artifacts into the new run directory:
