@@ -632,8 +632,13 @@ static PetscErrorCode TestSearchMetricsLogging(void)
     simCtx->migrationPassesLastStep = 3;
     simCtx->particleLoadImbalance = 1.5;
     simCtx->searchMetrics.searchAttempts = 4;
+    simCtx->searchMetrics.searchPopulation = 2;
+    simCtx->searchMetrics.searchLocatedCount = 1;
+    simCtx->searchMetrics.searchLostCount = 1;
     simCtx->searchMetrics.traversalStepsSum = 10;
+    simCtx->searchMetrics.reSearchCount = 2;
     simCtx->searchMetrics.maxTraversalSteps = 6;
+    simCtx->searchMetrics.maxTraversalFailCount = 1;
     simCtx->searchMetrics.tieBreakCount = 1;
     simCtx->searchMetrics.boundaryClampCount = 2;
     simCtx->searchMetrics.bboxGuessSuccessCount = 3;
@@ -645,9 +650,12 @@ static PetscErrorCode TestSearchMetricsLogging(void)
     PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/search_metrics.csv", simCtx->log_dir));
     PetscCall(PicurvAssertFileExists(metrics_path, "LOG_SEARCH_METRICS should write search_metrics.csv"));
     PetscCall(AssertFileContains(metrics_path, "search_attempts", "Search metrics CSV header should include search_attempts"));
+    PetscCall(AssertFileContains(metrics_path, "search_population", "Search metrics CSV header should include search_population"));
     PetscCall(AssertFileContains(metrics_path, "max_particle_pass_depth", "Search metrics CSV header should include max_particle_pass_depth"));
+    PetscCall(AssertFileContains(metrics_path, "search_work_index", "Search metrics CSV header should include search_work_index"));
+    PetscCall(AssertFileContains(metrics_path, "re_search_fraction", "Search metrics CSV header should include re_search_fraction"));
     PetscCall(AssertFileContains(metrics_path, "lost_cumulative", "Search metrics CSV header should include the cumulative-loss column"));
-    PetscCall(AssertFileContains(metrics_path, "2,2.000000e-01,2,1,7,2,3,4,2.500000e+00", "Search metrics CSV should record both per-step and cumulative loss values"));
+    PetscCall(AssertFileContains(metrics_path, "2,2.000000e-01,2,1,7,2,3,4,2.500000e+00,6,1,2,3,1,3,1.500000e+00,2,1,1,10,2,1,5.000000e-01,5.000000e+00,1.000000e+00", "Search metrics CSV should record the V2 raw and derived search metrics"));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);

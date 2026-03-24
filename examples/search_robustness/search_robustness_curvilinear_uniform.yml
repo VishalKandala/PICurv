@@ -1,0 +1,64 @@
+# ==============================================================================
+#  SEARCH ROBUSTNESS CHARACTERIZATION: CURVILINEAR UNIFORM-FLOW MIGRATION STRESS
+# ==============================================================================
+
+properties:
+  scaling:
+    length_ref: 1.0
+    velocity_ref: 1.0
+  fluid:
+    density: 1.0
+    viscosity: 0.001
+  initial_conditions:
+    mode: "Zero"
+
+run_control:
+  start_step: 0
+  total_steps: 60
+  dt_physical: 0.01
+
+grid:
+  mode: file
+  da_processors_x: 2
+  da_processors_y: 1
+  da_processors_z: 1
+  source_file: "bent_channel_coarse.picgrid"
+
+models:
+  domain:
+    blocks: 1
+
+  physics:
+    turbulence:
+      les: false
+
+    particles:
+      count: 20000
+      init_mode: "PointSource"
+      restart_mode: "init"
+      point_source:
+        # Seed just upstream of the central inter-rank face patch so +x
+        # uniform flow triggers early deterministic migration on the file grid.
+        x: 12.80874945
+        y: 2.18925055
+        z: 1.02500000
+
+boundary_conditions:
+  - face: "-Xi"
+    type: WALL
+    handler: noslip
+  - face: "+Xi"
+    type: WALL
+    handler: noslip
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  - face: "-Zeta"
+    type: WALL
+    handler: noslip
+  - face: "+Zeta"
+    type: WALL
+    handler: noslip

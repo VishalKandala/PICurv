@@ -1522,6 +1522,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
     // handled correctly in successive, iterative handoffs.
     do {
         passes++;
+        user->simCtx->searchMetrics.currentSettlementPass = passes;
         LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Starting migration pass %d.\n", rank, passes);
 
         // --- STAGE 1: PER-PASS INITIALIZATION ---
@@ -1533,6 +1534,9 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 	    PetscInt       local_lost_count = 0;
 
         ierr = DMSwarmGetLocalSize(user->swarm, &nlocal_before); CHKERRQ(ierr);
+        if (passes == 1) {
+            user->simCtx->searchMetrics.searchPopulation += (PetscInt64)nlocal_before;
+        }
         LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Pass %d begins with %d local particles.\n", rank, passes, nlocal_before);
 
 
@@ -1661,6 +1665,9 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 		  ierr = AddToMigrationList(&migrationList, &migrationListCapacity, &local_migration_count, p_idx, current_particle.destination_rank); CHKERRQ(ierr);
                 } else if (final_status == LOST) {
 		  local_lost_count++;
+                  user->simCtx->searchMetrics.searchLostCount++;
+                } else if (final_status == ACTIVE_AND_LOCATED) {
+                  user->simCtx->searchMetrics.searchLocatedCount++;
                 }
 	    		
             } // End of main particle processing loop
@@ -1712,7 +1719,8 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 
     user->simCtx->particlesMigratedLastStep = total_migrated_this_timestep;
     user->simCtx->migrationPassesLastStep = passes;
-    user->simCtx->searchMetrics.maxParticlePassDepth = PetscMax(user->simCtx->searchMetrics.maxParticlePassDepth, passes);
+    user->simCtx->searchMetrics.maxParticlePassDepth = PetscMax(user->simCtx->searchMetrics.maxParticlePassDepth, (PetscInt64)passes);
+    user->simCtx->searchMetrics.currentSettlementPass = 0;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Location completed in %d passes.\n", passes);
 

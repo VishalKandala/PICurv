@@ -63,7 +63,14 @@ Parameter keys can target nested case/solver/monitor/post values such as:
 
 Not every study should use the default `msd_final` metric shorthand. Cases that
 write other scalar diagnostics, such as `logs/interpolation_error.csv`, should
-define explicit CSV metrics instead.
+define explicit CSV metrics instead. Search and migration characterization
+studies can aggregate `logs/search_metrics.csv` columns such as
+`search_failure_fraction`, `search_work_index`, `re_search_fraction`, or
+normalized run-level signals derived from `lost_cumulative`.
+
+CSV metric specs also support `reduction: p95`, per-row ratios via
+`numerator_column` plus `denominator_column`, and scalar normalization through
+`normalize_by_parameter` for observables such as run loss fraction.
 
 @section p37_outputs_sec 4. Outputs and Aggregates
 

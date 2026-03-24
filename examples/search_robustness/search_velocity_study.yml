@@ -1,0 +1,41 @@
+base_configs:
+  case: "search_robustness_curvilinear_uniform.yml"
+  solver: "Analytical-UniformFlow.yml"
+  monitor: "Search_Robustness_Output.yml"
+  post: "search_robustness_analysis.yml"
+
+study_type: "sensitivity"
+
+parameters:
+  solver.operation_mode.uniform_flow.u: [0.25, 0.50, 1.00]
+
+metrics:
+  - name: run_loss_fraction
+    source: "statistics_csv"
+    file_glob: "logs/search_metrics.csv"
+    column: "lost_cumulative"
+    reduction: "last"
+    normalize_by_parameter: "case.models.physics.particles.count"
+  - name: run_swi_p95
+    source: "statistics_csv"
+    file_glob: "logs/search_metrics.csv"
+    column: "search_work_index"
+    reduction: "p95"
+  - name: run_research_p95
+    source: "statistics_csv"
+    file_glob: "logs/search_metrics.csv"
+    column: "re_search_fraction"
+    reduction: "p95"
+  - name: mean_migration_fraction
+    source: "statistics_csv"
+    file_glob: "logs/search_metrics.csv"
+    numerator_column: "migrated"
+    denominator_column: "search_population"
+    denominator_floor: 1.0
+    reduction: "mean"
+
+plotting:
+  enabled: false
+
+execution:
+  max_concurrent_array_tasks: 1

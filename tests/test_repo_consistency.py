@@ -47,6 +47,18 @@ EXAMPLE_BUNDLES = [
         "post": "examples/search_robustness/search_robustness_analysis.yml",
     },
     {
+        "case": "examples/search_robustness/search_robustness_cartesian_uniform.yml",
+        "solver": "examples/search_robustness/Analytical-UniformFlow.yml",
+        "monitor": "examples/search_robustness/Search_Robustness_Output.yml",
+        "post": "examples/search_robustness/search_robustness_analysis.yml",
+    },
+    {
+        "case": "examples/search_robustness/search_robustness_curvilinear_uniform.yml",
+        "solver": "examples/search_robustness/Analytical-UniformFlow.yml",
+        "monitor": "examples/search_robustness/Search_Robustness_Output.yml",
+        "post": "examples/search_robustness/search_robustness_analysis.yml",
+    },
+    {
         "case": "examples/interpolation_test/interpolation_test.yml",
         "solver": "examples/interpolation_test/Analytical-TGV.yml",
         "monitor": "examples/interpolation_test/Standard_Output.yml",
@@ -84,6 +96,10 @@ STUDY_BUNDLES = [
     {
         "cluster": "examples/bent_channel/slurm_cluster.yml",
         "study": "examples/interpolation_test/particle_count_study.yml",
+    },
+    {
+        "cluster": "examples/search_robustness/slurm_cluster.yml",
+        "study": "examples/search_robustness/search_velocity_study.yml",
     },
     {
         "cluster": "examples/master_template/master_cluster.yml",

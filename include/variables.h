@@ -205,14 +205,20 @@ typedef struct VerificationDiffusivityConfig {
 
 /** @brief Aggregated per-timestep search instrumentation counters. */
 typedef struct SearchMetricsState {
-    PetscInt searchAttempts;
-    PetscInt traversalStepsSum;
-    PetscInt maxTraversalSteps;
-    PetscInt tieBreakCount;
-    PetscInt boundaryClampCount;
-    PetscInt bboxGuessSuccessCount;
-    PetscInt bboxGuessFallbackCount;
-    PetscInt maxParticlePassDepth;
+    PetscInt64 searchAttempts;
+    PetscInt64 searchPopulation;
+    PetscInt64 searchLocatedCount;
+    PetscInt64 searchLostCount;
+    PetscInt64 traversalStepsSum;
+    PetscInt64 reSearchCount;
+    PetscInt64 maxTraversalSteps;
+    PetscInt64 maxTraversalFailCount;
+    PetscInt64 tieBreakCount;
+    PetscInt64 boundaryClampCount;
+    PetscInt64 bboxGuessSuccessCount;
+    PetscInt64 bboxGuessFallbackCount;
+    PetscInt64 maxParticlePassDepth;
+    PetscInt   currentSettlementPass;
 } SearchMetricsState;
 
 

@@ -177,13 +177,19 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->particleLoadImbalance = 0.0;
     simCtx->migrationPassesLastStep = 0;
     simCtx->searchMetrics.searchAttempts = 0;
+    simCtx->searchMetrics.searchPopulation = 0;
+    simCtx->searchMetrics.searchLocatedCount = 0;
+    simCtx->searchMetrics.searchLostCount = 0;
     simCtx->searchMetrics.traversalStepsSum = 0;
+    simCtx->searchMetrics.reSearchCount = 0;
     simCtx->searchMetrics.maxTraversalSteps = 0;
+    simCtx->searchMetrics.maxTraversalFailCount = 0;
     simCtx->searchMetrics.tieBreakCount = 0;
     simCtx->searchMetrics.boundaryClampCount = 0;
     simCtx->searchMetrics.bboxGuessSuccessCount = 0;
     simCtx->searchMetrics.bboxGuessFallbackCount = 0;
     simCtx->searchMetrics.maxParticlePassDepth = 0;
+    simCtx->searchMetrics.currentSettlementPass = 0;
     simCtx->BrownianMotionRNG = NULL;
     simCtx->C_IEM = 2.0;
 

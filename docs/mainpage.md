@@ -27,6 +27,7 @@ Then use the structural map and reference pages:
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**: practical profile-composition patterns and runnable recipes.
 - **@subpage 21_Methods_Overview**: governing methods and model map.
 - **@subpage 46_C_Runtime_Execution_Map**: solver execution order and C runtime touchpoints.
+- **@subpage 53_Search_Robustness_Metrics_Reference**: authoritative definitions for runtime search observability and paper-grade search signals.
 - **Data Structures (`annotated_structured.html`)** and **File List (`files_structured.html`)**:
   organized code-reference views by module and file type.
 

@@ -6120,6 +6120,27 @@ def render_metrics_aggregate_script(
     os.chmod(script_path, 0o755)
 
 
+def reduce_metric_values(values, reduction: str):
+    """!
+    @brief Reduce a metric series to one scalar according to the requested reducer.
+    @param[in] values Sequence of numeric values.
+    @param[in] reduction Reduction keyword.
+    @return Value returned by `reduce_metric_values()`.
+    """
+    if not values:
+        return None
+    reduction = str(reduction).lower()
+    if reduction == "mean":
+        return float(np.mean(values))
+    if reduction == "min":
+        return float(np.min(values))
+    if reduction == "max":
+        return float(np.max(values))
+    if reduction == "p95":
+        return float(np.percentile(values, 95.0))
+    return float(values[-1])
+
+
 def extract_metric_from_csv(case_dir: str, spec: dict):
     """!
     @brief Extract a scalar metric from a CSV source.
@@ -6141,31 +6162,34 @@ def extract_metric_from_csv(case_dir: str, spec: dict):
             if not rows:
                 return None
             column = spec.get("column")
-            if not column:
+            numerator_column = spec.get("numerator_column")
+            denominator_column = spec.get("denominator_column")
+            denominator_floor = float(spec.get("denominator_floor", 0.0) or 0.0)
+            if not column and not numerator_column:
                 for name in reversed(reader.fieldnames):
                     if name and name.lower() not in {"step", "time", "timestep"}:
                         column = name
                         break
-            if not column:
+            if not column and not numerator_column:
                 return None
             values = []
             for row in rows:
                 try:
-                    values.append(float(row[column]))
+                    if numerator_column:
+                        numerator = float(row[numerator_column])
+                        denominator = float(row[denominator_column])
+                        denominator = max(denominator_floor, denominator)
+                        if denominator == 0.0:
+                            continue
+                        values.append(numerator / denominator)
+                    else:
+                        values.append(float(row[column]))
                 except Exception:
                     continue
         else:
             return None
-    if not values:
-        return None
-    reduction = str(spec.get("reduction", "last")).lower()
-    if reduction == "mean":
-        return float(np.mean(values))
-    if reduction == "min":
-        return float(np.min(values))
-    if reduction == "max":
-        return float(np.max(values))
-    return float(values[-1])
+    return reduce_metric_values(values, spec.get("reduction", "last"))
+
 
 def extract_metric_from_log(case_dir: str, spec: dict):
     """!
@@ -6195,16 +6219,8 @@ def extract_metric_from_log(case_dir: str, spec: dict):
                             pass
         except OSError:
             continue
-    if not values:
-        return None
-    reduction = str(spec.get("reduction", "last")).lower()
-    if reduction == "mean":
-        return float(np.mean(values))
-    if reduction == "min":
-        return float(np.min(values))
-    if reduction == "max":
-        return float(np.max(values))
-    return float(values[-1])
+    return reduce_metric_values(values, spec.get("reduction", "last"))
+
 
 def normalize_metric_spec(metric):
     """!
@@ -6245,11 +6261,25 @@ def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> s
             name = spec.get("name", "metric")
             source = str(spec.get("source", "")).lower()
             if source in {"statistics_csv", "csv"}:
-                row[name] = extract_metric_from_csv(case["run_dir"], spec)
+                value = extract_metric_from_csv(case["run_dir"], spec)
             elif source in {"log_regex", "log"}:
-                row[name] = extract_metric_from_log(case["run_dir"], spec)
+                value = extract_metric_from_log(case["run_dir"], spec)
             else:
-                row[name] = None
+                value = None
+
+            normalize_key = spec.get("normalize_by_parameter")
+            if value is not None and normalize_key:
+                denom = case.get("parameters", {}).get(normalize_key)
+                try:
+                    denom = float(denom)
+                except Exception:
+                    denom = None
+                if denom not in (None, 0.0):
+                    value = float(value) / denom
+                else:
+                    value = None
+
+            row[name] = value
         rows.append(row)
 
     if not rows:
