@@ -102,6 +102,14 @@ STUDY_BUNDLES = [
         "study": "examples/search_robustness/search_velocity_study.yml",
     },
     {
+        "cluster": "examples/search_robustness/slurm_cluster.yml",
+        "study": "examples/search_robustness/search_robustness_cartesian_dt_study.yml",
+    },
+    {
+        "cluster": "examples/search_robustness/slurm_cluster.yml",
+        "study": "examples/search_robustness/search_robustness_curvilinear_dt_study.yml",
+    },
+    {
         "cluster": "examples/master_template/master_cluster.yml",
         "study": "examples/master_template/master_study.yml",
     },
