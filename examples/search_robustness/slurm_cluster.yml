@@ -1,0 +1,32 @@
+scheduler:
+  type: slurm
+
+resources:
+  # Solver-stage allocation settings.
+  # Post stage defaults to one task in generated post.sbatch.
+  account: "replace_with_account"
+  partition: "compute"
+  nodes: 1
+  ntasks_per_node: 4
+  mem: "32G"
+  time: "01:00:00"
+
+notifications:
+  mail_user: null
+  mail_type: null
+
+execution:
+  module_setup:
+    - "module purge"
+    - "module restore petsc-setup"
+  launcher: "srun"
+  launcher_args: []
+  # Generated Slurm solver jobs enable this runtime walltime guard by default.
+  # Uncomment only when you need to override the defaults:
+  # walltime_guard:
+  #   enabled: true
+  #   warmup_steps: 10
+  #   multiplier: 2.0
+  #   min_seconds: 60
+  #   estimator_alpha: 0.35
+  extra_sbatch: {}

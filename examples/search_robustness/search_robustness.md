@@ -12,6 +12,27 @@ pipeline end to end. It is designed to answer:
 The runtime writes `logs/search_metrics.csv` for all particle-enabled runs.
 That CSV is the authoritative quantitative artifact for this family.
 
+## Case Families
+
+Brownian baselines:
+
+- `search_robustness_cartesian.yml`: Cartesian `ZERO_FLOW` baseline with early migration on the documented `2 x 1 x 1` split
+- `search_robustness_curvilinear.yml`: curvilinear `ZERO_FLOW` baseline with healthy but delayed migration on the bundled file grid
+
+Deterministic migration stress cases:
+
+- `search_robustness_cartesian_uniform.yml`: Cartesian analytical `UNIFORM_FLOW` transport/search stress case with repeatable advection-driven search work
+- `search_robustness_curvilinear_uniform.yml`: curvilinear analytical `UNIFORM_FLOW` transport/search stress case on the bundled file grid
+
+Shared assets:
+
+- `Analytical-Zero.yml`: shared analytical zero-flow solver profile
+- `Analytical-UniformFlow.yml`: shared analytical uniform-flow solver profile
+- `Imp-MG-Standard.yml`: solve-mode curvilinear solver profile retained for the Brownian file-grid baseline
+- `Search_Robustness_Output.yml`: shared monitor profile
+- `search_robustness_analysis.yml`: optional particle-visualization/MSD post recipe
+- `search_velocity_study.yml`: sweep-study starter for the deterministic curvilinear migration family
+
 ## Why `ZERO_FLOW` Still Moves Particles
 
 These cases use analytical `ZERO_FLOW`, which sets the carrier velocity to
@@ -20,102 +41,61 @@ diffusion when the effective diffusivity is nonzero. That makes these examples
 good for isolating search robustness from carrier-flow solver and interpolation
 effects.
 
-## Files In This Family
-
-- `search_robustness_cartesian.yml`: localized Cartesian stress case
-- `search_robustness_curvilinear.yml`: localized curvilinear stress case
-- `bent_channel_coarse.picgrid`: bundled curvilinear grid for the file-based variant
-- `Analytical-Zero.yml`: shared analytical zero-flow solver profile
-- `Imp-MG-Standard.yml`: solve-mode curvilinear solver profile for the file-grid variant
-- `Search_Robustness_Output.yml`: shared monitor profile
-- `search_robustness_analysis.yml`: optional particle-visualization/MSD post recipe
-
-## Search Metrics CSV Contract
+## Metrics Contract
 
 `logs/search_metrics.csv` is written once per timestep after particle settlement.
 
-Columns:
+V1 compatibility columns are preserved and V2 adds:
 
-- `step`
-- `time`
-- `total_particles`
-- `lost`
-- `lost_cumulative`
-  cumulative lost-particle count over the current run only; this is intentionally not restored from restart state
-- `migrated`
-- `migration_passes`
-- `search_attempts`
-- `mean_traversal_steps`
-- `max_traversal_steps`
-- `tie_break_count`
-- `boundary_clamp_count`
-- `bbox_guess_success_count`
-- `bbox_guess_fallback_count`
-- `max_particle_pass_depth`
-- `load_imbalance`
+- `search_population`
+- `search_located_count`
+- `search_lost_count`
+- `traversal_steps_sum`
+- `re_search_count`
+- `max_traversal_fail_count`
+- `search_failure_fraction`
+- `search_work_index`
+- `re_search_fraction`
 
-Interpretation:
+Use the dedicated metrics reference page for the exact formulas and
+interpretation guidance:
 
-- failure metrics:
-  - `lost`
-- effort and stability metrics:
-  - `mean_traversal_steps`
-  - `max_traversal_steps`
-  - `tie_break_count`
-  - `boundary_clamp_count`
-  - `migration_passes`
-  - `max_particle_pass_depth`
-- exposure and context metrics:
-  - `migrated`
-  - `bbox_guess_success_count`
-  - `bbox_guess_fallback_count`
-  - `load_imbalance`
-
-`migrated` is not a failure metric by itself. It tells you how much stress the
-case is placing on the ownership-handoff logic.
+- `docs/pages/53_Search_Robustness_Metrics_Reference.md`
 
 ## Recommended Runs
 
-Cartesian localized stress:
+Cartesian Brownian baseline:
 
 ```bash
-./bin/picurv run --solve --post-process -n 2 \
-  --case  examples/search_robustness/search_robustness_cartesian.yml \
-  --solver examples/search_robustness/Analytical-Zero.yml \
-  --monitor examples/search_robustness/Search_Robustness_Output.yml \
-  --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process -n 2   --case  examples/search_robustness/search_robustness_cartesian.yml   --solver examples/search_robustness/Analytical-Zero.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
-Curvilinear localized stress:
+Curvilinear Brownian baseline:
 
 ```bash
-./bin/picurv run --solve --post-process -n 2 \
-  --case  examples/search_robustness/search_robustness_curvilinear.yml \
-  --solver examples/search_robustness/Imp-MG-Standard.yml \
-  --monitor examples/search_robustness/Search_Robustness_Output.yml \
-  --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process -n 2   --case  examples/search_robustness/search_robustness_curvilinear.yml   --solver examples/search_robustness/Imp-MG-Standard.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
-The Cartesian case fixes the seed on the documented x-rank interface for the
-`2 x 1 x 1` decomposition in the case file. The curvilinear case uses the
-bundled bent-channel grid in this directory with the physical image of the
-logical center node `(i,j,k) = (10,10,72)`, which is
-`(x,y,z) = (12.8284271, 2.17157288, 1.0)` for the bundled grid and lies on the
-documented x-rank interface for the `2 x 1 x 1` decomposition. This
-curvilinear variant intentionally keeps a solve-mode profile with zero initial
-conditions so search robustness is characterized against the standard file-grid
-solve path, even though analytical file-grid runs are now supported for
-`ZERO_FLOW` and `UNIFORM_FLOW`.
-
-If you are post-processing this study in batches while the solver is still running, keep the full desired window in `search_robustness_analysis.yml` and catch up with:
+Cartesian deterministic migration stress:
 
 ```bash
-./bin/picurv run --post-process --continue \
-  --run-dir runs/search_robustness_curvilinear_<timestamp> \
-  --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process -n 2   --case  examples/search_robustness/search_robustness_cartesian_uniform.yml   --solver examples/search_robustness/Analytical-UniformFlow.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
-For the same recipe, PICurv resumes from the first unfinished step, stops at the highest fully available contiguous solver frontier, and refuses a second concurrent post writer on the same run directory.
+Curvilinear deterministic migration stress:
+
+```bash
+./bin/picurv run --solve --post-process -n 2   --case  examples/search_robustness/search_robustness_curvilinear_uniform.yml   --solver examples/search_robustness/Analytical-UniformFlow.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
+```
+
+## Interpretation Notes
+
+- The Cartesian Brownian case is the fast baseline for healthy search plus early migration.
+- The curvilinear Brownian case is a healthy delayed-migration baseline, not an immediate migration stress test.
+- The two `UNIFORM_FLOW` cases are deterministic transport/search stress references; exact handoff onset depends on the grid geometry, seed placement, and imposed drift magnitude.
+- `migrated` is a stress/exposure metric, not a failure metric.
+- The official paper-grade signals for this family are `search_failure_fraction` and `search_work_index`.
+- `re_search_fraction` is the optional third live/supporting signal.
 
 ## Console Behavior
 

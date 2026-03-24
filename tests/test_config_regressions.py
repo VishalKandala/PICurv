@@ -3,6 +3,7 @@
 @brief Pytest coverage for ingress, post-validation, and statistics-config regressions.
 """
 
+import csv
 import importlib.machinery
 import importlib.util
 import json
@@ -401,3 +402,116 @@ def test_validate_rejects_verification_diffusivity_for_non_analytical_solver(tmp
 
     assert result.returncode == 1
     assert "verification.sources.diffusivity is only valid" in result.stderr
+
+
+
+
+def test_extract_metric_from_csv_supports_p95_and_row_ratios(tmp_path):
+    """!
+    @brief Test that CSV metric extraction supports p95 reductions and row-wise ratios.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    logs_dir = run_dir / "logs"
+    logs_dir.mkdir(parents=True)
+    (logs_dir / "search_metrics.csv").write_text(
+        """step,search_work_index,migrated,search_population
+1,1.0,0,10
+2,2.0,5,10
+3,4.0,10,20
+4,8.0,20,20
+""",
+        encoding="utf-8",
+    )
+
+    p95 = picurv.extract_metric_from_csv(
+        str(run_dir),
+        {
+            "file_glob": "logs/search_metrics.csv",
+            "column": "search_work_index",
+            "reduction": "p95",
+        },
+    )
+    ratio_mean = picurv.extract_metric_from_csv(
+        str(run_dir),
+        {
+            "file_glob": "logs/search_metrics.csv",
+            "numerator_column": "migrated",
+            "denominator_column": "search_population",
+            "denominator_floor": 1.0,
+            "reduction": "mean",
+        },
+    )
+
+    assert abs(p95 - picurv.np.percentile([1.0, 2.0, 4.0, 8.0], 95.0)) < 1.0e-12
+    assert abs(ratio_mean - 0.5) < 1.0e-12
+
+
+def test_aggregate_study_metrics_supports_parameter_normalization(tmp_path):
+    """!
+    @brief Test that aggregated study metrics can normalize by the varied parameter space.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    logs_dir = run_dir / "logs"
+    results_dir = tmp_path / "results"
+    logs_dir.mkdir(parents=True)
+    (logs_dir / "search_metrics.csv").write_text(
+        """step,lost_cumulative,search_work_index,re_search_fraction,migrated,search_population
+1,0,1.0,0.0,0,20
+2,1,2.0,0.1,2,20
+3,2,4.0,0.2,4,20
+4,4,8.0,0.4,8,20
+""",
+        encoding="utf-8",
+    )
+
+    study_cfg = {
+        "metrics": [
+            {
+                "name": "run_loss_fraction",
+                "source": "statistics_csv",
+                "file_glob": "logs/search_metrics.csv",
+                "column": "lost_cumulative",
+                "reduction": "last",
+                "normalize_by_parameter": "case.models.physics.particles.count",
+            },
+            {
+                "name": "run_swi_p95",
+                "source": "statistics_csv",
+                "file_glob": "logs/search_metrics.csv",
+                "column": "search_work_index",
+                "reduction": "p95",
+            },
+            {
+                "name": "mean_migration_fraction",
+                "source": "statistics_csv",
+                "file_glob": "logs/search_metrics.csv",
+                "numerator_column": "migrated",
+                "denominator_column": "search_population",
+                "denominator_floor": 1.0,
+                "reduction": "mean",
+            },
+        ]
+    }
+    cases = [
+        {
+            "case_id": "case_0001",
+            "run_dir": str(run_dir),
+            "parameters": {
+                "case.models.physics.particles.count": 20,
+                "solver.operation_mode.uniform_flow.u": 0.1,
+            },
+        }
+    ]
+
+    out_csv = picurv.aggregate_study_metrics(study_cfg, cases, str(results_dir))
+    with open(out_csv, "r", encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == 1
+    assert abs(float(rows[0]["run_loss_fraction"]) - 0.2) < 1.0e-12
+    assert abs(float(rows[0]["run_swi_p95"]) - picurv.np.percentile([1.0, 2.0, 4.0, 8.0], 95.0)) < 1.0e-12
+    assert abs(float(rows[0]["mean_migration_fraction"]) - 0.175) < 1.0e-12

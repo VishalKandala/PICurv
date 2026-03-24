@@ -55,7 +55,8 @@ logging:
 - If `enabled_functions` is empty, `picurv` omits `whitelist.run` and the C runtime falls back to its default allow-list.
 - An explicitly provided `whitelist.run` must contain at least one function name; an empty whitelist file is invalid.
 - `config/monitors/Standard_Output.yml` uses `WARNING` with an empty allow-list for quiet production runs; the startup banner still reports the walltime-guard status.
-- Some runtime artifacts are independent of console verbosity. For particle-enabled runs, `logs/search_metrics.csv` is written automatically and includes both per-step and cumulative loss alongside search-effort counters; allow-listing `LOG_SEARCH_METRICS` only affects the optional compact console summary.
+- Some runtime artifacts are independent of console verbosity. For particle-enabled runs, `logs/search_metrics.csv` is written automatically and includes both raw search counters and derived signals such as `search_failure_fraction`, `search_work_index`, and `re_search_fraction`; allow-listing `LOG_SEARCH_METRICS` only affects the optional compact console summary.
+- Use **@subpage 53_Search_Robustness_Metrics_Reference** for the exact metric definitions and formulas.
 
 Supported verbosity strings:
 - `ERROR`

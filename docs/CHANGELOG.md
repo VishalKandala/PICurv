@@ -8,9 +8,9 @@
 
 - Search robustness observability:
   - added always-on aggregate search instrumentation for particle-enabled runs.
-  - added `logs/search_metrics.csv` with timestep-level search, traversal, tie-break, boundary-clamp, bbox-guess, pass-depth, per-step loss, and run-local cumulative loss signals.
+  - added `logs/search_metrics.csv` with timestep-level search, traversal, tie-break, boundary-clamp, bbox-guess, pass-depth, per-step loss, run-local cumulative loss, V2 population/outcome counters, and derived `search_failure_fraction`, `search_work_index`, and `re_search_fraction` signals.
   - added `LOG_SEARCH_METRICS` for compact DEBUG-gated console summaries when explicitly allow-listed.
-  - added the `examples/search_robustness/` example family with Cartesian and curvilinear localized-stress variants.
+  - added the `examples/search_robustness/` example family with Brownian Cartesian/curvilinear baselines plus deterministic Cartesian/curvilinear `UNIFORM_FLOW` migration-stress variants, a study starter, and a dedicated metrics-reference docs page.
 
 - Profiling/logging cleanup:
   - removed the `LOG_PROFILE` log level from the C logging enum and all code paths.

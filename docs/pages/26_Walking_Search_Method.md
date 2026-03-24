@@ -72,7 +72,10 @@ Watch for:
 - repeated `LOST` particles,
 - non-convergence of settlement loop,
 - elevated traversal effort or repeated tie-break/boundary-clamp events in `logs/search_metrics.csv`,
+- increasing `search_failure_fraction`, `search_work_index`, or `re_search_fraction`,
 - increasing `lost` or `lost_cumulative` even when migration otherwise appears healthy.
+
+For precise metric definitions and formulas, see **@subpage 53_Search_Robustness_Metrics_Reference**.
 
 These usually indicate domain-decomposition mismatch, bounding-box mismatch, or invalid particle coordinates.
 

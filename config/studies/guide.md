@@ -16,8 +16,13 @@ Use explicit metric specs whenever the study signal comes from a non-default
 CSV or log artifact. For example, interpolation studies can aggregate values
 from `logs/interpolation_error.csv` instead of using `msd_final`. Search and
 migration characterization studies can likewise aggregate columns from
-`logs/search_metrics.csv`, such as `lost`, `lost_cumulative`,
-`migration_passes`, `mean_traversal_steps`, or `tie_break_count`.
+`logs/search_metrics.csv`, such as `search_failure_fraction`,
+`search_work_index`, `re_search_fraction`, or normalized run-level signals
+derived from `lost_cumulative`.
+
+Study CSV metrics also support `reduction: p95`, per-row ratios via
+`numerator_column` plus `denominator_column`, and normalization against the
+study parameter space with `normalize_by_parameter`.
 
 ## How To Use
 

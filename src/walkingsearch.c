@@ -976,6 +976,9 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     if (user && user->simCtx) {
         user->simCtx->searchMetrics.searchAttempts++;
+        if (user->simCtx->searchMetrics.currentSettlementPass > 1) {
+            user->simCtx->searchMetrics.reSearchCount++;
+        }
     }
 
     // --- 1. Initialize the Search ---
@@ -1115,6 +1118,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     // --- 3. Finalize and Determine Actionable Status ---
     if (idx == -1 || (!search_concluded && traversal_steps >= MAX_TRAVERSAL)) {
         if (idx != -1) {
+            user->simCtx->searchMetrics.maxTraversalFailCount++;
             LOG_ALLOW(LOCAL, LOG_ERROR, "[PID %lld]: Search FAILED, exceeded MAX_TRAVERSAL limit of %d.\n",
                       (long long)particle->PID, MAX_TRAVERSAL);
         }

@@ -28,6 +28,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 06_Simulation_Anatomy**
 - **@subpage 52_Run_Lifecycle_Guide**
+- **@subpage 53_Search_Robustness_Metrics_Reference**
 - **@subpage 36_Cluster_Run_Guide**
 - **@subpage 37_Sweep_Studies_Guide**
 - **@subpage 04_Visualization_Tutorial**
@@ -65,6 +66,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**
 - **@subpage 26_Walking_Search_Method**
 - **@subpage 27_Trilinear_Interpolation_and_Projection**
+- **@subpage 53_Search_Robustness_Metrics_Reference**
 - **@subpage 28_IEM_and_Statistical_Averaging**
 - **@subpage 31_Momentum_Solvers**
 - **@subpage 32_Analytical_Solutions**

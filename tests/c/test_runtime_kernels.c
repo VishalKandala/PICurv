@@ -15,6 +15,7 @@
 #include "runloop.h"
 #include "setup.h"
 #include "wallfunction.h"
+#include "walkingsearch.h"
 
 /**
  * @brief Synchronizes the minimal runtime fixture's global fields into their persistent local ghosts.
@@ -705,6 +706,10 @@ static PetscErrorCode TestLocateAllParticlesInGridPriorCellFastPath(void)
     PetscCall(PicurvAssertIntEqual(1, cell_ids[2], "prior-cell fast path should preserve the k cell id"));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status[0], "prior-cell fast path should mark the particle ACTIVE_AND_LOCATED"));
     PetscCall(PicurvAssertIntEqual(1, simCtx->searchMetrics.searchAttempts, "prior-cell fast path should record one search attempt"));
+    PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.searchPopulation, "prior-cell fast path should record one input particle"));
+    PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.searchLocatedCount, "prior-cell fast path should count one located particle"));
+    PetscCall(PicurvAssertIntEqual(0, (PetscInt)simCtx->searchMetrics.searchLostCount, "prior-cell fast path should not lose the particle"));
+    PetscCall(PicurvAssertIntEqual(0, (PetscInt)simCtx->searchMetrics.reSearchCount, "prior-cell fast path should not re-search on later passes"));
     PetscCall(PicurvAssertBool((PetscBool)(simCtx->searchMetrics.traversalStepsSum > 0), "prior-cell fast path should accumulate traversal steps"));
     PetscCall(PicurvAssertIntEqual(1, simCtx->searchMetrics.maxParticlePassDepth, "prior-cell fast path should report one settlement pass"));
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
@@ -759,10 +764,54 @@ static PetscErrorCode TestLocateAllParticlesInGridGuessPathResolvesLocalParticle
     PetscCall(PicurvAssertIntEqual(2, cell_ids[2], "guess-path location should resolve the k cell id"));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status[0], "guess-path location should mark the particle ACTIVE_AND_LOCATED"));
     PetscCall(PicurvAssertIntEqual(1, simCtx->searchMetrics.searchAttempts, "guess-path location should perform one robust search"));
+    PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.searchPopulation, "guess-path location should count one input particle"));
+    PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.searchLocatedCount, "guess-path location should count one located particle"));
+    PetscCall(PicurvAssertIntEqual(0, (PetscInt)simCtx->searchMetrics.searchLostCount, "guess-path location should not lose the particle"));
+    PetscCall(PicurvAssertIntEqual(0, (PetscInt)simCtx->searchMetrics.reSearchCount, "guess-path location should not count later-pass re-searches"));
     PetscCall(PicurvAssertIntEqual(1, simCtx->searchMetrics.bboxGuessFallbackCount, "guess-path location should record one bbox fallback"));
     PetscCall(PicurvAssertIntEqual(0, simCtx->searchMetrics.bboxGuessSuccessCount, "guess-path local resolution should not count as remote bbox success"));
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Verifies that later settlement passes increment re-search metrics.
+ */
+static PetscErrorCode TestLocateParticleOrFindMigrationTargetCountsReSearch(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Particle particle;
+    ParticleLocationStatus status = NEEDS_LOCATION;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+
+    simCtx->searchMetrics.currentSettlementPass = 2;
+    particle.PID = 33;
+    particle.cell[0] = 1;
+    particle.cell[1] = 1;
+    particle.cell[2] = 1;
+    particle.loc.x = 0.375;
+    particle.loc.y = 0.375;
+    particle.loc.z = 0.375;
+    particle.weights.x = 0.5;
+    particle.weights.y = 0.5;
+    particle.weights.z = 0.5;
+
+    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "direct re-search test should locate the particle"));
+    PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.searchAttempts, "direct re-search test should record one robust walk"));
+    PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.reSearchCount, "direct re-search test should increment re_search_count on later passes"));
+    PetscCall(PicurvAssertIntEqual(0, (PetscInt)simCtx->searchMetrics.maxTraversalFailCount, "direct re-search test should not hit MAX_TRAVERSAL"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -1177,6 +1226,7 @@ int main(int argc, char **argv)
         {"update-all-particle-positions-moves-swarm-entries", TestUpdateAllParticlePositionsMovesSwarmEntries},
         {"locate-all-particles-in-grid-prior-cell-fast-path", TestLocateAllParticlesInGridPriorCellFastPath},
         {"locate-all-particles-in-grid-guess-path-resolves-local-particle", TestLocateAllParticlesInGridGuessPathResolvesLocalParticle},
+        {"locate-particle-or-find-migration-target-counts-research", TestLocateParticleOrFindMigrationTargetCountsReSearch},
         {"wall-noslip-and-freeslip-helpers", TestWallNoSlipAndFreeSlipHelpers},
         {"wall-model-scalar-helpers", TestWallModelScalarHelpers},
         {"wall-model-velocity-helpers", TestWallModelVelocityHelpers},

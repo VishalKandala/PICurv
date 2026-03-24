@@ -7,7 +7,7 @@ This directory contains runnable case templates used by `./bin/picurv init` and 
 - `flat_channel/`: baseline first-run case using programmatic grid generation.
 - `bent_channel/`: file-based curvilinear grid ingestion and curved-geometry BC behavior.
 - `brownian_motion/`: analytical zero-flow particle diffusion verification workflow.
-- `search_robustness/`: runtime walking-search and migration robustness characterization.
+- `search_robustness/`: runtime walking-search and migration robustness characterization, with Brownian baselines plus deterministic `UNIFORM_FLOW` migration stress cases.
 - `drift_uniform_flow/`: analytical uniform-flow particle advection drift verification.
 - `drift_diffusivity_gradient/`: analytical zero-flow plus verification-source diffusivity-gradient drift verification.
 - `interpolation_test/`: TGV3D analytical flow interpolation accuracy test with 10k particles.
