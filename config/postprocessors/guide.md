@@ -28,6 +28,14 @@ Postprocess an existing run:
   --post config/postprocessors/standard_analysis.yml
 ```
 
+Catch up the same post profile on an existing run without editing `run_control.start_step`:
+
+```bash
+./bin/picurv run --post-process --continue \
+  --run-dir runs/<run_id> \
+  --post config/postprocessors/standard_analysis.yml
+```
+
 Solve and postprocess in one command:
 
 ```bash
@@ -45,6 +53,9 @@ Solve and postprocess in one command:
 - `statistics_pipeline` is supported (canonical task: `msd`).
 - `io.input_extensions.eulerian/particle` map reader expectations to generated filenames.
 - `io.eulerian_fields_averaged` is accepted as reserved passthrough.
+- keep the full desired timestep window in `run_control` for a reusable post profile. With `--continue`, PICurv computes the effective restart step for the same recipe lineage instead of requiring you to edit `start_step` by hand.
+- if the solver is still writing outputs, PICurv processes only the highest fully available contiguous source prefix for the current recipe.
+- PICurv enforces a single post writer per run directory so two post jobs cannot race on the same `viz/` or `statistics/` outputs.
 
 ## 5. Validation Tips
 

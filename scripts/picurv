@@ -24,6 +24,7 @@ import shutil
 import glob
 import csv
 import json
+import hashlib
 import itertools
 import re
 import shlex
@@ -90,6 +91,13 @@ DEFAULT_WALLTIME_GUARD_POLICY = {
 }
 WALLTIME_GUARD_ENV_JOB_START_EPOCH = "PICURV_JOB_START_EPOCH"
 WALLTIME_GUARD_ENV_LIMIT_SECONDS = "PICURV_WALLTIME_LIMIT_SECONDS"
+POST_RESUME_STATE_FILENAME = "post.resume.json"
+POST_LOCK_FILENAME = "post.lock"
+POST_LOCK_METADATA_FILENAME = "post.lock.json"
+POST_LOCK_WRAPPER_FILENAME = "post_lock_wrapper.py"
+POST_RESUME_SCHEMA_VERSION = 1
+POST_RECIPE_SIGNATURE_EXCLUDED_KEYS = {"startTime", "endTime"}
+POST_REQUIRED_EULERIAN_SOURCE_BASENAMES = ("ufield", "vfield", "pfield", "nvfield")
 
 
 def parse_slurm_time_limit_to_seconds(time_text: str) -> int:
@@ -1428,6 +1436,678 @@ def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str, monitor_c
             output_paths.append(base_path + suffix)
 
     return list(dict.fromkeys(output_paths))
+
+
+def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
+    """!
+    @brief Build the flat key=value mapping consumed by the C post-processor.
+    @param[in] post_cfg Argument passed to `build_post_recipe_config()`.
+    @param[in] monitor_cfg Optional parsed monitor YAML configuration dictionary.
+    @return Value returned by `build_post_recipe_config()`.
+    """
+    c_config = {}
+
+    c_config['startTime'] = get_post_run_control_value(post_cfg, 'start_step', 0)
+    c_config['endTime'] = get_post_run_control_value(post_cfg, 'end_step', 0)
+    c_config['timeStep'] = get_post_run_control_value(post_cfg, 'step_interval', 1)
+
+    eulerian_pipeline_parts = []
+    if post_cfg.get('global_operations', {}).get('dimensionalize', False):
+        eulerian_pipeline_parts.append('DimensionalizeAllLoadedFields')
+
+    for task in post_cfg.get('eulerian_pipeline', []):
+        task_name = task.get('task')
+        if task_name == 'q_criterion':
+            eulerian_pipeline_parts.append('ComputeQCriterion')
+        elif task_name == 'normalize_field':
+            field = task.get('field', 'P')
+            eulerian_pipeline_parts.append(f'NormalizeRelativeField:{field}')
+            ref_point = task.get('reference_point', [1, 1, 1])
+            c_config['reference_ip'] = ref_point[0]
+            c_config['reference_jp'] = ref_point[1]
+            c_config['reference_kp'] = ref_point[2]
+        elif task_name == 'nodal_average':
+            in_field = task.get('input_field')
+            out_field = task.get('output_field')
+            if in_field and out_field:
+                eulerian_pipeline_parts.append(f'CellToNodeAverage:{in_field}>{out_field}')
+
+    if eulerian_pipeline_parts:
+        c_config['process_pipeline'] = ";".join(eulerian_pipeline_parts)
+
+    lagrangian_pipeline_parts = []
+    for task in post_cfg.get('lagrangian_pipeline', []):
+        task_name = task.get('task')
+        if task_name == 'specific_ke':
+            in_field = task.get('input_field')
+            out_field = task.get('output_field')
+            if in_field and out_field:
+                lagrangian_pipeline_parts.append(f'ComputeSpecificKE:{in_field}>{out_field}')
+    if lagrangian_pipeline_parts:
+        c_config['particle_pipeline'] = ";".join(lagrangian_pipeline_parts)
+
+    statistics_pipeline_parts = get_post_statistics_task_tokens(post_cfg)
+    statistics_output_prefix = None
+    stats_cfg = post_cfg.get('statistics_pipeline')
+    if isinstance(stats_cfg, dict):
+        statistics_output_prefix = stats_cfg.get('output_prefix')
+
+    if statistics_pipeline_parts:
+        c_config['statistics_pipeline'] = ";".join(statistics_pipeline_parts)
+        statistics_output_prefix = resolve_post_statistics_output_prefix(post_cfg, monitor_cfg)
+    elif statistics_output_prefix is None:
+        statistics_output_prefix = post_cfg.get('statistics_output_prefix')
+    if statistics_output_prefix:
+        c_config['statistics_output_prefix'] = statistics_output_prefix
+
+    io = post_cfg.get('io', {})
+    c_config['output_prefix'] = io.get('output_directory', 'viz') + '/' + io.get('output_filename_prefix', 'Field')
+    c_config['particle_output_prefix'] = io.get('output_directory', 'viz') + '/' + io.get('particle_filename_prefix', 'Particle')
+    c_config['output_particles'] = io.get('output_particles', False)
+    c_config['particle_output_freq'] = io.get('particle_subsampling_frequency', 1)
+    c_config['output_fields_instantaneous'] = ",".join(io.get('eulerian_fields', []))
+    c_config['output_fields_averaged'] = ",".join(io.get('eulerian_fields_averaged', []))
+    c_config['particle_fields_instantaneous'] = ",".join(io.get('particle_fields', []))
+    input_extensions = get_post_input_extensions(post_cfg)
+    if isinstance(input_extensions, dict):
+        e_ext = input_extensions.get('eulerian')
+        p_ext = input_extensions.get('particle')
+        if e_ext:
+            c_config['eulerianExt'] = str(e_ext).strip().lstrip('.')
+        if p_ext:
+            c_config['particleExt'] = str(p_ext).strip().lstrip('.')
+
+    source_directory = get_post_source_directory_template(post_cfg, default=None)
+    if source_directory is not None:
+        c_config['source_directory'] = source_directory
+
+    return c_config
+
+
+def normalize_post_recipe_signature(recipe_cfg: dict) -> dict:
+    """!
+    @brief Normalize post recipe settings into a stable signature mapping.
+    @param[in] recipe_cfg Argument passed to `normalize_post_recipe_signature()`.
+    @return Value returned by `normalize_post_recipe_signature()`.
+    """
+    signature = {}
+    for key, value in (recipe_cfg or {}).items():
+        if key in POST_RECIPE_SIGNATURE_EXCLUDED_KEYS or value is None:
+            continue
+        if isinstance(value, bool):
+            text = 'true' if value else 'false'
+        else:
+            text = str(value).strip()
+            if text.lower() in {'true', 'false'}:
+                text = text.lower()
+        if text:
+            signature[str(key)] = text
+    return signature
+
+
+def compute_post_recipe_fingerprint(recipe_cfg: dict) -> tuple[dict, str]:
+    """!
+    @brief Return normalized recipe signature plus SHA-256 fingerprint.
+    @param[in] recipe_cfg Argument passed to `compute_post_recipe_fingerprint()`.
+    @return Value returned by `compute_post_recipe_fingerprint()`.
+    """
+    signature = normalize_post_recipe_signature(recipe_cfg)
+    payload = json.dumps(signature, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    return signature, hashlib.sha256(payload).hexdigest()
+
+
+def parse_post_recipe_file(post_recipe_path: str):
+    """!
+    @brief Parse an existing generated post.run file into a key/value mapping.
+    @param[in] post_recipe_path Argument passed to `parse_post_recipe_file()`.
+    @return Value returned by `parse_post_recipe_file()`.
+    """
+    if not post_recipe_path or not os.path.isfile(post_recipe_path):
+        return None
+    recipe_cfg = {}
+    with open(post_recipe_path, 'r', encoding='utf-8', errors='replace') as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, value = line.split('=', 1)
+            recipe_cfg[key.strip()] = value.strip()
+    return recipe_cfg
+
+
+def get_post_resume_state_path(run_dir: str) -> str:
+    """!
+    @brief Return the JSON resume metadata path for a run directory.
+    @param[in] run_dir Argument passed to `get_post_resume_state_path()`.
+    @return Value returned by `get_post_resume_state_path()`.
+    """
+    return os.path.join(run_dir, 'config', POST_RESUME_STATE_FILENAME)
+
+
+def get_post_lock_paths(run_dir: str) -> dict:
+    """!
+    @brief Return lock-wrapper related paths for a run directory.
+    @param[in] run_dir Argument passed to `get_post_lock_paths()`.
+    @return Value returned by `get_post_lock_paths()`.
+    """
+    scheduler_dir = os.path.join(run_dir, 'scheduler')
+    return {
+        'lock_file': os.path.join(scheduler_dir, POST_LOCK_FILENAME),
+        'metadata_file': os.path.join(scheduler_dir, POST_LOCK_METADATA_FILENAME),
+        'wrapper_path': os.path.join(scheduler_dir, POST_LOCK_WRAPPER_FILENAME),
+    }
+
+
+def _post_output_directory_abs(run_dir: str, post_cfg: dict) -> str:
+    """!
+    @brief Resolve the absolute post output directory for the current recipe.
+    @param[in] run_dir Argument passed to `_post_output_directory_abs()`.
+    @param[in] post_cfg Argument passed to `_post_output_directory_abs()`.
+    @return Value returned by `_post_output_directory_abs()`.
+    """
+    io_cfg = post_cfg.get('io', {}) or {}
+    return os.path.abspath(os.path.join(run_dir, io_cfg.get('output_directory', 'viz')))
+
+
+def _post_requests_eulerian_output(post_cfg: dict) -> bool:
+    """!
+    @brief Return whether the current post recipe expects Eulerian VTK output artifacts.
+    @param[in] post_cfg Argument passed to `_post_requests_eulerian_output()`.
+    @return Value returned by `_post_requests_eulerian_output()`.
+    """
+    io_cfg = post_cfg.get('io', {}) or {}
+    return bool(io_cfg.get('eulerian_fields'))
+
+
+def _post_requests_particle_output(post_cfg: dict) -> bool:
+    """!
+    @brief Return whether the current post recipe expects particle VTP output artifacts.
+    @param[in] post_cfg Argument passed to `_post_requests_particle_output()`.
+    @return Value returned by `_post_requests_particle_output()`.
+    """
+    io_cfg = post_cfg.get('io', {}) or {}
+    return bool(io_cfg.get('output_particles')) and bool(io_cfg.get('particle_fields'))
+
+
+def _post_requests_statistics(post_cfg: dict) -> bool:
+    """!
+    @brief Return whether the current post recipe expects statistics CSV artifacts.
+    @param[in] post_cfg Argument passed to `_post_requests_statistics()`.
+    @return Value returned by `_post_requests_statistics()`.
+    """
+    return bool(get_post_statistics_task_tokens(post_cfg))
+
+
+def _post_needs_particle_source(post_cfg: dict) -> bool:
+    """!
+    @brief Return whether the current post recipe requires particle source files to be present.
+    @param[in] post_cfg Argument passed to `_post_needs_particle_source()`.
+    @return Value returned by `_post_needs_particle_source()`.
+    """
+    io_cfg = post_cfg.get('io', {}) or {}
+    return bool(io_cfg.get('output_particles')) or bool(post_cfg.get('lagrangian_pipeline')) or _post_requests_statistics(post_cfg)
+
+
+def _iter_post_steps(start_step: int, end_step: int, step_interval: int):
+    """!
+    @brief Yield configured post-processing steps inclusively.
+    @param[in] start_step Argument passed to `_iter_post_steps()`.
+    @param[in] end_step Argument passed to `_iter_post_steps()`.
+    @param[in] step_interval Argument passed to `_iter_post_steps()`.
+    """
+    if step_interval <= 0 or end_step < start_step:
+        return
+    step = start_step
+    while step <= end_step:
+        yield step
+        step += step_interval
+
+
+def resolve_post_requested_window(post_cfg: dict, case_cfg: dict = None) -> tuple[int, int, int]:
+    """!
+    @brief Resolve post requested start/end/interval, expanding end=-1 via case.yml when available.
+    @param[in] post_cfg Argument passed to `resolve_post_requested_window()`.
+    @param[in] case_cfg Optional case configuration for end-step expansion.
+    @return Value returned by `resolve_post_requested_window()`.
+    """
+    start_step = int(get_post_run_control_value(post_cfg, 'start_step', 0) or 0)
+    end_step = int(get_post_run_control_value(post_cfg, 'end_step', 0) or 0)
+    step_interval = int(get_post_run_control_value(post_cfg, 'step_interval', 1) or 1)
+    if end_step < 0 and case_cfg:
+        case_run = case_cfg.get('run_control', {}) or {}
+        case_start = int(case_run.get('start_step', 0) or 0)
+        case_total = int(case_run.get('total_steps', 0) or 0)
+        end_step = case_start + case_total
+    return start_step, end_step, step_interval
+
+
+def prepare_effective_post_config(post_cfg: dict, resolved_source_dir: str, start_step: int = None, end_step: int = None) -> dict:
+    """!
+    @brief Return a copy of post_cfg with resolved source dir and optional effective bounds.
+    @param[in] post_cfg Argument passed to `prepare_effective_post_config()`.
+    @param[in] resolved_source_dir Argument passed to `prepare_effective_post_config()`.
+    @param[in] start_step Argument passed to `prepare_effective_post_config()`.
+    @param[in] end_step Argument passed to `prepare_effective_post_config()`.
+    @return Value returned by `prepare_effective_post_config()`.
+    """
+    effective_cfg = copy.deepcopy(post_cfg)
+    if not isinstance(effective_cfg.get('source_data'), dict):
+        effective_cfg['source_data'] = {}
+    effective_cfg['source_data']['directory'] = resolved_source_dir
+    rc = effective_cfg.setdefault('run_control', {})
+    if start_step is not None:
+        rc['start_step'] = int(start_step)
+    if end_step is not None:
+        rc['end_step'] = int(end_step)
+    return effective_cfg
+
+
+def _scan_post_vtk_steps(prefix_path: str, extension: str) -> set[int]:
+    """!
+    @brief Scan VTK output files matching '<prefix>_<step>.<extension>'.
+    @param[in] prefix_path Argument passed to `_scan_post_vtk_steps()`.
+    @param[in] extension Argument passed to `_scan_post_vtk_steps()`.
+    @return Value returned by `_scan_post_vtk_steps()`.
+    """
+    directory = os.path.dirname(prefix_path)
+    if not os.path.isdir(directory):
+        return set()
+    basename = os.path.basename(prefix_path)
+    pattern = re.compile(rf'^{re.escape(basename)}_(\d+)\.{re.escape(extension)}$')
+    steps = set()
+    for name in os.listdir(directory):
+        match = pattern.match(name)
+        if match:
+            steps.add(int(match.group(1)))
+    return steps
+
+
+def _scan_post_statistics_csv_steps(csv_path: str) -> set[int]:
+    """!
+    @brief Scan step ids from the first CSV column of a statistics artifact.
+    @param[in] csv_path Argument passed to `_scan_post_statistics_csv_steps()`.
+    @return Value returned by `_scan_post_statistics_csv_steps()`.
+    """
+    if not os.path.isfile(csv_path):
+        return set()
+    steps = set()
+    with open(csv_path, 'r', encoding='utf-8', errors='replace', newline='') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if not row:
+                continue
+            head = str(row[0]).strip().lower()
+            if head in {'step', 'timestep', 'time_step'}:
+                continue
+            step_val = _parse_int_loose(row[0])
+            if step_val is not None:
+                steps.add(step_val)
+    return steps
+
+
+def collect_post_completion_families(run_dir: str, post_cfg: dict, monitor_cfg=None) -> list[set[int]]:
+    """!
+    @brief Collect per-family completed-step sets for the current post recipe.
+    @param[in] run_dir Argument passed to `collect_post_completion_families()`.
+    @param[in] post_cfg Argument passed to `collect_post_completion_families()`.
+    @param[in] monitor_cfg Optional parsed monitor YAML configuration dictionary.
+    @return Value returned by `collect_post_completion_families()`.
+    """
+    io_cfg = post_cfg.get('io', {}) or {}
+    output_dir_abs = _post_output_directory_abs(run_dir, post_cfg)
+    families = []
+
+    if _post_requests_eulerian_output(post_cfg):
+        prefix = os.path.join(output_dir_abs, io_cfg.get('output_filename_prefix', 'Field'))
+        families.append(_scan_post_vtk_steps(prefix, 'vts'))
+
+    if _post_requests_particle_output(post_cfg):
+        prefix = os.path.join(output_dir_abs, io_cfg.get('particle_filename_prefix', 'Particle'))
+        families.append(_scan_post_vtk_steps(prefix, 'vtp'))
+
+    for stats_path in get_post_statistics_output_artifacts(post_cfg, run_dir, monitor_cfg):
+        families.append(_scan_post_statistics_csv_steps(stats_path))
+
+    return families
+
+
+def detect_post_completed_frontier(run_dir: str, post_cfg: dict, monitor_cfg, start_step: int, end_step: int, step_interval: int) -> dict:
+    """!
+    @brief Detect the highest contiguous fully completed post step for the current recipe.
+    @param[in] run_dir Argument passed to `detect_post_completed_frontier()`.
+    @param[in] post_cfg Argument passed to `detect_post_completed_frontier()`.
+    @param[in] monitor_cfg Argument passed to `detect_post_completed_frontier()`.
+    @param[in] start_step Argument passed to `detect_post_completed_frontier()`.
+    @param[in] end_step Argument passed to `detect_post_completed_frontier()`.
+    @param[in] step_interval Argument passed to `detect_post_completed_frontier()`.
+    @return Value returned by `detect_post_completed_frontier()`.
+    """
+    families = collect_post_completion_families(run_dir, post_cfg, monitor_cfg)
+    frontier = None
+    if families:
+        for step in _iter_post_steps(start_step, end_step, step_interval):
+            if all(step in family for family in families):
+                frontier = step
+            else:
+                break
+    return {
+        'frontier_step': frontier,
+        'artifact_family_count': len(families),
+    }
+
+
+def detect_post_source_frontier(source_dir: str, monitor_cfg: dict, post_cfg: dict, start_step: int, end_step: int, step_interval: int):
+    """!
+    @brief Detect the highest contiguous fully available source step for live post-processing.
+    @param[in] source_dir Argument passed to `detect_post_source_frontier()`.
+    @param[in] monitor_cfg Argument passed to `detect_post_source_frontier()`.
+    @param[in] post_cfg Argument passed to `detect_post_source_frontier()`.
+    @param[in] start_step Argument passed to `detect_post_source_frontier()`.
+    @param[in] end_step Argument passed to `detect_post_source_frontier()`.
+    @param[in] step_interval Argument passed to `detect_post_source_frontier()`.
+    @return Value returned by `detect_post_source_frontier()`.
+    """
+    if step_interval <= 0 or end_step < start_step or not os.path.isdir(source_dir):
+        return None
+
+    dirs = (monitor_cfg.get('io', {}) or {}).get('directories', {}) or {}
+    euler_subdir = dirs.get('eulerian_subdir', 'eulerian')
+    particle_subdir = dirs.get('particle_subdir', 'particles')
+    euler_dir = os.path.join(source_dir, euler_subdir)
+    particle_dir = os.path.join(source_dir, particle_subdir)
+
+    input_extensions = get_post_input_extensions(post_cfg)
+    euler_ext = str((input_extensions.get('eulerian') or 'dat')).strip().lstrip('.')
+    particle_ext = str((input_extensions.get('particle') or 'dat')).strip().lstrip('.')
+
+    frontier = None
+    for step in _iter_post_steps(start_step, end_step, step_interval):
+        expected_eulerian = [
+            os.path.join(euler_dir, f'{basename}{step:05d}_0.{euler_ext}')
+            for basename in POST_REQUIRED_EULERIAN_SOURCE_BASENAMES
+        ]
+        if not all(os.path.isfile(path) for path in expected_eulerian):
+            break
+        if _post_needs_particle_source(post_cfg):
+            position_path = os.path.join(particle_dir, f'position{step:05d}_0.{particle_ext}')
+            if not os.path.isfile(position_path):
+                break
+        frontier = step
+    return frontier
+
+
+def persist_post_resume_state(run_dir: str, plan: dict, last_successful_requested_end_step=None):
+    """!
+    @brief Persist post resume lineage metadata for future --continue runs.
+    @param[in] run_dir Argument passed to `persist_post_resume_state()`.
+    @param[in] plan Argument passed to `persist_post_resume_state()`.
+    @param[in] last_successful_requested_end_step Argument passed to `persist_post_resume_state()`.
+    @return Value returned by `persist_post_resume_state()`.
+    """
+    state_path = get_post_resume_state_path(run_dir)
+    payload = {
+        'schema_version': POST_RESUME_SCHEMA_VERSION,
+        'run_id': plan.get('run_id'),
+        'recipe_fingerprint': plan.get('recipe_fingerprint'),
+        'recipe_signature': plan.get('recipe_signature'),
+        'requested_start_step': plan.get('requested_start_step'),
+        'requested_end_step': plan.get('requested_end_step'),
+        'step_interval': plan.get('step_interval'),
+        'source_directory': plan.get('source_data_directory'),
+        'resume_match_source': plan.get('resume_match_source'),
+        'last_successful_requested_end_step': last_successful_requested_end_step,
+        'updated_at': datetime.now().isoformat(),
+    }
+    write_json_file(state_path, payload)
+    return state_path
+
+
+def _build_post_lock_wrapper_source() -> str:
+    """!
+    @brief Return the Python wrapper used to hold an exclusive post-stage lock.
+    @return Value returned by `_build_post_lock_wrapper_source()`.
+    """
+    return """#!/usr/bin/env python3
+import argparse
+import fcntl
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+
+
+def main():
+    parser = argparse.ArgumentParser(description='PICurv post-stage lock wrapper')
+    parser.add_argument('--lock-file', required=True)
+    parser.add_argument('--metadata-file', required=True)
+    parser.add_argument('--run-dir', required=True)
+    parser.add_argument('--recipe-fingerprint', required=True)
+    parser.add_argument('command', nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+
+    command = list(args.command or [])
+    if not command or command[0] != '--':
+        parser.error("expected '-- <command ...>' after wrapper arguments")
+    command = command[1:]
+
+    os.makedirs(os.path.dirname(args.lock_file), exist_ok=True)
+    fd = os.open(args.lock_file, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        owner = None
+        try:
+            with open(args.metadata_file, 'r', encoding='utf-8') as handle:
+                owner = json.load(handle)
+        except Exception:
+            owner = None
+        if owner:
+            print(
+                f"[FATAL] Post stage already active for {args.run_dir} "
+                f"(pid={owner.get('pid')}, host={owner.get('host')}, started_at={owner.get('started_at')}).",
+                file=sys.stderr,
+            )
+        else:
+            print(f"[FATAL] Post stage already active for {args.run_dir}.", file=sys.stderr)
+        return 2
+
+    metadata = {
+        'pid': os.getpid(),
+        'host': socket.gethostname(),
+        'started_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+        'run_dir': args.run_dir,
+        'recipe_fingerprint': args.recipe_fingerprint,
+        'command': command,
+    }
+    with open(args.metadata_file, 'w', encoding='utf-8') as handle:
+        json.dump(metadata, handle, indent=2, sort_keys=True)
+        handle.write('\\n')
+
+    try:
+        result = subprocess.run(command)
+        return int(result.returncode)
+    finally:
+        try:
+            os.remove(args.metadata_file)
+        except FileNotFoundError:
+            pass
+        os.close(fd)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
+"""
+
+
+def ensure_post_lock_wrapper(run_dir: str) -> str:
+    """!
+    @brief Ensure the lock wrapper exists for a run directory and return its path.
+    @param[in] run_dir Argument passed to `ensure_post_lock_wrapper()`.
+    @return Value returned by `ensure_post_lock_wrapper()`.
+    """
+    paths = get_post_lock_paths(run_dir)
+    wrapper_path = paths['wrapper_path']
+    content = _build_post_lock_wrapper_source()
+    existing_content = None
+    os.makedirs(os.path.dirname(wrapper_path), exist_ok=True)
+    if os.path.isfile(wrapper_path):
+        with open(wrapper_path, 'r', encoding='utf-8', errors='replace') as f:
+            existing_content = f.read()
+    if existing_content != content:
+        with open(wrapper_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        os.chmod(wrapper_path, 0o755)
+    return wrapper_path
+
+
+def build_post_locked_command(run_dir: str, recipe_fingerprint: str, wrapped_command: list, create_wrapper: bool = True) -> tuple[list, dict]:
+    """!
+    @brief Wrap a postprocessor command behind the run-dir-scoped lock wrapper.
+    @param[in] run_dir Argument passed to `build_post_locked_command()`.
+    @param[in] recipe_fingerprint Argument passed to `build_post_locked_command()`.
+    @param[in] wrapped_command Argument passed to `build_post_locked_command()`.
+    @param[in] create_wrapper Argument passed to `build_post_locked_command()`.
+    @return Value returned by `build_post_locked_command()`.
+    """
+    lock_paths = get_post_lock_paths(run_dir)
+    wrapper_path = ensure_post_lock_wrapper(run_dir) if create_wrapper else lock_paths['wrapper_path']
+    command = [
+        wrapper_path,
+        '--lock-file', lock_paths['lock_file'],
+        '--metadata-file', lock_paths['metadata_file'],
+        '--run-dir', run_dir,
+        '--recipe-fingerprint', recipe_fingerprint,
+        '--',
+    ] + list(wrapped_command)
+    return command, lock_paths
+
+
+def build_post_execution_plan(
+    run_dir: str,
+    run_id: str,
+    case_cfg: dict,
+    monitor_cfg: dict,
+    post_cfg: dict,
+    continue_requested: bool = False,
+    allow_source_frontier_scan: bool = True,
+) -> dict:
+    """!
+    @brief Resolve post resume/source-availability behavior into one execution plan.
+    @param[in] run_dir Argument passed to `build_post_execution_plan()`.
+    @param[in] run_id Argument passed to `build_post_execution_plan()`.
+    @param[in] case_cfg Argument passed to `build_post_execution_plan()`.
+    @param[in] monitor_cfg Argument passed to `build_post_execution_plan()`.
+    @param[in] post_cfg Argument passed to `build_post_execution_plan()`.
+    @param[in] continue_requested Argument passed to `build_post_execution_plan()`.
+    @param[in] allow_source_frontier_scan Argument passed to `build_post_execution_plan()`.
+    @return Value returned by `build_post_execution_plan()`.
+    """
+    requested_start_step, requested_end_step, step_interval = resolve_post_requested_window(post_cfg, case_cfg)
+    resolved_source_dir = _resolve_post_source_directory_preview(run_dir, monitor_cfg, post_cfg)
+    resolved_post_cfg = prepare_effective_post_config(post_cfg, resolved_source_dir)
+    recipe_cfg = build_post_recipe_config(resolved_post_cfg, monitor_cfg)
+    recipe_signature, recipe_fingerprint = compute_post_recipe_fingerprint(recipe_cfg)
+
+    state_path = get_post_resume_state_path(run_dir)
+    state_payload = _read_json_if_exists(state_path)
+    state_match = bool(isinstance(state_payload, dict) and state_payload.get('recipe_fingerprint') == recipe_fingerprint)
+
+    legacy_post_run_path = os.path.join(run_dir, 'config', 'post.run')
+    legacy_recipe_cfg = parse_post_recipe_file(legacy_post_run_path)
+    legacy_recipe_signature = normalize_post_recipe_signature(legacy_recipe_cfg or {}) if legacy_recipe_cfg else None
+    legacy_match = bool(legacy_recipe_signature and legacy_recipe_signature == recipe_signature)
+
+    resume_recipe_match = False
+    resume_match_source = None
+    resume_bootstrapped = False
+    if continue_requested:
+        if state_match:
+            resume_recipe_match = True
+            resume_match_source = 'state'
+        elif not state_payload and legacy_match:
+            resume_recipe_match = True
+            resume_match_source = 'legacy_post_run'
+            resume_bootstrapped = True
+
+    completion_info = detect_post_completed_frontier(
+        run_dir,
+        resolved_post_cfg,
+        monitor_cfg,
+        requested_start_step,
+        requested_end_step,
+        step_interval,
+    )
+    completed_frontier_step = completion_info['frontier_step']
+    if completion_info['artifact_family_count'] == 0 and state_match:
+        completed_frontier_step = _parse_int_loose(state_payload.get('last_successful_requested_end_step'))
+
+    if continue_requested and resume_recipe_match and completed_frontier_step is not None:
+        effective_start_step = completed_frontier_step + step_interval
+    else:
+        effective_start_step = requested_start_step
+
+    source_frontier_step = None
+    source_frontier_deferred = not allow_source_frontier_scan
+    skip_reason = None
+    if effective_start_step > requested_end_step:
+        skip_reason = 'already-complete-window'
+        effective_end_step = requested_end_step
+    elif allow_source_frontier_scan:
+        source_frontier_step = detect_post_source_frontier(
+            resolved_source_dir,
+            monitor_cfg,
+            resolved_post_cfg,
+            effective_start_step,
+            requested_end_step,
+            step_interval,
+        )
+        if source_frontier_step is None or source_frontier_step < effective_start_step:
+            if continue_requested and resume_recipe_match and completed_frontier_step is not None:
+                skip_reason = 'already-caught-up-to-current-source-frontier'
+            else:
+                skip_reason = 'nothing-available-yet'
+            effective_end_step = None
+        else:
+            effective_end_step = min(requested_end_step, source_frontier_step)
+    else:
+        effective_end_step = requested_end_step
+
+    effective_post_cfg = None
+    if skip_reason is None:
+        effective_post_cfg = prepare_effective_post_config(
+            post_cfg,
+            resolved_source_dir,
+            start_step=effective_start_step,
+            end_step=effective_end_step,
+        )
+
+    return {
+        'run_id': run_id,
+        'continue_requested': bool(continue_requested),
+        'requested_start_step': requested_start_step,
+        'requested_end_step': requested_end_step,
+        'step_interval': step_interval,
+        'source_data_directory': resolved_source_dir,
+        'recipe_config': recipe_cfg,
+        'recipe_signature': recipe_signature,
+        'recipe_fingerprint': recipe_fingerprint,
+        'resume_state_path': state_path,
+        'resume_state_payload': state_payload,
+        'resume_recipe_match': resume_recipe_match,
+        'resume_match_source': resume_match_source,
+        'resume_bootstrapped': resume_bootstrapped,
+        'completed_frontier_step': completed_frontier_step,
+        'source_frontier_step': source_frontier_step,
+        'source_frontier_deferred': source_frontier_deferred,
+        'effective_start_step': effective_start_step,
+        'effective_end_step': effective_end_step,
+        'skip_reason': skip_reason,
+        'resolved_post_cfg': resolved_post_cfg,
+        'effective_post_cfg': effective_post_cfg,
+        'lock_paths': get_post_lock_paths(run_dir),
+    }
 
 
 def needs_restart_source(case_cfg: dict, solver_cfg: dict) -> bool:
@@ -4800,99 +5480,16 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     print("[INFO] Generating post-processor recipe file (post.run)...")
     config_dir = os.path.join(run_dir, "config")
     post_recipe_path = os.path.join(config_dir, "post.run")
-    
+
     lines = [generate_header(run_id, source_files)]
+    c_config = build_post_recipe_config(post_cfg, monitor_cfg)
 
-    c_config = {}
-
-    # --- 1. Process Run Control ---
-    c_config['startTime'] = get_post_run_control_value(post_cfg, 'start_step', 0)
-    c_config['endTime'] = get_post_run_control_value(post_cfg, 'end_step', 0)
-    c_config['timeStep'] = get_post_run_control_value(post_cfg, 'step_interval', 1)
-
-    # --- 2. Process Global Operations ---
-    eulerian_pipeline_parts = []
-    if post_cfg.get('global_operations', {}).get('dimensionalize', False):
-        eulerian_pipeline_parts.append('DimensionalizeAllLoadedFields')
-
-    # --- 3. Build Eulerian Pipeline String ---
-    for task in post_cfg.get('eulerian_pipeline', []):
-        task_name = task.get('task')
-        if task_name == 'q_criterion':
-            eulerian_pipeline_parts.append('ComputeQCriterion')
-        elif task_name == 'normalize_field':
-            field = task.get('field', 'P')
-            eulerian_pipeline_parts.append(f'NormalizeRelativeField:{field}')
-            ref_point = task.get('reference_point', [1, 1, 1])
-            c_config['reference_ip'] = ref_point[0]
-            c_config['reference_jp'] = ref_point[1]
-            c_config['reference_kp'] = ref_point[2]
-        elif task_name == 'nodal_average':
-            in_field = task.get('input_field')
-            out_field = task.get('output_field')
-            if in_field and out_field:
-                eulerian_pipeline_parts.append(f'CellToNodeAverage:{in_field}>{out_field}')
-
-    if eulerian_pipeline_parts:
-        c_config['process_pipeline'] = ";".join(eulerian_pipeline_parts)
-
-    # --- 4. Build Lagrangian Pipeline String ---
-    lagrangian_pipeline_parts = []
-    for task in post_cfg.get('lagrangian_pipeline', []):
-        task_name = task.get('task')
-        if task_name == 'specific_ke':
-            in_field = task.get('input_field')
-            out_field = task.get('output_field')
-            if in_field and out_field:
-                lagrangian_pipeline_parts.append(f'ComputeSpecificKE:{in_field}>{out_field}')
-    
-    if lagrangian_pipeline_parts:
-        c_config['particle_pipeline'] = ";".join(lagrangian_pipeline_parts)
-
-    # --- 4B. Build Statistics Pipeline String ---
-    statistics_pipeline_parts = get_post_statistics_task_tokens(post_cfg)
-    statistics_output_prefix = None
-    stats_cfg = post_cfg.get('statistics_pipeline')
-    if isinstance(stats_cfg, dict):
-        statistics_output_prefix = stats_cfg.get('output_prefix')
-
-    if statistics_pipeline_parts:
-        c_config['statistics_pipeline'] = ";".join(statistics_pipeline_parts)
-        statistics_output_prefix = resolve_post_statistics_output_prefix(post_cfg, monitor_cfg)
-    elif statistics_output_prefix is None:
-        statistics_output_prefix = post_cfg.get('statistics_output_prefix')
-    if statistics_output_prefix:
-        c_config['statistics_output_prefix'] = statistics_output_prefix
-
-    # --- 5. Process I/O ---
-    io = post_cfg.get('io', {})
-    c_config['output_prefix'] = io.get('output_directory','viz')+'/'+io.get('output_filename_prefix', 'Field')
-    c_config['particle_output_prefix'] = io.get('output_directory','viz')+'/'+io.get('particle_filename_prefix', 'Particle')
-    c_config['output_particles'] = io.get('output_particles', False)
-    c_config['particle_output_freq'] = io.get('particle_subsampling_frequency', 1)
-    c_config['output_fields_instantaneous'] = ",".join(io.get('eulerian_fields', []))
-    c_config['output_fields_averaged'] = ",".join(io.get('eulerian_fields_averaged', []))
-    c_config['particle_fields_instantaneous'] = ",".join(io.get('particle_fields', []))
-    input_extensions = get_post_input_extensions(post_cfg)
-    if isinstance(input_extensions, dict):
-        e_ext = input_extensions.get('eulerian')
-        p_ext = input_extensions.get('particle')
-        if e_ext:
-            c_config['eulerianExt'] = str(e_ext).strip().lstrip('.')
-        if p_ext:
-            c_config['particleExt'] = str(p_ext).strip().lstrip('.')
-
-    # --- 6. Add Source Directory ---
-    source_directory = get_post_source_directory_template(post_cfg, default=None)
-    if source_directory is not None:
-        c_config['source_directory'] = source_directory
-
-    # --- 7. Write the final file ---
     for key, value in c_config.items():
         if value is not None and str(value) != "":
             lines.append(f"{key} = {value}")
 
-    with open(post_recipe_path, "w") as f: f.write("\n".join(lines))
+    with open(post_recipe_path, "w") as f:
+        f.write("\n".join(lines))
     print(f"[SUCCESS] Generated post-processor recipe: {os.path.relpath(post_recipe_path)}")
     return os.path.abspath(post_recipe_path)
 
@@ -5881,8 +6478,8 @@ def build_run_dry_plan(args) -> dict:
     if not args.solve:
         if getattr(args, 'restart_from', None):
             print("[WARNING] --restart-from has no effect without --solve and will be ignored.", file=sys.stderr)
-        if getattr(args, 'continue_run', False):
-            print("[WARNING] --continue has no effect without --solve and will be ignored.", file=sys.stderr)
+        if getattr(args, 'continue_run', False) and not args.post_process:
+            print("[WARNING] --continue has no effect without --solve or --post-process and will be ignored.", file=sys.stderr)
 
     if args.solve:
         case_path = os.path.abspath(args.case)
@@ -6043,7 +6640,17 @@ def build_run_dry_plan(args) -> dict:
             if solver_control_path is None:
                 solver_control_path = os.path.join(config_dir, f"{run_id}.control")
 
-        resolved_source_dir = _resolve_post_source_directory_preview(run_dir, loaded_monitor_cfg, post_cfg)
+        allow_source_frontier_scan = not args.solve
+        post_plan = build_post_execution_plan(
+            run_dir,
+            run_id,
+            loaded_case_cfg,
+            loaded_monitor_cfg,
+            post_cfg,
+            continue_requested=getattr(args, 'continue_run', False),
+            allow_source_frontier_scan=allow_source_frontier_scan,
+        )
+
         post_recipe_path = os.path.join(config_dir, "post.run")
         output_dir_rel = post_cfg.get("io", {}).get("output_directory")
         output_prefix = post_cfg.get("io", {}).get("output_filename_prefix")
@@ -6056,52 +6663,97 @@ def build_run_dry_plan(args) -> dict:
             )
             sys.exit(1)
         output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
+        statistics_output_paths = get_post_statistics_output_artifacts(post_cfg, run_dir, loaded_monitor_cfg)
         post_exe = resolve_runtime_executable("postprocessor")
         post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_path]
-        plan["artifacts"].extend([post_recipe_path, output_dir_abs])
-        plan["artifacts"].extend(get_post_statistics_output_artifacts(post_cfg, run_dir, loaded_monitor_cfg))
+        plan["artifacts"].extend([
+            post_recipe_path,
+            output_dir_abs,
+            post_plan["resume_state_path"],
+            post_plan["lock_paths"]["wrapper_path"],
+            post_plan["lock_paths"]["lock_file"],
+            post_plan["lock_paths"]["metadata_file"],
+        ])
+        plan["artifacts"].extend(statistics_output_paths)
 
-        if cluster_mode:
-            scheduler_dir = os.path.join(run_dir, "scheduler")
-            post_script = os.path.join(scheduler_dir, "post.sbatch")
-            post_cluster_cfg = copy.deepcopy(cluster_cfg)
-            post_cluster_cfg.setdefault("resources", {})
-            post_cluster_cfg["resources"]["nodes"] = 1
-            post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
-            post_cmd = build_cluster_launch_command(
-                post_cluster_cfg,
-                post_exe,
-                post_args,
-                config_search_anchor=case_path,
-                extra_search_anchors=[cluster_path],
-            )
-            plan["artifacts"].append(post_script)
-            plan["stages"]["post-process"] = {
-                "mode": "slurm",
-                "script": post_script,
-                "source_data_directory": resolved_source_dir,
-                "num_procs_effective": post_num_procs_effective,
-                "launch_command": post_cmd,
-                "launch_command_string": _command_to_string(post_cmd),
-            }
+        stage_meta = {
+            "source_data_directory": post_plan["source_data_directory"],
+            "requested_start_step": post_plan["requested_start_step"],
+            "requested_end_step": post_plan["requested_end_step"],
+            "step_interval": post_plan["step_interval"],
+            "resume_applied": bool(post_plan["continue_requested"] and post_plan["resume_recipe_match"]),
+            "resume_recipe_match": post_plan["resume_recipe_match"],
+            "resume_bootstrapped": post_plan["resume_bootstrapped"],
+            "resume_match_source": post_plan["resume_match_source"],
+            "completed_frontier_step": post_plan["completed_frontier_step"],
+            "source_frontier_step": post_plan["source_frontier_step"],
+            "source_frontier_deferred": post_plan["source_frontier_deferred"],
+            "effective_start_step": post_plan["effective_start_step"],
+            "effective_end_step": post_plan["effective_end_step"],
+            "skip_reason": post_plan["skip_reason"],
+            "post_skipped_as_complete": post_plan["skip_reason"] == "already-complete-window",
+            "recipe_fingerprint": post_plan["recipe_fingerprint"],
+            "num_procs_effective": post_num_procs_effective,
+        }
+
+        if post_plan["skip_reason"] is None:
+            if cluster_mode:
+                scheduler_dir = os.path.join(run_dir, "scheduler")
+                post_script = os.path.join(scheduler_dir, "post.sbatch")
+                post_cluster_cfg = copy.deepcopy(cluster_cfg)
+                post_cluster_cfg.setdefault("resources", {})
+                post_cluster_cfg["resources"]["nodes"] = 1
+                post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
+                raw_post_cmd = build_cluster_launch_command(
+                    post_cluster_cfg,
+                    post_exe,
+                    post_args,
+                    config_search_anchor=case_path,
+                    extra_search_anchors=[cluster_path],
+                )
+                post_cmd, _ = build_post_locked_command(
+                    run_dir,
+                    post_plan["recipe_fingerprint"],
+                    raw_post_cmd,
+                    create_wrapper=False,
+                )
+                plan["artifacts"].append(post_script)
+                stage_meta.update({
+                    "mode": "slurm",
+                    "script": post_script,
+                    "launch_command": post_cmd,
+                    "launch_command_string": _command_to_string(post_cmd),
+                })
+            else:
+                raw_post_cmd = build_local_launch_command(
+                    post_exe,
+                    post_args,
+                    post_num_procs_effective,
+                    config_search_anchor=case_path,
+                    allow_single_rank_launcher_override=True,
+                )
+                post_cmd, _ = build_post_locked_command(
+                    run_dir,
+                    post_plan["recipe_fingerprint"],
+                    raw_post_cmd,
+                    create_wrapper=False,
+                )
+                post_stream_log = os.path.join(run_dir, "scheduler", f"{run_id}_{output_prefix}.log")
+                plan["artifacts"].append(post_stream_log)
+                stage_meta.update({
+                    "mode": "local",
+                    "stream_log": post_stream_log,
+                    "launch_command": post_cmd,
+                    "launch_command_string": _command_to_string(post_cmd),
+                })
         else:
-            post_cmd = build_local_launch_command(
-                post_exe,
-                post_args,
-                post_num_procs_effective,
-                config_search_anchor=case_path,
-                allow_single_rank_launcher_override=True,
-            )
-            post_stream_log = os.path.join(run_dir, "scheduler", f"{run_id}_{output_prefix}.log")
-            plan["artifacts"].append(post_stream_log)
-            plan["stages"]["post-process"] = {
-                "mode": "local",
-                "source_data_directory": resolved_source_dir,
-                "num_procs_effective": post_num_procs_effective,
-                "stream_log": post_stream_log,
-                "launch_command": post_cmd,
-                "launch_command_string": _command_to_string(post_cmd),
-            }
+            stage_meta.update({
+                "mode": "slurm" if cluster_mode else "local",
+                "launch_command": [],
+                "launch_command_string": "",
+            })
+
+        plan["stages"]["post-process"] = stage_meta
 
     # Preserve insertion order while removing duplicates.
     deduped = []
@@ -6156,7 +6808,10 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
         print("\n  Planned stage commands:")
         for stage, details in plan["stages"].items():
             print(f"    - {stage} ({details.get('mode')}):")
-            print(f"      {details.get('launch_command_string')}")
+            if details.get('skip_reason'):
+                print(f"      skipped: {details.get('skip_reason')}")
+            else:
+                print(f"      {details.get('launch_command_string')}")
 
     print("\n  Planned artifacts (no files created in dry-run):")
     for artifact in plan.get("artifacts", []):
@@ -6191,8 +6846,8 @@ def validate_workflow(args):
     if not solver_group_selected:
         if restart_from:
             print("[WARNING] --restart-from has no effect without --case/--solver/--monitor and will be ignored.", file=sys.stderr)
-        if continue_run:
-            print("[WARNING] --continue has no effect without --case/--solver/--monitor and will be ignored.", file=sys.stderr)
+        if continue_run and not args.post:
+            print("[WARNING] --continue has no effect without solver configs or --post and will be ignored.", file=sys.stderr)
     if continue_run and not run_dir_val:
         fail_cli_usage("--continue requires --run-dir.")
 
@@ -6375,8 +7030,8 @@ def run_workflow(args):
     if not args.solve:
         if getattr(args, 'restart_from', None):
             print("[WARNING] --restart-from has no effect without --solve and will be ignored.", file=sys.stderr)
-        if getattr(args, 'continue_run', False):
-            print("[WARNING] --continue has no effect without --solve and will be ignored.", file=sys.stderr)
+        if getattr(args, 'continue_run', False) and not args.post_process:
+            print("[WARNING] --continue has no effect without --solve or --post-process and will be ignored.", file=sys.stderr)
 
     # --- Stage 1: Solver (if requested) ---
     if args.solve:
@@ -6548,87 +7203,152 @@ def run_workflow(args):
         validate_post_config(post_cfg, args.post)
         print("[SUCCESS] Post-processing configuration passed validation.\n")
 
-        strict_source_check = not (cluster_mode and args.solve)
-        resolved_source_dir = resolve_post_source_directory(run_dir, monitor_cfg, post_cfg, strict=strict_source_check)
-        if not isinstance(post_cfg.get('source_data'), dict):
-            post_cfg['source_data'] = {}
-        post_cfg['source_data']['directory'] = resolved_source_dir
+        allow_source_frontier_scan = not (cluster_mode and args.solve)
+        post_plan = build_post_execution_plan(
+            run_dir,
+            run_id,
+            case_cfg,
+            monitor_cfg,
+            post_cfg,
+            continue_requested=getattr(args, 'continue_run', False),
+            allow_source_frontier_scan=allow_source_frontier_scan,
+        )
 
-        post_io_cfg = post_cfg.get('io', {})
-        try:
-            output_dir_rel = post_io_cfg['output_directory']
-            output_prefix = post_io_cfg['output_filename_prefix']
-        except KeyError as e:
-            print(f"[FATAL] Missing required key '{e.args[0]}' in the 'io' section of {args.post}", file=sys.stderr)
-            sys.exit(1)
-
-        output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
-        os.makedirs(output_dir_abs, exist_ok=True)
-        print(f"[INFO] Post-processor output directory: {os.path.relpath(output_dir_abs)}")
-        statistics_output_paths = get_post_statistics_output_artifacts(post_cfg, run_dir, monitor_cfg)
-        for stats_path in statistics_output_paths:
-            print(f"[INFO] Statistics CSV output: {os.path.relpath(stats_path)}")
-
-        source_files_post = {'Case': case_path, 'Post-Profile': args.post}
-        post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_cfg, source_files_post, monitor_cfg)
-
-        post_exe = resolve_runtime_executable("postprocessor")
-        post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_file]
-        if cluster_mode:
-            scheduler_dir = os.path.join(run_dir, "scheduler")
-            os.makedirs(scheduler_dir, exist_ok=True)
-            post_script = os.path.join(scheduler_dir, "post.sbatch")
-            post_log = os.path.join(scheduler_dir, "post_%j.out")
-            post_err = os.path.join(scheduler_dir, "post_%j.err")
-            post_cluster_cfg = copy.deepcopy(cluster_cfg)
-            post_cluster_cfg.setdefault("resources", {})
-            post_cluster_cfg["resources"]["nodes"] = 1
-            post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
-            post_cmd = build_cluster_launch_command(
-                post_cluster_cfg,
-                post_exe,
-                post_args,
-                config_search_anchor=case_path,
-                extra_search_anchors=[cluster_path],
-            )
-            render_slurm_script(
-                post_script,
-                f"{run_id}_post",
-                post_cluster_cfg,
-                post_cmd,
-                run_dir,
-                post_log,
-                post_err,
-                env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
-            )
-            submission_meta["stages"]["post-process"] = {
-                "script": post_script,
-                "submitted": False,
-                "num_procs_effective": post_num_procs_effective,
-            }
-            print(f"[SUCCESS] Generated post Slurm script: {os.path.relpath(post_script)}")
-
-            if not args.no_submit:
-                dependency_job = None
-                if args.solve:
-                    dependency_job = submission_meta.get("stages", {}).get("solve", {}).get("job_id")
-                submit_info = submit_sbatch(post_script, dependency=dependency_job)
-                submission_meta["stages"]["post-process"].update(submit_info)
-                submission_meta["stages"]["post-process"]["submitted"] = True
-                if dependency_job:
-                    submission_meta["stages"]["post-process"]["dependency"] = f"afterok:{dependency_job}"
-                print(f"[SUCCESS] Submitted post job: {submit_info['job_id']}")
-            stages_completed.append('post-process')
+        source_template = get_post_source_directory_template(post_cfg)
+        if source_template == '<solver_output_dir>':
+            print(f"[INFO] Post-processor source data: {os.path.relpath(post_plan['source_data_directory'])}")
         else:
-            command = build_local_launch_command(
-                post_exe,
-                post_args,
-                post_num_procs_effective,
-                config_search_anchor=case_path,
-                allow_single_rank_launcher_override=True,
+            print(f"[INFO] Post-processor source data (user-defined): {os.path.relpath(post_plan['source_data_directory'])}")
+
+        if getattr(args, 'continue_run', False):
+            if post_plan['resume_recipe_match']:
+                print(f"[INFO] Post resume recipe match: yes ({post_plan['resume_match_source']}).")
+            else:
+                print("[INFO] Post resume recipe match: no. Using the configured start_step for this recipe.")
+        if post_plan['completed_frontier_step'] is not None:
+            print(f"[INFO] Completed post frontier: step {post_plan['completed_frontier_step']}")
+        else:
+            print("[INFO] Completed post frontier: none")
+        if post_plan['source_frontier_deferred']:
+            print("[INFO] Source availability frontier: deferred because the solver stage will populate the requested window before post starts.")
+        elif post_plan['source_frontier_step'] is not None:
+            print(f"[INFO] Current source availability frontier: step {post_plan['source_frontier_step']}")
+        else:
+            print("[INFO] Current source availability frontier: none")
+
+        persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['completed_frontier_step'])
+
+        if post_plan['skip_reason'] == 'already-complete-window':
+            print("[INFO] Requested post window is already complete; skipping postprocessor launch.")
+            persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['requested_end_step'])
+        elif post_plan['skip_reason'] == 'already-caught-up-to-current-source-frontier':
+            print("[INFO] Post outputs are already caught up to the current fully available source frontier; nothing new to launch right now.")
+        elif post_plan['skip_reason'] == 'nothing-available-yet':
+            print("[INFO] No fully available source steps exist yet in the requested window; skipping postprocessor launch for now.")
+        else:
+            print(
+                f"[INFO] Effective post window: {post_plan['effective_start_step']}..{post_plan['effective_end_step']} "
+                f"(stride {post_plan['step_interval']})"
             )
-            execute_command(command, run_dir, os.path.join("scheduler", f"{run_id}_{output_prefix}.log"), monitor_cfg)
-            stages_completed.append('post-process')
+
+            post_effective_cfg = post_plan['effective_post_cfg']
+            post_io_cfg = post_effective_cfg.get('io', {})
+            try:
+                output_dir_rel = post_io_cfg['output_directory']
+                output_prefix = post_io_cfg['output_filename_prefix']
+            except KeyError as e:
+                print(f"[FATAL] Missing required key '{e.args[0]}' in the 'io' section of {args.post}", file=sys.stderr)
+                sys.exit(1)
+
+            output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
+            os.makedirs(output_dir_abs, exist_ok=True)
+            print(f"[INFO] Post-processor output directory: {os.path.relpath(output_dir_abs)}")
+            statistics_output_paths = get_post_statistics_output_artifacts(post_effective_cfg, run_dir, monitor_cfg)
+            for stats_path in statistics_output_paths:
+                print(f"[INFO] Statistics CSV output: {os.path.relpath(stats_path)}")
+
+            source_files_post = {'Case': case_path, 'Post-Profile': args.post}
+            post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_effective_cfg, source_files_post, monitor_cfg)
+
+            post_exe = resolve_runtime_executable("postprocessor")
+            post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_file]
+            if cluster_mode:
+                scheduler_dir = os.path.join(run_dir, "scheduler")
+                os.makedirs(scheduler_dir, exist_ok=True)
+                post_script = os.path.join(scheduler_dir, "post.sbatch")
+                post_log = os.path.join(scheduler_dir, "post_%j.out")
+                post_err = os.path.join(scheduler_dir, "post_%j.err")
+                post_cluster_cfg = copy.deepcopy(cluster_cfg)
+                post_cluster_cfg.setdefault("resources", {})
+                post_cluster_cfg["resources"]["nodes"] = 1
+                post_cluster_cfg["resources"]["ntasks_per_node"] = post_num_procs_effective
+                raw_post_cmd = build_cluster_launch_command(
+                    post_cluster_cfg,
+                    post_exe,
+                    post_args,
+                    config_search_anchor=case_path,
+                    extra_search_anchors=[cluster_path],
+                )
+                post_cmd, _ = build_post_locked_command(
+                    run_dir,
+                    post_plan['recipe_fingerprint'],
+                    raw_post_cmd,
+                    create_wrapper=True,
+                )
+                render_slurm_script(
+                    post_script,
+                    f"{run_id}_post",
+                    post_cluster_cfg,
+                    post_cmd,
+                    run_dir,
+                    post_log,
+                    post_err,
+                    env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
+                )
+                submission_meta["stages"]["post-process"] = {
+                    "script": post_script,
+                    "submitted": False,
+                    "num_procs_effective": post_num_procs_effective,
+                    "resume_recipe_match": post_plan['resume_recipe_match'],
+                    "resume_bootstrapped": post_plan['resume_bootstrapped'],
+                    "resume_match_source": post_plan['resume_match_source'],
+                    "effective_start_step": post_plan['effective_start_step'],
+                    "effective_end_step": post_plan['effective_end_step'],
+                    "completed_frontier_step": post_plan['completed_frontier_step'],
+                    "source_frontier_step": post_plan['source_frontier_step'],
+                    "source_frontier_deferred": post_plan['source_frontier_deferred'],
+                    "recipe_fingerprint": post_plan['recipe_fingerprint'],
+                }
+                print(f"[SUCCESS] Generated post Slurm script: {os.path.relpath(post_script)}")
+
+                if not args.no_submit:
+                    dependency_job = None
+                    if args.solve:
+                        dependency_job = submission_meta.get("stages", {}).get("solve", {}).get("job_id")
+                    submit_info = submit_sbatch(post_script, dependency=dependency_job)
+                    submission_meta["stages"]["post-process"].update(submit_info)
+                    submission_meta["stages"]["post-process"]["submitted"] = True
+                    if dependency_job:
+                        submission_meta["stages"]["post-process"]["dependency"] = f"afterok:{dependency_job}"
+                    print(f"[SUCCESS] Submitted post job: {submit_info['job_id']}")
+                stages_completed.append('post-process')
+            else:
+                raw_command = build_local_launch_command(
+                    post_exe,
+                    post_args,
+                    post_num_procs_effective,
+                    config_search_anchor=case_path,
+                    allow_single_rank_launcher_override=True,
+                )
+                command, _ = build_post_locked_command(
+                    run_dir,
+                    post_plan['recipe_fingerprint'],
+                    raw_command,
+                    create_wrapper=True,
+                )
+                execute_command(command, run_dir, os.path.join("scheduler", f"{run_id}_{output_prefix}.log"), monitor_cfg)
+                persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['effective_end_step'])
+                stages_completed.append('post-process')
 
     if run_dir:
         manifest = {
@@ -8918,12 +9638,16 @@ def _add_run_parser(subparsers):
             "Execute solver and/or post-processing stages.\n\n"
             "Notes:\n"
             "  - --num-procs applies to solver stage launches.\n"
-            "  - Post-processing defaults to a single MPI rank/task.\n\n"
+            "  - Post-processing defaults to a single MPI rank/task.\n"
+            "  - With --solve, --continue resumes the existing run directory in-place.\n"
+            "  - With --post-process, --continue resumes the same recipe from the first unfinished step\n"
+            "    and caps the launch to the highest fully available contiguous source frontier.\n\n"
             "Examples:\n"
             "  picurv run --solve -n 8 --case case.yml --solver solver.yml --monitor monitor.yml\n"
             "  picurv run --solve --restart-from runs/old_run --case case.yml --solver solver.yml --monitor monitor.yml\n"
             "  picurv run --solve --continue --run-dir runs/my_run --case case.yml --solver solver.yml --monitor monitor.yml\n"
             "  picurv run --post-process --run-dir runs/my_run --post post.yml\n"
+            "  picurv run --post-process --continue --run-dir runs/my_run --post post.yml\n"
             "  picurv run --solve --case case.yml --solver solver.yml --monitor monitor.yml --dry-run"
         ),
         epilog="Next: run `picurv validate ...` first for config-only checks.",
@@ -8945,8 +9669,10 @@ def _add_run_parser(subparsers):
         "--continue",
         action="store_true",
         dest="continue_run",
-        help="Continue a previous run in-place. Requires --run-dir.\n"
-             "Appends to existing output and logs instead of creating a new run.",
+        help="Resume an existing run directory in-place. Requires --run-dir.\n"
+             "With --solve, appends to existing solver output/logs.\n"
+             "With --post-process, resumes the same recipe from the first unfinished step\n"
+             "and skips already-complete work inside the current live source frontier.",
     )
 
     post_group = p_run.add_argument_group("post-processor inputs (required for --post-process)")
@@ -9381,6 +10107,7 @@ def build_main_parser():
             "  picurv validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
+            "  picurv run --post-process --continue --run-dir runs/my_run --post post.yml\n"
             "  picurv summarize --run-dir runs/my_run --latest\n"
             "  picurv submit --run-dir runs/my_run\n"
             "  picurv cancel --run-dir runs/my_run\n"
@@ -9389,6 +10116,7 @@ def build_main_parser():
             "  - First run: picurv init ... -> picurv validate ... -> picurv run ...\n"
             "  - Config debugging: picurv validate ...\n"
             "  - Launch planning: picurv run ... --dry-run\n"
+            "  - Post-only catch-up: picurv run --post-process --continue --run-dir ... --post ...\n"
             "  - Deferred submission: picurv submit --run-dir ...\n"
             "  - Run inspection: picurv summarize ...\n"
             "  - Run cancellation: picurv cancel --run-dir ..."

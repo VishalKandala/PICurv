@@ -24,6 +24,10 @@ is `examples/search_robustness/`.
 4. Validate with `picurv validate` after each change.
 5. Execute with `picurv run` or `picurv sweep`.
 
+Post-profile usage note:
+- keep `master_postprocessor.yml -> run_control` as the full logical analysis window you want a recipe to represent. When you later run `picurv run --post-process --continue --run-dir ... --post ...`, PICurv resumes the same recipe from the first unfinished step instead of requiring manual `start_step` edits.
+- on live solver runs, PICurv also caps each post launch to the highest fully available contiguous source prefix for that recipe.
+
 Launcher-related note:
 
 - `master_cluster.yml` is only for batch/scheduler policy and batch-specific overrides.

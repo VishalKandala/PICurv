@@ -107,6 +107,16 @@ conditions so search robustness is characterized against the standard file-grid
 solve path, even though analytical file-grid runs are now supported for
 `ZERO_FLOW` and `UNIFORM_FLOW`.
 
+If you are post-processing this study in batches while the solver is still running, keep the full desired window in `search_robustness_analysis.yml` and catch up with:
+
+```bash
+./bin/picurv run --post-process --continue \
+  --run-dir runs/search_robustness_curvilinear_<timestamp> \
+  --post examples/search_robustness/search_robustness_analysis.yml
+```
+
+For the same recipe, PICurv resumes from the first unfinished step, stops at the highest fully available contiguous solver frontier, and refuses a second concurrent post writer on the same run directory.
+
 ## Console Behavior
 
 The CSV is always written for particle-enabled runs. Compact console summaries

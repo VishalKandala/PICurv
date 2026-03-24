@@ -118,6 +118,14 @@ for particle walking-search and migration observability.
 `-n/--num-procs` applies to the solver stage. Post-processing defaults to single-rank execution. `picurv init` now creates an inert `.picurv-execution.yml` in each new case; leave it unchanged for ordinary local runs, or edit it when your login node / cluster needs custom MPI launcher tokens. For a cluster-specific clone, the clean setup is to create one ignored repo-root `.picurv-execution.yml`; `init` will seed new cases from it automatically, and `sync-config` will create a missing case-local file from it without overwriting existing case-local edits. Existing cases can still start from [execution.example.yml](config/runtime/execution.example.yml). Local multi-rank precedence is: `PICURV_MPI_LAUNCHER`, then `MPI_LAUNCHER`, then nearest `.picurv-execution.yml`, then legacy `.picurv-local.yml`, then default `mpiexec`. Cluster job generation uses `cluster.yml.execution` first, then `.picurv-execution.yml`, then the built-in cluster default.
 For batch-policy files, prefer local operational names such as `short_job.local.yml` / `long_job.local.yml` instead of committing account/module-specific scheduler profiles.
 
+Catch up post-processing on an existing run without editing `post.yml.start_step`:
+```bash
+./bin/picurv run --post-process --continue \
+  --run-dir runs/<run_id> \
+  --post my_case/standard_analysis.yml
+```
+For the same recipe, `--continue` keeps the full logical window in `post.yml` and moves the effective start step internally. If the solver has only written source data through the current frontier, PICurv post-processes only that fully available contiguous prefix and exits cleanly. If another post job is already active on the same run directory, the new writer is refused instead of racing on shared output files.
+
 ## Case Maintenance
 
 After `init`, you can operate on the original source repo from anywhere using `picurv` on PATH:

@@ -25,6 +25,8 @@ paired runtime reference.
 3. Use master templates to discover advanced options and copy validated snippets.
 4. Re-run `picurv validate` after each copied block.
 
+For post-processing templates, treat `run_control` as the full logical window you want the recipe to represent. During `picurv run --post-process --continue --run-dir ... --post ...`, PICurv now computes the effective restart step internally, caps each launch to the currently available live-source frontier, and preserves single-writer safety on the run directory.
+
 For shared site MPI quirks across login-node and batch runs, `picurv init` now creates `.picurv-execution.yml` in each new case with inert defaults. Existing cases or repo-root site configs can still start from `execution.example.yml`. Keep `master_cluster.yml` focused on batch scheduler policy and batch-only overrides. Legacy `.picurv-local.yml` still works for local-only compatibility.
 
 ## 3. How To Read A Master Template Efficiently

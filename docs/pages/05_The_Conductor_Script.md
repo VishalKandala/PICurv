@@ -253,6 +253,21 @@ Follow-up submission from existing artifacts:
 ./bin/picurv submit --run-dir runs/<run_id>
 ```
 
+Post-only continuation examples:
+
+- Catch up a live run without editing `post.yml.start_step`. Keep the full desired analysis window in `post.yml`, then let `--continue` move the launch cursor inside that window:
+
+```bash
+./bin/picurv run --post-process --continue \
+  --run-dir runs/search_robustness_20260322-073415 \
+  --post search_robustness_analysis.yml
+```
+
+- If the solver has only written source data through step `420`, PICurv launches only the fully available prefix in the requested stride. A later `--continue` run picks up the newer steps after the solver produces them.
+- If the same recipe already post-processed the requested window, PICurv skips the launch and reports that the run is already caught up.
+- If you change the recipe itself, for example by adding `Qcrit` or changing the statistics output prefix, PICurv treats that as a new recipe lineage and starts again from the configured `start_step`.
+- PICurv allows only one post writer per run directory. If a second post job targets the same `runs/<run_id>`, it is refused immediately instead of racing on `viz/` or `statistics/`.
+
 Graceful shutdown note:
 
 - generated Slurm solver jobs enable a runtime walltime guard by default; after 10 completed warmup steps, PICurv estimates timestep cost and requests the same graceful final-write path before remaining walltime gets too tight.

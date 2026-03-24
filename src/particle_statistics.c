@@ -4,7 +4,7 @@
  *
  * Each kernel in this file:
  *  - Performs an MPI_Allreduce over all particles across all ranks.
- *  - Appends one CSV row per call to its own output file.
+ *  - Maintains one logical CSV row per processed step in its output file.
  *  - Logs a one-line summary via LOG_INFO on rank 0.
  *  - Produces O(1) output regardless of particle count, making these kernels
  *    the primary quantitative diagnostic path for large (100M+) particle runs.
@@ -18,6 +18,107 @@
 #include "particle_statistics.h"
 #include <math.h>
 #include <mpi.h>
+#include <stdlib.h>
+#include <string.h>
+
+static const char *PARTICLE_MSD_CSV_HEADER =
+    "step,t,N,MSD_x,MSD_y,MSD_z,MSD_total,"
+    "r_rms_meas,r_rms_theory,rel_err_pct,"
+    "com_x,com_y,com_z,"
+    "frac_1sigma_pct,frac_2sigma_pct,frac_3sigma_pct\n";
+
+/**
+ * @brief Return whether a CSV row belongs to the requested timestep.
+ * @param[in] line CSV row text to inspect.
+ * @param[in] ti Requested timestep id.
+ * @return PETSC_TRUE when the row begins with the requested step id.
+ */
+static PetscBool MSDCSVLineMatchesStep(const char *line, PetscInt ti)
+{
+    char *endptr = NULL;
+    long parsed_step;
+
+    if (!line) return PETSC_FALSE;
+    parsed_step = strtol(line, &endptr, 10);
+    if (endptr == line) return PETSC_FALSE;
+    while (*endptr == ' ' || *endptr == '\t') endptr++;
+    if (*endptr != ',') return PETSC_FALSE;
+    return (PetscBool)(parsed_step == (long)ti ? PETSC_TRUE : PETSC_FALSE);
+}
+
+/**
+ * @brief Rewrite the MSD CSV so the requested timestep appears exactly once.
+ * @param[in] csv_path Target CSV path.
+ * @param[in] ti Timestep being written.
+ * @param[in] row_line Fully formatted CSV row for the timestep.
+ * @return Petsc error code.
+ */
+static PetscErrorCode RewriteParticleMSDCSV(const char *csv_path, PetscInt ti, const char *row_line)
+{
+    char tmp_path[PETSC_MAX_PATH_LEN];
+    FILE *src = NULL;
+    FILE *dst = NULL;
+    char line[4096];
+    PetscBool wrote_header = PETSC_FALSE;
+    PetscBool inserted_row = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscSNPrintf(tmp_path, sizeof(tmp_path), "%s.tmp", csv_path));
+
+    dst = fopen(tmp_path, "w");
+    if (!dst) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "ComputeParticleMSD: could not open '%s' for writing.\n", tmp_path);
+        PetscFunctionReturn(0);
+    }
+
+    src = fopen(csv_path, "r");
+    if (src) {
+        while (fgets(line, sizeof(line), src)) {
+            if (!wrote_header) {
+                if (strncmp(line, "step,", 5) == 0) {
+                    fputs(line, dst);
+                    wrote_header = PETSC_TRUE;
+                    continue;
+                }
+                fputs(PARTICLE_MSD_CSV_HEADER, dst);
+                wrote_header = PETSC_TRUE;
+            }
+
+            if (MSDCSVLineMatchesStep(line, ti)) {
+                if (!inserted_row) {
+                    fputs(row_line, dst);
+                    inserted_row = PETSC_TRUE;
+                }
+                continue;
+            }
+            fputs(line, dst);
+        }
+        fclose(src);
+        src = NULL;
+    }
+
+    if (!wrote_header) {
+        fputs(PARTICLE_MSD_CSV_HEADER, dst);
+    }
+    if (!inserted_row) {
+        fputs(row_line, dst);
+    }
+
+    if (fclose(dst) != 0) {
+        remove(tmp_path);
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "ComputeParticleMSD: could not finalize '%s'.\n", tmp_path);
+        PetscFunctionReturn(0);
+    }
+
+    if (rename(tmp_path, csv_path) != 0) {
+        remove(tmp_path);
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "ComputeParticleMSD: could not replace '%s'.\n", csv_path);
+    }
+    PetscFunctionReturn(0);
+}
 
 #undef __FUNCT__
 #define __FUNCT__ "ComputeParticleMSD"
@@ -136,28 +237,19 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
      * ------------------------------------------------------------------ */
     if (rank == 0) {
         char csv_path[PETSC_MAX_PATH_LEN];
+        char row_line[1024];
         PetscSNPrintf(csv_path, sizeof(csv_path), "%s_msd.csv", stats_prefix);
-
-        FILE *f = fopen(csv_path, "a");
-        if (!f) {
-            LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "ComputeParticleMSD: could not open '%s' for writing.\n", csv_path);
-        } else {
-            /* Write header if file is empty */
-            if (ftell(f) == 0) {
-                fprintf(f, "step,t,N,MSD_x,MSD_y,MSD_z,MSD_total,"
-                        "r_rms_meas,r_rms_theory,rel_err_pct,"
-                        "com_x,com_y,com_z,"
-                        "frac_1sigma_pct,frac_2sigma_pct,frac_3sigma_pct\n");
-            }
-            fprintf(f, "%d,%.6e,%.0f,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.4f,%.6e,%.6e,%.6e,%.2f,%.2f,%.2f\n",
-                    (int)ti, t, N_total,
-                    MSD_x, MSD_y, MSD_z, MSD_total,
-                    r_rms_meas, r_theory, rel_err_pct,
-                    com_x, com_y, com_z,
-                    frac_1s, frac_2s, frac_3s);
-            fclose(f);
-        }
+        PetscSNPrintf(
+            row_line,
+            sizeof(row_line),
+            "%d,%.6e,%.0f,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.4f,%.6e,%.6e,%.6e,%.2f,%.2f,%.2f\n",
+            (int)ti, t, N_total,
+            MSD_x, MSD_y, MSD_z, MSD_total,
+            r_rms_meas, r_theory, rel_err_pct,
+            com_x, com_y, com_z,
+            frac_1s, frac_2s, frac_3s
+        );
+        PetscCall(RewriteParticleMSDCSV(csv_path, ti, row_line));
 
         LOG_ALLOW(GLOBAL, LOG_INFO,
                   "[MSD ti=%d t=%.4f] total=%.4e theory=%.4e err=%.2f%% | "
