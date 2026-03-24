@@ -57,10 +57,9 @@ V1 compatibility columns are preserved and V2 adds:
 - `search_work_index`
 - `re_search_fraction`
 
-Use the dedicated metrics reference page for the exact formulas and
-interpretation guidance:
-
-- `docs/pages/53_Search_Robustness_Metrics_Reference.md`
+Use **@subpage 53_Search_Robustness_Metrics_Reference** for the exact
+formulas, prose definitions, and interpretation guidance for every V2 metric
+and run-level reduction.
 
 ## Recommended Runs
 
