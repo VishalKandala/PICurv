@@ -7,7 +7,7 @@ For CFD users, the key idea is separation of concerns. Instead of creating one m
 Two repo-wide patterns are especially important in the current codebase:
 
 - `solver.yml -> verification.sources.*` is reserved for verification-only injections/overrides when no cleaner end-to-end path exists. For example, `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `logs/scatter_metrics.csv` without changing ordinary production runs.
-- `study.yml` supports either cartesian sweeps under `parameters:` or explicit coupled bundles under `parameter_sets:` when multiple overrides must move together.
+- `study.yml` supports either cross-product sweeps under `parameters:` or explicit coupled bundles under `parameter_sets:` when multiple overrides must move together.
 
 ## Sub-guides
 

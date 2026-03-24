@@ -116,7 +116,7 @@ For fragile metrics, add smoke tests or fixture-based validation before large qu
 
 Implementation details worth knowing:
 
-- case expansion uses cartesian product over all `parameters.*` lists, or explicit paired bundles from `parameter_sets` when coupled overrides must move together.
+- case expansion uses the full cross-product over all `parameters.*` lists, or explicit paired bundles from `parameter_sets` when coupled overrides must move together.
 - generated case configs are revalidated through the same solver/post validators used by `picurv run`.
 - submission chain: solver array → post array (`afterok`) → metrics job (`afterany`).
 - `scheduler/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.

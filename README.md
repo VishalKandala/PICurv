@@ -16,7 +16,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Staged Slurm workflows with `--no-submit`, delayed `submit`, and run-directory-based `cancel`
 - Graceful final snapshot writes on early shutdown signals (`SIGUSR1`, `SIGTERM`, `SIGINT`) at safe checkpoints
-- Parameter sweep orchestration with Slurm arrays (`study.yml`), including cartesian `parameters` sweeps and explicit coupled `parameter_sets`
+- Parameter sweep orchestration with Slurm arrays (`study.yml`), including cross-product `parameters` sweeps and explicit coupled `parameter_sets`
 - Solver and postprocessor executables from one build system
 
 ## Requirements
@@ -191,7 +191,7 @@ Launch a sweep study:
   --cluster my_case/slurm_cluster.yml
 ```
 
-Study files can define either cartesian products under `parameters:` or explicit coupled bundles
+Study files can define either cross-product sweeps under `parameters:` or explicit coupled bundles
 under `parameter_sets:` when multiple overrides must move together, such as grid size and particle
 count in the scatter-verification studies.
 

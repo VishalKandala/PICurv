@@ -11,7 +11,7 @@ This directory stores reusable `study.yml` definitions for `picurv sweep` workfl
 - execution controls for scheduler array behavior.
 
 Parameter keys may target nested config values such as
-`case.models.physics.particles.count`. Use `parameters` for cartesian sweeps and
+`case.models.physics.particles.count`. Use `parameters` for cross-product sweeps and
 `parameter_sets` when you need explicit coupled bundles instead.
 
 Use explicit metric specs whenever the study signal comes from a non-default
