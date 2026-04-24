@@ -504,6 +504,14 @@ typedef enum{
     MOMENTUM_SOLVER_DUALTIME_PICARD_RK4 = 1
 } MomentumSolverType;
 
+/** @brief Selects the runtime solution-convergence diagnostics mode. */
+typedef enum{
+    SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC = 0,
+    SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC = 1,
+    SOLUTION_CONVERGENCE_STATISTICAL_STEADY = 2,
+    SOLUTION_CONVERGENCE_TRANSIENT = 3
+} SolutionConvergenceMode;
+
 /** @brief Enumerator to identify the particle initialization strategy. */
 typedef enum {
     PARTICLE_INIT_SURFACE_RANDOM = 0, /**< Random placement on the inlet face */
@@ -696,6 +704,12 @@ typedef struct SimCtx {
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
     Cmpnts    AnalyticalUniformVelocity;
+    SolutionConvergenceMode solutionConvergenceMode;
+    PetscInt  solutionConvergencePeriodSteps;
+    PetscInt  solutionConvergenceWindowSteps;
+    PetscInt  solutionConvergenceSamplesRecorded;
+    PetscReal *solutionConvergenceMeanSpeedHistory;
+    PetscReal *solutionConvergenceMeanKEHistory;
     VerificationDiffusivityConfig verificationDiffusivity;
     VerificationScalarConfig verificationScalar;
     
@@ -843,6 +857,8 @@ typedef struct UserCtx {
     // --- Time-Stepping & Solver Workspace Fields ---
     Vec Ucont_o, lUcont_o, Ucat_o, P_o, Nvert_o, lNvert_o;
     Vec Ucont_rm1, lUcont_rm1, Rhs, dUcont, pUcont;
+    Vec *solutionConvergencePeriodicUcatRef;
+    Vec *solutionConvergencePeriodicPRef;
     Vec CellFieldAtCorner, lCellFieldAtCorner;
 
     // --- Pressure-Poisson System ---

@@ -373,6 +373,7 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     PetscCall(PetscStrncpy(simCtx->particle_subdir, "particles", sizeof(simCtx->particle_subdir)));
     PetscCall(PetscStrncpy(simCtx->output_dir, "/tmp", sizeof(simCtx->output_dir)));
     PetscCall(PetscStrncpy(simCtx->restart_dir, "/tmp", sizeof(simCtx->restart_dir)));
+    PetscCall(PetscStrncpy(simCtx->log_dir, "/tmp", sizeof(simCtx->log_dir)));
     simCtx->mglevels = 1;
     simCtx->usermg.mglevels = 1;
     PetscCall(PetscCalloc1(1, &simCtx->usermg.mgctx));
@@ -791,6 +792,10 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
     }
     if (simCtx_ptr) {
         simCtx = *simCtx_ptr;
+    }
+
+    if (simCtx) {
+        PetscCall(DestroySolutionConvergenceState(simCtx));
     }
 
     if (user) {

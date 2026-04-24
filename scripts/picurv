@@ -3635,6 +3635,73 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                                     f"  {solver_path}: unsupported keys in momentum_solver.dual_time_picard_rk4.pseudo_cfl: {unknown_pcfl_keys}."
                                 )
 
+        solution_convergence_cfg = solver_cfg.get('solution_convergence', {})
+        if solution_convergence_cfg is not None and not isinstance(solution_convergence_cfg, dict):
+            errors.append(f"  {solver_path}: 'solution_convergence' must be a mapping when provided.")
+        elif isinstance(solution_convergence_cfg, dict) and solution_convergence_cfg:
+            allowed_solution_convergence_keys = {
+                'mode', 'periodic_deterministic', 'statistical_steady'
+            }
+            unknown_solution_convergence_keys = sorted(set(solution_convergence_cfg.keys()) - allowed_solution_convergence_keys)
+            if unknown_solution_convergence_keys:
+                errors.append(
+                    f"  {solver_path}: unsupported solution_convergence keys: {unknown_solution_convergence_keys}."
+                )
+
+            mode = solution_convergence_cfg.get('mode', 'steady_deterministic')
+            try:
+                normalized_solution_mode = normalize_solution_convergence_mode(mode)
+            except ValueError as e:
+                errors.append(f"  {solver_path}: {e}")
+                normalized_solution_mode = None
+
+            periodic_cfg = solution_convergence_cfg.get('periodic_deterministic')
+            statistical_cfg = solution_convergence_cfg.get('statistical_steady')
+            if periodic_cfg is not None and not isinstance(periodic_cfg, dict):
+                errors.append(f"  {solver_path}: solution_convergence.periodic_deterministic must be a mapping when provided.")
+            if statistical_cfg is not None and not isinstance(statistical_cfg, dict):
+                errors.append(f"  {solver_path}: solution_convergence.statistical_steady must be a mapping when provided.")
+
+            if isinstance(periodic_cfg, dict):
+                unknown_periodic_keys = sorted(set(periodic_cfg.keys()) - {'period_steps'})
+                if unknown_periodic_keys:
+                    errors.append(
+                        f"  {solver_path}: unsupported keys in solution_convergence.periodic_deterministic: {unknown_periodic_keys}."
+                    )
+                period_steps = periodic_cfg.get('period_steps')
+                if period_steps is not None and (not isinstance(period_steps, int) or period_steps <= 0):
+                    errors.append(f"  {solver_path}: solution_convergence.periodic_deterministic.period_steps must be a positive integer.")
+
+            if isinstance(statistical_cfg, dict):
+                unknown_statistical_keys = sorted(set(statistical_cfg.keys()) - {'window_steps'})
+                if unknown_statistical_keys:
+                    errors.append(
+                        f"  {solver_path}: unsupported keys in solution_convergence.statistical_steady: {unknown_statistical_keys}."
+                    )
+                window_steps = statistical_cfg.get('window_steps')
+                if window_steps is not None and (not isinstance(window_steps, int) or window_steps <= 0):
+                    errors.append(f"  {solver_path}: solution_convergence.statistical_steady.window_steps must be a positive integer.")
+
+            if normalized_solution_mode == "PERIODIC_DETERMINISTIC":
+                if not isinstance(periodic_cfg, dict) or 'period_steps' not in periodic_cfg:
+                    errors.append(
+                        f"  {solver_path}: solution_convergence.periodic_deterministic.period_steps is required when mode is 'periodic_deterministic'."
+                    )
+            elif periodic_cfg is not None:
+                errors.append(
+                    f"  {solver_path}: solution_convergence.periodic_deterministic is only valid when mode is 'periodic_deterministic'."
+                )
+
+            if normalized_solution_mode == "STATISTICAL_STEADY":
+                if not isinstance(statistical_cfg, dict) or 'window_steps' not in statistical_cfg:
+                    errors.append(
+                        f"  {solver_path}: solution_convergence.statistical_steady.window_steps is required when mode is 'statistical_steady'."
+                    )
+            elif statistical_cfg is not None:
+                errors.append(
+                    f"  {solver_path}: solution_convergence.statistical_steady is only valid when mode is 'statistical_steady'."
+                )
+
     # --- solver.yml: interpolation section ---
     interp_cfg = solver_cfg.get('interpolation', {}) if isinstance(solver_cfg, dict) else {}
     if interp_cfg is not None and not isinstance(interp_cfg, dict):
@@ -4990,6 +5057,31 @@ def normalize_momentum_solver_type(value: str) -> str:
         )
     return mapped
 
+def normalize_solution_convergence_mode(value: str) -> str:
+    """!
+    @brief Normalizes the solution-convergence mode selector to the C-side canonical string.
+    @param[in] value Human-readable solution-convergence mode selector.
+    @return Canonical string accepted by `-solution_convergence_mode`.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if value is None:
+        raise ValueError("solution_convergence.mode cannot be None")
+
+    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "steady_deterministic": "STEADY_DETERMINISTIC",
+        "periodic_deterministic": "PERIODIC_DETERMINISTIC",
+        "statistical_steady": "STATISTICAL_STEADY",
+        "transient": "TRANSIENT",
+    }
+    mapped = aliases.get(normalized)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown solution_convergence.mode '{value}'. Use one of: "
+            "'steady_deterministic', 'periodic_deterministic', 'statistical_steady', 'transient'."
+        )
+    return mapped
+
 def normalize_field_init_mode(value: str) -> int:
     """!
     @brief Maps canonical field init mode names to C enum/int codes (-finit).
@@ -5438,6 +5530,23 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             if not isinstance(dt_picard_cfg, dict):
                 raise ValueError("momentum_solver.dual_time_picard_rk4 must be a mapping.")
             _append_dualtime_options(dt_picard_cfg)
+    solution_convergence_cfg = solver_cfg.get('solution_convergence', {})
+    if solution_convergence_cfg is not None:
+        if not isinstance(solution_convergence_cfg, dict):
+            raise ValueError("solution_convergence must be a mapping when provided.")
+        if solution_convergence_cfg:
+            mode = normalize_solution_convergence_mode(solution_convergence_cfg.get('mode', 'steady_deterministic'))
+            flags['-solution_convergence_mode'] = f"\"{mode}\""
+            if mode == "PERIODIC_DETERMINISTIC":
+                periodic_cfg = solution_convergence_cfg.get('periodic_deterministic')
+                if not isinstance(periodic_cfg, dict):
+                    raise ValueError("solution_convergence.periodic_deterministic must be a mapping when mode is 'periodic_deterministic'.")
+                flags['-solution_convergence_period_steps'] = periodic_cfg['period_steps']
+            if mode == "STATISTICAL_STEADY":
+                statistical_cfg = solution_convergence_cfg.get('statistical_steady')
+                if not isinstance(statistical_cfg, dict):
+                    raise ValueError("solution_convergence.statistical_steady must be a mapping when mode is 'statistical_steady'.")
+                flags['-solution_convergence_window_steps'] = statistical_cfg['window_steps']
     if 'pressure_solver' in solver_cfg:
         ps = solver_cfg['pressure_solver']
         if 'tolerance' in ps: flags['-poisson_tol'] = ps['tolerance']

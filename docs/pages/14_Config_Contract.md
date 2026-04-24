@@ -70,6 +70,7 @@ For each run, `picurv` generates:
 - `verification.sources.scalar.*` -> `-verification_scalar_*`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
 - Solver-specific block support currently includes `momentum_solver.dual_time_picard_rk4`.
+- `solution_convergence.*` -> `-solution_convergence_*` for physical solution drift logging.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.
 
@@ -85,6 +86,23 @@ Verification-pathway rule:
 - they are only valid for analytical solver runs.
 - `verification.sources.scalar` prescribes particle `Psi` and drives the runtime diagnostic `logs/scatter_metrics.csv` while leaving ordinary production runs unchanged when absent.
 - new verification source overrides belong in `verification_sources.*`, with production call sites kept as thin delegation points.
+
+Solution-convergence rule:
+
+- `solver.yml -> solution_convergence` is an optional override block for the always-on runtime solution-convergence logger.
+- the runtime always writes `logs/solution_convergence.csv` once per physical timestep, defaulting to `steady_deterministic` mode when the block is omitted.
+- it complements, rather than replaces, the inner solver-health logs:
+  - `logs/Momentum_Solver_Convergence_History_Block_*.log`
+  - `logs/Poisson_Solver_Convergence_History_Block_*.log`
+  - `logs/Continuity_Metrics.log`
+- supported modes are:
+  - `steady_deterministic`
+  - `periodic_deterministic`
+  - `statistical_steady`
+  - `transient`
+- `periodic_deterministic.period_steps` is required only when `mode: periodic_deterministic`.
+- `statistical_steady.window_steps` is required only when `mode: statistical_steady`.
+- nested mode blocks are rejected when they do not match the selected `mode`.
 
 @section p14_monitor_sec 5. Monitor Contract Highlights
 

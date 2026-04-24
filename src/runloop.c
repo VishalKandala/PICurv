@@ -732,6 +732,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // =================================================================
         //     4. UPDATE HISTORY & I/O
         // =================================================================
+
+        PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
         
         // Copy the newly computed fields (Ucont, P, etc.) to the history vectors
         // (_o, _rm1) to prepare for the next time step.

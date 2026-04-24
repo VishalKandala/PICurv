@@ -156,6 +156,43 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName);
 PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx);
 
 /**
+ * @brief Allocates any runtime storage required by solution-convergence logging.
+ *
+ * This helper is setup-owned because it allocates mode-specific buffers once
+ * the finest-level Eulerian vectors already exist. It does not compute or log
+ * any metrics; it only prepares storage for later use by
+ * `LOG_SOLUTION_CONVERGENCE()`.
+ *
+ * Allocation depends on the active solution-convergence mode:
+ * - steady/transient: no extra storage beyond counters
+ * - periodic_deterministic: one phase-aligned `Ucat` / `P` reference slot per
+ *   configured period step and per block
+ * - statistical_steady: rolling scalar histories sized for two adjacent
+ *   windows of `mean_speed` and `mean_ke`
+ *
+ * The helper also resets the recorded-sample counter so warmup behavior starts
+ * from a clean state each time solver setup is rebuilt.
+ *
+ * @param[in,out] simCtx Master simulation context owning the runtime storage.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode InitializeSolutionConvergenceState(SimCtx *simCtx);
+
+/**
+ * @brief Frees any runtime storage allocated for solution-convergence logging.
+ *
+ * This helper is the cleanup counterpart to
+ * `InitializeSolutionConvergenceState()`. It releases periodic reference
+ * buffers and statistical-history arrays, then resets the associated pointers
+ * and counters. It is safe to call during teardown even if a given mode never
+ * allocated optional storage.
+ *
+ * @param[in,out] simCtx Master simulation context owning the runtime storage.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode DestroySolutionConvergenceState(SimCtx *simCtx);
+
+/**
  * @brief Allocates a 3D array of PetscReal values using PetscCalloc.
  *
  * This function dynamically allocates memory for a 3D array of PetscReal values

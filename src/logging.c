@@ -890,6 +890,789 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
     PetscFunctionReturn(0);
 }
 
+#define SOLUTION_CONVERGENCE_FLUID_THRESHOLD 0.1
+#define SOLUTION_CONVERGENCE_REL_EPS 1.0e-30
+
+typedef struct SolutionConvergenceDeterministicPass1 {
+    PetscReal fluid_volume;
+    PetscReal current_speed_sum;
+    PetscReal current_ke_sum;
+    PetscReal reference_speed_sum;
+    PetscReal reference_ke_sum;
+    PetscReal current_u_norm_sq;
+    PetscReal delta_u_norm_sq;
+    PetscReal current_pressure_sum;
+    PetscReal reference_pressure_sum;
+} SolutionConvergenceDeterministicPass1;
+
+typedef struct SolutionConvergenceDeterministicPass2 {
+    PetscReal current_pressure_norm_sq;
+    PetscReal delta_pressure_norm_sq;
+} SolutionConvergenceDeterministicPass2;
+
+/**
+ * @brief Forms a guarded relative metric for solution-convergence logging.
+ *
+ * This helper centralizes the divide-by-nearly-zero protection used by the
+ * solution-convergence logger when turning an absolute drift into a relative
+ * one. The denominator is clamped away from zero so warmup rows, quiescent
+ * fields, and statistically small observables do not generate infinities.
+ *
+ * @param[in] numerator   Absolute quantity or drift magnitude.
+ * @param[in] denominator Reference magnitude used for normalization.
+ * @return Guarded relative value `numerator / max(|denominator|, eps)`.
+ */
+static PetscReal SolutionConvergenceSafeRelative(PetscReal numerator, PetscReal denominator)
+{
+    return numerator / PetscMax(PetscAbsReal(denominator), SOLUTION_CONVERGENCE_REL_EPS);
+}
+
+/**
+ * @brief Computes instantaneous global flow observables for statistical mode.
+ *
+ * The statistical solution-convergence path does not compare full Eulerian
+ * fields. Instead, it tracks a compact history of global observables derived
+ * from the completed Eulerian state. This helper computes the current
+ * volume-weighted fluid-domain mean speed and mean kinetic energy from `Ucat`.
+ *
+ * Only physical fluid cells contribute:
+ * - solid/immersed cells are excluded using `Nvert`
+ * - cells with near-zero metric Jacobian are ignored to avoid invalid volume
+ *   weights
+ *
+ * Each MPI rank accumulates local partial sums and the routine reduces them to
+ * one global pair of observables.
+ *
+ * @param[in]  simCtx          Simulation context owning the finest-level flow
+ *                             fields.
+ * @param[out] mean_speed_out  Volume-weighted domain mean of `|u|`.
+ * @param[out] mean_ke_out     Volume-weighted domain mean of `0.5 |u|^2`.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode ComputeCurrentFlowObservables(SimCtx *simCtx, PetscReal *mean_speed_out, PetscReal *mean_ke_out)
+{
+    PetscReal local[3] = {0.0, 0.0, 0.0};
+    PetscReal global[3] = {0.0, 0.0, 0.0};
+    UserCtx   *user = NULL;
+
+    PetscFunctionBeginUser;
+    if (!simCtx || !mean_speed_out || !mean_ke_out) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ComputeCurrentFlowObservables received a NULL argument.");
+    }
+
+    user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+
+    for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+        const DMDALocalInfo info = user[bi].info;
+        Cmpnts           ***ucat = NULL;
+        PetscReal        ***aj = NULL;
+        PetscReal        ***nvert = NULL;
+
+        PetscCall(DMDAVecGetArrayRead(user[bi].fda, user[bi].Ucat, &ucat));
+        PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Aj, &aj));
+        PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Nvert, &nvert));
+
+        for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
+            for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
+                for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+                    PetscReal jac = aj[k][j][i];
+                    PetscReal cell_volume = 0.0;
+                    PetscReal speed = 0.0;
+                    PetscReal ke = 0.0;
+
+                    if (nvert[k][j][i] > SOLUTION_CONVERGENCE_FLUID_THRESHOLD) continue;
+                    if (PetscAbsReal(jac) <= 1.0e-14) continue;
+
+                    cell_volume = 1.0 / jac;
+                    speed = PetscSqrtReal(ucat[k][j][i].x * ucat[k][j][i].x +
+                                          ucat[k][j][i].y * ucat[k][j][i].y +
+                                          ucat[k][j][i].z * ucat[k][j][i].z);
+                    ke = 0.5 * speed * speed;
+
+                    local[0] += cell_volume;
+                    local[1] += speed * cell_volume;
+                    local[2] += ke * cell_volume;
+                }
+            }
+        }
+
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].da, user[bi].Nvert, &nvert));
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].da, user[bi].Aj, &aj));
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].fda, user[bi].Ucat, &ucat));
+    }
+
+    PetscCallMPI(MPI_Allreduce(local, global, 3, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+
+    if (global[0] <= 0.0) {
+        *mean_speed_out = 0.0;
+        *mean_ke_out = 0.0;
+    } else {
+        *mean_speed_out = global[1] / global[0];
+        *mean_ke_out = global[2] / global[0];
+    }
+
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Computes deterministic solution-drift metrics for the current step.
+ *
+ * This helper powers both `steady_deterministic` and
+ * `periodic_deterministic` solution-convergence modes. It compares the
+ * completed Eulerian state against either:
+ * - the previous physical timestep (`Ucat_o`, `P_o`) for steady/transient use
+ * - the stored phase-aligned snapshot ring for periodic use
+ *
+ * The routine performs two passes over the fluid cells:
+ * 1. velocity/observable pass
+ *    - computes current and reference mean speed / mean KE
+ *    - computes absolute/relative velocity L2 drift
+ *    - accumulates pressure means needed for gauge removal
+ * 2. pressure-only pass
+ *    - subtracts the volume-weighted mean pressure from both states
+ *    - computes gauge-invariant pressure L2 drift
+ *
+ * Warmup behavior is handled here. If no valid reference exists yet, all drift
+ * outputs are left at zero and `has_reference_out` is set to `PETSC_FALSE`,
+ * while current observables are still reported.
+ *
+ * @param[in]  simCtx               Simulation context owning the current state.
+ * @param[in]  periodic_mode        `PETSC_TRUE` when comparing against
+ *                                  phase-aligned periodic storage.
+ * @param[in]  phase_step           Active phase slot for periodic mode, or `-1`
+ *                                  when unused.
+ * @param[in]  samples_before       Number of solution-convergence samples
+ *                                  already recorded before this timestep.
+ * @param[out] has_reference_out    Whether a valid comparison state existed.
+ * @param[out] u_abs_l2_out         Absolute L2 drift of Cartesian velocity.
+ * @param[out] u_rel_l2_out         Relative L2 drift of Cartesian velocity.
+ * @param[out] p_abs_l2_out         Gauge-invariant absolute L2 pressure drift.
+ * @param[out] p_rel_l2_out         Gauge-invariant relative L2 pressure drift.
+ * @param[out] mean_speed_out       Current volume-weighted mean speed.
+ * @param[out] mean_speed_ref_out   Reference volume-weighted mean speed.
+ * @param[out] mean_speed_abs_out   Absolute drift of mean speed.
+ * @param[out] mean_speed_rel_out   Relative drift of mean speed.
+ * @param[out] mean_ke_out          Current volume-weighted mean kinetic energy.
+ * @param[out] mean_ke_ref_out      Reference volume-weighted mean kinetic
+ *                                  energy.
+ * @param[out] mean_ke_abs_out      Absolute drift of mean kinetic energy.
+ * @param[out] mean_ke_rel_out      Relative drift of mean kinetic energy.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
+                                                          PetscBool periodic_mode,
+                                                          PetscInt phase_step,
+                                                          PetscInt samples_before,
+                                                          PetscBool *has_reference_out,
+                                                          PetscReal *u_abs_l2_out,
+                                                          PetscReal *u_rel_l2_out,
+                                                          PetscReal *p_abs_l2_out,
+                                                          PetscReal *p_rel_l2_out,
+                                                          PetscReal *mean_speed_out,
+                                                          PetscReal *mean_speed_ref_out,
+                                                          PetscReal *mean_speed_abs_out,
+                                                          PetscReal *mean_speed_rel_out,
+                                                          PetscReal *mean_ke_out,
+                                                          PetscReal *mean_ke_ref_out,
+                                                          PetscReal *mean_ke_abs_out,
+                                                          PetscReal *mean_ke_rel_out)
+{
+    SolutionConvergenceDeterministicPass1 local_pass1 = {0};
+    SolutionConvergenceDeterministicPass1 global_pass1 = {0};
+    SolutionConvergenceDeterministicPass2 local_pass2 = {0};
+    SolutionConvergenceDeterministicPass2 global_pass2 = {0};
+    PetscReal current_pressure_mean = 0.0;
+    PetscReal reference_pressure_mean = 0.0;
+    UserCtx   *user = NULL;
+
+    PetscFunctionBeginUser;
+    if (!simCtx || !has_reference_out || !u_abs_l2_out || !u_rel_l2_out || !p_abs_l2_out || !p_rel_l2_out ||
+        !mean_speed_out || !mean_speed_ref_out || !mean_speed_abs_out || !mean_speed_rel_out ||
+        !mean_ke_out || !mean_ke_ref_out || !mean_ke_abs_out || !mean_ke_rel_out) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ComputeDeterministicSolutionMetrics received a NULL output pointer.");
+    }
+
+    *has_reference_out = periodic_mode
+        ? (PetscBool)(simCtx->solutionConvergencePeriodSteps > 0 &&
+                      phase_step >= 0 &&
+                      phase_step < simCtx->solutionConvergencePeriodSteps &&
+                      samples_before >= simCtx->solutionConvergencePeriodSteps)
+        : (PetscBool)(samples_before > 0);
+
+    *u_abs_l2_out = 0.0;
+    *u_rel_l2_out = 0.0;
+    *p_abs_l2_out = 0.0;
+    *p_rel_l2_out = 0.0;
+    *mean_speed_out = 0.0;
+    *mean_speed_ref_out = 0.0;
+    *mean_speed_abs_out = 0.0;
+    *mean_speed_rel_out = 0.0;
+    *mean_ke_out = 0.0;
+    *mean_ke_ref_out = 0.0;
+    *mean_ke_abs_out = 0.0;
+    *mean_ke_rel_out = 0.0;
+
+    user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+
+    for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+        const DMDALocalInfo info = user[bi].info;
+        Cmpnts           ***ucat = NULL;
+        Cmpnts           ***ucat_ref = NULL;
+        PetscReal        ***pressure = NULL;
+        PetscReal        ***pressure_ref = NULL;
+        PetscReal        ***aj = NULL;
+        PetscReal        ***nvert = NULL;
+        Vec                 ucat_reference_vec = NULL;
+        Vec                 pressure_reference_vec = NULL;
+
+        if (*has_reference_out) {
+            if (periodic_mode) {
+                ucat_reference_vec = user[bi].solutionConvergencePeriodicUcatRef[phase_step];
+                pressure_reference_vec = user[bi].solutionConvergencePeriodicPRef[phase_step];
+            } else {
+                ucat_reference_vec = user[bi].Ucat_o;
+                pressure_reference_vec = user[bi].P_o;
+            }
+        }
+
+        PetscCall(DMDAVecGetArrayRead(user[bi].fda, user[bi].Ucat, &ucat));
+        PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].P, &pressure));
+        PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Aj, &aj));
+        PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Nvert, &nvert));
+        if (*has_reference_out) {
+            PetscCall(DMDAVecGetArrayRead(user[bi].fda, ucat_reference_vec, &ucat_ref));
+            PetscCall(DMDAVecGetArrayRead(user[bi].da, pressure_reference_vec, &pressure_ref));
+        }
+
+        for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
+            for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
+                for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+                    PetscReal jac = aj[k][j][i];
+                    PetscReal cell_volume = 0.0;
+                    PetscReal speed = 0.0;
+                    PetscReal ke = 0.0;
+
+                    if (nvert[k][j][i] > SOLUTION_CONVERGENCE_FLUID_THRESHOLD) continue;
+                    if (PetscAbsReal(jac) <= 1.0e-14) continue;
+
+                    cell_volume = 1.0 / jac;
+                    speed = PetscSqrtReal(ucat[k][j][i].x * ucat[k][j][i].x +
+                                          ucat[k][j][i].y * ucat[k][j][i].y +
+                                          ucat[k][j][i].z * ucat[k][j][i].z);
+                    ke = 0.5 * speed * speed;
+
+                    local_pass1.fluid_volume += cell_volume;
+                    local_pass1.current_speed_sum += speed * cell_volume;
+                    local_pass1.current_ke_sum += ke * cell_volume;
+                    local_pass1.current_u_norm_sq += (ucat[k][j][i].x * ucat[k][j][i].x +
+                                                      ucat[k][j][i].y * ucat[k][j][i].y +
+                                                      ucat[k][j][i].z * ucat[k][j][i].z) * cell_volume;
+
+                    if (*has_reference_out) {
+                        PetscReal ref_speed = PetscSqrtReal(ucat_ref[k][j][i].x * ucat_ref[k][j][i].x +
+                                                            ucat_ref[k][j][i].y * ucat_ref[k][j][i].y +
+                                                            ucat_ref[k][j][i].z * ucat_ref[k][j][i].z);
+                        PetscReal ref_ke = 0.5 * ref_speed * ref_speed;
+                        PetscReal dux = ucat[k][j][i].x - ucat_ref[k][j][i].x;
+                        PetscReal duy = ucat[k][j][i].y - ucat_ref[k][j][i].y;
+                        PetscReal duz = ucat[k][j][i].z - ucat_ref[k][j][i].z;
+
+                        local_pass1.reference_speed_sum += ref_speed * cell_volume;
+                        local_pass1.reference_ke_sum += ref_ke * cell_volume;
+                        local_pass1.delta_u_norm_sq += (dux * dux + duy * duy + duz * duz) * cell_volume;
+                        local_pass1.current_pressure_sum += pressure[k][j][i] * cell_volume;
+                        local_pass1.reference_pressure_sum += pressure_ref[k][j][i] * cell_volume;
+                    }
+                }
+            }
+        }
+
+        if (*has_reference_out) {
+            PetscCall(DMDAVecRestoreArrayRead(user[bi].da, pressure_reference_vec, &pressure_ref));
+            PetscCall(DMDAVecRestoreArrayRead(user[bi].fda, ucat_reference_vec, &ucat_ref));
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].da, user[bi].Nvert, &nvert));
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].da, user[bi].Aj, &aj));
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].da, user[bi].P, &pressure));
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].fda, user[bi].Ucat, &ucat));
+    }
+
+    PetscCallMPI(MPI_Allreduce(&local_pass1, &global_pass1,
+                               sizeof(SolutionConvergenceDeterministicPass1) / sizeof(PetscReal),
+                               MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+
+    if (global_pass1.fluid_volume <= 0.0) PetscFunctionReturn(0);
+
+    *mean_speed_out = global_pass1.current_speed_sum / global_pass1.fluid_volume;
+    *mean_ke_out = global_pass1.current_ke_sum / global_pass1.fluid_volume;
+
+    if (!*has_reference_out) PetscFunctionReturn(0);
+
+    *mean_speed_ref_out = global_pass1.reference_speed_sum / global_pass1.fluid_volume;
+    *mean_speed_abs_out = PetscAbsReal(*mean_speed_out - *mean_speed_ref_out);
+    *mean_speed_rel_out = SolutionConvergenceSafeRelative(*mean_speed_abs_out, *mean_speed_out);
+    *mean_ke_ref_out = global_pass1.reference_ke_sum / global_pass1.fluid_volume;
+    *mean_ke_abs_out = PetscAbsReal(*mean_ke_out - *mean_ke_ref_out);
+    *mean_ke_rel_out = SolutionConvergenceSafeRelative(*mean_ke_abs_out, *mean_ke_out);
+
+    current_pressure_mean = global_pass1.current_pressure_sum / global_pass1.fluid_volume;
+    reference_pressure_mean = global_pass1.reference_pressure_sum / global_pass1.fluid_volume;
+
+    for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+        const DMDALocalInfo info = user[bi].info;
+        PetscReal        ***pressure = NULL;
+        PetscReal        ***pressure_ref = NULL;
+        PetscReal        ***aj = NULL;
+        PetscReal        ***nvert = NULL;
+        Vec                 pressure_reference_vec = periodic_mode ? user[bi].solutionConvergencePeriodicPRef[phase_step] : user[bi].P_o;
+
+        PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].P, &pressure));
+        PetscCall(DMDAVecGetArrayRead(user[bi].da, pressure_reference_vec, &pressure_ref));
+        PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Aj, &aj));
+        PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Nvert, &nvert));
+
+        for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
+            for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
+                for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+                    PetscReal jac = aj[k][j][i];
+                    PetscReal cell_volume = 0.0;
+                    PetscReal current_pressure = 0.0;
+                    PetscReal reference_pressure = 0.0;
+                    PetscReal delta_pressure = 0.0;
+
+                    if (nvert[k][j][i] > SOLUTION_CONVERGENCE_FLUID_THRESHOLD) continue;
+                    if (PetscAbsReal(jac) <= 1.0e-14) continue;
+
+                    cell_volume = 1.0 / jac;
+                    current_pressure = pressure[k][j][i] - current_pressure_mean;
+                    reference_pressure = pressure_ref[k][j][i] - reference_pressure_mean;
+                    delta_pressure = current_pressure - reference_pressure;
+
+                    local_pass2.current_pressure_norm_sq += current_pressure * current_pressure * cell_volume;
+                    local_pass2.delta_pressure_norm_sq += delta_pressure * delta_pressure * cell_volume;
+                }
+            }
+        }
+
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].da, user[bi].Nvert, &nvert));
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].da, user[bi].Aj, &aj));
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].da, pressure_reference_vec, &pressure_ref));
+        PetscCall(DMDAVecRestoreArrayRead(user[bi].da, user[bi].P, &pressure));
+    }
+
+    PetscCallMPI(MPI_Allreduce(&local_pass2, &global_pass2,
+                               sizeof(SolutionConvergenceDeterministicPass2) / sizeof(PetscReal),
+                               MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+
+    *u_abs_l2_out = PetscSqrtReal(global_pass1.delta_u_norm_sq);
+    *u_rel_l2_out = SolutionConvergenceSafeRelative(*u_abs_l2_out, PetscSqrtReal(global_pass1.current_u_norm_sq));
+    *p_abs_l2_out = PetscSqrtReal(global_pass2.delta_pressure_norm_sq);
+    *p_rel_l2_out = SolutionConvergenceSafeRelative(*p_abs_l2_out, PetscSqrtReal(global_pass2.current_pressure_norm_sq));
+
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Reads one sample from the statistical ring buffer by age.
+ *
+ * The statistical logger stores scalar observables in a compact circular
+ * buffer. This helper interprets the buffer using `samples_available` as the
+ * logical end of the history and returns the entry `offset_from_latest` steps
+ * back from the newest stored sample.
+ *
+ * Out-of-range requests return zero so warmup handling can remain simple and
+ * deterministic.
+ *
+ * @param[in] history              Ring-buffer storage array.
+ * @param[in] capacity             Total ring-buffer capacity.
+ * @param[in] samples_available    Number of logical samples available to read.
+ * @param[in] offset_from_latest   `0` means newest sample, `1` previous sample,
+ *                                 and so on.
+ * @return Requested historical sample, or `0.0` if unavailable.
+ */
+static PetscReal SolutionConvergenceHistoryGet(const PetscReal *history,
+                                               PetscInt capacity,
+                                               PetscInt samples_available,
+                                               PetscInt offset_from_latest)
+{
+    PetscInt count = 0;
+    PetscInt index = 0;
+
+    if (!history || capacity <= 0 || samples_available <= 0 || offset_from_latest < 0) {
+        return 0.0;
+    }
+
+    count = PetscMin(samples_available, capacity);
+    if (offset_from_latest >= count) return 0.0;
+
+    index = (samples_available - 1 - offset_from_latest) % capacity;
+    if (index < 0) index += capacity;
+    return history[index];
+}
+
+/**
+ * @brief Appends one timestep's scalar observables to the statistical history.
+ *
+ * Statistical solution-convergence compares adjacent windows of scalar
+ * observables rather than full fields. This helper writes the current
+ * `mean_speed` and `mean_ke` into the rolling history arrays using the current
+ * sample count to choose the circular-buffer slot.
+ *
+ * @param[in,out] simCtx         Simulation context owning the history arrays.
+ * @param[in]     samples_before Number of samples present before appending the
+ *                               current timestep.
+ * @param[in]     mean_speed     Current timestep mean-speed observable.
+ * @param[in]     mean_ke        Current timestep mean-KE observable.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode AppendStatisticalObservableSample(SimCtx *simCtx,
+                                                        PetscInt samples_before,
+                                                        PetscReal mean_speed,
+                                                        PetscReal mean_ke)
+{
+    PetscInt history_capacity = 0;
+    PetscInt slot = 0;
+
+    PetscFunctionBeginUser;
+    if (!simCtx || !simCtx->solutionConvergenceMeanSpeedHistory || !simCtx->solutionConvergenceMeanKEHistory) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Statistical solution-convergence history is not allocated.");
+    }
+
+    history_capacity = 2 * simCtx->solutionConvergenceWindowSteps;
+    if (history_capacity <= 0) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Statistical solution-convergence history capacity must be positive.");
+    }
+
+    slot = samples_before % history_capacity;
+    simCtx->solutionConvergenceMeanSpeedHistory[slot] = mean_speed;
+    simCtx->solutionConvergenceMeanKEHistory[slot] = mean_ke;
+
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Computes adjacent-window drift metrics for statistical steady mode.
+ *
+ * Once enough samples have been accumulated, this helper forms:
+ * - the current window over the most recent `window_steps` samples
+ * - the previous adjacent window over the preceding `window_steps` samples
+ *
+ * From those windows it computes means, RMS values, and absolute/relative
+ * drift for both tracked observables (`mean_speed` and `mean_ke`). When the
+ * history is still warming up:
+ * - fewer than `window_steps` samples: no window metrics are available
+ * - between `window_steps` and `2*window_steps - 1` samples: current-window
+ *   metrics are available, but no reference window exists yet
+ *
+ * @param[in]  simCtx                           Simulation context owning the
+ *                                             statistical history.
+ * @param[in]  samples_available               Number of samples available after
+ *                                             appending the current timestep.
+ * @param[out] has_reference_out               Whether both adjacent windows
+ *                                             exist and drift metrics are
+ *                                             meaningful.
+ * @param[out] mean_speed_window_out           Mean speed over the current
+ *                                             window.
+ * @param[out] mean_speed_window_prev_out      Mean speed over the previous
+ *                                             window.
+ * @param[out] mean_speed_window_abs_out       Absolute drift between current
+ *                                             and previous window means.
+ * @param[out] mean_speed_window_rel_out       Relative drift between current
+ *                                             and previous window means.
+ * @param[out] mean_speed_rms_window_out       RMS of mean-speed samples in the
+ *                                             current window.
+ * @param[out] mean_speed_rms_window_prev_out  RMS of mean-speed samples in the
+ *                                             previous window.
+ * @param[out] mean_speed_rms_window_abs_out   Absolute drift between window RMS
+ *                                             values.
+ * @param[out] mean_speed_rms_window_rel_out   Relative drift between window RMS
+ *                                             values.
+ * @param[out] mean_ke_window_out              Mean kinetic energy over the
+ *                                             current window.
+ * @param[out] mean_ke_window_prev_out         Mean kinetic energy over the
+ *                                             previous window.
+ * @param[out] mean_ke_window_abs_out          Absolute drift between current
+ *                                             and previous KE-window means.
+ * @param[out] mean_ke_window_rel_out          Relative drift between current
+ *                                             and previous KE-window means.
+ * @param[out] mean_ke_rms_window_out          RMS of mean-KE samples in the
+ *                                             current window.
+ * @param[out] mean_ke_rms_window_prev_out     RMS of mean-KE samples in the
+ *                                             previous window.
+ * @param[out] mean_ke_rms_window_abs_out      Absolute drift between KE-window
+ *                                             RMS values.
+ * @param[out] mean_ke_rms_window_rel_out      Relative drift between KE-window
+ *                                             RMS values.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode ComputeStatisticalWindowMetrics(const SimCtx *simCtx,
+                                                      PetscInt samples_available,
+                                                      PetscBool *has_reference_out,
+                                                      PetscReal *mean_speed_window_out,
+                                                      PetscReal *mean_speed_window_prev_out,
+                                                      PetscReal *mean_speed_window_abs_out,
+                                                      PetscReal *mean_speed_window_rel_out,
+                                                      PetscReal *mean_speed_rms_window_out,
+                                                      PetscReal *mean_speed_rms_window_prev_out,
+                                                      PetscReal *mean_speed_rms_window_abs_out,
+                                                      PetscReal *mean_speed_rms_window_rel_out,
+                                                      PetscReal *mean_ke_window_out,
+                                                      PetscReal *mean_ke_window_prev_out,
+                                                      PetscReal *mean_ke_window_abs_out,
+                                                      PetscReal *mean_ke_window_rel_out,
+                                                      PetscReal *mean_ke_rms_window_out,
+                                                      PetscReal *mean_ke_rms_window_prev_out,
+                                                      PetscReal *mean_ke_rms_window_abs_out,
+                                                      PetscReal *mean_ke_rms_window_rel_out)
+{
+    PetscInt  w = 0;
+    PetscInt  history_capacity = 0;
+    PetscReal speed_sum = 0.0;
+    PetscReal speed_sum_sq = 0.0;
+    PetscReal speed_prev_sum = 0.0;
+    PetscReal speed_prev_sum_sq = 0.0;
+    PetscReal ke_sum = 0.0;
+    PetscReal ke_sum_sq = 0.0;
+    PetscReal ke_prev_sum = 0.0;
+    PetscReal ke_prev_sum_sq = 0.0;
+
+    PetscFunctionBeginUser;
+    if (!simCtx || !has_reference_out || !mean_speed_window_out || !mean_speed_window_prev_out ||
+        !mean_speed_window_abs_out || !mean_speed_window_rel_out || !mean_speed_rms_window_out ||
+        !mean_speed_rms_window_prev_out || !mean_speed_rms_window_abs_out || !mean_speed_rms_window_rel_out ||
+        !mean_ke_window_out || !mean_ke_window_prev_out || !mean_ke_window_abs_out || !mean_ke_window_rel_out ||
+        !mean_ke_rms_window_out || !mean_ke_rms_window_prev_out || !mean_ke_rms_window_abs_out ||
+        !mean_ke_rms_window_rel_out) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ComputeStatisticalWindowMetrics received a NULL output pointer.");
+    }
+
+    *has_reference_out = PETSC_FALSE;
+    *mean_speed_window_out = 0.0;
+    *mean_speed_window_prev_out = 0.0;
+    *mean_speed_window_abs_out = 0.0;
+    *mean_speed_window_rel_out = 0.0;
+    *mean_speed_rms_window_out = 0.0;
+    *mean_speed_rms_window_prev_out = 0.0;
+    *mean_speed_rms_window_abs_out = 0.0;
+    *mean_speed_rms_window_rel_out = 0.0;
+    *mean_ke_window_out = 0.0;
+    *mean_ke_window_prev_out = 0.0;
+    *mean_ke_window_abs_out = 0.0;
+    *mean_ke_window_rel_out = 0.0;
+    *mean_ke_rms_window_out = 0.0;
+    *mean_ke_rms_window_prev_out = 0.0;
+    *mean_ke_rms_window_abs_out = 0.0;
+    *mean_ke_rms_window_rel_out = 0.0;
+
+    w = simCtx->solutionConvergenceWindowSteps;
+    history_capacity = 2 * w;
+    if (w <= 0 || samples_available < w) PetscFunctionReturn(0);
+
+    for (PetscInt idx = 0; idx < w; ++idx) {
+        PetscReal speed_value = SolutionConvergenceHistoryGet(simCtx->solutionConvergenceMeanSpeedHistory,
+                                                              history_capacity,
+                                                              samples_available,
+                                                              idx);
+        PetscReal ke_value = SolutionConvergenceHistoryGet(simCtx->solutionConvergenceMeanKEHistory,
+                                                           history_capacity,
+                                                           samples_available,
+                                                           idx);
+        speed_sum += speed_value;
+        speed_sum_sq += speed_value * speed_value;
+        ke_sum += ke_value;
+        ke_sum_sq += ke_value * ke_value;
+    }
+
+    *mean_speed_window_out = speed_sum / (PetscReal)w;
+    *mean_speed_rms_window_out = PetscSqrtReal(PetscMax(0.0, speed_sum_sq / (PetscReal)w -
+                                                             (*mean_speed_window_out) * (*mean_speed_window_out)));
+    *mean_ke_window_out = ke_sum / (PetscReal)w;
+    *mean_ke_rms_window_out = PetscSqrtReal(PetscMax(0.0, ke_sum_sq / (PetscReal)w -
+                                                          (*mean_ke_window_out) * (*mean_ke_window_out)));
+
+    if (samples_available < 2 * w) PetscFunctionReturn(0);
+
+    for (PetscInt idx = w; idx < 2 * w; ++idx) {
+        PetscReal speed_value = SolutionConvergenceHistoryGet(simCtx->solutionConvergenceMeanSpeedHistory,
+                                                              history_capacity,
+                                                              samples_available,
+                                                              idx);
+        PetscReal ke_value = SolutionConvergenceHistoryGet(simCtx->solutionConvergenceMeanKEHistory,
+                                                           history_capacity,
+                                                           samples_available,
+                                                           idx);
+        speed_prev_sum += speed_value;
+        speed_prev_sum_sq += speed_value * speed_value;
+        ke_prev_sum += ke_value;
+        ke_prev_sum_sq += ke_value * ke_value;
+    }
+
+    *has_reference_out = PETSC_TRUE;
+    *mean_speed_window_prev_out = speed_prev_sum / (PetscReal)w;
+    *mean_speed_window_abs_out = PetscAbsReal(*mean_speed_window_out - *mean_speed_window_prev_out);
+    *mean_speed_window_rel_out = SolutionConvergenceSafeRelative(*mean_speed_window_abs_out, *mean_speed_window_out);
+    *mean_speed_rms_window_prev_out = PetscSqrtReal(PetscMax(0.0, speed_prev_sum_sq / (PetscReal)w -
+                                                                   (*mean_speed_window_prev_out) * (*mean_speed_window_prev_out)));
+    *mean_speed_rms_window_abs_out = PetscAbsReal(*mean_speed_rms_window_out - *mean_speed_rms_window_prev_out);
+    *mean_speed_rms_window_rel_out = SolutionConvergenceSafeRelative(*mean_speed_rms_window_abs_out, *mean_speed_rms_window_out);
+
+    *mean_ke_window_prev_out = ke_prev_sum / (PetscReal)w;
+    *mean_ke_window_abs_out = PetscAbsReal(*mean_ke_window_out - *mean_ke_window_prev_out);
+    *mean_ke_window_rel_out = SolutionConvergenceSafeRelative(*mean_ke_window_abs_out, *mean_ke_window_out);
+    *mean_ke_rms_window_prev_out = PetscSqrtReal(PetscMax(0.0, ke_prev_sum_sq / (PetscReal)w -
+                                                                (*mean_ke_window_prev_out) * (*mean_ke_window_prev_out)));
+    *mean_ke_rms_window_abs_out = PetscAbsReal(*mean_ke_rms_window_out - *mean_ke_rms_window_prev_out);
+    *mean_ke_rms_window_rel_out = SolutionConvergenceSafeRelative(*mean_ke_rms_window_abs_out, *mean_ke_rms_window_out);
+
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Maps the internal solution-convergence mode enum to its CSV label.
+ *
+ * The logger writes a human-readable mode string into
+ * `solution_convergence.csv`. This helper keeps the formatting centralized so
+ * the file output stays consistent with the accepted configuration names.
+ *
+ * @param[in] mode Internal solution-convergence mode selector.
+ * @return Lowercase string label written to the CSV output.
+ */
+static const char *SolutionConvergenceModeToString(SolutionConvergenceMode mode)
+{
+    switch (mode) {
+        case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC: return "steady_deterministic";
+        case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC: return "periodic_deterministic";
+        case SOLUTION_CONVERGENCE_STATISTICAL_STEADY: return "statistical_steady";
+        case SOLUTION_CONVERGENCE_TRANSIENT: return "transient";
+        default: return "unknown";
+    }
+}
+
+/**
+ * @brief Implementation of \ref LOG_SOLUTION_CONVERGENCE().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see LOG_SOLUTION_CONVERGENCE()
+ */
+PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
+{
+    PetscMPIInt rank = 0;
+    PetscBool   has_reference = PETSC_FALSE;
+    PetscInt    phase_step = -1;
+    PetscInt    samples_before = 0;
+    PetscReal   u_abs_l2 = 0.0, u_rel_l2 = 0.0, p_abs_l2 = 0.0, p_rel_l2 = 0.0;
+    PetscReal   mean_speed = 0.0, mean_speed_reference = 0.0, mean_speed_abs_drift = 0.0, mean_speed_rel_drift = 0.0;
+    PetscReal   mean_ke = 0.0, mean_ke_reference = 0.0, mean_ke_abs_drift = 0.0, mean_ke_rel_drift = 0.0;
+    PetscReal   mean_speed_window = 0.0, mean_speed_window_prev = 0.0, mean_speed_window_abs_drift = 0.0, mean_speed_window_rel_drift = 0.0;
+    PetscReal   mean_speed_rms_window = 0.0, mean_speed_rms_window_prev = 0.0, mean_speed_rms_window_abs_drift = 0.0, mean_speed_rms_window_rel_drift = 0.0;
+    PetscReal   mean_ke_window = 0.0, mean_ke_window_prev = 0.0, mean_ke_window_abs_drift = 0.0, mean_ke_window_rel_drift = 0.0;
+    PetscReal   mean_ke_rms_window = 0.0, mean_ke_rms_window_prev = 0.0, mean_ke_rms_window_abs_drift = 0.0, mean_ke_rms_window_rel_drift = 0.0;
+
+    PetscFunctionBeginUser;
+    if (!simCtx) PetscFunctionReturn(0);
+    if (simCtx->exec_mode != EXEC_MODE_SOLVER) PetscFunctionReturn(0);
+
+    samples_before = simCtx->solutionConvergenceSamplesRecorded;
+
+    switch (simCtx->solutionConvergenceMode) {
+        case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC:
+        case SOLUTION_CONVERGENCE_TRANSIENT:
+            PetscCall(ComputeDeterministicSolutionMetrics(simCtx, PETSC_FALSE, -1, samples_before,
+                                                          &has_reference,
+                                                          &u_abs_l2, &u_rel_l2,
+                                                          &p_abs_l2, &p_rel_l2,
+                                                          &mean_speed, &mean_speed_reference,
+                                                          &mean_speed_abs_drift, &mean_speed_rel_drift,
+                                                          &mean_ke, &mean_ke_reference,
+                                                          &mean_ke_abs_drift, &mean_ke_rel_drift));
+            break;
+        case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC:
+            phase_step = simCtx->solutionConvergencePeriodSteps > 0 ? (simCtx->step % simCtx->solutionConvergencePeriodSteps) : -1;
+            PetscCall(ComputeDeterministicSolutionMetrics(simCtx, PETSC_TRUE, phase_step, samples_before,
+                                                          &has_reference,
+                                                          &u_abs_l2, &u_rel_l2,
+                                                          &p_abs_l2, &p_rel_l2,
+                                                          &mean_speed, &mean_speed_reference,
+                                                          &mean_speed_abs_drift, &mean_speed_rel_drift,
+                                                          &mean_ke, &mean_ke_reference,
+                                                          &mean_ke_abs_drift, &mean_ke_rel_drift));
+            break;
+        case SOLUTION_CONVERGENCE_STATISTICAL_STEADY:
+            PetscCall(ComputeCurrentFlowObservables(simCtx, &mean_speed, &mean_ke));
+            PetscCall(AppendStatisticalObservableSample(simCtx, samples_before, mean_speed, mean_ke));
+            PetscCall(ComputeStatisticalWindowMetrics(simCtx, samples_before + 1,
+                                                      &has_reference,
+                                                      &mean_speed_window, &mean_speed_window_prev,
+                                                      &mean_speed_window_abs_drift, &mean_speed_window_rel_drift,
+                                                      &mean_speed_rms_window, &mean_speed_rms_window_prev,
+                                                      &mean_speed_rms_window_abs_drift, &mean_speed_rms_window_rel_drift,
+                                                      &mean_ke_window, &mean_ke_window_prev,
+                                                      &mean_ke_window_abs_drift, &mean_ke_window_rel_drift,
+                                                      &mean_ke_rms_window, &mean_ke_rms_window_prev,
+                                                      &mean_ke_rms_window_abs_drift, &mean_ke_rms_window_rel_drift));
+            break;
+        default:
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Unknown solution convergence mode %d.", (int)simCtx->solutionConvergenceMode);
+    }
+
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    if (rank == 0) {
+        char csv_path[PETSC_MAX_PATH_LEN + 32];
+        FILE *f = NULL;
+
+        PetscCall(PetscSNPrintf(csv_path, sizeof(csv_path), "%s/solution_convergence.csv", simCtx->log_dir));
+        f = fopen(csv_path, "a");
+        if (!f) {
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open solution convergence log: %s", csv_path);
+        }
+        if (ftell(f) == 0) {
+            fprintf(f,
+                    "step,time,mode,has_reference,phase_step,period_steps,window_steps,"
+                    "u_abs_l2,u_rel_l2,p_abs_l2,p_rel_l2,"
+                    "mean_speed,mean_speed_reference,mean_speed_abs_drift,mean_speed_rel_drift,"
+                    "mean_ke,mean_ke_reference,mean_ke_abs_drift,mean_ke_rel_drift,"
+                    "mean_speed_window,mean_speed_window_prev,mean_speed_window_abs_drift,mean_speed_window_rel_drift,"
+                    "mean_speed_rms_window,mean_speed_rms_window_prev,mean_speed_rms_window_abs_drift,mean_speed_rms_window_rel_drift,"
+                    "mean_ke_window,mean_ke_window_prev,mean_ke_window_abs_drift,mean_ke_window_rel_drift,"
+                    "mean_ke_rms_window,mean_ke_rms_window_prev,mean_ke_rms_window_abs_drift,mean_ke_rms_window_rel_drift\n");
+        }
+
+        fprintf(f,
+                "%d,%.12e,%s,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,"
+                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                (int)simCtx->step,
+                (double)simCtx->ti,
+                SolutionConvergenceModeToString(simCtx->solutionConvergenceMode),
+                has_reference ? 1 : 0,
+                (int)phase_step,
+                (int)simCtx->solutionConvergencePeriodSteps,
+                (int)simCtx->solutionConvergenceWindowSteps,
+                (double)u_abs_l2, (double)u_rel_l2, (double)p_abs_l2, (double)p_rel_l2,
+                (double)mean_speed, (double)mean_speed_reference, (double)mean_speed_abs_drift, (double)mean_speed_rel_drift,
+                (double)mean_ke, (double)mean_ke_reference, (double)mean_ke_abs_drift, (double)mean_ke_rel_drift,
+                (double)mean_speed_window, (double)mean_speed_window_prev, (double)mean_speed_window_abs_drift, (double)mean_speed_window_rel_drift,
+                (double)mean_speed_rms_window, (double)mean_speed_rms_window_prev, (double)mean_speed_rms_window_abs_drift, (double)mean_speed_rms_window_rel_drift,
+                (double)mean_ke_window, (double)mean_ke_window_prev, (double)mean_ke_window_abs_drift, (double)mean_ke_window_rel_drift,
+                (double)mean_ke_rms_window, (double)mean_ke_rms_window_prev, (double)mean_ke_rms_window_abs_drift, (double)mean_ke_rms_window_rel_drift);
+        fclose(f);
+    }
+
+    if (simCtx->solutionConvergenceMode == SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC &&
+        phase_step >= 0 && phase_step < simCtx->solutionConvergencePeriodSteps) {
+        UserCtx *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+        for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+            PetscCall(VecCopy(user[bi].Ucat, user[bi].solutionConvergencePeriodicUcatRef[phase_step]));
+            PetscCall(VecCopy(user[bi].P, user[bi].solutionConvergencePeriodicPRef[phase_step]));
+        }
+    }
+
+    simCtx->solutionConvergenceSamplesRecorded = samples_before + 1;
+
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Logs continuity metrics for a single block to a file.
  *

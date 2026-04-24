@@ -103,7 +103,42 @@ Mappings:
 - `multigrid.post_sweeps` -> `-mg_post_it`
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
 
-@section p08_interp_sec 6. interpolation
+@section p08_solution_conv_sec 6. solution_convergence
+
+```yaml
+solution_convergence:
+  mode: "steady_deterministic"   # steady_deterministic | periodic_deterministic | statistical_steady | transient
+  periodic_deterministic:
+    period_steps: 200
+  statistical_steady:
+    window_steps: 500
+```
+
+Mappings:
+- `mode` -> `-solution_convergence_mode`
+- `periodic_deterministic.period_steps` -> `-solution_convergence_period_steps`
+- `statistical_steady.window_steps` -> `-solution_convergence_window_steps`
+
+Rules:
+- the `solution_convergence` block is optional; when omitted, the runtime still logs
+  `logs/solution_convergence.csv` once per physical timestep using the default
+  `steady_deterministic` mode.
+- it is logging-only in the current implementation.
+- it does not replace the existing inner solver-health logs:
+  - `logs/Momentum_Solver_Convergence_History_Block_*.log`
+  - `logs/Poisson_Solver_Convergence_History_Block_*.log`
+  - `logs/Continuity_Metrics.log`
+- `periodic_deterministic.period_steps` is required only when `mode: "periodic_deterministic"`.
+- `statistical_steady.window_steps` is required only when `mode: "statistical_steady"`.
+- nested mode blocks are rejected when they do not match the selected `mode`.
+
+Mode intent:
+- `steady_deterministic`: timestep-to-timestep physical field drift for runs expected to settle to a fixed state.
+- `periodic_deterministic`: phase-aligned cycle drift using one stored period of field snapshots.
+- `statistical_steady`: adjacent-window drift of global observables for runs whose instantaneous fields should not settle pointwise.
+- `transient`: logs the same deterministic drift family for diagnosis, but without any implied steady-state interpretation.
+
+@section p08_interp_sec 7. interpolation
 
 ```yaml
 interpolation:
@@ -117,7 +152,7 @@ The **Trilinear** method (default) performs direct trilinear interpolation from 
 
 See **@subpage 27_Trilinear_Interpolation_and_Projection** for algorithmic details.
 
-@section p08_verification_sec 7. verification
+@section p08_verification_sec 8. verification
 
 ```yaml
 verification:
@@ -160,7 +195,7 @@ Rules:
 - scalar profiles currently supported are `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`
 - new verification source overrides must be implemented in `include/verification_sources.h` and `src/verification_sources.c`
 
-@section p08_petsc_sec 8. petsc_passthrough_options
+@section p08_petsc_sec 9. petsc_passthrough_options
 
 Advanced escape hatch for raw PETSc flags:
 
@@ -172,7 +207,7 @@ petsc_passthrough_options:
 
 These are passed into PETSc options DB and consumed by runtime calls like `KSPSetFromOptions`.
 
-@section p08_next_steps_sec 8. Next Steps
+@section p08_next_steps_sec 10. Next Steps
 
 Proceed to **@subpage 09_Monitor_Reference**.
 
