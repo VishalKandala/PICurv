@@ -308,6 +308,7 @@ Typical sources:
 - `logs/Particle_Metrics.log` (per-step `Lost` plus run-local `Lost Total` when available)
 - `logs/Momentum_Solver_Convergence_History_Block_*.log`
 - `logs/Poisson_Solver_Convergence_History_Block_*.log`
+- `logs/solution_convergence.log` (mode-specific speed/KE drift and L2 norms)
 - `logs/Profiling_Timestep_Summary.csv` when enabled
 - `scheduler/*_solver.log` or `scheduler/solver_*.out` for sampled particle snapshot previews
 
