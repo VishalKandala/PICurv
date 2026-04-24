@@ -398,6 +398,26 @@ def test_parse_solver_config_maps_verification_scalar_flags():
     assert flags["-verification_scalar_kz"] == 0.7853981633974483
 
 
+def test_parse_solver_config_maps_solution_convergence_flags():
+    """!
+    @brief Test that parse_solver_config maps solution-convergence settings into control flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "solution_convergence": {
+            "mode": "periodic_deterministic",
+            "periodic_deterministic": {
+                "period_steps": 12,
+            },
+        }
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-solution_convergence_mode"] == '"PERIODIC_DETERMINISTIC"'
+    assert flags["-solution_convergence_period_steps"] == 12
+
+
 def test_validate_rejects_verification_diffusivity_for_non_analytical_solver(tmp_path):
     """!
     @brief Test that validate rejects verification diffusivity overrides outside analytical mode.
@@ -521,6 +541,77 @@ def test_validate_rejects_verification_scalar_missing_required_parameter(tmp_pat
 
     assert result.returncode == 1
     assert "verification.sources.scalar.slope_x is required" in result.stderr
+
+
+def test_validate_rejects_solution_convergence_periodic_mode_without_period_steps(tmp_path):
+    """!
+    @brief Test that validate rejects periodic solution-convergence mode without period_steps.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["solution_convergence"] = {
+        "enabled": True,
+        "mode": "periodic_deterministic",
+    }
+
+    solver_path = tmp_path / "solver_invalid_solution_convergence_periodic.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--post",
+            str(valid / "post.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "solution_convergence.periodic_deterministic.period_steps is required" in result.stderr
+
+
+def test_validate_rejects_solution_convergence_statistical_block_under_wrong_mode(tmp_path):
+    """!
+    @brief Test that validate rejects statistical solution-convergence settings under the wrong mode.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["solution_convergence"] = {
+        "enabled": True,
+        "mode": "steady_deterministic",
+        "statistical_steady": {
+            "window_steps": 20,
+        },
+    }
+
+    solver_path = tmp_path / "solver_invalid_solution_convergence_mismatch.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--post",
+            str(valid / "post.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "solution_convergence.statistical_steady is only valid when mode is 'statistical_steady'" in result.stderr
 
 
 

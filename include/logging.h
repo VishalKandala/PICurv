@@ -668,6 +668,32 @@ PetscErrorCode DualMonitorDestroy(void **ctx);
 PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user);
 
 /**
+ * @brief Logs physical solution-convergence metrics once per completed timestep.
+ *
+ * This logger is intentionally separate from the detailed inner solver-health
+ * logs. Depending on the configured mode, it records deterministic step drift,
+ * periodic phase-aligned drift, or statistical window drift into
+ * `logs/solution_convergence.csv`.
+ *
+ * The logger is solver-mode only and is intended to run after a completed
+ * flow-solve / projection step but before history vectors are shifted forward.
+ * Warmup rows are handled internally:
+ * - steady/transient mode: the first logged step has `has_reference = 0`
+ * - periodic mode: the first cycle fills the phase reference ring
+ * - statistical mode: window-drift fields remain zero until enough samples
+ *   exist to form the requested windows
+ *
+ * Existing detailed inner logs remain the authoritative source for momentum,
+ * Poisson, and continuity health. This logger only summarizes physical
+ * solution-drift metrics.
+ *
+ * @param[in,out] simCtx Master simulation context controlling the logging mode
+ *                       and owning any supporting runtime buffers.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx);
+
+/**
  * @brief A function that outputs the name of the current level in the ParticleLocation enum.
  * @param level The ParticleLocation enum value.
  * @return A constant character string corresponding to the enum. Returns

@@ -38,6 +38,107 @@ PetscBool RuntimeWalltimeGuardParsePositiveSeconds(const char *text, PetscReal *
     return PETSC_TRUE;
 }
 
+/**
+ * @brief Implementation of \ref InitializeSolutionConvergenceState().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see InitializeSolutionConvergenceState()
+ */
+PetscErrorCode InitializeSolutionConvergenceState(SimCtx *simCtx)
+{
+    UserCtx *user = NULL;
+    PetscInt history_capacity = 0;
+
+    PetscFunctionBeginUser;
+    if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
+    if (simCtx->exec_mode != EXEC_MODE_SOLVER) PetscFunctionReturn(0);
+    if (!simCtx->usermg.mgctx) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+                "Multigrid hierarchy must exist before initializing solution convergence storage.");
+    }
+
+    user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    if (!user) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+                "Finest-level UserCtx must exist before initializing solution convergence storage.");
+    }
+
+    simCtx->solutionConvergenceSamplesRecorded = 0;
+
+    if (simCtx->solutionConvergenceMode == SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC) {
+        for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+            PetscCall(PetscCalloc1((size_t)simCtx->solutionConvergencePeriodSteps,
+                                   &user[bi].solutionConvergencePeriodicUcatRef));
+            PetscCall(PetscCalloc1((size_t)simCtx->solutionConvergencePeriodSteps,
+                                   &user[bi].solutionConvergencePeriodicPRef));
+            for (PetscInt phase = 0; phase < simCtx->solutionConvergencePeriodSteps; ++phase) {
+                PetscCall(VecDuplicate(user[bi].Ucat, &user[bi].solutionConvergencePeriodicUcatRef[phase]));
+                PetscCall(VecSet(user[bi].solutionConvergencePeriodicUcatRef[phase], 0.0));
+                PetscCall(VecDuplicate(user[bi].P, &user[bi].solutionConvergencePeriodicPRef[phase]));
+                PetscCall(VecSet(user[bi].solutionConvergencePeriodicPRef[phase], 0.0));
+            }
+        }
+    }
+
+    if (simCtx->solutionConvergenceMode == SOLUTION_CONVERGENCE_STATISTICAL_STEADY) {
+        history_capacity = 2 * simCtx->solutionConvergenceWindowSteps;
+        PetscCall(PetscCalloc1((size_t)history_capacity, &simCtx->solutionConvergenceMeanSpeedHistory));
+        PetscCall(PetscCalloc1((size_t)history_capacity, &simCtx->solutionConvergenceMeanKEHistory));
+    }
+
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref DestroySolutionConvergenceState().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/setup.h`.
+ * @see DestroySolutionConvergenceState()
+ */
+PetscErrorCode DestroySolutionConvergenceState(SimCtx *simCtx)
+{
+    UserCtx *user = NULL;
+
+    PetscFunctionBeginUser;
+    if (!simCtx || !simCtx->usermg.mgctx) PetscFunctionReturn(0);
+
+    user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    if (user) {
+        for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+            if (user[bi].solutionConvergencePeriodicUcatRef) {
+                for (PetscInt phase = 0; phase < simCtx->solutionConvergencePeriodSteps; ++phase) {
+                    if (user[bi].solutionConvergencePeriodicUcatRef[phase]) {
+                        PetscCall(VecDestroy(&user[bi].solutionConvergencePeriodicUcatRef[phase]));
+                    }
+                }
+                PetscCall(PetscFree(user[bi].solutionConvergencePeriodicUcatRef));
+                user[bi].solutionConvergencePeriodicUcatRef = NULL;
+            }
+            if (user[bi].solutionConvergencePeriodicPRef) {
+                for (PetscInt phase = 0; phase < simCtx->solutionConvergencePeriodSteps; ++phase) {
+                    if (user[bi].solutionConvergencePeriodicPRef[phase]) {
+                        PetscCall(VecDestroy(&user[bi].solutionConvergencePeriodicPRef[phase]));
+                    }
+                }
+                PetscCall(PetscFree(user[bi].solutionConvergencePeriodicPRef));
+                user[bi].solutionConvergencePeriodicPRef = NULL;
+            }
+        }
+    }
+
+    if (simCtx->solutionConvergenceMeanSpeedHistory) {
+        PetscCall(PetscFree(simCtx->solutionConvergenceMeanSpeedHistory));
+        simCtx->solutionConvergenceMeanSpeedHistory = NULL;
+    }
+    if (simCtx->solutionConvergenceMeanKEHistory) {
+        PetscCall(PetscFree(simCtx->solutionConvergenceMeanKEHistory));
+        simCtx->solutionConvergenceMeanKEHistory = NULL;
+    }
+    simCtx->solutionConvergenceSamplesRecorded = 0;
+
+    PetscFunctionReturn(0);
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "CreateSimulationContext"
 
@@ -120,6 +221,12 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->AnalyticalUniformVelocity.x = 0.0;
     simCtx->AnalyticalUniformVelocity.y = 0.0;
     simCtx->AnalyticalUniformVelocity.z = 0.0;
+    simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC;
+    simCtx->solutionConvergencePeriodSteps = 0;
+    simCtx->solutionConvergenceWindowSteps = 0;
+    simCtx->solutionConvergenceSamplesRecorded = 0;
+    simCtx->solutionConvergenceMeanSpeedHistory = NULL;
+    simCtx->solutionConvergenceMeanKEHistory = NULL;
     simCtx->verificationDiffusivity.enabled = PETSC_FALSE;
     strcpy(simCtx->verificationDiffusivity.mode, "");
     strcpy(simCtx->verificationDiffusivity.profile, "");
@@ -434,13 +541,20 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     //  --- Group 5
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 5: Solver & Numerics Parameters \n");
     char mom_solver_type_char[PETSC_MAX_PATH_LEN];
+    char solution_convergence_mode_char[PETSC_MAX_PATH_LEN];
     PetscBool mom_solver_type_flg = PETSC_FALSE;
+    PetscBool solution_convergence_mode_flg = PETSC_FALSE;
     ierr = PetscOptionsGetString(NULL, NULL, "-mom_solver_type", mom_solver_type_char, sizeof(mom_solver_type_char), &mom_solver_type_flg); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mom_max_pseudo_steps", &simCtx->mom_max_pseudo_steps, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-mom_atol", &simCtx->mom_atol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-mom_rtol", &simCtx->mom_rtol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-imp_stol", &simCtx->imp_stol, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-central", &simCtx->central, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL, NULL, "-solution_convergence_mode",
+                                 solution_convergence_mode_char, sizeof(solution_convergence_mode_char),
+                                 &solution_convergence_mode_flg); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-solution_convergence_period_steps", &simCtx->solutionConvergencePeriodSteps, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-solution_convergence_window_steps", &simCtx->solutionConvergenceWindowSteps, NULL); CHKERRQ(ierr);
 
     // Keep parser acceptance aligned with the enum and FlowSolver dispatch.
     if (mom_solver_type_flg) {
@@ -452,6 +566,32 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
             LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_RK4', 'EXPLICIT_RK'.\n", mom_solver_type_char);
             SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -mom_solver_type: '%s'.", mom_solver_type_char);
         }
+    }
+
+    if (solution_convergence_mode_flg) {
+        if (strcmp(solution_convergence_mode_char, "STEADY_DETERMINISTIC") == 0) {
+            simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC;
+        } else if (strcmp(solution_convergence_mode_char, "PERIODIC_DETERMINISTIC") == 0) {
+            simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC;
+        } else if (strcmp(solution_convergence_mode_char, "STATISTICAL_STEADY") == 0) {
+            simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STATISTICAL_STEADY;
+        } else if (strcmp(solution_convergence_mode_char, "TRANSIENT") == 0) {
+            simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_TRANSIENT;
+        } else {
+            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                    "Invalid value for -solution_convergence_mode: '%s'.", solution_convergence_mode_char);
+        }
+    }
+
+    if (simCtx->solutionConvergenceMode == SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC &&
+        simCtx->solutionConvergencePeriodSteps <= 0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                "solution convergence mode PERIODIC_DETERMINISTIC requires -solution_convergence_period_steps > 0.");
+    }
+    if (simCtx->solutionConvergenceMode == SOLUTION_CONVERGENCE_STATISTICAL_STEADY &&
+        simCtx->solutionConvergenceWindowSteps <= 0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                "solution convergence mode STATISTICAL_STEADY requires -solution_convergence_window_steps > 0.");
     }
     
     // --- Multigrid Options ---
@@ -1146,6 +1286,7 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
     ierr = AssignAllGridCoordinates(simCtx);
     ierr = CreateAndInitializeAllVectors(simCtx); CHKERRQ(ierr);
     ierr = SetupSolverParameters(simCtx); CHKERRQ(ierr);
+    ierr = InitializeSolutionConvergenceState(simCtx); CHKERRQ(ierr);
 
     // NOTE: CalculateAllGridMetrics is now called inside SetupBoundaryConditions (not here) to ensure:
     // 1. Boundary condition configuration data (boundary_faces) is available for periodic BC corrections
@@ -3202,6 +3343,8 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
     // ============================================================================
     // PHASE 1: DESTROY MULTIGRID HIERARCHY (All UserCtx structures)
     // ============================================================================
+
+    ierr = DestroySolutionConvergenceState(simCtx); CHKERRQ(ierr);
 
     if (simCtx->usermg.mgctx) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying multigrid hierarchy (%d levels)...\n",

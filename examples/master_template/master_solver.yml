@@ -88,6 +88,19 @@ momentum_solver:
       reduction_factor: 1.0      # -> -pseudo_cfl_reduction_factor
     rk4_residual_noise_allowance_factor: 1.05 # -> -mom_dt_rk4_residual_norm_noise_allowance_factor
 
+# --- Physical Solution Convergence Logging ---
+# This layer is separate from the inner solver-health logs. It always records
+# physical solution drift into logs/solution_convergence.csv without changing
+# solver stopping behavior. The optional block below only overrides the mode.
+# solution_convergence:
+#   mode: "steady_deterministic"   # -> -solution_convergence_mode
+#   # For periodic runs, compare each timestep to the same phase in the previous cycle.
+#   # periodic_deterministic:
+#   #   period_steps: 200          # -> -solution_convergence_period_steps
+#   # For statistical-steady runs, compare adjacent windows of scalar observables.
+#   # statistical_steady:
+#   #   window_steps: 500          # -> -solution_convergence_window_steps
+
 # ==============================================================================
 # 3. PRESSURE-POISSON SOLVER CONFIGURATION
 # ==============================================================================

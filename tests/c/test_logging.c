@@ -7,8 +7,10 @@
 
 #include "logging.h"
 #include "interpolation.h"
+#include "setup.h"
 
 #include <fcntl.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -101,6 +103,143 @@ static PetscErrorCode AssertFileNotContains(const char *path, const char *needle
 
     PetscCall(PicurvAssertBool((PetscBool)(strstr(buffer, needle) == NULL), context));
     PetscCall(PetscFree(buffer));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Reads the CSV header and the requested 1-based data row from a text file.
+ */
+static PetscErrorCode ReadCsvHeaderAndRow(const char *path,
+                                          PetscInt row_index,
+                                          char *header,
+                                          size_t header_len,
+                                          char *row,
+                                          size_t row_len)
+{
+    FILE *fp = NULL;
+    PetscInt current_row = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV path cannot be NULL.");
+    PetscCheck(header != NULL && header_len > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV header buffer cannot be NULL or empty.");
+    PetscCheck(row != NULL && row_len > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV row buffer cannot be NULL or empty.");
+    PetscCheck(row_index >= 1, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "CSV row index must be >= 1.");
+
+    fp = fopen(path, "r");
+    PetscCheck(fp != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to open CSV '%s'.", path);
+    PetscCheck(fgets(header, (int)header_len, fp) != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "CSV header missing in '%s'.", path);
+
+    while (fgets(row, (int)row_len, fp) != NULL) {
+        current_row++;
+        if (current_row == row_index) {
+            fclose(fp);
+            PetscFunctionReturn(0);
+        }
+    }
+
+    fclose(fp);
+    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "CSV '%s' does not contain data row %d.", path, (int)row_index);
+}
+
+/**
+ * @brief Returns the zero-based column index for one CSV header field.
+ */
+static PetscErrorCode CsvFindColumnIndex(const char *header, const char *column_name, PetscInt *index_out)
+{
+    char local_header[4096];
+    char *saveptr = NULL;
+    char *token = NULL;
+    PetscInt index = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(header != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV header cannot be NULL.");
+    PetscCheck(column_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV column name cannot be NULL.");
+    PetscCheck(index_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV column index output cannot be NULL.");
+    PetscCheck(strlen(header) < sizeof(local_header), PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ, "CSV header is too long for the local parser buffer.");
+
+    PetscCall(PetscStrncpy(local_header, header, sizeof(local_header)));
+    token = strtok_r(local_header, ",\r\n", &saveptr);
+    while (token != NULL) {
+        if (strcmp(token, column_name) == 0) {
+            *index_out = index;
+            PetscFunctionReturn(0);
+        }
+        token = strtok_r(NULL, ",\r\n", &saveptr);
+        index++;
+    }
+
+    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "CSV column '%s' was not found.", column_name);
+}
+
+/**
+ * @brief Extracts one CSV cell as text by header name.
+ */
+static PetscErrorCode CsvGetColumnText(const char *header,
+                                       const char *row,
+                                       const char *column_name,
+                                       char *value,
+                                       size_t value_len)
+{
+    char local_row[4096];
+    char *saveptr = NULL;
+    char *token = NULL;
+    PetscInt target_index = -1;
+    PetscInt index = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(row != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV row cannot be NULL.");
+    PetscCheck(value != NULL && value_len > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV value buffer cannot be NULL or empty.");
+    PetscCheck(strlen(row) < sizeof(local_row), PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ, "CSV row is too long for the local parser buffer.");
+
+    PetscCall(CsvFindColumnIndex(header, column_name, &target_index));
+    PetscCall(PetscStrncpy(local_row, row, sizeof(local_row)));
+
+    token = strtok_r(local_row, ",\r\n", &saveptr);
+    while (token != NULL) {
+        if (index == target_index) {
+            PetscCall(PetscStrncpy(value, token, value_len));
+            PetscFunctionReturn(0);
+        }
+        token = strtok_r(NULL, ",\r\n", &saveptr);
+        index++;
+    }
+
+    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "CSV row is missing column '%s'.", column_name);
+}
+
+/**
+ * @brief Extracts one CSV cell as an integer by header name.
+ */
+static PetscErrorCode CsvGetColumnInt(const char *header, const char *row, const char *column_name, PetscInt *value_out)
+{
+    char text[256];
+    char *endptr = NULL;
+    long parsed = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(value_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV integer output cannot be NULL.");
+    PetscCall(CsvGetColumnText(header, row, column_name, text, sizeof(text)));
+    parsed = strtol(text, &endptr, 10);
+    PetscCheck(endptr != text, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "CSV column '%s' did not contain an integer.", column_name);
+    *value_out = (PetscInt)parsed;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Extracts one CSV cell as a real by header name.
+ */
+static PetscErrorCode CsvGetColumnReal(const char *header, const char *row, const char *column_name, PetscReal *value_out)
+{
+    char text[256];
+    char *endptr = NULL;
+    double parsed = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(value_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "CSV real output cannot be NULL.");
+    PetscCall(CsvGetColumnText(header, row, column_name, text, sizeof(text)));
+    parsed = strtod(text, &endptr);
+    PetscCheck(endptr != text, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "CSV column '%s' did not contain a real value.", column_name);
+    *value_out = (PetscReal)parsed;
     PetscFunctionReturn(0);
 }
 
@@ -245,6 +384,54 @@ static PetscErrorCode SeedLoggingParticleFixture(SimCtx **simCtx_out, UserCtx **
     PetscCall(DMSwarmRestoreField((*user_out)->swarm, "weight", NULL, NULL, (void **)&weights));
     PetscCall(DMSwarmRestoreField((*user_out)->swarm, "velocity", NULL, NULL, (void **)&velocities));
     PetscCall(DMSwarmRestoreField((*user_out)->swarm, "position", NULL, NULL, (void **)&positions));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Fills one Cartesian velocity field with a uniform constant state.
+ */
+static PetscErrorCode SetUniformVelocityField(UserCtx *user, Vec field, PetscReal ux, PetscReal uy, PetscReal uz)
+{
+    Cmpnts ***arr = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    PetscCheck(field != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Velocity field cannot be NULL.");
+
+    PetscCall(DMDAVecGetArray(user->fda, field, &arr));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+                arr[k][j][i].x = ux;
+                arr[k][j][i].y = uy;
+                arr[k][j][i].z = uz;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, field, &arr));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Fills one scalar field with a uniform constant state.
+ */
+static PetscErrorCode SetUniformScalarField(UserCtx *user, Vec field, PetscReal value)
+{
+    PetscReal ***arr = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    PetscCheck(field != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Scalar field cannot be NULL.");
+
+    PetscCall(DMDAVecGetArray(user->da, field, &arr));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+                arr[k][j][i] = value;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, field, &arr));
     PetscFunctionReturn(0);
 }
 /**
@@ -818,6 +1005,250 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Tests steady solution-convergence CSV logging, IBM masking, and gauge-invariant pressure drift.
+ */
+static PetscErrorCode TestSolutionConvergenceSteadyLogging(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char csv_path[PETSC_MAX_PATH_LEN];
+    char header[4096];
+    char row1[4096];
+    char row2[4096];
+    char mode[128];
+    Cmpnts ***ucat = NULL;
+    PetscReal ***nvert = NULL;
+    PetscReal mean_speed = NAN;
+    PetscReal mean_speed_ref = NAN;
+    PetscReal mean_speed_abs = NAN;
+    PetscReal p_abs = NAN;
+    PetscInt has_reference_1 = 0;
+    PetscInt has_reference_2 = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC;
+
+    PetscCall(InitializeSolutionConvergenceState(simCtx));
+
+    simCtx->step = 1;
+    simCtx->ti = 0.1;
+    PetscCall(SetUniformVelocityField(user, user->Ucat, 1.0, 0.0, 0.0));
+    PetscCall(SetUniformScalarField(user, user->P, 11.0));
+    PetscCall(DMDAVecGetArray(user->da, user->Nvert, &nvert));
+    nvert[1][1][1] = 1.0;
+    PetscCall(DMDAVecRestoreArray(user->da, user->Nvert, &nvert));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    ucat[1][1][1].x = 999.0;
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+    PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
+
+    simCtx->step = 2;
+    simCtx->ti = 0.2;
+    PetscCall(SetUniformVelocityField(user, user->Ucat, 1.0, 0.0, 0.0));
+    PetscCall(SetUniformVelocityField(user, user->Ucat_o, 0.5, 0.0, 0.0));
+    PetscCall(SetUniformScalarField(user, user->P, 11.0));
+    PetscCall(SetUniformScalarField(user, user->P_o, 7.0));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    ucat[1][1][1].x = 999.0;
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+    PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
+
+    PetscCall(PetscSNPrintf(csv_path, sizeof(csv_path), "%s/solution_convergence.csv", simCtx->log_dir));
+    PetscCall(PicurvAssertFileExists(csv_path, "steady solution-convergence logging should write the CSV"));
+    PetscCall(ReadCsvHeaderAndRow(csv_path, 1, header, sizeof(header), row1, sizeof(row1)));
+    PetscCall(ReadCsvHeaderAndRow(csv_path, 2, header, sizeof(header), row2, sizeof(row2)));
+    PetscCall(CsvGetColumnText(header, row1, "mode", mode, sizeof(mode)));
+    PetscCall(CsvGetColumnInt(header, row1, "has_reference", &has_reference_1));
+    PetscCall(CsvGetColumnInt(header, row2, "has_reference", &has_reference_2));
+    PetscCall(CsvGetColumnReal(header, row2, "mean_speed", &mean_speed));
+    PetscCall(CsvGetColumnReal(header, row2, "mean_speed_reference", &mean_speed_ref));
+    PetscCall(CsvGetColumnReal(header, row2, "mean_speed_abs_drift", &mean_speed_abs));
+    PetscCall(CsvGetColumnReal(header, row2, "p_abs_l2", &p_abs));
+
+    PetscCall(PicurvAssertBool((PetscBool)(strcmp(mode, "steady_deterministic") == 0),
+                               "steady solution convergence row should record the mode name"));
+    PetscCall(PicurvAssertIntEqual(0, has_reference_1,
+                                   "the first steady solution-convergence row should be a warmup row"));
+    PetscCall(PicurvAssertIntEqual(1, has_reference_2,
+                                   "steady solution convergence should compare against the previous solved step"));
+    PetscCall(PicurvAssertRealNear(1.0, mean_speed, 1.0e-12,
+                                   "steady solution convergence should mask IBM-marked solid cells"));
+    PetscCall(PicurvAssertRealNear(0.5, mean_speed_ref, 1.0e-12,
+                                   "steady solution convergence should report the previous-step mean speed"));
+    PetscCall(PicurvAssertRealNear(0.5, mean_speed_abs, 1.0e-12,
+                                   "steady solution convergence should report mean-speed drift"));
+    PetscCall(PicurvAssertRealNear(0.0, p_abs, 1.0e-12,
+                                   "steady solution convergence pressure drift should be gauge invariant"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests periodic solution-convergence warmup and phase-aligned reference reuse.
+ */
+static PetscErrorCode TestSolutionConvergencePeriodicLogging(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char csv_path[PETSC_MAX_PATH_LEN];
+    char header[4096];
+    char row1[4096];
+    char row2[4096];
+    char row3[4096];
+    PetscInt has_reference_1 = 0;
+    PetscInt has_reference_2 = 0;
+    PetscInt has_reference_3 = 0;
+    PetscInt phase_step_1 = -1;
+    PetscInt phase_step_2 = -1;
+    PetscInt phase_step_3 = -1;
+    PetscReal mean_speed_ref_2 = NAN;
+    PetscReal mean_speed_abs_2 = NAN;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC;
+    simCtx->solutionConvergencePeriodSteps = 2;
+
+    PetscCall(InitializeSolutionConvergenceState(simCtx));
+
+    simCtx->step = 1;
+    simCtx->ti = 0.1;
+    PetscCall(SetUniformVelocityField(user, user->Ucat, 1.0, 0.0, 0.0));
+    PetscCall(SetUniformScalarField(user, user->P, 2.0));
+    PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
+
+    simCtx->step = 2;
+    simCtx->ti = 0.2;
+    PetscCall(SetUniformVelocityField(user, user->Ucat, 2.0, 0.0, 0.0));
+    PetscCall(SetUniformScalarField(user, user->P, 5.0));
+    PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
+
+    simCtx->step = 3;
+    simCtx->ti = 0.3;
+    PetscCall(SetUniformVelocityField(user, user->Ucat, 1.25, 0.0, 0.0));
+    PetscCall(SetUniformScalarField(user, user->P, 9.0));
+    PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
+
+    PetscCall(PetscSNPrintf(csv_path, sizeof(csv_path), "%s/solution_convergence.csv", simCtx->log_dir));
+    PetscCall(PicurvAssertFileExists(csv_path, "periodic solution-convergence logging should write the CSV"));
+    PetscCall(ReadCsvHeaderAndRow(csv_path, 1, header, sizeof(header), row1, sizeof(row1)));
+    PetscCall(ReadCsvHeaderAndRow(csv_path, 2, header, sizeof(header), row2, sizeof(row2)));
+    PetscCall(ReadCsvHeaderAndRow(csv_path, 3, header, sizeof(header), row3, sizeof(row3)));
+    PetscCall(CsvGetColumnInt(header, row1, "has_reference", &has_reference_1));
+    PetscCall(CsvGetColumnInt(header, row2, "has_reference", &has_reference_2));
+    PetscCall(CsvGetColumnInt(header, row3, "has_reference", &has_reference_3));
+    PetscCall(CsvGetColumnInt(header, row1, "phase_step", &phase_step_1));
+    PetscCall(CsvGetColumnInt(header, row2, "phase_step", &phase_step_2));
+    PetscCall(CsvGetColumnInt(header, row3, "phase_step", &phase_step_3));
+    PetscCall(CsvGetColumnReal(header, row3, "mean_speed_reference", &mean_speed_ref_2));
+    PetscCall(CsvGetColumnReal(header, row3, "mean_speed_abs_drift", &mean_speed_abs_2));
+
+    PetscCall(PicurvAssertIntEqual(0, has_reference_1,
+                                   "the first periodic phase visit should log warmup without a reference"));
+    PetscCall(PicurvAssertIntEqual(0, has_reference_2,
+                                   "the first periodic cycle should fully warm up before comparisons begin"));
+    PetscCall(PicurvAssertIntEqual(1, has_reference_3,
+                                   "the repeated periodic phase visit should compare against the stored reference"));
+    PetscCall(PicurvAssertIntEqual(1, phase_step_1,
+                                   "periodic solution convergence should log the current phase slot"));
+    PetscCall(PicurvAssertIntEqual(0, phase_step_2,
+                                   "periodic solution convergence should log distinct phase slots during warmup"));
+    PetscCall(PicurvAssertIntEqual(1, phase_step_3,
+                                   "periodic solution convergence should reuse the same phase slot on later cycles"));
+    PetscCall(PicurvAssertRealNear(1.0, mean_speed_ref_2, 1.0e-12,
+                                   "periodic solution convergence should report the stored phase-aligned reference"));
+    PetscCall(PicurvAssertRealNear(0.25, mean_speed_abs_2, 1.0e-12,
+                                   "periodic solution convergence should report the phase-aligned drift"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests statistical solution-convergence sliding-window metrics.
+ */
+static PetscErrorCode TestSolutionConvergenceStatisticalLogging(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char csv_path[PETSC_MAX_PATH_LEN];
+    char header[4096];
+    char row[4096];
+    PetscReal mean_speed_window = NAN;
+    PetscReal mean_speed_window_prev = NAN;
+    PetscReal mean_speed_window_abs = NAN;
+    PetscReal mean_speed_rms_window = NAN;
+    PetscReal mean_ke_window = NAN;
+    PetscReal mean_ke_window_prev = NAN;
+    PetscReal mean_ke_window_abs = NAN;
+    PetscReal mean_ke_rms_window_abs = NAN;
+    PetscInt has_reference = 0;
+    const PetscReal speed_samples[4] = {1.0, 3.0, 2.0, 4.0};
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STATISTICAL_STEADY;
+    simCtx->solutionConvergenceWindowSteps = 2;
+
+    PetscCall(InitializeSolutionConvergenceState(simCtx));
+    for (PetscInt step = 0; step < 4; ++step) {
+        simCtx->step = step + 1;
+        simCtx->ti = 0.1 * (PetscReal)(step + 1);
+        PetscCall(SetUniformVelocityField(user, user->Ucat, speed_samples[step], 0.0, 0.0));
+        PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
+    }
+
+    PetscCall(PetscSNPrintf(csv_path, sizeof(csv_path), "%s/solution_convergence.csv", simCtx->log_dir));
+    PetscCall(PicurvAssertFileExists(csv_path, "statistical solution-convergence logging should write the CSV"));
+    PetscCall(ReadCsvHeaderAndRow(csv_path, 4, header, sizeof(header), row, sizeof(row)));
+    PetscCall(CsvGetColumnInt(header, row, "has_reference", &has_reference));
+    PetscCall(CsvGetColumnReal(header, row, "mean_speed_window", &mean_speed_window));
+    PetscCall(CsvGetColumnReal(header, row, "mean_speed_window_prev", &mean_speed_window_prev));
+    PetscCall(CsvGetColumnReal(header, row, "mean_speed_window_abs_drift", &mean_speed_window_abs));
+    PetscCall(CsvGetColumnReal(header, row, "mean_speed_rms_window", &mean_speed_rms_window));
+    PetscCall(CsvGetColumnReal(header, row, "mean_ke_window", &mean_ke_window));
+    PetscCall(CsvGetColumnReal(header, row, "mean_ke_window_prev", &mean_ke_window_prev));
+    PetscCall(CsvGetColumnReal(header, row, "mean_ke_window_abs_drift", &mean_ke_window_abs));
+    PetscCall(CsvGetColumnReal(header, row, "mean_ke_rms_window_abs_drift", &mean_ke_rms_window_abs));
+
+    PetscCall(PicurvAssertIntEqual(1, has_reference,
+                                   "statistical solution convergence should emit adjacent-window drift once two windows exist"));
+    PetscCall(PicurvAssertRealNear(3.0, mean_speed_window, 1.0e-12,
+                                   "statistical solution convergence should report the current mean-speed window"));
+    PetscCall(PicurvAssertRealNear(2.0, mean_speed_window_prev, 1.0e-12,
+                                   "statistical solution convergence should report the previous mean-speed window"));
+    PetscCall(PicurvAssertRealNear(1.0, mean_speed_window_abs, 1.0e-12,
+                                   "statistical solution convergence should report mean-speed window drift"));
+    PetscCall(PicurvAssertRealNear(1.0, mean_speed_rms_window, 1.0e-12,
+                                   "statistical solution convergence should report current mean-speed RMS"));
+    PetscCall(PicurvAssertRealNear(5.0, mean_ke_window, 1.0e-12,
+                                   "statistical solution convergence should report the current kinetic-energy window"));
+    PetscCall(PicurvAssertRealNear(2.5, mean_ke_window_prev, 1.0e-12,
+                                   "statistical solution convergence should report the previous kinetic-energy window"));
+    PetscCall(PicurvAssertRealNear(2.5, mean_ke_window_abs, 1.0e-12,
+                                   "statistical solution convergence should report kinetic-energy window drift"));
+    PetscCall(PicurvAssertRealNear(1.0, mean_ke_rms_window_abs, 1.0e-12,
+                                   "statistical solution convergence should report RMS kinetic-energy drift"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
 /**
  * @brief Runs the unit-logging PETSc test binary.
  */
@@ -840,6 +1271,9 @@ int main(int argc, char **argv)
         {"search-metrics-logging", TestSearchMetricsLogging},
         {"field-anatomy-logging", TestFieldAnatomyLogging},
         {"profiling-lifecycle-helpers", TestProfilingLifecycleHelpers},
+        {"solution-convergence-steady-logging", TestSolutionConvergenceSteadyLogging},
+        {"solution-convergence-periodic-logging", TestSolutionConvergencePeriodicLogging},
+        {"solution-convergence-statistical-logging", TestSolutionConvergenceStatisticalLogging},
     };
 
     (void)setenv("LOG_LEVEL", "INFO", 1);
