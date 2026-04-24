@@ -1528,14 +1528,15 @@ static PetscErrorCode ComputeStatisticalWindowMetrics(const SimCtx *simCtx,
 }
 
 /**
- * @brief Maps the internal solution-convergence mode enum to its CSV label.
+ * @brief Maps the internal solution-convergence mode enum to its log label.
  *
- * The logger writes a human-readable mode string into
- * `solution_convergence.csv`. This helper keeps the formatting centralized so
- * the file output stays consistent with the accepted configuration names.
+ * The logger writes a human-readable mode string into the
+ * `solution_convergence.log` banner and `mode` column. This helper keeps the
+ * formatting centralized so the file output stays consistent with the accepted
+ * configuration names.
  *
  * @param[in] mode Internal solution-convergence mode selector.
- * @return Lowercase string label written to the CSV output.
+ * @return Lowercase string label written to the log output.
  */
 static const char *SolutionConvergenceModeToString(SolutionConvergenceMode mode)
 {
@@ -1617,45 +1618,97 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
 
     PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
     if (rank == 0) {
-        char csv_path[PETSC_MAX_PATH_LEN + 32];
+        char log_path[PETSC_MAX_PATH_LEN + 32];
         FILE *f = NULL;
+        const char *mode_str = SolutionConvergenceModeToString(simCtx->solutionConvergenceMode);
 
-        PetscCall(PetscSNPrintf(csv_path, sizeof(csv_path), "%s/solution_convergence.csv", simCtx->log_dir));
-        f = fopen(csv_path, "a");
+        PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+        f = fopen(log_path, "a");
         if (!f) {
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open solution convergence log: %s", csv_path);
-        }
-        if (ftell(f) == 0) {
-            fprintf(f,
-                    "step,time,mode,has_reference,phase_step,period_steps,window_steps,"
-                    "u_abs_l2,u_rel_l2,p_abs_l2,p_rel_l2,"
-                    "mean_speed,mean_speed_reference,mean_speed_abs_drift,mean_speed_rel_drift,"
-                    "mean_ke,mean_ke_reference,mean_ke_abs_drift,mean_ke_rel_drift,"
-                    "mean_speed_window,mean_speed_window_prev,mean_speed_window_abs_drift,mean_speed_window_rel_drift,"
-                    "mean_speed_rms_window,mean_speed_rms_window_prev,mean_speed_rms_window_abs_drift,mean_speed_rms_window_rel_drift,"
-                    "mean_ke_window,mean_ke_window_prev,mean_ke_window_abs_drift,mean_ke_window_rel_drift,"
-                    "mean_ke_rms_window,mean_ke_rms_window_prev,mean_ke_rms_window_abs_drift,mean_ke_rms_window_rel_drift\n");
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open solution convergence log: %s", log_path);
         }
 
-        fprintf(f,
-                "%d,%.12e,%s,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,"
-                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
-                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
-                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
-                (int)simCtx->step,
-                (double)simCtx->ti,
-                SolutionConvergenceModeToString(simCtx->solutionConvergenceMode),
-                has_reference ? 1 : 0,
-                (int)phase_step,
-                (int)simCtx->solutionConvergencePeriodSteps,
-                (int)simCtx->solutionConvergenceWindowSteps,
-                (double)u_abs_l2, (double)u_rel_l2, (double)p_abs_l2, (double)p_rel_l2,
-                (double)mean_speed, (double)mean_speed_reference, (double)mean_speed_abs_drift, (double)mean_speed_rel_drift,
-                (double)mean_ke, (double)mean_ke_reference, (double)mean_ke_abs_drift, (double)mean_ke_rel_drift,
-                (double)mean_speed_window, (double)mean_speed_window_prev, (double)mean_speed_window_abs_drift, (double)mean_speed_window_rel_drift,
-                (double)mean_speed_rms_window, (double)mean_speed_rms_window_prev, (double)mean_speed_rms_window_abs_drift, (double)mean_speed_rms_window_rel_drift,
-                (double)mean_ke_window, (double)mean_ke_window_prev, (double)mean_ke_window_abs_drift, (double)mean_ke_window_rel_drift,
-                (double)mean_ke_rms_window, (double)mean_ke_rms_window_prev, (double)mean_ke_rms_window_abs_drift, (double)mean_ke_rms_window_rel_drift);
+        if (ftell(f) == 0) {
+            switch (simCtx->solutionConvergenceMode) {
+                case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC:
+                case SOLUTION_CONVERGENCE_TRANSIENT:
+                    fprintf(f, "==================== Solution Convergence Log [mode: %s] ====================\n", mode_str);
+                    /* 16 columns; header width = 314 chars */
+                    fprintf(f, "%-10s | %-18s | %-22s | %-3s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s\n",
+                            "step", "time", "mode", "ref",
+                            "u_abs_l2", "u_rel_l2", "p_abs_l2", "p_rel_l2",
+                            "mean_speed", "spd_ref", "spd_abs", "spd_rel",
+                            "mean_ke", "ke_ref", "ke_abs", "ke_rel");
+                    fprintf(f, "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
+                    break;
+                case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC:
+                    fprintf(f, "==================== Solution Convergence Log [mode: %s | period_steps: %d] ====================\n",
+                            mode_str, (int)simCtx->solutionConvergencePeriodSteps);
+                    /* 18 columns; header width = 330 chars */
+                    fprintf(f, "%-10s | %-18s | %-22s | %-3s | %-5s | %-5s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s\n",
+                            "step", "time", "mode", "ref", "ph", "per",
+                            "u_abs_l2", "u_rel_l2", "p_abs_l2", "p_rel_l2",
+                            "mean_speed", "spd_ref", "spd_abs", "spd_rel",
+                            "mean_ke", "ke_ref", "ke_abs", "ke_rel");
+                    fprintf(f, "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
+                    break;
+                case SOLUTION_CONVERGENCE_STATISTICAL_STEADY:
+                    fprintf(f, "==================== Solution Convergence Log [mode: %s | window_steps: %d] ====================\n",
+                            mode_str, (int)simCtx->solutionConvergenceWindowSteps);
+                    /* 21 columns; header width = 406 chars */
+                    fprintf(f, "%-10s | %-18s | %-22s | %-3s | %-5s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s\n",
+                            "step", "time", "mode", "ref", "win",
+                            "mean_speed", "mean_ke",
+                            "spd_win", "spd_win_prev", "spd_win_abs", "spd_win_rel",
+                            "spd_rms_win", "spd_rms_abs", "spd_rms_rel",
+                            "ke_win", "ke_win_prev", "ke_win_abs", "ke_win_rel",
+                            "ke_rms_win", "ke_rms_abs", "ke_rms_rel");
+                    fprintf(f, "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
+                    break;
+                default: break;
+            }
+        }
+
+        switch (simCtx->solutionConvergenceMode) {
+            case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC:
+            case SOLUTION_CONVERGENCE_TRANSIENT:
+                fprintf(f,
+                        "%-10d | %-18.10e | %-22s | %-3d | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e\n",
+                        (int)simCtx->step, (double)simCtx->ti, mode_str, has_reference ? 1 : 0,
+                        (double)u_abs_l2, (double)u_rel_l2, (double)p_abs_l2, (double)p_rel_l2,
+                        (double)mean_speed, (double)mean_speed_reference,
+                        (double)mean_speed_abs_drift, (double)mean_speed_rel_drift,
+                        (double)mean_ke, (double)mean_ke_reference,
+                        (double)mean_ke_abs_drift, (double)mean_ke_rel_drift);
+                break;
+            case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC:
+                fprintf(f,
+                        "%-10d | %-18.10e | %-22s | %-3d | %-5d | %-5d | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e\n",
+                        (int)simCtx->step, (double)simCtx->ti, mode_str, has_reference ? 1 : 0,
+                        (int)phase_step, (int)simCtx->solutionConvergencePeriodSteps,
+                        (double)u_abs_l2, (double)u_rel_l2, (double)p_abs_l2, (double)p_rel_l2,
+                        (double)mean_speed, (double)mean_speed_reference,
+                        (double)mean_speed_abs_drift, (double)mean_speed_rel_drift,
+                        (double)mean_ke, (double)mean_ke_reference,
+                        (double)mean_ke_abs_drift, (double)mean_ke_rel_drift);
+                break;
+            case SOLUTION_CONVERGENCE_STATISTICAL_STEADY:
+                fprintf(f,
+                        "%-10d | %-18.10e | %-22s | %-3d | %-5d | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e\n",
+                        (int)simCtx->step, (double)simCtx->ti, mode_str, has_reference ? 1 : 0,
+                        (int)simCtx->solutionConvergenceWindowSteps,
+                        (double)mean_speed, (double)mean_ke,
+                        (double)mean_speed_window, (double)mean_speed_window_prev,
+                        (double)mean_speed_window_abs_drift, (double)mean_speed_window_rel_drift,
+                        (double)mean_speed_rms_window,
+                        (double)mean_speed_rms_window_abs_drift, (double)mean_speed_rms_window_rel_drift,
+                        (double)mean_ke_window, (double)mean_ke_window_prev,
+                        (double)mean_ke_window_abs_drift, (double)mean_ke_window_rel_drift,
+                        (double)mean_ke_rms_window,
+                        (double)mean_ke_rms_window_abs_drift, (double)mean_ke_rms_window_rel_drift);
+                break;
+            default: break;
+        }
         fclose(f);
     }
 

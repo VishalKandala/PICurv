@@ -243,6 +243,161 @@ static PetscErrorCode CsvGetColumnReal(const char *header, const char *row, cons
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Reads the column header and the requested 1-based data row from a
+ *        pipe-delimited solution-convergence log file.
+ *
+ * Lines starting with '=' (banner) or '-' (separator) are skipped. The first
+ * non-skipped line is treated as the column header; subsequent non-skipped
+ * lines are data rows numbered from 1.
+ */
+static PetscErrorCode ReadLogHeaderAndRow(const char *path,
+                                          PetscInt row_index,
+                                          char *header,
+                                          size_t header_len,
+                                          char *row,
+                                          size_t row_len)
+{
+    FILE      *fp = NULL;
+    PetscInt   current_row = 0;
+    char       line[8192];
+    PetscBool  header_found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCheck(path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log path cannot be NULL.");
+    PetscCheck(header != NULL && header_len > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log header buffer cannot be NULL.");
+    PetscCheck(row != NULL && row_len > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log row buffer cannot be NULL.");
+    PetscCheck(row_index >= 1, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Log row index must be >= 1.");
+
+    fp = fopen(path, "r");
+    PetscCheck(fp != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to open log '%s'.", path);
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (line[0] == '=' || line[0] == '-' || line[0] == '\n' || line[0] == '\r') continue;
+        if (!header_found) {
+            PetscCall(PetscStrncpy(header, line, header_len));
+            header_found = PETSC_TRUE;
+            continue;
+        }
+        current_row++;
+        if (current_row == row_index) {
+            PetscCall(PetscStrncpy(row, line, row_len));
+            fclose(fp);
+            PetscFunctionReturn(0);
+        }
+    }
+
+    fclose(fp);
+    if (!header_found) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Log '%s' has no column header.", path);
+    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Log '%s' does not contain data row %d.", path, (int)row_index);
+}
+
+/**
+ * @brief Returns the zero-based column index for one pipe-delimited header field.
+ */
+static PetscErrorCode LogFindColumnIndex(const char *header, const char *column_name, PetscInt *index_out)
+{
+    char      local_header[8192];
+    char     *saveptr = NULL;
+    char     *token = NULL;
+    PetscInt  index = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(header != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log header cannot be NULL.");
+    PetscCheck(column_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log column name cannot be NULL.");
+    PetscCheck(index_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log column index output cannot be NULL.");
+
+    PetscCall(PetscStrncpy(local_header, header, sizeof(local_header)));
+    token = strtok_r(local_header, "|\r\n", &saveptr);
+    while (token != NULL) {
+        while (*token == ' ') token++;
+        char *end = token + strlen(token) - 1;
+        while (end > token && (*end == ' ' || *end == '\r' || *end == '\n')) end--;
+        *(end + 1) = '\0';
+        if (strcmp(token, column_name) == 0) {
+            *index_out = index;
+            PetscFunctionReturn(0);
+        }
+        token = strtok_r(NULL, "|\r\n", &saveptr);
+        index++;
+    }
+    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Log column '%s' was not found.", column_name);
+}
+
+/**
+ * @brief Extracts one pipe-delimited log cell as text by header name.
+ */
+static PetscErrorCode LogGetColumnText(const char *header,
+                                       const char *row,
+                                       const char *column_name,
+                                       char *value,
+                                       size_t value_len)
+{
+    char      local_row[8192];
+    char     *saveptr = NULL;
+    char     *token = NULL;
+    PetscInt  target_index = -1;
+    PetscInt  index = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(row != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log row cannot be NULL.");
+    PetscCheck(value != NULL && value_len > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log value buffer cannot be NULL.");
+
+    PetscCall(LogFindColumnIndex(header, column_name, &target_index));
+    PetscCall(PetscStrncpy(local_row, row, sizeof(local_row)));
+
+    token = strtok_r(local_row, "|\r\n", &saveptr);
+    while (token != NULL) {
+        if (index == target_index) {
+            while (*token == ' ') token++;
+            char *end = token + strlen(token) - 1;
+            while (end > token && (*end == ' ' || *end == '\r' || *end == '\n')) end--;
+            *(end + 1) = '\0';
+            PetscCall(PetscStrncpy(value, token, value_len));
+            PetscFunctionReturn(0);
+        }
+        token = strtok_r(NULL, "|\r\n", &saveptr);
+        index++;
+    }
+    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Log row is missing column '%s'.", column_name);
+}
+
+/**
+ * @brief Extracts one pipe-delimited log cell as an integer by header name.
+ */
+static PetscErrorCode LogGetColumnInt(const char *header, const char *row, const char *column_name, PetscInt *value_out)
+{
+    char  text[256];
+    char *endptr = NULL;
+    long  parsed = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(value_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log integer output cannot be NULL.");
+    PetscCall(LogGetColumnText(header, row, column_name, text, sizeof(text)));
+    parsed = strtol(text, &endptr, 10);
+    PetscCheck(endptr != text, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Log column '%s' did not contain an integer.", column_name);
+    *value_out = (PetscInt)parsed;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Extracts one pipe-delimited log cell as a real by header name.
+ */
+static PetscErrorCode LogGetColumnReal(const char *header, const char *row, const char *column_name, PetscReal *value_out)
+{
+    char   text[256];
+    char  *endptr = NULL;
+    double parsed = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(value_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log real output cannot be NULL.");
+    PetscCall(LogGetColumnText(header, row, column_name, text, sizeof(text)));
+    parsed = strtod(text, &endptr);
+    PetscCheck(endptr != text, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Log column '%s' did not contain a real value.", column_name);
+    *value_out = (PetscReal)parsed;
+    PetscFunctionReturn(0);
+}
+
 typedef PetscErrorCode (*CapturedLoggingFn)(UserCtx *user, SimCtx *simCtx, void *ctx);
 
 typedef struct AnatomyCaptureCtx {
@@ -1007,14 +1162,14 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
 }
 
 /**
- * @brief Tests steady solution-convergence CSV logging, IBM masking, and gauge-invariant pressure drift.
+ * @brief Tests steady solution-convergence log output, IBM masking, and gauge-invariant pressure drift.
  */
 static PetscErrorCode TestSolutionConvergenceSteadyLogging(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     char tmpdir[PETSC_MAX_PATH_LEN];
-    char csv_path[PETSC_MAX_PATH_LEN];
+    char log_path[PETSC_MAX_PATH_LEN];
     char header[4096];
     char row1[4096];
     char row2[4096];
@@ -1059,17 +1214,17 @@ static PetscErrorCode TestSolutionConvergenceSteadyLogging(void)
     PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
     PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
 
-    PetscCall(PetscSNPrintf(csv_path, sizeof(csv_path), "%s/solution_convergence.csv", simCtx->log_dir));
-    PetscCall(PicurvAssertFileExists(csv_path, "steady solution-convergence logging should write the CSV"));
-    PetscCall(ReadCsvHeaderAndRow(csv_path, 1, header, sizeof(header), row1, sizeof(row1)));
-    PetscCall(ReadCsvHeaderAndRow(csv_path, 2, header, sizeof(header), row2, sizeof(row2)));
-    PetscCall(CsvGetColumnText(header, row1, "mode", mode, sizeof(mode)));
-    PetscCall(CsvGetColumnInt(header, row1, "has_reference", &has_reference_1));
-    PetscCall(CsvGetColumnInt(header, row2, "has_reference", &has_reference_2));
-    PetscCall(CsvGetColumnReal(header, row2, "mean_speed", &mean_speed));
-    PetscCall(CsvGetColumnReal(header, row2, "mean_speed_reference", &mean_speed_ref));
-    PetscCall(CsvGetColumnReal(header, row2, "mean_speed_abs_drift", &mean_speed_abs));
-    PetscCall(CsvGetColumnReal(header, row2, "p_abs_l2", &p_abs));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(PicurvAssertFileExists(log_path, "steady solution-convergence logging should write the log"));
+    PetscCall(ReadLogHeaderAndRow(log_path, 1, header, sizeof(header), row1, sizeof(row1)));
+    PetscCall(ReadLogHeaderAndRow(log_path, 2, header, sizeof(header), row2, sizeof(row2)));
+    PetscCall(LogGetColumnText(header, row1, "mode", mode, sizeof(mode)));
+    PetscCall(LogGetColumnInt(header, row1, "ref", &has_reference_1));
+    PetscCall(LogGetColumnInt(header, row2, "ref", &has_reference_2));
+    PetscCall(LogGetColumnReal(header, row2, "mean_speed", &mean_speed));
+    PetscCall(LogGetColumnReal(header, row2, "spd_ref", &mean_speed_ref));
+    PetscCall(LogGetColumnReal(header, row2, "spd_abs", &mean_speed_abs));
+    PetscCall(LogGetColumnReal(header, row2, "p_abs_l2", &p_abs));
 
     PetscCall(PicurvAssertBool((PetscBool)(strcmp(mode, "steady_deterministic") == 0),
                                "steady solution convergence row should record the mode name"));
@@ -1099,7 +1254,7 @@ static PetscErrorCode TestSolutionConvergencePeriodicLogging(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     char tmpdir[PETSC_MAX_PATH_LEN];
-    char csv_path[PETSC_MAX_PATH_LEN];
+    char log_path[PETSC_MAX_PATH_LEN];
     char header[4096];
     char row1[4096];
     char row2[4096];
@@ -1140,19 +1295,19 @@ static PetscErrorCode TestSolutionConvergencePeriodicLogging(void)
     PetscCall(SetUniformScalarField(user, user->P, 9.0));
     PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
 
-    PetscCall(PetscSNPrintf(csv_path, sizeof(csv_path), "%s/solution_convergence.csv", simCtx->log_dir));
-    PetscCall(PicurvAssertFileExists(csv_path, "periodic solution-convergence logging should write the CSV"));
-    PetscCall(ReadCsvHeaderAndRow(csv_path, 1, header, sizeof(header), row1, sizeof(row1)));
-    PetscCall(ReadCsvHeaderAndRow(csv_path, 2, header, sizeof(header), row2, sizeof(row2)));
-    PetscCall(ReadCsvHeaderAndRow(csv_path, 3, header, sizeof(header), row3, sizeof(row3)));
-    PetscCall(CsvGetColumnInt(header, row1, "has_reference", &has_reference_1));
-    PetscCall(CsvGetColumnInt(header, row2, "has_reference", &has_reference_2));
-    PetscCall(CsvGetColumnInt(header, row3, "has_reference", &has_reference_3));
-    PetscCall(CsvGetColumnInt(header, row1, "phase_step", &phase_step_1));
-    PetscCall(CsvGetColumnInt(header, row2, "phase_step", &phase_step_2));
-    PetscCall(CsvGetColumnInt(header, row3, "phase_step", &phase_step_3));
-    PetscCall(CsvGetColumnReal(header, row3, "mean_speed_reference", &mean_speed_ref_2));
-    PetscCall(CsvGetColumnReal(header, row3, "mean_speed_abs_drift", &mean_speed_abs_2));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(PicurvAssertFileExists(log_path, "periodic solution-convergence logging should write the log"));
+    PetscCall(ReadLogHeaderAndRow(log_path, 1, header, sizeof(header), row1, sizeof(row1)));
+    PetscCall(ReadLogHeaderAndRow(log_path, 2, header, sizeof(header), row2, sizeof(row2)));
+    PetscCall(ReadLogHeaderAndRow(log_path, 3, header, sizeof(header), row3, sizeof(row3)));
+    PetscCall(LogGetColumnInt(header, row1, "ref", &has_reference_1));
+    PetscCall(LogGetColumnInt(header, row2, "ref", &has_reference_2));
+    PetscCall(LogGetColumnInt(header, row3, "ref", &has_reference_3));
+    PetscCall(LogGetColumnInt(header, row1, "ph", &phase_step_1));
+    PetscCall(LogGetColumnInt(header, row2, "ph", &phase_step_2));
+    PetscCall(LogGetColumnInt(header, row3, "ph", &phase_step_3));
+    PetscCall(LogGetColumnReal(header, row3, "spd_ref", &mean_speed_ref_2));
+    PetscCall(LogGetColumnReal(header, row3, "spd_abs", &mean_speed_abs_2));
 
     PetscCall(PicurvAssertIntEqual(0, has_reference_1,
                                    "the first periodic phase visit should log warmup without a reference"));
@@ -1184,7 +1339,7 @@ static PetscErrorCode TestSolutionConvergenceStatisticalLogging(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     char tmpdir[PETSC_MAX_PATH_LEN];
-    char csv_path[PETSC_MAX_PATH_LEN];
+    char log_path[PETSC_MAX_PATH_LEN];
     char header[4096];
     char row[4096];
     PetscReal mean_speed_window = NAN;
@@ -1213,18 +1368,18 @@ static PetscErrorCode TestSolutionConvergenceStatisticalLogging(void)
         PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
     }
 
-    PetscCall(PetscSNPrintf(csv_path, sizeof(csv_path), "%s/solution_convergence.csv", simCtx->log_dir));
-    PetscCall(PicurvAssertFileExists(csv_path, "statistical solution-convergence logging should write the CSV"));
-    PetscCall(ReadCsvHeaderAndRow(csv_path, 4, header, sizeof(header), row, sizeof(row)));
-    PetscCall(CsvGetColumnInt(header, row, "has_reference", &has_reference));
-    PetscCall(CsvGetColumnReal(header, row, "mean_speed_window", &mean_speed_window));
-    PetscCall(CsvGetColumnReal(header, row, "mean_speed_window_prev", &mean_speed_window_prev));
-    PetscCall(CsvGetColumnReal(header, row, "mean_speed_window_abs_drift", &mean_speed_window_abs));
-    PetscCall(CsvGetColumnReal(header, row, "mean_speed_rms_window", &mean_speed_rms_window));
-    PetscCall(CsvGetColumnReal(header, row, "mean_ke_window", &mean_ke_window));
-    PetscCall(CsvGetColumnReal(header, row, "mean_ke_window_prev", &mean_ke_window_prev));
-    PetscCall(CsvGetColumnReal(header, row, "mean_ke_window_abs_drift", &mean_ke_window_abs));
-    PetscCall(CsvGetColumnReal(header, row, "mean_ke_rms_window_abs_drift", &mean_ke_rms_window_abs));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(PicurvAssertFileExists(log_path, "statistical solution-convergence logging should write the log"));
+    PetscCall(ReadLogHeaderAndRow(log_path, 4, header, sizeof(header), row, sizeof(row)));
+    PetscCall(LogGetColumnInt(header, row, "ref", &has_reference));
+    PetscCall(LogGetColumnReal(header, row, "spd_win", &mean_speed_window));
+    PetscCall(LogGetColumnReal(header, row, "spd_win_prev", &mean_speed_window_prev));
+    PetscCall(LogGetColumnReal(header, row, "spd_win_abs", &mean_speed_window_abs));
+    PetscCall(LogGetColumnReal(header, row, "spd_rms_win", &mean_speed_rms_window));
+    PetscCall(LogGetColumnReal(header, row, "ke_win", &mean_ke_window));
+    PetscCall(LogGetColumnReal(header, row, "ke_win_prev", &mean_ke_window_prev));
+    PetscCall(LogGetColumnReal(header, row, "ke_win_abs", &mean_ke_window_abs));
+    PetscCall(LogGetColumnReal(header, row, "ke_rms_abs", &mean_ke_rms_window_abs));
 
     PetscCall(PicurvAssertIntEqual(1, has_reference,
                                    "statistical solution convergence should emit adjacent-window drift once two windows exist"));

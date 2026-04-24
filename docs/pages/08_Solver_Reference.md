@@ -121,7 +121,7 @@ Mappings:
 
 Rules:
 - the `solution_convergence` block is optional; when omitted, the runtime still logs
-  `logs/solution_convergence.csv` once per physical timestep using the default
+  `logs/solution_convergence.log` once per physical timestep using the default
   `steady_deterministic` mode.
 - it is logging-only in the current implementation.
 - it does not replace the existing inner solver-health logs:

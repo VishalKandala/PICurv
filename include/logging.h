@@ -673,7 +673,7 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user);
  * This logger is intentionally separate from the detailed inner solver-health
  * logs. Depending on the configured mode, it records deterministic step drift,
  * periodic phase-aligned drift, or statistical window drift into
- * `logs/solution_convergence.csv`.
+ * `logs/solution_convergence.log`.
  *
  * The logger is solver-mode only and is intended to run after a completed
  * flow-solve / projection step but before history vectors are shifted forward.

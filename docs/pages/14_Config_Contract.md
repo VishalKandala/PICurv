@@ -90,7 +90,7 @@ Verification-pathway rule:
 Solution-convergence rule:
 
 - `solver.yml -> solution_convergence` is an optional override block for the always-on runtime solution-convergence logger.
-- the runtime always writes `logs/solution_convergence.csv` once per physical timestep, defaulting to `steady_deterministic` mode when the block is omitted.
+- the runtime always writes `logs/solution_convergence.log` once per physical timestep, defaulting to `steady_deterministic` mode when the block is omitted.
 - it complements, rather than replaces, the inner solver-health logs:
   - `logs/Momentum_Solver_Convergence_History_Block_*.log`
   - `logs/Poisson_Solver_Convergence_History_Block_*.log`

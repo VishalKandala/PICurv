@@ -8603,6 +8603,62 @@ def _parse_profiling_timestep_csv(filepath: str) -> dict:
     return rows_by_step
 
 
+def _parse_solution_convergence_log(filepath: str) -> dict:
+    """!
+    @brief Parse solution_convergence.log into {step: row_dict}.
+
+    The log format uses pipe-delimited aligned columns. The first line of the
+    file is a banner (starts with '=') containing the mode tag; the second line
+    is the column header; the third line is a separator (starts with '-').
+    Subsequent lines are one data row per timestep.
+
+    @param[in] filepath Path to solution_convergence.log.
+    @return Mapping of step number to a dict of column values.
+    """
+    rows_by_step = {}
+    if not os.path.isfile(filepath):
+        return rows_by_step
+
+    mode = None
+    col_names = None
+
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("="):
+                m = re.search(r"\[mode:\s*([\w_]+)", line)
+                if m:
+                    mode = m.group(1)
+                continue
+            if line.startswith("-"):
+                continue
+            if col_names is None:
+                col_names = [p.strip() for p in raw_line.split("|")]
+                continue
+            parts = [p.strip() for p in raw_line.split("|")]
+            if len(parts) < 4 or col_names is None:
+                continue
+            step = _parse_int_loose(parts[0]) if col_names[0] == "step" else None
+            if step is None:
+                continue
+            row = {"mode": mode}
+            for name, val in zip(col_names, parts):
+                if not name:
+                    continue
+                float_val = _parse_float_loose(val)
+                int_val = _parse_int_loose(val)
+                if float_val is not None and ("." in val or "e" in val.lower()):
+                    row[name] = float_val
+                elif int_val is not None:
+                    row[name] = int_val
+                else:
+                    row[name] = val
+            rows_by_step[step] = row
+    return rows_by_step
+
+
 def _find_solver_stream_log_candidates(run_dir: str, log_dir: str) -> list[str]:
     """!
     @brief Return plausible solver stream logs for local and Slurm runs.
@@ -8976,7 +9032,7 @@ def _find_particle_snapshot_for_step(
     )
 
 
-def _resolve_summary_step(requested_step, continuity_rows, particle_rows, momentum_rows, poisson_rows, profiling_rows):
+def _resolve_summary_step(requested_step, continuity_rows, particle_rows, momentum_rows, poisson_rows, profiling_rows, convergence_rows=None):
     """!
     @brief Select a step to summarize, preferring completed end-of-step metrics.
     @param[in] requested_step Argument passed to `_resolve_summary_step()`.
@@ -8985,9 +9041,15 @@ def _resolve_summary_step(requested_step, continuity_rows, particle_rows, moment
     @param[in] momentum_rows Argument passed to `_resolve_summary_step()`.
     @param[in] poisson_rows Argument passed to `_resolve_summary_step()`.
     @param[in] profiling_rows Argument passed to `_resolve_summary_step()`.
+    @param[in] convergence_rows Argument passed to `_resolve_summary_step()`.
     @return Value returned by `_resolve_summary_step()`.
     """
-    available_steps = set(continuity_rows) | set(particle_rows) | set(momentum_rows) | set(poisson_rows) | set(profiling_rows)
+    if convergence_rows is None:
+        convergence_rows = {}
+    available_steps = (
+        set(continuity_rows) | set(particle_rows) | set(momentum_rows)
+        | set(poisson_rows) | set(profiling_rows) | set(convergence_rows)
+    )
     if not available_steps:
         return None, []
 
@@ -9035,6 +9097,9 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
     if context["profiling_cfg"].get("mode") != "off":
         profiling_rows = _parse_profiling_timestep_csv(profiling_path)
 
+    convergence_log_path = os.path.join(log_dir, "solution_convergence.log")
+    convergence_rows = _parse_solution_convergence_log(convergence_log_path)
+
     resolved_step, available_steps = _resolve_summary_step(
         step,
         continuity_rows,
@@ -9042,6 +9107,7 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
         momentum_rows,
         poisson_rows,
         profiling_rows,
+        convergence_rows,
     )
     if resolved_step is None:
         emit_structured_error(
@@ -9132,6 +9198,7 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
             "momentum_logs": momentum_sources,
             "poisson_logs": poisson_sources,
             "profiling_timestep_csv": profiling_path if os.path.isfile(profiling_path) else None,
+            "solution_convergence_log": convergence_log_path if os.path.isfile(convergence_log_path) else None,
         },
         "continuity": continuity_summary,
         "momentum": momentum_summary,
@@ -9139,6 +9206,7 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
         "particles": particle_summary,
         "particle_snapshot": snapshot_summary,
         "profiling": profiling_summary,
+        "convergence": convergence_rows.get(resolved_step) if convergence_rows else None,
     }
 
 
@@ -9203,6 +9271,29 @@ def render_run_summary(payload: dict, output_format: str = "text"):
                 f"true={_format_summary_float(row.get('true_norm'))} "
                 f"rel={_format_summary_float(row.get('relative_norm'))}"
             )
+    else:
+        print("    unavailable")
+
+    convergence = payload.get("convergence")
+    print("\n  Solution Convergence:")
+    if convergence is not None:
+        mode = convergence.get("mode", "unknown")
+        ref = convergence.get("ref")
+        print(f"    mode           : {mode}  (ref={'yes' if ref else 'no'})")
+        if mode in ("steady_deterministic", "transient"):
+            print(f"    u_abs_l2       : {_format_summary_float(convergence.get('u_abs_l2'))}")
+            print(f"    mean_speed     : {_format_summary_float(convergence.get('mean_speed'))}  drift={_format_summary_float(convergence.get('spd_abs'))}")
+            print(f"    mean_ke        : {_format_summary_float(convergence.get('mean_ke'))}  drift={_format_summary_float(convergence.get('ke_abs'))}")
+        elif mode == "periodic_deterministic":
+            ph = convergence.get("ph")
+            per = convergence.get("per")
+            print(f"    phase          : {ph}/{per}")
+            print(f"    u_abs_l2       : {_format_summary_float(convergence.get('u_abs_l2'))}")
+            print(f"    mean_speed     : {_format_summary_float(convergence.get('mean_speed'))}  drift={_format_summary_float(convergence.get('spd_abs'))}")
+            print(f"    mean_ke        : {_format_summary_float(convergence.get('mean_ke'))}  drift={_format_summary_float(convergence.get('ke_abs'))}")
+        elif mode == "statistical_steady":
+            print(f"    mean_speed     : {_format_summary_float(convergence.get('mean_speed'))}  win={_format_summary_float(convergence.get('spd_win'))}  win_drift={_format_summary_float(convergence.get('spd_win_abs'))}")
+            print(f"    mean_ke        : {_format_summary_float(convergence.get('mean_ke'))}  win={_format_summary_float(convergence.get('ke_win'))}  win_drift={_format_summary_float(convergence.get('ke_win_abs'))}")
     else:
         print("    unavailable")
 
