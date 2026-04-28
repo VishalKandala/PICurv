@@ -51,7 +51,7 @@
 - Cluster orchestration and sweeps:
   - added `cluster.yml` Slurm contract support to `picurv run` (`--cluster`, `--scheduler`, `--no-submit`).
   - added `picurv submit` as the delayed-submit counterpart to `--no-submit` for existing run/study artifacts.
-  - added `picurv cancel` so Slurm jobs can be stopped by `--run-dir` instead of manual job-id lookup.
+  - added `picurv cancel` so Slurm jobs can be stopped by `--run-dir` instead of manual job-id lookup; `picurv cancel --stage solve --graceful` requests solver final-output shutdown with `SIGUSR1`.
   - added scheduler artifact generation and submission metadata (`solver.sbatch`, `post.sbatch`, `submission.json`, `manifest.json`).
   - added `picurv sweep` for parameter studies using Slurm job arrays with post-stage dependency chaining.
   - added `picurv sweep --continue --study-dir <path>` for resuming partially-completed studies: detects per-case completion status, prepares checkpoint restarts via `resolve_restart_source`, and submits sparse solver arrays for incomplete cases only.

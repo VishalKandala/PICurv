@@ -26,7 +26,7 @@ Two repo-wide patterns are especially important in the current codebase:
 2. Replace only the role file you are actively experimenting with.
 3. Validate after each change (`./bin/picurv validate ...`) before launching runs.
 4. For Slurm workflows, prefer `picurv run ... --cluster ... --no-submit` first, inspect `runs/<run_id>/scheduler/`, then use `picurv submit --run-dir ...`.
-5. If a submitted Slurm run needs to be stopped, use `picurv cancel --run-dir ...` instead of relying on a separately tracked job ID.
+5. If a submitted Slurm run needs to be stopped, use `picurv cancel --run-dir ...` instead of relying on a separately tracked job ID. For solver jobs that should write a final off-cadence checkpoint first, use `picurv cancel --run-dir ... --stage solve --graceful`.
 6. Generated Slurm solver jobs enable the runtime walltime guard by default; tune it in `cluster.yml -> execution.walltime_guard` only when the default warmup/headroom policy needs adjustment.
 7. Keep `cluster.yml -> execution.extra_sbatch.signal` as the fallback path for preemption/termination signals or runs that may not reach the guard warmup window.
 8. Promote stable reusable profiles back into `config/` so team workflows converge.

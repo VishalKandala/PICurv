@@ -50,6 +50,16 @@ Stop a submitted run by directory:
 ./bin/picurv cancel --run-dir runs/<run_id>
 ```
 
+Request a solver final-output shutdown instead of an immediate hard cancel:
+
+```bash
+./bin/picurv cancel --run-dir runs/<run_id> --stage solve --graceful
+```
+
+`--graceful` sends `SIGUSR1` to solver jobs so PICurv can write the latest safe
+off-cadence step at the next runtime checkpoint. If the job is wedged or not
+reaching checkpoints, use plain `picurv cancel --run-dir ... --stage solve`.
+
 Explicit scheduler cross-check (optional):
 
 ```bash

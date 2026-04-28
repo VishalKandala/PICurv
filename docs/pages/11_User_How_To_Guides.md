@@ -164,6 +164,14 @@ Cancel a submitted run by directory:
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve
 ```
 
+Request a solver final-output shutdown before exiting:
+
+```bash
+./bin/picurv cancel --run-dir runs/<run_id> --stage solve --graceful
+```
+
+Use plain cancel if the solver is wedged or not reaching runtime checkpoints.
+
 Generated Slurm solver jobs already enable an automatic runtime walltime guard. Override it only
 when you need a different warmup/headroom policy:
 
