@@ -8405,15 +8405,17 @@ def _build_summary_context(run_dir: str) -> dict:
     }
 
 
-def _parse_continuity_metrics_log(filepath: str) -> dict:
+def _parse_continuity_metrics_log(filepath: str) -> tuple[dict, list[int]]:
     """!
-    @brief Parse Continuity_Metrics.log into {step: [rows...]}.
+    @brief Parse Continuity_Metrics.log into latest rows by step plus observed order.
     @param[in] filepath Argument passed to `_parse_continuity_metrics_log()`.
     @return Value returned by `_parse_continuity_metrics_log()`.
     """
     rows_by_step = {}
+    step_order = []
+    active_step = None
     if not os.path.isfile(filepath):
-        return rows_by_step
+        return rows_by_step, step_order
 
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
         for raw_line in f:
@@ -8432,29 +8434,32 @@ def _parse_continuity_metrics_log(filepath: str) -> dict:
             net_flux = _parse_float_loose(parts[7])
             if step is None or block is None:
                 continue
-            rows_by_step.setdefault(step, []).append(
-                {
-                    "block": block,
-                    "max_divergence": max_div,
-                    "max_divergence_location": parts[3],
-                    "rhs_sum": rhs_sum,
-                    "flux_in": flux_in,
-                    "flux_out": flux_out,
-                    "net_flux": net_flux,
-                }
-            )
-    return rows_by_step
+            if step != active_step:
+                active_step = step
+                step_order.append(step)
+                rows_by_step[step] = {}
+            rows_by_step.setdefault(step, {})[block] = {
+                "block": block,
+                "max_divergence": max_div,
+                "max_divergence_location": parts[3],
+                "rhs_sum": rhs_sum,
+                "flux_in": flux_in,
+                "flux_out": flux_out,
+                "net_flux": net_flux,
+            }
+    return {step: list(block_rows.values()) for step, block_rows in rows_by_step.items()}, step_order
 
 
-def _parse_particle_metrics_log(filepath: str) -> dict:
+def _parse_particle_metrics_log(filepath: str) -> tuple[dict, list[int]]:
     """!
-    @brief Parse Particle_Metrics.log into {step: row}.
+    @brief Parse Particle_Metrics.log into latest rows by step plus observed order.
     @param[in] filepath Argument passed to `_parse_particle_metrics_log()`.
     @return Value returned by `_parse_particle_metrics_log()`.
     """
     rows_by_step = {}
+    step_order = []
     if not os.path.isfile(filepath):
-        return rows_by_step
+        return rows_by_step, step_order
 
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
         for raw_line in f:
@@ -8497,10 +8502,11 @@ def _parse_particle_metrics_log(filepath: str) -> dict:
                     }
                 )
             rows_by_step[step] = row
-    return rows_by_step
+            step_order.append(step)
+    return rows_by_step, step_order
 
 
-def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict]:
+def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict, list[int]]:
     """!
     @brief Parse per-block momentum convergence logs.
     @param[in] log_dir Argument passed to `_parse_momentum_convergence_logs()`.
@@ -8508,6 +8514,7 @@ def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict]:
     """
     rows_by_step = {}
     sources = {}
+    step_order = []
     pattern = os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log")
     regex = re.compile(
         r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\|\s*\|"
@@ -8528,6 +8535,7 @@ def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict]:
                 if not match:
                     continue
                 step = int(match.group("step"))
+                step_order.append(step)
                 rows_by_step.setdefault(step, {})[block] = {
                     "block": block,
                     "pseudo_iterations": int(match.group("pseudo_iter")),
@@ -8537,10 +8545,10 @@ def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict]:
                     "residual_norm": float(match.group("resid")),
                     "residual_rel": float(match.group("resid_rel")),
                 }
-    return rows_by_step, sources
+    return rows_by_step, sources, step_order
 
 
-def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict]:
+def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict, list[int]]:
     """!
     @brief Parse per-block Poisson convergence logs.
     @param[in] log_dir Argument passed to `_parse_poisson_convergence_logs()`.
@@ -8548,6 +8556,7 @@ def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict]:
     """
     rows_by_step = {}
     sources = {}
+    step_order = []
     pattern = os.path.join(log_dir, "Poisson_Solver_Convergence_History_Block_*.log")
     regex = re.compile(
         r"ts:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|\s*iter:\s*(?P<iter>\d+)\s*\|"
@@ -8567,6 +8576,7 @@ def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict]:
                 if not match:
                     continue
                 step = int(match.group("step"))
+                step_order.append(step)
                 rows_by_step.setdefault(step, {})[block] = {
                     "block": block,
                     "iterations": int(match.group("iter")),
@@ -8574,18 +8584,20 @@ def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict]:
                     "true_norm": float(match.group("true")),
                     "relative_norm": _parse_float_loose(match.group("rel")),
                 }
-    return rows_by_step, sources
+    return rows_by_step, sources, step_order
 
 
-def _parse_profiling_timestep_csv(filepath: str) -> dict:
+def _parse_profiling_timestep_csv(filepath: str) -> tuple[dict, list[int]]:
     """!
-    @brief Parse profiling timestep CSV into {step: [rows...]}.
+    @brief Parse profiling timestep CSV into latest rows by step plus observed order.
     @param[in] filepath Argument passed to `_parse_profiling_timestep_csv()`.
     @return Value returned by `_parse_profiling_timestep_csv()`.
     """
     rows_by_step = {}
+    step_order = []
+    active_step = None
     if not os.path.isfile(filepath):
-        return rows_by_step
+        return rows_by_step, step_order
 
     with open(filepath, "r", encoding="utf-8", errors="replace", newline="") as f:
         reader = csv.DictReader(f)
@@ -8593,6 +8605,10 @@ def _parse_profiling_timestep_csv(filepath: str) -> dict:
             step = _parse_int_loose(row.get("step"))
             if step is None:
                 continue
+            if step != active_step:
+                active_step = step
+                step_order.append(step)
+                rows_by_step[step] = []
             rows_by_step.setdefault(step, []).append(
                 {
                     "function": row.get("function"),
@@ -8600,12 +8616,12 @@ def _parse_profiling_timestep_csv(filepath: str) -> dict:
                     "step_time_s": _parse_float_loose(row.get("step_time_s")),
                 }
             )
-    return rows_by_step
+    return rows_by_step, step_order
 
 
-def _parse_solution_convergence_log(filepath: str) -> dict:
+def _parse_solution_convergence_log(filepath: str) -> tuple[dict, list[int]]:
     """!
-    @brief Parse solution_convergence.log into {step: row_dict}.
+    @brief Parse solution_convergence.log into latest rows by step plus observed order.
 
     The log format uses pipe-delimited aligned columns. The first line of the
     file is a banner (starts with '=') containing the mode tag; the second line
@@ -8616,8 +8632,9 @@ def _parse_solution_convergence_log(filepath: str) -> dict:
     @return Mapping of step number to a dict of column values.
     """
     rows_by_step = {}
+    step_order = []
     if not os.path.isfile(filepath):
-        return rows_by_step
+        return rows_by_step, step_order
 
     mode = None
     col_names = None
@@ -8643,6 +8660,7 @@ def _parse_solution_convergence_log(filepath: str) -> dict:
             step = _parse_int_loose(parts[0]) if col_names[0] == "step" else None
             if step is None:
                 continue
+            step_order.append(step)
             row = {"mode": mode}
             for name, val in zip(col_names, parts):
                 if not name:
@@ -8656,7 +8674,7 @@ def _parse_solution_convergence_log(filepath: str) -> dict:
                 else:
                     row[name] = val
             rows_by_step[step] = row
-    return rows_by_step
+    return rows_by_step, step_order
 
 
 def _find_solver_stream_log_candidates(run_dir: str, log_dir: str) -> list[str]:
@@ -9032,9 +9050,19 @@ def _find_particle_snapshot_for_step(
     )
 
 
-def _resolve_summary_step(requested_step, continuity_rows, particle_rows, momentum_rows, poisson_rows, profiling_rows, convergence_rows=None):
+def _resolve_summary_step(
+    requested_step,
+    continuity_rows,
+    particle_rows,
+    momentum_rows,
+    poisson_rows,
+    profiling_rows,
+    convergence_rows=None,
+    step_orders=None,
+    selection_mode: str = "latest",
+):
     """!
-    @brief Select a step to summarize, preferring completed end-of-step metrics.
+    @brief Select a step to summarize from available metric artifacts.
     @param[in] requested_step Argument passed to `_resolve_summary_step()`.
     @param[in] continuity_rows Argument passed to `_resolve_summary_step()`.
     @param[in] particle_rows Argument passed to `_resolve_summary_step()`.
@@ -9046,6 +9074,8 @@ def _resolve_summary_step(requested_step, continuity_rows, particle_rows, moment
     """
     if convergence_rows is None:
         convergence_rows = {}
+    if step_orders is None:
+        step_orders = []
     available_steps = (
         set(continuity_rows) | set(particle_rows) | set(momentum_rows)
         | set(poisson_rows) | set(profiling_rows) | set(convergence_rows)
@@ -9056,10 +9086,12 @@ def _resolve_summary_step(requested_step, continuity_rows, particle_rows, moment
     if requested_step is not None:
         return requested_step, sorted(available_steps)
 
-    if continuity_rows:
-        return max(continuity_rows), sorted(available_steps)
-    if particle_rows:
-        return max(particle_rows), sorted(available_steps)
+    if selection_mode == "max_step":
+        return max(available_steps), sorted(available_steps)
+
+    for order in step_orders:
+        if order:
+            return order[-1], sorted(available_steps)
     return max(available_steps), sorted(available_steps)
 
 
@@ -9076,7 +9108,38 @@ def _format_summary_float(value, spec: str = ".6e", missing: str = "n/a") -> str
     return format(value, spec)
 
 
-def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_rows: int = 5) -> dict:
+def _summary_source_mtime(paths) -> float:
+    """!
+    @brief Return the newest modification time among one or more summary sources.
+    @param[in] paths Path string, iterable of paths, or mapping of paths.
+    @return Newest modification time, or -1.0 when no source exists.
+    """
+    if isinstance(paths, dict):
+        paths = paths.values()
+    elif isinstance(paths, str):
+        paths = [paths]
+    newest = -1.0
+    for path in paths or []:
+        if path and os.path.isfile(path):
+            newest = max(newest, os.path.getmtime(path))
+    return newest
+
+
+def _order_summary_step_orders(sources: list[tuple[list[int], object]]) -> list[list[int]]:
+    """!
+    @brief Order observed step sequences by the recency of their source files.
+    @param[in] sources Pairs of observed steps and filesystem source path(s).
+    @return Step-order lists sorted so active append sources are considered first.
+    """
+    ranked = []
+    for priority, (order, paths) in enumerate(sources):
+        if order:
+            ranked.append((_summary_source_mtime(paths), priority, order))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return [order for _, _, order in ranked]
+
+
+def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_rows: int = 5, selection_mode: str = "latest") -> dict:
     """!
     @brief Build a read-only run-step summary from existing PICurv artifacts.
     @param[in] run_dir Argument passed to `build_run_summary_payload()`.
@@ -9086,19 +9149,32 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
     """
     context = _build_summary_context(run_dir)
     log_dir = context["log_dir"]
+    continuity_path = os.path.join(log_dir, "Continuity_Metrics.log")
+    particle_metrics_path = os.path.join(log_dir, "Particle_Metrics.log")
 
-    continuity_rows = _parse_continuity_metrics_log(os.path.join(log_dir, "Continuity_Metrics.log"))
-    particle_rows = _parse_particle_metrics_log(os.path.join(log_dir, "Particle_Metrics.log"))
-    momentum_rows, momentum_sources = _parse_momentum_convergence_logs(log_dir)
-    poisson_rows, poisson_sources = _parse_poisson_convergence_logs(log_dir)
+    continuity_rows, continuity_order = _parse_continuity_metrics_log(continuity_path)
+    particle_rows, particle_order = _parse_particle_metrics_log(particle_metrics_path)
+    momentum_rows, momentum_sources, momentum_order = _parse_momentum_convergence_logs(log_dir)
+    poisson_rows, poisson_sources, poisson_order = _parse_poisson_convergence_logs(log_dir)
 
     profiling_rows = {}
+    profiling_order = []
     profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
     if context["profiling_cfg"].get("mode") != "off":
-        profiling_rows = _parse_profiling_timestep_csv(profiling_path)
+        profiling_rows, profiling_order = _parse_profiling_timestep_csv(profiling_path)
 
     convergence_log_path = os.path.join(log_dir, "solution_convergence.log")
-    convergence_rows = _parse_solution_convergence_log(convergence_log_path)
+    convergence_rows, convergence_order = _parse_solution_convergence_log(convergence_log_path)
+    step_orders = _order_summary_step_orders(
+        [
+            (continuity_order, continuity_path),
+            (particle_order, particle_metrics_path),
+            (convergence_order, convergence_log_path),
+            (profiling_order, profiling_path),
+            (momentum_order, momentum_sources),
+            (poisson_order, poisson_sources),
+        ]
+    )
 
     resolved_step, available_steps = _resolve_summary_step(
         step,
@@ -9108,6 +9184,8 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
         poisson_rows,
         profiling_rows,
         convergence_rows,
+        step_orders=step_orders,
+        selection_mode=selection_mode,
     )
     if resolved_step is None:
         emit_structured_error(
@@ -9186,15 +9264,15 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
         "run_id": context["manifest"].get("run_id", os.path.basename(context["run_dir"])),
         "run_dir": context["run_dir"],
         "step": resolved_step,
-        "selected_via": "explicit" if step is not None else "latest_available",
+        "selected_via": "explicit" if step is not None else ("max_step" if selection_mode == "max_step" else "latest_available"),
         "available_steps": available_steps,
         "launch_mode": context["manifest"].get("launch_mode"),
         "created_at": context["manifest"].get("created_at"),
         "monitor": monitor_info,
         "particles_configured": context["particle_count_cfg"],
         "sources": {
-            "continuity_log": os.path.join(log_dir, "Continuity_Metrics.log") if os.path.isfile(os.path.join(log_dir, "Continuity_Metrics.log")) else None,
-            "particle_metrics_log": os.path.join(log_dir, "Particle_Metrics.log") if os.path.isfile(os.path.join(log_dir, "Particle_Metrics.log")) else None,
+            "continuity_log": continuity_path if os.path.isfile(continuity_path) else None,
+            "particle_metrics_log": particle_metrics_path if os.path.isfile(particle_metrics_path) else None,
             "momentum_logs": momentum_sources,
             "poisson_logs": poisson_sources,
             "profiling_timestep_csv": profiling_path if os.path.isfile(profiling_path) else None,
@@ -9432,10 +9510,12 @@ def summarize_workflow(args):
     requested_step = args.step
     if requested_step is None and getattr(args, "latest", False):
         requested_step = None
+    selection_mode = "max_step" if getattr(args, "max_step", False) else "latest"
     payload = build_run_summary_payload(
         args.run_dir,
         step=requested_step,
         snapshot_rows=args.snapshot_rows,
+        selection_mode=selection_mode,
     )
     render_run_summary(payload, output_format=args.output_format)
 
@@ -10225,7 +10305,12 @@ def _add_summarize_parser(subparsers):
     step_group.add_argument(
         "--latest",
         action="store_true",
-        help="Summarize the latest completed step found in available artifacts (default behavior).",
+        help="Summarize the most recently appended completed step found in available artifacts (default behavior).",
+    )
+    step_group.add_argument(
+        "--max-step",
+        action="store_true",
+        help="Summarize the numerically largest timestep found in available artifacts.",
     )
     p_summarize.add_argument(
         "--snapshot-rows",
