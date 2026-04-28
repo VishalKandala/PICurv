@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PICURV = REPO_ROOT / "scripts" / "picurv"
@@ -416,6 +418,119 @@ def test_parse_solver_config_maps_solution_convergence_flags():
 
     assert flags["-solution_convergence_mode"] == '"PERIODIC_DETERMINISTIC"'
     assert flags["-solution_convergence_period_steps"] == 12
+
+
+def test_parse_solver_config_maps_structured_poisson_solver_flags():
+    """!
+    @brief Test that parse_solver_config maps preferred Poisson solver YAML into PETSc flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "poisson_solver": {
+            "method": "fgmres",
+            "absolute_tolerance": 1.0e-5,
+            "relative_tolerance": 1.0e-11,
+            "max_iterations": 50,
+            "gmres": {"restart": 20},
+            "preconditioner": {"type": "multigrid"},
+            "multigrid": {
+                "levels": 3,
+                "cycle": "v",
+                "mode": "multiplicative",
+                "semi_coarsening": {"i": False, "j": False, "k": True},
+                "level_solvers": {
+                    "level_0": {"method": "fgmres", "preconditioner": "bjacobi"},
+                    "level_1": {"method": "richardson", "preconditioner": "sor"},
+                },
+            },
+        }
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-ps_ksp_type"] == "fgmres"
+    assert flags["-ps_ksp_atol"] == 1.0e-5
+    assert flags["-poisson_tol"] == 1.0e-5
+    assert flags["-ps_ksp_rtol"] == 1.0e-11
+    assert flags["-ps_ksp_max_it"] == 50
+    assert flags["-ps_ksp_gmres_restart"] == 20
+    assert flags["-ps_pc_type"] == "mg"
+    assert flags["-mg_level"] == 3
+    assert flags["-mg_i_semi"] == "0"
+    assert flags["-mg_j_semi"] == "0"
+    assert flags["-mg_k_semi"] == "1"
+    assert flags["-ps_mg_levels_0_ksp_type"] == "fgmres"
+    assert flags["-ps_mg_levels_0_pc_type"] == "bjacobi"
+    assert flags["-ps_mg_levels_1_ksp_type"] == "richardson"
+    assert flags["-ps_mg_levels_1_pc_type"] == "sor"
+
+
+def test_parse_solver_config_keeps_legacy_pressure_solver_alias():
+    """!
+    @brief Test that legacy pressure_solver still maps to Poisson flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "pressure_solver": {
+            "multigrid": {
+                "levels": 4,
+                "level_solvers": {
+                    "level_0": {"ksp_type": "gmres", "pc_type": "ilu"},
+                },
+            },
+        }
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-mg_level"] == 4
+    assert flags["-ps_mg_levels_0_ksp_type"] == "gmres"
+    assert flags["-ps_mg_levels_0_pc_type"] == "ilu"
+
+
+def test_parse_solver_config_rejects_non_multigrid_outer_preconditioner():
+    """!
+    @brief Test that unsupported outer Poisson preconditioners fail clearly.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "poisson_solver": {
+            "preconditioner": {"type": "ilu"},
+        }
+    }
+
+    with pytest.raises(ValueError, match="supports only 'multigrid'"):
+        picurv.parse_solver_config(solver_cfg)
+
+
+def test_parse_solver_config_rejects_gmres_restart_for_non_gmres_method():
+    """!
+    @brief Test that GMRES restart is accepted only for GMRES-family methods.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "poisson_solver": {
+            "method": "cg",
+            "gmres": {"restart": 20},
+        }
+    }
+
+    with pytest.raises(ValueError, match="gmres.restart is valid only"):
+        picurv.parse_solver_config(solver_cfg)
+
+
+def test_parse_solver_config_rejects_conflicting_poisson_aliases():
+    """!
+    @brief Test that preferred and legacy Poisson solver blocks cannot conflict.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "poisson_solver": {"method": "fgmres"},
+        "pressure_solver": {"method": "gmres"},
+    }
+
+    with pytest.raises(ValueError, match="Both 'poisson_solver' and legacy 'pressure_solver'"):
+        picurv.parse_solver_config(solver_cfg)
 
 
 def test_validate_rejects_verification_diffusivity_for_non_analytical_solver(tmp_path):

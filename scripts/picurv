@@ -5547,24 +5547,134 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                 if not isinstance(statistical_cfg, dict):
                     raise ValueError("solution_convergence.statistical_steady must be a mapping when mode is 'statistical_steady'.")
                 flags['-solution_convergence_window_steps'] = statistical_cfg['window_steps']
-    if 'pressure_solver' in solver_cfg:
-        ps = solver_cfg['pressure_solver']
-        if 'tolerance' in ps: flags['-poisson_tol'] = ps['tolerance']
+    def _normalize_poisson_method(value) -> str:
+        """!
+        @brief Normalize a user-facing Poisson linear-solver method name.
+        @param[in] value Method value from the solver YAML.
+        @return Lowercase PETSc KSP method token.
+        """
+        method = str(value).strip().lower()
+        if not method:
+            raise ValueError("poisson_solver.method cannot be empty.")
+        return method
+
+    def _normalize_poisson_preconditioner(value) -> str:
+        """!
+        @brief Normalize and validate the outer Poisson preconditioner name.
+        @param[in] value Preconditioner value from the solver YAML.
+        @return PETSc PC token for the supported outer preconditioner.
+        """
+        pc = str(value).strip().lower()
+        aliases = {"mg": "multigrid", "pcmg": "multigrid"}
+        pc = aliases.get(pc, pc)
+        if pc != "multigrid":
+            raise ValueError(
+                "poisson_solver.preconditioner.type currently supports only 'multigrid'. "
+                "The runtime Poisson solver still assumes PETSc PCMG setup."
+            )
+        return "mg"
+
+    def _poisson_level_number(level_name) -> str:
+        """!
+        @brief Extract the numeric suffix from a `level_N` multigrid level key.
+        @param[in] level_name YAML level key supplied by the user.
+        @return Numeric level suffix as a string.
+        """
+        text = str(level_name).strip()
+        match = re.fullmatch(r"level_(\d+)", text)
+        if not match:
+            raise ValueError(f"Invalid Poisson multigrid level name '{level_name}'. Expected 'level_N'.")
+        return match.group(1)
+
+    def _append_poisson_solver_flags(ps: dict, source_key: str):
+        """!
+        @brief Append structured Poisson solver options to the flat PETSc flag map.
+        @param[in] ps The `poisson_solver` or legacy `pressure_solver` mapping.
+        @param[in] source_key Name of the source YAML block, used in error messages.
+        """
+        if not isinstance(ps, dict):
+            raise ValueError(f"{source_key} must be a mapping when provided.")
+
+        method = None
+        if 'method' in ps:
+            method = _normalize_poisson_method(ps['method'])
+            flags['-ps_ksp_type'] = method
+        if 'absolute_tolerance' in ps:
+            flags['-ps_ksp_atol'] = ps['absolute_tolerance']
+            flags['-poisson_tol'] = ps['absolute_tolerance']
+        if 'relative_tolerance' in ps:
+            flags['-ps_ksp_rtol'] = ps['relative_tolerance']
+        if 'max_iterations' in ps:
+            flags['-ps_ksp_max_it'] = ps['max_iterations']
+        if 'tolerance' in ps:
+            flags['-poisson_tol'] = ps['tolerance']
+
+        gmres_cfg = ps.get('gmres', {})
+        if gmres_cfg is not None:
+            if not isinstance(gmres_cfg, dict):
+                raise ValueError(f"{source_key}.gmres must be a mapping when provided.")
+            if 'restart' in gmres_cfg:
+                if method is None:
+                    method = _normalize_poisson_method(ps.get('method', 'fgmres'))
+                    flags.setdefault('-ps_ksp_type', method)
+                if method not in {"gmres", "fgmres", "lgmres"}:
+                    raise ValueError(
+                        f"{source_key}.gmres.restart is valid only when {source_key}.method "
+                        "is one of 'gmres', 'fgmres', or 'lgmres'."
+                    )
+                flags['-ps_ksp_gmres_restart'] = gmres_cfg['restart']
+
+        preconditioner_cfg = ps.get('preconditioner', {})
+        if preconditioner_cfg:
+            if not isinstance(preconditioner_cfg, dict):
+                raise ValueError(f"{source_key}.preconditioner must be a mapping when provided.")
+            if 'type' in preconditioner_cfg:
+                flags['-ps_pc_type'] = _normalize_poisson_preconditioner(preconditioner_cfg['type'])
+
         if 'multigrid' in ps:
             mg = ps['multigrid']
+            if not isinstance(mg, dict):
+                raise ValueError(f"{source_key}.multigrid must be a mapping when provided.")
             mg_map = {'levels': '-mg_level', 'pre_sweeps': '-mg_pre_it', 'post_sweeps': '-mg_post_it'}
             for key, flag in mg_map.items():
                 if key in mg: flags[flag] = mg[key]
+            if 'cycle' in mg:
+                cycle = str(mg['cycle']).strip().lower()
+                if cycle not in {"v"}:
+                    raise ValueError(f"{source_key}.multigrid.cycle currently supports only 'v'.")
+            if 'mode' in mg:
+                mode = str(mg['mode']).strip().lower()
+                if mode not in {"multiplicative"}:
+                    raise ValueError(f"{source_key}.multigrid.mode currently supports only 'multiplicative'.")
             if 'semi_coarsening' in mg:
                 sc = mg['semi_coarsening']
+                if not isinstance(sc, dict):
+                    raise ValueError(f"{source_key}.multigrid.semi_coarsening must be a mapping when provided.")
                 if 'i' in sc: flags['-mg_i_semi'] = format_flag_value(sc['i'])
                 if 'j' in sc: flags['-mg_j_semi'] = format_flag_value(sc['j'])
                 if 'k' in sc: flags['-mg_k_semi'] = format_flag_value(sc['k'])
             if 'level_solvers' in mg:
-                for level_name, settings in mg['level_solvers'].items():
-                    level_num = level_name.split('_')[-1]
+                level_solvers = mg['level_solvers']
+                if not isinstance(level_solvers, dict):
+                    raise ValueError(f"{source_key}.multigrid.level_solvers must be a mapping when provided.")
+                for level_name, settings in level_solvers.items():
+                    if not isinstance(settings, dict):
+                        raise ValueError(f"{source_key}.multigrid.level_solvers.{level_name} must be a mapping.")
+                    level_num = _poisson_level_number(level_name)
                     for key, value in settings.items():
-                        flags[f"-ps_mg_levels_{level_num}_{key}"] = format_flag_value(value)
+                        mapped_key = {'method': 'ksp_type', 'preconditioner': 'pc_type'}.get(key, key)
+                        flags[f"-ps_mg_levels_{level_num}_{mapped_key}"] = format_flag_value(value)
+
+    if 'poisson_solver' in solver_cfg and 'pressure_solver' in solver_cfg:
+        if solver_cfg['poisson_solver'] != solver_cfg['pressure_solver']:
+            raise ValueError(
+                "Both 'poisson_solver' and legacy 'pressure_solver' are present with different values. "
+                "Use 'poisson_solver' only, or make the legacy alias identical."
+            )
+    poisson_cfg = solver_cfg.get('poisson_solver', solver_cfg.get('pressure_solver'))
+    if poisson_cfg is not None:
+        source_key = 'poisson_solver' if 'poisson_solver' in solver_cfg else 'pressure_solver'
+        _append_poisson_solver_flags(poisson_cfg, source_key)
     interp_cfg = solver_cfg.get('interpolation', {})
     if isinstance(interp_cfg, dict):
         interp_method_str = interp_cfg.get('method', 'Trilinear')
@@ -5579,6 +5689,19 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         if passthrough:
             for key, value in passthrough.items():
                 flags[key] = format_flag_value(value)
+    summary_bits = []
+    if '-ps_ksp_type' in flags:
+        summary_bits.append(f"method={flags['-ps_ksp_type']}")
+    if '-ps_ksp_atol' in flags:
+        summary_bits.append(f"atol={flags['-ps_ksp_atol']}")
+    if '-ps_ksp_rtol' in flags:
+        summary_bits.append(f"rtol={flags['-ps_ksp_rtol']}")
+    if '-ps_ksp_max_it' in flags:
+        summary_bits.append(f"max_it={flags['-ps_ksp_max_it']}")
+    if '-mg_level' in flags:
+        summary_bits.append(f"mg_levels={flags['-mg_level']}")
+    if summary_bits:
+        print(f"  - Poisson Solver: {', '.join(summary_bits)}")
     return flags
 
 def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_files, restart_source_dir=None, continue_mode=False):
@@ -9070,6 +9193,8 @@ def _resolve_summary_step(
     @param[in] poisson_rows Argument passed to `_resolve_summary_step()`.
     @param[in] profiling_rows Argument passed to `_resolve_summary_step()`.
     @param[in] convergence_rows Argument passed to `_resolve_summary_step()`.
+    @param[in] step_orders Argument passed to `_resolve_summary_step()`.
+    @param[in] selection_mode Argument passed to `_resolve_summary_step()`.
     @return Value returned by `_resolve_summary_step()`.
     """
     if convergence_rows is None:
@@ -9145,6 +9270,7 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
     @param[in] run_dir Argument passed to `build_run_summary_payload()`.
     @param[in] step Argument passed to `build_run_summary_payload()`.
     @param[in] snapshot_rows Argument passed to `build_run_summary_payload()`.
+    @param[in] selection_mode Argument passed to `build_run_summary_payload()`.
     @return Value returned by `build_run_summary_payload()`.
     """
     context = _build_summary_context(run_dir)

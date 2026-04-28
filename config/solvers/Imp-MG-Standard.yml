@@ -29,8 +29,16 @@ momentum_solver:
       growth_factor: 1.0
       reduction_factor: 1.0
 
-# --- Pressure-Poisson Solver Configuration ---
-pressure_solver:
+# --- Poisson Solver Configuration (pressure-correction Phi) ---
+poisson_solver:
+  method: "fgmres"
+  absolute_tolerance: 1.0e-5
+  relative_tolerance: 1.0e-11
+  max_iterations: 50
+  gmres:
+    restart: 20
+  preconditioner:
+    type: "multigrid"
   multigrid:
     levels: 3
     # Use semi-coarsening in the 'k' direction, assuming it's the longest.
@@ -38,18 +46,17 @@ pressure_solver:
       i: false  # -> -mg_i_semi 0
       j: false  # -> -mg_j_semi 0
       k: true   # -> -mg_k_semi 1
+    level_solvers:
+      level_0:
+        method: "fgmres"      # Coarsest level
+        preconditioner: "bjacobi"
+      level_1:
+        method: "richardson"
+        preconditioner: "bjacobi"
+      level_2:
+        method: "richardson"  # Finest level
+        preconditioner: "bjacobi"
       
 # --- PETSC PASSTHROUGH OPTIONS ---
-# Direct mapping to the solver's command-line flags.
-petsc_passthrough_options:
-  # --- Top-level KSP (Krylov Solver) ---
-  -ps_ksp_type: "fgmres"
-  -ps_ksp_gmres_restart: 20
-  -ps_ksp_max_it: 50
-  -ps_ksp_atol: 1.0e-5
-  -ps_ksp_rtol: 1.0e-11
-  
-  # --- Per-Level MG Smoothers ---
-  -ps_mg_levels_0_ksp_type: "richardson" # Finest level
-  -ps_mg_levels_1_ksp_type: "richardson"
-  -ps_mg_levels_2_ksp_type: "fgmres"     # Coarsest level
+# Advanced PETSc options not covered by structured YAML can still go here.
+petsc_passthrough_options: {}

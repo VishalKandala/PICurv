@@ -102,35 +102,56 @@ momentum_solver:
 #   #   window_steps: 500          # -> -solution_convergence_window_steps
 
 # ==============================================================================
-# 3. PRESSURE-POISSON SOLVER CONFIGURATION
+# 3. POISSON SOLVER CONFIGURATION
 # ==============================================================================
-pressure_solver:
-  # --- Main Tolerance ---
-  tolerance: 1.0e-9 # [Float] -> -poisson_tol
+poisson_solver:
+  # Solves for pressure correction Phi, then the runtime updates pressure P.
+  # The outer linear solver uses PETSc KSP under the hood, but this block uses
+  # PICurv-facing names for the common controls.
+  method: "fgmres"             # -> -ps_ksp_type
+  absolute_tolerance: 1.0e-5   # -> -ps_ksp_atol and legacy -poisson_tol
+  relative_tolerance: 1.0e-11  # -> -ps_ksp_rtol
+  max_iterations: 50           # -> -ps_ksp_max_it
+  gmres:
+    # Only valid for GMRES-family methods: gmres, fgmres, lgmres.
+    restart: 20                # -> -ps_ksp_gmres_restart
+
+  preconditioner:
+    # Only multigrid is supported for the outer Poisson preconditioner today.
+    # Other values are rejected until the C runtime grows a non-PCMG path.
+    type: "multigrid"          # -> -ps_pc_type mg
 
   # --- Geometric Multigrid (PCMG) Settings ---
   multigrid:
     levels: 3         # [Integer] -> -mg_level
     pre_sweeps: 2     # [Integer] -> -mg_pre_it
     post_sweeps: 2    # [Integer] -> -mg_post_it
+    # Current PETSc binding applies one smoother count; if these differ,
+    # PICurv uses the larger value and logs a warning.
     semi_coarsening:
       i: false        # [true/false] -> -mg_i_semi
       j: false        # [true/false] -> -mg_j_semi
       k: true         # [true/false] -> -mg_k_semi
       
-    # --- CONVENIENCE: Smoother Configuration Per Level ---
-    # This section sets the KSP (solver) type for the smoother on each MG level.
-    # NOTE: The C-code hardcodes the preconditioner (PC) for each smoother to
-    #       Block Jacobi (PCBJACOBI). You can only set the KSP type here.
-    # Level 0 is the finest grid.
+    cycle: "v"        # Currently supported: "v"
+    mode: "multiplicative" # Currently supported: "multiplicative"
+
+    # --- Smoother / Coarse Solver Configuration Per MG Level ---
+    # PETSc/PICurv level numbering uses level_0 as the coarsest grid; larger
+    # level numbers are progressively finer.
+    # `method` maps to PETSc KSP type. `preconditioner` maps to PETSc PC type.
+    # The default level preconditioner is bjacobi when omitted.
     level_solvers:
       level_0:
-        ksp_type: "richardson" # -> -ps_mg_levels_0_ksp_type "richardson"
-      level_1:
-        ksp_type: "chebyshev"  # -> -ps_mg_levels_1_ksp_type "chebyshev"
-      level_2:
         # The coarsest level often uses a more robust solver.
-        ksp_type: "gmres"      # -> -ps_mg_levels_2_ksp_type "gmres"
+        method: "fgmres"          # -> -ps_mg_levels_0_ksp_type
+        preconditioner: "bjacobi" # -> -ps_mg_levels_0_pc_type
+      level_1:
+        method: "richardson"
+        preconditioner: "bjacobi"
+      level_2:
+        method: "richardson"
+        preconditioner: "bjacobi"
 
 # ==============================================================================
 # 4. INTERPOLATION
@@ -149,14 +170,22 @@ interpolation:
 # 5. PETSC PASSTHROUGH OPTIONS (FOR ADVANCED USERS)
 # ==============================================================================
 petsc_passthrough_options:
-  # --- Top-level KSP settings ---
-  -ps_ksp_type: "fgmres"
-  -ps_ksp_rtol: 1.0e-11
-  -ps_ksp_max_it: 50
-  
-  # --- PC (Preconditioner) Settings ---
-  # The C-code forces the top-level PC to be 'mg'. This line is for clarity.
-  -ps_pc_type: "mg"
+  # Use this only for advanced PETSc controls that do not have structured YAML
+  # above. Structured values and passthrough flags target the same PETSc options;
+  # passthrough wins when the same flag is listed in both places.
+
+  # --- MG level preconditioner tuning examples ---
+  # jacobi / sor: simple smoother PCs; no extra nested setup is normally needed.
+  # -ps_mg_levels_2_pc_type: "sor"
+  # -ps_mg_levels_2_pc_sor_omega: 1.0      # PETSc SOR relaxation; positive real
+
+  # ilu / lu: factor PCs; use PETSc factor controls when pivots are fragile.
+  # -ps_mg_levels_0_pc_type: "ilu"
+  # -ps_mg_levels_0_pc_factor_levels: 1    # nonnegative integer
+  # -ps_mg_levels_0_pc_factor_shift_amount: 1.0e-10 # nonnegative real
+
+  # bjacobi: nested block solves. Inspect exact nested prefixes with -ps_ksp_view
+  # when tuning sub-KSP/sub-PC options for your PETSc version.
 
   # --- Additional Momentum Controls (if you prefer passthrough style) ---
   # -pseudo_cfl: 0.1
@@ -164,8 +193,3 @@ petsc_passthrough_options:
   # -min_pseudo_cfl: 0.001
   # -pseudo_cfl_growth_factor: 1.0
   # -pseudo_cfl_reduction_factor: 1.0
-
-  # --- Redundant/Ineffective Flag Example ---
-  # You could add the following line here, but the C-code's hardcoded
-  # PCSetType(subpc, PCBJACOBI) call would override it. It will have no effect.
-  # -ps_mg_levels_1_pc_type: "sor"
