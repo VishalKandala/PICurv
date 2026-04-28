@@ -468,6 +468,104 @@ def create_summary_run_dir(
     return run_dir
 
 
+def create_summary_continue_append_run_dir(tmp_path: Path, include_continuity: bool = True) -> Path:
+    """!
+    @brief Create a run directory whose append-only logs contain a restarted lower-step segment.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] include_continuity Whether to include Continuity_Metrics.log.
+    @return Value returned by `create_summary_continue_append_run_dir()`.
+    """
+    run_dir = create_summary_run_dir(tmp_path, name="continued_run", include_summary_logs=False, include_particle_snapshot=False)
+    logs_dir = run_dir / "logs"
+
+    if include_continuity:
+        (logs_dir / "Continuity_Metrics.log").write_text(
+            "\n".join(
+                [
+                    "Timestep   | Block  | Max Divergence     | Max Divergence Location ([k][j][i]=idx) | Sum(RHS)           | Total Flux In      | Total Flux Out     | Net Flux",
+                    "------------------------------------------------------------------------------------------------------------------------------------------",
+                    "2055       | 0      | 9.0000000000e-01   | ([0][0][0] = 1)                         | 1.0000000000e-01   | 1.0000000000e+00   | 9.0000000000e-01   | 1.0000000000e-01",
+                    "2422       | 0      | 8.0000000000e-01   | ([0][0][0] = 2)                         | 2.0000000000e-01   | 1.0000000000e+00   | 8.0000000000e-01   | 2.0000000000e-01",
+                    "2055       | 0      | 5.5000000000e-05   | ([1][1][1] = 2055)                      | 5.5000000000e-06   | 1.0000000000e+00   | 9.9990000000e-01   | 1.0000000000e-04",
+                    "2055       | 1      | 6.5000000000e-05   | ([1][1][2] = 2056)                      | 6.5000000000e-06   | 1.0000000000e+00   | 9.9980000000e-01   | 2.0000000000e-04",
+                    "2060       | 0      | 6.0000000000e-05   | ([1][1][3] = 2060)                      | 6.0000000000e-06   | 1.0000000000e+00   | 9.9970000000e-01   | 3.0000000000e-04",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    (logs_dir / "Particle_Metrics.log").write_text(
+        "\n".join(
+            [
+                "Stage              | Timestep   | Total Ptls   | Lost       | Lost Total | Migrated   | Occupied Cells  | Imbalance  | Mig Passes",
+                "-------------------------------------------------------------------------------------------------------------------------------------------",
+                "AfterAdvection     | 2055       | 999          | 9          | 90         | 9          | 90              | 9.90       | 9",
+                "AfterAdvection     | 2422       | 242          | 2          | 42         | 2          | 42              | 2.42       | 2",
+                "AfterAdvection     | 2055       | 155          | 1          | 15         | 5          | 55              | 1.55       | 1",
+                "AfterAdvection     | 2060       | 160          | 0          | 16         | 6          | 60              | 1.60       | 1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
+        "\n".join(
+            [
+                "Step: 2055 | PseudoIter(k): 10| | Pseudo-cfl: 0.1000 |dUk|: 1.000000e-01 | |dUk|/|dUprev|: 1.000000e-01 | |Rk|: 1.000000e-01 | |Rk|/|Rprev|: 1.000000e-01",
+                "Step: 2422 | PseudoIter(k): 24| | Pseudo-cfl: 0.2400 |dUk|: 2.400000e-01 | |dUk|/|dUprev|: 2.400000e-01 | |Rk|: 2.400000e-01 | |Rk|/|Rprev|: 2.400000e-01",
+                "Step: 2055 | PseudoIter(k): 55| | Pseudo-cfl: 0.5500 |dUk|: 5.500000e-05 | |dUk|/|dUprev|: 5.500000e-05 | |Rk|: 5.500000e-05 | |Rk|/|Rprev|: 5.500000e-05",
+                "Step: 2060 | PseudoIter(k): 60| | Pseudo-cfl: 0.6000 |dUk|: 6.000000e-05 | |dUk|/|dUprev|: 6.000000e-05 | |Rk|: 6.000000e-05 | |Rk|/|Rprev|: 6.000000e-05",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "Poisson_Solver_Convergence_History_Block_0.log").write_text(
+        "\n".join(
+            [
+                "ts: 2055    | block: 0  | iter: 10   | Unprecond Norm:  1.00000e-01 | True Norm:  1.00000e-01 | Rel Norm:  1.00000e-01",
+                "ts: 2422    | block: 0  | iter: 24   | Unprecond Norm:  2.40000e-01 | True Norm:  2.40000e-01 | Rel Norm:  2.40000e-01",
+                "ts: 2055    | block: 0  | iter: 55   | Unprecond Norm:  5.50000e-05 | True Norm:  5.50000e-05 | Rel Norm:  5.50000e-05",
+                "ts: 2060    | block: 0  | iter: 60   | Unprecond Norm:  6.00000e-05 | True Norm:  6.00000e-05 | Rel Norm:  6.00000e-05",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "Profiling_Timestep_Summary.csv").write_text(
+        "\n".join(
+            [
+                "step,function,calls,step_time_s",
+                "2055,AdvanceSimulation,1,9.000000",
+                "2055,FlowSolver,1,8.000000",
+                "2422,AdvanceSimulation,1,2.422000",
+                "2055,AdvanceSimulation,1,0.550000",
+                "2055,FlowSolver,1,0.440000",
+                "2060,AdvanceSimulation,1,0.600000",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "solution_convergence.log").write_text(
+        "\n".join(
+            [
+                "==================== Solution Convergence Log [mode: steady_deterministic] ====================",
+                "step       | time               | mode                   | ref | u_abs_l2           | u_rel_l2           | p_abs_l2           | p_rel_l2           | mean_speed         | spd_ref            | spd_abs            | spd_rel            | mean_ke            | ke_ref             | ke_abs             | ke_rel",
+                "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------",
+                "2055       | 2.0550000000e+00   | steady_deterministic   | yes | 9.0000000000e-01   | 9.0000000000e-01   | 9.0000000000e-01   | 9.0000000000e-01   | 9.0000000000e-01   | 0.0000000000e+00   | 9.0000000000e-01   | 9.0000000000e-01   | 9.0000000000e-01   | 0.0000000000e+00   | 9.0000000000e-01   | 9.0000000000e-01",
+                "2422       | 2.4220000000e+00   | steady_deterministic   | yes | 2.4220000000e+00   | 2.4220000000e+00   | 2.4220000000e+00   | 2.4220000000e+00   | 2.4220000000e+00   | 0.0000000000e+00   | 2.4220000000e+00   | 2.4220000000e+00   | 2.4220000000e+00   | 0.0000000000e+00   | 2.4220000000e+00   | 2.4220000000e+00",
+                "2055       | 2.0550000000e+00   | steady_deterministic   | yes | 5.5000000000e-05   | 5.5000000000e-05   | 5.5000000000e-05   | 5.5000000000e-05   | 5.5000000000e+00   | 0.0000000000e+00   | 5.5000000000e-05   | 5.5000000000e-05   | 5.5000000000e+00   | 0.0000000000e+00   | 5.5000000000e-05   | 5.5000000000e-05",
+                "2060       | 2.0600000000e+00   | steady_deterministic   | yes | 6.0000000000e-05   | 6.0000000000e-05   | 6.0000000000e-05   | 6.0000000000e-05   | 6.0000000000e+00   | 0.0000000000e+00   | 6.0000000000e-05   | 6.0000000000e-05   | 6.0000000000e+00   | 0.0000000000e+00   | 6.0000000000e-05   | 6.0000000000e-05",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return run_dir
+
+
 def test_top_level_help_smoke():
     """!
     @brief Test that top level help smoke.
@@ -1513,6 +1611,96 @@ def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["cell_changes"] == 2
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["new_count"] == 1
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["gone_count"] == 0
+
+
+def test_summarize_latest_uses_chronological_append_order_for_continue_run(tmp_path):
+    """!
+    @brief Test that --latest follows append order rather than the largest historical timestep.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_continue_append_run_dir(tmp_path)
+
+    result = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--latest", "--format", "json"],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["step"] == 2060
+    assert payload["selected_via"] == "latest_available"
+    assert payload["continuity"]["blocks"][0]["max_divergence"] == 6.0e-05
+    assert payload["particles"]["total_particles"] == 160
+    assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 60
+    assert payload["poisson"]["blocks"][0]["iterations"] == 60
+    assert payload["profiling"]["total_logged_step_time_s"] == pytest.approx(0.6)
+    assert payload["convergence"]["mean_speed"] == 6.0
+
+
+def test_summarize_max_step_preserves_highest_timestep_lookup(tmp_path):
+    """!
+    @brief Test that --max-step preserves the old largest-timestep summary behavior.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_continue_append_run_dir(tmp_path)
+
+    result = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--max-step", "--format", "json"],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["step"] == 2422
+    assert payload["selected_via"] == "max_step"
+    assert payload["particles"]["total_particles"] == 242
+    assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 24
+
+
+def test_summarize_explicit_step_uses_newest_duplicate_occurrence(tmp_path):
+    """!
+    @brief Test that explicit duplicate-step summaries use the latest appended occurrence.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_continue_append_run_dir(tmp_path)
+
+    result = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--step", "2055", "--format", "json"],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["step"] == 2055
+    assert payload["selected_via"] == "explicit"
+    assert payload["continuity"]["max_abs_divergence"] == 6.5e-05
+    assert payload["continuity"]["blocks"][0]["max_divergence"] == 5.5e-05
+    assert payload["continuity"]["blocks"][1]["max_divergence"] == 6.5e-05
+    assert payload["particles"]["total_particles"] == 155
+    assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 55
+    assert payload["poisson"]["blocks"][0]["iterations"] == 55
+    assert payload["profiling"]["total_logged_step_time_s"] == pytest.approx(0.99)
+    assert payload["convergence"]["mean_speed"] == 5.5
+
+
+def test_summarize_latest_chronological_falls_back_without_continuity(tmp_path):
+    """!
+    @brief Test that non-continuity artifacts can drive chronological latest selection.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_continue_append_run_dir(tmp_path, include_continuity=False)
+
+    result = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--latest", "--format", "json"],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["step"] == 2060
+    assert payload["continuity"]["available"] is False
+    assert payload["particles"]["total_particles"] == 160
+    assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 60
 
 
 def test_summarize_text_output_renders_human_readable_sections(tmp_path):
