@@ -181,8 +181,13 @@ Stage scripts first, then submit later from the generated run directory:
 
 ./bin/picurv submit --run-dir runs/<run_id>
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve
+./bin/picurv cancel --run-dir runs/<run_id> --stage solve --graceful
 ./bin/picurv summarize --run-dir runs/<run_id> --latest
 ```
+
+Plain `picurv cancel` hard-cancels the recorded Slurm job. Add `--graceful`
+for solver jobs when you want PICurv to write the latest safe off-cadence step
+at the next runtime checkpoint before exiting.
 
 Launch a sweep study:
 ```bash

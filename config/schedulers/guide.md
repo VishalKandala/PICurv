@@ -71,6 +71,7 @@ PICurv traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes a final step snapsh
 8. For new profiles, prefer a staged workflow:
    `picurv run ... --cluster ... --no-submit`, inspect `runs/<run_id>/scheduler/`, then `picurv submit --run-dir ...`.
    If the run is already submitted and you need to stop it, use `picurv cancel --run-dir ...`.
+   For solver jobs that should write a final off-cadence checkpoint first, use `picurv cancel --run-dir ... --stage solve --graceful`.
 
 This is not a hard guarantee for cases such as `SIGKILL`, node failure, or a timestep that runs longer than the warning window.
 

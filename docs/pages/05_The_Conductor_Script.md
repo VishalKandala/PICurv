@@ -372,14 +372,16 @@ Notes:
 @section p05_cancel_sec 5c. cancel: Stop A Slurm Run By Run Directory
 
 ```bash
-./bin/picurv cancel --run-dir <run_dir> [--stage {all,solve,post-process}] [--dry-run]
+./bin/picurv cancel --run-dir <run_dir> [--stage {all,solve,post-process}] [--graceful] [--dry-run]
 ```
 
 Behavior:
 
 - reads `scheduler/submission.json` from an existing run directory,
 - resolves the recorded Slurm job IDs for `solve` and/or `post-process`,
-- runs `scancel` for the selected stage set,
+- runs hard `scancel <job_id>` for the selected stage set by default,
+- with `--graceful`, sends `scancel --signal=USR1 <job_id>` for solver jobs so the runtime can write the latest safe off-cadence step at the next checkpoint,
+- post-process jobs still use hard cancellation, even when `--graceful` is present,
 - avoids manual job-id lookup when the run directory is already known.
 
 Examples:
@@ -387,6 +389,7 @@ Examples:
 ```bash
 ./bin/picurv cancel --run-dir runs/my_case_20260310-120000
 ./bin/picurv cancel --run-dir runs/my_case_20260310-120000 --stage solve
+./bin/picurv cancel --run-dir runs/my_case_20260310-120000 --stage solve --graceful
 ./bin/picurv cancel --run-dir runs/my_case_20260310-120000 --dry-run
 ```
 
@@ -394,6 +397,7 @@ Notes:
 
 - works only for Slurm-submitted runs that have `scheduler/submission.json`,
 - does not apply to local runs,
+- `--graceful` requests solver shutdown and final output; if a job is wedged or not reaching runtime checkpoints, rerun without `--graceful` to hard-cancel it,
 - `--dry-run` is useful when you want to confirm the recorded stage/job mapping first.
 
 @section p05_sweep_sec 6. sweep: Parameter Study via Slurm Arrays

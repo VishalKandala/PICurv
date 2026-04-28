@@ -238,6 +238,7 @@ Operational examples:
 ```bash
 ./bin/picurv submit --run-dir runs/<run_id>
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve
+./bin/picurv cancel --run-dir runs/<run_id> --stage solve --graceful
 ```
 
 Generated Slurm solver jobs also export runtime walltime metadata into `solver.sbatch`, so the
@@ -246,6 +247,11 @@ walltime gets too tight. If the cluster profile also requests an early signal, P
 `SIGUSR1`, `SIGTERM`, and `SIGINT`, then uses the same safe-checkpoint final-write path. Use
 `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct
 `mpirun` batch launches.
+
+For manual cancellation, plain `picurv cancel` is a hard Slurm cancel. Add `--graceful`
+when you want the solver to receive `SIGUSR1`, stop at the next safe checkpoint, and write
+the latest safe off-cadence output first. Fall back to plain cancel if the job is wedged or
+not reaching checkpoints.
 
 @section p52_rules_sec 8. Safe Rules Of Thumb
 

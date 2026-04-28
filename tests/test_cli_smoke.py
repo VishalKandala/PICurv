@@ -475,6 +475,7 @@ def test_top_level_help_smoke():
     result = run_picurv(["--help"])
     assert result.returncode == 0
     assert "validate" in result.stdout
+    assert "picurv cancel --run-dir runs/my_run --stage solve --graceful" in result.stdout
     assert "Next commands:" in result.stdout
 
 
@@ -587,6 +588,8 @@ def test_cancel_help_smoke():
     assert "--run-dir" in result.stdout
     assert "--stage {all,solve,post-process}" in result.stdout
     assert "--dry-run" in result.stdout
+    assert "--graceful" in result.stdout
+    assert "latest safe off-cadence step" in result.stdout
 
 
 def test_removed_selector_aliases_are_rejected():
@@ -3988,6 +3991,30 @@ def test_cancel_stage_solve_uses_scancel_stubbed_at_process_boundary(tmp_path):
     assert "Canceled Slurm job 911 for stage(s): solve" in result.stdout
 
 
+def test_cancel_stage_solve_graceful_sends_runtime_shutdown_signal(tmp_path):
+    """!
+    @brief Test that graceful solver cancellation sends SIGUSR1 through scancel.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "915"},
+        post_meta={"submitted": True, "job_id": "925"},
+    )
+    env, log_path = make_fake_scancel_env(tmp_path)
+
+    result = run_picurv(
+        ["cancel", "--run-dir", str(run_dir), "--stage", "solve", "--graceful"],
+        cwd=tmp_path,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert log_path.read_text(encoding="utf-8").strip() == "--signal=USR1 915"
+    assert "Requested graceful shutdown for Slurm job 915" in result.stdout
+    assert "latest safe off-cadence step" in result.stdout
+
+
 def test_cancel_stage_post_process_uses_scancel_stubbed_at_process_boundary(tmp_path):
     """!
     @brief Test that cancel can target the post-process stage through a process-boundary scancel stub.
@@ -4009,6 +4036,67 @@ def test_cancel_stage_post_process_uses_scancel_stubbed_at_process_boundary(tmp_
     assert result.returncode == 0, result.stderr
     assert log_path.read_text(encoding="utf-8").strip() == "944"
     assert "Canceled Slurm job 944 for stage(s): post-process" in result.stdout
+
+
+def test_cancel_stage_post_process_graceful_still_uses_hard_cancel(tmp_path):
+    """!
+    @brief Test that graceful mode does not change post-process cancellation.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "936"},
+        post_meta={"submitted": True, "job_id": "946"},
+    )
+    env, log_path = make_fake_scancel_env(tmp_path)
+
+    result = run_picurv(
+        ["cancel", "--run-dir", str(run_dir), "--stage", "post-process", "--graceful"],
+        cwd=tmp_path,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert log_path.read_text(encoding="utf-8").strip() == "946"
+    assert "Canceled Slurm job 946 for stage(s): post-process" in result.stdout
+
+
+def test_cancel_stage_all_graceful_mixes_solver_signal_and_post_cancel(tmp_path):
+    """!
+    @brief Test that graceful all-stage cancellation only signals solver jobs.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "951"},
+        post_meta={"submitted": True, "job_id": "952"},
+    )
+    env, log_path = make_fake_scancel_env(tmp_path)
+
+    result = run_picurv(["cancel", "--run-dir", str(run_dir), "--graceful"], cwd=tmp_path, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert log_path.read_text(encoding="utf-8").splitlines() == ["--signal=USR1 951", "952"]
+    assert "Requested graceful shutdown for Slurm job 951 for stage(s): solve" in result.stdout
+    assert "Canceled Slurm job 952 for stage(s): post-process" in result.stdout
+
+
+def test_cancel_graceful_dry_run_prints_exact_signal_command(tmp_path):
+    """!
+    @brief Test that dry-run graceful cancellation reports the exact scancel command.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "961"},
+        post_meta={"submitted": True, "job_id": "962"},
+    )
+
+    result = run_picurv(["cancel", "--run-dir", str(run_dir), "--stage", "solve", "--graceful", "--dry-run"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "Would run: scancel --signal=USR1 961  # stage(s): solve" in result.stdout
+    assert "Dry-run only. No jobs were canceled." in result.stdout
 
 
 def test_cancel_stage_all_deduplicates_recorded_job_ids(tmp_path):

@@ -9757,18 +9757,31 @@ def cancel_run_jobs(args):
         for stage_name, reason in skipped:
             print(f"[INFO] Skipping stage '{stage_name}': {reason}")
 
+    graceful = bool(getattr(args, "graceful", False))
     failures = []
     for job_id, stage_names in job_to_stages.items():
         joined_stage_names = ", ".join(stage_names)
+        use_graceful_signal = graceful and "solve" in stage_names
+        scancel_cmd = ["scancel"]
+        if use_graceful_signal:
+            scancel_cmd.append("--signal=USR1")
+        scancel_cmd.append(job_id)
+
         if args.dry_run:
-            print(f"[DRY-RUN] Would run: scancel {job_id}  # stage(s): {joined_stage_names}")
+            print(f"[DRY-RUN] Would run: {' '.join(scancel_cmd)}  # stage(s): {joined_stage_names}")
             continue
 
-        result = subprocess.run(["scancel", job_id], text=True, capture_output=True, check=False)
+        result = subprocess.run(scancel_cmd, text=True, capture_output=True, check=False)
         stderr_text = (result.stderr or "").strip()
         stdout_text = (result.stdout or "").strip()
         if result.returncode == 0:
-            print(f"[SUCCESS] Canceled Slurm job {job_id} for stage(s): {joined_stage_names}")
+            if use_graceful_signal:
+                print(
+                    f"[SUCCESS] Requested graceful shutdown for Slurm job {job_id} for stage(s): {joined_stage_names}. "
+                    "Solver jobs trap SIGUSR1 and write the latest safe off-cadence step at the next checkpoint."
+                )
+            else:
+                print(f"[SUCCESS] Canceled Slurm job {job_id} for stage(s): {joined_stage_names}")
             continue
 
         detail = stderr_text or stdout_text or "unknown scancel failure"
@@ -10246,7 +10259,12 @@ def _add_cancel_parser(subparsers):
             "Examples:\n"
             "  picurv cancel --run-dir runs/my_run\n"
             "  picurv cancel --run-dir runs/my_run --stage solve\n"
-            "  picurv cancel --run-dir runs/my_run --dry-run"
+            "  picurv cancel --run-dir runs/my_run --stage solve --graceful\n"
+            "  picurv cancel --run-dir runs/my_run --dry-run\n\n"
+            "Default cancellation is a hard Slurm cancel (`scancel <job_id>`). With\n"
+            "`--graceful`, solver jobs receive SIGUSR1 so PICurv can write the latest\n"
+            "safe off-cadence step at the next runtime checkpoint before exiting.\n"
+            "Post-process jobs still use ordinary hard cancellation."
         ),
         epilog="Next: use `picurv summarize --run-dir ...` to inspect whatever output the run already produced.",
     )
@@ -10261,6 +10279,15 @@ def _add_cancel_parser(subparsers):
         "--dry-run",
         action="store_true",
         help="Show which `scancel` command(s) would run without actually canceling anything.",
+    )
+    p_cancel.add_argument(
+        "--graceful",
+        action="store_true",
+        help=(
+            "For solver jobs, request a clean runtime shutdown by sending SIGUSR1 instead of "
+            "hard-canceling immediately. The solver writes the latest safe off-cadence step at "
+            "the next checkpoint. Non-solver stages still use ordinary scancel."
+        ),
     )
     return p_cancel
 
@@ -10532,6 +10559,7 @@ def build_main_parser():
             "  picurv summarize --run-dir runs/my_run --latest\n"
             "  picurv submit --run-dir runs/my_run\n"
             "  picurv cancel --run-dir runs/my_run\n"
+            "  picurv cancel --run-dir runs/my_run --stage solve --graceful\n"
             "  picurv sweep --study study.yml --cluster cluster.yml\n\n"
             "Next commands:\n"
             "  - First run: picurv init ... -> picurv validate ... -> picurv run ...\n"
@@ -10540,7 +10568,7 @@ def build_main_parser():
             "  - Post-only catch-up: picurv run --post-process --continue --run-dir ... --post ...\n"
             "  - Deferred submission: picurv submit --run-dir ...\n"
             "  - Run inspection: picurv summarize ...\n"
-            "  - Run cancellation: picurv cancel --run-dir ..."
+            "  - Run cancellation: picurv cancel --run-dir ...; use --graceful for solver final-output shutdown"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
