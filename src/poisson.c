@@ -3461,6 +3461,13 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
         ierr = PCMGSetLevels(mgpc, usermg->mglevels, PETSC_NULLPTR); CHKERRQ(ierr);
         ierr = PCMGSetCycleType(mgpc, PC_MG_CYCLE_V); CHKERRQ(ierr);
         ierr = PCMGSetType(mgpc, PC_MG_MULTIPLICATIVE); CHKERRQ(ierr);
+        if (simCtx->mg_preItr != simCtx->mg_poItr) {
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "PETSc PCMG exposes one smoother count in this build; using max(pre_sweeps=%d, post_sweeps=%d).\n",
+                      simCtx->mg_preItr, simCtx->mg_poItr);
+        }
+        PetscInt mg_smooths = simCtx->mg_preItr > simCtx->mg_poItr ? simCtx->mg_preItr : simCtx->mg_poItr;
+        ierr = PCMGSetNumberSmooth(mgpc, mg_smooths); CHKERRQ(ierr);
 
         // --- 4. Define Restriction and Interpolation Operators for MG ---
         for (l = usermg->mglevels - 1; l > 0; l--) {
@@ -3515,23 +3522,30 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             } 
             
             ierr = KSPSetOperators(subksp, user[bi].A, user[bi].A); CHKERRQ(ierr);
-	    ierr = KSPSetFromOptions(subksp); CHKERRQ(ierr); 
             ierr = KSPGetPC(subksp, &subpc); CHKERRQ(ierr);
 	    ierr = PCSetType(subpc, PCBJACOBI); CHKERRQ(ierr);
+	    ierr = KSPSetFromOptions(subksp); CHKERRQ(ierr);
 	    
-	    KSP *subsubksp;
-	    PC subsubpc;
-	    PetscInt nlocal;
+	    PCType subpc_type;
+	    PetscBool is_bjacobi = PETSC_FALSE;
+	    ierr = PCGetType(subpc, &subpc_type); CHKERRQ(ierr);
+	    if (subpc_type) {
+	      ierr = PetscStrcmp(subpc_type, PCBJACOBI, &is_bjacobi); CHKERRQ(ierr);
+	    }
 
-	    // This logic is required for both the smoother and the coarse solve
-	    // since both use PCBJACOBI.
-	    ierr = KSPSetUp(subksp); CHKERRQ(ierr); // Set up KSP to allow access to sub-KSPs
-	    ierr = PCBJacobiGetSubKSP(subpc, &nlocal, NULL, &subsubksp); CHKERRQ(ierr);
+	    if (is_bjacobi) {
+	      KSP *subsubksp;
+	      PC subsubpc;
+	      PetscInt nlocal;
 
-	    for (PetscInt abi = 0; abi < nlocal; abi++) {
-	      ierr = KSPGetPC(subsubksp[abi], &subsubpc); CHKERRQ(ierr);
-	      // Add the critical shift amount
-	      ierr = PCFactorSetShiftAmount(subsubpc, 1.e-10); CHKERRQ(ierr);
+	      ierr = KSPSetUp(subksp); CHKERRQ(ierr); // Set up KSP to allow access to sub-KSPs
+	      ierr = PCBJacobiGetSubKSP(subpc, &nlocal, NULL, &subsubksp); CHKERRQ(ierr);
+
+	      for (PetscInt abi = 0; abi < nlocal; abi++) {
+	        ierr = KSPGetPC(subsubksp[abi], &subsubpc); CHKERRQ(ierr);
+	        // Add the critical shift amount for the nested block-Jacobi factor PC.
+	        ierr = PCFactorSetShiftAmount(subsubpc, 1.e-10); CHKERRQ(ierr);
+	      }
 	    }
 	    
             ierr = MatNullSpaceCreate(PETSC_COMM_WORLD, PETSC_TRUE, 0, PETSC_NULLPTR, &user[bi].nullsp); CHKERRQ(ierr);

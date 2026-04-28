@@ -41,15 +41,38 @@ After Poisson solve:
 
 From `solver.yml` via `scripts/picurv`:
 
-- `pressure_solver.tolerance` -> `-poisson_tol`
-- `pressure_solver.multigrid.levels` -> `-mg_level`
-- `pressure_solver.multigrid.pre_sweeps` -> `-mg_pre_it`
-- `pressure_solver.multigrid.post_sweeps` -> `-mg_post_it`
-- `pressure_solver.multigrid.semi_coarsening.{i,j,k}` -> `-mg_i_semi`, `-mg_j_semi`, `-mg_k_semi`
-- optional level solver keys -> `-ps_mg_levels_*`
-- `petsc_passthrough_options` -> raw PETSc flags
+- `poisson_solver.method` -> `-ps_ksp_type`
+- `poisson_solver.absolute_tolerance` -> `-ps_ksp_atol` and legacy `-poisson_tol`
+- `poisson_solver.relative_tolerance` -> `-ps_ksp_rtol`
+- `poisson_solver.max_iterations` -> `-ps_ksp_max_it`
+- `poisson_solver.gmres.restart` -> `-ps_ksp_gmres_restart`
+- `poisson_solver.preconditioner.type` -> `-ps_pc_type`; only `multigrid` is supported today
+- `poisson_solver.multigrid.levels` -> `-mg_level`
+- `poisson_solver.multigrid.pre_sweeps` -> `-mg_pre_it`
+- `poisson_solver.multigrid.post_sweeps` -> `-mg_post_it`
+- `poisson_solver.multigrid.semi_coarsening.{i,j,k}` -> `-mg_i_semi`, `-mg_j_semi`, `-mg_k_semi`
+- `poisson_solver.multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type`
+- `poisson_solver.multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type`
+- `pressure_solver` remains a legacy alias for `poisson_solver`
+- `petsc_passthrough_options` -> advanced PETSc flags not exposed as structured YAML
 
 Final option parsing happens in function @ref CreateSimulationContext during context creation.
+
+MG level numbering follows PETSc/PICurv convention: `level_0` is the coarsest grid.
+Larger level numbers are progressively finer. The default MG level preconditioner
+is block Jacobi (`bjacobi`) when not specified. The current PETSc binding applies
+one MG smoother count; if `pre_sweeps` and `post_sweeps` differ, PICurv uses the
+larger value and logs a warning.
+
+Common MG-level preconditioner notes:
+
+- `jacobi` and `sor` are simple smoother PCs. SOR can use
+  `-ps_mg_levels_N_pc_sor_omega <positive-real>` through passthrough when needed.
+- `ilu` and `lu` are factor PCs. Useful passthrough knobs include
+  `-ps_mg_levels_N_pc_factor_levels <nonnegative-integer>` and
+  `-ps_mg_levels_N_pc_factor_shift_amount <nonnegative-real>`.
+- `bjacobi` owns nested block solves; inspect exact nested PETSc prefixes with
+  `-ps_ksp_view` before tuning sub-KSP/sub-PC options for a specific PETSc build.
 
 @section p25_robustness_sec 4. Robustness Characteristics
 

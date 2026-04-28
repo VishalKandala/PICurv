@@ -85,23 +85,55 @@ Mappings include:
 
 Rule: solver-specific blocks must match selected momentum solver type.
 
-@section p08_pressure_sec 5. pressure_solver
+@section p08_poisson_sec 5. poisson_solver
 
 ```yaml
-pressure_solver:
-  tolerance: 5.0e-9
+poisson_solver:
+  method: "fgmres"
+  absolute_tolerance: 1.0e-5
+  relative_tolerance: 1.0e-11
+  max_iterations: 50
+  gmres:
+    restart: 20
+  preconditioner:
+    type: "multigrid"
   multigrid:
     levels: 3
-    pre_sweeps: 1
-    post_sweeps: 1
+    cycle: "v"
+    mode: "multiplicative"
+    semi_coarsening:
+      i: false
+      j: false
+      k: true
+    level_solvers:
+      level_0:
+        method: "fgmres"
+        preconditioner: "bjacobi"
+      level_1:
+        method: "richardson"
+        preconditioner: "bjacobi"
 ```
 
 Mappings:
-- `tolerance` -> `-poisson_tol`
+- `method` -> `-ps_ksp_type`
+- `absolute_tolerance` -> `-ps_ksp_atol` and legacy `-poisson_tol`
+- `relative_tolerance` -> `-ps_ksp_rtol`
+- `max_iterations` -> `-ps_ksp_max_it`
+- `gmres.restart` -> `-ps_ksp_gmres_restart`; valid only for `gmres`, `fgmres`, or `lgmres`
+- `preconditioner.type` -> `-ps_pc_type`; currently only `multigrid` is supported
 - `multigrid.levels` -> `-mg_level`
 - `multigrid.pre_sweeps` -> `-mg_pre_it`
 - `multigrid.post_sweeps` -> `-mg_post_it`
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
+- `multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type`
+- `multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type`
+
+Rules:
+- `pressure_solver` is accepted as a legacy alias, but `poisson_solver` is preferred because the linear solve computes pressure correction `Phi`.
+- MG level numbering follows PETSc/PICurv convention: `level_0` is the coarsest level and larger numbers are finer.
+- The outer Poisson preconditioner is multigrid-only in the current runtime.
+- The current PETSc binding applies one MG smoother count; when `pre_sweeps` and `post_sweeps` differ, PICurv uses the larger value and logs a warning.
+- Advanced PETSc tuning remains available through `petsc_passthrough_options`; common examples include `-ps_mg_levels_N_pc_sor_omega` for SOR and `-ps_mg_levels_N_pc_factor_shift_amount` / `-ps_mg_levels_N_pc_factor_levels` for factor PCs.
 
 @section p08_solution_conv_sec 6. solution_convergence
 

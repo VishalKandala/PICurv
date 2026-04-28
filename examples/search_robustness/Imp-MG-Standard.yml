@@ -22,20 +22,30 @@ momentum_solver:
       growth_factor: 1.0
       reduction_factor: 1.0
 
-pressure_solver:
+poisson_solver:
+  method: "fgmres"
+  absolute_tolerance: 1.0e-5
+  relative_tolerance: 1.0e-11
+  max_iterations: 50
+  gmres:
+    restart: 20
+  preconditioner:
+    type: "multigrid"
   multigrid:
     levels: 3
     semi_coarsening:
       i: false
       j: false
       k: true
+    level_solvers:
+      level_0:
+        method: "fgmres"
+        preconditioner: "bjacobi"
+      level_1:
+        method: "richardson"
+        preconditioner: "bjacobi"
+      level_2:
+        method: "richardson"
+        preconditioner: "bjacobi"
 
-petsc_passthrough_options:
-  -ps_ksp_type: "fgmres"
-  -ps_ksp_gmres_restart: 20
-  -ps_ksp_max_it: 50
-  -ps_ksp_atol: 1.0e-5
-  -ps_ksp_rtol: 1.0e-11
-  -ps_mg_levels_0_ksp_type: "richardson"
-  -ps_mg_levels_1_ksp_type: "richardson"
-  -ps_mg_levels_2_ksp_type: "fgmres"
+petsc_passthrough_options: {}

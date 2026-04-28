@@ -30,7 +30,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `solver.verification.sources.scalar.*` | `-verification_scalar_mode/-profile/-value/-phi0/-slope_x/-amplitude/-kx/-ky/-kz` | `src/setup.c` | `src/verification_sources.c`, `src/AnalyticalSolutions.c`, `src/ParticlePhysics.c`, `src/logging.c` |
 | `solver.strategy/tolerances/momentum_solver.*` | solver flags (`-mom_*`, pseudo-CFL, etc.) | `src/setup.c` | `src/momentumsolvers.c` |
 | `solver.solution_convergence.*` | `-solution_convergence_mode/-solution_convergence_period_steps/-solution_convergence_window_steps` | `src/setup.c` | `src/logging.c`, `src/runloop.c` |
-| `solver.pressure_solver.*` | `-poisson_tol`, `-mg_*`, prefixed PETSc flags | `src/setup.c` + PETSc options db | `src/poisson.c` |
+| `solver.poisson_solver.*` / legacy `solver.pressure_solver.*` | `-poisson_tol`, `-mg_*`, prefixed PETSc flags | `src/setup.c` + PETSc options db | `src/poisson.c` |
 | `solver.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc KSP/PC stack, mostly in `src/poisson.c` |
 | `monitor.io.data_output_frequency` | `-tio` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
 | `monitor.io.particle_console_output_frequency` | `-particle_console_output_freq` | `src/setup.c` | `src/io.c`, `src/setup.c`, particle console logging |
