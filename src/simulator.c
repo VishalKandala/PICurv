@@ -115,6 +115,7 @@ int main(int argc, char **argv)
   }
 
   // == V. REPORT FIELDS ===========================
+  ierr = RuntimeMemoryLogSample(simCtx, simCtx->step, "Final", "Complete"); CHKERRQ(ierr);
 
   // === V. FINALIZE =========================================================
   // Cleanly destroy all objects and free all memory.

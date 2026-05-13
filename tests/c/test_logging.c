@@ -1162,6 +1162,51 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
 }
 
 /**
+ * @brief Tests runtime memory log header, step rows, final rows, and disabled mode.
+ */
+static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
+{
+    SimCtx simCtx;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char memory_path[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx.log_dir, tmpdir, sizeof(simCtx.log_dir)));
+    PetscCall(PetscStrncpy(simCtx.runtimeMemoryLogFile, "Runtime_Memory.log", sizeof(simCtx.runtimeMemoryLogFile)));
+    simCtx.rank = 0;
+    simCtx.runtimeMemoryLogEnabled = PETSC_TRUE;
+    simCtx.runtimeMemoryLogStarted = PETSC_FALSE;
+    simCtx.runtimeMemoryLogHasPrevious = PETSC_FALSE;
+    simCtx.continueMode = PETSC_FALSE;
+    simCtx.StartStep = 0;
+    PetscCall(PetscMemorySetGetMaximumUsage());
+
+    PetscCall(RuntimeMemoryLogSample(&simCtx, 1, "Step", "-"));
+    PetscCall(RuntimeMemoryLogSample(&simCtx, 1, "Final", "Complete"));
+    PetscCall(PetscSNPrintf(memory_path, sizeof(memory_path), "%s/%s", simCtx.log_dir, simCtx.runtimeMemoryLogFile));
+    PetscCall(PicurvAssertFileExists(memory_path, "runtime memory log should be written"));
+    PetscCall(AssertFileContains(memory_path, "Process Current MB Max",
+                                 "runtime memory log should contain readable column labels"));
+    PetscCall(AssertFileContains(memory_path, "Step",
+                                 "runtime memory log should contain a step row"));
+    PetscCall(AssertFileContains(memory_path, "Final",
+                                 "runtime memory log should contain a final row"));
+    PetscCall(AssertFileContains(memory_path, "Complete",
+                                 "runtime memory log should record final reason"));
+
+    simCtx.runtimeMemoryLogEnabled = PETSC_FALSE;
+    PetscCall(PetscStrncpy(simCtx.runtimeMemoryLogFile, "Runtime_Memory_Disabled.log", sizeof(simCtx.runtimeMemoryLogFile)));
+    PetscCall(RuntimeMemoryLogSample(&simCtx, 2, "Step", "-"));
+    PetscCall(PetscSNPrintf(memory_path, sizeof(memory_path), "%s/%s", simCtx.log_dir, simCtx.runtimeMemoryLogFile));
+    PetscCall(PicurvAssertBool((PetscBool)(access(memory_path, F_OK) != 0),
+                               "disabled runtime memory log should not create a file"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests steady solution-convergence log output, IBM masking, and gauge-invariant pressure drift.
  */
 static PetscErrorCode TestSolutionConvergenceSteadyLogging(void)
@@ -1426,6 +1471,7 @@ int main(int argc, char **argv)
         {"search-metrics-logging", TestSearchMetricsLogging},
         {"field-anatomy-logging", TestFieldAnatomyLogging},
         {"profiling-lifecycle-helpers", TestProfilingLifecycleHelpers},
+        {"runtime-memory-log-helpers", TestRuntimeMemoryLogHelpers},
         {"solution-convergence-steady-logging", TestSolutionConvergenceSteadyLogging},
         {"solution-convergence-periodic-logging", TestSolutionConvergencePeriodicLogging},
         {"solution-convergence-statistical-logging", TestSolutionConvergenceStatisticalLogging},

@@ -290,6 +290,8 @@ static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user
 
     PetscFunctionBeginUser;
 
+    ierr = RuntimeMemoryLogSample(simCtx, simCtx->step, "Shutdown", RuntimeShutdownReasonName()); CHKERRQ(ierr);
+
     LOG(GLOBAL, LOG_WARNING,
         "[T=%.4f, Step=%d] Shutdown requested by %s during %s. Writing final output outside the normal cadence before exiting.\n",
         simCtx->ti, simCtx->step, RuntimeShutdownReasonName(), phase);
@@ -764,6 +766,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         }
 
         ProfilingLogTimestepSummary(simCtx, simCtx->step);
+        ierr = RuntimeMemoryLogSample(simCtx, simCtx->step, "Step", "-"); CHKERRQ(ierr);
 
         // Update Progress Bar
         if(simCtx->rank == 0) {

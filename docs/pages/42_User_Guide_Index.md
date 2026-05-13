@@ -20,7 +20,7 @@ If Getting Started proves the toolchain works, this section is where production 
 
 - **@subpage 07_Case_Reference**: physics/domain/grid/BC controls.
 - **@subpage 08_Solver_Reference**: numerical strategy and solver tuning.
-- **@subpage 09_Monitor_Reference**: logging/profiling/output cadence.
+- **@subpage 09_Monitor_Reference**: logging/profiling/diagnostics/output cadence.
 - **@subpage 10_Post_Processing_Reference**: analysis tasks and VTK export controls.
 - **@subpage 48_Grid_Generator_Guide**: direct `grid.gen` usage and `grid_gen` wrapper semantics.
 - **@subpage 44_Boundary_Conditions_Guide**: detailed BC handler options and validation rules.

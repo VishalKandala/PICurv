@@ -59,7 +59,30 @@ profiling:
     enabled: true
 
 # ==============================================================================
-# 3. I/O AND DATA MANAGEMENT
+# 3. DIAGNOSTICS
+#    Controls PETSc-native diagnostics and the compact runtime memory log.
+# ==============================================================================
+diagnostics:
+  petsc:
+    malloc_debug: false
+    malloc_test: false
+    malloc_dump: false
+    malloc_view: false
+    malloc_view_threshold: null
+    memory_view: false
+    log_view: false
+    log_view_memory: false
+    log_all: false
+    log_trace: false
+    objects_dump: false
+    options_left: null
+
+  runtime_memory_log:
+    enabled: true
+    file: "Runtime_Memory.log"
+
+# ==============================================================================
+# 4. I/O AND DATA MANAGEMENT
 #    Controls data file generation and locations for the SOLVER.
 # ==============================================================================
 io:

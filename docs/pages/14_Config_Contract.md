@@ -13,7 +13,7 @@ It describes the launcher-level contract, which may be stricter or more explicit
 
 1. `case.yml`: physics, grid, BC definitions, run control.
 2. `solver.yml`: numerical strategy and solver parameters.
-3. `monitor.yml`: I/O and logging/profiling controls.
+3. `monitor.yml`: I/O, logging/profiling, and diagnostics controls.
 4. `post.yml`: post-processing recipe.
 5. MPI launch settings (`-n`, executable stage selection).
    - `-n/--num-procs` sizes the solver stage launch.
@@ -28,7 +28,7 @@ These roles are intentionally modular:
 
 - `case.yml` describes physical setup and geometry contract.
 - `solver.yml` describes numerical strategy.
-- `monitor.yml` describes logging and I/O behavior.
+- `monitor.yml` describes logging, diagnostics, profiling, and I/O behavior.
 - `post.yml` describes post-processing outputs.
 
 In normal use, you reuse and mix these files instead of cloning one monolithic config for every run.

@@ -12,7 +12,7 @@ A single-run workflow uses five logical inputs:
 
 1. `case.yml`: physics/domain/grid/BC/run control
 2. `solver.yml`: numerical strategy and solver controls
-3. `monitor.yml`: logging, profiling, output cadence, directories
+3. `monitor.yml`: logging, profiling, diagnostics, output cadence, directories
 4. `post.yml`: post-processing pipeline recipe
 5. Launch settings: stage selection + MPI process count (`-n`)
 

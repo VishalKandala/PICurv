@@ -196,7 +196,7 @@ Stages:
 Inputs for `--solve`:
 - `--case <case.yml>`
 - `--solver <solver.yml>`
-- `--monitor <monitor.yml>`
+- `--monitor <monitor.yml>` (logging, diagnostics, profiling, output cadence, directories)
 
 Inputs for `--post-process`:
 - `--post <post.yml>`
@@ -214,7 +214,7 @@ Cluster/Slurm options:
 - `--no-submit` (generate scripts/manifests only)
 
 Preflight options:
-- `--dry-run` (resolve and print launch/artifact plan only)
+- `--dry-run` (resolve and print launch/artifact plan only, including PETSc diagnostic flags and log paths)
 - `--format json` (machine-readable output for `--dry-run`)
 
 Local example:
@@ -463,7 +463,7 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
 - solver inputs:
   - `--case <path>`
   - `--solver <path>`
-  - `--monitor <path>`
+  - `--monitor <path>` (logging, diagnostics, profiling, output cadence, directories)
 - post inputs:
   - `--post <path>`
   - `--run-dir <path>`
@@ -472,7 +472,7 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
   - `--cluster <cluster.yml>` (enables Slurm mode)
   - `--scheduler <name>` (must be used with `--cluster`; must match `cluster.yml:scheduler.type`)
   - `--no-submit` (render scripts/manifests without `sbatch`)
-  - `--dry-run` (no file writes; plan only)
+  - `--dry-run` (no file writes; plan only, including diagnostic artifacts)
   - `--format {text,json}` (dry-run output format)
 
 `validate`:
@@ -628,7 +628,7 @@ Typical pattern:
 
 1. keep `case.yml` focused on physics, grid, BCs, and run duration,
 2. keep `solver.yml` focused on numerical strategy,
-3. keep `monitor.yml` focused on logging and I/O cadence,
+3. keep `monitor.yml` focused on logging, diagnostics, profiling, and I/O cadence,
 4. keep `post.yml` focused on analysis outputs,
 5. recombine them as needed for different studies.
 

@@ -806,6 +806,11 @@ typedef struct SimCtx {
     PetscBool walltimeGuardHasEWMA;
     PetscReal walltimeGuardEWMASeconds;
     PetscReal walltimeGuardLatestStepSeconds;
+    PetscBool runtimeMemoryLogEnabled;
+    char      runtimeMemoryLogFile[PETSC_MAX_PATH_LEN];
+    PetscBool runtimeMemoryLogStarted;
+    PetscBool runtimeMemoryLogHasPrevious;
+    PetscReal runtimeMemoryLogPreviousProcessMB;
 
     //================ Group 12: Post-Processing =================================================
     char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];
