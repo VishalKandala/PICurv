@@ -2609,6 +2609,121 @@ def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
     assert "-profile_config_file" in content
 
 
+def test_diagnostics_config_emits_runtime_memory_flags_and_petsc_args(tmp_path):
+    """!
+    @brief Test structured diagnostics config emits C runtime flags and PETSc stage args.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    monitor_cfg["diagnostics"] = {
+        "petsc": {
+            "malloc_debug": True,
+            "malloc_test": True,
+            "log_view": True,
+            "log_view_memory": True,
+            "malloc_view_threshold": 128,
+        },
+        "runtime_memory_log": {
+            "enabled": True,
+            "file": "Runtime_Memory.log",
+        },
+    }
+
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    source_files = {
+        "Case": str(valid / "case.yml"),
+        "Solver": str(valid / "solver.yml"),
+        "Monitor": str(valid / "monitor.yml"),
+    }
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo_run",
+        {
+            "case": case_cfg,
+            "case_path": str(valid / "case.yml"),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        1,
+        monitor_files,
+    )
+
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert "-runtime_memory_log_enabled true" in content
+    assert "-runtime_memory_log_file Runtime_Memory.log" in content
+    assert "-malloc_debug" not in content
+
+    args = picurv.build_petsc_diagnostics_args(monitor_cfg, str(run_dir), "Solver")
+    assert "-malloc_debug" in args
+    assert "-malloc_test" in args
+    assert "-log_view" in args
+    assert "-log_view_memory" in args
+    assert "-malloc_view_threshold" in args
+    assert f":{run_dir / 'logs' / 'PETSc_LogView_Solver.log'}" in args
+
+
+def test_validate_rejects_bad_diagnostics_schema(tmp_path):
+    """!
+    @brief Test monitor diagnostics schema validation rejects bad value types.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    monitor_cfg["diagnostics"] = {
+        "petsc": {"malloc_debug": "yes"},
+    }
+    monitor_path = tmp_path / "monitor_bad_diagnostics.yml"
+    picurv.write_yaml_file(str(monitor_path), monitor_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(monitor_path),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "monitor.diagnostics.petsc.malloc_debug" in result.stderr
+
+
+def test_parse_runtime_memory_log_for_summary(tmp_path):
+    """!
+    @brief Test Runtime_Memory.log parser exposes latest memory signals.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    log_path = tmp_path / "Runtime_Memory.log"
+    log_path.write_text(
+        "# PICurv runtime memory log\n"
+        "Step     Event      Process Current MB Max  Process Peak MB Max  PETSc Allocated MB Max  PETSc Peak Allocated MB Max  Process Change MB Max Reason\n"
+        "1        Step                    10.000               12.000                 4.000                        5.000                  0.000 -\n"
+        "2        Step                    15.000               16.000                 6.000                        7.000                  5.000 -\n"
+        "2        Final                   15.000               16.000                 6.000                        7.000                  0.000 Complete\n",
+        encoding="utf-8",
+    )
+
+    rows, order, meta = picurv._parse_runtime_memory_log(str(log_path))
+
+    assert order == [1, 2]
+    assert rows[2]["process_current_mb_max"] == pytest.approx(15.0)
+    assert meta["final_reason"] == "Complete"
+    assert meta["max_process_change_mb"] == pytest.approx(5.0)
+
+
 def test_restart_from_copies_checkpoint_and_sets_restart_dir(tmp_path):
     """!
     @brief Test that --restart-from copies checkpoint files and sets -restart_dir in control file.

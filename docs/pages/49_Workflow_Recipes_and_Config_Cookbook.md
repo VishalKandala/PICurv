@@ -13,7 +13,7 @@ PICurv is designed around modular config roles:
 
 - `case.yml`: physics, grid, BCs, run duration
 - `solver.yml`: numerical strategy
-- `monitor.yml`: logging, output cadence, directories
+- `monitor.yml`: logging, diagnostics, output cadence, directories
 - `post.yml`: analysis recipe
 - optional `cluster.yml`: scheduler policy
 - optional `study.yml`: parameter sweep definition

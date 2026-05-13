@@ -744,6 +744,7 @@ int main(int argc, char **argv)
             PrintProgressBar(ti-1,pps->startTime,StepsToRun,currentTime);
             if(get_log_level()>LOG_ERROR)PetscPrintf(PETSC_COMM_SELF,"\n");
         }
+        ierr = RuntimeMemoryLogSample(simCtx, ti, "Post", "-"); CHKERRQ(ierr);
     }
 
     // After the loop, print the 100% complete bar on rank 0 and add a newline
@@ -762,6 +763,7 @@ int main(int argc, char **argv)
     
 
     // === VIII. FINALIZE =========================================================
+    ierr = RuntimeMemoryLogSample(simCtx, pps->endTime, "Final", "Complete"); CHKERRQ(ierr);
     ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
     ierr = ProfilingFinalize(simCtx); CHKERRQ(ierr);
     ierr = PetscFinalize();

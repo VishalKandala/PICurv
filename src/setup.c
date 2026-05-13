@@ -334,6 +334,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->walltimeGuardHasEWMA = PETSC_FALSE;
     simCtx->walltimeGuardEWMASeconds = 0.0;
     simCtx->walltimeGuardLatestStepSeconds = 0.0;
+    simCtx->runtimeMemoryLogEnabled = PETSC_TRUE;
+    strcpy(simCtx->runtimeMemoryLogFile, "Runtime_Memory.log");
+    simCtx->runtimeMemoryLogStarted = PETSC_FALSE;
+    simCtx->runtimeMemoryLogHasPrevious = PETSC_FALSE;
+    simCtx->runtimeMemoryLogPreviousProcessMB = 0.0;
     // --- Group 11: Post-Processing Information ---
     strcpy(simCtx->PostprocessingControlFile, "config/post.run");
     ierr = PetscNew(&simCtx->pps); CHKERRQ(ierr);
@@ -458,6 +463,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetBool(NULL, NULL, "-walltime_guard_enabled", &simCtx->walltimeGuardEnabled, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-walltime_guard_warmup_steps", &simCtx->walltimeGuardWarmupSteps, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_multiplier", &simCtx->walltimeGuardMultiplier, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetBool(NULL, NULL, "-runtime_memory_log_enabled", &simCtx->runtimeMemoryLogEnabled, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL, NULL, "-runtime_memory_log_file", simCtx->runtimeMemoryLogFile, PETSC_MAX_PATH_LEN, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_min_seconds", &simCtx->walltimeGuardMinSeconds, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_estimator_alpha", &simCtx->walltimeGuardEstimatorAlpha, NULL); CHKERRQ(ierr);
 
@@ -885,6 +892,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     
     // --- Initialize PETSc's internal performance logging stage ---
     ierr = PetscLogDefaultBegin(); CHKERRQ(ierr); // REDUNDANT but safe.
+    ierr = PetscMemorySetGetMaximumUsage(); CHKERRQ(ierr);
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finished CreateSimulationContext successfully on rank %d.\n", simCtx->rank);
 

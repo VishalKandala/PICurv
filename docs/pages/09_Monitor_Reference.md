@@ -6,7 +6,7 @@ For the full commented template, see:
 
 @verbinclude master_template/master_monitor.yml
 
-`monitor.yml` controls observability and run I/O behavior.
+`monitor.yml` controls observability, diagnostics, and run I/O behavior.
 
 @tableofcontents
 
@@ -89,7 +89,44 @@ Rules:
 - `timestep_output.file` sets the filename written under the run `logs/` directory
 - `final_summary.enabled` controls the end-of-run `ProfilingSummary_*.log` file
 
-@section p09_solver_monitoring_sec 4. solver_monitoring
+@section p09_diagnostics_sec 4. diagnostics
+
+Structured diagnostics for PETSc memory/object/function debugging plus a compact
+PICurv runtime memory log:
+
+```yaml
+diagnostics:
+  petsc:
+    malloc_debug: false
+    malloc_test: false
+    malloc_dump: false
+    malloc_view: false
+    malloc_view_threshold: null
+    memory_view: false
+    log_view: false
+    log_view_memory: false
+    log_all: false
+    log_trace: false
+    objects_dump: false
+    options_left: null
+  runtime_memory_log:
+    enabled: true
+    file: "Runtime_Memory.log"
+```
+
+Rules:
+- PETSc initialization-time diagnostics such as `malloc_debug` and `malloc_test`
+  are passed on the executable command line, not only through the generated
+  `.control` file.
+- PETSc diagnostics that support output files use run-local defaults under
+  `logs/`, with solver/postprocessor-specific filenames. Boolean-only PETSc
+  diagnostics remain in the captured solver/post stream logs.
+- `runtime_memory_log` writes a rank-reduced, terminal-readable log with max
+  process/PETSc allocation signals per step.
+- `picurv summarize` reports the latest runtime memory signals when the log is
+  present.
+
+@section p09_solver_monitoring_sec 5. solver_monitoring
 
 Raw flag passthrough for PETSc monitors/debug options:
 
@@ -105,7 +142,7 @@ Rules:
 - `false` omits flag.
 - Non-boolean values emit `flag value`.
 
-@section p09_next_steps_sec 5. Next Steps
+@section p09_next_steps_sec 6. Next Steps
 
 Proceed to **@subpage 10_Post_Processing_Reference**.
 

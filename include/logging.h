@@ -763,6 +763,21 @@ PetscErrorCode ProfilingResetTimestepCounters(void);
  */
 PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step);
 
+/**
+ * @brief Append a reduced runtime memory sample to the configured memory log.
+ *
+ * The log is intentionally compact: every rank samples process/PETSc allocator
+ * memory, one max reduction summarizes the job, and rank 0 appends one
+ * terminal-readable row.
+ *
+ * @param simCtx The simulation context holding log directory and memory log settings.
+ * @param step The solver/post step associated with the sample.
+ * @param event Human-readable event label such as "Step", "Post", "Shutdown", or "Final".
+ * @param reason Human-readable reason, or NULL/"-" when not applicable.
+ * @return PetscErrorCode
+ */
+PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char *event, const char *reason);
+
 
 /**
  * @brief the profiling excercise and build a profiling summary which is then printed to a log file.

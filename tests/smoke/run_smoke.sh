@@ -332,12 +332,34 @@ PY
 
 run_dry_run_plan_smoke() {
   local plan_json="${tmp_root}/dry-plan.json"
+  local monitor_cfg="${tmp_root}/dry-run-monitor-diagnostics.yml"
+  cp "${valid_fixtures_dir}/monitor.yml" "${monitor_cfg}"
+  python3 - "${monitor_cfg}" <<'PY'
+import sys
+import yaml
+monitor_path = sys.argv[1]
+with open(monitor_path, "r", encoding="utf-8") as f:
+    cfg = yaml.safe_load(f)
+cfg["diagnostics"] = {
+    "petsc": {
+        "malloc_debug": True,
+        "log_view": True,
+        "malloc_view": True,
+    },
+    "runtime_memory_log": {
+        "enabled": True,
+        "file": "Runtime_Memory.log",
+    },
+}
+with open(monitor_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(cfg, f, sort_keys=False)
+PY
   "${picurv_exe}" run \
     --solve \
     --post-process \
     --case "${valid_fixtures_dir}/case.yml" \
     --solver "${valid_fixtures_dir}/solver.yml" \
-    --monitor "${valid_fixtures_dir}/monitor.yml" \
+    --monitor "${monitor_cfg}" \
     --post "${valid_fixtures_dir}/post.yml" \
     --dry-run \
     --format json >"${plan_json}"
@@ -354,6 +376,12 @@ assert "solve" in stages
 assert "post-process" in stages
 assert any(str(token).endswith("simulator") for token in stages["solve"]["launch_command"])
 assert any(str(token).endswith("postprocessor") for token in stages["post-process"]["launch_command"])
+solve_launch = [str(token) for token in stages["solve"]["launch_command"]]
+assert "-malloc_debug" in solve_launch
+assert "-log_view" in solve_launch
+artifacts = [str(item) for item in payload.get("artifacts", [])]
+assert any(item.endswith("Runtime_Memory.log") for item in artifacts)
+assert any(item.endswith("PETSc_LogView_Solver.log") for item in artifacts)
 PY
 }
 
@@ -1145,6 +1173,8 @@ run_case_workflow() {
   if [[ -z "${LAST_SOLVER_LOG}" ]]; then
     die "workflow '${label}' completed but no solver runtime log was found under '${created_run}/scheduler'."
   fi
+  require_file "${created_run}/logs/Runtime_Memory.log" "runtime memory log"
+  require_file_contains "${created_run}/logs/Runtime_Memory.log" "Process Current MB Max" "runtime memory log header"
 }
 
 run_restart_equivalence_smoke() {

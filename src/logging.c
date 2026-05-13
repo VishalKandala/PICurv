@@ -2026,6 +2026,102 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Implementation of \ref RuntimeMemoryLogSample().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see RuntimeMemoryLogSample()
+ */
+PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char *event, const char *reason)
+{
+    PetscErrorCode ierr;
+    PetscLogDouble process_current_bytes = 0.0;
+    PetscLogDouble process_peak_bytes = 0.0;
+    PetscLogDouble petsc_current_bytes = 0.0;
+    PetscLogDouble petsc_peak_bytes = 0.0;
+    PetscReal      local_values[5];
+    PetscReal      global_values[5];
+    PetscReal      process_current_mb = 0.0;
+    PetscReal      process_peak_mb = 0.0;
+    PetscReal      petsc_current_mb = 0.0;
+    PetscReal      petsc_peak_mb = 0.0;
+    PetscReal      process_change_mb = 0.0;
+    char           path[(2 * PETSC_MAX_PATH_LEN) + 16];
+    FILE           *f = NULL;
+
+    PetscFunctionBeginUser;
+    if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be null for RuntimeMemoryLogSample");
+    if (!simCtx->runtimeMemoryLogEnabled) PetscFunctionReturn(0);
+
+    ierr = PetscMemoryGetCurrentUsage(&process_current_bytes); CHKERRQ(ierr);
+    ierr = PetscMemoryGetMaximumUsage(&process_peak_bytes); CHKERRQ(ierr);
+    ierr = PetscMallocGetCurrentUsage(&petsc_current_bytes); CHKERRQ(ierr);
+    ierr = PetscMallocGetMaximumUsage(&petsc_peak_bytes); CHKERRQ(ierr);
+
+    process_current_mb = (PetscReal)(process_current_bytes / (1024.0 * 1024.0));
+    process_peak_mb    = (PetscReal)(process_peak_bytes / (1024.0 * 1024.0));
+    petsc_current_mb   = (PetscReal)(petsc_current_bytes / (1024.0 * 1024.0));
+    petsc_peak_mb      = (PetscReal)(petsc_peak_bytes / (1024.0 * 1024.0));
+    if (simCtx->runtimeMemoryLogHasPrevious) {
+        process_change_mb = process_current_mb - simCtx->runtimeMemoryLogPreviousProcessMB;
+    }
+
+    local_values[0] = process_current_mb;
+    local_values[1] = process_peak_mb;
+    local_values[2] = petsc_current_mb;
+    local_values[3] = petsc_peak_mb;
+    local_values[4] = process_change_mb;
+    ierr = MPI_Allreduce(local_values, global_values, 5, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+
+    simCtx->runtimeMemoryLogPreviousProcessMB = process_current_mb;
+    simCtx->runtimeMemoryLogHasPrevious = PETSC_TRUE;
+
+    if (simCtx->rank == 0) {
+        ierr = PetscSNPrintf(path, sizeof(path), "%s/%s", simCtx->log_dir, simCtx->runtimeMemoryLogFile); CHKERRQ(ierr);
+        f = fopen(path, "a");
+        if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open runtime memory log file: %s", path);
+
+        if (!simCtx->runtimeMemoryLogStarted) {
+            fprintf(f, "# PICurv runtime memory log\n");
+            if (simCtx->continueMode) {
+                fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
+            }
+            fprintf(
+                f,
+                "%-8s %-10s %22s %20s %22s %28s %22s %-18s\n",
+                "Step",
+                "Event",
+                "Process Current MB Max",
+                "Process Peak MB Max",
+                "PETSc Allocated MB Max",
+                "PETSc Peak Allocated MB Max",
+                "Process Change MB Max",
+                "Reason"
+            );
+            simCtx->runtimeMemoryLogStarted = PETSC_TRUE;
+        }
+
+        fprintf(
+            f,
+            "%-8" PetscInt_FMT " %-10s %22.3f %20.3f %22.3f %28.3f %22.3f %-18s\n",
+            step,
+            event ? event : "-",
+            (double)global_values[0],
+            (double)global_values[1],
+            (double)global_values[2],
+            (double)global_values[3],
+            (double)global_values[4],
+            (reason && reason[0]) ? reason : "-"
+        );
+        if ((event && (strcmp(event, "Shutdown") == 0 || strcmp(event, "Final") == 0))) {
+            fflush(f);
+        }
+        fclose(f);
+    }
+
+    PetscFunctionReturn(0);
+}
+
 // Comparison function for qsort to sort by total_time in descending order
 /**
  * @brief Internal helper implementation: `_CompareProfiledFunctions()`.

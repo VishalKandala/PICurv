@@ -3730,6 +3730,10 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             resolve_profiling_config(monitor_cfg)
         except ValueError as e:
             errors.append(f"  {monitor_path}: {e}")
+        try:
+            resolve_diagnostics_config(monitor_cfg)
+        except ValueError as e:
+            errors.append(f"  {monitor_path}: {e}")
         solver_mon_cfg = monitor_cfg.get('solver_monitoring')
         if solver_mon_cfg is not None and not isinstance(solver_mon_cfg, dict):
             errors.append(f"  {monitor_path}: 'solver_monitoring' must be a mapping of <flag>: <value>.")
@@ -4831,6 +4835,207 @@ def resolve_profiling_config(monitor_cfg: dict) -> dict:
     }
 
 
+DIAGNOSTICS_PETSC_KEYS = {
+    "malloc_debug",
+    "malloc_test",
+    "malloc_dump",
+    "malloc_view",
+    "malloc_view_threshold",
+    "memory_view",
+    "log_view",
+    "log_view_memory",
+    "log_all",
+    "log_trace",
+    "objects_dump",
+    "options_left",
+}
+
+
+def _diagnostic_bool_or_path(value, key: str):
+    """!
+    @brief Validate a diagnostics value that can be false, true, or a path/viewer string.
+    @param[in] value Candidate value.
+    @param[in] key Diagnostics key used in error messages.
+    @return Normalized value.
+    """
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise ValueError(f"monitor.diagnostics.petsc.{key} must be boolean, null, or a non-empty string.")
+
+
+def _diagnostic_bool(value, key: str) -> bool:
+    """!
+    @brief Validate a diagnostics boolean value.
+    @param[in] value Candidate value.
+    @param[in] key Diagnostics key used in error messages.
+    @return Boolean value.
+    """
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"monitor.diagnostics.petsc.{key} must be boolean.")
+
+
+def _diagnostic_bool_or_all(value, key: str):
+    """!
+    @brief Validate a diagnostics value that can be false, true, or "all".
+    @param[in] value Candidate value.
+    @param[in] key Diagnostics key used in error messages.
+    @return Normalized value.
+    """
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, str) and value.strip().lower() == "all":
+        return "all"
+    raise ValueError(f"monitor.diagnostics.petsc.{key} must be boolean, null, or 'all'.")
+
+
+def _diagnostic_default_file(run_dir: str, filename: str) -> str:
+    """!
+    @brief Return an absolute run-local diagnostics file path.
+    @param[in] run_dir Run directory.
+    @param[in] filename Diagnostics filename.
+    @return Absolute diagnostics path under the run logs directory.
+    """
+    return os.path.abspath(os.path.join(run_dir, "logs", filename))
+
+
+def _diagnostic_resolve_path_or_default(value, run_dir: str, default_filename: str):
+    """!
+    @brief Resolve true/string diagnostics values to a concrete file path.
+    @param[in] value Boolean/string diagnostics value.
+    @param[in] run_dir Run directory.
+    @param[in] default_filename Default file name when value is true.
+    @return False, or an absolute/explicit path string.
+    """
+    if value is True:
+        return _diagnostic_default_file(run_dir, default_filename)
+    if isinstance(value, str):
+        if os.path.isabs(value) or value.startswith(":"):
+            return value
+        return os.path.abspath(os.path.join(run_dir, "logs", value))
+    return False
+
+
+def resolve_diagnostics_config(monitor_cfg: dict, run_dir: str | None = None, stage_label: str = "Solver") -> dict:
+    """!
+    @brief Resolve monitor diagnostics config and default run-local log paths.
+    @param[in] monitor_cfg Parsed monitor.yml mapping.
+    @param[in] run_dir Optional run directory for default artifact paths.
+    @param[in] stage_label Solver/PostProcessor suffix used for PETSc output defaults.
+    @return Normalized diagnostics config.
+    """
+    diagnostics_cfg = (monitor_cfg.get("diagnostics", {}) or {}) if isinstance(monitor_cfg, dict) else {}
+    if not isinstance(diagnostics_cfg, dict):
+        raise ValueError("monitor.diagnostics must be a mapping when provided.")
+
+    petsc_raw = diagnostics_cfg.get("petsc", {}) or {}
+    if not isinstance(petsc_raw, dict):
+        raise ValueError("monitor.diagnostics.petsc must be a mapping when provided.")
+    unknown = sorted(set(petsc_raw.keys()) - DIAGNOSTICS_PETSC_KEYS)
+    if unknown:
+        raise ValueError(f"monitor.diagnostics.petsc has unsupported key(s): {unknown}.")
+
+    petsc = {
+        "malloc_debug": _diagnostic_bool(petsc_raw.get("malloc_debug", False), "malloc_debug"),
+        "malloc_test": _diagnostic_bool(petsc_raw.get("malloc_test", False), "malloc_test"),
+        "malloc_dump": _diagnostic_bool(petsc_raw.get("malloc_dump", False), "malloc_dump"),
+        "malloc_view": _diagnostic_bool_or_path(petsc_raw.get("malloc_view", False), "malloc_view"),
+        "malloc_view_threshold": petsc_raw.get("malloc_view_threshold"),
+        "memory_view": _diagnostic_bool(petsc_raw.get("memory_view", False), "memory_view"),
+        "log_view": _diagnostic_bool_or_path(petsc_raw.get("log_view", False), "log_view"),
+        "log_view_memory": _diagnostic_bool(petsc_raw.get("log_view_memory", False), "log_view_memory"),
+        "log_all": _diagnostic_bool(petsc_raw.get("log_all", False), "log_all"),
+        "log_trace": _diagnostic_bool_or_path(petsc_raw.get("log_trace", False), "log_trace"),
+        "objects_dump": _diagnostic_bool_or_all(petsc_raw.get("objects_dump", False), "objects_dump"),
+        "options_left": petsc_raw.get("options_left"),
+    }
+    if petsc["malloc_view_threshold"] is not None and not isinstance(petsc["malloc_view_threshold"], (int, float)):
+        raise ValueError("monitor.diagnostics.petsc.malloc_view_threshold must be numeric or null.")
+    if petsc["options_left"] is not None and not isinstance(petsc["options_left"], bool):
+        raise ValueError("monitor.diagnostics.petsc.options_left must be boolean or null.")
+
+    memory_raw = diagnostics_cfg.get("runtime_memory_log", {}) or {}
+    if not isinstance(memory_raw, dict):
+        raise ValueError("monitor.diagnostics.runtime_memory_log must be a mapping when provided.")
+    memory_unknown = sorted(set(memory_raw.keys()) - {"enabled", "file"})
+    if memory_unknown:
+        raise ValueError(f"monitor.diagnostics.runtime_memory_log has unsupported key(s): {memory_unknown}.")
+    memory_enabled = memory_raw.get("enabled", True)
+    if not isinstance(memory_enabled, bool):
+        raise ValueError("monitor.diagnostics.runtime_memory_log.enabled must be boolean.")
+    memory_file = str(memory_raw.get("file", "Runtime_Memory.log")).strip()
+    if not memory_file:
+        raise ValueError("monitor.diagnostics.runtime_memory_log.file must be a non-empty string.")
+
+    resolved_petsc = dict(petsc)
+    artifacts = []
+    if run_dir:
+        suffix = "PostProcessor" if stage_label == "PostProcessor" else "Solver"
+        defaults = {
+            "malloc_view": f"PETSc_MallocView_{suffix}.log",
+            "log_view": f"PETSc_LogView_{suffix}.log",
+            "log_trace": f"PETSc_LogTrace_{suffix}.log",
+        }
+        for key, default_name in defaults.items():
+            resolved_value = _diagnostic_resolve_path_or_default(petsc[key], run_dir, default_name)
+            if key == "log_view" and resolved_value and isinstance(resolved_value, str) and not resolved_value.startswith(":"):
+                resolved_value = f":{resolved_value}"
+            resolved_petsc[key] = resolved_value
+            if resolved_value and isinstance(resolved_value, str) and not resolved_value.startswith(":"):
+                artifacts.append(resolved_value)
+            elif resolved_value and isinstance(resolved_value, str) and resolved_value.startswith(":"):
+                artifacts.append(resolved_value[1:])
+        if memory_enabled:
+            artifacts.append(os.path.abspath(os.path.join(run_dir, "logs", memory_file)))
+
+    return {
+        "petsc": resolved_petsc,
+        "runtime_memory_log": {"enabled": memory_enabled, "file": memory_file},
+        "artifacts": artifacts,
+    }
+
+
+def build_petsc_diagnostics_args(monitor_cfg: dict, run_dir: str, stage_label: str) -> list:
+    """!
+    @brief Build PETSc diagnostics command-line arguments for a run stage.
+    @param[in] monitor_cfg Parsed monitor.yml mapping.
+    @param[in] run_dir Run directory used to resolve default diagnostics files.
+    @param[in] stage_label Stage label for default output names.
+    @return List of executable arguments.
+    """
+    diagnostics = resolve_diagnostics_config(monitor_cfg, run_dir, stage_label)
+    petsc = diagnostics["petsc"]
+    args = []
+    if petsc["malloc_debug"]:
+        args.append("-malloc_debug")
+    if petsc["malloc_test"]:
+        args.append("-malloc_test")
+    for key, flag in (
+        ("malloc_dump", "-malloc_dump"),
+        ("malloc_view", "-malloc_view"),
+        ("memory_view", "-memory_view"),
+        ("log_view", "-log_view"),
+        ("log_trace", "-log_trace"),
+        ("objects_dump", "-objects_dump"),
+    ):
+        value = petsc.get(key)
+        if value is True:
+            args.append(flag)
+        elif value:
+            args.extend([flag, str(value)])
+    if petsc["malloc_view_threshold"] is not None:
+        args.extend(["-malloc_view_threshold", str(petsc["malloc_view_threshold"])])
+    if petsc["log_view_memory"]:
+        args.append("-log_view_memory")
+    if petsc["log_all"]:
+        args.append("-log_all")
+    if petsc["options_left"] is not None:
+        args.extend(["-options_left", "true" if petsc["options_left"] else "false"])
+    return args
+
+
 def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_files: dict) -> dict:
     """!
     @brief Generate monitor sidecar files and resolve profiling reporting behavior.
@@ -5765,6 +5970,10 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if profiling_cfg.get("mode") != "off":
         control_lines.append(f"-profiling_timestep_file {profiling_cfg.get('timestep_file', 'Profiling_Timestep_Summary.csv')}")
     control_lines.append(f"-profiling_final_summary {str(bool(profiling_cfg.get('final_summary_enabled', True))).lower()}")
+    diagnostics_cfg = resolve_diagnostics_config(monitor_cfg)
+    memory_log_cfg = diagnostics_cfg["runtime_memory_log"]
+    control_lines.append(f"-runtime_memory_log_enabled {str(bool(memory_log_cfg.get('enabled', True))).lower()}")
+    control_lines.append(f"-runtime_memory_log_file {memory_log_cfg.get('file', 'Runtime_Memory.log')}")
 
     walltime_guard_policy = configs.get("walltime_guard_policy")
     if walltime_guard_policy is not None:
@@ -6431,7 +6640,7 @@ def render_slurm_array_stage_script(
         '  echo "No case entry for array index ${SLURM_ARRAY_TASK_ID}" >&2',
         '  exit 1',
         "fi",
-        "IFS=$'\\t' read -r CASE_INDEX CASE_ID RUN_DIR CONTROL_FILE POST_RECIPE_FILE LOG_LEVEL POST_PREFIX <<< \"$LINE\"",
+        "IFS=$'\\t' read -r CASE_INDEX CASE_ID RUN_DIR CONTROL_FILE POST_RECIPE_FILE LOG_LEVEL POST_PREFIX SOLVE_DIAGNOSTIC_ARGS POST_DIAGNOSTIC_ARGS <<< \"$LINE\"",
         'cd "$RUN_DIR"',
         'echo "[$(date)] Starting case ${CASE_ID} (array index ${SLURM_ARRAY_TASK_ID})"',
     ])
@@ -6471,7 +6680,14 @@ def render_slurm_array_stage_script(
             return tok
         return shlex.quote(str(tok))
 
-    lines.append(f"exec {' '.join(_token(t) for t in cmd)}")
+    diag_var = "${SOLVE_DIAGNOSTIC_ARGS}" if stage == "solve" else "${POST_DIAGNOSTIC_ARGS}"
+    command_text = " ".join(_token(t) for t in cmd)
+    executable_token = _token(solver_exe if stage == "solve" else post_exe)
+    # Diagnostic args must be executable args, not launcher args. Insert them
+    # immediately before the executable's normal control/recipe options.
+    if executable_token and command_text.count(executable_token) == 1:
+        command_text = command_text.replace(f"{executable_token} ", f"{executable_token} {diag_var} ", 1)
+    lines.append(f"exec {command_text}")
 
     os.makedirs(os.path.dirname(script_path), exist_ok=True)
     with open(script_path, "w") as f:
@@ -7004,12 +7220,14 @@ def build_run_dry_plan(args) -> dict:
             plan["artifacts"].append(os.path.join(config_dir, "whitelist.run"))
         if profiling_preview["mode"] == "selected":
             plan["artifacts"].append(profile_path)
+        solve_diagnostics = resolve_diagnostics_config(loaded_monitor_cfg, run_dir, "Solver")
+        plan["artifacts"].extend(solve_diagnostics["artifacts"])
         if cluster_mode:
             plan["artifacts"].append(os.path.join(config_dir, "cluster.yml"))
             plan["artifacts"].append(os.path.join(scheduler_dir, "submission.json"))
 
         solver_exe = resolve_runtime_executable("simulator")
-        solver_args = ["-control_file", solver_control_path]
+        solver_args = build_petsc_diagnostics_args(loaded_monitor_cfg, run_dir, "Solver") + ["-control_file", solver_control_path]
         if cluster_mode:
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")
             solver_cmd = build_cluster_launch_command(
@@ -7116,7 +7334,14 @@ def build_run_dry_plan(args) -> dict:
         output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
         statistics_output_paths = get_post_statistics_output_artifacts(post_cfg, run_dir, loaded_monitor_cfg)
         post_exe = resolve_runtime_executable("postprocessor")
-        post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_path]
+        post_diagnostics = resolve_diagnostics_config(loaded_monitor_cfg, run_dir, "PostProcessor")
+        plan["artifacts"].extend(post_diagnostics["artifacts"])
+        post_args = build_petsc_diagnostics_args(loaded_monitor_cfg, run_dir, "PostProcessor") + [
+            "-control_file",
+            solver_control_path,
+            "-postprocessing_config_file",
+            post_recipe_path,
+        ]
         plan["artifacts"].extend([
             post_recipe_path,
             output_dir_abs,
@@ -7262,6 +7487,12 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
                 print(f"      skipped: {details.get('skip_reason')}")
             else:
                 print(f"      {details.get('launch_command_string')}")
+
+    diagnostics_artifacts = [item for item in plan.get("artifacts", []) if "PETSc_" in os.path.basename(str(item)) or os.path.basename(str(item)) == "Runtime_Memory.log"]
+    if diagnostics_artifacts:
+        print("\n  Diagnostics artifacts:")
+        for artifact in diagnostics_artifacts:
+            print(f"    - {artifact}")
 
     print("\n  Planned artifacts (no files created in dry-run):")
     for artifact in plan.get("artifacts", []):
@@ -7569,7 +7800,7 @@ def run_workflow(args):
         )
 
         solver_exe = resolve_runtime_executable("simulator")
-        solver_args = ["-control_file", control_file]
+        solver_args = build_petsc_diagnostics_args(configs["monitor"], run_dir, "Solver") + ["-control_file", control_file]
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")
@@ -7721,7 +7952,12 @@ def run_workflow(args):
             post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_effective_cfg, source_files_post, monitor_cfg)
 
             post_exe = resolve_runtime_executable("postprocessor")
-            post_args = ["-control_file", solver_control_path, "-postprocessing_config_file", post_recipe_file]
+            post_args = build_petsc_diagnostics_args(monitor_cfg, run_dir, "PostProcessor") + [
+                "-control_file",
+                solver_control_path,
+                "-postprocessing_config_file",
+                post_recipe_file,
+            ]
             if cluster_mode:
                 scheduler_dir = os.path.join(run_dir, "scheduler")
                 os.makedirs(scheduler_dir, exist_ok=True)
@@ -7992,6 +8228,8 @@ def sweep_workflow(args):
             "post_recipe_file": post_recipe,
             "log_level": str(monitor_cfg.get("logging", {}).get("verbosity", "INFO")).upper(),
             "post_prefix": output_prefix,
+            "solve_diagnostic_args": shlex.join(build_petsc_diagnostics_args(monitor_cfg, run_dir, "Solver")),
+            "post_diagnostic_args": shlex.join(build_petsc_diagnostics_args(monitor_cfg, run_dir, "PostProcessor")),
             "parameters": combo,
         })
 
@@ -8007,6 +8245,8 @@ def sweep_workflow(args):
                         entry["post_recipe_file"],
                         entry["log_level"],
                         entry["post_prefix"],
+                        entry["solve_diagnostic_args"],
+                        entry["post_diagnostic_args"],
                     ]
                 ) + "\n"
             )
@@ -8742,6 +8982,63 @@ def _parse_profiling_timestep_csv(filepath: str) -> tuple[dict, list[int]]:
     return rows_by_step, step_order
 
 
+def _parse_runtime_memory_log(filepath: str) -> tuple[dict, list[int], dict]:
+    """!
+    @brief Parse Runtime_Memory.log into latest rows by step and final status.
+    @param[in] filepath Runtime memory log path.
+    @return Tuple of rows by step, observed step order, and final/shutdown metadata.
+    """
+    rows_by_step = {}
+    step_order = []
+    final_row = None
+    max_process_change_mb = None
+    if not os.path.isfile(filepath):
+        return rows_by_step, step_order, {"available": False}
+
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith("Step"):
+                continue
+            parts = line.split()
+            if len(parts) < 8:
+                continue
+            step = _parse_int_loose(parts[0])
+            if step is None:
+                continue
+            row = {
+                "step": step,
+                "event": parts[1],
+                "process_current_mb_max": _parse_float_loose(parts[2]),
+                "process_peak_mb_max": _parse_float_loose(parts[3]),
+                "petsc_allocated_mb_max": _parse_float_loose(parts[4]),
+                "petsc_peak_allocated_mb_max": _parse_float_loose(parts[5]),
+                "process_change_mb_max": _parse_float_loose(parts[6]),
+                "reason": parts[7],
+            }
+            if row["process_change_mb_max"] is not None:
+                max_process_change_mb = (
+                    row["process_change_mb_max"]
+                    if max_process_change_mb is None
+                    else max(max_process_change_mb, row["process_change_mb_max"])
+                )
+            if row["event"] in {"Step", "Post"}:
+                rows_by_step[step] = row
+                step_order.append(step)
+            elif row["event"] in {"Shutdown", "Final"}:
+                final_row = row
+
+    meta = {
+        "available": bool(rows_by_step or final_row),
+        "source": filepath,
+        "final_event": final_row.get("event") if final_row else None,
+        "final_reason": final_row.get("reason") if final_row else None,
+        "max_process_change_mb": max_process_change_mb,
+        "final_row": final_row,
+    }
+    return rows_by_step, step_order, meta
+
+
 def _parse_solution_convergence_log(filepath: str) -> tuple[dict, list[int]]:
     """!
     @brief Parse solution_convergence.log into latest rows by step plus observed order.
@@ -9180,6 +9477,7 @@ def _resolve_summary_step(
     momentum_rows,
     poisson_rows,
     profiling_rows,
+    memory_rows=None,
     convergence_rows=None,
     step_orders=None,
     selection_mode: str = "latest",
@@ -9192,18 +9490,21 @@ def _resolve_summary_step(
     @param[in] momentum_rows Argument passed to `_resolve_summary_step()`.
     @param[in] poisson_rows Argument passed to `_resolve_summary_step()`.
     @param[in] profiling_rows Argument passed to `_resolve_summary_step()`.
+    @param[in] memory_rows Argument passed to `_resolve_summary_step()`.
     @param[in] convergence_rows Argument passed to `_resolve_summary_step()`.
     @param[in] step_orders Argument passed to `_resolve_summary_step()`.
     @param[in] selection_mode Argument passed to `_resolve_summary_step()`.
     @return Value returned by `_resolve_summary_step()`.
     """
+    if memory_rows is None:
+        memory_rows = {}
     if convergence_rows is None:
         convergence_rows = {}
     if step_orders is None:
         step_orders = []
     available_steps = (
         set(continuity_rows) | set(particle_rows) | set(momentum_rows)
-        | set(poisson_rows) | set(profiling_rows) | set(convergence_rows)
+        | set(poisson_rows) | set(profiling_rows) | set(memory_rows) | set(convergence_rows)
     )
     if not available_steps:
         return None, []
@@ -9289,6 +9590,11 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
     if context["profiling_cfg"].get("mode") != "off":
         profiling_rows, profiling_order = _parse_profiling_timestep_csv(profiling_path)
 
+    diagnostics_cfg = resolve_diagnostics_config(context["monitor_cfg"])
+    memory_log_file = diagnostics_cfg["runtime_memory_log"].get("file", "Runtime_Memory.log")
+    memory_path = os.path.join(log_dir, memory_log_file)
+    memory_rows, memory_order, memory_meta = _parse_runtime_memory_log(memory_path)
+
     convergence_log_path = os.path.join(log_dir, "solution_convergence.log")
     convergence_rows, convergence_order = _parse_solution_convergence_log(convergence_log_path)
     step_orders = _order_summary_step_orders(
@@ -9297,6 +9603,7 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
             (particle_order, particle_metrics_path),
             (convergence_order, convergence_log_path),
             (profiling_order, profiling_path),
+            (memory_order, memory_path),
             (momentum_order, momentum_sources),
             (poisson_order, poisson_sources),
         ]
@@ -9310,6 +9617,7 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
         poisson_rows,
         profiling_rows,
         convergence_rows,
+        memory_rows,
         step_orders=step_orders,
         selection_mode=selection_mode,
     )
@@ -9368,6 +9676,16 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
             row.get("step_time_s") or 0.0 for row in functions
         )
 
+    memory_summary = {"available": resolved_step in memory_rows}
+    if resolved_step in memory_rows:
+        memory_summary.update(memory_rows[resolved_step])
+        memory_summary["source"] = memory_path
+        memory_summary["max_process_change_mb"] = memory_meta.get("max_process_change_mb")
+        memory_summary["final_event"] = memory_meta.get("final_event")
+        memory_summary["final_reason"] = memory_meta.get("final_reason")
+    elif memory_meta.get("available"):
+        memory_summary.update(memory_meta)
+
     snapshot_summary = {"available": False}
     if context["particle_console_output_freq"] and context["particle_console_output_freq"] > 0:
         snapshot_summary = _find_particle_snapshot_for_step(
@@ -9403,6 +9721,7 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
             "poisson_logs": poisson_sources,
             "profiling_timestep_csv": profiling_path if os.path.isfile(profiling_path) else None,
             "solution_convergence_log": convergence_log_path if os.path.isfile(convergence_log_path) else None,
+            "runtime_memory_log": memory_path if os.path.isfile(memory_path) else None,
         },
         "continuity": continuity_summary,
         "momentum": momentum_summary,
@@ -9410,6 +9729,7 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
         "particles": particle_summary,
         "particle_snapshot": snapshot_summary,
         "profiling": profiling_summary,
+        "memory": memory_summary,
         "convergence": convergence_rows.get(resolved_step) if convergence_rows else None,
     }
 
@@ -9516,6 +9836,21 @@ def render_run_summary(payload: dict, output_format: str = "text"):
             f"migrated={particles.get('migrated_particles')} occupied={particles.get('occupied_cells')} "
             f"imbalance={_format_summary_float(particles.get('load_imbalance'), '.2f')}"
         )
+    else:
+        print("    unavailable")
+
+    memory = payload.get("memory", {})
+    print("\n  Runtime Memory:")
+    if memory.get("available"):
+        if memory.get("source"):
+            print(f"    source        : {os.path.relpath(memory.get('source'))}")
+        if memory.get("event"):
+            print(f"    event         : {memory.get('event')}  reason={memory.get('reason', '-')}")
+        print(f"    process max   : {_format_summary_float(memory.get('process_current_mb_max'), '.3f')} MB current, {_format_summary_float(memory.get('process_peak_mb_max'), '.3f')} MB peak")
+        print(f"    PETSc max     : {_format_summary_float(memory.get('petsc_allocated_mb_max'), '.3f')} MB allocated, {_format_summary_float(memory.get('petsc_peak_allocated_mb_max'), '.3f')} MB peak")
+        print(f"    max change    : {_format_summary_float(memory.get('max_process_change_mb'), '.3f')} MB")
+        if memory.get("final_reason"):
+            print(f"    final reason  : {memory.get('final_reason')}")
     else:
         print("    unavailable")
 
@@ -10278,6 +10613,9 @@ def _add_run_parser(subparsers):
             "  - With --solve, --continue resumes the existing run directory in-place.\n"
             "  - With --post-process, --continue resumes the same recipe from the first unfinished step\n"
             "    and caps the launch to the highest fully available contiguous source frontier.\n\n"
+            "Diagnostics:\n"
+            "  - PETSc and runtime memory diagnostics live under monitor.yml -> diagnostics.\n"
+            "  - Use --dry-run to inspect resolved PETSc flags and expected log destinations.\n\n"
             "Examples:\n"
             "  picurv run --solve -n 8 --case case.yml --solver solver.yml --monitor monitor.yml\n"
             "  picurv run --solve --restart-from runs/old_run --case case.yml --solver solver.yml --monitor monitor.yml\n"
@@ -10295,7 +10633,7 @@ def _add_run_parser(subparsers):
     solver_group = p_run.add_argument_group("solver inputs (required for --solve)")
     solver_group.add_argument("--case", help="Path to the case definition file (e.g., case.yml).")
     solver_group.add_argument("--solver", help="Path to the solver settings profile (e.g., solver.yml).")
-    solver_group.add_argument("--monitor", help="Path to the monitoring and I/O profile (e.g., monitor.yml).")
+    solver_group.add_argument("--monitor", help="Path to the monitoring, diagnostics, and I/O profile (e.g., monitor.yml).")
     solver_group.add_argument(
         "--restart-from",
         help="Path to an existing run directory to restart from.\n"
@@ -10325,7 +10663,11 @@ def _add_run_parser(subparsers):
     p_run.add_argument("--cluster", help="Path to cluster.yml for Slurm execution mode.")
     p_run.add_argument("--scheduler", help="Explicit scheduler selector (currently 'slurm').")
     p_run.add_argument("--no-submit", action="store_true", help="Generate Slurm scripts/manifests but do not call sbatch.")
-    p_run.add_argument("--dry-run", action="store_true", help="Resolve and print planned commands/artifacts without writing files.")
+    p_run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Resolve and print planned commands/artifacts, including diagnostic flags and log paths, without writing files.",
+    )
     p_run.add_argument(
         "--format",
         dest="output_format",
@@ -10394,7 +10736,7 @@ def _add_validate_parser(subparsers):
     )
     p_validate.add_argument("--case", help="Path to case.yml")
     p_validate.add_argument("--solver", help="Path to solver.yml")
-    p_validate.add_argument("--monitor", help="Path to monitor.yml")
+    p_validate.add_argument("--monitor", help="Path to monitor.yml (logging, diagnostics, profiling, and I/O)")
     p_validate.add_argument("--restart-from", help="Path to a run directory to validate restart from.")
     p_validate.add_argument("--continue", action="store_true", dest="continue_run", help="Validate continue-in-place mode. Requires --run-dir.")
     p_validate.add_argument("--run-dir", help="Path to an existing run directory (for --continue validation).")
