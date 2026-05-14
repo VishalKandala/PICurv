@@ -806,11 +806,11 @@ typedef struct SimCtx {
     PetscBool walltimeGuardHasEWMA;
     PetscReal walltimeGuardEWMASeconds;
     PetscReal walltimeGuardLatestStepSeconds;
-    PetscBool runtimeMemoryLogEnabled;
-    char      runtimeMemoryLogFile[PETSC_MAX_PATH_LEN];
-    PetscBool runtimeMemoryLogStarted;
-    PetscBool runtimeMemoryLogHasPrevious;
-    PetscReal runtimeMemoryLogPreviousProcessMB;
+    PetscBool runtimeMemoryLogEnabled;               /**< Enable the rank-reduced runtime memory log. */
+    char      runtimeMemoryLogFile[PETSC_MAX_PATH_LEN]; /**< File name written under log_dir. */
+    PetscBool runtimeMemoryLogStarted;               /**< True after rank 0 writes the log header. */
+    PetscBool runtimeMemoryLogHasPrevious;           /**< True after the first process-memory sample. */
+    PetscReal runtimeMemoryLogPreviousProcessMB;     /**< Previous local process memory sample in MB. */
 
     //================ Group 12: Post-Processing =================================================
     char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];
