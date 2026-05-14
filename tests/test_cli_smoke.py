@@ -2720,6 +2720,8 @@ def test_parse_runtime_memory_log_for_summary(tmp_path):
 
     assert order == [1, 2]
     assert rows[2]["process_current_mb_max"] == pytest.approx(15.0)
+    assert meta["latest_sample_row"]["step"] == 2
+    assert meta["latest_sample_row"]["process_peak_mb_max"] == pytest.approx(16.0)
     assert meta["final_reason"] == "Complete"
     assert meta["max_process_change_mb"] == pytest.approx(5.0)
 
