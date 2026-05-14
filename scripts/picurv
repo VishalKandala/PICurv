@@ -8991,6 +8991,7 @@ def _parse_runtime_memory_log(filepath: str) -> tuple[dict, list[int], dict]:
     rows_by_step = {}
     step_order = []
     final_row = None
+    latest_sample_row = None
     max_process_change_mb = None
     if not os.path.isfile(filepath):
         return rows_by_step, step_order, {"available": False}
@@ -9025,6 +9026,7 @@ def _parse_runtime_memory_log(filepath: str) -> tuple[dict, list[int], dict]:
             if row["event"] in {"Step", "Post"}:
                 rows_by_step[step] = row
                 step_order.append(step)
+                latest_sample_row = row
             elif row["event"] in {"Shutdown", "Final"}:
                 final_row = row
 
@@ -9034,6 +9036,7 @@ def _parse_runtime_memory_log(filepath: str) -> tuple[dict, list[int], dict]:
         "final_event": final_row.get("event") if final_row else None,
         "final_reason": final_row.get("reason") if final_row else None,
         "max_process_change_mb": max_process_change_mb,
+        "latest_sample_row": latest_sample_row,
         "final_row": final_row,
     }
     return rows_by_step, step_order, meta
@@ -9683,8 +9686,15 @@ def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_ro
         memory_summary["max_process_change_mb"] = memory_meta.get("max_process_change_mb")
         memory_summary["final_event"] = memory_meta.get("final_event")
         memory_summary["final_reason"] = memory_meta.get("final_reason")
+        memory_summary["selected_step"] = resolved_step
+        memory_summary["step_match"] = True
     elif memory_meta.get("available"):
+        latest_sample_row = memory_meta.get("latest_sample_row")
+        if latest_sample_row:
+            memory_summary.update(latest_sample_row)
         memory_summary.update(memory_meta)
+        memory_summary["selected_step"] = resolved_step
+        memory_summary["step_match"] = False
 
     snapshot_summary = {"available": False}
     if context["particle_console_output_freq"] and context["particle_console_output_freq"] > 0:
@@ -9844,6 +9854,8 @@ def render_run_summary(payload: dict, output_format: str = "text"):
     if memory.get("available"):
         if memory.get("source"):
             print(f"    source        : {os.path.relpath(memory.get('source'))}")
+        if memory.get("step") is not None and not memory.get("step_match", True):
+            print(f"    memory step   : {memory.get('step')} (latest memory row; selected step {memory.get('selected_step')} has no row yet)")
         if memory.get("event"):
             print(f"    event         : {memory.get('event')}  reason={memory.get('reason', '-')}")
         print(f"    process max   : {_format_summary_float(memory.get('process_current_mb_max'), '.3f')} MB current, {_format_summary_float(memory.get('process_peak_mb_max'), '.3f')} MB peak")
