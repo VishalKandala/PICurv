@@ -138,6 +138,8 @@
     "-rfsi",
     "-rheology",
     "-rs_fsi",
+    "-runtime_memory_log_enabled",
+    "-runtime_memory_log_file",
     "-rxs",
     "-rys",
     "-rzs",
