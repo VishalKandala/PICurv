@@ -859,6 +859,7 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
     // 1. Calculate the true residual norm.
     ierr = KSPBuildResidual(ksp, NULL, NULL, &r); CHKERRQ(ierr);
     ierr = VecNorm(r, NORM_2, &trnorm); CHKERRQ(ierr);
+    ierr = VecDestroy(&r); CHKERRQ(ierr);
 
     // 2. On the first iteration, compute and store the norm of the RHS vector `b`.
     if (it == 0) {

@@ -823,7 +823,7 @@ PetscErrorCode Projection(UserCtx *user)
   DMDAVecRestoreArray(fda, user->lJCsi, &jcsi); DMDAVecRestoreArray(fda, user->lJEta, &jeta); DMDAVecRestoreArray(fda, user->lJZet, &jzet);
   DMDAVecRestoreArray(fda, user->lKCsi, &kcsi); DMDAVecRestoreArray(fda, user->lKEta, &keta); DMDAVecRestoreArray(fda, user->lKZet, &kzet);
   DMDAVecRestoreArray(da, user->lIAj, &iaj); DMDAVecRestoreArray(da, user->lJAj, &jaj); DMDAVecRestoreArray(da, user->lKAj, &kaj);
-  DMDAVecRestoreArray(da, user->lP, &p);
+  DMDAVecRestoreArray(da, user->lPhi, &p);
   DMDAVecRestoreArray(da, user->lNvert, &nvert);
  
   // --- Update ghost cells for the newly corrected velocity field ---

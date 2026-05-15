@@ -8,6 +8,8 @@ This directory holds executable smoke assets for the canonical `make smoke` fami
 - `bin/picurv init` produces a self-contained case with copied binaries and origin metadata.
 - Template matrix init/validate/dry-run coverage across `flat_channel`, `bent_channel`, and `brownian_motion`.
 - `picurv run --dry-run --format json` emits valid solve/post plans.
+- A tiny solver run with PETSc memory/log diagnostics writes `PETSc_MallocView_Solver.log`,
+  `PETSc_LogView_Solver.log`, and fails if `malloc_dump` reports live allocations.
 - Restart planning resolves the `--restart-from` CLI flag correctly.
 - Tiny real solve+post paths for flat, bent, and particle-enabled flat cases.
 - Restart branch coverage (`load` and `init`) including restart-equivalence checks.
@@ -31,6 +33,7 @@ When a smoke check fails, assume a user-visible workflow regression until proven
 The documentation pages refer to smoke sequences using these labels:
 
 - `S0`: template matrix init/validate/dry-run checks
+- `S0b`: PETSc diagnostics runtime gate (`malloc_debug`, `malloc_dump`, `malloc_view`, `log_view`)
 - `S1`: tiny flat solve+post
 - `S1b`: tiny bent solve+post
 - `S2`: tiny flat particle solve+post (default Trilinear interpolation)

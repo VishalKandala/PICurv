@@ -97,6 +97,7 @@ static PetscErrorCode TestAnalyticalGeometrySelection(void)
     PetscCall(PicurvAssertRealNear(2.0 * PETSC_PI, user->Max_Y, 1.0e-12, "TGV3D multi-block ymax should reflect the block row"));
     PetscCall(PicurvAssertRealNear(2.0 * PETSC_PI, user->Max_Z, 1.0e-12, "TGV3D multi-block zmax should span the full domain"));
 
+    simCtx->block_number = 1;
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }

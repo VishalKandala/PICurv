@@ -764,8 +764,8 @@ int main(int argc, char **argv)
 
     // === VIII. FINALIZE =========================================================
     ierr = RuntimeMemoryLogSample(simCtx, pps->endTime, "Final", "Complete"); CHKERRQ(ierr);
-    ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
     ierr = ProfilingFinalize(simCtx); CHKERRQ(ierr);
+    ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
     ierr = PetscFinalize();
     return ierr;
 }

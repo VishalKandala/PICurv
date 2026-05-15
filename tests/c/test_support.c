@@ -771,7 +771,6 @@ PetscErrorCode PicurvDestroyRuntimeContext(SimCtx **simCtx_ptr)
     PetscFunctionBeginUser;
     if (simCtx_ptr && *simCtx_ptr) {
         PetscCall(FinalizeSimulation(*simCtx_ptr));
-        PetscCall(PetscFree(*simCtx_ptr));
         *simCtx_ptr = NULL;
     }
     PetscCall(PetscOptionsClear(NULL));

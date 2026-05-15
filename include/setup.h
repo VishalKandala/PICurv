@@ -575,6 +575,7 @@ PetscErrorCode DestroyUserContext(UserCtx *user);
  *   - All UserCtx structures in the multigrid hierarchy (via DestroyUserContext)
  *   - The multigrid management structures (UserMG, MGCtx array)
  *   - All SimCtx-level objects (logviewer, dm_swarm, bboxlist, string arrays, etc.)
+ *   - The SimCtx allocation itself.
  *
  * This function should be called ONCE at the end of the simulation, after all
  * computation is complete, but BEFORE PetscFinalize().
@@ -586,6 +587,7 @@ PetscErrorCode DestroyUserContext(UserCtx *user);
  *   4. PetscFinalize();
  *
  * @param[in,out] simCtx Pointer to the master SimulationContext to be destroyed.
+ *                      The pointer is invalid after this call returns.
  *
  * @return PetscErrorCode 0 on success.
  */

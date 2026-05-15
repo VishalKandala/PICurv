@@ -1899,37 +1899,37 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 
     // --- Restore all PETSc array pointers ---
     // DMDAVecRestoreArray(fda, user->lUcont, &ucont);   
-    DMDAVecRestoreArray(fda, Rhs, &rhs);
+    ierr = DMDAVecRestoreArray(fda, Rhs, &rhs); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Rhs restored successfully! .\n");
     
-    DMDAVecRestoreArray(fda, user->lCsi, &csi);
-    DMDAVecRestoreArray(fda, user->lEta, &eta);
-    DMDAVecRestoreArray(fda, user->lZet, &zet);
-    DMDAVecRestoreArray(da,  user->lAj,  &aj);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lCsi, &csi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lEta, &eta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lZet, &zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(da,  user->lAj,  &aj);  CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Face metrics restored successfully! .\n");
     
-    DMDAVecRestoreArray(fda, user->lICsi, &icsi);
-    DMDAVecRestoreArray(fda, user->lIEta, &ieta);
-    DMDAVecRestoreArray(fda, user->lIZet, &izet);
-    DMDAVecRestoreArray(da, user->lIAj, &iaj);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lICsi, &icsi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lIEta, &ieta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lIZet, &izet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(da, user->lIAj, &iaj); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"I Face metrics restored successfully! .\n");
     
-    DMDAVecRestoreArray(fda, user->lJCsi, &jcsi);
-    DMDAVecRestoreArray(fda, user->lJEta, &jeta);
-    DMDAVecRestoreArray(fda, user->lJZet, &jzet);
-    DMDAVecRestoreArray(da, user->lJAj, &jaj);  
+    ierr = DMDAVecRestoreArrayRead(fda, user->lJCsi, &jcsi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lJEta, &jeta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lJZet, &jzet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(da, user->lJAj, &jaj); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"J Face metrics restored successfully! .\n");
   
-    DMDAVecRestoreArray(fda, user->lKCsi, &kcsi);
-    DMDAVecRestoreArray(fda, user->lKEta, &keta);
-    DMDAVecRestoreArray(fda, user->lKZet, &kzet);
-    DMDAVecRestoreArray(da, user->lKAj, &kaj);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lKCsi, &kcsi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lKEta, &keta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(fda, user->lKZet, &kzet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(da, user->lKAj, &kaj); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"K Face metrics restored successfully! .\n");
   
-    DMDAVecRestoreArray(da, user->lP, &p);
+    ierr = DMDAVecRestoreArrayRead(da, user->lP, &p); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Pressure restored successfully! .\n");
 
-    DMDAVecRestoreArray(da, user->lNvert, &nvert);
+    ierr = DMDAVecRestoreArrayRead(da, user->lNvert, &nvert); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Nvert restored successfully! .\n");
 
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Cell Centered scalars restored successfully! .\n");

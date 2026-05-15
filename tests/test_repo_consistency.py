@@ -285,3 +285,44 @@ def test_c_and_python_function_docs_pass_repository_audit():
         check=False,
     )
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
+
+
+def test_petsc_array_restore_regressions_stay_fixed():
+    """!
+    @brief Test that known PETSc array restore leak regressions stay fixed.
+    """
+    rhs_source = _read_text(REPO_ROOT / "src" / "rhs.c")
+    poisson_source = _read_text(REPO_ROOT / "src" / "poisson.c")
+    compute_rhs_start = rhs_source.index("PetscErrorCode ComputeRHS")
+    projection_start = poisson_source.index("PetscErrorCode Projection")
+    compute_rhs_end = rhs_source.index("#undef __FUNCT__", compute_rhs_start)
+    projection_end = poisson_source.index("#undef __FUNCT__", projection_start)
+    compute_rhs = rhs_source[compute_rhs_start:compute_rhs_end]
+    projection = poisson_source[projection_start:projection_end]
+
+    leaked_rhs_restores = [
+        "DMDAVecRestoreArray(fda, user->lCsi, &csi)",
+        "DMDAVecRestoreArray(fda, user->lEta, &eta)",
+        "DMDAVecRestoreArray(fda, user->lZet, &zet)",
+        "DMDAVecRestoreArray(da,  user->lAj,  &aj)",
+        "DMDAVecRestoreArray(fda, user->lICsi, &icsi)",
+        "DMDAVecRestoreArray(fda, user->lIEta, &ieta)",
+        "DMDAVecRestoreArray(fda, user->lIZet, &izet)",
+        "DMDAVecRestoreArray(da, user->lIAj, &iaj)",
+        "DMDAVecRestoreArray(fda, user->lJCsi, &jcsi)",
+        "DMDAVecRestoreArray(fda, user->lJEta, &jeta)",
+        "DMDAVecRestoreArray(fda, user->lJZet, &jzet)",
+        "DMDAVecRestoreArray(da, user->lJAj, &jaj)",
+        "DMDAVecRestoreArray(fda, user->lKCsi, &kcsi)",
+        "DMDAVecRestoreArray(fda, user->lKEta, &keta)",
+        "DMDAVecRestoreArray(fda, user->lKZet, &kzet)",
+        "DMDAVecRestoreArray(da, user->lKAj, &kaj)",
+        "DMDAVecRestoreArray(da, user->lP, &p)",
+        "DMDAVecRestoreArray(da, user->lNvert, &nvert)",
+    ]
+
+    for restore_call in leaked_rhs_restores:
+        assert restore_call not in compute_rhs
+
+    assert "DMDAVecRestoreArray(da, user->lPhi, &p)" in projection
+    assert "DMDAVecRestoreArray(da, user->lP, &p)" not in projection

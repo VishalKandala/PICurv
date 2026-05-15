@@ -3497,5 +3497,6 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "All PETSc objects have been destroyed.\n");
     LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
 
+    ierr = PetscFree(simCtx); CHKERRQ(ierr);
     PetscFunctionReturn(0);
 }
