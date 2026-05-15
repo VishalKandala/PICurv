@@ -385,6 +385,99 @@ assert any(item.endswith("PETSc_LogView_Solver.log") for item in artifacts)
 PY
 }
 
+run_petsc_diagnostics_smoke() {
+  local diag_case="${tmp_root}/petsc-diagnostics"
+  local output_log="${tmp_root}/petsc-diagnostics.log"
+  local before_runs="${tmp_root}/petsc-diagnostics.runs.before"
+  local after_runs="${tmp_root}/petsc-diagnostics.runs.after"
+  local created_run=""
+  local solver_log=""
+  local malloc_view_log=""
+
+  "${picurv_exe}" init flat_channel --dest "${diag_case}" >/dev/null
+  prepare_flat_case_les "${diag_case}"
+  python3 - \
+    "${diag_case}/flat_channel.yml" \
+    "${diag_case}/Standard_Output.yml" <<'PY'
+import sys
+import yaml
+
+case_path, monitor_path = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+with open(monitor_path, "r", encoding="utf-8") as f:
+    monitor_cfg = yaml.safe_load(f)
+
+case_cfg.setdefault("run_control", {})
+case_cfg["run_control"]["total_steps"] = 1
+monitor_cfg["diagnostics"] = {
+    "petsc": {
+        "malloc_debug": True,
+        "malloc_dump": True,
+        "malloc_view": True,
+        "log_view": True,
+        "log_view_memory": True,
+    },
+    "runtime_memory_log": {
+        "enabled": True,
+        "file": "Runtime_Memory.log",
+    },
+}
+
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+with open(monitor_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(monitor_cfg, f, sort_keys=False)
+PY
+
+  mkdir -p "${diag_case}/runs"
+  find "${diag_case}/runs" -mindepth 1 -maxdepth 1 -type d | sort >"${before_runs}"
+  (
+    cd "${diag_case}"
+    "${picurv_exe}" run \
+      --solve \
+      -n 1 \
+      --case "${diag_case}/flat_channel.yml" \
+      --solver "${diag_case}/Imp-MG-Standard.yml" \
+      --monitor "${diag_case}/Standard_Output.yml" >"${output_log}" 2>&1
+  ) || {
+    echo "Smoke failure: PETSc diagnostics solve failed." >&2
+    sed -n '1,220p' "${output_log}" >&2
+    exit 1
+  }
+
+  find "${diag_case}/runs" -mindepth 1 -maxdepth 1 -type d | sort >"${after_runs}"
+  created_run="$(comm -13 "${before_runs}" "${after_runs}" | tail -n 1)"
+  if [[ -z "${created_run}" ]]; then
+    created_run="$(tail -n 1 "${after_runs}")"
+  fi
+  if [[ -z "${created_run}" ]]; then
+    die "PETSc diagnostics smoke completed but no run directory was found."
+  fi
+
+  solver_log="$(find "${created_run}/scheduler" -maxdepth 1 -type f -name '*_solver.log' | sort | tail -n 1)"
+  if [[ -z "${solver_log}" ]]; then
+    die "PETSc diagnostics smoke completed but no solver runtime log was found."
+  fi
+
+  require_file "${created_run}/logs/Runtime_Memory.log" "diagnostics runtime memory log"
+  malloc_view_log="$(find "${created_run}/logs" -maxdepth 1 -type f -name 'PETSc_MallocView_Solver.log*' | sort | head -n 1)"
+  if [[ -z "${malloc_view_log}" ]]; then
+    die "missing PETSc malloc view log under '${created_run}/logs'."
+  fi
+  require_file "${created_run}/logs/PETSc_LogView_Solver.log" "PETSc log view log"
+  require_file_contains "${malloc_view_log}" "Memory usage sorted by function" "PETSc malloc view summary"
+  require_file_contains "${created_run}/logs/PETSc_LogView_Solver.log" "Event Stage" "PETSc log view event table"
+  require_file_contains "${created_run}/logs/Runtime_Memory.log" "Process Current MB Max" "runtime memory log header"
+  require_file_not_contains "${solver_log}" "Memory corruption" "PETSc malloc debug corruption report"
+  require_file_not_contains "${solver_log}" "Bad location or corrupted memory" "PETSc malloc debug bad-location report"
+  if grep -Eq '^\[[[:space:]]*[0-9]+\][[:space:]]+[0-9]+ bytes' "${solver_log}"; then
+    echo "Smoke failure: PETSc malloc_dump reported unfreed allocations in '${solver_log}'." >&2
+    grep -En '^\[[[:space:]]*[0-9]+\][[:space:]]+[0-9]+ bytes' "${solver_log}" | head -n 20 >&2
+    exit 1
+  fi
+}
+
 run_restart_resolution_smoke() {
   local restart_root="${tmp_root}/restart-smoke"
   local prior_run="${restart_root}/old_run"
@@ -1684,6 +1777,9 @@ run_template_matrix_smoke
 
 echo "==> PICurv smoke: dry-run execution plan"
 run_dry_run_plan_smoke
+
+echo "==> PICurv smoke: PETSc diagnostics runtime gate"
+run_petsc_diagnostics_smoke
 
 echo "==> PICurv smoke: restart source resolution in dry-run plan"
 run_restart_resolution_smoke

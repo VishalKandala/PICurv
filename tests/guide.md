@@ -109,6 +109,7 @@ Single-rank smoke (`make smoke`) verifies:
 - `picurv init` self-contained case creation and metadata
 - template matrix `init + validate + dry-run` checks (`flat_channel`, `bent_channel`, `brownian_motion`)
 - dry-run plan schema and restart-source resolution
+- a tiny PETSc diagnostics solve with `malloc_debug`, `malloc_dump`, `malloc_view`, and `log_view`
 - tiny real solve+post for flat and bent channels
 - tiny particle solve+post and restart branches (`load`, `init`)
 - restart-equivalence continuity check
@@ -150,6 +151,8 @@ Useful env knobs:
   - targeted `make unit-<area>`
 - editing setup/teardown lifecycle code:
   - `make unit-setup`
+- editing PETSc object ownership, monitors, or memory diagnostics:
+  - `make smoke`
 - editing core simulation numerics or particle orchestration:
   - `make unit-simulation`
 - editing periodic BC code under development:
