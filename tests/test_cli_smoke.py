@@ -1208,6 +1208,48 @@ def test_dry_run_post_process_reports_nothing_available_yet_when_start_is_beyond
     assert stage["launch_command"] == []
 
 
+def test_dry_run_post_process_reports_nearest_available_source_steps(tmp_path):
+    """!
+    @brief Test that post dry-run explains when later complete sources exist but the requested start is missing.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="live_gap_at_start")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_cfg["run_control"]["start_step"] = 0
+    post_cfg["run_control"]["end_step"] = 15000
+    post_cfg["run_control"]["step_interval"] = 500
+    post_path = tmp_path / "post_live_gap_at_start.yml"
+    post_path.write_text(yaml.safe_dump(post_cfg, sort_keys=False), encoding="utf-8")
+
+    create_post_source_steps(run_dir, monitor_cfg, range(1000, 15001, 500))
+
+    result = run_picurv(
+        [
+            "run",
+            "--post-process",
+            "--run-dir",
+            str(run_dir),
+            "--post",
+            str(post_path),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    stage = json.loads(result.stdout)["stages"]["post-process"]
+    diagnostic = stage["source_frontier_diagnostic"]
+    assert stage["skip_reason"] == "nothing-available-yet"
+    assert stage["source_frontier_step"] is None
+    assert diagnostic["first_requested_step"] == 0
+    assert diagnostic["first_incomplete_step"] == 0
+    assert diagnostic["closest_complete_step_to_start"] == 1000
+    assert diagnostic["closest_complete_step_to_end"] == 15000
+    assert "eulerian/ufield00000_0.dat" in diagnostic["missing_files_for_first_incomplete_step"]
+
+
 def test_dry_run_post_process_requires_all_requested_output_families_for_resume(tmp_path):
     """!
     @brief Test that mixed Eulerian/particle/statistics recipes resume from the first step missing any requested artifact family.
