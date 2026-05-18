@@ -1796,20 +1796,35 @@ def detect_post_completed_frontier(run_dir: str, post_cfg: dict, monitor_cfg, st
     }
 
 
-def detect_post_source_frontier(source_dir: str, monitor_cfg: dict, post_cfg: dict, start_step: int, end_step: int, step_interval: int):
+def _nearest_step(steps: set[int], target: int):
     """!
-    @brief Detect the highest contiguous fully available source step for live post-processing.
-    @param[in] source_dir Argument passed to `detect_post_source_frontier()`.
-    @param[in] monitor_cfg Argument passed to `detect_post_source_frontier()`.
-    @param[in] post_cfg Argument passed to `detect_post_source_frontier()`.
-    @param[in] start_step Argument passed to `detect_post_source_frontier()`.
-    @param[in] end_step Argument passed to `detect_post_source_frontier()`.
-    @param[in] step_interval Argument passed to `detect_post_source_frontier()`.
-    @return Value returned by `detect_post_source_frontier()`.
+    @brief Return the complete source step nearest to a target step.
+    @param[in] steps Candidate step numbers.
+    @param[in] target Target step number.
+    @return Nearest candidate, or None when no candidates exist.
     """
-    if step_interval <= 0 or end_step < start_step or not os.path.isdir(source_dir):
+    if not steps:
         return None
+    return min(steps, key=lambda step: (abs(step - target), step))
 
+
+def _format_optional_step(step) -> str:
+    """!
+    @brief Format an optional step number for user-facing diagnostics.
+    @param[in] step Step number or None.
+    @return Printable step text.
+    """
+    return 'none' if step is None else str(step)
+
+
+def _scan_complete_source_steps(source_dir: str, monitor_cfg: dict, post_cfg: dict) -> tuple[set[int], dict]:
+    """!
+    @brief Scan source artifacts and return steps with every file required by the recipe.
+    @param[in] source_dir Source output root directory.
+    @param[in] monitor_cfg Parsed monitor configuration.
+    @param[in] post_cfg Parsed post-processing configuration.
+    @return Tuple of complete source steps and source path metadata.
+    """
     dirs = (monitor_cfg.get('io', {}) or {}).get('directories', {}) or {}
     euler_subdir = dirs.get('eulerian_subdir', 'eulerian')
     particle_subdir = dirs.get('particle_subdir', 'particles')
@@ -1820,20 +1835,95 @@ def detect_post_source_frontier(source_dir: str, monitor_cfg: dict, post_cfg: di
     euler_ext = str((input_extensions.get('eulerian') or 'dat')).strip().lstrip('.')
     particle_ext = str((input_extensions.get('particle') or 'dat')).strip().lstrip('.')
 
+    families = []
+    for basename in POST_REQUIRED_EULERIAN_SOURCE_BASENAMES:
+        steps = set()
+        if os.path.isdir(euler_dir):
+            pattern = re.compile(rf'^{re.escape(basename)}(\d{{5}})_0\.{re.escape(euler_ext)}$')
+            for name in os.listdir(euler_dir):
+                match = pattern.match(name)
+                if match:
+                    steps.add(int(match.group(1)))
+        families.append(steps)
+
+    if _post_needs_particle_source(post_cfg):
+        steps = set()
+        if os.path.isdir(particle_dir):
+            pattern = re.compile(rf'^position(\d{{5}})_0\.{re.escape(particle_ext)}$')
+            for name in os.listdir(particle_dir):
+                match = pattern.match(name)
+                if match:
+                    steps.add(int(match.group(1)))
+        families.append(steps)
+
+    complete_steps = set.intersection(*families) if families else set()
+    return complete_steps, {
+        'euler_dir': euler_dir,
+        'particle_dir': particle_dir,
+        'euler_ext': euler_ext,
+        'particle_ext': particle_ext,
+    }
+
+
+def _expected_source_paths_for_step(step: int, source_scan: dict, post_cfg: dict) -> list[str]:
+    """!
+    @brief Build required source file paths for a single post-processing step.
+    @param[in] step Requested step number.
+    @param[in] source_scan Metadata returned by `_scan_complete_source_steps()`.
+    @param[in] post_cfg Parsed post-processing configuration.
+    @return Required source artifact paths.
+    """
+    paths = [
+        os.path.join(source_scan['euler_dir'], f'{basename}{step:05d}_0.{source_scan["euler_ext"]}')
+        for basename in POST_REQUIRED_EULERIAN_SOURCE_BASENAMES
+    ]
+    if _post_needs_particle_source(post_cfg):
+        paths.append(os.path.join(source_scan['particle_dir'], f'position{step:05d}_0.{source_scan["particle_ext"]}'))
+    return paths
+
+
+def detect_post_source_frontier(source_dir: str, monitor_cfg: dict, post_cfg: dict, start_step: int, end_step: int, step_interval: int) -> dict:
+    """!
+    @brief Detect the highest contiguous fully available source step for live post-processing.
+    @param[in] source_dir Argument passed to `detect_post_source_frontier()`.
+    @param[in] monitor_cfg Argument passed to `detect_post_source_frontier()`.
+    @param[in] post_cfg Argument passed to `detect_post_source_frontier()`.
+    @param[in] start_step Argument passed to `detect_post_source_frontier()`.
+    @param[in] end_step Argument passed to `detect_post_source_frontier()`.
+    @param[in] step_interval Argument passed to `detect_post_source_frontier()`.
+    @return Value returned by `detect_post_source_frontier()`.
+    """
+    diagnostic = {
+        'first_requested_step': start_step,
+        'first_incomplete_step': None,
+        'missing_files_for_first_incomplete_step': [],
+        'closest_complete_step_to_start': None,
+        'closest_complete_step_to_end': None,
+    }
+    if step_interval <= 0 or end_step < start_step or not os.path.isdir(source_dir):
+        return {
+            'frontier_step': None,
+            'diagnostic': diagnostic,
+        }
+
+    complete_steps, source_scan = _scan_complete_source_steps(source_dir, monitor_cfg, post_cfg)
+    diagnostic['closest_complete_step_to_start'] = _nearest_step(complete_steps, start_step)
+    diagnostic['closest_complete_step_to_end'] = _nearest_step(complete_steps, end_step)
+
     frontier = None
     for step in _iter_post_steps(start_step, end_step, step_interval):
-        expected_eulerian = [
-            os.path.join(euler_dir, f'{basename}{step:05d}_0.{euler_ext}')
-            for basename in POST_REQUIRED_EULERIAN_SOURCE_BASENAMES
-        ]
-        if not all(os.path.isfile(path) for path in expected_eulerian):
+        expected_paths = _expected_source_paths_for_step(step, source_scan, post_cfg)
+        if not all(os.path.isfile(path) for path in expected_paths):
+            diagnostic['first_incomplete_step'] = step
+            diagnostic['missing_files_for_first_incomplete_step'] = [
+                os.path.relpath(path, source_dir) for path in expected_paths if not os.path.isfile(path)
+            ]
             break
-        if _post_needs_particle_source(post_cfg):
-            position_path = os.path.join(particle_dir, f'position{step:05d}_0.{particle_ext}')
-            if not os.path.isfile(position_path):
-                break
         frontier = step
-    return frontier
+    return {
+        'frontier_step': frontier,
+        'diagnostic': diagnostic,
+    }
 
 
 def persist_post_resume_state(run_dir: str, plan: dict, last_successful_requested_end_step=None):
@@ -2049,13 +2139,14 @@ def build_post_execution_plan(
         effective_start_step = requested_start_step
 
     source_frontier_step = None
+    source_frontier_diagnostic = None
     source_frontier_deferred = not allow_source_frontier_scan
     skip_reason = None
     if effective_start_step > requested_end_step:
         skip_reason = 'already-complete-window'
         effective_end_step = requested_end_step
     elif allow_source_frontier_scan:
-        source_frontier_step = detect_post_source_frontier(
+        source_frontier_info = detect_post_source_frontier(
             resolved_source_dir,
             monitor_cfg,
             resolved_post_cfg,
@@ -2063,6 +2154,8 @@ def build_post_execution_plan(
             requested_end_step,
             step_interval,
         )
+        source_frontier_step = source_frontier_info['frontier_step']
+        source_frontier_diagnostic = source_frontier_info['diagnostic']
         if source_frontier_step is None or source_frontier_step < effective_start_step:
             if continue_requested and resume_recipe_match and completed_frontier_step is not None:
                 skip_reason = 'already-caught-up-to-current-source-frontier'
@@ -2100,6 +2193,7 @@ def build_post_execution_plan(
         'resume_bootstrapped': resume_bootstrapped,
         'completed_frontier_step': completed_frontier_step,
         'source_frontier_step': source_frontier_step,
+        'source_frontier_diagnostic': source_frontier_diagnostic,
         'source_frontier_deferred': source_frontier_deferred,
         'effective_start_step': effective_start_step,
         'effective_end_step': effective_end_step,
@@ -7363,6 +7457,7 @@ def build_run_dry_plan(args) -> dict:
             "resume_match_source": post_plan["resume_match_source"],
             "completed_frontier_step": post_plan["completed_frontier_step"],
             "source_frontier_step": post_plan["source_frontier_step"],
+            "source_frontier_diagnostic": post_plan["source_frontier_diagnostic"],
             "source_frontier_deferred": post_plan["source_frontier_deferred"],
             "effective_start_step": post_plan["effective_start_step"],
             "effective_end_step": post_plan["effective_end_step"],
@@ -7924,8 +8019,33 @@ def run_workflow(args):
             persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['requested_end_step'])
         elif post_plan['skip_reason'] == 'already-caught-up-to-current-source-frontier':
             print("[INFO] Post outputs are already caught up to the current fully available source frontier; nothing new to launch right now.")
+            diagnostic = post_plan.get('source_frontier_diagnostic') or {}
+            first_incomplete = diagnostic.get('first_incomplete_step')
+            if first_incomplete is not None:
+                print(f"[INFO] First incomplete requested source step: {first_incomplete}")
+                print(
+                    "[INFO] Closest complete source steps: "
+                    f"near start={_format_optional_step(diagnostic.get('closest_complete_step_to_start'))}, "
+                    f"near end={_format_optional_step(diagnostic.get('closest_complete_step_to_end'))}"
+                )
         elif post_plan['skip_reason'] == 'nothing-available-yet':
-            print("[INFO] No fully available source steps exist yet in the requested window; skipping postprocessor launch for now.")
+            diagnostic = post_plan.get('source_frontier_diagnostic') or {}
+            first_incomplete = diagnostic.get('first_incomplete_step')
+            if first_incomplete is not None:
+                print(
+                    f"[INFO] First requested source step {first_incomplete} is incomplete; "
+                    "skipping postprocessor launch for now."
+                )
+                print(
+                    "[INFO] Closest complete source steps: "
+                    f"near start={_format_optional_step(diagnostic.get('closest_complete_step_to_start'))}, "
+                    f"near end={_format_optional_step(diagnostic.get('closest_complete_step_to_end'))}"
+                )
+                missing_files = diagnostic.get('missing_files_for_first_incomplete_step') or []
+                if missing_files:
+                    print(f"[INFO] Missing files for step {first_incomplete}: {', '.join(missing_files[:4])}")
+            else:
+                print("[INFO] No fully available source steps exist yet in the requested window; skipping postprocessor launch for now.")
         else:
             print(
                 f"[INFO] Effective post window: {post_plan['effective_start_step']}..{post_plan['effective_end_step']} "
