@@ -156,7 +156,45 @@ For `--continue` solve runs, an existing `config/grid.run` is reused when presen
 so the generator is not called again. Post-only runs read the existing control
 file and do not regenerate grids.
 
-@subsection p48_file_legacy_ssec 6.1 Legacy File Conversion Through `case.yml`
+@subsection p48_promote_generated_ssec 6.1 Promoting a Generated Grid to File Mode
+
+Use `grid_gen` when you want PICurv to run `grid.gen` as part of staging a case.
+Use `file` mode for later runs when you want to reuse a generated `.picgrid`
+without invoking the generator again.
+
+A practical workflow is:
+
+1. stage the original case with `grid.mode: grid_gen` and `--no-submit`,
+2. inspect the generated PICGRID artifact under the run config directory,
+3. copy or reference that `.picgrid` from a later case,
+4. switch the later case to `grid.mode: file`.
+
+By default the generated artifact is:
+
+```text
+runs/<run_id>/config/grid.generated.picgrid
+```
+
+The solver does not ingest that dimensional file directly. PICurv validates and
+non-dimensionalizes it into:
+
+```text
+runs/<run_id>/config/grid.run
+```
+
+and the generated solver control file points the C runtime at `config/grid.run`.
+When reusing the generated mesh in another case, point `grid.source_file` at the
+`.picgrid` artifact, not at `grid.run`.
+
+Example follow-up case:
+
+```yaml
+grid:
+  mode: file
+  source_file: ../runs/<run_id>/config/grid.generated.picgrid
+```
+
+@subsection p48_file_legacy_ssec 6.2 Legacy File Conversion Through `case.yml`
 
 For `grid.mode: file`, `picurv` can call `grid.gen legacy1d` before normal grid staging:
 
