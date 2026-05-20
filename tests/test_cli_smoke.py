@@ -1020,6 +1020,146 @@ def test_dry_run_json_output_schema():
     assert payload["stages"]["post-process"]["num_procs_effective"] == 1
 
 
+def test_dry_run_grid_gen_lists_planned_grid_artifacts(tmp_path):
+    """!
+    @brief Test that grid_gen dry-run previews generated and staged grid artifacts.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    (tmp_path / "grid.cfg").write_text("grid_type = warp\n", encoding="utf-8")
+    case_cfg["grid"] = {
+        "mode": "grid_gen",
+        "generator": {
+            "config_file": "grid.cfg",
+            "grid_type": "warp",
+            "stats_file": "config/grid.generated.info",
+            "vts_file": "config/grid.generated.vts",
+        },
+    }
+    case_path = tmp_path / "case_grid_gen.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    run_dir = Path(payload["run_dir_preview"])
+    artifacts = {Path(path) for path in payload["artifacts"]}
+
+    assert run_dir / "config" / "grid.run" in artifacts
+    assert run_dir / "config" / "grid.generated.picgrid" in artifacts
+    assert run_dir / "config" / "grid.generated.info" in artifacts
+    assert run_dir / "config" / "grid.generated.vts" in artifacts
+    assert not run_dir.exists()
+
+
+def test_local_no_submit_solve_stages_grid_gen_without_executing(tmp_path):
+    """!
+    @brief Test that local --no-submit stages grid_gen solver artifacts without launching.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["grid"] = {
+        "mode": "grid_gen",
+        "generator": {
+            "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
+            "grid_type": "cpipe",
+            "cli_args": ["--ncells-i", "2", "--ncells-j", "2", "--ncells-k", "4", "--no-show-stats", "--no-write-vtk"],
+        },
+    }
+    case_path = tmp_path / "case_grid_gen.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--no-submit",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    run_dirs = sorted((tmp_path / "runs").glob("case_grid_gen_*"))
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
+    assert (run_dir / "config" / "grid.generated.picgrid").is_file()
+    assert (run_dir / "config" / "grid.run").is_file()
+    assert next((run_dir / "config").glob("*.control")).is_file()
+    assert not list((run_dir / "scheduler").glob("*solver.log"))
+
+    submission = json.loads((run_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
+    solve_meta = submission["stages"]["solve"]
+    assert submission["launch_mode"] == "local"
+    assert submission["no_submit"] is True
+    assert solve_meta["submitted"] is False
+    assert "command" in solve_meta
+    assert solve_meta["log_file"].endswith("_solver.log")
+
+
+def test_local_no_submit_solve_post_stages_post_with_deferred_sources(tmp_path):
+    """!
+    @brief Test that local solve+post --no-submit stages post and defers source scanning.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--post-process",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--post",
+            str(valid / "post.yml"),
+            "--no-submit",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    run_dirs = sorted((tmp_path / "runs").glob("case_*"))
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
+    assert (run_dir / "config" / "post.run").is_file()
+    assert (run_dir / "scheduler" / "post_lock_wrapper.py").is_file()
+
+    submission = json.loads((run_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
+    assert submission["launch_mode"] == "local"
+    assert submission["stages"]["solve"]["submitted"] is False
+    post_meta = submission["stages"]["post-process"]
+    assert post_meta["submitted"] is False
+    assert post_meta["source_frontier_deferred"] is True
+    assert "command" in post_meta
+
+
 def test_dry_run_post_process_continue_bootstraps_same_recipe_tail(tmp_path):
     """!
     @brief Test that post --continue bootstraps from legacy post.run and resumes at the first unfinished step.
@@ -2124,6 +2264,71 @@ def test_generate_solver_control_file_applies_top_level_da_processors_for_grid_g
     assert "-da_processors_x 1" in content
     assert "-da_processors_y 2" in content
     assert "-da_processors_z 2" in content
+
+
+def test_generate_solver_control_file_reuses_grid_gen_grid_on_continue(tmp_path, monkeypatch):
+    """!
+    @brief Test that grid_gen continue mode reuses an existing staged grid.run.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] monkeypatch Pytest monkeypatch fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    case_cfg["grid"] = {
+        "mode": "grid_gen",
+        "generator": {
+            "config_file": str(tmp_path / "missing_grid.cfg"),
+            "grid_type": "warp",
+        },
+    }
+    case_path = tmp_path / "case_grid_gen_continue.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    run_dir = tmp_path / "run_grid_gen_continue"
+    config_dir = run_dir / "config"
+    config_dir.mkdir(parents=True)
+    staged_grid = config_dir / "grid.run"
+    staged_grid.write_text("PICGRID\n1\n2 2 2\n", encoding="utf-8")
+
+    def fail_grid_generator(*args, **kwargs):
+        """!
+        @brief Fail if the grid generator is invoked during continue reuse.
+        @param[in] args Positional arguments supplied by the caller.
+        @param[in] kwargs Keyword arguments supplied by the caller.
+        """
+        raise AssertionError("grid.gen should not run when continuing with staged grid.run")
+
+    monkeypatch.setattr(picurv, "run_grid_generator", fail_grid_generator)
+
+    source_files = {
+        "Case": str(case_path),
+        "Solver": str(valid / "solver.yml"),
+        "Monitor": str(valid / "monitor.yml"),
+    }
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo_run",
+        {
+            "case": case_cfg,
+            "case_path": str(case_path),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        1,
+        monitor_files,
+        continue_mode=True,
+    )
+
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert f"-grid_file {staged_grid}" in content
+    assert "-continue_mode true" in content
 
 
 def test_generate_solver_control_file_preserves_legacy_programmatic_da_processors(tmp_path):
@@ -4067,6 +4272,120 @@ def test_submit_run_dir_dry_run_prints_planned_sbatch_calls(tmp_path):
     assert "--dependency=afterok:<new solve job id>" in result.stdout
 
 
+def test_submit_local_run_dir_dry_run_prints_planned_commands(tmp_path):
+    """!
+    @brief Test that local submit dry-run prints staged local commands.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        launch_mode="local",
+        solve_meta={"command": ["python3", "-c", "print('solve')"], "log_file": "scheduler/solve.log"},
+        post_meta={"command": ["python3", "-c", "print('post')"], "log_file": "scheduler/post.log"},
+    )
+
+    result = run_picurv(["submit", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "python3 -c" in result.stdout
+    assert "solve" in result.stdout
+    assert "post" in result.stdout
+    assert "No local commands were executed" in result.stdout
+
+
+def test_submit_local_run_stage_solve_executes_staged_command(tmp_path):
+    """!
+    @brief Test that local submit executes a staged solve command and updates metadata.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        launch_mode="local",
+        solve_meta={"command": ["fake-solver", "-control_file", "config/demo.control"], "log_file": "scheduler/solve.log"},
+        post_meta=False,
+    )
+    calls = []
+
+    def fake_execute_command(command, run_dir_arg, log_filename, monitor_cfg=None):
+        """!
+        @brief Record local staged execution without launching.
+        @param[in] command Argument passed to `fake_execute_command()`.
+        @param[in] run_dir_arg Argument passed to `fake_execute_command()`.
+        @param[in] log_filename Argument passed to `fake_execute_command()`.
+        @param[in] monitor_cfg Argument passed to `fake_execute_command()`.
+        """
+        calls.append(
+            {
+                "command": command,
+                "run_dir": run_dir_arg,
+                "log_filename": log_filename,
+                "monitor_cfg": monitor_cfg,
+            }
+        )
+
+    original_execute = picurv.execute_command
+    picurv.execute_command = fake_execute_command
+    try:
+        picurv.submit_staged_jobs(
+            SimpleNamespace(run_dir=str(run_dir), study_dir=None, stage="solve", force=False, dry_run=False)
+        )
+    finally:
+        picurv.execute_command = original_execute
+
+    assert calls == [
+        {
+            "command": ["fake-solver", "-control_file", "config/demo.control"],
+            "run_dir": str(run_dir),
+            "log_filename": "scheduler/solve.log",
+            "monitor_cfg": None,
+        }
+    ]
+    submission = json.loads((run_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
+    assert submission["stages"]["solve"]["submitted"] is True
+    assert submission["stages"]["solve"]["executed"] is True
+
+
+def test_submit_local_run_stage_all_executes_solve_then_post(tmp_path):
+    """!
+    @brief Test that local submit all executes solve then post in order.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        launch_mode="local",
+        solve_meta={"command": ["fake-solver"], "log_file": "scheduler/solve.log"},
+        post_meta={"command": ["fake-post"], "log_file": "scheduler/post.log"},
+    )
+    calls = []
+
+    def fake_execute_command(command, run_dir_arg, log_filename, monitor_cfg=None):
+        """!
+        @brief Record local staged execution without launching.
+        @param[in] command Argument passed to `fake_execute_command()`.
+        @param[in] run_dir_arg Argument passed to `fake_execute_command()`.
+        @param[in] log_filename Argument passed to `fake_execute_command()`.
+        @param[in] monitor_cfg Argument passed to `fake_execute_command()`.
+        """
+        calls.append((command, log_filename))
+
+    original_execute = picurv.execute_command
+    picurv.execute_command = fake_execute_command
+    try:
+        picurv.submit_staged_jobs(
+            SimpleNamespace(run_dir=str(run_dir), study_dir=None, stage="all", force=False, dry_run=False)
+        )
+    finally:
+        picurv.execute_command = original_execute
+
+    assert calls == [(["fake-solver"], "scheduler/solve.log"), (["fake-post"], "scheduler/post.log")]
+    submission = json.loads((run_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
+    assert submission["stages"]["solve"]["submitted"] is True
+    assert submission["stages"]["post-process"]["submitted"] is True
+    assert submission["stages"]["post-process"]["executed"] is True
+
+
 def test_submit_run_stage_solve_only_updates_submission_metadata(tmp_path):
     """!
     @brief Test that submit can launch only the staged solve job.
@@ -4279,15 +4598,15 @@ def test_submit_study_dir_updates_submission_and_manifest(tmp_path):
     assert manifest["submission"]["post_array"]["job_id"] == "802"
 
 
-def test_submit_rejects_non_slurm_or_malformed_submission_metadata(tmp_path):
+def test_submit_rejects_malformed_local_or_missing_submission_metadata(tmp_path):
     """!
-    @brief Test that submit fails cleanly for local or missing submission metadata.
+    @brief Test that submit fails cleanly for malformed local or missing submission metadata.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     local_run_dir = create_staged_run_dir(tmp_path, name="local_run", launch_mode="local")
     local_result = run_picurv(["submit", "--run-dir", str(local_run_dir), "--dry-run"], cwd=tmp_path)
     assert local_result.returncode == 1
-    assert "is not Slurm" in local_result.stderr
+    assert "scheduler.solve.command" in local_result.stderr
 
     malformed_run_dir = tmp_path / "runs" / "missing_meta"
     (malformed_run_dir / "scheduler").mkdir(parents=True)

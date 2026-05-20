@@ -208,10 +208,10 @@ MPI/local options:
   - post-processing is forced to one rank/task. PICurv strips conflicting MPI size flags from post launches and rewrites them to rank `1`.
   - local multi-rank runs resolve launcher overrides in this order: `PICURV_MPI_LAUNCHER`, `MPI_LAUNCHER`, nearest `.picurv-execution.yml`, nearest legacy `.picurv-local.yml`, then default `mpiexec`.
 
-Cluster/Slurm options:
+Staging/execution options:
 - `--cluster <cluster.yml>`
 - `--scheduler slurm` (optional explicit selector)
-- `--no-submit` (generate scripts/manifests only)
+- `--no-submit` (stage run artifacts without starting the local or Slurm backend)
 
 Preflight options:
 - `--dry-run` (resolve and print launch/artifact plan only, including PETSc diagnostic flags and log paths)
@@ -237,18 +237,18 @@ Slurm example (generate + submit):
   --cluster my_case/cluster.yml
 ```
 
-Slurm example (generate only):
+Stage artifacts without starting execution:
 ```bash
 ./bin/picurv run --solve --post-process \
   --case my_case/case.yml \
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
   --post my_case/post.yml \
-  --cluster my_case/cluster.yml \
   --no-submit
 ```
+Add `--cluster my_case/cluster.yml` to stage Slurm scripts instead of local commands.
 
-Follow-up submission from existing artifacts:
+Follow-up execution/submission from existing artifacts:
 ```bash
 ./bin/picurv submit --run-dir runs/<run_id>
 ```
@@ -336,11 +336,11 @@ Common `run` use cases:
 - first full local run: `--solve --post-process`
 - solver-only run: `--solve`
 - post-only rerun on an existing run directory: `--post-process --run-dir ...`
-- cluster script generation without submit: `--cluster ... --no-submit`
+- staged local/cluster run without execution: `--no-submit`
 - delayed submission of an already-staged run: `submit --run-dir ...`
 - planning and CI-style checks: `--dry-run`
 
-@section p05_submit_sec 5b. submit: Submit Existing Slurm Artifacts
+@section p05_submit_sec 5b. submit: Execute Existing Staged Artifacts
 
 ```bash
 ./bin/picurv submit [--run-dir <run_dir> | --study-dir <study_dir>] \
@@ -350,9 +350,10 @@ Common `run` use cases:
 Behavior:
 
 - consumes existing `--no-submit` artifacts without regenerating configs or scripts,
-- reads `scheduler/submission.json` to locate the staged Slurm scripts,
-- submits `solve`, `post-process`, or both,
-- wires the post stage dependency automatically when `all` is selected,
+- reads `scheduler/submission.json` to locate staged Slurm scripts or local command tokens,
+- executes/submits `solve`, `post-process`, or both,
+- wires the post stage dependency automatically for Slurm when `all` is selected,
+- executes local staged stages in order when `launch_mode: local`,
 - refuses re-submission unless `--force` is explicitly provided.
 
 Examples:
@@ -365,8 +366,9 @@ Examples:
 
 Notes:
 
-- works only for Slurm-staged artifacts,
-- `--dry-run` prints the exact `sbatch` plan,
+- `--run-dir` supports local and Slurm staged runs,
+- `--study-dir` remains Slurm-only,
+- `--dry-run` prints the exact local command or `sbatch` plan,
 - `--force` is the opt-in path for deliberate resubmission.
 
 @section p05_cancel_sec 5c. cancel: Stop A Slurm Run By Run Directory
@@ -471,7 +473,7 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
   - `-n, --num-procs <int>` (solver stage only; post is forced to 1 rank/task)
   - `--cluster <cluster.yml>` (enables Slurm mode)
   - `--scheduler <name>` (must be used with `--cluster`; must match `cluster.yml:scheduler.type`)
-  - `--no-submit` (render scripts/manifests without `sbatch`)
+  - `--no-submit` (stage files and submission metadata without starting execution)
   - `--dry-run` (no file writes; plan only, including diagnostic artifacts)
   - `--format {text,json}` (dry-run output format)
 
@@ -581,6 +583,12 @@ Use `--strict` in CI/pre-submit checks when validating reusable profile librarie
 - `post_num_procs_effective`
 - `num_procs_effective` (currently mirrors solver count)
 
+For file-backed grid modes, `artifacts` includes the planned staged grid path
+(`config/grid.run`). For `grid.mode: grid_gen`, it also includes the generated
+PICGRID path (`config/grid.generated.picgrid` by default) plus any configured
+`stats_file` or `vts_file`. Dry-run still does not run `scripts/grid.gen` or
+write these files.
+
 Stage entries under `stages.solve` and `stages.post-process` include:
 
 - `mode` (`local` or `slurm`)
@@ -590,6 +598,7 @@ Stage entries under `stages.solve` and `stages.post-process` include:
 
 Additional stage fields:
 - `script` (Slurm script path in cluster mode)
+- `command` / `command_string` (local staged command tokens/display string)
 - `source_data_directory` (post stage source directory resolution)
 - `restart_source_directory` (solve stage, when restart source is resolved)
 

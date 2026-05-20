@@ -151,6 +151,10 @@ Behavior in `picurv`:
 4. stage the runtime `grid.run` artifact for C-side ingestion.
 
 This means `grid_gen` remains a Python-side preprocessing workflow even though the final solver still receives a normalized file grid.
+Fresh solve runs and `--restart-from` runs stage a grid in the target run directory.
+For `--continue` solve runs, an existing `config/grid.run` is reused when present
+so the generator is not called again. Post-only runs read the existing control
+file and do not regenerate grids.
 
 @subsection p48_file_legacy_ssec 6.1 Legacy File Conversion Through `case.yml`
 

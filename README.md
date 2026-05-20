@@ -14,7 +14,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `logs/scatter_metrics.csv`
 - YAML-driven orchestration through the conductor (`scripts/picurv`, symlinked to `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
-- Staged Slurm workflows with `--no-submit`, delayed `submit`, and run-directory-based `cancel`
+- Staged local/Slurm run workflows with `--no-submit`, delayed `submit`, and Slurm run-directory-based `cancel`
 - Graceful final snapshot writes on early shutdown signals (`SIGUSR1`, `SIGTERM`, `SIGINT`) at safe checkpoints
 - Parameter sweep orchestration with Slurm arrays (`study.yml`), including cross-product `parameters` sweeps and explicit coupled `parameter_sets`
 - Solver and postprocessor executables from one build system
@@ -169,17 +169,21 @@ Run on a cluster (Slurm):
   --cluster my_case/slurm_cluster.yml
 ```
 
-Stage scripts first, then submit later from the generated run directory:
+Stage run artifacts first, then execute/submit later from the generated run directory:
 ```bash
 ./bin/picurv run --solve --post-process \
   --case my_case/flat_channel.yml \
   --solver my_case/Imp-MG-Standard.yml \
   --monitor my_case/Standard_Output.yml \
   --post my_case/standard_analysis.yml \
-  --cluster my_case/slurm_cluster.yml \
   --no-submit
 
 ./bin/picurv submit --run-dir runs/<run_id>
+```
+
+Add `--cluster my_case/slurm_cluster.yml` to the staged run command to generate Slurm scripts instead of local command metadata. Slurm-staged runs can also be cancelled from their recorded job ids:
+
+```bash
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve --graceful
 ./bin/picurv summarize --run-dir runs/<run_id> --latest

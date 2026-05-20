@@ -6118,20 +6118,24 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     elif grid_mode == 'grid_gen':
         print("[INFO] Grid Mode: Generating external grid via grid.gen...")
         nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
-        try:
-            # grid.gen already converts ncells_* inputs into node-count PICGRID dims.
-            generated_grid = run_grid_generator(configs['case_path'], run_dir, grid_cfg)
-            summary = validate_and_nondimensionalize_picgrid(
-                generated_grid, nondim_grid_path, L_ref, expected_nblk=expected_nblk
-            )
-            print(
-                f"[SUCCESS] grid.gen output validated and non-dimensionalized: {os.path.relpath(nondim_grid_path)} "
-                f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
-            )
+        if continue_mode and os.path.isfile(nondim_grid_path):
+            print(f"[INFO] Continue mode: reusing staged grid: {os.path.relpath(nondim_grid_path)}")
             control_lines.append(f"-grid_file {nondim_grid_path}")
-        except Exception as e:
-            print(f"[FATAL] Grid generation failed: {e}", file=sys.stderr)
-            sys.exit(1)
+        else:
+            try:
+                # grid.gen already converts ncells_* inputs into node-count PICGRID dims.
+                generated_grid = run_grid_generator(configs['case_path'], run_dir, grid_cfg)
+                summary = validate_and_nondimensionalize_picgrid(
+                    generated_grid, nondim_grid_path, L_ref, expected_nblk=expected_nblk
+                )
+                print(
+                    f"[SUCCESS] grid.gen output validated and non-dimensionalized: {os.path.relpath(nondim_grid_path)} "
+                    f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
+                )
+                control_lines.append(f"-grid_file {nondim_grid_path}")
+            except Exception as e:
+                print(f"[FATAL] Grid generation failed: {e}", file=sys.stderr)
+                sys.exit(1)
     elif grid_mode == 'programmatic_c':
         print("[INFO] Grid Mode: Programmatic C...")
         grid_settings = translate_programmatic_grid_settings(grid_cfg.get('programmatic_settings', {}))
@@ -7310,6 +7314,7 @@ def build_run_dry_plan(args) -> dict:
                 os.path.join(run_dir, "manifest.json"),
             ]
         )
+        add_planned_grid_artifacts(plan, loaded_case_cfg, run_dir)
         if has_explicit_monitor_whitelist(loaded_monitor_cfg):
             plan["artifacts"].append(os.path.join(config_dir, "whitelist.run"))
         if profiling_preview["mode"] == "selected":
@@ -7543,6 +7548,46 @@ def build_run_dry_plan(args) -> dict:
     return plan
 
 
+def add_planned_grid_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None:
+    """!
+    @brief Add grid-mode-specific staged artifacts to a dry-run plan.
+    @param[in,out] plan Dry-run plan to update.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] run_dir Preview run directory for relative artifact resolution.
+    """
+    grid_cfg = case_cfg.get("grid", {})
+    if not isinstance(grid_cfg, dict):
+        return
+
+    mode = grid_cfg.get("mode")
+    config_dir = os.path.join(run_dir, "config")
+
+    if mode == "file":
+        plan["artifacts"].append(os.path.join(config_dir, "grid.run"))
+        legacy_cfg = grid_cfg.get("legacy_conversion")
+        if isinstance(legacy_cfg, dict) and legacy_cfg.get("enabled", True):
+            output_file = legacy_cfg.get("output_file", os.path.join("config", "grid.converted.picgrid"))
+            if isinstance(output_file, str) and output_file.strip():
+                if not os.path.isabs(output_file):
+                    output_file = os.path.abspath(os.path.join(run_dir, output_file))
+                plan["artifacts"].append(output_file)
+    elif mode == "grid_gen":
+        generator = grid_cfg.get("generator", {})
+        if not isinstance(generator, dict):
+            return
+        plan["artifacts"].append(os.path.join(config_dir, "grid.run"))
+        for key, default in (
+            ("output_file", os.path.join("config", "grid.generated.picgrid")),
+            ("stats_file", None),
+            ("vts_file", None),
+        ):
+            artifact_path = generator.get(key, default)
+            if isinstance(artifact_path, str) and artifact_path.strip():
+                if not os.path.isabs(artifact_path):
+                    artifact_path = os.path.abspath(os.path.join(run_dir, artifact_path))
+                plan["artifacts"].append(artifact_path)
+
+
 def render_run_dry_plan(plan: dict, output_format: str = "text"):
     """!
     @brief Render dry-run plan in human or JSON format.
@@ -7756,7 +7801,7 @@ def run_workflow(args):
     workflow_start = time.time()
     stages_completed = []
     configs = None
-    submission_meta = {"launch_mode": "local", "stages": {}}
+    submission_meta = {"launch_mode": "local", "no_submit": bool(args.no_submit), "stages": {}}
 
     cluster_mode = bool(getattr(args, "cluster", None))
     cluster_cfg = None
@@ -7938,7 +7983,21 @@ def run_workflow(args):
                 solver_num_procs_effective,
                 config_search_anchor=configs["case_path"],
             )
-            execute_command(command, run_dir, os.path.join("scheduler", f"{run_id}_solver.log"), configs['monitor'])
+            solver_log = os.path.join("scheduler", f"{run_id}_solver.log")
+            submission_meta["stages"]["solve"] = {
+                "command": command,
+                "command_string": format_command_for_display(command),
+                "log_file": solver_log,
+                "submitted": False,
+                "num_procs_effective": solver_num_procs_effective,
+            }
+            if args.no_submit:
+                print(f"[SUCCESS] Staged local solver command: {solver_log}")
+            else:
+                execute_command(command, run_dir, solver_log, configs['monitor'])
+                submission_meta["stages"]["solve"]["submitted"] = True
+                submission_meta["stages"]["solve"]["executed"] = True
+                submission_meta["stages"]["solve"]["completed_at"] = datetime.now().isoformat()
             stages_completed.append('solve')
 
     # --- Stage 2: Post-Processing (if requested) ---
@@ -7979,7 +8038,8 @@ def run_workflow(args):
         validate_post_config(post_cfg, args.post)
         print("[SUCCESS] Post-processing configuration passed validation.\n")
 
-        allow_source_frontier_scan = not (cluster_mode and args.solve)
+        solver_sources_deferred = bool(args.solve and (cluster_mode or args.no_submit))
+        allow_source_frontier_scan = not solver_sources_deferred
         post_plan = build_post_execution_plan(
             run_dir,
             run_id,
@@ -8151,8 +8211,31 @@ def run_workflow(args):
                     raw_command,
                     create_wrapper=True,
                 )
-                execute_command(command, run_dir, os.path.join("scheduler", f"{run_id}_{output_prefix}.log"), monitor_cfg)
-                persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['effective_end_step'])
+                post_log = os.path.join("scheduler", f"{run_id}_{output_prefix}.log")
+                submission_meta["stages"]["post-process"] = {
+                    "command": command,
+                    "command_string": format_command_for_display(command),
+                    "log_file": post_log,
+                    "submitted": False,
+                    "num_procs_effective": post_num_procs_effective,
+                    "resume_recipe_match": post_plan['resume_recipe_match'],
+                    "resume_bootstrapped": post_plan['resume_bootstrapped'],
+                    "resume_match_source": post_plan['resume_match_source'],
+                    "effective_start_step": post_plan['effective_start_step'],
+                    "effective_end_step": post_plan['effective_end_step'],
+                    "completed_frontier_step": post_plan['completed_frontier_step'],
+                    "source_frontier_step": post_plan['source_frontier_step'],
+                    "source_frontier_deferred": post_plan['source_frontier_deferred'],
+                    "recipe_fingerprint": post_plan['recipe_fingerprint'],
+                }
+                if args.no_submit:
+                    print(f"[SUCCESS] Staged local post command: {post_log}")
+                else:
+                    execute_command(command, run_dir, post_log, monitor_cfg)
+                    persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['effective_end_step'])
+                    submission_meta["stages"]["post-process"]["submitted"] = True
+                    submission_meta["stages"]["post-process"]["executed"] = True
+                    submission_meta["stages"]["post-process"]["completed_at"] = datetime.now().isoformat()
                 stages_completed.append('post-process')
 
     if run_dir:
@@ -8176,6 +8259,7 @@ def run_workflow(args):
             manifest["inputs"]["post"] = os.path.abspath(args.post)
         if cluster_mode:
             manifest["inputs"]["cluster"] = cluster_path
+        if submission_meta.get("stages"):
             write_json_file(os.path.join(run_dir, "scheduler", "submission.json"), submission_meta)
         write_json_file(os.path.join(run_dir, "manifest.json"), manifest)
 
@@ -8212,7 +8296,7 @@ def run_workflow(args):
         for stats_path in statistics_output_paths:
             print(f"  Stats output   : {os.path.relpath(stats_path)}")
         print(f"  Logs           : {os.path.relpath(os.path.join(run_dir, 'logs'))}")
-        if cluster_mode:
+        if cluster_mode or submission_meta.get("stages"):
             submission_file = os.path.join(run_dir, "scheduler", "submission.json")
             print(f"  Submission meta: {os.path.relpath(submission_file)}")
         print("=" * 60)
@@ -10151,13 +10235,22 @@ def _resolve_submission_target(run_dir: str = None, study_dir: str = None) -> di
         sys.exit(1)
 
     launch_mode = str(submission_meta.get("launch_mode", "")).lower()
-    if launch_mode != "slurm":
+    if launch_mode == "local" and target_kind != "run":
         emit_structured_error(
             ERROR_CODE_CFG_INCONSISTENT_COMBO,
             key="scheduler.launch_mode",
             file_path=submission_path,
-            message=f"Target launch_mode={launch_mode or 'unknown'} is not Slurm.",
-            hint="picurv submit currently supports Slurm-staged artifacts only.",
+            message="Local staged submission is supported for run directories only.",
+            hint="Use --run-dir for local staged execution; study submit remains Slurm-only.",
+        )
+        sys.exit(1)
+    if launch_mode not in {"slurm", "local"}:
+        emit_structured_error(
+            ERROR_CODE_CFG_INCONSISTENT_COMBO,
+            key="scheduler.launch_mode",
+            file_path=submission_path,
+            message=f"Target launch_mode={launch_mode or 'unknown'} is not supported.",
+            hint="Use a staged run/study directory with launch_mode 'slurm' or a run directory with launch_mode 'local'.",
         )
         sys.exit(1)
 
@@ -10183,6 +10276,7 @@ def _resolve_submission_target(run_dir: str = None, study_dir: str = None) -> di
         "scheduler_dir": scheduler_dir,
         "submission_path": submission_path,
         "submission_meta": submission_meta,
+        "launch_mode": launch_mode,
         "script_map": script_map,
         "display_label": display_label,
         "manifest_path": manifest_path,
@@ -10260,6 +10354,10 @@ def submit_staged_jobs(args):
     print(f"[INFO] {target_context['display_label']:<20}: {os.path.relpath(target_context['root_dir'])}")
     print(f"[INFO] Submission metadata  : {os.path.relpath(target_context['submission_path'])}")
     print(f"[INFO] Requested stages    : {', '.join(selected_stages)}")
+
+    if target_context.get("launch_mode") == "local":
+        submit_staged_local_run(args, target_context, selected_stages)
+        return
 
     stage_plans = []
     solve_existing_meta = _get_submission_stage_metadata(target_context, "solve")
@@ -10347,6 +10445,100 @@ def submit_staged_jobs(args):
 
         if plan["stage"] == "solve":
             latest_solve_job_id = submit_info["job_id"]
+
+    _write_submission_target_metadata(target_context)
+
+
+def submit_staged_local_run(args, target_context: dict, selected_stages: list):
+    """!
+    @brief Execute previously staged local run commands from scheduler/submission.json.
+    @param[in] args Command-line style argument list supplied to the function.
+    @param[in] target_context Resolved submission target context.
+    @param[in] selected_stages Ordered stage names selected by the user.
+    """
+    if target_context["target_kind"] != "run":
+        emit_structured_error(
+            ERROR_CODE_CFG_INCONSISTENT_COMBO,
+            key="scheduler.launch_mode",
+            file_path=target_context["submission_path"],
+            message="Local staged execution is supported for run directories only.",
+            hint="Use --run-dir for local staged execution.",
+        )
+        sys.exit(1)
+
+    stage_plans = []
+    solve_existing_meta = _get_submission_stage_metadata(target_context, "solve")
+    solve_already_done = bool(solve_existing_meta.get("submitted") or solve_existing_meta.get("executed"))
+
+    for stage_name in selected_stages:
+        existing_meta = _get_submission_stage_metadata(target_context, stage_name)
+        command = existing_meta.get("command")
+        if not isinstance(command, list) or not command:
+            emit_structured_error(
+                ERROR_CODE_CFG_MISSING_KEY,
+                key=f"scheduler.{stage_name}.command",
+                file_path=target_context["submission_path"],
+                message=f"Required local command metadata for stage '{stage_name}' is missing.",
+                hint="Re-stage the run with picurv run --no-submit before calling picurv submit.",
+            )
+            sys.exit(1)
+
+        if existing_meta.get("submitted") and not args.force:
+            emit_structured_error(
+                ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                key=f"scheduler.{stage_name}.submitted",
+                file_path=target_context["submission_path"],
+                message=f"Stage '{stage_name}' is already recorded as submitted.",
+                hint="Use --force to execute this stage again intentionally.",
+            )
+            sys.exit(1)
+
+        if stage_name == "post-process" and "solve" not in selected_stages and not args.force and not solve_already_done:
+            emit_structured_error(
+                ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                key="scheduler.post-process.dependency",
+                file_path=target_context["submission_path"],
+                message="Post-process local execution requires a recorded completed solve stage when solve is not being executed in the same command.",
+                hint="Submit --stage solve or --stage all first, or use --force after confirming source data exists.",
+            )
+            sys.exit(1)
+
+        log_file = existing_meta.get("log_file")
+        if not isinstance(log_file, str) or not log_file.strip():
+            log_file = os.path.join("scheduler", f"{os.path.basename(target_context['root_dir'])}_{stage_name}.log")
+
+        stage_plans.append(
+            {
+                "stage": stage_name,
+                "command": [str(token) for token in command],
+                "log_file": log_file,
+                "existing_meta": existing_meta,
+            }
+        )
+
+    if args.dry_run:
+        for plan in stage_plans:
+            print(f"[DRY-RUN] Would run: {format_command_for_display(plan['command'])}")
+            print(f"[DRY-RUN] Log file : {plan['log_file']}")
+        print("[INFO] Dry-run only. No local commands were executed.")
+        return
+
+    monitor_cfg = None
+    monitor_path = os.path.join(target_context["root_dir"], "config", "monitor.yml")
+    if os.path.isfile(monitor_path):
+        monitor_cfg = read_yaml_file(monitor_path)
+
+    for plan in stage_plans:
+        execute_command(plan["command"], target_context["root_dir"], plan["log_file"], monitor_cfg)
+        stage_meta = copy.deepcopy(plan["existing_meta"])
+        stage_meta["command"] = plan["command"]
+        stage_meta["command_string"] = format_command_for_display(plan["command"])
+        stage_meta["log_file"] = plan["log_file"]
+        stage_meta["submitted"] = True
+        stage_meta["executed"] = True
+        stage_meta["completed_at"] = datetime.now().isoformat()
+        _set_submission_stage_metadata(target_context, plan["stage"], stage_meta)
+        print(f"[SUCCESS] Executed local {plan['stage']} stage.")
 
     _write_submission_target_metadata(target_context)
 
@@ -10794,7 +10986,7 @@ def _add_run_parser(subparsers):
     )
     p_run.add_argument("--cluster", help="Path to cluster.yml for Slurm execution mode.")
     p_run.add_argument("--scheduler", help="Explicit scheduler selector (currently 'slurm').")
-    p_run.add_argument("--no-submit", action="store_true", help="Generate Slurm scripts/manifests but do not call sbatch.")
+    p_run.add_argument("--no-submit", action="store_true", help="Stage run artifacts without starting local execution or Slurm submission.")
     p_run.add_argument(
         "--dry-run",
         action="store_true",
@@ -10985,11 +11177,11 @@ def _add_submit_parser(subparsers):
     """
     p_submit = subparsers.add_parser(
         "submit",
-        help="Submit previously staged Slurm artifacts from an existing run or study directory.",
+        help="Execute or submit previously staged artifacts from an existing run or study directory.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Consume an existing Slurm artifact set created by picurv --no-submit and\n"
-            "submit it later without regenerating configs or scripts.\n\n"
+            "Consume an existing artifact set created by picurv --no-submit and\n"
+            "execute/submit it later without regenerating configs or scripts.\n\n"
             "Examples:\n"
             "  picurv submit --run-dir runs/my_run\n"
             "  picurv submit --run-dir runs/my_run --stage solve\n"
@@ -10998,7 +11190,7 @@ def _add_submit_parser(subparsers):
         epilog="Next: use `picurv summarize --run-dir ...` or `picurv cancel --run-dir ...` after submission as needed.",
     )
     target_group = p_submit.add_mutually_exclusive_group(required=True)
-    target_group.add_argument("--run-dir", help="Path to a staged run directory created by `picurv run --cluster ... --no-submit`.")
+    target_group.add_argument("--run-dir", help="Path to a staged run directory created by `picurv run ... --no-submit`.")
     target_group.add_argument("--study-dir", help="Path to a staged study directory created by `picurv sweep --cluster ... --no-submit`.")
     p_submit.add_argument(
         "--stage",
@@ -11239,7 +11431,7 @@ def build_main_parser():
             "Examples:\n"
             "  picurv validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
-            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit\n"
+            "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --no-submit\n"
             "  picurv run --post-process --continue --run-dir runs/my_run --post post.yml\n"
             "  picurv summarize --run-dir runs/my_run --latest\n"
             "  picurv submit --run-dir runs/my_run\n"
