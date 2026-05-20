@@ -11206,7 +11206,7 @@ def _add_submit_parser(subparsers):
     p_submit.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show which `sbatch` command(s) would run without actually submitting anything.",
+        help="Show which local command(s) or `sbatch` command(s) would run without starting anything.",
     )
     return p_submit
 

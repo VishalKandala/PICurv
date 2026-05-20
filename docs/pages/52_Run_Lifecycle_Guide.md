@@ -53,7 +53,7 @@ Recommended preflight:
 
 1. `picurv validate ...`
 2. `picurv run ... --dry-run`
-3. if using Slurm, `picurv run ... --cluster ... --no-submit`
+3. `picurv run ... --no-submit` to stage local commands, or add `--cluster ...` to stage Slurm scripts
 
 This sequence verifies contract correctness before consuming runtime or queue time.
 
@@ -222,9 +222,9 @@ In cluster mode, `picurv` writes scheduler artifacts into the new run directory:
 Recommended operational pattern:
 
 1. `--dry-run` to confirm launch commands and artifact paths
-2. `--no-submit` to inspect generated batch scripts
-3. `picurv submit --run-dir runs/<run_id>` only after the scripts look correct
-4. `picurv cancel --run-dir runs/<run_id>` when you need to stop a submitted stage without separate job-id bookkeeping
+2. `--no-submit` to inspect generated local commands or batch scripts
+3. `picurv submit --run-dir runs/<run_id>` only after the staged artifacts look correct
+4. `picurv cancel --run-dir runs/<run_id>` for Slurm runs when you need to stop a submitted stage without separate job-id bookkeeping
 
 This is especially useful when changing:
 
