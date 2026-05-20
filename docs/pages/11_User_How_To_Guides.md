@@ -140,7 +140,7 @@ Note: `da_processors_*` are scalar globals, not per-block vectors.
   --cluster my_case/cluster.yml
 ```
 
-Generate-only mode:
+Stage artifacts without starting execution:
 
 ```bash
 ./bin/picurv run --solve --post-process \
@@ -148,9 +148,10 @@ Generate-only mode:
   --solver my_case/solver.yml \
   --monitor my_case/monitor.yml \
   --post my_case/post.yml \
-  --cluster my_case/cluster.yml \
   --no-submit
 ```
+
+Add `--cluster my_case/cluster.yml` to stage Slurm scripts instead of local command metadata.
 
 Submit an already staged run later:
 

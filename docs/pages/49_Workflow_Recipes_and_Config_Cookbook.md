@@ -111,11 +111,13 @@ Dry-run planning:
 ./bin/picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run --format json
 ```
 
-Cluster generation without submit:
+Stage artifacts without starting execution:
 
 ```bash
-./bin/picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --cluster cluster.yml --no-submit
+./bin/picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --no-submit
 ```
+
+Add `--cluster cluster.yml` to stage Slurm scripts instead of local command metadata.
 
 Delayed submit from existing staged artifacts:
 
