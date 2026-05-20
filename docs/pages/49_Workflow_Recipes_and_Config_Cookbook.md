@@ -269,6 +269,32 @@ grid:
     cli_args: ["--ncells-i", "96", "--ncells-j", "96"]
 ```
 
+Generate once, inspect, then reuse as a file grid:
+
+```bash
+./bin/picurv run --solve --no-submit \
+  --case case.yml \
+  --solver solver.yml \
+  --monitor monitor.yml
+```
+
+The staged run contains the generated dimensional grid at:
+
+```text
+runs/<run_id>/config/grid.generated.picgrid
+```
+
+After checking that file, a later case can reuse it without running `grid.gen`:
+
+```yaml
+grid:
+  mode: file
+  source_file: ../runs/<run_id>/config/grid.generated.picgrid
+```
+
+PICurv will validate and non-dimensionalize that source file into the new run's
+own `config/grid.run`.
+
 Restart with explicit particle re-initialization:
 
 ```yaml
