@@ -88,6 +88,7 @@ Helper script option summary:
 - structured errors always use:
   - `ERROR <CODE> | key=... | file=... | message=... | hint=...`
 - `run --dry-run --format json` is the safest way to inspect planned commands/artifacts
+- `run --no-submit` stages run artifacts without starting local execution or Slurm submission; `submit --run-dir` consumes the staged package later
 - in cluster mode:
   - solver rank count is derived from `cluster.yml` resources
   - post stage remains single-task by default
@@ -105,6 +106,9 @@ Helper script option summary:
 - preflight before execution:
   - `./bin/picurv validate --case ... --solver ... --monitor ... --post ... --strict`
   - `./bin/picurv run --solve --post-process ... --dry-run --format json`
+- staged run workflow:
+  - `./bin/picurv run --solve --post-process ... --no-submit`
+  - `./bin/picurv submit --run-dir runs/<run_id>`
 - cluster workflow:
   - `./bin/picurv run --solve --post-process ... --cluster cluster.yml --no-submit`
 - sweep workflow:
