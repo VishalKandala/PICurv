@@ -2504,7 +2504,7 @@ def test_generate_solver_control_file_preserves_legacy_programmatic_da_processor
 
 def test_case_local_symlinked_picurv_prefers_local_binaries(tmp_path):
     """!
-    @brief Test that case local symlinked picurv prefers local binaries.
+    @brief Test that case-local path-resolved picurv prefers local binaries.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
