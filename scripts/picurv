@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import annotations
 
 """!
 @file picurv
@@ -157,7 +156,7 @@ def parse_slurm_time_limit_to_seconds(time_text: str) -> int:
     return total_seconds
 
 
-def resolve_walltime_guard_policy(cluster_cfg: dict | None) -> dict | None:
+def resolve_walltime_guard_policy(cluster_cfg: "dict | None") -> "dict | None":
     """!
     @brief Resolve the effective Slurm walltime-guard policy for generated solver jobs.
     @param[in] cluster_cfg Argument passed to `resolve_walltime_guard_policy()`.
@@ -187,7 +186,7 @@ def resolve_walltime_guard_policy(cluster_cfg: dict | None) -> dict | None:
     return policy
 
 
-def build_walltime_guard_exports(cluster_cfg: dict | None) -> dict:
+def build_walltime_guard_exports(cluster_cfg: "dict | None") -> dict:
     """!
     @brief Build shell-evaluated environment exports for the runtime walltime guard.
     @param[in] cluster_cfg Argument passed to `build_walltime_guard_exports()`.
@@ -442,7 +441,7 @@ def _launcher_arg_contains_whitespace(token) -> bool:
     return isinstance(token, str) and any(ch.isspace() for ch in token.strip())
 
 
-def resolve_runtime_execution_seed_source(source_project_root: str) -> str | None:
+def resolve_runtime_execution_seed_source(source_project_root: str) -> "str | None":
     """!
     @brief Prefer repo-local ignored runtime config, then tracked example, then built-in defaults.
     @param[in] source_project_root Argument passed to `resolve_runtime_execution_seed_source()`.
@@ -724,7 +723,7 @@ def load_runtime_execution_config(config_search_anchor: str = None, extra_search
     }
 
 
-def merge_execution_overrides(base: dict | None, override: dict | None) -> dict:
+def merge_execution_overrides(base: "dict | None", override: "dict | None") -> dict:
     """!
     @brief Merge execution overrides, letting explicit override values win key-by-key.
     @param[in] base Argument passed to `merge_execution_overrides()`.
@@ -810,7 +809,7 @@ def write_case_origin_metadata(case_dir: str, source_project_root: str, template
     return metadata_path, payload
 
 
-def make_args_include_explicit_goal(make_args: list[str]) -> bool:
+def make_args_include_explicit_goal(make_args: "list[str]") -> bool:
     """!
     @brief Return True when make args contain an explicit target rather than only options/assignments.
     @param[in] make_args Argument passed to `make_args_include_explicit_goal()`.
@@ -1545,7 +1544,7 @@ def normalize_post_recipe_signature(recipe_cfg: dict) -> dict:
     return signature
 
 
-def compute_post_recipe_fingerprint(recipe_cfg: dict) -> tuple[dict, str]:
+def compute_post_recipe_fingerprint(recipe_cfg: dict) -> "tuple[dict, str]":
     """!
     @brief Return normalized recipe signature plus SHA-256 fingerprint.
     @param[in] recipe_cfg Argument passed to `compute_post_recipe_fingerprint()`.
@@ -1663,7 +1662,7 @@ def _iter_post_steps(start_step: int, end_step: int, step_interval: int):
         step += step_interval
 
 
-def resolve_post_requested_window(post_cfg: dict, case_cfg: dict = None) -> tuple[int, int, int]:
+def resolve_post_requested_window(post_cfg: dict, case_cfg: dict = None) -> "tuple[int, int, int]":
     """!
     @brief Resolve post requested start/end/interval, expanding end=-1 via case.yml when available.
     @param[in] post_cfg Argument passed to `resolve_post_requested_window()`.
@@ -1702,7 +1701,7 @@ def prepare_effective_post_config(post_cfg: dict, resolved_source_dir: str, star
     return effective_cfg
 
 
-def _scan_post_vtk_steps(prefix_path: str, extension: str) -> set[int]:
+def _scan_post_vtk_steps(prefix_path: str, extension: str) -> "set[int]":
     """!
     @brief Scan VTK output files matching '<prefix>_<step>.<extension>'.
     @param[in] prefix_path Argument passed to `_scan_post_vtk_steps()`.
@@ -1722,7 +1721,7 @@ def _scan_post_vtk_steps(prefix_path: str, extension: str) -> set[int]:
     return steps
 
 
-def _scan_post_statistics_csv_steps(csv_path: str) -> set[int]:
+def _scan_post_statistics_csv_steps(csv_path: str) -> "set[int]":
     """!
     @brief Scan step ids from the first CSV column of a statistics artifact.
     @param[in] csv_path Argument passed to `_scan_post_statistics_csv_steps()`.
@@ -1745,7 +1744,7 @@ def _scan_post_statistics_csv_steps(csv_path: str) -> set[int]:
     return steps
 
 
-def collect_post_completion_families(run_dir: str, post_cfg: dict, monitor_cfg=None) -> list[set[int]]:
+def collect_post_completion_families(run_dir: str, post_cfg: dict, monitor_cfg=None) -> "list[set[int]]":
     """!
     @brief Collect per-family completed-step sets for the current post recipe.
     @param[in] run_dir Argument passed to `collect_post_completion_families()`.
@@ -1796,7 +1795,7 @@ def detect_post_completed_frontier(run_dir: str, post_cfg: dict, monitor_cfg, st
     }
 
 
-def _nearest_step(steps: set[int], target: int):
+def _nearest_step(steps: "set[int]", target: int):
     """!
     @brief Return the complete source step nearest to a target step.
     @param[in] steps Candidate step numbers.
@@ -1817,7 +1816,7 @@ def _format_optional_step(step) -> str:
     return 'none' if step is None else str(step)
 
 
-def _scan_complete_source_steps(source_dir: str, monitor_cfg: dict, post_cfg: dict) -> tuple[set[int], dict]:
+def _scan_complete_source_steps(source_dir: str, monitor_cfg: dict, post_cfg: dict) -> "tuple[set[int], dict]":
     """!
     @brief Scan source artifacts and return steps with every file required by the recipe.
     @param[in] source_dir Source output root directory.
@@ -1865,7 +1864,7 @@ def _scan_complete_source_steps(source_dir: str, monitor_cfg: dict, post_cfg: di
     }
 
 
-def _expected_source_paths_for_step(step: int, source_scan: dict, post_cfg: dict) -> list[str]:
+def _expected_source_paths_for_step(step: int, source_scan: dict, post_cfg: dict) -> "list[str]":
     """!
     @brief Build required source file paths for a single post-processing step.
     @param[in] step Requested step number.
@@ -2052,7 +2051,7 @@ def ensure_post_lock_wrapper(run_dir: str) -> str:
     return wrapper_path
 
 
-def build_post_locked_command(run_dir: str, recipe_fingerprint: str, wrapped_command: list, create_wrapper: bool = True) -> tuple[list, dict]:
+def build_post_locked_command(run_dir: str, recipe_fingerprint: str, wrapped_command: list, create_wrapper: bool = True) -> "tuple[list, dict]":
     """!
     @brief Wrap a postprocessor command behind the run-dir-scoped lock wrapper.
     @param[in] run_dir Argument passed to `build_post_locked_command()`.
@@ -4543,10 +4542,10 @@ def render_slurm_script(
     os.chmod(script_path, 0o755)
 
 def split_launcher_tokens(
-    launcher: str | None,
-    launcher_args: list | None = None,
+    launcher: "str | None",
+    launcher_args: "list | None" = None,
     label: str = "launcher",
-) -> tuple[str | None, list[str]]:
+) -> "tuple[str | None, list[str]]":
     """!
     @brief Canonicalize launcher config into executable token plus argv-style flags.
     @param[in] launcher Argument passed to `split_launcher_tokens()`.
@@ -4570,7 +4569,7 @@ def split_launcher_tokens(
     return launcher_tokens[0], launcher_tokens[1:] + normalized_args
 
 
-def normalize_cluster_launcher(execution: dict) -> tuple[str | None, list[str]]:
+def normalize_cluster_launcher(execution: dict) -> "tuple[str | None, list[str]]":
     """!
     @brief Canonicalize cluster launcher config into executable token plus argv-style flags.
     @param[in] execution Argument passed to `normalize_cluster_launcher()`.
@@ -4583,7 +4582,7 @@ def normalize_cluster_launcher(execution: dict) -> tuple[str | None, list[str]]:
     )
 
 
-def strip_launcher_size_flags(launcher_name: str, launcher_args: list[str]) -> list[str]:
+def strip_launcher_size_flags(launcher_name: str, launcher_args: "list[str]") -> "list[str]":
     """!
     @brief Remove explicit MPI task-count flags from known launchers.
     @param[in] launcher_name Basename-normalized launcher executable.
@@ -4636,7 +4635,7 @@ def build_local_launch_command(
     num_procs: int,
     config_search_anchor: str = None,
     allow_single_rank_launcher_override: bool = False,
-    force_num_procs: int | None = None,
+    force_num_procs: "int | None" = None,
 ) -> list:
     """!
     @brief Build local launcher command, allowing env or shared config overrides for login-node MPI quirks.
@@ -4724,7 +4723,7 @@ def build_cluster_launch_command(
     executable_args: list,
     config_search_anchor: str = None,
     extra_search_anchors=None,
-    force_num_procs: int | None = None,
+    force_num_procs: "int | None" = None,
 ) -> list:
     """!
     @brief Build scheduler launcher command from cluster config plus optional shared execution defaults.
@@ -5040,7 +5039,7 @@ def _diagnostic_resolve_path_or_default(value, run_dir: str, default_filename: s
     return False
 
 
-def resolve_diagnostics_config(monitor_cfg: dict, run_dir: str | None = None, stage_label: str = "Solver") -> dict:
+def resolve_diagnostics_config(monitor_cfg: dict, run_dir: "str | None" = None, stage_label: str = "Solver") -> dict:
     """!
     @brief Resolve monitor diagnostics config and default run-local log paths.
     @param[in] monitor_cfg Parsed monitor.yml mapping.
@@ -5474,7 +5473,7 @@ def normalize_analytical_type(value: str) -> str:
         )
     return normalized
 
-def parse_initial_velocity_components(initial_conditions: dict, finit_code: int, *, require_explicit: bool) -> tuple[float, float, float]:
+def parse_initial_velocity_components(initial_conditions: dict, finit_code: int, *, require_explicit: bool) -> "tuple[float, float, float]":
     """!
     @brief Parse initial-condition velocity components with mode-aware defaults.
     @param[in] initial_conditions The `properties.initial_conditions` mapping from case.yml.
@@ -5501,7 +5500,7 @@ def parse_initial_velocity_components(initial_conditions: dict, finit_code: int,
             ) from exc
     return tuple(components)
 
-def infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks: list) -> str | None:
+def infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks: list) -> "str | None":
     """!
     @brief Infer the unique inlet axis across all blocks using C-side "primary inlet" ordering.
     @param[in] prepared_blocks Normalized BC blocks from `validate_and_prepare_boundary_conditions`.
@@ -5533,7 +5532,7 @@ def infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks: list) -> str | No
         )
     return next(iter(inlet_axes))
 
-def resolve_initial_velocity_components(initial_conditions: dict, finit_code: int, *, prepared_blocks: list | None = None) -> tuple[float, float, float]:
+def resolve_initial_velocity_components(initial_conditions: dict, finit_code: int, *, prepared_blocks: "list | None" = None) -> "tuple[float, float, float]":
     """!
     @brief Resolve initial-condition velocity inputs to `(u, v, w)` physical components.
     @param[in] initial_conditions The `properties.initial_conditions` mapping from case.yml.
@@ -5708,7 +5707,7 @@ def resolve_solver_monitoring_flags(monitor_cfg: dict) -> dict:
     return flags
 
 
-def resolve_particle_console_output_frequency(io_cfg: dict) -> int | None:
+def resolve_particle_console_output_frequency(io_cfg: dict) -> "int | None":
     """!
     @brief Return the effective particle-console snapshot cadence from monitor.yml.
     @param[in] io_cfg Argument passed to `resolve_particle_console_output_frequency()`.
@@ -6535,7 +6534,7 @@ def _get_git_head_state(run_dir: str) -> dict:
     return {"branch": branch_name, "commit": head_commit}
 
 
-def _get_local_branches_with_upstreams(run_dir: str) -> list[tuple[str, str | None]]:
+def _get_local_branches_with_upstreams(run_dir: str) -> "list[tuple[str, str | None]]":
     """!
     @brief Return local branch names plus their configured upstreams.
     @param[in] run_dir Argument passed to `_get_local_branches_with_upstreams()`.
@@ -9091,7 +9090,7 @@ def _build_summary_context(run_dir: str) -> dict:
     }
 
 
-def _parse_continuity_metrics_log(filepath: str) -> tuple[dict, list[int]]:
+def _parse_continuity_metrics_log(filepath: str) -> "tuple[dict, list[int]]":
     """!
     @brief Parse Continuity_Metrics.log into latest rows by step plus observed order.
     @param[in] filepath Argument passed to `_parse_continuity_metrics_log()`.
@@ -9136,7 +9135,7 @@ def _parse_continuity_metrics_log(filepath: str) -> tuple[dict, list[int]]:
     return {step: list(block_rows.values()) for step, block_rows in rows_by_step.items()}, step_order
 
 
-def _parse_particle_metrics_log(filepath: str) -> tuple[dict, list[int]]:
+def _parse_particle_metrics_log(filepath: str) -> "tuple[dict, list[int]]":
     """!
     @brief Parse Particle_Metrics.log into latest rows by step plus observed order.
     @param[in] filepath Argument passed to `_parse_particle_metrics_log()`.
@@ -9192,7 +9191,7 @@ def _parse_particle_metrics_log(filepath: str) -> tuple[dict, list[int]]:
     return rows_by_step, step_order
 
 
-def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict, list[int]]:
+def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[int]]":
     """!
     @brief Parse per-block momentum convergence logs.
     @param[in] log_dir Argument passed to `_parse_momentum_convergence_logs()`.
@@ -9234,7 +9233,7 @@ def _parse_momentum_convergence_logs(log_dir: str) -> tuple[dict, dict, list[int
     return rows_by_step, sources, step_order
 
 
-def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict, list[int]]:
+def _parse_poisson_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[int]]":
     """!
     @brief Parse per-block Poisson convergence logs.
     @param[in] log_dir Argument passed to `_parse_poisson_convergence_logs()`.
@@ -9273,7 +9272,7 @@ def _parse_poisson_convergence_logs(log_dir: str) -> tuple[dict, dict, list[int]
     return rows_by_step, sources, step_order
 
 
-def _parse_profiling_timestep_csv(filepath: str) -> tuple[dict, list[int]]:
+def _parse_profiling_timestep_csv(filepath: str) -> "tuple[dict, list[int]]":
     """!
     @brief Parse profiling timestep CSV into latest rows by step plus observed order.
     @param[in] filepath Argument passed to `_parse_profiling_timestep_csv()`.
@@ -9305,7 +9304,7 @@ def _parse_profiling_timestep_csv(filepath: str) -> tuple[dict, list[int]]:
     return rows_by_step, step_order
 
 
-def _parse_runtime_memory_log(filepath: str) -> tuple[dict, list[int], dict]:
+def _parse_runtime_memory_log(filepath: str) -> "tuple[dict, list[int], dict]":
     """!
     @brief Parse Runtime_Memory.log into latest rows by step and final status.
     @param[in] filepath Runtime memory log path.
@@ -9365,7 +9364,7 @@ def _parse_runtime_memory_log(filepath: str) -> tuple[dict, list[int], dict]:
     return rows_by_step, step_order, meta
 
 
-def _parse_solution_convergence_log(filepath: str) -> tuple[dict, list[int]]:
+def _parse_solution_convergence_log(filepath: str) -> "tuple[dict, list[int]]":
     """!
     @brief Parse solution_convergence.log into latest rows by step plus observed order.
 
@@ -9423,7 +9422,7 @@ def _parse_solution_convergence_log(filepath: str) -> tuple[dict, list[int]]:
     return rows_by_step, step_order
 
 
-def _find_solver_stream_log_candidates(run_dir: str, log_dir: str) -> list[str]:
+def _find_solver_stream_log_candidates(run_dir: str, log_dir: str) -> "list[str]":
     """!
     @brief Return plausible solver stream logs for local and Slurm runs.
     @param[in] run_dir Argument passed to `_find_solver_stream_log_candidates()`.
@@ -9496,7 +9495,7 @@ def _parse_particle_snapshot_file(filepath: str) -> dict:
     return snapshots
 
 
-def _find_previous_snapshot_step(snapshot_steps: list[int], step: int) -> int | None:
+def _find_previous_snapshot_step(snapshot_steps: "list[int]", step: int) -> "int | None":
     """!
     @brief Return the nearest earlier snapshot step when available.
     @param[in] snapshot_steps Argument passed to `_find_previous_snapshot_step()`.
@@ -9509,7 +9508,7 @@ def _find_previous_snapshot_step(snapshot_steps: list[int], step: int) -> int | 
     return max(earlier_steps)
 
 
-def _compute_particle_snapshot_delta(current_rows: list[dict], previous_rows: list[dict]) -> dict:
+def _compute_particle_snapshot_delta(current_rows: "list[dict]", previous_rows: "list[dict]") -> dict:
     """!
     @brief Compute sampled deltas between two particle snapshot samples.
     @param[in] current_rows Argument passed to `_compute_particle_snapshot_delta()`.
@@ -9579,12 +9578,12 @@ def _compute_particle_snapshot_delta(current_rows: list[dict], previous_rows: li
 def _build_particle_snapshot_summary(
     source: str,
     step: int,
-    rows: list[dict],
+    rows: "list[dict]",
     preview_rows: int,
     particle_console_output_freq,
     particle_log_interval,
-    previous_step: int | None = None,
-    previous_rows: list[dict] | None = None,
+    previous_step: "int | None" = None,
+    previous_rows: "list[dict] | None" = None,
 ) -> dict:
     """!
     @brief Build sampled diagnostics for one particle console snapshot.
@@ -9877,7 +9876,7 @@ def _summary_source_mtime(paths) -> float:
     return newest
 
 
-def _order_summary_step_orders(sources: list[tuple[list[int], object]]) -> list[list[int]]:
+def _order_summary_step_orders(sources: "list[tuple[list[int], object]]") -> "list[list[int]]":
     """!
     @brief Order observed step sequences by the recency of their source files.
     @param[in] sources Pairs of observed steps and filesystem source path(s).
@@ -9891,7 +9890,7 @@ def _order_summary_step_orders(sources: list[tuple[list[int], object]]) -> list[
     return [order for _, _, order in ranked]
 
 
-def build_run_summary_payload(run_dir: str, step: int | None = None, snapshot_rows: int = 5, selection_mode: str = "latest") -> dict:
+def build_run_summary_payload(run_dir: str, step: "int | None" = None, snapshot_rows: int = 5, selection_mode: str = "latest") -> dict:
     """!
     @brief Build a read-only run-step summary from existing PICurv artifacts.
     @param[in] run_dir Argument passed to `build_run_summary_payload()`.
