@@ -2298,13 +2298,21 @@ def detect_last_checkpoint_step(output_dir: str, euler_subdir: str = "eulerian",
     euler_path = os.path.join(output_dir, euler_subdir)
     if os.path.isdir(euler_path):
         pattern = _re.compile(r"ufield(\d{5})_0\.dat")
-        steps = [int(m.group(1)) for fname in os.listdir(euler_path) if (m := pattern.match(fname))]
+        steps = []
+        for fname in os.listdir(euler_path):
+            match = pattern.match(fname)
+            if match:
+                steps.append(int(match.group(1)))
         if steps:
             return max(steps)
     particle_path = os.path.join(output_dir, particle_subdir)
     if os.path.isdir(particle_path):
         pattern = _re.compile(r"position(\d{5})_0\.dat")
-        steps = [int(m.group(1)) for fname in os.listdir(particle_path) if (m := pattern.match(fname))]
+        steps = []
+        for fname in os.listdir(particle_path):
+            match = pattern.match(fname)
+            if match:
+                steps.append(int(match.group(1)))
         if steps:
             return max(steps)
     return None
