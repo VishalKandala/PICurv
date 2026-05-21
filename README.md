@@ -45,6 +45,10 @@ For clusters that require site-managed Python packages:
 ```bash
 ./scripts/bootstrap_install.sh --no-venv
 ```
+To have bootstrap add the `picurv` shell setup to `~/.bashrc` for future logins:
+```bash
+./scripts/bootstrap_install.sh --install-shell-hook
+```
 
 ## Quick Start (Local)
 
@@ -64,6 +68,7 @@ export PETSC_ARCH=arch-linux-c-debug
 echo 'source /path/to/PICurv/etc/picurv.sh' >> ~/.bashrc
 source ~/.bashrc
 ```
+Bootstrap can do this idempotently with `--install-shell-hook`.
 
 After build, `picurv` is available as a command from any directory. The
 environment script keeps `bin/` first on `PATH` for compiled executables,

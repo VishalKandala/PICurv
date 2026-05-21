@@ -312,9 +312,8 @@ def test_bootstrap_help_documents_python_environment_modes():
     )
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    for flag in ("--venv-dir", "--no-venv", "--python-bin", "--with-plotting"):
+    for flag in ("--venv-dir", "--no-venv", "--python-bin", "--with-plotting", "--install-shell-hook", "--shell-rc"):
         assert flag in result.stdout
-
 
 def test_launcher_prefers_managed_venv_python(tmp_path):
     """!

@@ -50,6 +50,7 @@ Useful variants:
 ./scripts/bootstrap_install.sh --with-plotting
 ./scripts/bootstrap_install.sh --venv-dir /path/to/picurv-venv
 ./scripts/bootstrap_install.sh --python-bin /path/to/python3.11
+./scripts/bootstrap_install.sh --install-shell-hook
 ./scripts/bootstrap_install.sh --no-venv
 ```
 
@@ -137,6 +138,11 @@ managed venv or bootstrap-selected Python is available, adds `bin/` to your
 `PATH` for compiled executables, and also exposes `scripts/` as a fallback so
 `picurv` still resolves if `bin/picurv` is temporarily absent before a rebuild.
 It is idempotent and safe to source multiple times.
+
+If you want bootstrap to add this setup to `~/.bashrc`, pass
+`--install-shell-hook`. The hook is written as a managed block, so rerunning the
+installer updates it instead of appending duplicate source lines. Use
+`--shell-rc <path>` to target another shell startup file.
 
 Reload and verify:
 

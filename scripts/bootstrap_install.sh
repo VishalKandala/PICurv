@@ -8,11 +8,13 @@ INSTALL_PETSC=0
 SKIP_SYSTEM_DEPS=0
 USE_VENV=1
 WITH_PLOTTING=0
+INSTALL_SHELL_HOOK=0
 PETSC_VERSION="3.20.3"
 PETSC_PREFIX="${HOME}/software"
 PETSC_ARCH="arch-linux-c-debug"
 PYTHON_BIN=""
 VENV_DIR="${REPO_ROOT}/.picurv-venv"
+SHELL_RC="${HOME}/.bashrc"
 
 usage() {
   cat <<'EOF'
@@ -34,12 +36,15 @@ Options:
   --venv-dir <dir>           Managed venv path (default: .picurv-venv).
   --no-venv                  Use the selected Python directly.
   --with-plotting            Also install matplotlib for sweep plot generation.
+  --install-shell-hook       Add an idempotent source line to ~/.bashrc.
+  --shell-rc <path>          Shell startup file for --install-shell-hook.
   --skip-system-deps         Skip apt package installation.
   -h, --help                 Show this help.
 
 Examples:
   scripts/bootstrap_install.sh
   scripts/bootstrap_install.sh --install-petsc
+  scripts/bootstrap_install.sh --install-shell-hook
   scripts/bootstrap_install.sh --no-venv
 EOF
 }
@@ -74,6 +79,29 @@ python_is_supported_seed() {
   "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'
 }
 
+install_shell_hook() {
+  local rc_path="$1"
+  local hook_path="${REPO_ROOT}/etc/picurv.sh"
+  local begin_marker="# >>> PICurv shell setup >>>"
+  local end_marker="# <<< PICurv shell setup <<<"
+  local tmp_path
+
+  mkdir -p "$(dirname "${rc_path}")"
+  touch "${rc_path}"
+  tmp_path="$(mktemp "${rc_path}.picurv.XXXXXX")"
+  awk -v begin="${begin_marker}" -v end="${end_marker}" '
+    $0 == begin {skip = 1; next}
+    $0 == end {skip = 0; next}
+    skip != 1 {print}
+  ' "${rc_path}" > "${tmp_path}"
+  {
+    printf '%s\n' "${begin_marker}"
+    printf 'source %q\n' "${hook_path}"
+    printf '%s\n' "${end_marker}"
+  } >> "${tmp_path}"
+  mv "${tmp_path}" "${rc_path}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install-petsc) INSTALL_PETSC=1; shift ;;
@@ -85,6 +113,8 @@ while [[ $# -gt 0 ]]; do
     --venv-dir) VENV_DIR="$(absolute_path "${2:?missing value for --venv-dir}")"; shift 2 ;;
     --no-venv) USE_VENV=0; shift ;;
     --with-plotting) WITH_PLOTTING=1; shift ;;
+    --install-shell-hook) INSTALL_SHELL_HOOK=1; shift ;;
+    --shell-rc) SHELL_RC="$(absolute_path "${2:?missing value for --shell-rc}")"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown option: $1" ;;
   esac
@@ -201,6 +231,13 @@ cd "${REPO_ROOT}"
 
 log "Bootstrap complete."
 log "PICurv Python: ${CLI_PYTHON}"
-log "To add picurv to your PATH, run:"
-log "  echo 'source ${REPO_ROOT}/etc/picurv.sh' >> ~/.bashrc && source ~/.bashrc"
+if [[ "${INSTALL_SHELL_HOOK}" -eq 1 ]]; then
+  install_shell_hook "${SHELL_RC}"
+  log "Installed PICurv shell hook in ${SHELL_RC}."
+  log "Reload with: source ${SHELL_RC}"
+else
+  log "To add picurv to your PATH, run:"
+  log "  echo 'source ${REPO_ROOT}/etc/picurv.sh' >> ~/.bashrc && source ~/.bashrc"
+  log "Or rerun bootstrap with: --install-shell-hook"
+fi
 log "Then verify with: picurv --help"
