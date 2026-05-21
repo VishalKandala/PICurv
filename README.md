@@ -29,9 +29,9 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 Automated setup (recommended):
 ```bash
 export PETSC_DIR=/path/to/petsc
-# Set PETSC_ARCH only for old-style in-tree PETSc builds.
-export PETSC_ARCH=arch-linux-c-debug
-./scripts/bootstrap_install.sh
+# Set PETSC_ARCH only for old-style in-tree PETSc builds:
+# export PETSC_ARCH=arch-linux-c-debug
+./scripts/bootstrap_install.sh --install-shell-hook
 ```
 The bootstrap script creates `.picurv-venv/` by default and installs the Python
 CLI dependencies there, while PETSc/MPI/compiler dependencies remain in your
@@ -52,23 +52,31 @@ To have bootstrap add the `picurv` shell setup to `~/.bashrc` for future logins:
 
 ## Quick Start (Local)
 
-1. Set PETSc environment variables:
+1. Set PETSc environment variables or load your site PETSc/MPI module stack:
 ```bash
 export PETSC_DIR=/path/to/petsc
-export PETSC_ARCH=arch-linux-c-debug
+# Set PETSC_ARCH only for old-style in-tree PETSc builds:
+# export PETSC_ARCH=arch-linux-c-debug
 ```
 
-2. Build:
+2. Install/build with the managed PICurv Python environment:
 ```bash
-./scripts/picurv build
+./scripts/bootstrap_install.sh --install-shell-hook
+source ~/.bashrc
 ```
 
-3. Add `picurv` to your PATH (one-time):
+For an existing cluster module stack where system packages are already present:
+```bash
+./scripts/bootstrap_install.sh --skip-system-deps --install-shell-hook
+source ~/.bashrc
+```
+
+Manual PATH setup is also possible:
 ```bash
 echo 'source /path/to/PICurv/etc/picurv.sh' >> ~/.bashrc
 source ~/.bashrc
 ```
-Bootstrap can do this idempotently with `--install-shell-hook`.
+Bootstrap does this idempotently with `--install-shell-hook`.
 
 After build, `picurv` is available as a command from any directory. The
 environment script keeps `bin/` first on `PATH` for compiled executables,
@@ -76,7 +84,7 @@ exports `PICURV_PYTHON` when a managed environment exists, and also exposes
 `scripts/` as a fallback so `picurv` still resolves if a pull or rebase removes
 `bin/picurv` before the conductor launcher is rebuilt.
 
-4. Initialize an example:
+3. Initialize an example:
 ```bash
 picurv init flat_channel --dest my_case
 ```

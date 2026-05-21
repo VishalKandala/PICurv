@@ -58,7 +58,7 @@ is a test-local routine.
   - restart path resolution checks
   - cluster no-submit manifest/script checks
   - grid-gen/PICGRID header and node-count translation checks
-  - case-local binary preference behavior for copied/symlinked `picurv`
+  - case-local binary preference behavior for copied or path-resolved `picurv`
 - `test_case_maintenance.py`
   - `init` origin metadata behavior
   - real CLI wrapper coverage for `build`, `sync-binaries`, `sync-config`, `status-source`, and `pull-source`

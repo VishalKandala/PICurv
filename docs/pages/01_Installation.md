@@ -23,9 +23,9 @@ From the PICurv repo root:
 
 ```bash
 export PETSC_DIR=/path/to/petsc
-# Set PETSC_ARCH only for old-style in-tree PETSc builds.
-export PETSC_ARCH=arch-linux-c-debug
-./scripts/bootstrap_install.sh
+# Set PETSC_ARCH only for old-style in-tree PETSc builds:
+# export PETSC_ARCH=arch-linux-c-debug
+./scripts/bootstrap_install.sh --install-shell-hook
 ```
 
 If PETSc is not installed yet, let the script build it:
@@ -43,6 +43,16 @@ The script installs system and Python dependencies, verifies PETSc/DMSwarm visib
 By default, bootstrap creates `.picurv-venv/` under the repo and installs the
 Python-side CLI dependencies there. PETSc, MPI, compilers, and scheduler tools
 remain provided by your loaded system or cluster modules.
+
+On an existing HPC cluster where modules already provide compilers, MPI, and
+PETSc, skip OS package installation:
+
+```bash
+module load <compiler-mpi-petsc-stack>
+./scripts/bootstrap_install.sh --skip-system-deps --install-shell-hook
+source ~/.bashrc
+picurv --help
+```
 
 Useful variants:
 
@@ -129,7 +139,7 @@ Add to your shell profile (`~/.bashrc` or equivalent):
 ```bash
 export PETSC_DIR=/path/to/petsc
 # PETSC_ARCH is optional for prefix installs from EasyBuild/Spack/system packages.
-export PETSC_ARCH=arch-linux-c-debug
+# export PETSC_ARCH=arch-linux-c-debug
 source /path/to/PICurv/etc/picurv.sh
 ```
 
@@ -223,6 +233,7 @@ What `make doctor` does not prove:
 - MPI compiler wrappers unavailable in PATH.
 - Python interpreter too old for default bootstrap (load Python 3.10+, pass `--python-bin`, or use `--no-venv`).
 - Visualization modules leaking incompatible Python packages into `PYTHONPATH`; prefer the managed venv launcher from bootstrap for normal CLI use.
+- Old checkouts where `bin/picurv` is still a symlink; rerun `make -B conductor` after pulling current source.
 - PETSc configured without required downloaded dependencies.
 - missing X11 dev library at link time (`cannot find -lX11` on Linux; install `libx11-dev`).
 - stale object files after toolchain changes (use `clean-project`).
