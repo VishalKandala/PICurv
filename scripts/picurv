@@ -10303,6 +10303,103 @@ def _get_submission_stage_metadata(target_context: dict, stage_name: str) -> dic
     return copy.deepcopy(stage_meta) if isinstance(stage_meta, dict) else {}
 
 
+def _get_recorded_submission_stages(target_context: dict) -> list:
+    """!
+    @brief Return stage names explicitly recorded in scheduler submission metadata.
+    @param[in] target_context Argument passed to `_get_recorded_submission_stages()`.
+    @return Value returned by `_get_recorded_submission_stages()`.
+    """
+    submission_meta = target_context["submission_meta"]
+    recorded = []
+    if target_context["target_kind"] == "run":
+        stages = submission_meta.get("stages", {})
+        if isinstance(stages, dict):
+            for stage_name in ["solve", "post-process"]:
+                if isinstance(stages.get(stage_name), dict):
+                    recorded.append(stage_name)
+        return recorded
+
+    if isinstance(submission_meta.get("solver_array"), dict):
+        recorded.append("solve")
+    if isinstance(submission_meta.get("post_array"), dict):
+        recorded.append("post-process")
+    return recorded
+
+
+def _format_stage_list(stage_names: list) -> str:
+    """!
+    @brief Format a human-readable stage list for submit diagnostics.
+    @param[in] stage_names Argument passed to `_format_stage_list()`.
+    @return Value returned by `_format_stage_list()`.
+    """
+    return ", ".join(stage_names) if stage_names else "none"
+
+
+def _build_submit_missing_stage_hint(target_context: dict, requested_stage: str, selected_stages: list) -> str:
+    """!
+    @brief Build an actionable hint for requested submit stages missing from metadata.
+    @param[in] target_context Argument passed to `_build_submit_missing_stage_hint()`.
+    @param[in] requested_stage Argument passed to `_build_submit_missing_stage_hint()`.
+    @param[in] selected_stages Argument passed to `_build_submit_missing_stage_hint()`.
+    @return Value returned by `_build_submit_missing_stage_hint()`.
+    """
+    recorded_stages = _get_recorded_submission_stages(target_context)
+    recorded_set = set(recorded_stages)
+    selected_set = set(selected_stages)
+    target_flag = "--run-dir" if target_context["target_kind"] == "run" else "--study-dir"
+    target_path = os.path.relpath(target_context["root_dir"])
+    submit_prefix = f"picurv submit {target_flag} {target_path}"
+    solve_stage_command = (
+        "picurv run --solve ... --no-submit"
+        if target_context["target_kind"] == "run"
+        else "picurv sweep --cluster <cluster.yml> ... --no-submit"
+    )
+    post_stage_command = (
+        "picurv run --post-process --post <post.yml> ... --no-submit"
+        if target_context["target_kind"] == "run"
+        else "picurv sweep --cluster <cluster.yml> ... --no-submit"
+    )
+    solve_post_command = (
+        "picurv run --solve --post-process --post <post.yml> ... --no-submit"
+        if target_context["target_kind"] == "run"
+        else "picurv sweep --cluster <cluster.yml> ... --no-submit"
+    )
+
+    if requested_stage == "all":
+        if recorded_set == {"solve"}:
+            return (
+                "--stage all requests solve and post-process, but this target records only solve. "
+                f"Use `{submit_prefix} --stage solve`, or re-stage with post-processing enabled "
+                f"(`{solve_post_command}`)."
+            )
+        if recorded_set == {"post-process"}:
+            return (
+                "--stage all requests solve and post-process, but this target records only post-process. "
+                f"Use `{submit_prefix} --stage post-process`, or re-stage including the solve stage "
+                f"(`{solve_stage_command}`)."
+            )
+        missing = [stage for stage in selected_stages if stage not in recorded_set]
+        if missing:
+            return (
+                "--stage all requests solve and post-process, but submission metadata records "
+                f"{_format_stage_list(recorded_stages)}. Re-stage the missing stage(s): "
+                f"{_format_stage_list(missing)}."
+            )
+
+    if selected_set == {"solve"} and "solve" not in recorded_set:
+        return (
+            "The solve stage was requested, but submission metadata does not record a staged solve command/script. "
+            f"Re-stage with `{solve_stage_command}`."
+        )
+    if selected_set == {"post-process"} and "post-process" not in recorded_set:
+        return (
+            "The post-process stage was requested, but submission metadata does not record a staged post-process command/script. "
+            f"Re-stage with post-processing enabled (`{post_stage_command}`, or `{solve_post_command}`)."
+        )
+
+    return "Re-stage the requested stage(s) with picurv run/sweep --no-submit before calling picurv submit."
+
+
 def _set_submission_stage_metadata(target_context: dict, stage_name: str, stage_meta: dict):
     """!
     @brief Persist one stage's metadata back into the submission payload.
@@ -10364,18 +10461,29 @@ def submit_staged_jobs(args):
     solve_existing_job_id = str(solve_existing_meta.get("job_id", "")).strip()
 
     for stage_name in selected_stages:
+        existing_meta = _get_submission_stage_metadata(target_context, stage_name)
         script_path = target_context["script_map"][stage_name]
+        missing_stage_hint = _build_submit_missing_stage_hint(target_context, requested_stage, selected_stages)
+        if not existing_meta:
+            emit_structured_error(
+                ERROR_CODE_CFG_MISSING_KEY,
+                key=f"scheduler.{stage_name}.metadata",
+                file_path=target_context["submission_path"],
+                message=f"Submission metadata does not record stage '{stage_name}'.",
+                hint=missing_stage_hint,
+            )
+            sys.exit(1)
+
         if not os.path.isfile(script_path):
             emit_structured_error(
                 ERROR_CODE_CFG_FILE_NOT_FOUND,
                 key=f"scheduler.{stage_name}.script",
                 file_path=script_path,
                 message=f"Required {stage_name} sbatch artifact is missing.",
-                hint="Re-stage the run/study with picurv run/sweep --no-submit before calling picurv submit.",
+                hint=missing_stage_hint,
             )
             sys.exit(1)
 
-        existing_meta = _get_submission_stage_metadata(target_context, stage_name)
         if existing_meta.get("submitted") and not args.force:
             emit_structured_error(
                 ERROR_CODE_CFG_INCONSISTENT_COMBO,
@@ -10474,12 +10582,16 @@ def submit_staged_local_run(args, target_context: dict, selected_stages: list):
         existing_meta = _get_submission_stage_metadata(target_context, stage_name)
         command = existing_meta.get("command")
         if not isinstance(command, list) or not command:
+            if existing_meta:
+                hint = "Re-stage the run with picurv run --no-submit before calling picurv submit."
+            else:
+                hint = _build_submit_missing_stage_hint(target_context, args.stage, selected_stages)
             emit_structured_error(
                 ERROR_CODE_CFG_MISSING_KEY,
                 key=f"scheduler.{stage_name}.command",
                 file_path=target_context["submission_path"],
                 message=f"Required local command metadata for stage '{stage_name}' is missing.",
-                hint="Re-stage the run with picurv run --no-submit before calling picurv submit.",
+                hint=hint,
             )
             sys.exit(1)
 

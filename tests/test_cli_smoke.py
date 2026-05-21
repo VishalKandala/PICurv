@@ -4386,6 +4386,98 @@ def test_submit_local_run_stage_all_executes_solve_then_post(tmp_path):
     assert submission["stages"]["post-process"]["executed"] is True
 
 
+def test_submit_local_run_stage_all_solve_only_hint_suggests_solve_stage(tmp_path):
+    """!
+    @brief Test that submit all on a solve-only local staged run gives an actionable hint.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        launch_mode="local",
+        solve_meta={"command": ["fake-solver"], "log_file": "scheduler/solve.log"},
+        post_meta=False,
+    )
+    result = run_picurv(["submit", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
+    assert result.returncode == 1
+    assert "--stage all requests solve and post-process" in result.stderr
+    assert "records only solve" in result.stderr
+    assert "--stage solve" in result.stderr
+
+
+def test_submit_local_run_stage_all_post_only_hint_suggests_post_stage(tmp_path):
+    """!
+    @brief Test that submit all on a post-only local staged run gives an actionable hint.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        launch_mode="local",
+        solve_meta=False,
+        post_meta={"command": ["fake-post"], "log_file": "scheduler/post.log"},
+    )
+    result = run_picurv(["submit", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
+    assert result.returncode == 1
+    assert "--stage all requests solve and post-process" in result.stderr
+    assert "records only post-process" in result.stderr
+    assert "--stage post-process" in result.stderr
+
+
+def test_submit_local_run_explicit_absent_stage_hint_names_requested_stage(tmp_path):
+    """!
+    @brief Test that explicit submit requests name the absent requested stage.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    post_only_run_dir = create_staged_run_dir(
+        tmp_path,
+        name="post_only",
+        launch_mode="local",
+        solve_meta=False,
+        post_meta={"command": ["fake-post"], "log_file": "scheduler/post.log"},
+    )
+    solve_result = run_picurv(
+        ["submit", "--run-dir", str(post_only_run_dir), "--stage", "solve", "--dry-run"],
+        cwd=tmp_path,
+    )
+    assert solve_result.returncode == 1
+    assert "solve stage was requested" in solve_result.stderr
+    assert "does not record a staged solve" in solve_result.stderr
+
+    solve_only_run_dir = create_staged_run_dir(
+        tmp_path,
+        name="solve_only",
+        launch_mode="local",
+        solve_meta={"command": ["fake-solver"], "log_file": "scheduler/solve.log"},
+        post_meta=False,
+    )
+    post_result = run_picurv(
+        ["submit", "--run-dir", str(solve_only_run_dir), "--stage", "post-process", "--dry-run"],
+        cwd=tmp_path,
+    )
+    assert post_result.returncode == 1
+    assert "post-process stage was requested" in post_result.stderr
+    assert "does not record a staged post-process" in post_result.stderr
+
+
+def test_submit_local_run_post_stage_keeps_dependency_error_when_solve_not_done(tmp_path):
+    """!
+    @brief Test that staged post without solve completion reports dependency, not missing command.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        launch_mode="local",
+        solve_meta=False,
+        post_meta={"command": ["fake-post"], "log_file": "scheduler/post.log"},
+    )
+    result = run_picurv(
+        ["submit", "--run-dir", str(run_dir), "--stage", "post-process", "--dry-run"],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 1
+    assert "requires a recorded completed solve stage" in result.stderr
+    assert "scheduler.post-process.dependency" in result.stderr
+
+
 def test_submit_run_stage_solve_only_updates_submission_metadata(tmp_path):
     """!
     @brief Test that submit can launch only the staged solve job.
@@ -4475,6 +4567,26 @@ def test_submit_run_stage_all_adds_post_dependency_on_new_solve_job(tmp_path):
     assert submission["stages"]["solve"]["job_id"] == "601"
     assert submission["stages"]["post-process"]["job_id"] == "602"
     assert submission["stages"]["post-process"]["dependency"] == "afterok:601"
+
+
+def test_submit_run_stage_all_slurm_missing_stage_metadata_has_targeted_hint(tmp_path):
+    """!
+    @brief Test that Slurm submit all reports stages absent from submission metadata.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    solve_only_run_dir = create_staged_run_dir(tmp_path, name="slurm_solve_only", post_meta=False)
+    solve_only_result = run_picurv(["submit", "--run-dir", str(solve_only_run_dir), "--dry-run"], cwd=tmp_path)
+    assert solve_only_result.returncode == 1
+    assert "does not record stage 'post-process'" in solve_only_result.stderr
+    assert "records only solve" in solve_only_result.stderr
+    assert "--stage solve" in solve_only_result.stderr
+
+    post_only_run_dir = create_staged_run_dir(tmp_path, name="slurm_post_only", solve_meta=False)
+    post_only_result = run_picurv(["submit", "--run-dir", str(post_only_run_dir), "--dry-run"], cwd=tmp_path)
+    assert post_only_result.returncode == 1
+    assert "does not record stage 'solve'" in post_only_result.stderr
+    assert "records only post-process" in post_only_result.stderr
+    assert "--stage post-process" in post_only_result.stderr
 
 
 def test_submit_post_process_requires_recorded_solve_job_id(tmp_path):
