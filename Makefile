@@ -243,15 +243,24 @@ $(CONDUCTOR_EXE): $(SCRIPTDIR)/picurv | dirs
 	  echo '#!/usr/bin/env bash'; \
 	  echo 'set -e'; \
 	  echo 'PICURV_DIR="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")/.." && pwd)"'; \
-	  echo 'if [ -x "$$PICURV_DIR/.picurv-venv/bin/python" ]; then'; \
+	  echo '_picurv_apply_managed_python_env() {'; \
+	  echo '  if [ -f "$$PICURV_DIR/.picurv-python-env" ]; then'; \
+	  echo '    . "$$PICURV_DIR/.picurv-python-env"'; \
+	  echo '  fi'; \
 	  echo '  export PYTHONNOUSERSITE=1'; \
 	  echo '  unset PYTHONPATH'; \
+	  echo '  if [ -n "$${PICURV_PYTHON_LD_LIBRARY_PATH:-}" ]; then'; \
+	  echo '    export LD_LIBRARY_PATH="$$PICURV_PYTHON_LD_LIBRARY_PATH$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"'; \
+	  echo '  fi'; \
+	  echo '}'; \
+	  echo 'if [ -x "$$PICURV_DIR/.picurv-venv/bin/python" ]; then'; \
+	  echo '  _picurv_apply_managed_python_env'; \
 	  echo '  exec "$$PICURV_DIR/.picurv-venv/bin/python" "$$PICURV_DIR/scripts/picurv" "$$@"'; \
 	  echo 'fi'; \
 	  echo 'if [ -f "$$PICURV_DIR/.picurv-python" ]; then'; \
 	  echo '  _picurv_python="$$(sed -n "1p" "$$PICURV_DIR/.picurv-python")"'; \
 	  echo '  if [ -n "$$_picurv_python" ] && [ -x "$$_picurv_python" ]; then'; \
-	  echo '    case "$$_picurv_python" in */.picurv-venv/bin/python) export PYTHONNOUSERSITE=1; unset PYTHONPATH ;; esac'; \
+	  echo '    case "$$_picurv_python" in */.picurv-venv/bin/python) _picurv_apply_managed_python_env ;; esac'; \
 	  echo '    exec "$$_picurv_python" "$$PICURV_DIR/scripts/picurv" "$$@"'; \
 	  echo '  fi'; \
 	  echo 'fi'; \

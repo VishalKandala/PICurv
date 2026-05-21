@@ -35,7 +35,9 @@ export PETSC_DIR=/path/to/petsc
 ```
 The bootstrap script creates `.picurv-venv/` by default and installs the Python
 CLI dependencies there, while PETSc/MPI/compiler dependencies remain in your
-loaded system or module environment.
+loaded system or module environment. It also records the seed Python runtime
+library path so `picurv` can keep using the managed venv after you load a
+different module stack for visualization or post-processing.
 
 If PETSc is not installed yet:
 ```bash

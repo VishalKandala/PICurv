@@ -276,6 +276,7 @@ def test_make_conductor_creates_python_launcher():
     assert ".picurv-venv/bin/python" in content
     assert "PICURV_PYTHON" in content
     assert "unset PYTHONPATH" in content
+    assert "PICURV_PYTHON_LD_LIBRARY_PATH" in content
 
     help_result = subprocess.run(
         [str(launcher), "-h"],
@@ -328,9 +329,13 @@ def test_launcher_prefers_managed_venv_python(tmp_path):
     shutil.copy2(REPO_ROOT / "bin" / "picurv", repo / "bin" / "picurv")
     (repo / "bin" / "picurv").chmod(0o755)
     (repo / "scripts" / "picurv").write_text("# placeholder\n", encoding="utf-8")
+    (repo / ".picurv-python-env").write_text(
+        "PICURV_PYTHON_LD_LIBRARY_PATH=/seed/python/lib\n",
+        encoding="utf-8",
+    )
     write_executable(
         repo / ".picurv-venv" / "bin" / "python",
-        "#!/bin/sh\nprintf 'venv:%s:%s\\n' \"${PYTHONPATH:-unset}\" \"$*\"\n",
+        "#!/bin/sh\nprintf 'venv:%s:%s:%s\\n' \"${PYTHONPATH:-unset}\" \"${LD_LIBRARY_PATH:-unset}\" \"$*\"\n",
     )
 
     result = subprocess.run(
@@ -344,7 +349,7 @@ def test_launcher_prefers_managed_venv_python(tmp_path):
     )
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    assert result.stdout.strip() == f"venv:unset:{repo / 'scripts' / 'picurv'} alpha beta"
+    assert result.stdout.strip() == f"venv:unset:/seed/python/lib:{repo / 'scripts' / 'picurv'} alpha beta"
 
 
 def test_launcher_falls_back_to_picurv_python(tmp_path):

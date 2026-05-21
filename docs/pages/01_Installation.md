@@ -42,7 +42,9 @@ The script installs system and Python dependencies, verifies PETSc/DMSwarm visib
 
 By default, bootstrap creates `.picurv-venv/` under the repo and installs the
 Python-side CLI dependencies there. PETSc, MPI, compilers, and scheduler tools
-remain provided by your loaded system or cluster modules.
+remain provided by your loaded system or cluster modules. Bootstrap also writes
+`.picurv-python-env`, which records the seed Python runtime library path needed
+to launch the managed venv after you switch to a different module stack.
 
 On an existing HPC cluster where modules already provide compilers, MPI, and
 PETSc, skip OS package installation:
@@ -233,6 +235,7 @@ What `make doctor` does not prove:
 - MPI compiler wrappers unavailable in PATH.
 - Python interpreter too old for default bootstrap (load Python 3.10+, pass `--python-bin`, or use `--no-venv`).
 - Visualization modules leaking incompatible Python packages into `PYTHONPATH`; prefer the managed venv launcher from bootstrap for normal CLI use.
+- Managed venv Python cannot find `libpython`; rerun bootstrap after pulling current source so `.picurv-python-env` records the seed Python library path.
 - Old checkouts where `bin/picurv` is still a symlink; rerun `make -B conductor` after pulling current source.
 - PETSc configured without required downloaded dependencies.
 - missing X11 dev library at link time (`cannot find -lX11` on Linux; install `libx11-dev`).

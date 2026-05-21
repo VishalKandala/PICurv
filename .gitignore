@@ -17,4 +17,5 @@ scripts/brownian_grids/
 .picurv-execution.yml
 .picurv-local.yml
 .picurv-python
+.picurv-python-env
 .picurv-venv/
