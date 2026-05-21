@@ -19,14 +19,18 @@ momentum_solver:
       growth_factor: 1.0
       reduction_factor: 1.0
 
-pressure_solver:
+poisson_solver:
+  method: "fgmres"
+  max_iterations: 50
   multigrid:
     levels: 3
+    pre_sweeps: 2
+    post_sweeps: 2
+    cycle: "v"
+    mode: "multiplicative"
     semi_coarsening:
       i: false
       j: false
       k: true
 
-petsc_passthrough_options:
-  -ps_ksp_type: "fgmres"
-  -ps_ksp_max_it: 50
+petsc_passthrough_options: {}

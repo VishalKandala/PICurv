@@ -435,6 +435,8 @@ def test_parse_solver_config_maps_structured_poisson_solver_flags():
             "preconditioner": {"type": "multigrid"},
             "multigrid": {
                 "levels": 3,
+                "pre_sweeps": 2,
+                "post_sweeps": 3,
                 "cycle": "v",
                 "mode": "multiplicative",
                 "semi_coarsening": {"i": False, "j": False, "k": True},
@@ -456,6 +458,8 @@ def test_parse_solver_config_maps_structured_poisson_solver_flags():
     assert flags["-ps_ksp_gmres_restart"] == 20
     assert flags["-ps_pc_type"] == "mg"
     assert flags["-mg_level"] == 3
+    assert flags["-mg_pre_it"] == 2
+    assert flags["-mg_post_it"] == 3
     assert flags["-mg_i_semi"] == "0"
     assert flags["-mg_j_semi"] == "0"
     assert flags["-mg_k_semi"] == "1"

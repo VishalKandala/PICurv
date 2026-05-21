@@ -41,6 +41,10 @@ poisson_solver:
     type: "multigrid"
   multigrid:
     levels: 3
+    pre_sweeps: 2
+    post_sweeps: 2
+    cycle: "v"
+    mode: "multiplicative"
     # Use semi-coarsening in the 'k' direction, assuming it's the longest.
     semi_coarsening:
       i: false  # -> -mg_i_semi 0

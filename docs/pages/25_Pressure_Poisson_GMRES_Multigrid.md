@@ -53,6 +53,7 @@ From `solver.yml` via `scripts/picurv`:
 - `poisson_solver.multigrid.semi_coarsening.{i,j,k}` -> `-mg_i_semi`, `-mg_j_semi`, `-mg_k_semi`
 - `poisson_solver.multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type`
 - `poisson_solver.multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type`
+- `poisson_solver.multigrid.cycle` and `.mode` are accepted structured keys; current supported values are `v` and `multiplicative`
 - `pressure_solver` remains a legacy alias for `poisson_solver`
 - `petsc_passthrough_options` -> advanced PETSc flags not exposed as structured YAML
 
