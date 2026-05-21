@@ -238,6 +238,7 @@ $(POSTPROCESSOR_EXE): $(POSTPROCESSOR_OBJS) | dirs
 # as the single source of truth for conductor logic.
 $(CONDUCTOR_EXE): $(SCRIPTDIR)/picurv | dirs
 	@echo "--- Installing Conductor Script: $(@) ---"
+	@rm -f $@
 	@{ \
 	  echo '#!/usr/bin/env bash'; \
 	  echo 'set -e'; \
