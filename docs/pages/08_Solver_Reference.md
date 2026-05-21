@@ -99,6 +99,8 @@ poisson_solver:
     type: "multigrid"
   multigrid:
     levels: 3
+    pre_sweeps: 2
+    post_sweeps: 2
     cycle: "v"
     mode: "multiplicative"
     semi_coarsening:
@@ -110,6 +112,9 @@ poisson_solver:
         method: "fgmres"
         preconditioner: "bjacobi"
       level_1:
+        method: "richardson"
+        preconditioner: "bjacobi"
+      level_2:
         method: "richardson"
         preconditioner: "bjacobi"
 ```
@@ -127,6 +132,7 @@ Mappings:
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
 - `multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type`
 - `multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type`
+- `multigrid.cycle` and `multigrid.mode` are validated structured keys; current supported values are `v` and `multiplicative`.
 
 Rules:
 - `pressure_solver` is accepted as a legacy alias, but `poisson_solver` is preferred because the linear solve computes pressure correction `Phi`.
