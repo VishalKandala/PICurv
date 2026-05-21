@@ -243,11 +243,14 @@ $(CONDUCTOR_EXE): $(SCRIPTDIR)/picurv | dirs
 	  echo 'set -e'; \
 	  echo 'PICURV_DIR="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")/.." && pwd)"'; \
 	  echo 'if [ -x "$$PICURV_DIR/.picurv-venv/bin/python" ]; then'; \
+	  echo '  export PYTHONNOUSERSITE=1'; \
+	  echo '  unset PYTHONPATH'; \
 	  echo '  exec "$$PICURV_DIR/.picurv-venv/bin/python" "$$PICURV_DIR/scripts/picurv" "$$@"'; \
 	  echo 'fi'; \
 	  echo 'if [ -f "$$PICURV_DIR/.picurv-python" ]; then'; \
 	  echo '  _picurv_python="$$(sed -n "1p" "$$PICURV_DIR/.picurv-python")"'; \
 	  echo '  if [ -n "$$_picurv_python" ] && [ -x "$$_picurv_python" ]; then'; \
+	  echo '    case "$$_picurv_python" in */.picurv-venv/bin/python) export PYTHONNOUSERSITE=1; unset PYTHONPATH ;; esac'; \
 	  echo '    exec "$$_picurv_python" "$$PICURV_DIR/scripts/picurv" "$$@"'; \
 	  echo '  fi'; \
 	  echo 'fi'; \

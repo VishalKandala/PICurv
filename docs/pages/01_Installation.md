@@ -23,6 +23,7 @@ From the PICurv repo root:
 
 ```bash
 export PETSC_DIR=/path/to/petsc
+# Set PETSC_ARCH only for old-style in-tree PETSc builds.
 export PETSC_ARCH=arch-linux-c-debug
 ./scripts/bootstrap_install.sh
 ```
@@ -126,6 +127,7 @@ Add to your shell profile (`~/.bashrc` or equivalent):
 
 ```bash
 export PETSC_DIR=/path/to/petsc
+# PETSC_ARCH is optional for prefix installs from EasyBuild/Spack/system packages.
 export PETSC_ARCH=arch-linux-c-debug
 source /path/to/PICurv/etc/picurv.sh
 ```
@@ -149,7 +151,7 @@ Verify PETSc has DMSwarm headers:
 
 ```bash
 test -f "$PETSC_DIR/include/petscdmswarm.h" && echo "DMSwarm header found"
-test -f "$PETSC_DIR/$PETSC_ARCH/include/petscconf.h" && echo "PETSc arch config found"
+test -f "$PETSC_DIR/$PETSC_ARCH/include/petscconf.h" || test -f "$PETSC_DIR/include/petscconf.h"
 ```
 
 @section p01_clone_sec 6. Clone PICurv
@@ -211,7 +213,7 @@ What `make doctor` does not prove:
 
 @section p01_common_sec 9. Common Installation Failures
 
-- `PETSC_DIR`/`PETSC_ARCH` unset or mismatched with built arch.
+- `PETSC_DIR` unset or pointing at the wrong PETSc installation; `PETSC_ARCH` is only required for old-style in-tree PETSc builds.
 - MPI compiler wrappers unavailable in PATH.
 - Python interpreter too old for default bootstrap (load Python 3.10+, pass `--python-bin`, or use `--no-venv`).
 - Visualization modules leaking incompatible Python packages into `PYTHONPATH`; prefer the managed venv launcher from bootstrap for normal CLI use.

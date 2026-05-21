@@ -11,10 +11,14 @@ if [ -n "$_picurv_dir" ]; then
     export PICURV_DIR="$_picurv_dir"
     if [ -x "$PICURV_DIR/.picurv-venv/bin/python" ]; then
         export PICURV_PYTHON="$PICURV_DIR/.picurv-venv/bin/python"
+        export PICURV_PYTHON_IS_MANAGED=1
     elif [ -f "$PICURV_DIR/.picurv-python" ]; then
         _picurv_python="$(sed -n '1p' "$PICURV_DIR/.picurv-python" 2>/dev/null)"
         if [ -n "$_picurv_python" ] && [ -x "$_picurv_python" ]; then
             export PICURV_PYTHON="$_picurv_python"
+            case "$_picurv_python" in
+                */.picurv-venv/bin/python) export PICURV_PYTHON_IS_MANAGED=1 ;;
+            esac
         fi
     fi
     # Keep bin/ ahead of scripts/ for compiled executables, but also expose

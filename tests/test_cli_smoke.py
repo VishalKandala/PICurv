@@ -275,6 +275,7 @@ def test_make_conductor_creates_python_launcher():
     content = launcher.read_text(encoding="utf-8")
     assert ".picurv-venv/bin/python" in content
     assert "PICURV_PYTHON" in content
+    assert "unset PYTHONPATH" in content
 
     help_result = subprocess.run(
         [str(launcher), "-h"],
@@ -330,7 +331,7 @@ def test_launcher_prefers_managed_venv_python(tmp_path):
     (repo / "scripts" / "picurv").write_text("# placeholder\n", encoding="utf-8")
     write_executable(
         repo / ".picurv-venv" / "bin" / "python",
-        "#!/bin/sh\nprintf 'venv:%s\\n' \"$*\"\n",
+        "#!/bin/sh\nprintf 'venv:%s:%s\\n' \"${PYTHONPATH:-unset}\" \"$*\"\n",
     )
 
     result = subprocess.run(
@@ -340,10 +341,11 @@ def test_launcher_prefers_managed_venv_python(tmp_path):
         capture_output=True,
         timeout=60,
         check=False,
+        env={**os.environ, "PYTHONPATH": "/module/python/packages"},
     )
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    assert result.stdout.strip() == f"venv:{repo / 'scripts' / 'picurv'} alpha beta"
+    assert result.stdout.strip() == f"venv:unset:{repo / 'scripts' / 'picurv'} alpha beta"
 
 
 def test_launcher_falls_back_to_picurv_python(tmp_path):
