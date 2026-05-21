@@ -420,6 +420,24 @@ def test_parse_solver_config_maps_solution_convergence_flags():
     assert flags["-solution_convergence_period_steps"] == 12
 
 
+def test_parse_solver_config_maps_scalar_transport_flags():
+    """!
+    @brief Test that scalar transport properties map to C runtime flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "scalar_transport": {
+            "schmidt_number": 1.0e12,
+            "turbulent_schmidt_number": 0.9,
+        }
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-schmidt_number"] == 1.0e12
+    assert flags["-turb_schmidt_number"] == 0.9
+
+
 def test_parse_solver_config_maps_structured_poisson_solver_flags():
     """!
     @brief Test that parse_solver_config maps preferred Poisson solver YAML into PETSc flags.

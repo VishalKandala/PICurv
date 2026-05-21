@@ -3665,6 +3665,25 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                     "Currently supported: 'sources'."
                 )
 
+        transport_cfg = solver_cfg.get('scalar_transport', {})
+        if transport_cfg is not None and not isinstance(transport_cfg, dict):
+            errors.append(f"  {solver_path}: 'scalar_transport' must be a mapping when provided.")
+        elif isinstance(transport_cfg, dict):
+            unknown_transport_keys = sorted(set(transport_cfg.keys()) - {"schmidt_number", "turbulent_schmidt_number"})
+            if unknown_transport_keys:
+                errors.append(
+                    f"  {solver_path}: unsupported scalar_transport entries: {unknown_transport_keys}. "
+                    "Currently supported: 'schmidt_number', 'turbulent_schmidt_number'."
+                )
+            for key in ("schmidt_number", "turbulent_schmidt_number"):
+                if key in transport_cfg:
+                    try:
+                        value = float(transport_cfg[key])
+                        if value <= 0.0:
+                            errors.append(f"  {solver_path}: scalar_transport.{key} must be positive.")
+                    except (TypeError, ValueError):
+                        errors.append(f"  {solver_path}: scalar_transport.{key} must be numeric.")
+
         ms_cfg = solver_cfg.get('momentum_solver', {})
         if ms_cfg is not None and not isinstance(ms_cfg, dict):
             errors.append(f"  {solver_path}: 'momentum_solver' must be a mapping when provided.")
@@ -3828,9 +3847,10 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             resolve_diagnostics_config(monitor_cfg)
         except ValueError as e:
             errors.append(f"  {monitor_path}: {e}")
-        solver_mon_cfg = monitor_cfg.get('solver_monitoring')
-        if solver_mon_cfg is not None and not isinstance(solver_mon_cfg, dict):
-            errors.append(f"  {monitor_path}: 'solver_monitoring' must be a mapping of <flag>: <value>.")
+        try:
+            resolve_solver_monitoring_flags(monitor_cfg)
+        except ValueError as e:
+            errors.append(f"  {monitor_path}: {e}")
 
     if not errors:
         if needs_restart_source(case_cfg, solver_cfg):
@@ -5618,6 +5638,68 @@ def append_passthrough_flags(control_lines: list, options: dict):
         control_lines.append(f"{flag} {format_flag_value(value)}")
 
 
+SOLVER_MONITORING_POISSON_FLAG_MAP = {
+    "pic_true_residual": "-ps_ksp_pic_monitor_true_residual",
+    "true_residual": "-ps_ksp_monitor_true_residual",
+    "converged_reason": "-ps_ksp_converged_reason",
+    "view": "-ps_ksp_view",
+}
+
+
+def resolve_solver_monitoring_flags(monitor_cfg: dict) -> dict:
+    """!
+    @brief Resolve human-readable solver monitoring YAML to raw control flags.
+    @param[in] monitor_cfg Parsed monitor.yml mapping.
+    @return Mapping of raw C/PETSc flags to values.
+    """
+    solver_mon_cfg = monitor_cfg.get("solver_monitoring", {}) if isinstance(monitor_cfg, dict) else {}
+    if solver_mon_cfg is None:
+        return {}
+    if not isinstance(solver_mon_cfg, dict):
+        raise ValueError("monitor.solver_monitoring must be a mapping when provided.")
+
+    flags = {}
+
+    poisson_cfg = solver_mon_cfg.get("poisson", {}) or {}
+    if not isinstance(poisson_cfg, dict):
+        raise ValueError("monitor.solver_monitoring.poisson must be a mapping when provided.")
+    unknown_poisson = sorted(set(poisson_cfg.keys()) - set(SOLVER_MONITORING_POISSON_FLAG_MAP.keys()))
+    if unknown_poisson:
+        raise ValueError(f"monitor.solver_monitoring.poisson has unsupported key(s): {unknown_poisson}.")
+    for key, flag in SOLVER_MONITORING_POISSON_FLAG_MAP.items():
+        if key in poisson_cfg:
+            value = poisson_cfg[key]
+            if not isinstance(value, bool):
+                raise ValueError(f"monitor.solver_monitoring.poisson.{key} must be boolean.")
+            flags[flag] = value
+
+    passthrough = solver_mon_cfg.get("petsc_passthrough_options", {}) or {}
+    if not isinstance(passthrough, dict):
+        raise ValueError("monitor.solver_monitoring.petsc_passthrough_options must be a mapping when provided.")
+    flags.update(passthrough)
+
+    legacy_raw = {
+        key: value
+        for key, value in solver_mon_cfg.items()
+        if isinstance(key, str) and key.startswith("-")
+    }
+    flags.update(legacy_raw)
+
+    unknown_top = sorted(
+        key
+        for key in solver_mon_cfg.keys()
+        if key not in {"poisson", "petsc_passthrough_options"} and not (isinstance(key, str) and key.startswith("-"))
+    )
+    if unknown_top:
+        raise ValueError(
+            "monitor.solver_monitoring has unsupported key(s): "
+            f"{unknown_top}. Use 'poisson' for structured monitors or "
+            "'petsc_passthrough_options' for raw PETSc flags."
+        )
+
+    return flags
+
+
 def resolve_particle_console_output_frequency(io_cfg: dict) -> int | None:
     """!
     @brief Return the effective particle-console snapshot cadence from monitor.yml.
@@ -5754,6 +5836,30 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                     raise ValueError(f"verification.sources.scalar.{exc.args[0]} is required.") from exc
                 except (TypeError, ValueError) as exc:
                     raise ValueError(f"verification.sources.scalar.{key} must be numeric.") from exc
+
+    transport_cfg = solver_cfg.get('scalar_transport', {})
+    if transport_cfg:
+        if not isinstance(transport_cfg, dict):
+            raise ValueError("scalar_transport must be a mapping when provided.")
+        transport_map = {
+            'schmidt_number': '-schmidt_number',
+            'turbulent_schmidt_number': '-turb_schmidt_number',
+        }
+        unknown_transport_keys = sorted(set(transport_cfg.keys()) - set(transport_map.keys()))
+        if unknown_transport_keys:
+            raise ValueError(
+                f"scalar_transport has unsupported key(s): {unknown_transport_keys}. "
+                "Use 'schmidt_number' or 'turbulent_schmidt_number'."
+            )
+        for key, flag in transport_map.items():
+            if key in transport_cfg:
+                try:
+                    value = float(transport_cfg[key])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"scalar_transport.{key} must be numeric.") from exc
+                if value <= 0.0:
+                    raise ValueError(f"scalar_transport.{key} must be positive.")
+                flags[flag] = value
 
     selected_solver = None
     if 'strategy' in solver_cfg:
@@ -6163,7 +6269,12 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         sys.exit(1)
     for flag, value in solver_flags.items(): control_lines.append(f"{flag} {value}")
 
-    append_passthrough_flags(control_lines, monitor_cfg.get('solver_monitoring', {}))
+    try:
+        solver_monitoring_flags = resolve_solver_monitoring_flags(monitor_cfg)
+    except ValueError as e:
+        print(f"[FATAL] Invalid monitor.yml solver_monitoring settings: {e}", file=sys.stderr)
+        sys.exit(1)
+    append_passthrough_flags(control_lines, solver_monitoring_flags)
     
     io_cfg = monitor_cfg.get('io', {})
     particle_console_output_freq = resolve_particle_console_output_frequency(io_cfg)

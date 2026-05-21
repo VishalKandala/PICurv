@@ -254,6 +254,17 @@ so the retained state may lag the signal/request by up to roughly one in-flight 
 The startup banner reports whether the runtime walltime guard is enabled, inactive, or disabled,
 so production monitor profiles can stay at `WARNING` without hiding that status.
 
+Monitor profiles also own diagnostics and option I/O. Use
+`monitor.yml -> diagnostics.petsc` for PETSc initialization diagnostics such as
+malloc checks, `log_view`, `log_trace`, and object dumps; PICurv passes these on
+the solver/postprocessor command line so PETSc sees them during
+`PetscInitialize()`. Use `diagnostics.runtime_memory_log` for the compact
+rank-reduced `logs/Runtime_Memory.log`. Use `solver_monitoring.poisson` for
+readable solver-time Poisson monitor controls such as `pic_true_residual` and
+`converged_reason`; PICurv maps them to the prefixed KSP flags written into the
+generated `.control` file. Keep raw one-off PETSc options under
+`solver_monitoring.petsc_passthrough_options`.
+
 ## CLI Option References
 
 For exact current options, always use script-local help:

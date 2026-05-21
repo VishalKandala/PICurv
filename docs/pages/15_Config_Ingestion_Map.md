@@ -30,6 +30,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `solver.verification.sources.scalar.*` | `-verification_scalar_mode/-profile/-value/-phi0/-slope_x/-amplitude/-kx/-ky/-kz` | `src/setup.c` | `src/verification_sources.c`, `src/AnalyticalSolutions.c`, `src/ParticlePhysics.c`, `src/logging.c` |
 | `solver.strategy/tolerances/momentum_solver.*` | solver flags (`-mom_*`, pseudo-CFL, etc.) | `src/setup.c` | `src/momentumsolvers.c` |
 | `solver.solution_convergence.*` | `-solution_convergence_mode/-solution_convergence_period_steps/-solution_convergence_window_steps` | `src/setup.c` | `src/logging.c`, `src/runloop.c` |
+| `solver.scalar_transport.*` | `-schmidt_number`, `-turb_schmidt_number` | `src/setup.c` | `src/rhs.c`, `src/particle_statistics.c`, scalar/particle transport |
 | `solver.poisson_solver.*` / legacy `solver.pressure_solver.*` | `-poisson_tol`, `-ps_ksp_*`, `-ps_pc_type`, `-mg_*`, `-ps_mg_levels_*` | `src/setup.c` + PETSc options db | `src/poisson.c` |
 | `solver.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc KSP/PC stack, mostly in `src/poisson.c` |
 | `monitor.io.data_output_frequency` | `-tio` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
@@ -38,9 +39,11 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `monitor.io.directories.*` | `-output_dir`, `-restart_dir`, `-log_dir`, `-euler_subdir`, `-particle_subdir` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
 | `monitor.logging.*` | `whitelist.run`, `LOG_LEVEL` env | `src/setup.c` + `src/logging.c` | logging macros/system |
 | `monitor.profiling.*` | `profile.run` (selected-mode only) + explicit profiling flags in `*.control` | `src/setup.c` + profiling init | profiler summaries |
+| `monitor.diagnostics.petsc.*` | solver/postprocessor executable arguments (`-malloc_*`, `-log_view`, `-objects_dump`, etc.) | PETSc initialization | PETSc memory/log/object diagnostics |
 | `monitor.diagnostics.runtime_memory_log.*` | `-runtime_memory_log_enabled`, `-runtime_memory_log_file` | `src/setup.c` | `src/logging.c`, `src/runloop.c`, `src/postprocessor.c`, `src/simulator.c` |
 | `cluster.execution.walltime_guard.*` | `-walltime_guard_*` in solver `*.control` | `src/setup.c` | `src/runloop.c` runtime walltime estimator and graceful final-write cutoff |
-| `monitor.solver_monitoring` | raw flags in control | PETSc options db | PETSc monitors/convergence output |
+| `monitor.solver_monitoring.poisson.*` | prefixed Poisson monitor flags in control (`-ps_ksp_*`) | PETSc options db | `src/poisson.c` KSP monitor setup |
+| `monitor.solver_monitoring.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc monitors/debug options |
 | `post.run_control.*` | `startTime/endTime/timeStep` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `src/postprocessor.c` main loop |
 | `post.io.input_extensions.*` | `eulerianExt`, `particleExt` in `post.run` | `src/io.c` | `ReadSimulationFields`, `ReadAllSwarmFields`, swarm precheck |
 | `post.io.eulerian_fields_averaged` | `output_fields_averaged` in `post.run` | `src/io.c` | reserved/no-op in current writer path |
@@ -67,6 +70,9 @@ These keys are consumed by `picurv` orchestration only:
 
 - PETSc runtime option consumption is not only explicit `PetscOptionsGet*`.
 - `KSPSetFromOptions` in `src/poisson.c` ingests prefixed PETSc options dynamically.
+- `monitor.diagnostics.petsc.*` is intentionally emitted as executable
+  arguments rather than control-file rows so PETSc initialization-time options
+  are available before runtime setup reads `*.control`.
 - `LOG_LEVEL` is environment-driven (`src/logging.c`) and intentionally outside control-file parsing.
 
 @section p15_mode_dependent_sec 5. Mode-Dependent Normalization in `picurv`

@@ -73,6 +73,9 @@ For each run, `picurv` generates:
 - `solution_convergence.*` -> `-solution_convergence_*` for physical solution drift logging.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.
+- `scalar_transport.schmidt_number` and `scalar_transport.turbulent_schmidt_number`
+  are the structured scalar/Brownian transport controls; do not use passthrough
+  for ordinary Schmidt-number tuning.
 
 Analytical-mode compatibility rule:
 
@@ -111,7 +114,11 @@ Solution-convergence rule:
 - `io.particle_log_interval` -> `-logfreq`
 - `io.directories.output/restart/log` -> `-output_dir/-restart_dir/-log_dir`
 - `io.directories.eulerian_subdir/particle_subdir` -> `-euler_subdir/-particle_subdir`
-- `solver_monitoring` maps raw flags directly into control output.
+- `profiling.timestep_output` -> `profile.run` when `mode: selected`, plus profiling control flags
+- `diagnostics.petsc` -> PETSc startup arguments on solver/postprocessor commands
+- `diagnostics.runtime_memory_log` -> `-runtime_memory_log_enabled/-runtime_memory_log_file`
+- `solver_monitoring.poisson.*` maps readable monitor keys into prefixed Poisson KSP flags.
+- `solver_monitoring.petsc_passthrough_options` maps raw PETSc flags directly into control output.
 
 @section p14_post_sec 6. Post Contract Highlights
 
@@ -181,7 +188,9 @@ Optional shared runtime execution file:
 - Escape hatches stay supported:
   - `case.solver_parameters`
   - `solver.petsc_passthrough_options`
-  - `monitor.solver_monitoring`
+  - `monitor.solver_monitoring.petsc_passthrough_options`
+- Prefer structured keys first: use `solver.poisson_solver` for pressure-solver
+  KSP/MG setup and `monitor.diagnostics.petsc` for PETSc startup diagnostics.
 - Default post input/output extension is `dat` unless overridden.
 
 Launcher defaults vs C defaults:

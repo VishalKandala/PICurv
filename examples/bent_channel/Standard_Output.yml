@@ -16,6 +16,24 @@ profiling:
   timestep_output:
     mode: "off"
 
+diagnostics:
+  petsc:
+    malloc_debug: false
+    malloc_test: false
+    malloc_dump: false
+    malloc_view: false
+    malloc_view_threshold: null
+    memory_view: false
+    log_view: false
+    log_view_memory: false
+    log_all: false
+    log_trace: false
+    objects_dump: false
+    options_left: null
+  runtime_memory_log:
+    enabled: true
+    file: "Runtime_Memory.log"
+
 # --- I/O AND DATA MANAGEMENT ---
 io:
   data_output_frequency: 100 # -> -tio
@@ -25,3 +43,11 @@ io:
   directories:
     output: "output"
     restart: "restart"
+    log: "logs"
+    eulerian_subdir: "eulerian"
+    particle_subdir: "particles"
+
+solver_monitoring:
+  poisson:
+    pic_true_residual: false
+    converged_reason: false

@@ -81,7 +81,7 @@ Current implementation includes:
 
 - periodic-boundary pressure synchronization,
 - immersed-boundary-aware treatment paths (`Nvert`/solid checks),
-- optional Poisson monitor logging (`-ps_ksp_pic_monitor_true_residual`).
+- optional Poisson monitor logging via `monitor.yml -> solver_monitoring.poisson.pic_true_residual`.
 
 If pressure solve quality degrades, check first:
 

@@ -37,8 +37,27 @@ profiling:
   timestep_output:
     mode: "off"             # No per-step profiling output for this test
 
+diagnostics:
+  petsc:
+    malloc_debug: false
+    malloc_test: false
+    malloc_dump: false
+    malloc_view: false
+    malloc_view_threshold: null
+    memory_view: false
+    log_view: false
+    log_view_memory: false
+    log_all: false
+    log_trace: false
+    objects_dump: false
+    options_left: null
+  runtime_memory_log:
+    enabled: true
+    file: "Runtime_Memory.log"
+
 solver_monitoring:
   # Analytical mode skips the Poisson solve, so KSP monitoring is moot.
   # Keeping these off avoids misleading output.
-  -ksp_monitor: false
-  -ksp_converged_reason: false
+  poisson:
+    pic_true_residual: false
+    converged_reason: false

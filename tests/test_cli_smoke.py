@@ -2917,6 +2917,59 @@ def test_diagnostics_config_emits_runtime_memory_flags_and_petsc_args(tmp_path):
     assert f":{run_dir / 'logs' / 'PETSc_LogView_Solver.log'}" in args
 
 
+def test_structured_solver_monitoring_emits_prefixed_poisson_flags(tmp_path):
+    """!
+    @brief Test human-readable monitor solver settings emit prefixed Poisson control flags.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    monitor_cfg["solver_monitoring"] = {
+        "poisson": {
+            "pic_true_residual": True,
+            "true_residual": True,
+            "converged_reason": True,
+            "view": True,
+        },
+        "petsc_passthrough_options": {
+            "-ps_pc_svd_monitor": True,
+        },
+    }
+
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    source_files = {
+        "Case": str(valid / "case.yml"),
+        "Solver": str(valid / "solver.yml"),
+        "Monitor": str(valid / "monitor.yml"),
+    }
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo_run",
+        {
+            "case": case_cfg,
+            "case_path": str(valid / "case.yml"),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        1,
+        monitor_files,
+    )
+
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert "-ps_ksp_pic_monitor_true_residual" in content
+    assert "-ps_ksp_monitor_true_residual" in content
+    assert "-ps_ksp_converged_reason" in content
+    assert "-ps_ksp_view" in content
+    assert "-ps_pc_svd_monitor" in content
+
+
 def test_validate_rejects_bad_diagnostics_schema(tmp_path):
     """!
     @brief Test monitor diagnostics schema validation rejects bad value types.

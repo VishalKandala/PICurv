@@ -118,6 +118,30 @@ Rules:
 - PETSc initialization-time diagnostics such as `malloc_debug` and `malloc_test`
   are passed on the executable command line, not only through the generated
   `.control` file.
+- For example, this YAML:
+
+```yaml
+diagnostics:
+  petsc:
+    malloc_debug: true
+    log_view: true
+    objects_dump: "all"
+```
+
+adds PETSc startup arguments like:
+
+```text
+-malloc_debug -log_view :runs/<run_id>/logs/PETSc_LogView_Solver.log -objects_dump all
+```
+
+for the solver stage, with analogous `PostProcessor` log names for post runs.
+- `malloc_view`, `log_view`, and `log_trace` accept `false`, `true`, or a
+  non-empty PETSc viewer/path string. When set to `true`, PICurv writes
+  run-local defaults such as `logs/PETSc_MallocView_Solver.log`,
+  `logs/PETSc_LogView_Solver.log`, and matching `PostProcessor` files.
+- `objects_dump` accepts `false`, `true`, or `all`.
+- `options_left` accepts `true`, `false`, or `null`; use `null` to omit the
+  PETSc option entirely.
 - PETSc diagnostics that support output files use run-local defaults under
   `logs/`, with solver/postprocessor-specific filenames. Boolean-only PETSc
   diagnostics remain in the captured solver/post stream logs.
@@ -128,19 +152,36 @@ Rules:
 
 @section p09_solver_monitoring_sec 5. solver_monitoring
 
-Raw flag passthrough for PETSc monitors/debug options:
+Human-readable solver monitor controls. PICurv maps these keys to the raw
+C/PETSc flags written into the generated `.control` file:
 
 ```yaml
 solver_monitoring:
-  -ps_ksp_pic_monitor_true_residual: true
-  -ps_ksp_converged_reason: true
+  poisson:
+    pic_true_residual: true
+    true_residual: false
+    converged_reason: true
+    view: false
+  petsc_passthrough_options:
+    -ps_pc_svd_monitor: false
 ```
 
+Mappings:
+- `poisson.pic_true_residual` -> `-ps_ksp_pic_monitor_true_residual`
+- `poisson.true_residual` -> `-ps_ksp_monitor_true_residual`
+- `poisson.converged_reason` -> `-ps_ksp_converged_reason`
+- `poisson.view` -> `-ps_ksp_view`
+
 Rules:
-- Keys must be full flags (with leading `-`).
-- `true` emits switch-only flag.
-- `false` omits flag.
-- Non-boolean values emit `flag value`.
+- The structured `poisson.*` keys are booleans.
+- `petsc_passthrough_options` remains available for raw PETSc flags not yet
+  exposed as structured YAML. In passthrough, `true` emits a switch-only flag,
+  `false` omits the flag, and non-boolean values emit `flag value`.
+- `solver_monitoring` is written into the generated `.control` file and
+  consumed during solver setup, while `diagnostics.petsc` is placed on the
+  executable command line for PETSc initialization-time diagnostics.
+- Legacy direct flag entries under `solver_monitoring` are still accepted for
+  compatibility, but new profiles should prefer the structured form above.
 
 @section p09_next_steps_sec 6. Next Steps
 
