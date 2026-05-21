@@ -13,7 +13,7 @@ Install these first:
 - C compiler (`gcc` or `clang`)
 - MPI implementation (`mpich` or `openmpi`)
 - GNU Make
-- Python 3.10+ + pip
+- Python 3.10+ + pip for the managed PICurv CLI environment
 - Git
 - PETSc 3.20.3+ with `DMSwarm` support
 
@@ -37,7 +37,25 @@ The script installs system and Python dependencies, verifies PETSc/DMSwarm visib
 
 - `bin/simulator` (compiled C solver)
 - `bin/postprocessor` (compiled C post-processor)
-- `bin/picurv` (symlink to `scripts/picurv`, the Python conductor)
+- `bin/picurv` (launcher for `scripts/picurv`, the Python conductor)
+
+By default, bootstrap creates `.picurv-venv/` under the repo and installs the
+Python-side CLI dependencies there. PETSc, MPI, compilers, and scheduler tools
+remain provided by your loaded system or cluster modules.
+
+Useful variants:
+
+```bash
+./scripts/bootstrap_install.sh --with-plotting
+./scripts/bootstrap_install.sh --venv-dir /path/to/picurv-venv
+./scripts/bootstrap_install.sh --python-bin /path/to/python3.11
+./scripts/bootstrap_install.sh --no-venv
+```
+
+Use `--no-venv` when your site requires Python packages to come from modules or
+a centrally managed environment. If the only visible interpreter is Python 3.6,
+load a newer Python module before the default bootstrap path; otherwise use
+`--no-venv` and site-approved package versions.
 
 @section p01_install_tools_sec 3. Install Base Toolchain (Manual Path)
 
@@ -46,8 +64,9 @@ Debian/Ubuntu:
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential gfortran mpich git make pkg-config libx11-dev python3 python3-pip python3-venv
-python3 -m pip install --upgrade pip
-python3 -m pip install --user pyyaml numpy
+python3 -m venv .picurv-venv
+.picurv-venv/bin/python -m pip install --upgrade pip
+.picurv-venv/bin/python -m pip install pyyaml numpy
 ```
 
 RHEL/CentOS/Fedora:
@@ -55,13 +74,15 @@ RHEL/CentOS/Fedora:
 ```bash
 sudo yum groupinstall -y "Development Tools"
 sudo yum install -y mpich-devel python3 python3-pip git
-python3 -m pip install --user pyyaml numpy
+python3 -m venv .picurv-venv
+.picurv-venv/bin/python -m pip install --upgrade pip
+.picurv-venv/bin/python -m pip install pyyaml numpy
 ```
 
 Optional (study plot generation):
 
 ```bash
-python3 -m pip install --user matplotlib
+.picurv-venv/bin/python -m pip install matplotlib
 ```
 
 @section p01_petsc_sec 4. Install PETSc
@@ -109,10 +130,11 @@ export PETSC_ARCH=arch-linux-c-debug
 source /path/to/PICurv/etc/picurv.sh
 ```
 
-The `etc/picurv.sh` script sets `PICURV_DIR`, adds `bin/` to your `PATH` for
-compiled executables, and also exposes `scripts/` as a fallback so `picurv`
-still resolves if `bin/picurv` is temporarily absent before a rebuild. It is
-idempotent and safe to source multiple times.
+The `etc/picurv.sh` script sets `PICURV_DIR`, exports `PICURV_PYTHON` when a
+managed venv or bootstrap-selected Python is available, adds `bin/` to your
+`PATH` for compiled executables, and also exposes `scripts/` as a fallback so
+`picurv` still resolves if `bin/picurv` is temporarily absent before a rebuild.
+It is idempotent and safe to source multiple times.
 
 Reload and verify:
 
@@ -147,7 +169,7 @@ Expected binaries:
 
 - `bin/simulator` (compiled C solver)
 - `bin/postprocessor` (compiled C post-processor)
-- `bin/picurv` (symlink → `scripts/picurv`)
+- `bin/picurv` (launcher → `scripts/picurv`)
 
 Useful variants:
 
@@ -191,7 +213,8 @@ What `make doctor` does not prove:
 
 - `PETSC_DIR`/`PETSC_ARCH` unset or mismatched with built arch.
 - MPI compiler wrappers unavailable in PATH.
-- Python interpreter too old (PICurv expects Python 3.10+).
+- Python interpreter too old for default bootstrap (load Python 3.10+, pass `--python-bin`, or use `--no-venv`).
+- Visualization modules leaking incompatible Python packages into `PYTHONPATH`; prefer the managed venv launcher from bootstrap for normal CLI use.
 - PETSc configured without required downloaded dependencies.
 - missing X11 dev library at link time (`cannot find -lX11` on Linux; install `libx11-dev`).
 - stale object files after toolchain changes (use `clean-project`).

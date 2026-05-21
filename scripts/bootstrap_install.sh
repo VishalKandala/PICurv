@@ -6,10 +6,13 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 INSTALL_PETSC=0
 SKIP_SYSTEM_DEPS=0
+USE_VENV=1
+WITH_PLOTTING=0
 PETSC_VERSION="3.20.3"
 PETSC_PREFIX="${HOME}/software"
 PETSC_ARCH="arch-linux-c-debug"
 PYTHON_BIN=""
+VENV_DIR="${REPO_ROOT}/.picurv-venv"
 
 usage() {
   cat <<'EOF'
@@ -17,7 +20,7 @@ Usage: scripts/bootstrap_install.sh [options]
 
 Automates local PICurv setup:
 1) installs base system dependencies (Debian/Ubuntu),
-2) installs required Python packages,
+2) creates a managed Python virtual environment by default,
 3) optionally installs PETSc with DMSwarm,
 4) verifies PETSc + DMSwarm visibility,
 5) builds PICurv binaries.
@@ -27,13 +30,17 @@ Options:
   --petsc-version <ver>      PETSc version tag (default: 3.20.3).
   --petsc-prefix <dir>       Parent directory for PETSc source/build.
   --petsc-arch <arch>        PETSc arch name (default: arch-linux-c-debug).
-  --python-bin <path>        Python interpreter to use.
+  --python-bin <path>        Python interpreter to seed the venv or use directly.
+  --venv-dir <dir>           Managed venv path (default: .picurv-venv).
+  --no-venv                  Use the selected Python directly.
+  --with-plotting            Also install matplotlib for sweep plot generation.
   --skip-system-deps         Skip apt package installation.
   -h, --help                 Show this help.
 
 Examples:
   scripts/bootstrap_install.sh
   scripts/bootstrap_install.sh --install-petsc
+  scripts/bootstrap_install.sh --no-venv
 EOF
 }
 
@@ -50,6 +57,23 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Required command '$1' is missing."
 }
 
+absolute_path() {
+  local path="$1"
+  if [[ "${path}" = /* ]]; then
+    printf '%s\n' "${path}"
+  else
+    printf '%s/%s\n' "${REPO_ROOT}" "${path}"
+  fi
+}
+
+python_version_label() {
+  "$1" -c 'import sys; print(".".join(str(part) for part in sys.version_info[:3]))'
+}
+
+python_is_supported_seed() {
+  "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install-petsc) INSTALL_PETSC=1; shift ;;
@@ -58,13 +82,20 @@ while [[ $# -gt 0 ]]; do
     --petsc-prefix) PETSC_PREFIX="${2:?missing value for --petsc-prefix}"; shift 2 ;;
     --petsc-arch) PETSC_ARCH="${2:?missing value for --petsc-arch}"; shift 2 ;;
     --python-bin) PYTHON_BIN="${2:?missing value for --python-bin}"; shift 2 ;;
+    --venv-dir) VENV_DIR="$(absolute_path "${2:?missing value for --venv-dir}")"; shift 2 ;;
+    --no-venv) USE_VENV=0; shift ;;
+    --with-plotting) WITH_PLOTTING=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown option: $1" ;;
   esac
 done
 
 if [[ -z "${PYTHON_BIN}" ]]; then
-  if command -v python3.10 >/dev/null 2>&1; then
+  if command -v python3.12 >/dev/null 2>&1; then
+    PYTHON_BIN="python3.12"
+  elif command -v python3.11 >/dev/null 2>&1; then
+    PYTHON_BIN="python3.11"
+  elif command -v python3.10 >/dev/null 2>&1; then
     PYTHON_BIN="python3.10"
   else
     PYTHON_BIN="python3"
@@ -83,9 +114,35 @@ if [[ "${SKIP_SYSTEM_DEPS}" -eq 0 ]]; then
     libx11-dev python3 python3-pip python3-venv
 fi
 
-log "Installing Python dependencies with ${PYTHON_BIN}..."
-"${PYTHON_BIN}" -m pip install --upgrade pip
-"${PYTHON_BIN}" -m pip install pyyaml numpy
+PYTHON_VERSION="$(python_version_label "${PYTHON_BIN}")"
+log "Selected Python seed: ${PYTHON_BIN} (${PYTHON_VERSION})"
+
+if [[ "${USE_VENV}" -eq 1 ]]; then
+  if ! python_is_supported_seed "${PYTHON_BIN}"; then
+    die "Managed venv installs require Python 3.10+; selected ${PYTHON_BIN} is ${PYTHON_VERSION}. Load a newer Python module, pass --python-bin, or use --no-venv."
+  fi
+  log "Creating/updating managed Python environment at ${VENV_DIR}..."
+  "${PYTHON_BIN}" -m venv "${VENV_DIR}"
+  CLI_PYTHON="${VENV_DIR}/bin/python"
+  "${CLI_PYTHON}" -m pip install --upgrade pip
+  PYTHON_PACKAGES=(pyyaml numpy)
+  if [[ "${WITH_PLOTTING}" -eq 1 ]]; then
+    PYTHON_PACKAGES+=(matplotlib)
+  fi
+  log "Installing Python dependencies into managed venv: ${PYTHON_PACKAGES[*]}"
+  "${CLI_PYTHON}" -m pip install "${PYTHON_PACKAGES[@]}"
+else
+  CLI_PYTHON="${PYTHON_BIN}"
+  log "Installing Python dependencies with site-managed Python: ${CLI_PYTHON}"
+  "${CLI_PYTHON}" -m pip install --upgrade pip
+  PYTHON_PACKAGES=(pyyaml numpy)
+  if [[ "${WITH_PLOTTING}" -eq 1 ]]; then
+    PYTHON_PACKAGES+=(matplotlib)
+  fi
+  "${CLI_PYTHON}" -m pip install "${PYTHON_PACKAGES[@]}"
+fi
+
+printf '%s\n' "$(command -v "${CLI_PYTHON}" || printf '%s' "${CLI_PYTHON}")" > "${REPO_ROOT}/.picurv-python"
 
 if [[ "${INSTALL_PETSC}" -eq 1 ]]; then
   require_cmd mpicc
@@ -126,13 +183,14 @@ log "Verified PETSc config and DMSwarm header."
 
 log "Building PICurv binaries..."
 cd "${REPO_ROOT}"
-"${PYTHON_BIN}" ./scripts/picurv build
+"${CLI_PYTHON}" ./scripts/picurv build
 
 [[ -x "${REPO_ROOT}/bin/simulator" ]] || die "Missing binary: bin/simulator"
 [[ -x "${REPO_ROOT}/bin/postprocessor" ]] || die "Missing binary: bin/postprocessor"
 [[ -x "${REPO_ROOT}/bin/picurv" ]] || die "Missing binary: bin/picurv"
 
 log "Bootstrap complete."
+log "PICurv Python: ${CLI_PYTHON}"
 log "To add picurv to your PATH, run:"
 log "  echo 'source ${REPO_ROOT}/etc/picurv.sh' >> ~/.bashrc && source ~/.bashrc"
 log "Then verify with: picurv --help"

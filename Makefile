@@ -109,7 +109,7 @@ BUILD_AUDIT_GOALS ?= cleanobj clean-unit all unit
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
 SYSTEM ?= local
-NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress build-docs open-docs tags clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress build-docs open-docs tags clean-project cleanobj clean-project-docs clean-project-tags clean-unit conductor
 NEEDS_BUILD_CONFIG := 1
 
 ifneq ($(MAKECMDGOALS),)
@@ -233,11 +233,30 @@ $(POSTPROCESSOR_EXE): $(POSTPROCESSOR_OBJS) | dirs
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 	@echo "--- Build Complete: $(@) ---"
 
-# This rule symlinks the conductor script into the bin directory so PATH-based
-# access always uses the single source of truth in scripts/.
+# This rule installs a small launcher so PATH-based access can use the managed
+# Python environment created by bootstrap_install.sh while keeping scripts/picurv
+# as the single source of truth for conductor logic.
 $(CONDUCTOR_EXE): $(SCRIPTDIR)/picurv | dirs
 	@echo "--- Installing Conductor Script: $(@) ---"
-	@ln -sf ../scripts/picurv $@
+	@{ \
+	  echo '#!/usr/bin/env bash'; \
+	  echo 'set -e'; \
+	  echo 'PICURV_DIR="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")/.." && pwd)"'; \
+	  echo 'if [ -x "$$PICURV_DIR/.picurv-venv/bin/python" ]; then'; \
+	  echo '  exec "$$PICURV_DIR/.picurv-venv/bin/python" "$$PICURV_DIR/scripts/picurv" "$$@"'; \
+	  echo 'fi'; \
+	  echo 'if [ -f "$$PICURV_DIR/.picurv-python" ]; then'; \
+	  echo '  _picurv_python="$$(sed -n "1p" "$$PICURV_DIR/.picurv-python")"'; \
+	  echo '  if [ -n "$$_picurv_python" ] && [ -x "$$_picurv_python" ]; then'; \
+	  echo '    exec "$$_picurv_python" "$$PICURV_DIR/scripts/picurv" "$$@"'; \
+	  echo '  fi'; \
+	  echo 'fi'; \
+	  echo 'if [ -n "$${PICURV_PYTHON:-}" ]; then'; \
+	  echo '  exec "$$PICURV_PYTHON" "$$PICURV_DIR/scripts/picurv" "$$@"'; \
+	  echo 'fi'; \
+	  echo 'exec python3 "$$PICURV_DIR/scripts/picurv" "$$@"'; \
+	} > $@
+	@chmod +x $@
 
 # Generic rule for compiling any .c file from SRCDIR into an object file in OBJDIR.
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | dirs

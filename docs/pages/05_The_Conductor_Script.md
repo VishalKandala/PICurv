@@ -13,10 +13,13 @@ It is also the primary user-facing contract layer: many defaults, aliases, and t
 picurv [COMMAND] [ARGS...]
 ```
 
-After `make all`, `bin/picurv` is a symlink to `scripts/picurv` (the single source of truth).
+After `make all`, `bin/picurv` is a launcher for `scripts/picurv` (the single
+source of truth). The launcher uses `.picurv-venv/bin/python` when bootstrap
+created a managed environment, then a bootstrap-recorded or user-provided
+`PICURV_PYTHON`, and finally `python3`.
 Source `etc/picurv.sh` to add `bin/` to your PATH and expose `scripts/` as a
 fallback so `picurv` works from any directory even if `bin/picurv` is
-temporarily absent before `make conductor` recreates the symlink.
+temporarily absent before `make conductor` recreates the launcher.
 If `bin/picurv` does not exist yet, run `./scripts/picurv build` or `make conductor`.
 
 Primary commands:
@@ -668,10 +671,11 @@ For prebuilt reusable profiles, also see the local guides under:
    (e.g. case-local copies from `--pin-binaries` or `sync-binaries`), it is used first.
 2. **Project `bin/` directory** — the default location after `make all`.
 
-`bin/picurv` is a symlink to `scripts/picurv`. This means:
+`bin/picurv` is a launcher for `scripts/picurv`. This means:
 
 - there is exactly one source file (`scripts/picurv`), so code changes never drift,
-- `make conductor` recreates the symlink (idempotent),
+- `make conductor` recreates the launcher (idempotent),
+- bootstrap-managed installs run with the repo-local `.picurv-venv` Python,
 - `etc/picurv.sh` adds `bin/` to PATH so `picurv` works from any directory.
 
 **Rebuilding while jobs are running:**
