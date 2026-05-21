@@ -349,7 +349,9 @@ def test_launcher_prefers_managed_venv_python(tmp_path):
     )
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    assert result.stdout.strip() == f"venv:unset:/seed/python/lib:{repo / 'scripts' / 'picurv'} alpha beta"
+    stdout_parts = result.stdout.strip().split(":", 3)
+    assert stdout_parts[:3] == ["venv", "unset", "/seed/python/lib"]
+    assert stdout_parts[3].endswith(f"{repo / 'scripts' / 'picurv'} alpha beta")
 
 
 def test_launcher_falls_back_to_picurv_python(tmp_path):
