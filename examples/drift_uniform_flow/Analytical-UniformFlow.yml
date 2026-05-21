@@ -9,5 +9,7 @@ operation_mode:
 interpolation:
   method: "Trilinear"
 
-petsc_passthrough_options:
-  -schmidt_number: 1.0e12
+scalar_transport:
+  schmidt_number: 1.0e12
+
+petsc_passthrough_options: {}

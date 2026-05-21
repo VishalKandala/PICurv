@@ -43,7 +43,8 @@ io:
     eulerian_subdir: "eulerian"
     particle_subdir: "particles"
 
-# Optional raw PETSc monitoring switches.
+# Optional structured solver monitoring switches.
 solver_monitoring:
-  -ps_ksp_pic_monitor_true_residual: false
-  -ps_ksp_converged_reason: false
+  poisson:
+    pic_true_residual: false
+    converged_reason: false

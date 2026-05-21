@@ -190,7 +190,24 @@ The **Trilinear** method (default) performs direct trilinear interpolation from 
 
 See **@subpage 27_Trilinear_Interpolation_and_Projection** for algorithmic details.
 
-@section p08_verification_sec 8. verification
+@section p08_scalar_transport_sec 8. scalar_transport
+
+```yaml
+scalar_transport:
+  schmidt_number: 1.0
+  turbulent_schmidt_number: 0.7
+```
+
+Mappings:
+- `schmidt_number` -> `-schmidt_number`
+- `turbulent_schmidt_number` -> `-turb_schmidt_number`
+
+Rules:
+- values must be positive numbers
+- omitted values use the C runtime defaults: `schmidt_number = 1.0` and `turbulent_schmidt_number = 0.7`
+- use this structured block for ordinary scalar/Brownian transport tuning; reserve `petsc_passthrough_options` for flags without a YAML schema
+
+@section p08_verification_sec 9. verification
 
 ```yaml
 verification:
@@ -233,7 +250,7 @@ Rules:
 - scalar profiles currently supported are `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`
 - new verification source overrides must be implemented in `include/verification_sources.h` and `src/verification_sources.c`
 
-@section p08_petsc_sec 9. petsc_passthrough_options
+@section p08_petsc_sec 10. petsc_passthrough_options
 
 Advanced escape hatch for raw PETSc flags:
 
@@ -245,7 +262,7 @@ petsc_passthrough_options:
 
 These are passed into PETSc options DB and consumed by runtime calls like `KSPSetFromOptions`.
 
-@section p08_next_steps_sec 10. Next Steps
+@section p08_next_steps_sec 11. Next Steps
 
 Proceed to **@subpage 09_Monitor_Reference**.
 

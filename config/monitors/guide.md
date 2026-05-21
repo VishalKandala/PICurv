@@ -8,6 +8,9 @@ This directory stores reusable `monitor.yml` profiles for solver observability. 
 - timestep progress reporting and end-of-run summaries,
 - file output cadence and output directory behavior,
 - particle console reporting cadence,
+- structured diagnostics under `diagnostics`:
+  - PETSc initialization diagnostics such as malloc/log/object reporting,
+  - PICurv's compact `Runtime_Memory.log`,
 - PETSc monitor passthrough options.
 
 ## 2. Included Profiles
@@ -43,7 +46,20 @@ independently of console verbosity. In particular, `logs/search_metrics.csv` is
 always emitted by the runtime when particle tracking is active; allow-listing
 `LOG_SEARCH_METRICS` only controls the optional compact console summary.
 
-## 5. CFD-Oriented Monitoring Advice
+## 5. Diagnostics and PETSc Monitoring
+
+Use structured `diagnostics.petsc` for PETSc options that must be visible at
+`PetscInitialize()` time, such as `malloc_debug`, `malloc_view`, `log_view`,
+`log_trace`, `objects_dump`, and `options_left`. Use
+`diagnostics.runtime_memory_log` for PICurv's rank-reduced runtime memory log.
+
+Use `solver_monitoring.poisson` for readable solver-time Poisson monitor
+controls. PICurv maps keys such as `pic_true_residual`, `converged_reason`,
+and `view` to the prefixed PETSc/C flags consumed from the generated control
+file. Keep raw one-off PETSc flags under
+`solver_monitoring.petsc_passthrough_options`.
+
+## 6. CFD-Oriented Monitoring Advice
 
 - Track continuity and Poisson convergence together; divergence without KSP degradation often points to BC/profile mismatches.
 - Use small output intervals during solver tuning, then coarsen intervals for production throughput.

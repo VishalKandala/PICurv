@@ -93,7 +93,7 @@ print(f"Intercept:         {intercept:.6e}")
 
 ### Slope too high
 - `nu_t > 0`: LES was not disabled. Check `-les 0` in solver.yml passthrough.
-- Wrong Sc value passed to solver. Check `-schmidt_number` flag in control file.
+- Wrong Sc value passed to solver. Check `solver.yml -> scalar_transport.schmidt_number`.
 
 ### Slope too low
 - `Gamma_eff` computation bug: diffusivity not computed or zeroed out.

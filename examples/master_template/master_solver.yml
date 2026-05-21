@@ -56,6 +56,12 @@ operation_mode:
 # logs/scatter_metrics.csv. It bypasses only the particle Psi evolution path and
 # reuses the production scatter operator.
 
+# --- Scalar Transport Properties ---
+# These affect Eulerian diffusivity and particle scalar/Brownian models.
+scalar_transport:
+  schmidt_number: 1.0              # -> -schmidt_number
+  turbulent_schmidt_number: 0.7    # -> -turb_schmidt_number
+
 # ==============================================================================
 # 2. PRIMARY SOLVER STRATEGY & TOLERANCES
 # ==============================================================================

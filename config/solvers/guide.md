@@ -7,6 +7,7 @@ This directory stores reusable `solver.yml` profiles that define numerical strat
 - solver mode (`solve`, `load`, `analytical`),
 - momentum strategy and tolerances,
 - strategy-specific option blocks (for example `dual_time_picard_rk4`),
+- scalar transport properties such as Schmidt numbers,
 - pressure/Poisson/multigrid settings,
 - raw PETSc passthrough options.
 

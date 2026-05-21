@@ -310,6 +310,8 @@ Typical sources:
 - `logs/Poisson_Solver_Convergence_History_Block_*.log`
 - `logs/solution_convergence.log` (mode-specific speed/KE drift and L2 norms)
 - `logs/Profiling_Timestep_Summary.csv` when enabled
+- `logs/Runtime_Memory.log` when `monitor.diagnostics.runtime_memory_log.enabled` is true
+- `logs/PETSc_*_Solver.log` / `logs/PETSc_*_PostProcessor.log` when file-backed PETSc diagnostics are enabled
 - `scheduler/*_solver.log` or `scheduler/solver_*.out` for sampled particle snapshot previews
 
 When particle snapshots are available, `summarize` reports sampled diagnostics such as:
