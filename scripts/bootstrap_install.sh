@@ -124,13 +124,13 @@ if [[ "${USE_VENV}" -eq 1 ]]; then
   log "Creating/updating managed Python environment at ${VENV_DIR}..."
   "${PYTHON_BIN}" -m venv "${VENV_DIR}"
   CLI_PYTHON="${VENV_DIR}/bin/python"
-  "${CLI_PYTHON}" -m pip install --upgrade pip
+  env -u PYTHONPATH PYTHONNOUSERSITE=1 "${CLI_PYTHON}" -m pip install --upgrade pip
   PYTHON_PACKAGES=(pyyaml numpy)
   if [[ "${WITH_PLOTTING}" -eq 1 ]]; then
     PYTHON_PACKAGES+=(matplotlib)
   fi
   log "Installing Python dependencies into managed venv: ${PYTHON_PACKAGES[*]}"
-  "${CLI_PYTHON}" -m pip install "${PYTHON_PACKAGES[@]}"
+  env -u PYTHONPATH PYTHONNOUSERSITE=1 "${CLI_PYTHON}" -m pip install "${PYTHON_PACKAGES[@]}"
 else
   CLI_PYTHON="${PYTHON_BIN}"
   log "Installing Python dependencies with site-managed Python: ${CLI_PYTHON}"
@@ -170,16 +170,26 @@ if [[ "${INSTALL_PETSC}" -eq 1 ]]; then
   export PETSC_ARCH="${PETSC_ARCH}"
 fi
 
-if [[ -z "${PETSC_DIR:-}" || -z "${PETSC_ARCH:-}" ]]; then
-  die "PETSC_DIR and PETSC_ARCH must be set (or use --install-petsc)."
+if [[ -z "${PETSC_DIR:-}" ]]; then
+  die "PETSC_DIR must be set (or use --install-petsc)."
 fi
 
-PETSC_CONF="${PETSC_DIR}/${PETSC_ARCH}/include/petscconf.h"
 PETSC_DMSWARM_HEADER="${PETSC_DIR}/include/petscdmswarm.h"
-[[ -f "${PETSC_CONF}" ]] || die "PETSc config not found: ${PETSC_CONF}"
+PETSC_CONF_CANDIDATES=("${PETSC_DIR}/include/petscconf.h")
+if [[ -n "${PETSC_ARCH:-}" ]]; then
+  PETSC_CONF_CANDIDATES=("${PETSC_DIR}/${PETSC_ARCH}/include/petscconf.h" "${PETSC_CONF_CANDIDATES[@]}")
+fi
+PETSC_CONF=""
+for candidate in "${PETSC_CONF_CANDIDATES[@]}"; do
+  if [[ -f "${candidate}" ]]; then
+    PETSC_CONF="${candidate}"
+    break
+  fi
+done
+[[ -n "${PETSC_CONF}" ]] || die "PETSc config not found. Checked: ${PETSC_CONF_CANDIDATES[*]}"
 [[ -f "${PETSC_DMSWARM_HEADER}" ]] || die "DMSwarm header not found: ${PETSC_DMSWARM_HEADER}"
 
-log "Verified PETSc config and DMSwarm header."
+log "Verified PETSc config (${PETSC_CONF}) and DMSwarm header."
 
 log "Building PICurv binaries..."
 cd "${REPO_ROOT}"

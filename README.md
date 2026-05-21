@@ -29,6 +29,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 Automated setup (recommended):
 ```bash
 export PETSC_DIR=/path/to/petsc
+# Set PETSC_ARCH only for old-style in-tree PETSc builds.
 export PETSC_ARCH=arch-linux-c-debug
 ./scripts/bootstrap_install.sh
 ```
