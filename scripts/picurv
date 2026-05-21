@@ -29,15 +29,97 @@ import re
 import shlex
 import copy
 import math
-import numpy as np
 from datetime import datetime
 import time
 import filecmp
 
-try:
-    import matplotlib.pyplot as plt
-except ImportError:
-    plt = None
+_NUMPY_MODULE = None
+_MATPLOTLIB_PYPLOT = None
+
+
+def _prune_incompatible_python_site_paths(paths):
+    """!
+    @brief Remove site-package paths for a different Python major/minor version.
+    @param[in] paths Candidate sys.path entries.
+    @return Filtered path list.
+    """
+    current = (sys.version_info[0], sys.version_info[1])
+    pattern = re.compile(r"python(?:-)?(\d+)\.(\d+)", re.IGNORECASE)
+    filtered = []
+    for path in paths:
+        text = str(path)
+        match = pattern.search(text)
+        if match:
+            path_version = (int(match.group(1)), int(match.group(2)))
+            if path_version != current and ("site-packages" in text or "dist-packages" in text):
+                continue
+        filtered.append(path)
+    return filtered
+
+
+def _drop_imported_package(package_name: str):
+    """!
+    @brief Remove a failed/partial import package tree from sys.modules.
+    @param[in] package_name Top-level package name.
+    """
+    prefix = package_name + "."
+    for module_name in list(sys.modules):
+        if module_name == package_name or module_name.startswith(prefix):
+            sys.modules.pop(module_name, None)
+
+
+def require_numpy():
+    """!
+    @brief Import NumPy only for commands that need numeric reductions.
+    @return Imported NumPy module.
+    """
+    global _NUMPY_MODULE
+    if _NUMPY_MODULE is not None:
+        return _NUMPY_MODULE
+    try:
+        import numpy
+    except Exception as exc:
+        first_error = exc
+        original_path = list(sys.path)
+        try:
+            _drop_imported_package("numpy")
+            sys.path = _prune_incompatible_python_site_paths(original_path)
+            import numpy
+        except Exception as retry_exc:
+            raise RuntimeError(
+                "NumPy is required for this operation, but no compatible NumPy "
+                "could be imported for this Python interpreter. PICurv ignored "
+                "site-packages paths for other Python versions and retried. "
+                f"First error: {first_error}. Retry error: {retry_exc}"
+            ) from retry_exc
+        finally:
+            sys.path = original_path
+    _NUMPY_MODULE = numpy
+    return _NUMPY_MODULE
+
+
+def optional_matplotlib_pyplot():
+    """!
+    @brief Import matplotlib.pyplot lazily for study plot generation.
+    @return matplotlib.pyplot when available, otherwise None.
+    """
+    global _MATPLOTLIB_PYPLOT
+    if _MATPLOTLIB_PYPLOT is not None:
+        return _MATPLOTLIB_PYPLOT
+    original_path = list(sys.path)
+    try:
+        import matplotlib.pyplot as pyplot
+    except Exception:
+        try:
+            _drop_imported_package("matplotlib")
+            sys.path = _prune_incompatible_python_site_paths(original_path)
+            import matplotlib.pyplot as pyplot
+        except Exception:
+            return None
+        finally:
+            sys.path = original_path
+    _MATPLOTLIB_PYPLOT = pyplot
+    return _MATPLOTLIB_PYPLOT
 
 # --- Global Path Definitions ---
 INVOKED_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -6982,6 +7064,7 @@ def reduce_metric_values(values, reduction: str):
     """
     if not values:
         return None
+    np = require_numpy()
     reduction = str(reduction).lower()
     if reduction == "mean":
         return float(np.mean(values))
@@ -7204,6 +7287,7 @@ def generate_study_plots(study_cfg: dict, metrics_csv: str, plots_dir: str):
     if plotting_cfg.get("enabled", True) is False:
         print("[INFO] Plotting disabled by study.yml.")
         return []
+    plt = optional_matplotlib_pyplot()
     if plt is None:
         print("[WARNING] matplotlib not available; skipping plot generation.")
         return []
@@ -9515,6 +9599,7 @@ def _compute_particle_snapshot_delta(current_rows: "list[dict]", previous_rows: 
     @param[in] previous_rows Argument passed to `_compute_particle_snapshot_delta()`.
     @return Value returned by `_compute_particle_snapshot_delta()`.
     """
+    np = require_numpy()
     previous_by_pid = {
         row.get("pid"): row
         for row in previous_rows
@@ -9597,6 +9682,7 @@ def _build_particle_snapshot_summary(
     @param[in] previous_rows Argument passed to `_build_particle_snapshot_summary()`.
     @return Value returned by `_build_particle_snapshot_summary()`.
     """
+    np = require_numpy()
     payload = {
         "available": True,
         "sampled": True,
