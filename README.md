@@ -12,7 +12,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Runtime search/migration observability via `logs/search_metrics.csv` for particle-enabled runs
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
 - Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `logs/scatter_metrics.csv`
-- YAML-driven orchestration through the conductor (`scripts/picurv`, symlinked to `bin/picurv` after build)
+- YAML-driven orchestration through the conductor (`scripts/picurv`, launched by `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Staged local/Slurm run workflows with `--no-submit`, delayed `submit`, and Slurm run-directory-based `cancel`
 - Graceful final snapshot writes on early shutdown signals (`SIGUSR1`, `SIGTERM`, `SIGINT`) at safe checkpoints
@@ -23,7 +23,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 
 - PETSc build available via `PETSC_DIR` (and `PETSC_ARCH` when required by your install)
 - C toolchain + MPI (`gcc/clang`, `mpicc`, GNU Make)
-- Python 3.10+ with `pyyaml` and `numpy`
+- Python 3.10+ recommended for the managed PICurv CLI environment
 - Optional for plotting in sweep post-processing: `matplotlib`
 
 Automated setup (recommended):
@@ -32,9 +32,17 @@ export PETSC_DIR=/path/to/petsc
 export PETSC_ARCH=arch-linux-c-debug
 ./scripts/bootstrap_install.sh
 ```
+The bootstrap script creates `.picurv-venv/` by default and installs the Python
+CLI dependencies there, while PETSc/MPI/compiler dependencies remain in your
+loaded system or module environment.
+
 If PETSc is not installed yet:
 ```bash
 ./scripts/bootstrap_install.sh --install-petsc
+```
+For clusters that require site-managed Python packages:
+```bash
+./scripts/bootstrap_install.sh --no-venv
 ```
 
 ## Quick Start (Local)
@@ -57,9 +65,10 @@ source ~/.bashrc
 ```
 
 After build, `picurv` is available as a command from any directory. The
-environment script keeps `bin/` first on `PATH` for compiled executables and
-also exposes `scripts/` as a fallback so `picurv` still resolves if a pull or
-rebase removes `bin/picurv` before the conductor symlink is rebuilt.
+environment script keeps `bin/` first on `PATH` for compiled executables,
+exports `PICURV_PYTHON` when a managed environment exists, and also exposes
+`scripts/` as a fallback so `picurv` still resolves if a pull or rebase removes
+`bin/picurv` before the conductor launcher is rebuilt.
 
 4. Initialize an example:
 ```bash

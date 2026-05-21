@@ -37,6 +37,23 @@ _NUMPY_MODULE = None
 _MATPLOTLIB_PYPLOT = None
 
 
+class _LazyNumpyProxy:
+    """!
+    @brief Module-like proxy that preserves `picurv.np` without eager import.
+    """
+
+    def __getattr__(self, name):
+        """!
+        @brief Resolve a NumPy attribute on first use.
+        @param[in] name NumPy attribute name.
+        @return Requested NumPy attribute.
+        """
+        return getattr(require_numpy(), name)
+
+
+np = _LazyNumpyProxy()
+
+
 def _prune_incompatible_python_site_paths(paths):
     """!
     @brief Remove site-package paths for a different Python major/minor version.

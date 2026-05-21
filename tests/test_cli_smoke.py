@@ -255,6 +255,130 @@ def test_env_script_falls_back_to_scripts_when_bin_launcher_is_missing(tmp_path)
     assert stdout_lines == [str(repo / "scripts" / "picurv"), str(repo.resolve())]
 
 
+def test_make_conductor_creates_python_launcher():
+    """!
+    @brief Test that `make conductor` creates the managed-Python launcher.
+    """
+    result = subprocess.run(
+        ["make", "conductor"],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    launcher = REPO_ROOT / "bin" / "picurv"
+    assert launcher.exists()
+    assert not launcher.is_symlink()
+    content = launcher.read_text(encoding="utf-8")
+    assert ".picurv-venv/bin/python" in content
+    assert "PICURV_PYTHON" in content
+
+    help_result = subprocess.run(
+        [str(launcher), "-h"],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    assert help_result.returncode == 0, help_result.stdout + "\n" + help_result.stderr
+
+    pull_help_result = subprocess.run(
+        [str(launcher), "pull-source", "-h"],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    assert pull_help_result.returncode == 0, pull_help_result.stdout + "\n" + pull_help_result.stderr
+
+
+def test_bootstrap_help_documents_python_environment_modes():
+    """!
+    @brief Test that bootstrap install help exposes venv and site-managed modes.
+    """
+    result = subprocess.run(
+        [str(REPO_ROOT / "scripts" / "bootstrap_install.sh"), "--help"],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    for flag in ("--venv-dir", "--no-venv", "--python-bin", "--with-plotting"):
+        assert flag in result.stdout
+
+
+def test_launcher_prefers_managed_venv_python(tmp_path):
+    """!
+    @brief Test that the launcher uses the repo-local venv Python when present.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    subprocess.run(["make", "conductor"], cwd=str(REPO_ROOT), check=True, timeout=60)
+    repo = tmp_path / "repo"
+    (repo / "bin").mkdir(parents=True)
+    (repo / "scripts").mkdir()
+    (repo / ".picurv-venv" / "bin").mkdir(parents=True)
+    shutil.copy2(REPO_ROOT / "bin" / "picurv", repo / "bin" / "picurv")
+    (repo / "bin" / "picurv").chmod(0o755)
+    (repo / "scripts" / "picurv").write_text("# placeholder\n", encoding="utf-8")
+    write_executable(
+        repo / ".picurv-venv" / "bin" / "python",
+        "#!/bin/sh\nprintf 'venv:%s\\n' \"$*\"\n",
+    )
+
+    result = subprocess.run(
+        [str(repo / "bin" / "picurv"), "alpha", "beta"],
+        cwd=str(repo),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert result.stdout.strip() == f"venv:{repo / 'scripts' / 'picurv'} alpha beta"
+
+
+def test_launcher_falls_back_to_picurv_python(tmp_path):
+    """!
+    @brief Test that the launcher can use PICURV_PYTHON when no managed venv exists.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    subprocess.run(["make", "conductor"], cwd=str(REPO_ROOT), check=True, timeout=60)
+    repo = tmp_path / "repo"
+    (repo / "bin").mkdir(parents=True)
+    (repo / "scripts").mkdir()
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_python = write_executable(
+        fake_bin / "python",
+        "#!/bin/sh\nprintf 'override:%s\\n' \"$*\"\n",
+    )
+    shutil.copy2(REPO_ROOT / "bin" / "picurv", repo / "bin" / "picurv")
+    (repo / "bin" / "picurv").chmod(0o755)
+    (repo / "scripts" / "picurv").write_text("# placeholder\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [str(repo / "bin" / "picurv"), "gamma"],
+        cwd=str(repo),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+        env={**os.environ, "PICURV_PYTHON": str(fake_python)},
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert result.stdout.strip() == f"override:{repo / 'scripts' / 'picurv'} gamma"
+
+
 def make_fake_scancel_env(tmp_path: Path):
     """!
     @brief Create a fake `scancel` executable and environment override for CLI tests.

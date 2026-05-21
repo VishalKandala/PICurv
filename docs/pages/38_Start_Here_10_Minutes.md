@@ -24,7 +24,7 @@ You need:
 
 - PETSc configured (`PETSC_DIR`, `PETSC_ARCH`),
 - MPI runtime,
-- Python 3.
+- Python 3.10+ recommended for the managed `picurv` CLI environment.
 
 If any of these are missing, follow **@subpage 01_Installation** first.
 
@@ -38,10 +38,11 @@ source etc/picurv.sh
 ```
 
 The first command builds `bin/simulator`, `bin/postprocessor`, and creates
-`bin/picurv` (a symlink to `scripts/picurv`). The second adds `bin/` to your PATH
-for compiled executables and `scripts/` as a fallback for `picurv`, so the
-command still works from any directory even if the symlink has not been rebuilt
-yet. Add the source line to `~/.bashrc` to make it permanent. The build stream is
+`bin/picurv` (a launcher for `scripts/picurv`). The second adds `bin/` to your
+PATH for compiled executables, exports the managed CLI Python when bootstrap has
+created one, and exposes `scripts/` as a fallback for `picurv`, so the command
+still works from any directory even if the launcher has not been rebuilt yet.
+Add the source line to `~/.bashrc` to make it permanent. The build stream is
 also written to `logs/build.log`. If you later run `make` directly and want the
 same repo-level log files, use `make audit-build`.
 
