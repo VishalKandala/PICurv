@@ -147,6 +147,7 @@ if os.path.basename(SCRIPT_PATH) == "bin":
 else:
     DEFAULT_BIN_DIR = os.path.join(PROJECT_ROOT, "bin")
 
+PICURV_VERSION = "0.1.0"
 CASE_ORIGIN_METADATA_FILENAME = ".picurv-origin.json"
 RUNTIME_EXECUTION_CONFIG_FILENAME = ".picurv-execution.yml"
 LEGACY_LOCAL_RUNTIME_CONFIG_FILENAME = ".picurv-local.yml"
@@ -11781,6 +11782,7 @@ def build_main_parser():
             "  - Run cancellation: picurv cancel --run-dir ...; use --graceful for solver final-output shutdown"
         ),
     )
+    parser.add_argument("-v", "--version", action="version", version=f"picurv {PICURV_VERSION}")
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
     _add_run_parser(subparsers)
     _add_sweep_parser(subparsers)
