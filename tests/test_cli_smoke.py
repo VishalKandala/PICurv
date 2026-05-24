@@ -709,6 +709,16 @@ def test_top_level_help_smoke():
     assert "Next commands:" in result.stdout
 
 
+def test_top_level_version_smoke():
+    """!
+    @brief Test that top level version flags report the development version.
+    """
+    for flag in ("-v", "--version"):
+        result = run_picurv([flag])
+        assert result.returncode == 0
+        assert result.stdout.strip() == "picurv 0.1.0"
+
+
 def test_run_help_smoke():
     """!
     @brief Test that run help smoke.
