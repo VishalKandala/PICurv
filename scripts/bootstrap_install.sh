@@ -113,6 +113,7 @@ write_python_env_file() {
 
   runtime_dirs="$(
     python_runtime_library_dirs "${python_bin}" \
+      | awk '$0 !~ "^/(lib|lib64|usr/lib|usr/lib64)(/|$)"' \
       | awk 'NF && !seen[$0]++' \
       | paste -sd ':' -
   )"

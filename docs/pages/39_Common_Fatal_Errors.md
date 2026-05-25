@@ -34,6 +34,7 @@ Code reference:
 | [FATAL] Source data directory for post-processing not found or empty | Post source data path points to missing/empty solver output | Verify monitor output directory and existing solver output files. |
 | [FATAL] Unsupported scheduler '&lt;x&gt;'. Only Slurm is supported in v1. | cluster.yml has unsupported scheduler type | Set cluster.yml -> scheduler.type: slurm. |
 | [FATAL] In cluster mode, --num-procs applies to the solver stage and must be 1 (auto) or exactly nodes*ntasks_per_node (...) | Solver MPI count mismatch against cluster resources | Set -n 1 or set solver -n to nodes * ntasks_per_node. |
+| `libgfortran.so.5: version 'GFORTRAN_10' not found` or `libstdc++.so.6: version 'GLIBCXX_3.4.29' not found` | PETSc was built with a newer GCC toolchain than the runtime libraries found by the dynamic loader. On module-based clusters this usually means the solver ranks are launching without the matching compiler runtime library path, a stale `.picurv-python-env` prepended `/lib64`, or the binary was built under a different module stack. | Reload the same compiler/MPI/PETSc modules used for the build, rebuild from clean objects, then verify `ldd bin/simulator` resolves `libgfortran` and `libstdc++` to the module tree instead of `/lib64`. If `ldd` is correct but `picurv run` still fails, inspect `.picurv-python-env` and remove generic system dirs such as `/lib64`; then check `mpirun -n 1 env` and export `LD_LIBRARY_PATH` to MPI ranks explicitly if needed. |
 
 @section p39_restart_sec 3. Restart Mistakes To Check First
 
