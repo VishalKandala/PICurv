@@ -205,6 +205,24 @@ boundary_conditions:
       vx: 1.5  # Physical velocity [m/s]
       vy: 0.0
       vz: 0.0
+
+    # Alternative inlet profile from a precomputed PICSLICE file:
+    # handler: prescribed_flow
+    # params:
+    #   source:
+    #     type: file
+    #     path: profiles/inlet.picslice
+    #
+    # Alternative generated analytical square-duct Poiseuille profile:
+    # handler: prescribed_flow
+    # params:
+    #   source:
+    #     type: generated
+    #     generator: square_duct_poiseuille
+    #     output_file: config/inlet_profile_block0_negEta.generated.picslice
+    #     params:
+    #       bulk_velocity: 1.5
+    #       n_terms: 101
       
   - face: "+Eta"
     type: OUTLET

@@ -194,7 +194,9 @@ Supported face names:
 Supported type/handler combinations:
 - `INLET` + `constant_velocity` (`vx/vy/vz`)
 - `INLET` + `parabolic` (`v_max`)
-- `INLET` + `prescribed_flow` (`params.source.type: file`, `params.source.path`)
+- `INLET` + `prescribed_flow`:
+  - file-backed: `params.source.type: file`, `params.source.path`
+  - generated: `params.source.type: generated`, `params.source.generator: square_duct_poiseuille`
 - `OUTLET` + `conservation`
 - `WALL` + `noslip`
 - `PERIODIC` + `geometric`
@@ -202,6 +204,26 @@ Supported type/handler combinations:
 
 All six faces must be explicitly provided for each block.
 For detailed handler semantics, validation constraints, and C dispatch path, see **@subpage 44_Boundary_Conditions_Guide**.
+
+Generated profile example:
+
+```yaml
+- face: "-Zeta"
+  type: INLET
+  handler: prescribed_flow
+  params:
+    source:
+      type: generated
+      generator: square_duct_poiseuille
+      params:
+        bulk_velocity: 1.0
+        n_terms: 101
+```
+
+`picurv run --solve` generates the dimensional `.picslice`, writes
+`profile.info`, stages the solver-scale `.picslice`, and passes the existing
+`source_file` key to the C runtime. Use `picurv precompute --case ...` to create
+the same deterministic artifacts without launching the solver.
 
 @section p07_passthrough_sec 6. solver_parameters (Advanced)
 
