@@ -81,14 +81,40 @@ def require_numpy():
             sys.path = original_path
 
 
+def _evaluate_square_duct_poiseuille_shape(coord1, coord2, n_terms: int):
+    """!
+    @brief Evaluate the unscaled square-duct Poiseuille sine-series shape.
+    @param[in] coord1 First normalized tangential coordinate array.
+    @param[in] coord2 Second normalized tangential coordinate array.
+    @param[in] n_terms Positive odd number of sine modes.
+    @return Tuple `(shape, continuous_area_mean)`.
+    """
+    numpy = require_numpy()
+    u = numpy.zeros_like(coord1, dtype=float)
+    u_area_mean = 0.0
+
+    for m in range(1, n_terms + 1, 2):
+        sin_m = numpy.sin(m * numpy.pi * coord2)
+        for n in range(1, n_terms + 1, 2):
+            coeff = 16.0 / (numpy.pi ** 4 * m * n * (m ** 2 + n ** 2))
+            u += coeff * sin_m * numpy.sin(n * numpy.pi * coord1)
+            u_area_mean += coeff * 4.0 / (m * n * numpy.pi ** 2)
+
+    return u, u_area_mean
+
+
 def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity: float,
-                                    n_terms: int) -> dict:
+                                    n_terms: int, target_grid: str = None,
+                                    target_block: int = 0, target_face: str = None) -> dict:
     """!
     @brief Generate a dimensional canonical PICSLICE for square-duct Poiseuille flow.
     @param[in] output_path Output `.picslice` path.
     @param[in] dims PICSLICE dimensions in storage order `(n1, n2)`.
     @param[in] bulk_velocity Desired continuous area-mean speed.
     @param[in] n_terms Number of odd sine modes to include.
+    @param[in] target_grid Optional canonical target PICGRID for grid-aware sampling.
+    @param[in] target_block Target block index when `target_grid` is provided.
+    @param[in] target_face Target inlet face when `target_grid` is provided.
     @return Summary dictionary with dimensions and speed statistics.
     """
     n1, n2 = tuple(dims)
@@ -100,22 +126,45 @@ def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity
         raise ValueError("n_terms must be a positive odd integer.")
 
     numpy = require_numpy()
-    coord_2 = numpy.arange(1, n2 + 1, dtype=float) / float(n2 + 1)
-    coord_1 = numpy.arange(1, n1 + 1, dtype=float) / float(n1 + 1)
-    x, y = numpy.meshgrid(coord_2, coord_1, indexing="xy")
-    u = numpy.zeros_like(x, dtype=float)
-    u_area_mean = 0.0
+    geometry = None
+    if target_grid:
+        if not target_face:
+            raise ValueError("target_face is required when target_grid is provided.")
+        geometry = target_face_geometry_from_picgrid(target_grid, int(target_block), target_face, dims)
+        coord_1 = geometry["coord1"]
+        coord_2 = geometry["coord2"]
+    else:
+        coord_2_nodes = numpy.arange(1, n2 + 1, dtype=float) / float(n2 + 1)
+        coord_1_nodes = numpy.arange(1, n1 + 1, dtype=float) / float(n1 + 1)
+        coord_2, coord_1 = numpy.meshgrid(coord_2_nodes, coord_1_nodes, indexing="xy")
 
-    for m in range(1, n_terms + 1, 2):
-        sin_m = numpy.sin(m * numpy.pi * x)
-        for n in range(1, n_terms + 1, 2):
-            coeff = 16.0 / (numpy.pi ** 4 * m * n * (m ** 2 + n ** 2))
-            u += coeff * sin_m * numpy.sin(n * numpy.pi * y)
-            u_area_mean += coeff * 4.0 / (m * n * numpy.pi ** 2)
+    u, u_area_mean = _evaluate_square_duct_poiseuille_shape(coord_1, coord_2, n_terms)
 
     if u_area_mean <= 0.0 or not math.isfinite(float(u_area_mean)):
         raise ValueError("generated profile has invalid continuous area mean speed.")
-    u *= bulk_velocity / float(u_area_mean)
+    if geometry is not None:
+        areas = geometry["areas"]
+        total_area = float(numpy.sum(areas))
+        weighted_mean_before = float(numpy.sum(u * areas) / total_area)
+        if weighted_mean_before <= 0.0 or not math.isfinite(weighted_mean_before):
+            raise ValueError("generated profile has invalid geometric area-weighted mean speed.")
+        u *= bulk_velocity / weighted_mean_before
+        normalization = "geometric_area"
+        sampling = "grid_face_centers"
+        area_weighted_mean_before = weighted_mean_before
+        area_weighted_mean_after = float(numpy.sum(u * areas) / total_area)
+        total_inlet_area = total_area
+        face_area_min = float(numpy.min(areas))
+        face_area_max = float(numpy.max(areas))
+    else:
+        u *= bulk_velocity / float(u_area_mean)
+        normalization = "continuous_area"
+        sampling = "uniform_logical"
+        area_weighted_mean_before = None
+        area_weighted_mean_after = None
+        total_inlet_area = None
+        face_area_min = None
+        face_area_max = None
     u = numpy.maximum(u, 0.0)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
@@ -130,7 +179,7 @@ def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity
     min_speed = float(numpy.min(u))
     max_speed = float(numpy.max(u))
     discrete_mean_speed = float(numpy.mean(u))
-    return {
+    summary = {
         "generator": "square_duct_poiseuille",
         "path": os.path.abspath(output_path),
         "dims": [n1, n2],
@@ -142,7 +191,18 @@ def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity
         "min_speed": min_speed,
         "max_speed": max_speed,
         "umax_over_ubulk": max_speed / bulk_velocity,
+        "normalization": normalization,
+        "sampling": sampling,
     }
+    if geometry is not None:
+        summary.update({
+            "area_weighted_mean_before_normalization": area_weighted_mean_before,
+            "area_weighted_mean_after_normalization": area_weighted_mean_after,
+            "total_inlet_area": total_inlet_area,
+            "face_area_min": face_area_min,
+            "face_area_max": face_area_max,
+        })
+    return summary
 
 
 BC_FACE_MAP = {
@@ -318,6 +378,120 @@ def _slice_specs_from_axis(axis: str, index: int, normal_face: str, dims: tuple)
     spec["index"] = index
     spec["face"] = None
     return spec
+
+
+def _quad_area(p00, p01, p10, p11) -> float:
+    """!
+    @brief Compute a geometric quadrilateral area from two triangle areas.
+    @param[in] p00 First corner.
+    @param[in] p01 Second corner along storage dimension 2.
+    @param[in] p10 Second corner along storage dimension 1.
+    @param[in] p11 Opposite corner.
+    @return Nonnegative area.
+    """
+    numpy = require_numpy()
+    return 0.5 * float(numpy.linalg.norm(numpy.cross(p01 - p00, p11 - p00))) + \
+        0.5 * float(numpy.linalg.norm(numpy.cross(p11 - p00, p10 - p00)))
+
+
+def _face_node_grid(coords, face: str):
+    """!
+    @brief Return inlet-face corner nodes in PICSLICE storage order.
+    @param[in] coords Grid coordinates shaped `(km, jm, im, 3)`.
+    @param[in] face Canonical target face token.
+    @return Node grid shaped `(n1 + 1, n2 + 1, 3)`.
+    """
+    face = normalize_face_token(face, "target_face")
+    km, jm, im, _ = coords.shape
+    if face == "-Xi":
+        return coords[:, :, 0, :]
+    if face == "+Xi":
+        return coords[:, :, im - 1, :]
+    if face == "-Eta":
+        return coords[:, 0, :, :]
+    if face == "+Eta":
+        return coords[:, jm - 1, :, :]
+    if face == "-Zeta":
+        return coords[0, :, :, :]
+    if face == "+Zeta":
+        return coords[km - 1, :, :, :]
+    raise ValueError(f"Unsupported face '{face}'.")
+
+
+def _normalized_center_coordinates(nodes):
+    """!
+    @brief Compute normalized face-cell center coordinates from face corner nodes.
+    @param[in] nodes Face node grid shaped `(n1 + 1, n2 + 1, 3)`.
+    @return Tuple `(coord1, coord2)` shaped `(n1, n2)`.
+    """
+    numpy = require_numpy()
+    n1p, n2p, _ = nodes.shape
+    n1 = n1p - 1
+    n2 = n2p - 1
+
+    def cumulative_axis(points):
+        if len(points) <= 1:
+            return numpy.asarray([0.0], dtype=float)
+        steps = numpy.linalg.norm(numpy.diff(points, axis=0), axis=1)
+        cumulative = numpy.concatenate(([0.0], numpy.cumsum(steps)))
+        total = float(cumulative[-1])
+        if total <= 0.0 or not math.isfinite(total):
+            raise ValueError("Degenerate inlet face extent while computing profile sample coordinates.")
+        return cumulative / total
+
+    axis1_nodes = cumulative_axis(numpy.mean(nodes, axis=1))
+    axis2_nodes = cumulative_axis(numpy.mean(nodes, axis=0))
+    axis1_centers = 0.5 * (axis1_nodes[:-1] + axis1_nodes[1:])
+    axis2_centers = 0.5 * (axis2_nodes[:-1] + axis2_nodes[1:])
+    coord2, coord1 = numpy.meshgrid(axis2_centers, axis1_centers, indexing="xy")
+    if coord1.shape != (n1, n2) or coord2.shape != (n1, n2):
+        raise ValueError("Internal face-center coordinate shape mismatch.")
+    return coord1, coord2
+
+
+def target_face_geometry_from_picgrid(target_grid: str, target_block: int, target_face: str,
+                                      expected_dims: tuple = None) -> dict:
+    """!
+    @brief Compute geometric inlet-face centers, areas, and normalized sample coordinates.
+    @param[in] target_grid Canonical target PICGRID path.
+    @param[in] target_block Target block index.
+    @param[in] target_face Target inlet face token.
+    @param[in] expected_dims Optional expected `(n1, n2)` dimensions.
+    @return Dictionary with `dims`, `centers`, `areas`, `coord1`, and `coord2`.
+    """
+    numpy = require_numpy()
+    blocks = read_picgrid_blocks(target_grid)
+    if target_block < 0 or target_block >= len(blocks):
+        raise ValueError(f"target_block {target_block} is outside target grid block range.")
+    nodes = _face_node_grid(blocks[target_block]["coords"], target_face)
+    n1 = nodes.shape[0] - 1
+    n2 = nodes.shape[1] - 1
+    if expected_dims is not None and tuple(expected_dims) != (n1, n2):
+        raise ValueError(
+            f"target face dimensions {(n1, n2)} do not match expected dimensions {tuple(expected_dims)}."
+        )
+
+    centers = numpy.zeros((n1, n2, 3), dtype=float)
+    areas = numpy.zeros((n1, n2), dtype=float)
+    for a in range(n1):
+        for b in range(n2):
+            p00 = nodes[a, b]
+            p01 = nodes[a, b + 1]
+            p10 = nodes[a + 1, b]
+            p11 = nodes[a + 1, b + 1]
+            centers[a, b, :] = 0.25 * (p00 + p01 + p10 + p11)
+            areas[a, b] = _quad_area(p00, p01, p10, p11)
+            if areas[a, b] <= 0.0 or not math.isfinite(float(areas[a, b])):
+                raise ValueError(f"Degenerate target inlet face area at storage index ({a}, {b}).")
+
+    coord1, coord2 = _normalized_center_coordinates(nodes)
+    return {
+        "dims": (n1, n2),
+        "centers": centers,
+        "areas": areas,
+        "coord1": coord1,
+        "coord2": coord2,
+    }
 
 
 def _surface_normals(coords, spec: dict):
@@ -558,6 +732,9 @@ def build_parser():
                         help="Desired continuous area-mean scalar speed.")
     square.add_argument("--n-terms", type=int, default=101,
                         help="Positive odd number of sine modes.")
+    square.add_argument("--target-grid", help="Optional target canonical PICGRID for grid-aware sampling.")
+    square.add_argument("--target-block", type=int, default=0, help="Target block index for --target-grid.")
+    square.add_argument("--target-face", help="Target inlet face token for --target-grid.")
     square.add_argument("--summary-json", help="Optional path for generator summary JSON.")
     field_slice = subparsers.add_parser(
         "field-slice",
@@ -601,6 +778,9 @@ def main(argv=None) -> int:
                 tuple(args.dims),
                 args.bulk_velocity,
                 args.n_terms,
+                args.target_grid,
+                args.target_block,
+                args.target_face,
             )
         elif args.command == "field-slice":
             if args.slice_face:

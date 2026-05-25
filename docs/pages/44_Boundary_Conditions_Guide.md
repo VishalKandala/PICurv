@@ -135,9 +135,16 @@ it reads the source `PICGRID` header. Generated dimensional profiles and
 `profile.info` are written under the run `config/` directory, then the staged
 solver-scale `.picslice` is referenced from `bcs.run`.
 
-For `square_duct_poiseuille`, `bulk_velocity` is the continuous area-mean speed
-of the truncated analytical sine series, not the discrete sample mean on the
-face points. `profile.info` records both area and discrete mean speeds.
+For `square_duct_poiseuille`, `bulk_velocity` is the target inlet bulk speed.
+When a canonical target `PICGRID` is available, `picurv` evaluates the analytical
+profile at target inlet face centers and rescales it using geometric quad face
+areas so `sum(u * area) / sum(area)` matches `bulk_velocity`. `profile.info`
+records the normalization mode, sampling mode, area-weighted mean before and
+after normalization, total inlet area, face-area range, and discrete sample mean.
+If no target grid is available yet, generation falls back to continuous-area
+normalization on uniform logical sample points. Exact C metric-vector area
+matching is a future refinement; the current Python path uses geometric quad
+areas from the target grid coordinates.
 
 Field-sliced profiles reuse an existing Cartesian velocity field as a new inlet:
 

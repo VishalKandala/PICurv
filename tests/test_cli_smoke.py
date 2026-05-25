@@ -96,6 +96,25 @@ def write_canonical_picgrid(path: Path, dims=(3, 3, 3)) -> Path:
     return path
 
 
+def write_stretched_picgrid(path: Path, dims=(5, 5, 3)) -> Path:
+    """!
+    @brief Write a canonical PICGRID with stretched transverse coordinates.
+    @param[in] path Filesystem path argument passed to `write_stretched_picgrid()`.
+    @param[in] dims Grid node dimensions.
+    @return Output path.
+    """
+    im, jm, km = dims
+    lines = ["PICGRID", "1", f"{im} {jm} {km}"]
+    for k in range(km):
+        for j in range(jm):
+            y = (float(j) / float(jm - 1)) ** 1.7 if jm > 1 else 0.0
+            for i in range(im):
+                x = (float(i) / float(im - 1)) ** 2.0 if im > 1 else 0.0
+                lines.append(f"{x:.16e} {y:.16e} {float(k):.16e}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def write_petsc_vec_binary(path: Path, values) -> Path:
     """!
     @brief Write a minimal PETSc binary VecView real64 payload for tests.
@@ -1029,6 +1048,78 @@ def test_profile_gen_square_duct_poiseuille_cli(tmp_path):
     assert output.is_file()
 
 
+def test_profile_gen_square_duct_poiseuille_grid_aware_normalization(tmp_path):
+    """!
+    @brief Test grid-aware generated profiles area-normalize on stretched inlet faces.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    grid = write_stretched_picgrid(tmp_path / "grid.picgrid", dims=(5, 5, 3))
+    output = tmp_path / "profile_grid_aware.picslice"
+    baseline = tmp_path / "profile_uniform.picslice"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROFILE_GEN),
+            "square_duct_poiseuille",
+            "--output",
+            str(output),
+            "--dims",
+            "4",
+            "4",
+            "--bulk-velocity",
+            "1.25",
+            "--n-terms",
+            "31",
+            "--target-grid",
+            str(grid),
+            "--target-face=-Zeta",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    baseline_result = subprocess.run(
+        [
+            sys.executable,
+            str(PROFILE_GEN),
+            "square_duct_poiseuille",
+            "--output",
+            str(baseline),
+            "--dims",
+            "4",
+            "4",
+            "--bulk-velocity",
+            "1.25",
+            "--n-terms",
+            "31",
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert baseline_result.returncode == 0, baseline_result.stderr
+    summary = json.loads(result.stdout)
+    values = [float(value) for value in output.read_text(encoding="utf-8").splitlines()[3:]]
+    baseline_values = [float(value) for value in baseline.read_text(encoding="utf-8").splitlines()[3:]]
+    xs = [(float(i) / 4.0) ** 2.0 for i in range(5)]
+    ys = [(float(j) / 4.0) ** 1.7 for j in range(5)]
+    areas = [(ys[j + 1] - ys[j]) * (xs[i + 1] - xs[i]) for j in range(4) for i in range(4)]
+    weighted_mean = sum(value * area for value, area in zip(values, areas)) / sum(areas)
+
+    assert summary["normalization"] == "geometric_area"
+    assert summary["sampling"] == "grid_face_centers"
+    assert summary["dims"] == [4, 4]
+    assert summary["area_weighted_mean_after_normalization"] == pytest.approx(1.25)
+    assert weighted_mean == pytest.approx(1.25)
+    assert any(abs(value - baseline) > 1.0e-8 for value, baseline in zip(values, baseline_values))
+
+
 def test_profile_gen_field_slice_cli_projects_ucat_to_picslice(tmp_path):
     """!
     @brief Test profile.gen field-slice extracts positive normal speeds from Ucat.
@@ -1262,6 +1353,47 @@ def test_prescribed_flow_bcs_generation_materializes_generated_source(tmp_path):
     assert (config_dir / "profile.info").is_file()
     staged_lines = staged.read_text(encoding="utf-8").splitlines()
     assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
+
+
+def test_prescribed_flow_generated_source_uses_target_grid_geometry(tmp_path):
+    """!
+    @brief Test generated prescribed_flow profiles use target PICGRID geometry when available.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    grid = write_stretched_picgrid(tmp_path / "target.picgrid", dims=(9, 9, 17))
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
+    case_cfg["boundary_conditions"][4] = {
+        "face": "-Zeta",
+        "type": "INLET",
+        "handler": "prescribed_flow",
+        "params": {
+            "source": {
+                "type": "generated",
+                "generator": "square_duct_poiseuille",
+                "params": {"bulk_velocity": 1.0, "n_terms": 31},
+            }
+        },
+    }
+    run_dir = tmp_path / "run"
+    config_dir = run_dir / "config"
+    config_dir.mkdir(parents=True)
+    case_path = config_dir / "case.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    generated = picurv.generate_multi_block_bcs(
+        str(run_dir), "unit", case_cfg, {"Case": str(case_path), "Solver": "solver.yml", "Monitor": "monitor.yml"}
+    )
+
+    info_text = (config_dir / "profile.info").read_text(encoding="utf-8")
+    staged_lines = (config_dir / "inlet_profile_block0_negZeta.picslice").read_text(encoding="utf-8").splitlines()
+    assert generated
+    assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
+    assert "normalization = geometric_area" in info_text
+    assert "sampling = grid_face_centers" in info_text
+    assert "area_weighted_mean_after_normalization" in info_text
 
 
 def test_prescribed_flow_bcs_generation_materializes_field_slice_source(tmp_path):
