@@ -3057,6 +3057,126 @@ def validate_and_nondimensionalize_picslice(source_slice: str, dest_slice: str, 
         "max_speed": max(values) if values else 0.0,
     }
 
+def _face_artifact_token(face: str) -> str:
+    """!
+    @brief Convert a BC face token into a filesystem-friendly artifact token.
+    @param[in] face Canonical face token such as -Zeta.
+    @return Filesystem-friendly face token.
+    """
+    return face.replace("+", "pos").replace("-", "neg")
+
+def _resolve_run_artifact_path(run_dir: str, configured_path: str, default_path: str,
+                               default_to_config_dir: bool = False) -> str:
+    """!
+    @brief Resolve a run artifact path with run-dir-relative defaults.
+    @param[in] run_dir Run/precompute directory root.
+    @param[in] configured_path Optional user-provided artifact path.
+    @param[in] default_path Default path relative to run_dir.
+    @param[in] default_to_config_dir If true, bare relative names are placed under config/.
+    @return Absolute artifact path.
+    """
+    path = configured_path if configured_path else default_path
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("generated profile output_file must be a non-empty path when provided.")
+    path = path.strip()
+    if os.path.isabs(path):
+        return os.path.abspath(path)
+    if default_to_config_dir and os.path.dirname(path) == "":
+        path = os.path.join("config", path)
+    return os.path.abspath(os.path.join(run_dir, path))
+
+def _normalize_square_duct_poiseuille_params(params, field_name: str) -> dict:
+    """!
+    @brief Validate square-duct Poiseuille generator parameters.
+    @param[in] params Generator params mapping.
+    @param[in] field_name Human-readable YAML field name for diagnostics.
+    @return Normalized params.
+    """
+    if params is None:
+        params = {}
+    if not isinstance(params, dict):
+        raise ValueError(f"{field_name}.params must be a mapping when provided.")
+    unknown = sorted(set(params.keys()) - {"bulk_velocity", "n_terms"})
+    if unknown:
+        raise ValueError(f"Unknown keys in {field_name}.params: {unknown}. Allowed: ['bulk_velocity', 'n_terms'].")
+    bulk_velocity = _to_float(params.get("bulk_velocity", 1.0), f"{field_name}.params.bulk_velocity")
+    if bulk_velocity <= 0.0:
+        raise ValueError(f"{field_name}.params.bulk_velocity must be positive.")
+    try:
+        n_terms = int(params.get("n_terms", 101))
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name}.params.n_terms must be a positive odd integer.")
+    if n_terms <= 0 or n_terms % 2 == 0:
+        raise ValueError(f"{field_name}.params.n_terms must be a positive odd integer.")
+    return {"bulk_velocity": bulk_velocity, "n_terms": n_terms}
+
+GENERATED_PROFILE_GENERATORS = {"square_duct_poiseuille"}
+
+def generate_square_duct_poiseuille_picslice(output_path: str, dims: tuple, params: dict) -> dict:
+    """!
+    @brief Generate a dimensional canonical PICSLICE for square-duct Poiseuille flow.
+    @param[in] output_path Path to write.
+    @param[in] dims PICSLICE dimensions in face storage order (n1, n2).
+    @param[in] params Normalized generator params.
+    @return Summary dictionary.
+    """
+    n1, n2 = tuple(dims)
+    profilegen_script = os.path.join(SCRIPT_PATH, "profile.gen")
+    if not os.path.isfile(profilegen_script):
+        raise ValueError(f"profile.gen script not found: {profilegen_script}")
+    cmd = [
+        sys.executable,
+        profilegen_script,
+        "square_duct_poiseuille",
+        "--output",
+        output_path,
+        "--dims",
+        str(n1),
+        str(n2),
+        "--bulk-velocity",
+        str(float(params["bulk_velocity"])),
+        "--n-terms",
+        str(int(params["n_terms"])),
+    ]
+    result = subprocess.run(cmd, text=True, capture_output=True)
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        raise ValueError(f"profile.gen failed with exit code {result.returncode}. Details:\n{details}")
+    try:
+        summary = json.loads((result.stdout or "").strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise ValueError(f"profile.gen did not emit valid JSON summary. Output:\n{result.stdout}") from exc
+    summary["dims"] = tuple(summary["dims"])
+    return summary
+
+def write_profile_info(config_dir: str, summaries: list) -> str:
+    """!
+    @brief Write a profile.info summary for generated inlet profiles.
+    @param[in] config_dir Run/precompute config directory.
+    @param[in] summaries Generated profile summaries.
+    @return Path to profile.info.
+    """
+    info_path = os.path.join(config_dir, "profile.info")
+    os.makedirs(config_dir, exist_ok=True)
+    with open(info_path, "w") as fout:
+        fout.write("# PICurv generated profile summary\n")
+        fout.write(f"profile_count = {len(summaries)}\n\n")
+        for idx, summary in enumerate(summaries):
+            dims = summary.get("dims", (0, 0))
+            fout.write(f"[profile_{idx}]\n")
+            fout.write(f"generator = {summary.get('generator')}\n")
+            fout.write(f"block = {summary.get('block')}\n")
+            fout.write(f"face = {summary.get('face')}\n")
+            fout.write(f"dimensions = {dims[0]} {dims[1]}\n")
+            fout.write(f"bulk_velocity = {summary.get('bulk_velocity'):.16e}\n")
+            fout.write(f"n_terms = {summary.get('n_terms')}\n")
+            fout.write(f"mean_speed = {summary.get('mean_speed'):.16e}\n")
+            fout.write(f"min_speed = {summary.get('min_speed'):.16e}\n")
+            fout.write(f"max_speed = {summary.get('max_speed'):.16e}\n")
+            fout.write(f"umax_over_ubulk = {summary.get('umax_over_ubulk'):.16e}\n")
+            fout.write(f"output_file = {summary.get('path')}\n\n")
+    return info_path
+
 def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict) -> str:
     """!
     @brief Runs scripts/grid.gen to produce a PICGRID file for this run.
@@ -3317,17 +3437,42 @@ def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
     @throws ValueError on invalid source contract.
     """
     if not isinstance(source, dict):
-        raise ValueError(f"{field_name} must be a mapping with type: file and path.")
+        raise ValueError(f"{field_name} must be a mapping with type: file or type: generated.")
     source_type = str(source.get("type", "")).strip().lower()
-    if source_type != "file":
-        raise ValueError(f"{field_name}.type must be 'file' for Phase 1 prescribed_flow profiles.")
-    path = source.get("path")
-    if not isinstance(path, str) or not path.strip():
-        raise ValueError(f"{field_name}.path must be a non-empty file path.")
-    unknown = sorted(set(source.keys()) - {"type", "path"})
-    if unknown:
-        raise ValueError(f"Unknown keys in {field_name}: {unknown}. Allowed: ['path', 'type'].")
-    return {"type": "file", "path": path.strip()}
+    if source_type == "file":
+        path = source.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError(f"{field_name}.path must be a non-empty file path.")
+        unknown = sorted(set(source.keys()) - {"type", "path"})
+        if unknown:
+            raise ValueError(f"Unknown keys in {field_name}: {unknown}. Allowed: ['path', 'type'].")
+        return {"type": "file", "path": path.strip()}
+
+    if source_type == "generated":
+        generator = str(source.get("generator", "")).strip().lower()
+        if generator not in GENERATED_PROFILE_GENERATORS:
+            raise ValueError(
+                f"{field_name}.generator must be one of {sorted(GENERATED_PROFILE_GENERATORS)} "
+                f"(got '{source.get('generator')}')."
+            )
+        unknown = sorted(set(source.keys()) - {"type", "generator", "output_file", "params"})
+        if unknown:
+            raise ValueError(
+                f"Unknown keys in {field_name}: {unknown}. Allowed: ['generator', 'output_file', 'params', 'type']."
+            )
+        normalized = {
+            "type": "generated",
+            "generator": generator,
+            "params": _normalize_square_duct_poiseuille_params(source.get("params", {}), field_name),
+        }
+        output_file = source.get("output_file")
+        if output_file is not None:
+            if not isinstance(output_file, str) or not output_file.strip():
+                raise ValueError(f"{field_name}.output_file must be a non-empty path when provided.")
+            normalized["output_file"] = output_file.strip()
+        return normalized
+
+    raise ValueError(f"{field_name}.type must be 'file' or 'generated'.")
 
 def _bc_profile_expected_dims(face: str, block_dims: tuple) -> tuple:
     """!
@@ -3413,6 +3558,63 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
         )
 
     raise ValueError(f"Unsupported grid.mode '{grid_mode}' for prescribed_flow profile validation.")
+
+def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict, case_path: str,
+                                                   profile_grid_dims: list = None) -> list:
+    """!
+    @brief Generate dimensional PICSLICE artifacts for generated prescribed_flow BC sources.
+    @param[in] run_dir Run/precompute directory root.
+    @param[in] case_cfg Parsed case.yml.
+    @param[in] case_path Path to case.yml for relative grid/source resolution.
+    @param[in] profile_grid_dims Optional pre-resolved block node dimensions.
+    @return List of generated profile summaries.
+    """
+    prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
+    if not any(
+        bc.get("handler") == "prescribed_flow"
+        and ((bc.get("params") or {}).get("source") or {}).get("type") == "generated"
+        for block in prepared_blocks for bc in block
+    ):
+        return []
+    if profile_grid_dims is None:
+        profile_grid_dims = resolve_grid_block_dimensions_for_profiles(case_cfg, case_path, run_dir)
+
+    config_dir = os.path.join(run_dir, "config")
+    summaries = []
+    for block_idx, block in enumerate(prepared_blocks):
+        for bc in block:
+            if bc.get("handler") != "prescribed_flow":
+                continue
+            source = (bc.get("params") or {}).get("source", {})
+            if source.get("type") != "generated":
+                continue
+            face = bc["face"]
+            dims = _bc_profile_expected_dims(face, profile_grid_dims[block_idx])
+            face_token = _face_artifact_token(face)
+            default_output = os.path.join(
+                "config", f"inlet_profile_block{block_idx}_{face_token}.generated.picslice"
+            )
+            output_path = _resolve_run_artifact_path(
+                run_dir,
+                source.get("output_file"),
+                default_output,
+                default_to_config_dir=True,
+            )
+            if source["generator"] == "square_duct_poiseuille":
+                summary = generate_square_duct_poiseuille_picslice(output_path, dims, source["params"])
+            else:
+                raise ValueError(f"Unsupported generated profile generator '{source['generator']}'.")
+            summary.update({"block": block_idx, "face": face})
+            summaries.append(summary)
+            print(
+                f"[SUCCESS] Generated prescribed_flow profile for block {block_idx}, face {face}: "
+                f"{os.path.relpath(output_path)} dims={summary['dims']}"
+            )
+
+    if summaries:
+        info_path = write_profile_info(config_dir, summaries)
+        print(f"[SUCCESS] Wrote generated profile summary: {os.path.relpath(info_path)}")
+    return summaries
 
 def _to_float(value, field_name: str) -> float:
     """!
@@ -5592,6 +5794,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
         profile_grid_dims = resolve_grid_block_dimensions_for_profiles(case_cfg, case_path, run_dir)
 
     generated_files = []
+    generated_profile_summaries = []
     for i, block_bcs_list in enumerate(prepared_blocks):
         file_name = "bcs.run" if num_blocks == 1 else f"bcs_block{i}.run"
         bcs_file_path = os.path.join(config_dir, file_name)
@@ -5602,12 +5805,36 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
             params = dict(bc.get('params') or {})
             if handler == "prescribed_flow":
                 source = params.pop("source")
-                source_path = source["path"]
-                if case_path and not os.path.isabs(source_path):
-                    source_path = os.path.abspath(os.path.join(os.path.dirname(case_path), source_path))
                 expected_dims = _bc_profile_expected_dims(face, profile_grid_dims[i])
                 staged_name = f"inlet_profile_block{i}_{face.replace('+', 'pos').replace('-', 'neg')}.picslice"
                 staged_path = os.path.join(config_dir, staged_name)
+                if source["type"] == "file":
+                    source_path = source["path"]
+                    if case_path and not os.path.isabs(source_path):
+                        source_path = os.path.abspath(os.path.join(os.path.dirname(case_path), source_path))
+                elif source["type"] == "generated":
+                    default_output = os.path.join(
+                        "config",
+                        f"inlet_profile_block{i}_{_face_artifact_token(face)}.generated.picslice",
+                    )
+                    source_path = _resolve_run_artifact_path(
+                        run_dir,
+                        source.get("output_file"),
+                        default_output,
+                        default_to_config_dir=True,
+                    )
+                    if os.path.abspath(source_path) == os.path.abspath(staged_path):
+                        raise ValueError(
+                            f"Generated profile output_file for block {i}, face {face} must differ from staged solver profile."
+                        )
+                    if source["generator"] == "square_duct_poiseuille":
+                        summary = generate_square_duct_poiseuille_picslice(source_path, expected_dims, source["params"])
+                    else:
+                        raise ValueError(f"Unsupported generated profile generator '{source['generator']}'.")
+                    summary.update({"block": i, "face": face})
+                    generated_profile_summaries.append(summary)
+                else:
+                    raise ValueError(f"Unsupported prescribed_flow source type '{source.get('type')}'.")
                 summary = validate_and_nondimensionalize_picslice(source_path, staged_path, U_ref, expected_dims)
                 print(
                     f"[SUCCESS] Staged prescribed_flow profile for block {i}, face {face}: "
@@ -5630,6 +5857,10 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
         
         print(f"[SUCCESS] Generated BCs for Block {i}: {os.path.relpath(bcs_file_path)}")
         generated_files.append(os.path.abspath(bcs_file_path))
+
+    if generated_profile_summaries:
+        info_path = write_profile_info(config_dir, generated_profile_summaries)
+        print(f"[SUCCESS] Wrote generated profile summary: {os.path.relpath(info_path)}")
         
     return generated_files
 
@@ -6554,13 +6785,6 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         print(f"[FATAL] Error processing case.yml: {e}", file=sys.stderr)
         sys.exit(1)
         
-    try:
-        bcs_files = generate_multi_block_bcs(run_dir, run_id, case_cfg, source_files)
-    except ValueError as e:
-        print(f"[FATAL] Invalid boundary_conditions in case.yml: {e}", file=sys.stderr)
-        sys.exit(1)
-    control_lines.append(f"-bcs_files \"{','.join(bcs_files)}\"")
-
     # --- CORRECTED: Add paths for whitelist and profile files ---
     if monitor_files.get("whitelist"):
         control_lines.append(f"-whitelist_config_file {monitor_files['whitelist']}")
@@ -6652,6 +6876,13 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         for key, value in grid_settings.items(): control_lines.append(f"-{key} {format_flag_value(value)}")
     else:
         raise ValueError(f"Unknown or missing grid mode '{grid_mode}' in case.yml.")
+
+    try:
+        bcs_files = generate_multi_block_bcs(run_dir, run_id, case_cfg, source_files)
+    except ValueError as e:
+        print(f"[FATAL] Invalid boundary_conditions in case.yml: {e}", file=sys.stderr)
+        sys.exit(1)
+    control_lines.append(f"-bcs_files \"{','.join(bcs_files)}\"")
 
     append_grid_da_processor_layout(control_lines, grid_cfg, num_procs)
     
@@ -7829,6 +8060,7 @@ def build_run_dry_plan(args) -> dict:
             ]
         )
         add_planned_grid_artifacts(plan, loaded_case_cfg, run_dir)
+        add_planned_profile_artifacts(plan, loaded_case_cfg, run_dir)
         if has_explicit_monitor_whitelist(loaded_monitor_cfg):
             plan["artifacts"].append(os.path.join(config_dir, "whitelist.run"))
         if profiling_preview["mode"] == "selected":
@@ -8101,6 +8333,43 @@ def add_planned_grid_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None
                     artifact_path = os.path.abspath(os.path.join(run_dir, artifact_path))
                 plan["artifacts"].append(artifact_path)
 
+def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None:
+    """!
+    @brief Add generated prescribed-flow profile artifacts to a dry-run plan.
+    @param[in,out] plan Dry-run plan to update.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] run_dir Preview run directory.
+    """
+    try:
+        prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
+    except ValueError:
+        return
+    config_dir = os.path.join(run_dir, "config")
+    has_generated = False
+    for block_idx, block in enumerate(prepared_blocks):
+        for bc in block:
+            if bc.get("handler") != "prescribed_flow":
+                continue
+            source = (bc.get("params") or {}).get("source", {})
+            if source.get("type") != "generated":
+                continue
+            has_generated = True
+            face_token = _face_artifact_token(bc["face"])
+            default_output = os.path.join(
+                "config", f"inlet_profile_block{block_idx}_{face_token}.generated.picslice"
+            )
+            generated_path = _resolve_run_artifact_path(
+                run_dir,
+                source.get("output_file"),
+                default_output,
+                default_to_config_dir=True,
+            )
+            staged_path = os.path.join(config_dir, f"inlet_profile_block{block_idx}_{face_token}.picslice")
+            plan["artifacts"].append(generated_path)
+            plan["artifacts"].append(staged_path)
+    if has_generated:
+        plan["artifacts"].append(os.path.join(config_dir, "profile.info"))
+
 
 def render_run_dry_plan(plan: dict, output_format: str = "text"):
     """!
@@ -8297,6 +8566,52 @@ def validate_workflow(args):
     print(f"[SUCCESS] Validation completed for {len(checked)} file(s).")
     for path in checked:
         print(f"  - {path}")
+
+def precompute_workflow(args):
+    """!
+    @brief Generate deterministic case artifacts without launching solver/post stages.
+    @param[in] args Parsed precompute command arguments.
+    """
+    case_path = os.path.abspath(args.case)
+    case_cfg = read_yaml_file(case_path)
+    case_name = os.path.splitext(os.path.basename(case_path))[0]
+    output_dir = args.output_dir or os.path.join("precomputed", case_name)
+    output_dir = os.path.abspath(output_dir)
+    config_dir = os.path.join(output_dir, "config")
+    os.makedirs(config_dir, exist_ok=True)
+
+    print(f"[INFO] Precomputing deterministic artifacts for case: {case_path}")
+    print(f"[INFO] Output directory: {output_dir}")
+    validate_and_prepare_boundary_conditions(case_cfg)
+
+    artifacts = []
+    grid_cfg = case_cfg.get("grid", {}) or {}
+    grid_mode = grid_cfg.get("mode")
+    if grid_mode == "grid_gen":
+        print("[INFO] Precomputing grid via grid.gen...")
+        generated_grid = run_grid_generator(case_path, output_dir, grid_cfg)
+        artifacts.append(os.path.abspath(generated_grid))
+    elif grid_mode in {"file", "programmatic_c"}:
+        print(f"[INFO] Grid mode '{grid_mode}' does not require precomputed grid generation.")
+    else:
+        raise ValueError(f"Unsupported grid.mode '{grid_mode}' for precompute.")
+
+    profile_summaries = materialize_generated_prescribed_flow_profiles(output_dir, case_cfg, case_path)
+    artifacts.extend(summary["path"] for summary in profile_summaries)
+    if profile_summaries:
+        artifacts.append(os.path.join(config_dir, "profile.info"))
+
+    manifest = {
+        "case": case_path,
+        "output_dir": output_dir,
+        "grid_mode": grid_mode,
+        "artifacts": artifacts,
+        "profiles": profile_summaries,
+    }
+    manifest_path = os.path.join(config_dir, "precompute.manifest.json")
+    write_json_file(manifest_path, manifest)
+    print(f"[SUCCESS] Wrote precompute manifest: {os.path.relpath(manifest_path)}")
+    print(f"[SUCCESS] Precompute completed with {len(artifacts)} artifact(s).")
 
 def run_workflow(args):
     """!
@@ -11698,6 +12013,32 @@ def _add_validate_parser(subparsers):
     p_validate.add_argument("--strict", action="store_true", help="Enable additional strict checks for selected roles.")
     return p_validate
 
+def _add_precompute_parser(subparsers):
+    """!
+    @brief Attach `precompute` parser for deterministic artifact generation.
+    @param[in] subparsers Argument passed to `_add_precompute_parser()`.
+    @return Configured parser.
+    """
+    p_precompute = subparsers.add_parser(
+        "precompute",
+        help="Generate deterministic case artifacts without launching the solver.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Generate configured deterministic artifacts, such as grid_gen grids and\n"
+            "generated prescribed-flow inlet profiles, into a run-like config layout.\n\n"
+            "Examples:\n"
+            "  picurv precompute --case case.yml\n"
+            "  picurv precompute --case case.yml --output-dir precomputed/channel"
+        ),
+        epilog="Next: point grid/source file modes at the generated artifacts or run solve with generated modes directly.",
+    )
+    p_precompute.add_argument("--case", required=True, help="Path to case.yml containing grid/profile generator settings.")
+    p_precompute.add_argument(
+        "--output-dir",
+        help="Directory where precomputed artifacts should be written. Defaults to precomputed/<case-name>.",
+    )
+    return p_precompute
+
 
 def _add_summarize_parser(subparsers):
     """!
@@ -12060,6 +12401,7 @@ def build_main_parser():
             "  picurv validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --no-submit\n"
+            "  picurv precompute --case case.yml --output-dir precomputed/my_case\n"
             "  picurv run --post-process --continue --run-dir runs/my_run --post post.yml\n"
             "  picurv summarize --run-dir runs/my_run --latest\n"
             "  picurv submit --run-dir runs/my_run\n"
@@ -12069,6 +12411,7 @@ def build_main_parser():
             "Next commands:\n"
             "  - First run: picurv init ... -> picurv validate ... -> picurv run ...\n"
             "  - Config debugging: picurv validate ...\n"
+            "  - Artifact generation: picurv precompute ...\n"
             "  - Launch planning: picurv run ... --dry-run\n"
             "  - Post-only catch-up: picurv run --post-process --continue --run-dir ... --post ...\n"
             "  - Deferred submission: picurv submit --run-dir ...\n"
@@ -12081,6 +12424,7 @@ def build_main_parser():
     _add_run_parser(subparsers)
     _add_sweep_parser(subparsers)
     _add_validate_parser(subparsers)
+    _add_precompute_parser(subparsers)
     _add_summarize_parser(subparsers)
     _add_submit_parser(subparsers)
     _add_cancel_parser(subparsers)
@@ -12129,6 +12473,18 @@ def dispatch_command(args):
         return
     if args.command == "validate":
         validate_workflow(args)
+        return
+    if args.command == "precompute":
+        try:
+            precompute_workflow(args)
+        except ValueError as e:
+            emit_structured_error(
+                ERROR_CODE_CFG_INVALID_VALUE,
+                key="precompute",
+                file_path=getattr(args, "case", "-"),
+                message=str(e),
+            )
+            sys.exit(1)
         return
     if args.command == "summarize":
         summarize_workflow(args)

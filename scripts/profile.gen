@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""!
+@file profile.gen
+@brief Standalone canonical inlet-profile generator for PICurv.
+
+This script writes dimensional `PICSLICE` profile artifacts. The `picurv`
+conductor is responsible for choosing dimensions from `case.yml`, staging
+solver-scale copies, and wiring generated files into `bcs.run`.
+"""
+
+import argparse
+import json
+import math
+import os
+import sys
+
+
+def _drop_imported_package(package_name: str):
+    """!
+    @brief Remove a failed/partial import package tree from sys.modules.
+    @param[in] package_name Top-level package name.
+    """
+    prefix = package_name + "."
+    for module_name in list(sys.modules):
+        if module_name == package_name or module_name.startswith(prefix):
+            sys.modules.pop(module_name, None)
+
+
+def _prune_incompatible_python_site_paths(paths):
+    """!
+    @brief Remove site-package paths for a different Python major/minor version.
+    @param[in] paths Candidate sys.path entries.
+    @return Filtered path list.
+    """
+    current = (sys.version_info[0], sys.version_info[1])
+    filtered = []
+    for path in paths:
+        text = str(path)
+        marker = "python"
+        idx = text.lower().find(marker)
+        if idx >= 0 and ("site-packages" in text or "dist-packages" in text):
+            version_text = text[idx + len(marker):idx + len(marker) + 4].strip("-/")
+            parts = version_text.split(".")
+            try:
+                path_version = (int(parts[0]), int(parts[1]))
+            except (IndexError, ValueError):
+                filtered.append(path)
+                continue
+            if path_version != current:
+                continue
+        filtered.append(path)
+    return filtered
+
+
+def require_numpy():
+    """!
+    @brief Import NumPy with the same compatibility retry used by the conductor.
+    @return Imported NumPy module.
+    """
+    try:
+        import numpy
+        return numpy
+    except Exception as exc:
+        first_error = exc
+        original_path = list(sys.path)
+        try:
+            _drop_imported_package("numpy")
+            sys.path = _prune_incompatible_python_site_paths(original_path)
+            import numpy
+            return numpy
+        except Exception as retry_exc:
+            raise RuntimeError(
+                "NumPy is required for profile generation, but no compatible "
+                "NumPy could be imported. "
+                f"First error: {first_error}. Retry error: {retry_exc}"
+            ) from retry_exc
+        finally:
+            sys.path = original_path
+
+
+def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity: float,
+                                    n_terms: int) -> dict:
+    """!
+    @brief Generate a dimensional canonical PICSLICE for square-duct Poiseuille flow.
+    @param[in] output_path Output `.picslice` path.
+    @param[in] dims PICSLICE dimensions in storage order `(n1, n2)`.
+    @param[in] bulk_velocity Desired discrete mean speed.
+    @param[in] n_terms Number of odd sine modes to include.
+    @return Summary dictionary with dimensions and speed statistics.
+    """
+    n1, n2 = tuple(dims)
+    if n1 <= 0 or n2 <= 0:
+        raise ValueError(f"dimensions must be positive, got {(n1, n2)}.")
+    if bulk_velocity <= 0.0:
+        raise ValueError("bulk_velocity must be positive.")
+    if n_terms <= 0 or n_terms % 2 == 0:
+        raise ValueError("n_terms must be a positive odd integer.")
+
+    numpy = require_numpy()
+    coord_2 = numpy.arange(1, n2 + 1, dtype=float) / float(n2 + 1)
+    coord_1 = numpy.arange(1, n1 + 1, dtype=float) / float(n1 + 1)
+    x, y = numpy.meshgrid(coord_2, coord_1, indexing="xy")
+    u = numpy.zeros_like(x, dtype=float)
+
+    for m in range(1, n_terms + 1, 2):
+        sin_m = numpy.sin(m * numpy.pi * x)
+        for n in range(1, n_terms + 1, 2):
+            coeff = 16.0 / (numpy.pi ** 4 * m * n * (m ** 2 + n ** 2))
+            u += coeff * sin_m * numpy.sin(n * numpy.pi * y)
+
+    mean_speed = float(numpy.mean(u))
+    if mean_speed <= 0.0 or not math.isfinite(mean_speed):
+        raise ValueError("generated profile has invalid mean speed.")
+    u *= bulk_velocity / mean_speed
+    u = numpy.maximum(u, 0.0)
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    with open(output_path, "w") as fout:
+        fout.write("PICSLICE\n")
+        fout.write("1\n")
+        fout.write(f"{n1} {n2}\n")
+        for row in range(n1):
+            for col in range(n2):
+                fout.write(f"{float(u[row, col]):.16e}\n")
+
+    min_speed = float(numpy.min(u))
+    max_speed = float(numpy.max(u))
+    mean_speed = float(numpy.mean(u))
+    return {
+        "generator": "square_duct_poiseuille",
+        "path": os.path.abspath(output_path),
+        "dims": [n1, n2],
+        "bulk_velocity": bulk_velocity,
+        "n_terms": n_terms,
+        "mean_speed": mean_speed,
+        "min_speed": min_speed,
+        "max_speed": max_speed,
+        "umax_over_ubulk": max_speed / bulk_velocity,
+    }
+
+
+def build_parser():
+    """!
+    @brief Build the profile generator CLI parser.
+    @return Configured argparse parser.
+    """
+    parser = argparse.ArgumentParser(
+        description="Generate dimensional canonical PICSLICE inlet profiles.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    square = subparsers.add_parser(
+        "square_duct_poiseuille",
+        help="Generate analytical fully developed square-duct Poiseuille flow.",
+    )
+    square.add_argument("--output", required=True, help="Output `.picslice` path.")
+    square.add_argument("--dims", nargs=2, type=int, metavar=("N1", "N2"), required=True,
+                        help="PICSLICE dimensions in face storage order.")
+    square.add_argument("--bulk-velocity", type=float, default=1.0,
+                        help="Desired discrete mean scalar speed.")
+    square.add_argument("--n-terms", type=int, default=101,
+                        help="Positive odd number of sine modes.")
+    square.add_argument("--summary-json", help="Optional path for generator summary JSON.")
+    return parser
+
+
+def main(argv=None) -> int:
+    """!
+    @brief CLI entrypoint.
+    @param[in] argv Optional argv override for tests.
+    @return Process exit code.
+    """
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "square_duct_poiseuille":
+            summary = generate_square_duct_poiseuille(
+                args.output,
+                tuple(args.dims),
+                args.bulk_velocity,
+                args.n_terms,
+            )
+        else:
+            parser.error(f"unsupported command {args.command}")
+            return 2
+        if args.summary_json:
+            os.makedirs(os.path.dirname(os.path.abspath(args.summary_json)), exist_ok=True)
+            with open(args.summary_json, "w") as fout:
+                json.dump(summary, fout, indent=2, sort_keys=True)
+                fout.write("\n")
+        print(json.dumps(summary, sort_keys=True))
+        return 0
+    except Exception as exc:
+        print(f"[ERROR] profile.gen failed: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

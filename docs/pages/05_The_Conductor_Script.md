@@ -30,6 +30,7 @@ Primary commands:
 - `pull-source`
 - `status-source`
 - `run`
+- `precompute`
 - `summarize`
 - `submit`
 - `cancel`
@@ -53,6 +54,7 @@ Help:
 ./bin/picurv pull-source --help
 ./bin/picurv status-source --help
 ./bin/picurv run --help
+./bin/picurv precompute --help
 ./bin/picurv summarize --help
 ./bin/picurv submit --help
 ./bin/picurv cancel --help
@@ -345,6 +347,23 @@ Common `run` use cases:
 - delayed submission of an already-staged run: `submit --run-dir ...`
 - planning and CI-style checks: `--dry-run`
 
+@section p05_precompute_sec 5a. precompute: Generate Deterministic Artifacts
+
+```bash
+./bin/picurv precompute --case case.yml [--output-dir precomputed/<name>]
+```
+
+`precompute` materializes deterministic case artifacts without launching the
+solver. It uses the same `case.yml` generator settings as `run --solve`:
+
+- `grid.mode: grid_gen` writes the configured dimensional `PICGRID`,
+- `prescribed_flow.source.type: generated` delegates dimensional `.picslice`
+  profile generation to `scripts/profile.gen` and writes `profile.info`,
+- `config/precompute.manifest.json` records generated paths and profile stats.
+
+The output layout mirrors `runs/<run_id>/config/` so inspected artifacts can be
+reused later with `grid.mode: file` and `prescribed_flow.source.type: file`.
+
 @section p05_submit_sec 5b. submit: Execute Existing Staged Artifacts
 
 ```bash
@@ -493,6 +512,12 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
 - stricter policy:
   - `--strict` (adds additional checks for selected roles; documented below)
 
+`precompute`:
+- required:
+  - `--case <path>`
+- optional:
+  - `--output-dir <path>` (defaults to `precomputed/<case-name>`)
+
 `submit`:
 - required:
   - exactly one of `--run-dir <path>` or `--study-dir <path>`
@@ -593,6 +618,8 @@ For file-backed grid modes, `artifacts` includes the planned staged grid path
 PICGRID path (`config/grid.generated.picgrid` by default) plus any configured
 `stats_file` or `vts_file`. Dry-run still does not run `scripts/grid.gen` or
 write these files.
+For generated prescribed-flow profiles, `artifacts` includes the dimensional
+generated `.picslice`, the solver-scale staged `.picslice`, and `profile.info`.
 
 Stage entries under `stages.solve` and `stages.post-process` include:
 

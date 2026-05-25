@@ -5,12 +5,15 @@ This directory is the Python/shell control plane for PICurv. It covers user work
 ## Script Inventory and Purpose
 
 - `picurv`
-  - main user CLI: `init`, `build`, `sync-binaries`, `sync-config`, `pull-source`, `status-source`, `validate`, `run`, `sweep`
+  - main user CLI: `init`, `build`, `sync-binaries`, `sync-config`, `pull-source`, `status-source`, `validate`, `precompute`, `run`, `sweep`
   - validates YAML role contracts, emits structured errors, generates solver/post runtime artifacts, and launches local or Slurm workflows
 - `grid.gen`
   - standalone structured-grid utility for `grid.mode: grid_gen` and legacy 1D-axis conversion
   - writes PICGRID plus optional `.info`/`.vts` outputs
   - includes `legacy1d` subcommand for headerless legacy payload -> canonical PICGRID conversion
+- `profile.gen`
+  - standalone dimensional `PICSLICE` profile generator used by `picurv` generated-profile orchestration
+  - currently supports `square_duct_poiseuille`
 - `audit_ingress.py`
   - scans `src/setup.c` and `src/io.c` for `PetscOptionsGet*`/`PetscOptionsHasName` usage
   - compares discovered flags with `scripts/audit_ingress_manifest.json`
@@ -39,10 +42,12 @@ Use script-local `--help` as the first source of truth:
 
 - `./scripts/picurv --help`
 - `./scripts/picurv run --help`
+- `./scripts/picurv precompute --help`
 - `./scripts/picurv validate --help`
 - `./scripts/picurv sweep --help`
 - `python3 scripts/grid.gen --help`
 - `python3 scripts/grid.gen legacy1d --help`
+- `python3 scripts/profile.gen --help`
 - `python3 scripts/audit_ingress.py --help`
 - `python3 scripts/check_markdown_links.py --help`
 - `python3 scripts/python_coverage_gate.py --help`
@@ -88,6 +93,7 @@ Helper script option summary:
 - structured errors always use:
   - `ERROR <CODE> | key=... | file=... | message=... | hint=...`
 - `run --dry-run --format json` is the safest way to inspect planned commands/artifacts
+- `precompute --case ...` writes deterministic grid/profile artifacts without launching solver/post stages
 - `run --no-submit` stages run artifacts without starting local execution or Slurm submission; `submit --run-dir` consumes the staged package later
 - in cluster mode:
   - solver rank count is derived from `cluster.yml` resources
