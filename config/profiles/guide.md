@@ -35,7 +35,30 @@ boundary_conditions:
           n_terms: 101
 ```
 
-`picurv run --solve` automatically materializes generated profiles under
+Field-sliced profile from an old PICurv `ufield*.dat`:
+
+```yaml
+boundary_conditions:
+  - face: "-Zeta"
+    type: INLET
+    handler: prescribed_flow
+    params:
+      source:
+        type: field_slice
+        field_file: ../old_run/output/eulerian/ufield10000_0.dat
+        grid_file: ../old_run/config/grid.run
+        source_case: ../old_run/config/case.yml
+        slice:
+          face: "+Zeta"
+          orientation: opposite
+```
+
+`field_slice` reads Cartesian `Ucat`, computes geometry normals from the old
+and target `PICGRID` files, projects to positive normal speed magnitudes, and
+writes the same canonical `PICSLICE` format as the other source types. V1
+requires exact slice dimension matches; it does not interpolate or resample.
+
+`picurv run --solve` automatically materializes generated and sliced profiles under
 `runs/<run_id>/config/`, writes `profile.info`, stages a nondimensional solver
 copy, and passes the staged `source_file` to the C runtime.
 
@@ -57,6 +80,16 @@ python3 scripts/profile.gen square_duct_poiseuille \
   --dims 63 63 \
   --bulk-velocity 1.0 \
   --n-terms 101
+
+python3 scripts/profile.gen field-slice \
+  --output inlet_from_old_run.picslice \
+  --field-file old_run/output/eulerian/ufield10000_0.dat \
+  --source-grid old_run/config/grid.run \
+  --target-grid new_run/config/grid.run \
+  --slice-face=+Zeta \
+  --target-face=-Zeta \
+  --orientation opposite \
+  --velocity-scale 1.0
 ```
 
 Prefer the `picurv` conductor for normal cases, because it derives dimensions

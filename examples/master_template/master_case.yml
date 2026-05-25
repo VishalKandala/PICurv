@@ -223,6 +223,19 @@ boundary_conditions:
     #     params:
     #       bulk_velocity: 1.5
     #       n_terms: 101
+    #
+    # Alternative profile sliced from an old Cartesian Ucat field:
+    # handler: prescribed_flow
+    # params:
+    #   source:
+    #     type: field_slice
+    #     field_file: ../old_run/output/eulerian/ufield10000_0.dat
+    #     grid_file: ../old_run/config/grid.run
+    #     source_case: ../old_run/config/case.yml
+    #     output_file: config/inlet_profile_block0_negEta.sliced.picslice
+    #     slice:
+    #       face: "+Eta"
+    #       orientation: opposite
       
   - face: "+Eta"
     type: OUTLET

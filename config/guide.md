@@ -9,7 +9,9 @@ Two repo-wide patterns are especially important in the current codebase:
 - `solver.yml -> verification.sources.*` is reserved for verification-only injections/overrides when no cleaner end-to-end path exists. For example, `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `logs/scatter_metrics.csv` without changing ordinary production runs.
 - `case.yml -> boundary_conditions[].params.source` owns inlet profile sourcing
   for `prescribed_flow`. Use `source.type: file` for inspected PICSLICE inputs
-  and `source.type: generated` for conductor-managed analytical profiles.
+  `source.type: generated` for conductor-managed analytical profiles, and
+  `source.type: field_slice` to derive a profile from old Cartesian `ufield`
+  output plus its canonical PICGRID.
 - `study.yml` supports either cross-product sweeps under `parameters:` or explicit coupled bundles under `parameter_sets:` when multiple overrides must move together.
 
 ## Sub-guides

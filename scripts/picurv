@@ -3112,6 +3112,132 @@ def _normalize_square_duct_poiseuille_params(params, field_name: str) -> dict:
 
 GENERATED_PROFILE_GENERATORS = {"square_duct_poiseuille"}
 
+def _normalize_field_slice_source(source, field_name: str) -> dict:
+    """!
+    @brief Validate a prescribed_flow field_slice source block.
+    @param[in] source Source mapping from case.yml.
+    @param[in] field_name Human-readable YAML path for diagnostics.
+    @return Normalized source mapping.
+    """
+    allowed = {
+        "type",
+        "field_file",
+        "grid_file",
+        "source_case",
+        "velocity_scale",
+        "source_block",
+        "output_file",
+        "slice",
+    }
+    unknown = sorted(set(source.keys()) - allowed)
+    if unknown:
+        raise ValueError(f"Unknown keys in {field_name}: {unknown}. Allowed: {sorted(allowed)}.")
+    field_file = source.get("field_file")
+    grid_file = source.get("grid_file")
+    if not isinstance(field_file, str) or not field_file.strip():
+        raise ValueError(f"{field_name}.field_file must be a non-empty path.")
+    if not isinstance(grid_file, str) or not grid_file.strip():
+        raise ValueError(f"{field_name}.grid_file must be a non-empty path.")
+    if source.get("source_case") is None and source.get("velocity_scale") is None:
+        raise ValueError(f"{field_name} requires source_case or velocity_scale.")
+
+    normalized = {
+        "type": "field_slice",
+        "field_file": field_file.strip(),
+        "grid_file": grid_file.strip(),
+        "slice": _normalize_field_slice_selector(source.get("slice"), f"{field_name}.slice"),
+    }
+    if source.get("source_case") is not None:
+        source_case = source.get("source_case")
+        if not isinstance(source_case, str) or not source_case.strip():
+            raise ValueError(f"{field_name}.source_case must be a non-empty path when provided.")
+        normalized["source_case"] = source_case.strip()
+    if source.get("velocity_scale") is not None:
+        velocity_scale = _to_float(source.get("velocity_scale"), f"{field_name}.velocity_scale")
+        if velocity_scale <= 0.0:
+            raise ValueError(f"{field_name}.velocity_scale must be positive.")
+        normalized["velocity_scale"] = velocity_scale
+    if source.get("source_block") is not None:
+        try:
+            source_block = int(source.get("source_block"))
+        except (TypeError, ValueError):
+            raise ValueError(f"{field_name}.source_block must be a non-negative integer.")
+        if source_block < 0:
+            raise ValueError(f"{field_name}.source_block must be a non-negative integer.")
+        normalized["source_block"] = source_block
+    if source.get("output_file") is not None:
+        output_file = source.get("output_file")
+        if not isinstance(output_file, str) or not output_file.strip():
+            raise ValueError(f"{field_name}.output_file must be a non-empty path when provided.")
+        normalized["output_file"] = output_file.strip()
+    return normalized
+
+def _normalize_field_slice_selector(slice_cfg, field_name: str) -> dict:
+    """!
+    @brief Validate the field_slice slice selector.
+    @param[in] slice_cfg Slice selector mapping.
+    @param[in] field_name Human-readable YAML path for diagnostics.
+    @return Normalized selector mapping.
+    """
+    if not isinstance(slice_cfg, dict):
+        raise ValueError(f"{field_name} must be a mapping.")
+    orientation = str(slice_cfg.get("orientation", "opposite")).strip().lower()
+    if orientation not in {"opposite", "same"}:
+        raise ValueError(f"{field_name}.orientation must be 'opposite' or 'same'.")
+    normal_tolerance = _to_float(slice_cfg.get("normal_tolerance", 0.99), f"{field_name}.normal_tolerance")
+    if normal_tolerance <= 0.0 or normal_tolerance > 1.0:
+        raise ValueError(f"{field_name}.normal_tolerance must be in the range (0, 1].")
+
+    if slice_cfg.get("face") is not None:
+        unknown = sorted(set(slice_cfg.keys()) - {"face", "orientation", "normal_tolerance"})
+        if unknown:
+            raise ValueError(
+                f"Unknown keys in {field_name}: {unknown}. "
+                "Use either face or axis/index/normal, plus orientation/normal_tolerance."
+            )
+        face = str(slice_cfg.get("face", "")).strip()
+        if face.lower() not in BC_FACE_MAP:
+            raise ValueError(f"{field_name}.face must be one of {sorted(BC_FACE_MAP.values())}.")
+        return {
+            "face": BC_FACE_MAP[face.lower()],
+            "orientation": orientation,
+            "normal_tolerance": normal_tolerance,
+        }
+
+    required = {"axis", "index", "normal"}
+    missing = sorted(key for key in required if slice_cfg.get(key) is None)
+    if missing:
+        raise ValueError(f"{field_name} requires either face or axis/index/normal; missing {missing}.")
+    unknown = sorted(set(slice_cfg.keys()) - {"axis", "index", "normal", "orientation", "normal_tolerance"})
+    if unknown:
+        raise ValueError(
+            f"Unknown keys in {field_name}: {unknown}. "
+            "Use either face or axis/index/normal, plus orientation/normal_tolerance."
+        )
+    axis = str(slice_cfg.get("axis", "")).strip()
+    axis_map = {"xi": "Xi", "eta": "Eta", "zeta": "Zeta"}
+    if axis.lower() not in axis_map:
+        raise ValueError(f"{field_name}.axis must be one of Xi, Eta, Zeta.")
+    normal = str(slice_cfg.get("normal", "")).strip()
+    if normal.lower() not in BC_FACE_MAP:
+        raise ValueError(f"{field_name}.normal must be one of {sorted(BC_FACE_MAP.values())}.")
+    normal = BC_FACE_MAP[normal.lower()]
+    if normal[1:].lower() != axis.lower():
+        raise ValueError(f"{field_name}.normal must use the same axis as {field_name}.axis.")
+    try:
+        index = int(slice_cfg.get("index"))
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name}.index must be an integer.")
+    if index < 0:
+        raise ValueError(f"{field_name}.index must be non-negative.")
+    return {
+        "axis": axis_map[axis.lower()],
+        "index": index,
+        "normal": normal,
+        "orientation": orientation,
+        "normal_tolerance": normal_tolerance,
+    }
+
 def generate_square_duct_poiseuille_picslice(output_path: str, dims: tuple, params: dict) -> dict:
     """!
     @brief Generate a dimensional canonical PICSLICE for square-duct Poiseuille flow.
@@ -3149,6 +3275,145 @@ def generate_square_duct_poiseuille_picslice(output_path: str, dims: tuple, para
     summary["dims"] = tuple(summary["dims"])
     return summary
 
+def generate_field_slice_picslice(output_path: str, expected_dims: tuple, source: dict,
+                                  target_grid: str, target_face: str, target_block: int,
+                                  case_path: str) -> dict:
+    """!
+    @brief Invoke profile.gen to extract a field_slice PICSLICE artifact.
+    @param[in] output_path Path to write.
+    @param[in] expected_dims Expected PICSLICE dimensions.
+    @param[in] source Normalized field_slice source mapping.
+    @param[in] target_grid Target canonical PICGRID path.
+    @param[in] target_face Target inlet face token.
+    @param[in] target_block Target block index.
+    @param[in] case_path Path to current case.yml for relative source resolution.
+    @return Summary dictionary from profile.gen.
+    """
+    case_dir = os.path.dirname(os.path.abspath(case_path)) if case_path else os.getcwd()
+    field_file = _resolve_case_relative_path(source["field_file"], case_dir)
+    source_grid = _resolve_case_relative_path(source["grid_file"], case_dir)
+    velocity_scale = _resolve_field_slice_velocity_scale(source, case_dir)
+    profilegen_script = os.path.join(SCRIPT_PATH, "profile.gen")
+    if not os.path.isfile(profilegen_script):
+        raise ValueError(f"profile.gen script not found: {profilegen_script}")
+    n1, n2 = tuple(expected_dims)
+    slice_cfg = source["slice"]
+    cmd = [
+        sys.executable,
+        profilegen_script,
+        "field-slice",
+        "--output",
+        output_path,
+        "--field-file",
+        field_file,
+        "--source-grid",
+        source_grid,
+        "--target-grid",
+        target_grid,
+        "--source-block",
+        str(int(source.get("source_block", 0))),
+        "--target-block",
+        str(int(target_block)),
+        f"--target-face={target_face}",
+        "--orientation",
+        slice_cfg["orientation"],
+        "--normal-tolerance",
+        str(float(slice_cfg["normal_tolerance"])),
+        "--velocity-scale",
+        str(float(velocity_scale)),
+        "--expected-dims",
+        str(n1),
+        str(n2),
+    ]
+    if "face" in slice_cfg:
+        cmd.append(f"--slice-face={slice_cfg['face']}")
+    else:
+        cmd.extend([
+            "--slice-axis",
+            slice_cfg["axis"],
+            "--slice-index",
+            str(int(slice_cfg["index"])),
+            f"--slice-normal={slice_cfg['normal']}",
+        ])
+    result = subprocess.run(cmd, text=True, capture_output=True)
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        raise ValueError(f"profile.gen field-slice failed with exit code {result.returncode}. Details:\n{details}")
+    try:
+        summary = json.loads((result.stdout or "").strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise ValueError(f"profile.gen field-slice did not emit valid JSON summary. Output:\n{result.stdout}") from exc
+    summary["dims"] = tuple(summary["dims"])
+    return summary
+
+def _resolve_case_relative_path(path_value: str, case_dir: str) -> str:
+    """!
+    @brief Resolve a path relative to the current case directory.
+    @param[in] path_value Path from case.yml.
+    @param[in] case_dir Current case directory.
+    @return Absolute path.
+    """
+    if not isinstance(path_value, str) or not path_value.strip():
+        raise ValueError("path value must be a non-empty string.")
+    if os.path.isabs(path_value):
+        return os.path.abspath(path_value)
+    return os.path.abspath(os.path.join(case_dir, path_value))
+
+def _resolve_field_slice_velocity_scale(source: dict, case_dir: str) -> float:
+    """!
+    @brief Resolve field_slice dimensional velocity scale.
+    @param[in] source Normalized field_slice source mapping.
+    @param[in] case_dir Current case directory.
+    @return Positive velocity scale.
+    """
+    if source.get("velocity_scale") is not None:
+        return float(source["velocity_scale"])
+    source_case = _resolve_case_relative_path(source["source_case"], case_dir)
+    source_case_cfg = read_yaml_file(source_case)
+    try:
+        velocity_scale = _to_float(
+            source_case_cfg.get("properties", {}).get("scaling", {}).get("velocity_ref"),
+            "source_case.properties.scaling.velocity_ref",
+        )
+    except AttributeError as exc:
+        raise ValueError("source_case must contain properties.scaling.velocity_ref.") from exc
+    if velocity_scale <= 0.0:
+        raise ValueError("source_case.properties.scaling.velocity_ref must be positive.")
+    return velocity_scale
+
+def resolve_target_grid_for_field_slice(case_cfg: dict, case_path: str, run_dir: str) -> str:
+    """!
+    @brief Resolve the target canonical PICGRID path needed for field_slice normals.
+    @param[in] case_cfg Parsed current case config.
+    @param[in] case_path Current case.yml path.
+    @param[in] run_dir Current run/precompute directory.
+    @return Absolute target PICGRID path.
+    """
+    grid_cfg = case_cfg.get("grid", {}) or {}
+    grid_mode = grid_cfg.get("mode")
+    case_dir = os.path.dirname(os.path.abspath(case_path)) if case_path else os.getcwd()
+    if grid_mode == "file":
+        source_grid = grid_cfg.get("source_file")
+        if not isinstance(source_grid, str) or not source_grid.strip():
+            raise ValueError("grid.source_file is required for field_slice target-grid normals.")
+        source_grid = _resolve_case_relative_path(source_grid, case_dir)
+        if isinstance(grid_cfg.get("legacy_conversion"), dict) and run_dir:
+            source_grid = convert_legacy_grid_with_gridgen(case_path, run_dir, grid_cfg, source_grid)
+        return source_grid
+    if grid_mode == "grid_gen":
+        generator = grid_cfg.get("generator", {})
+        output_file = generator.get("output_file", os.path.join("config", "grid.generated.picgrid"))
+        candidate = output_file if os.path.isabs(output_file) else os.path.abspath(os.path.join(run_dir, output_file))
+        if os.path.isfile(candidate):
+            return candidate
+        staged = os.path.join(run_dir, "config", "grid.run")
+        if os.path.isfile(staged):
+            return staged
+        raise ValueError("field_slice requires the generated target PICGRID to exist before profile extraction.")
+    raise ValueError(
+        f"field_slice requires grid.mode 'file' or 'grid_gen' for target-grid normals; got '{grid_mode}'."
+    )
+
 def write_profile_info(config_dir: str, summaries: list) -> str:
     """!
     @brief Write a profile.info summary for generated inlet profiles.
@@ -3168,8 +3433,10 @@ def write_profile_info(config_dir: str, summaries: list) -> str:
             fout.write(f"block = {summary.get('block')}\n")
             fout.write(f"face = {summary.get('face')}\n")
             fout.write(f"dimensions = {dims[0]} {dims[1]}\n")
-            fout.write(f"bulk_velocity = {summary.get('bulk_velocity'):.16e}\n")
-            fout.write(f"n_terms = {summary.get('n_terms')}\n")
+            if summary.get("bulk_velocity") is not None:
+                fout.write(f"bulk_velocity = {summary.get('bulk_velocity'):.16e}\n")
+            if summary.get("n_terms") is not None:
+                fout.write(f"n_terms = {summary.get('n_terms')}\n")
             fout.write(f"mean_speed = {summary.get('mean_speed'):.16e}\n")
             if "area_mean_speed" in summary:
                 fout.write(f"area_mean_speed = {summary.get('area_mean_speed'):.16e}\n")
@@ -3177,7 +3444,23 @@ def write_profile_info(config_dir: str, summaries: list) -> str:
                 fout.write(f"discrete_mean_speed = {summary.get('discrete_mean_speed'):.16e}\n")
             fout.write(f"min_speed = {summary.get('min_speed'):.16e}\n")
             fout.write(f"max_speed = {summary.get('max_speed'):.16e}\n")
-            fout.write(f"umax_over_ubulk = {summary.get('umax_over_ubulk'):.16e}\n")
+            if summary.get("umax_over_ubulk") is not None:
+                fout.write(f"umax_over_ubulk = {summary.get('umax_over_ubulk'):.16e}\n")
+            for key in (
+                "source_field",
+                "source_grid",
+                "target_grid",
+                "source_block",
+                "target_block",
+                "target_face",
+                "source_slice",
+                "orientation",
+                "normal_tolerance",
+                "normal_dot",
+                "velocity_scale",
+            ):
+                if key in summary:
+                    fout.write(f"{key} = {summary.get(key)}\n")
             fout.write(f"output_file = {summary.get('path')}\n\n")
     return info_path
 
@@ -3441,7 +3724,7 @@ def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
     @throws ValueError on invalid source contract.
     """
     if not isinstance(source, dict):
-        raise ValueError(f"{field_name} must be a mapping with type: file or type: generated.")
+        raise ValueError(f"{field_name} must be a mapping with type: file, generated, or field_slice.")
     source_type = str(source.get("type", "")).strip().lower()
     if source_type == "file":
         path = source.get("path")
@@ -3476,7 +3759,10 @@ def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
             normalized["output_file"] = output_file.strip()
         return normalized
 
-    raise ValueError(f"{field_name}.type must be 'file' or 'generated'.")
+    if source_type == "field_slice":
+        return _normalize_field_slice_source(source, field_name)
+
+    raise ValueError(f"{field_name}.type must be 'file', 'generated', or 'field_slice'.")
 
 def _bc_profile_expected_dims(face: str, block_dims: tuple) -> tuple:
     """!
@@ -3566,7 +3852,7 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
 def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict, case_path: str,
                                                    profile_grid_dims: list = None) -> list:
     """!
-    @brief Generate dimensional PICSLICE artifacts for generated prescribed_flow BC sources.
+    @brief Generate dimensional PICSLICE artifacts for generated/field_slice prescribed_flow sources.
     @param[in] run_dir Run/precompute directory root.
     @param[in] case_cfg Parsed case.yml.
     @param[in] case_path Path to case.yml for relative grid/source resolution.
@@ -3576,7 +3862,7 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
     prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
     if not any(
         bc.get("handler") == "prescribed_flow"
-        and ((bc.get("params") or {}).get("source") or {}).get("type") == "generated"
+        and ((bc.get("params") or {}).get("source") or {}).get("type") in {"generated", "field_slice"}
         for block in prepared_blocks for bc in block
     ):
         return []
@@ -3584,19 +3870,21 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
         profile_grid_dims = resolve_grid_block_dimensions_for_profiles(case_cfg, case_path, run_dir)
 
     config_dir = os.path.join(run_dir, "config")
+    target_grid = None
     summaries = []
     for block_idx, block in enumerate(prepared_blocks):
         for bc in block:
             if bc.get("handler") != "prescribed_flow":
                 continue
             source = (bc.get("params") or {}).get("source", {})
-            if source.get("type") != "generated":
+            if source.get("type") not in {"generated", "field_slice"}:
                 continue
             face = bc["face"]
             dims = _bc_profile_expected_dims(face, profile_grid_dims[block_idx])
             face_token = _face_artifact_token(face)
+            suffix = "generated" if source.get("type") == "generated" else "sliced"
             default_output = os.path.join(
-                "config", f"inlet_profile_block{block_idx}_{face_token}.generated.picslice"
+                "config", f"inlet_profile_block{block_idx}_{face_token}.{suffix}.picslice"
             )
             output_path = _resolve_run_artifact_path(
                 run_dir,
@@ -3604,14 +3892,26 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
                 default_output,
                 default_to_config_dir=True,
             )
-            if source["generator"] == "square_duct_poiseuille":
+            if source.get("type") == "generated" and source["generator"] == "square_duct_poiseuille":
                 summary = generate_square_duct_poiseuille_picslice(output_path, dims, source["params"])
-            else:
+            elif source.get("type") == "generated":
                 raise ValueError(f"Unsupported generated profile generator '{source['generator']}'.")
+            else:
+                if target_grid is None:
+                    target_grid = resolve_target_grid_for_field_slice(case_cfg, case_path, run_dir)
+                summary = generate_field_slice_picslice(
+                    output_path,
+                    dims,
+                    source,
+                    target_grid,
+                    face,
+                    block_idx,
+                    case_path,
+                )
             summary.update({"block": block_idx, "face": face})
             summaries.append(summary)
             print(
-                f"[SUCCESS] Generated prescribed_flow profile for block {block_idx}, face {face}: "
+                f"[SUCCESS] Materialized prescribed_flow profile for block {block_idx}, face {face}: "
                 f"{os.path.relpath(output_path)} dims={summary['dims']}"
             )
 
@@ -5799,6 +6099,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
 
     generated_files = []
     generated_profile_summaries = []
+    field_slice_target_grid = None
     for i, block_bcs_list in enumerate(prepared_blocks):
         file_name = "bcs.run" if num_blocks == 1 else f"bcs_block{i}.run"
         bcs_file_path = os.path.join(config_dir, file_name)
@@ -5835,6 +6136,34 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                         summary = generate_square_duct_poiseuille_picslice(source_path, expected_dims, source["params"])
                     else:
                         raise ValueError(f"Unsupported generated profile generator '{source['generator']}'.")
+                    summary.update({"block": i, "face": face})
+                    generated_profile_summaries.append(summary)
+                elif source["type"] == "field_slice":
+                    default_output = os.path.join(
+                        "config",
+                        f"inlet_profile_block{i}_{_face_artifact_token(face)}.sliced.picslice",
+                    )
+                    source_path = _resolve_run_artifact_path(
+                        run_dir,
+                        source.get("output_file"),
+                        default_output,
+                        default_to_config_dir=True,
+                    )
+                    if os.path.abspath(source_path) == os.path.abspath(staged_path):
+                        raise ValueError(
+                            f"field_slice output_file for block {i}, face {face} must differ from staged solver profile."
+                        )
+                    if field_slice_target_grid is None:
+                        field_slice_target_grid = resolve_target_grid_for_field_slice(case_cfg, case_path, run_dir)
+                    summary = generate_field_slice_picslice(
+                        source_path,
+                        expected_dims,
+                        source,
+                        field_slice_target_grid,
+                        face,
+                        i,
+                        case_path,
+                    )
                     summary.update({"block": i, "face": face})
                     generated_profile_summaries.append(summary)
                 else:
@@ -8355,12 +8684,13 @@ def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> N
             if bc.get("handler") != "prescribed_flow":
                 continue
             source = (bc.get("params") or {}).get("source", {})
-            if source.get("type") != "generated":
+            if source.get("type") not in {"generated", "field_slice"}:
                 continue
             has_generated = True
             face_token = _face_artifact_token(bc["face"])
+            suffix = "generated" if source.get("type") == "generated" else "sliced"
             default_output = os.path.join(
-                "config", f"inlet_profile_block{block_idx}_{face_token}.generated.picslice"
+                "config", f"inlet_profile_block{block_idx}_{face_token}.{suffix}.picslice"
             )
             generated_path = _resolve_run_artifact_path(
                 run_dir,

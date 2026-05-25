@@ -11,7 +11,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Grid-particle interpolation and particle-grid projection
 - Runtime search/migration observability via `logs/search_metrics.csv` for particle-enabled runs
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
-- Generated and file-backed inlet `PICSLICE` profiles for `prescribed_flow`
+- Generated, field-sliced, and file-backed inlet `PICSLICE` profiles for `prescribed_flow`
   boundary conditions, including square-duct Poiseuille generation via
   `scripts/profile.gen`
 - Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `logs/scatter_metrics.csv`
@@ -485,6 +485,8 @@ Grid profile library:
 
 Inlet profile generation:
 - `scripts/profile.gen` writes dimensional canonical `PICSLICE` profiles.
+- `profile.gen field-slice` derives a reusable PICSLICE from an old `ufield*.dat`
+  and old canonical `PICGRID` without changing C-side ingestion.
 - `picurv precompute --case ...` materializes configured grid/profile artifacts
   without launching the solver.
 - `config/profiles/guide.md` documents reusable profile patterns.

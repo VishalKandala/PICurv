@@ -11,9 +11,10 @@ solver-scale copies, and wiring generated files into `bcs.run`.
 """
 
 import argparse
+import os
 import json
 import math
-import os
+import struct
 import sys
 
 
@@ -144,6 +145,398 @@ def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity
     }
 
 
+BC_FACE_MAP = {
+    "-xi": "-Xi",
+    "+xi": "+Xi",
+    "-eta": "-Eta",
+    "+eta": "+Eta",
+    "-zeta": "-Zeta",
+    "+zeta": "+Zeta",
+}
+
+
+def normalize_face_token(face: str, field_name: str) -> str:
+    """!
+    @brief Normalize a face token such as `-Zeta`.
+    @param[in] face Face token from CLI/config.
+    @param[in] field_name Human-readable field name for errors.
+    @return Canonical face token.
+    """
+    token = str(face or "").strip().lower()
+    if token not in BC_FACE_MAP:
+        raise ValueError(f"{field_name} must be one of {sorted(BC_FACE_MAP.values())}.")
+    return BC_FACE_MAP[token]
+
+
+def read_picgrid_blocks(path: str) -> list:
+    """!
+    @brief Read canonical PICGRID blocks as coordinate arrays.
+    @param[in] path PICGRID path.
+    @return List of dictionaries with dims and coords.
+    """
+    numpy = require_numpy()
+    if not os.path.isfile(path):
+        raise ValueError(f"PICGRID file not found: {path}")
+    with open(path, "r") as fin:
+        lines = [line.strip() for line in fin if line.strip() and not line.lstrip().startswith("#")]
+    if len(lines) < 3 or lines[0] != "PICGRID":
+        raise ValueError(f"PICGRID file '{path}' must begin with canonical PICGRID header.")
+    try:
+        nblk = int(lines[1])
+    except ValueError as exc:
+        raise ValueError(f"Invalid PICGRID block count in '{path}'.") from exc
+    if nblk <= 0:
+        raise ValueError(f"PICGRID file '{path}' has non-positive block count.")
+    cursor = 2
+    dims = []
+    for block_idx in range(nblk):
+        if cursor >= len(lines):
+            raise ValueError(f"PICGRID file '{path}' missing dimensions for block {block_idx}.")
+        parts = lines[cursor].split()
+        cursor += 1
+        if len(parts) != 3:
+            raise ValueError(f"Invalid PICGRID dimensions for block {block_idx} in '{path}'.")
+        try:
+            im, jm, km = (int(parts[0]), int(parts[1]), int(parts[2]))
+        except ValueError as exc:
+            raise ValueError(f"Invalid PICGRID dimensions for block {block_idx} in '{path}'.") from exc
+        if min(im, jm, km) < 2:
+            raise ValueError(f"PICGRID block {block_idx} dimensions {(im, jm, km)} are too small.")
+        dims.append((im, jm, km))
+    blocks = []
+    for block_idx, (im, jm, km) in enumerate(dims):
+        count = im * jm * km
+        if cursor + count > len(lines):
+            raise ValueError(f"PICGRID file '{path}' missing coordinates for block {block_idx}.")
+        coords = []
+        for row in lines[cursor:cursor + count]:
+            parts = row.split()
+            if len(parts) != 3:
+                raise ValueError(f"Invalid PICGRID coordinate row in block {block_idx}: '{row}'.")
+            try:
+                coords.append((float(parts[0]), float(parts[1]), float(parts[2])))
+            except ValueError as exc:
+                raise ValueError(f"Invalid PICGRID coordinate row in block {block_idx}: '{row}'.") from exc
+        cursor += count
+        blocks.append({
+            "dims": (im, jm, km),
+            "coords": numpy.asarray(coords, dtype=float).reshape((km, jm, im, 3)),
+        })
+    if cursor != len(lines):
+        raise ValueError(f"PICGRID file '{path}' has trailing coordinate rows.")
+    return blocks
+
+
+def read_petsc_vec_binary(path: str):
+    """!
+    @brief Read a PETSc binary VecView payload written by PICurv.
+    @param[in] path PETSc binary vector path.
+    @return NumPy array of scalar values.
+    """
+    numpy = require_numpy()
+    if not os.path.isfile(path):
+        raise ValueError(f"field_file not found: {path}")
+    data = open(path, "rb").read()
+    if len(data) < 8:
+        raise ValueError(f"field_file '{path}' is too short to be a PETSc Vec binary.")
+    candidates = []
+    for endian in (">", "<"):
+        try:
+            class_id, vec_size = struct.unpack(endian + "ii", data[:8])
+        except struct.error:
+            continue
+        if vec_size > 0 and len(data) == 8 + vec_size * 8:
+            candidates.append((endian, class_id, vec_size, 8))
+        try:
+            (vec_size_no_class,) = struct.unpack(endian + "i", data[:4])
+        except struct.error:
+            continue
+        if vec_size_no_class > 0 and len(data) == 4 + vec_size_no_class * 8:
+            candidates.append((endian, None, vec_size_no_class, 4))
+    if not candidates:
+        raise ValueError(
+            f"field_file '{path}' does not match supported PETSc real64 Vec binary layouts."
+        )
+    endian, _class_id, vec_size, offset = candidates[0]
+    values = numpy.frombuffer(data, dtype=numpy.dtype(endian + "f8"), count=vec_size, offset=offset)
+    return values.astype(float, copy=False)
+
+
+def _normal_face_from_explicit(axis: str, normal: str) -> str:
+    """!
+    @brief Validate an explicit normal face for an axis/index slice.
+    @param[in] axis Slice axis.
+    @param[in] normal Normal face token.
+    @return Canonical normal face.
+    """
+    face = normalize_face_token(normal, "slice.normal")
+    if face[1:].lower() != str(axis or "").strip().lower():
+        raise ValueError("slice.normal must use the same axis as slice.axis.")
+    return face
+
+
+def _slice_specs_from_face(face: str, dims: tuple) -> dict:
+    """!
+    @brief Build source slice indexing metadata from a face token.
+    @param[in] face Canonical face token.
+    @param[in] dims Grid node dimensions.
+    @return Slice specification dictionary.
+    """
+    im, jm, km = dims
+    if face == "-Xi":
+        return {"face": face, "axis": "Xi", "index": 0, "normal_face": face, "dims": (km - 1, jm - 1)}
+    if face == "+Xi":
+        return {"face": face, "axis": "Xi", "index": im - 1, "normal_face": face, "dims": (km - 1, jm - 1)}
+    if face == "-Eta":
+        return {"face": face, "axis": "Eta", "index": 0, "normal_face": face, "dims": (km - 1, im - 1)}
+    if face == "+Eta":
+        return {"face": face, "axis": "Eta", "index": jm - 1, "normal_face": face, "dims": (km - 1, im - 1)}
+    if face == "-Zeta":
+        return {"face": face, "axis": "Zeta", "index": 0, "normal_face": face, "dims": (jm - 1, im - 1)}
+    if face == "+Zeta":
+        return {"face": face, "axis": "Zeta", "index": km - 1, "normal_face": face, "dims": (jm - 1, im - 1)}
+    raise ValueError(f"Unsupported face '{face}'.")
+
+
+def _slice_specs_from_axis(axis: str, index: int, normal_face: str, dims: tuple) -> dict:
+    """!
+    @brief Build source slice indexing metadata from explicit axis/index.
+    @param[in] axis Slice axis.
+    @param[in] index Node index along the normal axis.
+    @param[in] normal_face Explicit source normal face.
+    @param[in] dims Grid node dimensions.
+    @return Slice specification dictionary.
+    """
+    im, jm, km = dims
+    axis_token = str(axis or "").strip().lower()
+    limits = {"xi": im, "eta": jm, "zeta": km}
+    if axis_token not in limits:
+        raise ValueError("slice.axis must be one of Xi, Eta, Zeta.")
+    if index < 0 or index >= limits[axis_token]:
+        raise ValueError(f"slice.index {index} is outside valid {axis} node range [0, {limits[axis_token] - 1}].")
+    spec = _slice_specs_from_face(normal_face, dims)
+    spec["index"] = index
+    spec["face"] = None
+    return spec
+
+
+def _surface_normals(coords, spec: dict):
+    """!
+    @brief Compute unit normals and sample node indices for a slice.
+    @param[in] coords Grid coordinates shaped `(km, jm, im, 3)`.
+    @param[in] spec Slice specification dictionary.
+    @return `(normals, sample_indices)` in PICSLICE storage order.
+    """
+    numpy = require_numpy()
+    km, jm, im, _ = coords.shape
+    axis = spec["axis"]
+    idx = spec["index"]
+    normal_face = spec["normal_face"]
+    n1, n2 = spec["dims"]
+    normals = numpy.zeros((n1, n2, 3), dtype=float)
+    sample_indices = []
+
+    for a in range(n1):
+        row = []
+        for b in range(n2):
+            if axis == "Xi":
+                k, j, i = a, b, idx
+                origin = coords[k, j, i]
+                tj = coords[k, j + 1, i] - origin
+                tk = coords[k + 1, j, i] - origin
+                normal = numpy.cross(tj, tk)
+                if normal_face == "-Xi":
+                    normal = -normal
+            elif axis == "Eta":
+                k, i, j = a, b, idx
+                origin = coords[k, j, i]
+                ti = coords[k, j, i + 1] - origin
+                tk = coords[k + 1, j, i] - origin
+                normal = numpy.cross(ti, tk)
+                if normal_face == "+Eta":
+                    normal = -normal
+            elif axis == "Zeta":
+                j, i, k = a, b, idx
+                origin = coords[k, j, i]
+                ti = coords[k, j, i + 1] - origin
+                tj = coords[k, j + 1, i] - origin
+                normal = numpy.cross(ti, tj)
+                if normal_face == "-Zeta":
+                    normal = -normal
+            else:
+                raise ValueError(f"Unsupported slice axis '{axis}'.")
+            length = float(numpy.linalg.norm(normal))
+            if length <= 0.0 or not math.isfinite(length):
+                raise ValueError(f"Degenerate grid slice normal at storage index ({a}, {b}).")
+            normals[a, b, :] = normal / length
+            row.append((k, j, i))
+        sample_indices.append(row)
+    return normals, sample_indices
+
+
+def _average_unit_normal(normals):
+    """!
+    @brief Average a normal field and normalize the result.
+    @param[in] normals Normal array.
+    @return Unit average normal.
+    """
+    numpy = require_numpy()
+    avg = numpy.mean(normals.reshape((-1, 3)), axis=0)
+    length = float(numpy.linalg.norm(avg))
+    if length <= 0.0 or not math.isfinite(length):
+        raise ValueError("Average slice normal is degenerate.")
+    return avg / length
+
+
+def generate_field_slice_profile(output_path: str, field_file: str, source_grid: str,
+                                 target_grid: str, source_block: int, target_block: int,
+                                 source_slice: dict, target_face: str, orientation: str,
+                                 normal_tolerance: float, velocity_scale: float,
+                                 expected_dims: tuple = None) -> dict:
+    """!
+    @brief Extract a dimensional PICSLICE profile from a Cartesian Ucat field slice.
+    @param[in] output_path Output PICSLICE path.
+    @param[in] field_file PETSc binary Ucat field file.
+    @param[in] source_grid Old canonical PICGRID path.
+    @param[in] target_grid Target canonical PICGRID path.
+    @param[in] source_block Source grid block index.
+    @param[in] target_block Target grid block index.
+    @param[in] source_slice Source slice selector.
+    @param[in] target_face Target inlet face token.
+    @param[in] orientation Normal relationship, `opposite` or `same`.
+    @param[in] normal_tolerance Dot-product tolerance.
+    @param[in] velocity_scale Multiplier from stored field units to dimensional m/s.
+    @param[in] expected_dims Optional target PICSLICE dimensions.
+    @return Summary dictionary.
+    """
+    numpy = require_numpy()
+    orientation = str(orientation or "opposite").strip().lower()
+    if orientation not in {"opposite", "same"}:
+        raise ValueError("slice.orientation must be 'opposite' or 'same'.")
+    if not (0.0 < normal_tolerance <= 1.0):
+        raise ValueError("slice.normal_tolerance must be in the range (0, 1].")
+    if not math.isfinite(float(velocity_scale)) or float(velocity_scale) <= 0.0:
+        raise ValueError("velocity_scale must be positive.")
+
+    source_blocks = read_picgrid_blocks(source_grid)
+    target_blocks = read_picgrid_blocks(target_grid)
+    if source_block < 0 or source_block >= len(source_blocks):
+        raise ValueError(f"source_block {source_block} is outside source grid block range.")
+    if target_block < 0 or target_block >= len(target_blocks):
+        raise ValueError(f"target_block {target_block} is outside target grid block range.")
+
+    source_dims = source_blocks[source_block]["dims"]
+    target_dims = target_blocks[target_block]["dims"]
+    if "face" in source_slice and source_slice["face"]:
+        source_face = normalize_face_token(source_slice["face"], "slice.face")
+        source_spec = _slice_specs_from_face(source_face, source_dims)
+        source_selector = {"face": source_face}
+    else:
+        if "axis" not in source_slice or "index" not in source_slice or "normal" not in source_slice:
+            raise ValueError("slice must define either face or axis/index/normal.")
+        source_normal = _normal_face_from_explicit(source_slice["axis"], source_slice["normal"])
+        try:
+            source_index = int(source_slice["index"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("slice.index must be an integer.") from exc
+        source_spec = _slice_specs_from_axis(source_slice["axis"], source_index, source_normal, source_dims)
+        source_selector = {"axis": source_spec["axis"], "index": source_index, "normal": source_normal}
+
+    target_face = normalize_face_token(target_face, "target_face")
+    target_spec = _slice_specs_from_face(target_face, target_dims)
+
+    if expected_dims is not None:
+        expected_dims = tuple(expected_dims)
+        if tuple(target_spec["dims"]) != expected_dims:
+            raise ValueError(
+                f"target face dimensions {target_spec['dims']} do not match expected dimensions {expected_dims}."
+            )
+    if tuple(source_spec["dims"]) != tuple(target_spec["dims"]):
+        raise ValueError(
+            f"field_slice dimension mismatch: source slice {source_spec['dims']} "
+            f"does not match target inlet {target_spec['dims']}."
+        )
+
+    source_normals, sample_indices = _surface_normals(source_blocks[source_block]["coords"], source_spec)
+    target_normals, _ = _surface_normals(target_blocks[target_block]["coords"], target_spec)
+    source_avg = _average_unit_normal(source_normals)
+    target_avg = _average_unit_normal(target_normals)
+    normal_dot = float(numpy.dot(source_avg, target_avg))
+    if orientation == "opposite" and normal_dot > -normal_tolerance:
+        raise ValueError(
+            f"source and target normals are not opposite enough: dot={normal_dot:.6f}, "
+            f"required <= {-normal_tolerance:.6f}."
+        )
+    if orientation == "same" and normal_dot < normal_tolerance:
+        raise ValueError(
+            f"source and target normals are not aligned enough: dot={normal_dot:.6f}, "
+            f"required >= {normal_tolerance:.6f}."
+        )
+
+    raw_values = read_petsc_vec_binary(field_file)
+    expected_value_count = source_dims[0] * source_dims[1] * source_dims[2] * 3
+    if raw_values.size != expected_value_count:
+        raise ValueError(
+            f"field_file vector length mismatch: expected {expected_value_count} "
+            f"from source grid dimensions {source_dims} and 3 Ucat components, found {raw_values.size}."
+        )
+    im, jm, km = source_dims
+    ucat = raw_values.reshape((km, jm, im, 3)) * float(velocity_scale)
+
+    n1, n2 = source_spec["dims"]
+    speeds = numpy.zeros((n1, n2), dtype=float)
+    signed_components = numpy.zeros((n1, n2), dtype=float)
+    for a in range(n1):
+        for b in range(n2):
+            k, j, i = sample_indices[a][b]
+            signed = float(numpy.dot(ucat[k, j, i, :], source_normals[a, b, :]))
+            signed_components[a, b] = signed
+            speeds[a, b] = signed if orientation == "opposite" else -signed
+
+    min_oriented = float(numpy.min(speeds))
+    tolerance_speed = max(1.0e-12, 1.0e-12 * float(numpy.max(numpy.abs(speeds))) if speeds.size else 1.0e-12)
+    if min_oriented < -tolerance_speed:
+        raise ValueError(
+            f"field_slice orientation produced negative normal speeds; min={min_oriented:.16e}. "
+            "Check slice.orientation, slice.normal, and the source field direction."
+        )
+    speeds = numpy.maximum(speeds, 0.0)
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    with open(output_path, "w") as fout:
+        fout.write("PICSLICE\n")
+        fout.write("1\n")
+        fout.write(f"{n1} {n2}\n")
+        for row in range(n1):
+            for col in range(n2):
+                fout.write(f"{float(speeds[row, col]):.16e}\n")
+
+    max_speed = float(numpy.max(speeds))
+    mean_speed = float(numpy.mean(speeds))
+    min_speed = float(numpy.min(speeds))
+    return {
+        "generator": "field_slice",
+        "path": os.path.abspath(output_path),
+        "dims": [n1, n2],
+        "source_field": os.path.abspath(field_file),
+        "source_grid": os.path.abspath(source_grid),
+        "target_grid": os.path.abspath(target_grid),
+        "source_block": source_block,
+        "target_block": target_block,
+        "target_face": target_face,
+        "source_slice": source_selector,
+        "orientation": orientation,
+        "normal_tolerance": normal_tolerance,
+        "normal_dot": normal_dot,
+        "velocity_scale": float(velocity_scale),
+        "mean_speed": mean_speed,
+        "min_speed": min_speed,
+        "max_speed": max_speed,
+        "min_signed_normal_speed": float(numpy.min(signed_components)),
+        "max_signed_normal_speed": float(numpy.max(signed_components)),
+    }
+
+
 def build_parser():
     """!
     @brief Build the profile generator CLI parser.
@@ -166,6 +559,30 @@ def build_parser():
     square.add_argument("--n-terms", type=int, default=101,
                         help="Positive odd number of sine modes.")
     square.add_argument("--summary-json", help="Optional path for generator summary JSON.")
+    field_slice = subparsers.add_parser(
+        "field-slice",
+        help="Extract a canonical PICSLICE profile from an existing Ucat field slice.",
+    )
+    field_slice.add_argument("--output", required=True, help="Output `.picslice` path.")
+    field_slice.add_argument("--field-file", required=True, help="PETSc binary Ucat field file.")
+    field_slice.add_argument("--source-grid", required=True, help="Old canonical PICGRID path.")
+    field_slice.add_argument("--target-grid", required=True, help="Target canonical PICGRID path.")
+    field_slice.add_argument("--source-block", type=int, default=0, help="Source block index.")
+    field_slice.add_argument("--target-block", type=int, default=0, help="Target block index.")
+    field_slice.add_argument("--slice-face", help="Source face token, e.g. +Zeta.")
+    field_slice.add_argument("--slice-axis", help="Explicit source slice axis: Xi, Eta, or Zeta.")
+    field_slice.add_argument("--slice-index", type=int, help="Explicit source slice node index.")
+    field_slice.add_argument("--slice-normal", help="Explicit source normal token for axis/index, e.g. +Zeta.")
+    field_slice.add_argument("--target-face", required=True, help="Target inlet face token.")
+    field_slice.add_argument("--orientation", choices=("opposite", "same"), default="opposite",
+                             help="Required relationship between source and target outward normals.")
+    field_slice.add_argument("--normal-tolerance", type=float, default=0.99,
+                             help="Dot-product tolerance for average normal compatibility.")
+    field_slice.add_argument("--velocity-scale", type=float, required=True,
+                             help="Multiplier from stored Ucat values to dimensional speeds.")
+    field_slice.add_argument("--expected-dims", nargs=2, type=int, metavar=("N1", "N2"),
+                             help="Optional expected PICSLICE dimensions.")
+    field_slice.add_argument("--summary-json", help="Optional path for generator summary JSON.")
     return parser
 
 
@@ -184,6 +601,29 @@ def main(argv=None) -> int:
                 tuple(args.dims),
                 args.bulk_velocity,
                 args.n_terms,
+            )
+        elif args.command == "field-slice":
+            if args.slice_face:
+                source_slice = {"face": args.slice_face}
+            else:
+                source_slice = {
+                    "axis": args.slice_axis,
+                    "index": args.slice_index,
+                    "normal": args.slice_normal,
+                }
+            summary = generate_field_slice_profile(
+                args.output,
+                args.field_file,
+                args.source_grid,
+                args.target_grid,
+                args.source_block,
+                args.target_block,
+                source_slice,
+                args.target_face,
+                args.orientation,
+                args.normal_tolerance,
+                args.velocity_scale,
+                tuple(args.expected_dims) if args.expected_dims else None,
             )
         else:
             parser.error(f"unsupported command {args.command}")
