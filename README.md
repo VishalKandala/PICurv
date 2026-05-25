@@ -11,6 +11,9 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Grid-particle interpolation and particle-grid projection
 - Runtime search/migration observability via `logs/search_metrics.csv` for particle-enabled runs
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
+- Generated and file-backed inlet `PICSLICE` profiles for `prescribed_flow`
+  boundary conditions, including square-duct Poiseuille generation via
+  `scripts/profile.gen`
 - Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `logs/scatter_metrics.csv`
 - YAML-driven orchestration through the conductor (`scripts/picurv`, launched by `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
@@ -138,6 +141,12 @@ and writes runtime deposition diagnostics to `logs/scatter_metrics.csv`.
   --monitor my_case/Standard_Output.yml \
   --post my_case/standard_analysis.yml \
   --dry-run
+```
+
+Optional: generate deterministic artifacts before launch, such as `grid_gen`
+grids and generated inlet profiles:
+```bash
+./bin/picurv precompute --case my_case/flat_channel.yml --output-dir precomputed/flat_channel
 ```
 
 7. Run solver + post:
@@ -473,6 +482,12 @@ Build config location:
 
 Grid profile library:
 - `config/grids/` (shared `grid.gen` configs)
+
+Inlet profile generation:
+- `scripts/profile.gen` writes dimensional canonical `PICSLICE` profiles.
+- `picurv precompute --case ...` materializes configured grid/profile artifacts
+  without launching the solver.
+- `config/profiles/guide.md` documents reusable profile patterns.
 
 Scheduler/study profiles:
 - `config/schedulers/`

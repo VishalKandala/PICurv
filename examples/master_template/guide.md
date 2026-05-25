@@ -22,7 +22,9 @@ is `examples/search_robustness/`.
 2. Copy minimal required blocks into runnable case-local YAML.
 3. Keep each role modular rather than merging all settings into one large file.
 4. Validate with `picurv validate` after each change.
-5. Execute with `picurv run` or `picurv sweep`.
+5. For generated grids or inlet profiles, optionally inspect deterministic
+   artifacts first with `picurv precompute --case ...`.
+6. Execute with `picurv run` or `picurv sweep`.
 
 Post-profile usage note:
 - keep `master_postprocessor.yml -> run_control` as the full logical analysis window you want a recipe to represent. When you later run `picurv run --post-process --continue --run-dir ... --post ...`, PICurv resumes the same recipe from the first unfinished step instead of requiring manual `start_step` edits.
@@ -36,6 +38,15 @@ Launcher-related note:
 - for an existing case or repo-root site config, start from `execution.example.yml`.
 - legacy `.picurv-local.yml` remains supported for local-only compatibility, but it does not feed generated batch jobs.
 - run directory names are still generated automatically by `picurv` as `<case_basename>_<timestamp>`.
+
+Profile-generation note:
+
+- `master_case.yml` includes commented examples for both file-backed
+  `prescribed_flow` PICSLICE profiles and generated square-duct Poiseuille
+  profiles.
+- `picurv run --solve` generates configured profile artifacts automatically.
+- `picurv precompute --case ...` writes the same deterministic profile artifacts
+  without launching the solver, mirroring the run `config/` layout.
 
 ## Why This Matters For CFD Teams
 
