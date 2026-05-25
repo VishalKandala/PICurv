@@ -12,7 +12,7 @@ This directory is the Python/shell control plane for PICurv. It covers user work
   - writes PICGRID plus optional `.info`/`.vts` outputs
   - includes `legacy1d` subcommand for headerless legacy payload -> canonical PICGRID conversion
 - `profile.gen`
-  - standalone dimensional `PICSLICE` profile generator used by `picurv` generated-profile orchestration
+  - standalone dimensional `PICSLICE` profile generator used by `picurv` generated and field-sliced profile orchestration
   - currently supports `square_duct_poiseuille`
 - `audit_ingress.py`
   - scans `src/setup.c` and `src/io.c` for `PetscOptionsGet*`/`PetscOptionsHasName` usage

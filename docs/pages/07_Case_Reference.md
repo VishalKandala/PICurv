@@ -197,6 +197,7 @@ Supported type/handler combinations:
 - `INLET` + `prescribed_flow`:
   - file-backed: `params.source.type: file`, `params.source.path`
   - generated: `params.source.type: generated`, `params.source.generator: square_duct_poiseuille`
+  - field-sliced: `params.source.type: field_slice`, `params.source.field_file`, `params.source.grid_file`, `params.source.slice`
 - `OUTLET` + `conservation`
 - `WALL` + `noslip`
 - `PERIODIC` + `geometric`
@@ -224,6 +225,26 @@ Generated profile example:
 `profile.info`, stages the solver-scale `.picslice`, and passes the existing
 `source_file` key to the C runtime. Use `picurv precompute --case ...` to create
 the same deterministic artifacts without launching the solver.
+
+Field-sliced profile example:
+
+```yaml
+- face: "-Zeta"
+  type: INLET
+  handler: prescribed_flow
+  params:
+    source:
+      type: field_slice
+      field_file: ../old_run/output/eulerian/ufield10000_0.dat
+      grid_file: ../old_run/config/grid.run
+      source_case: ../old_run/config/case.yml
+      slice:
+        face: "+Zeta"
+        orientation: opposite
+```
+
+`field_slice` uses Python preprocessing to write a normal dimensional PICSLICE;
+the C runtime still sees only the staged `source_file`.
 
 @section p07_passthrough_sec 6. solver_parameters (Advanced)
 

@@ -41,8 +41,8 @@ Launcher-related note:
 
 Profile-generation note:
 
-- `master_case.yml` includes commented examples for both file-backed
-  `prescribed_flow` PICSLICE profiles and generated square-duct Poiseuille
+- `master_case.yml` includes commented examples for file-backed, generated
+  square-duct Poiseuille, and old-field-sliced `prescribed_flow` PICSLICE
   profiles.
 - `picurv run --solve` generates configured profile artifacts automatically.
 - `picurv precompute --case ...` writes the same deterministic profile artifacts

@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import struct
 import sys
 import time
 from types import SimpleNamespace
@@ -92,6 +93,20 @@ def write_canonical_picgrid(path: Path, dims=(3, 3, 3)) -> Path:
             for i in range(im):
                 lines.append(f"{float(i):.8e} {float(j):.8e} {float(k):.8e}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def write_petsc_vec_binary(path: Path, values) -> Path:
+    """!
+    @brief Write a minimal PETSc binary VecView real64 payload for tests.
+    @param[in] path Output binary path.
+    @param[in] values Scalar values to store.
+    @return Output path.
+    """
+    values = [float(value) for value in values]
+    with path.open("wb") as fout:
+        fout.write(struct.pack(">ii", 1211214, len(values)))
+        fout.write(struct.pack(">" + "d" * len(values), *values))
     return path
 
 
@@ -1014,6 +1029,152 @@ def test_profile_gen_square_duct_poiseuille_cli(tmp_path):
     assert output.is_file()
 
 
+def test_profile_gen_field_slice_cli_projects_ucat_to_picslice(tmp_path):
+    """!
+    @brief Test profile.gen field-slice extracts positive normal speeds from Ucat.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(3, 3, 3))
+    values = []
+    for _k in range(3):
+        for _j in range(3):
+            for _i in range(3):
+                values.extend([0.0, 0.0, 4.0])
+    field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
+    output = tmp_path / "slice.picslice"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROFILE_GEN),
+            "field-slice",
+            "--output",
+            str(output),
+            "--field-file",
+            str(field),
+            "--source-grid",
+            str(grid),
+            "--target-grid",
+            str(grid),
+            "--slice-face=+Zeta",
+            "--target-face=-Zeta",
+            "--orientation",
+            "opposite",
+            "--velocity-scale",
+            "2.0",
+            "--expected-dims",
+            "2",
+            "2",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    summary = json.loads(result.stdout.strip().splitlines()[-1])
+    assert summary["generator"] == "field_slice"
+    assert summary["dims"] == [2, 2]
+    assert summary["normal_dot"] == pytest.approx(-1.0)
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert lines[:3] == ["PICSLICE", "1", "2 2"]
+    assert [float(value) for value in lines[3:]] == pytest.approx([8.0, 8.0, 8.0, 8.0])
+
+
+def test_profile_gen_field_slice_cli_supports_axis_index_selector(tmp_path):
+    """!
+    @brief Test explicit axis/index field-slice selection.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(3, 3, 3))
+    values = []
+    for _k in range(3):
+        for _j in range(3):
+            for _i in range(3):
+                values.extend([3.0, 0.0, 0.0])
+    field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
+    output = tmp_path / "slice_axis.picslice"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROFILE_GEN),
+            "field-slice",
+            "--output",
+            str(output),
+            "--field-file",
+            str(field),
+            "--source-grid",
+            str(grid),
+            "--target-grid",
+            str(grid),
+            "--slice-axis",
+            "Xi",
+            "--slice-index",
+            "2",
+            "--slice-normal=+Xi",
+            "--target-face=-Xi",
+            "--orientation",
+            "opposite",
+            "--velocity-scale",
+            "1.0",
+            "--expected-dims",
+            "2",
+            "2",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert [float(value) for value in output.read_text(encoding="utf-8").splitlines()[3:]] == pytest.approx(
+        [3.0, 3.0, 3.0, 3.0]
+    )
+
+
+def test_profile_gen_field_slice_rejects_bad_orientation_sign(tmp_path):
+    """!
+    @brief Test field_slice rejects profiles whose flow sign conflicts with orientation.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(3, 3, 3))
+    values = []
+    for _k in range(3):
+        for _j in range(3):
+            for _i in range(3):
+                values.extend([0.0, 0.0, -1.0])
+    field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROFILE_GEN),
+            "field-slice",
+            "--output",
+            str(tmp_path / "bad.picslice"),
+            "--field-file",
+            str(field),
+            "--source-grid",
+            str(grid),
+            "--target-grid",
+            str(grid),
+            "--slice-face=+Zeta",
+            "--target-face=-Zeta",
+            "--orientation",
+            "opposite",
+            "--velocity-scale",
+            "1.0",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "negative normal speeds" in result.stderr
+
+
 def test_prescribed_flow_bcs_generation_stages_source_file(tmp_path):
     """!
     @brief Test prescribed_flow uses existing bcs.run generation with staged source_file.
@@ -1103,9 +1264,64 @@ def test_prescribed_flow_bcs_generation_materializes_generated_source(tmp_path):
     assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
 
 
+def test_prescribed_flow_bcs_generation_materializes_field_slice_source(tmp_path):
+    """!
+    @brief Test field_slice prescribed_flow profiles are sliced and staged for bcs.run.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(9, 9, 9))
+    values = []
+    for _k in range(9):
+        for _j in range(9):
+            for _i in range(9):
+                values.extend([0.0, 0.0, 6.0])
+    field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
+    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
+    case_cfg["boundary_conditions"][4] = {
+        "face": "-Zeta",
+        "type": "INLET",
+        "handler": "prescribed_flow",
+        "params": {
+            "source": {
+                "type": "field_slice",
+                "field_file": str(field),
+                "grid_file": str(grid),
+                "velocity_scale": 0.5,
+                "slice": {"face": "+Zeta", "orientation": "opposite"},
+            }
+        },
+    }
+    run_dir = tmp_path / "run"
+    config_dir = run_dir / "config"
+    config_dir.mkdir(parents=True)
+    case_path = config_dir / "case.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    generated = picurv.generate_multi_block_bcs(
+        str(run_dir), "unit", case_cfg, {"Case": str(case_path), "Solver": "solver.yml", "Monitor": "monitor.yml"}
+    )
+
+    bcs_text = Path(generated[0]).read_text(encoding="utf-8")
+    assert "prescribed_flow" in bcs_text
+    assert "source_file=" in bcs_text
+    sliced = config_dir / "inlet_profile_block0_negZeta.sliced.picslice"
+    staged = config_dir / "inlet_profile_block0_negZeta.picslice"
+    assert sliced.is_file()
+    assert staged.is_file()
+    info = (config_dir / "profile.info").read_text(encoding="utf-8")
+    assert "generator = field_slice" in info
+    assert "orientation = opposite" in info
+    staged_lines = staged.read_text(encoding="utf-8").splitlines()
+    assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
+    assert float(staged_lines[3]) == pytest.approx(3.0)
+
+
 def test_prescribed_flow_rejects_unsupported_source_type():
     """!
-    @brief Test prescribed_flow rejects deferred source types during validation.
+    @brief Test prescribed_flow rejects unknown source types during validation.
     """
     picurv = load_picurv_module()
     valid = FIXTURES / "valid"
@@ -1114,10 +1330,10 @@ def test_prescribed_flow_rejects_unsupported_source_type():
         "face": "-Zeta",
         "type": "INLET",
         "handler": "prescribed_flow",
-        "params": {"source": {"type": "field_slice", "path": "old.dat"}},
+        "params": {"source": {"type": "unknown", "path": "old.dat"}},
     }
 
-    with pytest.raises(ValueError, match="type must be 'file' or 'generated'"):
+    with pytest.raises(ValueError, match="type must be 'file', 'generated', or 'field_slice'"):
         picurv.validate_and_prepare_boundary_conditions(case_cfg)
 
 
@@ -1590,6 +1806,60 @@ def test_precompute_generates_profile_artifacts_from_case(tmp_path):
     assert payload["profiles"][0]["dims"] == [8, 8]
 
 
+def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
+    """!
+    @brief Test precompute materializes field_slice prescribed_flow profiles.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(9, 9, 9))
+    values = []
+    for _k in range(9):
+        for _j in range(9):
+            for _i in range(9):
+                values.extend([0.0, 0.0, 2.0])
+    field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
+    old_case = tmp_path / "old_case.yml"
+    old_case.write_text(
+        yaml.safe_dump({"properties": {"scaling": {"velocity_ref": 2.0}}}, sort_keys=False),
+        encoding="utf-8",
+    )
+    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
+    case_cfg["boundary_conditions"][4] = {
+        "face": "-Zeta",
+        "type": "INLET",
+        "handler": "prescribed_flow",
+        "params": {
+            "source": {
+                "type": "field_slice",
+                "field_file": str(field),
+                "grid_file": str(grid),
+                "source_case": str(old_case),
+                "slice": {"face": "+Zeta", "orientation": "opposite"},
+            }
+        },
+    }
+    case_path = tmp_path / "case_precompute_field_slice.yml"
+    output_dir = tmp_path / "precomputed" / "slice"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    result = run_picurv(
+        ["precompute", "--case", str(case_path), "--output-dir", str(output_dir)],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config_dir = output_dir / "config"
+    profile = config_dir / "inlet_profile_block0_negZeta.sliced.picslice"
+    manifest = config_dir / "precompute.manifest.json"
+    assert profile.is_file()
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert payload["profiles"][0]["generator"] == "field_slice"
+    assert payload["profiles"][0]["normal_dot"] == pytest.approx(-1.0)
+    assert payload["profiles"][0]["velocity_scale"] == pytest.approx(2.0)
+
+
 def test_local_no_submit_stages_grid_gen_before_generated_profile(tmp_path):
     """!
     @brief Test grid_gen output is available before generated profile dimensions are resolved.
@@ -1643,6 +1913,61 @@ def test_local_no_submit_stages_grid_gen_before_generated_profile(tmp_path):
     assert (config_dir / "inlet_profile_block0_negZeta.generated.picslice").is_file()
     staged_lines = (config_dir / "inlet_profile_block0_negZeta.picslice").read_text(encoding="utf-8").splitlines()
     assert staged_lines[:3] == ["PICSLICE", "1", "4 3"]
+
+
+def test_local_no_submit_materializes_field_slice_profile(tmp_path):
+    """!
+    @brief Test run --solve --no-submit materializes field_slice profiles automatically.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(9, 9, 9))
+    values = []
+    for _k in range(9):
+        for _j in range(9):
+            for _i in range(9):
+                values.extend([0.0, 0.0, 1.5])
+    field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
+    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
+    case_cfg["boundary_conditions"][4] = {
+        "face": "-Zeta",
+        "type": "INLET",
+        "handler": "prescribed_flow",
+        "params": {
+            "source": {
+                "type": "field_slice",
+                "field_file": str(field),
+                "grid_file": str(grid),
+                "velocity_scale": 1.0,
+                "slice": {"face": "+Zeta", "orientation": "opposite"},
+            }
+        },
+    }
+    case_path = tmp_path / "case_field_slice.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--no-submit",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    run_dirs = sorted((tmp_path / "runs").glob("case_field_slice_*"))
+    assert len(run_dirs) == 1
+    config_dir = run_dirs[0] / "config"
+    assert (config_dir / "inlet_profile_block0_negZeta.sliced.picslice").is_file()
+    assert (config_dir / "inlet_profile_block0_negZeta.picslice").is_file()
 
 
 def test_local_no_submit_solve_post_stages_post_with_deferred_sources(tmp_path):

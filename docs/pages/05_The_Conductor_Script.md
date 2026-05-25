@@ -359,6 +359,8 @@ solver. It uses the same `case.yml` generator settings as `run --solve`:
 - `grid.mode: grid_gen` writes the configured dimensional `PICGRID`,
 - `prescribed_flow.source.type: generated` delegates dimensional `.picslice`
   profile generation to `scripts/profile.gen` and writes `profile.info`,
+- `prescribed_flow.source.type: field_slice` extracts a dimensional `.picslice`
+  from an old Cartesian `ufield*.dat` plus its old `PICGRID`,
 - `config/precompute.manifest.json` records generated paths and profile stats.
 
 The output layout mirrors `runs/<run_id>/config/` so inspected artifacts can be

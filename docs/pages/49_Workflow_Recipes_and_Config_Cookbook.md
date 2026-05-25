@@ -334,6 +334,28 @@ boundary_conditions:
 For `64 x 64 x 1024` cells, a `-Zeta` or `+Zeta` profile is `64 x 64`.
 The first file value maps to tangential solver index `(j=1, i=1)`.
 
+Field-sliced prescribed inlet profile from an old run:
+
+```yaml
+boundary_conditions:
+  - face: "-Zeta"
+    type: INLET
+    handler: prescribed_flow
+    params:
+      source:
+        type: field_slice
+        field_file: ../old_run/output/eulerian/ufield10000_0.dat
+        grid_file: ../old_run/config/grid.run
+        source_case: ../old_run/config/case.yml
+        slice:
+          face: "+Zeta"
+          orientation: opposite
+```
+
+This extracts Cartesian `Ucat` normal speeds from the old slice, validates the
+old and new face normals, writes `*.sliced.picslice`, then stages it through the
+same file-backed C path. V1 requires matching source and target slice sizes.
+
 Precompute deterministic artifacts without launching the solver:
 
 ```bash
