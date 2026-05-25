@@ -800,6 +800,11 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
             LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletParabolicProfile().\n");
             ierr = Create_InletParabolicProfile(bc); CHKERRQ(ierr);
             break;
+
+        case BC_HANDLER_INLET_PROFILE_FROM_FILE:
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletProfileFromFile().\n");
+            ierr = Create_InletProfileFromFile(bc); CHKERRQ(ierr);
+            break;
         //Add cases for other handlers here in future phases 
         
         default:

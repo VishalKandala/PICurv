@@ -29,6 +29,7 @@ The validator accepts these type/handler pairs:
 | `WALL` | `noslip` | none | none | n/a |
 | `INLET` | `constant_velocity` | `vx`, `vy`, `vz` | none | m/s |
 | `INLET` | `parabolic` | `v_max` | none | m/s |
+| `INLET` | `prescribed_flow` | `source.type: file`, `source.path` | none | m/s scalar speeds in `.picslice` |
 | `OUTLET` | `conservation` | none | none | n/a |
 | `PERIODIC` | `geometric` | none | none | n/a |
 | `PERIODIC` | `constant_flux` | `target_flux` | `apply_trim` | m^3/s |
@@ -51,7 +52,39 @@ Q^* = \frac{Q}{U_{ref} L_{ref}^{2}}.
 Specifically:
 
 - `vx/vy/vz/v_max` are divided by `properties.scaling.velocity_ref`,
+- `prescribed_flow` PICSLICE scalar speeds are divided by `properties.scaling.velocity_ref`
+  while staging the solver-side `.picslice`,
 - `target_flux` is divided by `velocity_ref * length_ref^2`.
+
+@subsection p44_picslice_ssec 3.1 Prescribed Inlet Profile Files
+
+`prescribed_flow` uses a face-scoped canonical `PICSLICE` file:
+
+```text
+PICSLICE
+1
+<n1> <n2>
+<positive_scalar_speed_0>
+<positive_scalar_speed_1>
+...
+```
+
+The second line is the frame count. Static prescribed profiles require `1`.
+Values are positive scalar speed magnitudes normal to the inlet surface, not
+Cartesian velocity components and not contravariant fluxes. The C handler uses
+the existing inlet face sign and metric conversion to populate `Ucont` and
+`Ubcs`.
+
+Expected dimensions follow the existing inlet face loop order:
+
+- `-Xi/+Xi`: `(KM - 2, JM - 2)`, ordered `(k, j)`
+- `-Eta/+Eta`: `(KM - 2, IM - 2)`, ordered `(k, i)`
+- `-Zeta/+Zeta`: `(JM - 2, IM - 2)`, ordered `(j, i)`
+
+For multi-block cases, keep using the existing list-of-lists
+`boundary_conditions` shape. Each block face can reference its own `.picslice`;
+`picurv` stages one solver-scale file per block face and writes `source_file=...`
+into that block's `bcs_block*.run`.
 
 @section p44_periodic_rules_sec 4. Periodicity Consistency Rules
 
@@ -89,6 +122,7 @@ Current factory-wired handlers include:
 - wall no-slip,
 - inlet constant velocity,
 - inlet parabolic,
+- inlet prescribed flow from file,
 - outlet conservation,
 - periodic geometric,
 - periodic driven constant flux.
@@ -99,6 +133,9 @@ Important contributor note:
 
 - C enums include additional BC categories and handlers (for example symmetry-family and `initial_flux` enum entries),
 - but the current end-to-end user contract intentionally exposes the validated subset listed above.
+- `source.type: field_slice` is intentionally deferred; future Python staging
+  should convert a field slice into the same `PICSLICE` format so C remains
+  source-agnostic.
 
 If you add a new BC mode, update all three layers in one change:
 
@@ -197,4 +234,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

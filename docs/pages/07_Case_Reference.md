@@ -194,6 +194,7 @@ Supported face names:
 Supported type/handler combinations:
 - `INLET` + `constant_velocity` (`vx/vy/vz`)
 - `INLET` + `parabolic` (`v_max`)
+- `INLET` + `prescribed_flow` (`params.source.type: file`, `params.source.path`)
 - `OUTLET` + `conservation`
 - `WALL` + `noslip`
 - `PERIODIC` + `geometric`

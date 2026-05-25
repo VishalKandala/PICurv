@@ -203,7 +203,7 @@ DEPFILES := $(wildcard $(OBJDIR)/*.d) $(wildcard $(TESTOBJDIR)/*.d)
 # ==============================================================================
 # --- 5. Build Targets & Rules ---
 # ==============================================================================
-.PHONY: all simulator postprocessor conductor dirs
+.PHONY: all simulator postprocessor conductor dirs FORCE
 
 ## @target all
 ## @brief Default target. Builds all project executables.
@@ -236,7 +236,7 @@ $(POSTPROCESSOR_EXE): $(POSTPROCESSOR_OBJS) | dirs
 # This rule installs a small launcher so PATH-based access can use the managed
 # Python environment created by bootstrap_install.sh while keeping scripts/picurv
 # as the single source of truth for conductor logic.
-$(CONDUCTOR_EXE): $(SCRIPTDIR)/picurv | dirs
+$(CONDUCTOR_EXE): FORCE $(SCRIPTDIR)/picurv | dirs
 	@echo "--- Installing Conductor Script: $(@) ---"
 	@rm -f $@
 	@{ \
