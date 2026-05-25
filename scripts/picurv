@@ -3171,6 +3171,10 @@ def write_profile_info(config_dir: str, summaries: list) -> str:
             fout.write(f"bulk_velocity = {summary.get('bulk_velocity'):.16e}\n")
             fout.write(f"n_terms = {summary.get('n_terms')}\n")
             fout.write(f"mean_speed = {summary.get('mean_speed'):.16e}\n")
+            if "area_mean_speed" in summary:
+                fout.write(f"area_mean_speed = {summary.get('area_mean_speed'):.16e}\n")
+            if "discrete_mean_speed" in summary:
+                fout.write(f"discrete_mean_speed = {summary.get('discrete_mean_speed'):.16e}\n")
             fout.write(f"min_speed = {summary.get('min_speed'):.16e}\n")
             fout.write(f"max_speed = {summary.get('max_speed'):.16e}\n")
             fout.write(f"umax_over_ubulk = {summary.get('umax_over_ubulk'):.16e}\n")

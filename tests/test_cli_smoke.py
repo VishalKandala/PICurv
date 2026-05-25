@@ -966,11 +966,15 @@ def test_square_duct_poiseuille_generator_writes_normalized_picslice_and_info(tm
     values = [float(value) for value in lines[3:]]
     assert len(values) == 35
     assert min(values) >= 0.0
-    assert sum(values) / len(values) == pytest.approx(1.25)
+    assert summary["area_mean_speed"] == pytest.approx(1.25)
+    assert summary["mean_speed"] == pytest.approx(1.25)
+    assert summary["discrete_mean_speed"] == pytest.approx(sum(values) / len(values))
     assert max(values) > 1.25
     info_text = Path(info).read_text(encoding="utf-8")
     assert "generator = square_duct_poiseuille" in info_text
     assert "face = -Eta" in info_text
+    assert "area_mean_speed" in info_text
+    assert "discrete_mean_speed" in info_text
 
 
 def test_profile_gen_square_duct_poiseuille_cli(tmp_path):
@@ -1005,6 +1009,8 @@ def test_profile_gen_square_duct_poiseuille_cli(tmp_path):
     summary = json.loads(result.stdout)
     assert summary["dims"] == [5, 7]
     assert summary["mean_speed"] == pytest.approx(1.25)
+    assert summary["area_mean_speed"] == pytest.approx(1.25)
+    assert "discrete_mean_speed" in summary
     assert output.is_file()
 
 

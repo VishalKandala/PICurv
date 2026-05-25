@@ -134,6 +134,10 @@ it reads the source `PICGRID` header. Generated dimensional profiles and
 `profile.info` are written under the run `config/` directory, then the staged
 solver-scale `.picslice` is referenced from `bcs.run`.
 
+For `square_duct_poiseuille`, `bulk_velocity` is the continuous area-mean speed
+of the truncated analytical sine series, not the discrete sample mean on the
+face points. `profile.info` records both area and discrete mean speeds.
+
 @section p44_periodic_rules_sec 4. Periodicity Consistency Rules
 
 Validator checks:
