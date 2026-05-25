@@ -352,6 +352,7 @@ static PetscErrorCode TestBoundaryConditionFactoryImplementedHandlerMatrix(void)
         {BC_HANDLER_WALL_NOSLIP, BC_PRIORITY_WALL, PETSC_TRUE, PETSC_FALSE},
         {BC_HANDLER_INLET_CONSTANT_VELOCITY, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
         {BC_HANDLER_INLET_PARABOLIC, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
+        {BC_HANDLER_INLET_PROFILE_FROM_FILE, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
         {BC_HANDLER_OUTLET_CONSERVATION, BC_PRIORITY_OUTLET, PETSC_TRUE, PETSC_FALSE},
     };
 
@@ -365,6 +366,87 @@ static PetscErrorCode TestBoundaryConditionFactoryImplementedHandlerMatrix(void)
         PetscCall(PicurvAssertBool((PetscBool)((bc->Initialize != NULL) == expectations[i].expect_initialize), "Initialize hook expectation mismatch"));
         PetscCall(DestroyBoundaryHandler(&bc));
     }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Writes a tiny canonical PICSLICE profile for boundary handler tests.
+ */
+static PetscErrorCode WritePicSliceForTests(const char *path, PetscInt n1, PetscInt n2, PetscReal base)
+{
+    FILE *fd = NULL;
+
+    PetscFunctionBeginUser;
+    fd = fopen(path, "w");
+    PetscCheck(fd != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not open %s for writing.", path);
+    PetscCheck(fprintf(fd, "PICSLICE\n1\n%d %d\n", (int)n1, (int)n2) >= 0,
+               PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE, "Could not write PICSLICE header.");
+    for (PetscInt a = 0; a < n1; a++) {
+        for (PetscInt b = 0; b < n2; b++) {
+            PetscReal value = base + (PetscReal)(10 * a + b);
+            PetscCheck(fprintf(fd, "%.16e\n", (double)value) >= 0,
+                       PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE, "Could not write PICSLICE value.");
+        }
+    }
+    fclose(fd);
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests prescribed-flow inlet handler loading and applying one Z-face profile.
+ */
+static PetscErrorCode TestInletProfileFromFileHandlerBehavior(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    BoundaryCondition *bc = NULL;
+    BCContext ctx;
+    Cmpnts ***ucont = NULL;
+    Cmpnts ***ubcs = NULL;
+    char profile_path[PETSC_MAX_PATH_LEN];
+    PetscReal local_inflow = 0.0;
+    PetscReal local_outflow = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+
+    PetscCall(PetscSNPrintf(profile_path, sizeof(profile_path), "/tmp/picurv_unit_profile_%d.picslice", (int)getpid()));
+    PetscCall(WritePicSliceForTests(profile_path, user->JM - 2, user->IM - 2, 2.0));
+
+    user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
+    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
+    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_PROFILE_FROM_FILE;
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "source_file", profile_path));
+
+    PetscCall(VecSet(user->Ucont, 0.0));
+    PetscCall(VecSet(user->Bcs.Ubcs, 0.0));
+
+    ctx.user = user;
+    ctx.face_id = BC_FACE_NEG_Z;
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PROFILE_FROM_FILE, &bc));
+    PetscCall(bc->PreStep(bc, &ctx, &local_inflow, &local_outflow));
+    PetscCall(PicurvAssertRealNear(0.0, local_inflow, 1.0e-12, "profile inlet PreStep should leave inflow unchanged"));
+    PetscCall(PicurvAssertRealNear(0.0, local_outflow, 1.0e-12, "profile inlet PreStep should leave outflow unchanged"));
+    PetscCall(bc->Initialize(bc, &ctx));
+    PetscCall(bc->PostStep(bc, &ctx, &local_inflow, &local_outflow));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(PicurvAssertRealNear(2.0, ucont[0][1][1].z, 1.0e-12, "profile inlet should apply first scalar speed"));
+    PetscCall(PicurvAssertRealNear(13.0, ucont[0][2][2].z, 1.0e-12, "profile inlet should preserve PICSLICE ordering"));
+    PetscCall(PicurvAssertRealNear(24.0, ubcs[0][3][3].z, 1.0e-12, "profile inlet should write boundary velocity"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(PicurvAssertBool((PetscBool)(local_inflow > 0.0), "profile inlet PostStep should accumulate positive negative-face flux"));
+    PetscCall(PicurvAssertRealNear(0.0, local_outflow, 1.0e-12, "profile inlet should not add to outflow"));
+
+    PetscCall(DestroyBoundaryHandler(&bc));
+    FreeBC_ParamList(user->boundary_faces[BC_FACE_NEG_Z].params);
+    user->boundary_faces[BC_FACE_NEG_Z].params = NULL;
+    remove(profile_path);
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
 /**
@@ -956,6 +1038,7 @@ int main(int argc, char **argv)
         {"inlet-constant-velocity-handler-face-matrix", TestInletConstantVelocityHandlerFaceMatrix},
         {"inlet-parabolic-profile-handler-behavior", TestInletParabolicProfileHandlerBehavior},
         {"inlet-parabolic-profile-handler-face-matrix", TestInletParabolicProfileHandlerFaceMatrix},
+        {"inlet-profile-from-file-handler-behavior", TestInletProfileFromFileHandlerBehavior},
         {"outlet-conservation-handler-behavior", TestOutletConservationHandlerBehavior},
         {"outlet-conservation-handler-face-matrix", TestOutletConservationHandlerFaceMatrix},
     };

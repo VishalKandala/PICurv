@@ -2902,6 +2902,161 @@ def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_r
 
     return {"nblk": nblk, "dims": dims, "total_nodes": total_nodes_expected}
 
+def read_picgrid_header_dimensions(source_grid: str, expected_nblk: int = None) -> list:
+    """!
+    @brief Read only the canonical PICGRID header dimensions.
+    @param[in] source_grid Input grid file path.
+    @param[in] expected_nblk Optional expected block count.
+    @return List of (IM, JM, KM) node-count tuples.
+    @throws ValueError on malformed header.
+    """
+    if not os.path.isfile(source_grid):
+        raise ValueError(f"Grid file not found: {source_grid}")
+
+    with open(source_grid, "r") as fin:
+        line_iter = _iter_nonempty_noncomment_lines(fin)
+        try:
+            _, first_token = next(line_iter)
+        except StopIteration:
+            raise ValueError(f"Grid file '{source_grid}' is empty.")
+        if first_token != "PICGRID":
+            raise ValueError(f"Grid file '{source_grid}' must begin with the canonical PICGRID header token.")
+
+        try:
+            _, nblk_line = next(line_iter)
+            nblk = int(nblk_line)
+        except StopIteration:
+            raise ValueError(f"Grid file '{source_grid}' missing block count after PICGRID header.")
+        except ValueError:
+            raise ValueError(f"Invalid block count '{nblk_line}' in grid file '{source_grid}'.")
+        if nblk <= 0:
+            raise ValueError(f"Grid file '{source_grid}' has non-positive block count: {nblk}.")
+        if expected_nblk is not None and nblk != expected_nblk:
+            raise ValueError(f"Grid file block count mismatch: case expects {expected_nblk}, grid contains {nblk}.")
+
+        dims = []
+        for bi in range(nblk):
+            try:
+                lineno, dim_line = next(line_iter)
+            except StopIteration:
+                raise ValueError(f"Grid file '{source_grid}' missing dimensions for block {bi}.")
+            parts = dim_line.split()
+            if len(parts) != 3:
+                raise ValueError(
+                    f"Invalid dimensions line at {source_grid}:{lineno}. Expected 3 integers, got: '{dim_line}'."
+                )
+            try:
+                im, jm, km = (int(parts[0]), int(parts[1]), int(parts[2]))
+            except ValueError:
+                raise ValueError(
+                    f"Invalid dimensions line at {source_grid}:{lineno}. Non-integer values: '{dim_line}'."
+                )
+            if im <= 0 or jm <= 0 or km <= 0:
+                raise ValueError(
+                    f"Invalid block dimensions at {source_grid}:{lineno}: ({im}, {jm}, {km}). Must be > 0."
+                )
+            dims.append((im, jm, km))
+
+    return dims
+
+def validate_and_nondimensionalize_picslice(source_slice: str, dest_slice: str, U_ref: float,
+                                            expected_dims: tuple = None) -> dict:
+    """!
+    @brief Validate a canonical PICSLICE payload and write a solver-scale copy.
+    @param[in] source_slice Input PICSLICE path.
+    @param[in] dest_slice Output staged PICSLICE path.
+    @param[in] U_ref Reference velocity for non-dimensionalization.
+    @param[in] expected_dims Optional expected (n1, n2) slice dimensions.
+    @return Summary dictionary with frame_count, dims, value_count, min_speed, max_speed.
+    @throws ValueError on malformed slice.
+    """
+    if U_ref == 0.0:
+        raise ValueError("velocity_ref must be non-zero when processing PICSLICE speeds.")
+    if not os.path.isfile(source_slice):
+        raise ValueError(f"PICSLICE file not found: {source_slice}")
+
+    with open(source_slice, "r") as fin:
+        line_iter = _iter_nonempty_noncomment_lines(fin)
+        try:
+            _, first_token = next(line_iter)
+        except StopIteration:
+            raise ValueError(f"PICSLICE file '{source_slice}' is empty.")
+        if first_token != "PICSLICE":
+            raise ValueError(f"PICSLICE file '{source_slice}' must begin with the canonical PICSLICE header token.")
+
+        try:
+            _, frame_line = next(line_iter)
+            frame_count = int(frame_line)
+        except StopIteration:
+            raise ValueError(f"PICSLICE file '{source_slice}' missing frame count after PICSLICE header.")
+        except ValueError:
+            raise ValueError(f"Invalid frame count '{frame_line}' in PICSLICE file '{source_slice}'.")
+        if frame_count != 1:
+            raise ValueError(
+                f"PICSLICE file '{source_slice}' has frame count {frame_count}; Phase 1 supports exactly 1."
+            )
+
+        try:
+            lineno, dim_line = next(line_iter)
+        except StopIteration:
+            raise ValueError(f"PICSLICE file '{source_slice}' missing slice dimensions.")
+        parts = dim_line.split()
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid PICSLICE dimensions at {source_slice}:{lineno}. Expected 2 integers, got: '{dim_line}'."
+            )
+        try:
+            n1, n2 = (int(parts[0]), int(parts[1]))
+        except ValueError:
+            raise ValueError(
+                f"Invalid PICSLICE dimensions at {source_slice}:{lineno}. Non-integer values: '{dim_line}'."
+            )
+        if n1 <= 0 or n2 <= 0:
+            raise ValueError(f"Invalid PICSLICE dimensions at {source_slice}:{lineno}: ({n1}, {n2}). Must be > 0.")
+        if expected_dims is not None and (n1, n2) != tuple(expected_dims):
+            raise ValueError(
+                f"PICSLICE dimension mismatch for '{source_slice}': expected {tuple(expected_dims)}, found {(n1, n2)}."
+            )
+
+        values = []
+        for lineno, value_line in line_iter:
+            parts = value_line.split()
+            if len(parts) != 1:
+                raise ValueError(
+                    f"Invalid PICSLICE value row at {source_slice}:{lineno}. Expected 1 float, got: '{value_line}'."
+                )
+            try:
+                value = float(parts[0])
+            except ValueError:
+                raise ValueError(f"Invalid PICSLICE value at {source_slice}:{lineno}: '{value_line}'.")
+            if not math.isfinite(value):
+                raise ValueError(f"PICSLICE value at {source_slice}:{lineno} must be finite.")
+            if value < 0.0:
+                raise ValueError(f"PICSLICE value at {source_slice}:{lineno} must be nonnegative.")
+            values.append(value)
+
+    expected_count = n1 * n2
+    if len(values) != expected_count:
+        raise ValueError(
+            f"PICSLICE file '{source_slice}' has {len(values)} values, expected {expected_count} from dimensions {(n1, n2)}."
+        )
+
+    os.makedirs(os.path.dirname(dest_slice), exist_ok=True)
+    with open(dest_slice, "w") as fout:
+        fout.write("PICSLICE\n")
+        fout.write("1\n")
+        fout.write(f"{n1} {n2}\n")
+        for value in values:
+            fout.write(f"{value / U_ref:.8e}\n")
+
+    return {
+        "frame_count": frame_count,
+        "dims": (n1, n2),
+        "value_count": len(values),
+        "min_speed": min(values) if values else 0.0,
+        "max_speed": max(values) if values else 0.0,
+    }
+
 def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict) -> str:
     """!
     @brief Runs scripts/grid.gen to produce a PICGRID file for this run.
@@ -3133,6 +3288,11 @@ BC_HANDLER_SPECS = {
         "required_params": {"v_max"},
         "optional_params": set(),
     },
+    "prescribed_flow": {
+        "types": {"INLET"},
+        "required_params": {"source"},
+        "optional_params": set(),
+    },
     "geometric": {
         "types": {"PERIODIC"},
         "required_params": set(),
@@ -3147,6 +3307,112 @@ BC_HANDLER_SPECS = {
 
 _NUMERIC_BC_PARAMS = {"vx", "vy", "vz", "v_max", "target_flux"}
 _BOOL_BC_PARAMS = {"apply_trim"}
+
+def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
+    """!
+    @brief Validate the structured source block for prescribed_flow BCs.
+    @param[in] source Source mapping from case.yml.
+    @param[in] field_name Human-readable YAML path for diagnostics.
+    @return Normalized source mapping.
+    @throws ValueError on invalid source contract.
+    """
+    if not isinstance(source, dict):
+        raise ValueError(f"{field_name} must be a mapping with type: file and path.")
+    source_type = str(source.get("type", "")).strip().lower()
+    if source_type != "file":
+        raise ValueError(f"{field_name}.type must be 'file' for Phase 1 prescribed_flow profiles.")
+    path = source.get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError(f"{field_name}.path must be a non-empty file path.")
+    unknown = sorted(set(source.keys()) - {"type", "path"})
+    if unknown:
+        raise ValueError(f"Unknown keys in {field_name}: {unknown}. Allowed: ['path', 'type'].")
+    return {"type": "file", "path": path.strip()}
+
+def _bc_profile_expected_dims(face: str, block_dims: tuple) -> tuple:
+    """!
+    @brief Return expected PICSLICE dimensions for a face and block node dimensions.
+    @param[in] face Canonical BC face token.
+    @param[in] block_dims (IM, JM, KM) node counts.
+    @return (n1, n2) dimensions in profile storage order.
+    """
+    im, jm, km = block_dims
+    if min(im, jm, km) < 3:
+        raise ValueError(
+            f"Block dimensions {block_dims} are too small for an interior inlet profile; each axis needs at least 3 nodes."
+        )
+    if face in {"-Xi", "+Xi"}:
+        return (km - 2, jm - 2)
+    if face in {"-Eta", "+Eta"}:
+        return (km - 2, im - 2)
+    if face in {"-Zeta", "+Zeta"}:
+        return (jm - 2, im - 2)
+    raise ValueError(f"Unsupported face '{face}' for prescribed_flow profile dimensions.")
+
+def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, run_dir: str = None) -> list:
+    """!
+    @brief Resolve per-block node dimensions for prescribed inlet profile validation.
+    @param[in] case_cfg Parsed case.yml configuration.
+    @param[in] case_path Path to case.yml for relative path resolution.
+    @param[in] run_dir Current run directory, used for optional generated grid outputs.
+    @return List of (IM, JM, KM) node-count tuples.
+    @throws ValueError when dimensions cannot be resolved.
+    """
+    num_blocks = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
+    grid_cfg = case_cfg.get("grid", {})
+    grid_mode = grid_cfg.get("mode")
+    case_dir = os.path.dirname(os.path.abspath(case_path)) if case_path else os.getcwd()
+
+    if grid_mode == "programmatic_c":
+        settings = grid_cfg.get("programmatic_settings", {})
+        dims_by_axis = []
+        for key in ("im", "jm", "km"):
+            raw = settings.get(key)
+            if raw is None:
+                raise ValueError(f"grid.programmatic_settings.{key} is required for prescribed_flow profiles.")
+            if isinstance(raw, list):
+                if len(raw) != num_blocks:
+                    raise ValueError(
+                        f"grid.programmatic_settings.{key} has {len(raw)} entries, expected {num_blocks} blocks."
+                    )
+                values = raw
+            else:
+                values = [raw] * num_blocks
+            try:
+                values = [int(v) + 1 for v in values]
+            except (TypeError, ValueError):
+                raise ValueError(f"grid.programmatic_settings.{key} values must be positive integer cell counts.")
+            if any(v <= 1 for v in values):
+                raise ValueError(f"grid.programmatic_settings.{key} values must be positive integer cell counts.")
+            dims_by_axis.append(values)
+        return list(zip(dims_by_axis[0], dims_by_axis[1], dims_by_axis[2]))
+
+    if grid_mode == "file":
+        source_grid = grid_cfg.get("source_file")
+        if not isinstance(source_grid, str) or not source_grid.strip():
+            raise ValueError("grid.source_file is required for file-grid prescribed_flow profile validation.")
+        if not os.path.isabs(source_grid):
+            source_grid = os.path.abspath(os.path.join(case_dir, source_grid))
+        if isinstance(grid_cfg.get("legacy_conversion"), dict) and run_dir:
+            source_grid = convert_legacy_grid_with_gridgen(case_path, run_dir, grid_cfg, source_grid)
+        return read_picgrid_header_dimensions(source_grid, expected_nblk=num_blocks)
+
+    if grid_mode == "grid_gen":
+        generator = grid_cfg.get("generator", {})
+        output_file = generator.get("output_file", os.path.join("config", "grid.generated.picgrid"))
+        candidates = []
+        if run_dir:
+            candidates.append(output_file if os.path.isabs(output_file) else os.path.abspath(os.path.join(run_dir, output_file)))
+            candidates.append(os.path.join(run_dir, "config", "grid.run"))
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                return read_picgrid_header_dimensions(candidate, expected_nblk=num_blocks)
+        raise ValueError(
+            "prescribed_flow profile dimension validation for grid.mode='grid_gen' requires an existing generated "
+            "PICGRID output. Run or stage the grid first, or use grid.mode='file' with the generated .picgrid."
+        )
+
+    raise ValueError(f"Unsupported grid.mode '{grid_mode}' for prescribed_flow profile validation.")
 
 def _to_float(value, field_name: str) -> float:
     """!
@@ -3310,6 +3576,10 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                         converted_params[key] = numeric / (U_ref * (L_ref ** 2))
                 elif key in _BOOL_BC_PARAMS:
                     converted_params[key] = _to_bool(value, f"boundary_conditions[{bi}][{idx}].params.{key}")
+                elif handler == "prescribed_flow" and key == "source":
+                    converted_params[key] = _normalize_prescribed_flow_source(
+                        value, f"boundary_conditions[{bi}][{idx}].params.source"
+                    )
                 else:
                     # Defensive fallback; should not happen due unknown-key gate above.
                     converted_params[key] = value
@@ -5311,6 +5581,15 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
     config_dir = os.path.join(run_dir, "config")
     num_blocks = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
     prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
+    case_path = source_files.get("Case") if source_files else None
+    profile_grid_dims = None
+    scales = case_cfg.get('properties', {}).get('scaling', {})
+    U_ref = _to_float(scales.get('velocity_ref'), "properties.scaling.velocity_ref")
+    if U_ref == 0.0:
+        raise ValueError("properties.scaling.velocity_ref must be non-zero for prescribed_flow profile staging.")
+
+    if any(bc.get("handler") == "prescribed_flow" for block in prepared_blocks for bc in block):
+        profile_grid_dims = resolve_grid_block_dimensions_for_profiles(case_cfg, case_path, run_dir)
 
     generated_files = []
     for i, block_bcs_list in enumerate(prepared_blocks):
@@ -5320,10 +5599,25 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
 
         for bc in block_bcs_list:
             face, bc_type, handler = bc['face'], bc['type'], bc['handler']
+            params = dict(bc.get('params') or {})
+            if handler == "prescribed_flow":
+                source = params.pop("source")
+                source_path = source["path"]
+                if case_path and not os.path.isabs(source_path):
+                    source_path = os.path.abspath(os.path.join(os.path.dirname(case_path), source_path))
+                expected_dims = _bc_profile_expected_dims(face, profile_grid_dims[i])
+                staged_name = f"inlet_profile_block{i}_{face.replace('+', 'pos').replace('-', 'neg')}.picslice"
+                staged_path = os.path.join(config_dir, staged_name)
+                summary = validate_and_nondimensionalize_picslice(source_path, staged_path, U_ref, expected_dims)
+                print(
+                    f"[SUCCESS] Staged prescribed_flow profile for block {i}, face {face}: "
+                    f"{os.path.relpath(staged_path)} dims={summary['dims']}"
+                )
+                params["source_file"] = os.path.abspath(staged_path)
             params_str = ""
-            if bc.get('params'):
+            if params:
                 parts = []
-                for k, v in bc['params'].items():
+                for k, v in params.items():
                     if isinstance(v, bool):
                         value_str = "true" if v else "false"
                     else:

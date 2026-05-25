@@ -94,6 +94,22 @@ def write_canonical_picgrid(path: Path, dims=(3, 3, 3)) -> Path:
     return path
 
 
+def write_canonical_picslice(path: Path, dims=(3, 3), start=1.0) -> Path:
+    """!
+    @brief Write a minimal canonical PICSLICE payload for inlet-profile tests.
+    @param[in] path Filesystem path argument passed to `write_canonical_picslice()`.
+    @param[in] dims Argument passed to `write_canonical_picslice()`.
+    @param[in] start First scalar speed value.
+    @return Value returned by `write_canonical_picslice()`.
+    """
+    n1, n2 = dims
+    lines = ["PICSLICE", "1", f"{n1} {n2}"]
+    for idx in range(n1 * n2):
+        lines.append(f"{start + idx:.8e}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def write_executable(path: Path, content: str) -> Path:
     """!
     @brief Write a small executable script used by CLI subprocess tests.
@@ -880,6 +896,106 @@ def test_picgrid_validation_requires_canonical_header(tmp_path):
         assert "PICGRID header" in str(exc)
     else:
         raise AssertionError("Headerless grid file unexpectedly passed validation.")
+
+
+def test_picslice_validation_stages_solver_scale_profile(tmp_path):
+    """!
+    @brief Test that PICSLICE validation stages nondimensionalized scalar speeds.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    source = write_canonical_picslice(tmp_path / "inlet.picslice", dims=(2, 3), start=2.0)
+    dest = tmp_path / "staged.picslice"
+
+    summary = picurv.validate_and_nondimensionalize_picslice(str(source), str(dest), 2.0, expected_dims=(2, 3))
+
+    assert summary["dims"] == (2, 3)
+    lines = dest.read_text(encoding="utf-8").splitlines()
+    assert lines[:3] == ["PICSLICE", "1", "2 3"]
+    assert lines[3] == "1.00000000e+00"
+    assert lines[-1] == "3.50000000e+00"
+
+
+def test_picslice_validation_rejects_bad_shape_and_values(tmp_path):
+    """!
+    @brief Test malformed PICSLICE profile rejection paths.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    dest = tmp_path / "out.picslice"
+
+    bad_magic = tmp_path / "bad_magic.picslice"
+    bad_magic.write_text("PICGRID\n1\n2 2\n1\n2\n3\n4\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="PICSLICE header"):
+        picurv.validate_and_nondimensionalize_picslice(str(bad_magic), str(dest), 1.0, expected_dims=(2, 2))
+
+    bad_frame = tmp_path / "bad_frame.picslice"
+    bad_frame.write_text("PICSLICE\n2\n2 2\n1\n2\n3\n4\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="exactly 1"):
+        picurv.validate_and_nondimensionalize_picslice(str(bad_frame), str(dest), 1.0, expected_dims=(2, 2))
+
+    negative = tmp_path / "negative.picslice"
+    negative.write_text("PICSLICE\n1\n1 1\n-1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="nonnegative"):
+        picurv.validate_and_nondimensionalize_picslice(str(negative), str(dest), 1.0, expected_dims=(1, 1))
+
+    wrong_dims = write_canonical_picslice(tmp_path / "wrong_dims.picslice", dims=(2, 2))
+    with pytest.raises(ValueError, match="dimension mismatch"):
+        picurv.validate_and_nondimensionalize_picslice(str(wrong_dims), str(dest), 1.0, expected_dims=(2, 3))
+
+
+def test_prescribed_flow_bcs_generation_stages_source_file(tmp_path):
+    """!
+    @brief Test prescribed_flow uses existing bcs.run generation with staged source_file.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    profile = write_canonical_picslice(tmp_path / "inlet.picslice", dims=(7, 7), start=2.0)
+    case_cfg["boundary_conditions"][4] = {
+        "face": "-Zeta",
+        "type": "INLET",
+        "handler": "prescribed_flow",
+        "params": {"source": {"type": "file", "path": str(profile)}},
+    }
+    run_dir = tmp_path / "run"
+    config_dir = run_dir / "config"
+    config_dir.mkdir(parents=True)
+    case_path = config_dir / "case.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    generated = picurv.generate_multi_block_bcs(
+        str(run_dir), "unit", case_cfg, {"Case": str(case_path), "Solver": "solver.yml", "Monitor": "monitor.yml"}
+    )
+
+    assert len(generated) == 1
+    bcs_text = Path(generated[0]).read_text(encoding="utf-8")
+    assert "prescribed_flow" in bcs_text
+    assert "source_file=" in bcs_text
+    staged = config_dir / "inlet_profile_block0_negZeta.picslice"
+    assert staged.is_file()
+    staged_lines = staged.read_text(encoding="utf-8").splitlines()
+    assert staged_lines[:3] == ["PICSLICE", "1", "7 7"]
+    assert staged_lines[3] == "2.00000000e+00"
+
+
+def test_prescribed_flow_rejects_unsupported_source_type():
+    """!
+    @brief Test prescribed_flow rejects deferred source types during validation.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["boundary_conditions"][4] = {
+        "face": "-Zeta",
+        "type": "INLET",
+        "handler": "prescribed_flow",
+        "params": {"source": {"type": "field_slice", "path": "old.dat"}},
+    }
+
+    with pytest.raises(ValueError, match="type must be 'file'"):
+        picurv.validate_and_prepare_boundary_conditions(case_cfg)
 
 
 def test_validate_valid_configs_pass():
