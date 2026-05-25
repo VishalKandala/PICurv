@@ -1164,18 +1164,18 @@ static PetscErrorCode GetProfileFileExpectedDims(UserCtx *user, BCFace face_id,
     switch (face_id) {
         case BC_FACE_NEG_X:
         case BC_FACE_POS_X:
-            *n1 = user->KM - 2;
-            *n2 = user->JM - 2;
+            *n1 = user->KM - 1;
+            *n2 = user->JM - 1;
             break;
         case BC_FACE_NEG_Y:
         case BC_FACE_POS_Y:
-            *n1 = user->KM - 2;
-            *n2 = user->IM - 2;
+            *n1 = user->KM - 1;
+            *n2 = user->IM - 1;
             break;
         case BC_FACE_NEG_Z:
         case BC_FACE_POS_Z:
-            *n1 = user->JM - 2;
-            *n2 = user->IM - 2;
+            *n1 = user->JM - 1;
+            *n2 = user->IM - 1;
             break;
         default:
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,

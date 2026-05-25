@@ -1016,7 +1016,7 @@ def test_prescribed_flow_bcs_generation_stages_source_file(tmp_path):
     picurv = load_picurv_module()
     valid = FIXTURES / "valid"
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    profile = write_canonical_picslice(tmp_path / "inlet.picslice", dims=(7, 7), start=2.0)
+    profile = write_canonical_picslice(tmp_path / "inlet.picslice", dims=(8, 8), start=2.0)
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
@@ -1040,8 +1040,19 @@ def test_prescribed_flow_bcs_generation_stages_source_file(tmp_path):
     staged = config_dir / "inlet_profile_block0_negZeta.picslice"
     assert staged.is_file()
     staged_lines = staged.read_text(encoding="utf-8").splitlines()
-    assert staged_lines[:3] == ["PICSLICE", "1", "7 7"]
+    assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
     assert staged_lines[3] == "2.00000000e+00"
+
+
+def test_prescribed_flow_profile_dims_match_cell_counts():
+    """!
+    @brief Test prescribed_flow profile dimensions use face cell counts, not trimmed interior counts.
+    """
+    picurv = load_picurv_module()
+
+    assert picurv._bc_profile_expected_dims("-Zeta", (65, 65, 1025)) == (64, 64)
+    assert picurv._bc_profile_expected_dims("+Xi", (65, 65, 1025)) == (1024, 64)
+    assert picurv._bc_profile_expected_dims("-Eta", (65, 65, 1025)) == (1024, 64)
 
 
 def test_prescribed_flow_bcs_generation_materializes_generated_source(tmp_path):
@@ -1083,7 +1094,7 @@ def test_prescribed_flow_bcs_generation_materializes_generated_source(tmp_path):
     assert staged.is_file()
     assert (config_dir / "profile.info").is_file()
     staged_lines = staged.read_text(encoding="utf-8").splitlines()
-    assert staged_lines[:3] == ["PICSLICE", "1", "7 7"]
+    assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
 
 
 def test_prescribed_flow_rejects_unsupported_source_type():
@@ -1570,7 +1581,7 @@ def test_precompute_generates_profile_artifacts_from_case(tmp_path):
     assert (config_dir / "profile.info").is_file()
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     assert payload["profiles"][0]["face"] == "-Zeta"
-    assert payload["profiles"][0]["dims"] == [7, 7]
+    assert payload["profiles"][0]["dims"] == [8, 8]
 
 
 def test_local_no_submit_stages_grid_gen_before_generated_profile(tmp_path):
@@ -1625,7 +1636,7 @@ def test_local_no_submit_stages_grid_gen_before_generated_profile(tmp_path):
     assert (config_dir / "grid.generated.picgrid").is_file()
     assert (config_dir / "inlet_profile_block0_negZeta.generated.picslice").is_file()
     staged_lines = (config_dir / "inlet_profile_block0_negZeta.picslice").read_text(encoding="utf-8").splitlines()
-    assert staged_lines[:3] == ["PICSLICE", "1", "3 2"]
+    assert staged_lines[:3] == ["PICSLICE", "1", "4 3"]
 
 
 def test_local_no_submit_solve_post_stages_post_with_deferred_sources(tmp_path):
