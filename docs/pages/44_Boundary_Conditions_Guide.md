@@ -80,9 +80,26 @@ the existing inlet face sign and metric conversion to populate `Ucont` and
 
 Expected dimensions follow the existing inlet face loop order:
 
-- `-Xi/+Xi`: `(KM - 2, JM - 2)`, ordered `(k, j)`
-- `-Eta/+Eta`: `(KM - 2, IM - 2)`, ordered `(k, i)`
-- `-Zeta/+Zeta`: `(JM - 2, IM - 2)`, ordered `(j, i)`
+- `-Xi/+Xi`: `(KM - 1, JM - 1)`, ordered `(k, j)`
+- `-Eta/+Eta`: `(KM - 1, IM - 1)`, ordered `(k, i)`
+- `-Zeta/+Zeta`: `(JM - 1, IM - 1)`, ordered `(j, i)`
+
+For a case with `64 x 64 x 1024` cells, the corresponding profile dimensions
+are `64 x 64` for `-Zeta/+Zeta`, `1024 x 64` for `-Xi/+Xi`, and `1024 x 64`
+for `-Eta/+Eta`.
+
+Copy-paste file-backed inlet example:
+
+```yaml
+boundary_conditions:
+  - face: "-Zeta"
+    type: INLET
+    handler: prescribed_flow
+    params:
+      source:
+        type: file
+        path: profiles/inlet.picslice
+```
 
 For multi-block cases, keep using the existing list-of-lists
 `boundary_conditions` shape. Each block face can reference its own `.picslice`;
@@ -107,9 +124,9 @@ boundary_conditions:
 
 The face selects the two transverse dimensions automatically:
 
-- `-Xi/+Xi`: `(KM - 2, JM - 2)`, ordered `(k, j)`
-- `-Eta/+Eta`: `(KM - 2, IM - 2)`, ordered `(k, i)`
-- `-Zeta/+Zeta`: `(JM - 2, IM - 2)`, ordered `(j, i)`
+- `-Xi/+Xi`: `(KM - 1, JM - 1)`, ordered `(k, j)`
+- `-Eta/+Eta`: `(KM - 1, IM - 1)`, ordered `(k, i)`
+- `-Zeta/+Zeta`: `(JM - 1, IM - 1)`, ordered `(j, i)`
 
 For `grid.mode: grid_gen`, `picurv run --solve` generates the grid first, then
 reads the generated `PICGRID` header to size the profile. For `grid.mode: file`,

@@ -413,7 +413,7 @@ static PetscErrorCode TestInletProfileFromFileHandlerBehavior(void)
     PetscCall(PicurvPopulateIdentityMetrics(user));
 
     PetscCall(PetscSNPrintf(profile_path, sizeof(profile_path), "/tmp/picurv_unit_profile_%d.picslice", (int)getpid()));
-    PetscCall(WritePicSliceForTests(profile_path, user->JM - 2, user->IM - 2, 2.0));
+    PetscCall(WritePicSliceForTests(profile_path, user->JM - 1, user->IM - 1, 2.0));
 
     user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
     user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
@@ -437,6 +437,8 @@ static PetscErrorCode TestInletProfileFromFileHandlerBehavior(void)
     PetscCall(PicurvAssertRealNear(2.0, ucont[0][1][1].z, 1.0e-12, "profile inlet should apply first scalar speed"));
     PetscCall(PicurvAssertRealNear(13.0, ucont[0][2][2].z, 1.0e-12, "profile inlet should preserve PICSLICE ordering"));
     PetscCall(PicurvAssertRealNear(24.0, ubcs[0][3][3].z, 1.0e-12, "profile inlet should write boundary velocity"));
+    PetscCall(PicurvAssertRealNear(35.0, ucont[0][4][4].z, 1.0e-12, "profile inlet should consume the last face-cell slot"));
+    PetscCall(PicurvAssertRealNear(35.0, ubcs[0][4][4].z, 1.0e-12, "profile inlet should write the last face-cell boundary value"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
     PetscCall(PicurvAssertBool((PetscBool)(local_inflow > 0.0), "profile inlet PostStep should accumulate positive negative-face flux"));

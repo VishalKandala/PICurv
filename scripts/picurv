@@ -3482,16 +3482,16 @@ def _bc_profile_expected_dims(face: str, block_dims: tuple) -> tuple:
     @return (n1, n2) dimensions in profile storage order.
     """
     im, jm, km = block_dims
-    if min(im, jm, km) < 3:
+    if min(im, jm, km) < 2:
         raise ValueError(
-            f"Block dimensions {block_dims} are too small for an interior inlet profile; each axis needs at least 3 nodes."
+            f"Block dimensions {block_dims} are too small for an inlet profile; each axis needs at least 2 nodes."
         )
     if face in {"-Xi", "+Xi"}:
-        return (km - 2, jm - 2)
+        return (km - 1, jm - 1)
     if face in {"-Eta", "+Eta"}:
-        return (km - 2, im - 2)
+        return (km - 1, im - 1)
     if face in {"-Zeta", "+Zeta"}:
-        return (jm - 2, im - 2)
+        return (jm - 1, im - 1)
     raise ValueError(f"Unsupported face '{face}' for prescribed_flow profile dimensions.")
 
 def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, run_dir: str = None) -> list:

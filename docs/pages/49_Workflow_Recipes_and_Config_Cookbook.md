@@ -315,6 +315,22 @@ boundary_conditions:
 `profile.info` under `runs/<run_id>/config/`, stages the solver-scale
 `.picslice`, and writes that staged path into `bcs.run`.
 
+File-backed prescribed inlet profile:
+
+```yaml
+boundary_conditions:
+  - face: "-Zeta"
+    type: INLET
+    handler: prescribed_flow
+    params:
+      source:
+        type: file
+        path: profiles/inlet.picslice
+```
+
+For `64 x 64 x 1024` cells, a `-Zeta` or `+Zeta` profile is `64 x 64`.
+The first file value maps to tangential solver index `(j=1, i=1)`.
+
 Precompute deterministic artifacts without launching the solver:
 
 ```bash
