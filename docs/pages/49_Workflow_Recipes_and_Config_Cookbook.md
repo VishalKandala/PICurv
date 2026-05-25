@@ -314,6 +314,9 @@ boundary_conditions:
 `picurv run --solve` writes the dimensional generated profile and
 `profile.info` under `runs/<run_id>/config/`, stages the solver-scale
 `.picslice`, and writes that staged path into `bcs.run`.
+For `square_duct_poiseuille`, `bulk_velocity` is the continuous area-mean speed
+of the truncated analytical series; the generated `profile.info` also reports
+the discrete sampled mean and `Umax/Ubulk`.
 
 File-backed prescribed inlet profile:
 

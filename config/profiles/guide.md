@@ -39,6 +39,11 @@ boundary_conditions:
 `runs/<run_id>/config/`, writes `profile.info`, stages a nondimensional solver
 copy, and passes the staged `source_file` to the C runtime.
 
+For `square_duct_poiseuille`, `bulk_velocity` is the continuous area-mean speed
+of the truncated analytical sine series. The generator reports both
+`area_mean_speed` and `discrete_mean_speed` in its summary so coarse face samples
+do not hide the normalization convention.
+
 Use `picurv precompute --case case.yml --output-dir precomputed/<name>` when you
 want to generate and inspect profile artifacts before launching the solver.
 

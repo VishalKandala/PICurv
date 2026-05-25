@@ -86,7 +86,7 @@ def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity
     @brief Generate a dimensional canonical PICSLICE for square-duct Poiseuille flow.
     @param[in] output_path Output `.picslice` path.
     @param[in] dims PICSLICE dimensions in storage order `(n1, n2)`.
-    @param[in] bulk_velocity Desired discrete mean speed.
+    @param[in] bulk_velocity Desired continuous area-mean speed.
     @param[in] n_terms Number of odd sine modes to include.
     @return Summary dictionary with dimensions and speed statistics.
     """
@@ -103,17 +103,18 @@ def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity
     coord_1 = numpy.arange(1, n1 + 1, dtype=float) / float(n1 + 1)
     x, y = numpy.meshgrid(coord_2, coord_1, indexing="xy")
     u = numpy.zeros_like(x, dtype=float)
+    u_area_mean = 0.0
 
     for m in range(1, n_terms + 1, 2):
         sin_m = numpy.sin(m * numpy.pi * x)
         for n in range(1, n_terms + 1, 2):
             coeff = 16.0 / (numpy.pi ** 4 * m * n * (m ** 2 + n ** 2))
             u += coeff * sin_m * numpy.sin(n * numpy.pi * y)
+            u_area_mean += coeff * 4.0 / (m * n * numpy.pi ** 2)
 
-    mean_speed = float(numpy.mean(u))
-    if mean_speed <= 0.0 or not math.isfinite(mean_speed):
-        raise ValueError("generated profile has invalid mean speed.")
-    u *= bulk_velocity / mean_speed
+    if u_area_mean <= 0.0 or not math.isfinite(float(u_area_mean)):
+        raise ValueError("generated profile has invalid continuous area mean speed.")
+    u *= bulk_velocity / float(u_area_mean)
     u = numpy.maximum(u, 0.0)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
@@ -127,14 +128,16 @@ def generate_square_duct_poiseuille(output_path: str, dims: tuple, bulk_velocity
 
     min_speed = float(numpy.min(u))
     max_speed = float(numpy.max(u))
-    mean_speed = float(numpy.mean(u))
+    discrete_mean_speed = float(numpy.mean(u))
     return {
         "generator": "square_duct_poiseuille",
         "path": os.path.abspath(output_path),
         "dims": [n1, n2],
         "bulk_velocity": bulk_velocity,
         "n_terms": n_terms,
-        "mean_speed": mean_speed,
+        "mean_speed": bulk_velocity,
+        "area_mean_speed": bulk_velocity,
+        "discrete_mean_speed": discrete_mean_speed,
         "min_speed": min_speed,
         "max_speed": max_speed,
         "umax_over_ubulk": max_speed / bulk_velocity,
@@ -159,7 +162,7 @@ def build_parser():
     square.add_argument("--dims", nargs=2, type=int, metavar=("N1", "N2"), required=True,
                         help="PICSLICE dimensions in face storage order.")
     square.add_argument("--bulk-velocity", type=float, default=1.0,
-                        help="Desired discrete mean scalar speed.")
+                        help="Desired continuous area-mean scalar speed.")
     square.add_argument("--n-terms", type=int, default=101,
                         help="Positive odd number of sine modes.")
     square.add_argument("--summary-json", help="Optional path for generator summary JSON.")
