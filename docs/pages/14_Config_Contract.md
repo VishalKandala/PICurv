@@ -54,6 +54,10 @@ For each run, `picurv` generates:
 - For `grid_gen`, `grid.generator.config_file` is required today. `grid.gen` consumes cell counts and writes node counts into `.picgrid`.
 - For `file`, optional `grid.legacy_conversion` can call `grid.gen legacy1d` to convert headerless 1D-axis legacy payloads before standard validation/non-dimensionalization.
 - `boundary_conditions` supports single-block list or multi-block list-of-lists.
+- `INLET` + `prescribed_flow` supports `source.type: file` and `source.type: generated`.
+  Generated square-duct Poiseuille profiles are produced by the Python conductor,
+  written under `config/`, summarized in `profile.info`, then converted to the
+  existing C-side `source_file` contract.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
 - `properties.initial_conditions.mode` is required explicitly by the launcher.
 - `properties.initial_conditions.mode: Zero` may omit velocity components.

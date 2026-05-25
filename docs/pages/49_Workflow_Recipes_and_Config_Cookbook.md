@@ -295,6 +295,35 @@ grid:
 PICurv will validate and non-dimensionalize that source file into the new run's
 own `config/grid.run`.
 
+Generated square-duct Poiseuille inlet profile:
+
+```yaml
+boundary_conditions:
+  - face: "-Zeta"
+    type: INLET
+    handler: prescribed_flow
+    params:
+      source:
+        type: generated
+        generator: square_duct_poiseuille
+        params:
+          bulk_velocity: 1.0
+          n_terms: 101
+```
+
+`picurv run --solve` writes the dimensional generated profile and
+`profile.info` under `runs/<run_id>/config/`, stages the solver-scale
+`.picslice`, and writes that staged path into `bcs.run`.
+
+Precompute deterministic artifacts without launching the solver:
+
+```bash
+./bin/picurv precompute --case case.yml --output-dir precomputed/channel
+```
+
+This mirrors the run `config/` layout, so inspected generated artifacts can later
+be reused through `grid.mode: file` and `source.type: file`.
+
 Restart with explicit particle re-initialization:
 
 ```yaml
