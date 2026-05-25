@@ -3238,12 +3238,17 @@ def _normalize_field_slice_selector(slice_cfg, field_name: str) -> dict:
         "normal_tolerance": normal_tolerance,
     }
 
-def generate_square_duct_poiseuille_picslice(output_path: str, dims: tuple, params: dict) -> dict:
+def generate_square_duct_poiseuille_picslice(output_path: str, dims: tuple, params: dict,
+                                             target_grid: str = None, target_block: int = 0,
+                                             target_face: str = None) -> dict:
     """!
     @brief Generate a dimensional canonical PICSLICE for square-duct Poiseuille flow.
     @param[in] output_path Path to write.
     @param[in] dims PICSLICE dimensions in face storage order (n1, n2).
     @param[in] params Normalized generator params.
+    @param[in] target_grid Optional canonical target PICGRID for grid-aware sampling.
+    @param[in] target_block Target block index when `target_grid` is provided.
+    @param[in] target_face Target inlet face when `target_grid` is provided.
     @return Summary dictionary.
     """
     n1, n2 = tuple(dims)
@@ -3264,6 +3269,14 @@ def generate_square_duct_poiseuille_picslice(output_path: str, dims: tuple, para
         "--n-terms",
         str(int(params["n_terms"])),
     ]
+    if target_grid:
+        cmd.extend([
+            "--target-grid",
+            target_grid,
+            "--target-block",
+            str(int(target_block)),
+            f"--target-face={target_face}",
+        ])
     result = subprocess.run(cmd, text=True, capture_output=True)
     if result.returncode != 0:
         details = (result.stderr or result.stdout or "").strip()
@@ -3414,6 +3427,19 @@ def resolve_target_grid_for_field_slice(case_cfg: dict, case_path: str, run_dir:
         f"field_slice requires grid.mode 'file' or 'grid_gen' for target-grid normals; got '{grid_mode}'."
     )
 
+def resolve_target_grid_for_generated_profile(case_cfg: dict, case_path: str, run_dir: str) -> str:
+    """!
+    @brief Resolve an optional target canonical PICGRID for generated profile sampling.
+    @param[in] case_cfg Parsed current case config.
+    @param[in] case_path Current case.yml path.
+    @param[in] run_dir Current run/precompute directory.
+    @return Absolute target PICGRID path, or None when no canonical grid is available yet.
+    """
+    grid_mode = (case_cfg.get("grid", {}) or {}).get("mode")
+    if grid_mode == "programmatic_c":
+        return None
+    return resolve_target_grid_for_field_slice(case_cfg, case_path, run_dir)
+
 def write_profile_info(config_dir: str, summaries: list) -> str:
     """!
     @brief Write a profile.info summary for generated inlet profiles.
@@ -3447,6 +3473,13 @@ def write_profile_info(config_dir: str, summaries: list) -> str:
             if summary.get("umax_over_ubulk") is not None:
                 fout.write(f"umax_over_ubulk = {summary.get('umax_over_ubulk'):.16e}\n")
             for key in (
+                "normalization",
+                "sampling",
+                "area_weighted_mean_before_normalization",
+                "area_weighted_mean_after_normalization",
+                "total_inlet_area",
+                "face_area_min",
+                "face_area_max",
                 "source_field",
                 "source_grid",
                 "target_grid",
@@ -3871,6 +3904,7 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
 
     config_dir = os.path.join(run_dir, "config")
     target_grid = None
+    generated_target_grid = None
     summaries = []
     for block_idx, block in enumerate(prepared_blocks):
         for bc in block:
@@ -3893,7 +3927,16 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
                 default_to_config_dir=True,
             )
             if source.get("type") == "generated" and source["generator"] == "square_duct_poiseuille":
-                summary = generate_square_duct_poiseuille_picslice(output_path, dims, source["params"])
+                if generated_target_grid is None:
+                    generated_target_grid = resolve_target_grid_for_generated_profile(case_cfg, case_path, run_dir)
+                summary = generate_square_duct_poiseuille_picslice(
+                    output_path,
+                    dims,
+                    source["params"],
+                    target_grid=generated_target_grid,
+                    target_block=block_idx,
+                    target_face=face,
+                )
             elif source.get("type") == "generated":
                 raise ValueError(f"Unsupported generated profile generator '{source['generator']}'.")
             else:
@@ -6099,6 +6142,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
 
     generated_files = []
     generated_profile_summaries = []
+    generated_target_grid = None
     field_slice_target_grid = None
     for i, block_bcs_list in enumerate(prepared_blocks):
         file_name = "bcs.run" if num_blocks == 1 else f"bcs_block{i}.run"
@@ -6133,7 +6177,16 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                             f"Generated profile output_file for block {i}, face {face} must differ from staged solver profile."
                         )
                     if source["generator"] == "square_duct_poiseuille":
-                        summary = generate_square_duct_poiseuille_picslice(source_path, expected_dims, source["params"])
+                        if generated_target_grid is None:
+                            generated_target_grid = resolve_target_grid_for_generated_profile(case_cfg, case_path, run_dir)
+                        summary = generate_square_duct_poiseuille_picslice(
+                            source_path,
+                            expected_dims,
+                            source["params"],
+                            target_grid=generated_target_grid,
+                            target_block=i,
+                            target_face=face,
+                        )
                     else:
                         raise ValueError(f"Unsupported generated profile generator '{source['generator']}'.")
                     summary.update({"block": i, "face": face})
