@@ -366,6 +366,11 @@ solver. It uses the same `case.yml` generator settings as `run --solve`:
 The output layout mirrors `runs/<run_id>/config/` so inspected artifacts can be
 reused later with `grid.mode: file` and `prescribed_flow.source.type: file`.
 
+Design intent: `precompute` is the extensible artifact-materialization route for
+deterministic case inputs. It should host future grid/profile preprocessing that
+can be inspected before launch, while `run --solve` should perform the same
+materialization automatically for generator-style case settings.
+
 @section p05_submit_sec 5b. submit: Execute Existing Staged Artifacts
 
 ```bash

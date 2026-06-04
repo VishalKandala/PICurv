@@ -60,6 +60,7 @@ Potential low-priority observability improvements worth revisiting:
 
 - move the local wrapper stream log out of `runs/<run_id>/logs/` so it is not affected by solver-side log-directory recreation; `scheduler/` is the existing precedent for batch stdout/stderr.
 - add an optional compact per-step summary CSV that consolidates already-available signals such as momentum pseudo-iterations/final residual, Poisson iterations/final residual, continuity/divergence, and particle health counters.
+- add opt-in convergence-based runtime completion for `solution_convergence.mode: steady_deterministic`; keep `transient` diagnostic-only and require configured tolerances, minimum samples, dwell windows, and safe-checkpoint final writes before stopping.
 - add an optional boundary-flux summary CSV for inlet/farfield/outlet totals and conservation error when boundary-condition debugging becomes a repeated workflow need.
 - add cadence-based field-extrema summaries (`P`, `|Ucat|`, `Psi`, diffusivity) only if users need compact trend logs instead of verbose anatomy/min-max output.
 - extend particle metrics only when current `Particle_Metrics.log` proves insufficient; prefer compact inventory/health summaries over larger particle state dumps.
