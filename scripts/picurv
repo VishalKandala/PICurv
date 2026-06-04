@@ -29,6 +29,7 @@ import re
 import shlex
 import copy
 import math
+import difflib
 from datetime import datetime
 import time
 import filecmp
@@ -458,6 +459,8 @@ def _classify_error_code(message: str) -> str:
         or "must be either" in msg
     ):
         return ERROR_CODE_CFG_INVALID_TYPE
+    if "unsupported key" in msg or "unsupported top-level section" in msg:
+        return ERROR_CODE_CFG_INVALID_VALUE
     return ERROR_CODE_CFG_INVALID_VALUE
 
 # ==============================================================================
@@ -4200,6 +4203,273 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
 
     return prepared_blocks
 
+
+def _schema_path_text(path: tuple) -> str:
+    """!
+    @brief Render an internal schema path tuple as a user-facing YAML path.
+    @param[in] path Internal path tuple.
+    @return Dotted YAML path.
+    """
+    return ".".join(part for part in path if part != "[]") or "<root>"
+
+
+def _lookup_allowed_schema_keys(schema: dict, path: tuple):
+    """!
+    @brief Return allowed keys for a path, honoring '*' dynamic mapping entries.
+    @param[in] schema Role schema mapping.
+    @param[in] path Internal path tuple.
+    @return Allowed key set, None for free-form mappings, or False when path is not schema-checked.
+    """
+    if path in schema:
+        return schema[path]
+    for idx, part in enumerate(path):
+        if part == "[]":
+            continue
+        candidate = path[:idx] + ("*",) + path[idx + 1:]
+        if candidate in schema:
+            return schema[candidate]
+    return False
+
+
+def _schema_key_hint(schema: dict, path: tuple, key: str, allowed: set) -> str:
+    """!
+    @brief Build a concise typo or hierarchy hint for an unsupported YAML key.
+    @param[in] schema Role schema mapping.
+    @param[in] path Current internal YAML path tuple.
+    @param[in] key Unsupported YAML key.
+    @param[in] allowed Allowed keys at the current path.
+    @return Optional hint string.
+    """
+    hints = []
+    allowed_strings = sorted(str(item) for item in allowed)
+    lower_matches = [item for item in allowed_strings if item.lower() == key.lower()]
+    close_matches = lower_matches or difflib.get_close_matches(key, allowed_strings, n=1, cutoff=0.80)
+    if close_matches:
+        hints.append(f"Did you mean '{close_matches[0]}'?")
+
+    valid_paths = []
+    for schema_path, schema_allowed in schema.items():
+        if schema_path == path or not schema_allowed:
+            continue
+        if key in schema_allowed:
+            valid_paths.append(_schema_path_text(schema_path))
+    if valid_paths:
+        hints.append(f"This key is valid at: {', '.join(sorted(valid_paths))}.")
+
+    return " ".join(hints)
+
+
+def _validate_yaml_schema_keys(cfg, schema: dict, file_path: str, errors: list, path: tuple = ()) -> None:
+    """!
+    @brief Reject unsupported YAML keys before they can be silently ignored by staging.
+    @param[in] cfg Parsed YAML node.
+    @param[in] schema Role schema mapping.
+    @param[in] file_path Source file path for diagnostics.
+    @param[in,out] errors Validation error accumulator.
+    @param[in] path Current internal YAML path tuple.
+    """
+    if isinstance(cfg, dict):
+        allowed = _lookup_allowed_schema_keys(schema, path)
+        if allowed is not False and allowed is not None:
+            unknown = sorted(str(key) for key in cfg.keys() if key not in allowed)
+            for key in unknown:
+                hint = _schema_key_hint(schema, path, key, allowed)
+                hint_text = f" {hint}" if hint else ""
+                errors.append(
+                    f"  {file_path}: unsupported key at {_schema_path_text(path)}: '{key}'. "
+                    f"Allowed keys: {sorted(allowed)}.{hint_text}"
+                )
+        if allowed is None:
+            return
+        for key, value in cfg.items():
+            _validate_yaml_schema_keys(value, schema, file_path, errors, path + (key,))
+    elif isinstance(cfg, list):
+        for item in cfg:
+            _validate_yaml_schema_keys(item, schema, file_path, errors, path + ("[]",))
+
+
+_CASE_SCHEMA = {
+    (): {
+        "properties", "run_control", "grid", "models", "boundary_conditions", "solver_parameters",
+    },
+    ("run_control",): {"start_step", "total_steps", "dt_physical"},
+    ("properties",): {"scaling", "fluid", "initial_conditions"},
+    ("properties", "scaling"): {"length_ref", "velocity_ref"},
+    ("properties", "fluid"): {"density", "viscosity"},
+    ("properties", "initial_conditions"): {
+        "mode", "u_physical", "v_physical", "w_physical", "peak_velocity_physical",
+    },
+    ("grid",): {
+        "mode", "source_file", "programmatic_settings", "generator", "legacy_conversion",
+        "da_processors_x", "da_processors_y", "da_processors_z",
+    },
+    ("grid", "programmatic_settings"): {
+        "im", "jm", "km", "xMins", "xMaxs", "yMins", "yMaxs", "zMins", "zMaxs",
+        "rxs", "rys", "rzs", "cgrids",
+        "da_processors_x", "da_processors_y", "da_processors_z",
+    },
+    ("grid", "generator"): {
+        "script", "config_file", "grid_type", "cli_args", "output_file", "stats_file", "vts_file",
+        # Retained so existing warning behavior for typo-prone hyphen keys is not bypassed.
+        "config-file", "grid-type", "output-file", "stats-file", "vts-file",
+    },
+    ("grid", "legacy_conversion"): {
+        "enabled", "format", "script", "output_file", "axis_columns", "strict_trailing", "cli_args",
+    },
+    ("models",): {"domain", "physics", "statistics"},
+    ("models", "domain"): {"blocks", "i_periodic", "j_periodic", "k_periodic"},
+    ("models", "physics"): {"dimensionality", "fsi", "particles", "turbulence"},
+    ("models", "physics", "fsi"): {"immersed", "moving_fsi"},
+    ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source"},
+    ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
+    ("models", "physics", "turbulence"): {"les", "rans", "wall_function"},
+    ("models", "statistics"): {"time_averaging"},
+    ("boundary_conditions", "[]"): {"face", "type", "handler", "params"},
+    ("boundary_conditions", "[]", "[]"): {"face", "type", "handler", "params"},
+    ("boundary_conditions", "[]", "params"): None,
+    ("boundary_conditions", "[]", "[]", "params"): None,
+    ("solver_parameters",): None,
+}
+
+
+_SOLVER_SCHEMA = {
+    (): {
+        "operation_mode", "strategy", "tolerances", "momentum_solver", "poisson_solver",
+        "pressure_solver", "interpolation", "petsc_passthrough_options", "verification",
+        "scalar_transport", "solution_convergence",
+    },
+    ("operation_mode",): {"eulerian_field_source", "analytical_type", "uniform_flow"},
+    ("operation_mode", "uniform_flow"): {"u", "v", "w"},
+    ("strategy",): {"momentum_solver", "central_diff"},
+    ("tolerances",): {"max_iterations", "absolute_tol", "relative_tol", "step_tol"},
+    ("momentum_solver",): {"type", "dual_time_picard_rk4"},
+    ("momentum_solver", "dual_time_picard_rk4"): {
+        "max_pseudo_steps", "absolute_tol", "relative_tol", "step_tol", "pseudo_cfl",
+        "rk4_residual_noise_allowance_factor",
+    },
+    ("momentum_solver", "dual_time_picard_rk4", "pseudo_cfl"): {
+        "initial", "minimum", "maximum", "growth_factor", "reduction_factor",
+    },
+    ("poisson_solver",): {
+        "method", "absolute_tolerance", "relative_tolerance", "max_iterations", "tolerance",
+        "gmres", "preconditioner", "multigrid",
+    },
+    ("pressure_solver",): {
+        "method", "absolute_tolerance", "relative_tolerance", "max_iterations", "tolerance",
+        "gmres", "preconditioner", "multigrid",
+    },
+    ("poisson_solver", "gmres"): {"restart"},
+    ("pressure_solver", "gmres"): {"restart"},
+    ("poisson_solver", "preconditioner"): {"type"},
+    ("pressure_solver", "preconditioner"): {"type"},
+    ("poisson_solver", "multigrid"): {
+        "levels", "pre_sweeps", "post_sweeps", "cycle", "mode", "semi_coarsening", "level_solvers",
+    },
+    ("pressure_solver", "multigrid"): {
+        "levels", "pre_sweeps", "post_sweeps", "cycle", "mode", "semi_coarsening", "level_solvers",
+    },
+    ("poisson_solver", "multigrid", "semi_coarsening"): {"i", "j", "k"},
+    ("pressure_solver", "multigrid", "semi_coarsening"): {"i", "j", "k"},
+    ("poisson_solver", "multigrid", "level_solvers", "*"): {
+        "method", "preconditioner", "ksp_type", "pc_type", "max_it", "rtol", "atol",
+    },
+    ("pressure_solver", "multigrid", "level_solvers", "*"): {
+        "method", "preconditioner", "ksp_type", "pc_type", "max_it", "rtol", "atol",
+    },
+    ("interpolation",): {"method"},
+    ("petsc_passthrough_options",): None,
+    ("verification",): {"sources"},
+    ("verification", "sources"): {"diffusivity", "scalar"},
+    ("verification", "sources", "diffusivity"): {"mode", "profile", "gamma0", "slope_x"},
+    ("verification", "sources", "scalar"): {
+        "mode", "profile", "value", "phi0", "slope_x", "amplitude", "kx", "ky", "kz",
+    },
+    ("scalar_transport",): {"schmidt_number", "turbulent_schmidt_number"},
+    ("solution_convergence",): {"enabled", "mode", "periodic_deterministic", "statistical_steady"},
+    ("solution_convergence", "periodic_deterministic"): {"period_steps"},
+    ("solution_convergence", "statistical_steady"): {"window_steps"},
+}
+
+
+_MONITOR_SCHEMA = {
+    (): {"logging", "profiling", "diagnostics", "io", "solver_monitoring"},
+    ("logging",): {"verbosity", "enabled_functions"},
+    ("profiling",): {"timestep_output", "final_summary"},
+    ("profiling", "timestep_output"): {"mode", "functions", "file"},
+    ("profiling", "final_summary"): {"enabled"},
+    ("diagnostics",): {"petsc", "runtime_memory_log"},
+    ("diagnostics", "petsc"): {
+        "malloc_debug", "malloc_test", "malloc_dump", "malloc_view", "malloc_view_threshold",
+        "memory_view", "log_view", "log_view_memory", "log_all", "log_trace",
+        "objects_dump", "options_left",
+    },
+    ("diagnostics", "runtime_memory_log"): {"enabled", "file"},
+    ("io",): {
+        "data_output_frequency", "particle_console_output_frequency", "particle_log_interval",
+        "directories",
+    },
+    ("io", "directories"): {"output", "restart", "log", "eulerian_subdir", "particle_subdir"},
+    ("solver_monitoring",): {"poisson", "petsc_passthrough_options"},
+    ("solver_monitoring", "poisson"): {"pic_true_residual", "true_residual", "converged_reason", "view"},
+    ("solver_monitoring", "petsc_passthrough_options"): None,
+}
+
+
+_POST_SCHEMA = {
+    (): {
+        "run_control", "source_data", "global_operations", "eulerian_pipeline",
+        "lagrangian_pipeline", "statistics_pipeline", "statistics_output_prefix", "io",
+    },
+    ("run_control",): {
+        "start_step", "end_step", "step_interval", "startTime", "endTime", "timeStep",
+    },
+    ("source_data",): {"directory", "input_extensions"},
+    ("source_data", "input_extensions"): {"eulerian", "particle"},
+    ("global_operations",): {"dimensionalize"},
+    ("eulerian_pipeline", "[]"): {"task", "input_field", "output_field", "field", "reference_point"},
+    ("lagrangian_pipeline", "[]"): {"task", "input_field", "output_field"},
+    ("statistics_pipeline",): {"output_prefix", "tasks"},
+    ("statistics_pipeline", "tasks", "[]"): {"task"},
+    ("io",): {
+        "output_directory", "output_filename_prefix", "particle_filename_prefix", "output_particles",
+        "particle_subsampling_frequency", "input_extensions", "eulerian_fields_averaged",
+        "eulerian_fields", "particle_fields",
+    },
+    ("io", "input_extensions"): {"eulerian", "particle"},
+}
+
+
+_CLUSTER_SCHEMA = {
+    (): {"scheduler", "resources", "notifications", "execution"},
+    ("scheduler",): {"type"},
+    ("resources",): {"account", "partition", "nodes", "ntasks_per_node", "mem", "time"},
+    ("notifications",): {"mail_user", "mail_type"},
+    ("execution",): {
+        "module_setup", "launcher", "launcher_args", "extra_sbatch", "walltime_guard",
+    },
+    ("execution", "extra_sbatch"): None,
+    ("execution", "walltime_guard"): {
+        "enabled", "warmup_steps", "multiplier", "min_seconds", "estimator_alpha",
+    },
+}
+
+
+_STUDY_SCHEMA = {
+    (): {
+        "base_configs", "study_type", "parameters", "parameter_sets", "metrics", "plotting", "execution",
+    },
+    ("base_configs",): {"case", "solver", "monitor", "post"},
+    ("parameters",): None,
+    ("parameter_sets", "[]"): None,
+    ("metrics", "[]"): {
+        "name", "source", "file_glob", "column", "reduction", "normalize_by_parameter",
+        "numerator_column", "denominator_column", "denominator_floor",
+    },
+    ("plotting",): {"enabled", "output_format"},
+    ("execution",): {"max_concurrent_array_tasks"},
+}
+
+
 def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                             case_path: str, solver_path: str, monitor_path: str):
     """!
@@ -4217,6 +4487,10 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
     errors = []
     warnings = []
     eulerian_source_mode = "solve"
+
+    _validate_yaml_schema_keys(case_cfg, _CASE_SCHEMA, case_path, errors)
+    _validate_yaml_schema_keys(solver_cfg, _SOLVER_SCHEMA, solver_path, errors)
+    _validate_yaml_schema_keys(monitor_cfg, _MONITOR_SCHEMA, monitor_path, errors)
 
     # --- case.yml: required top-level sections ---
     required_case_sections = ['properties', 'run_control', 'grid', 'models', 'boundary_conditions']
@@ -4829,6 +5103,8 @@ def validate_post_config(post_cfg: dict, post_path: str):
     """
     errors = []
 
+    _validate_yaml_schema_keys(post_cfg, _POST_SCHEMA, post_path, errors)
+
     if not isinstance(post_cfg, dict) or not post_cfg:
         errors.append(f"  {post_path}: post-processing config is empty or not a valid YAML mapping.")
         _print_validation_errors(errors)
@@ -5039,6 +5315,7 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
     """
     errors = []
     warnings = []
+    _validate_yaml_schema_keys(cluster_cfg, _CLUSTER_SCHEMA, cluster_path, errors)
     if not isinstance(cluster_cfg, dict) or not cluster_cfg:
         errors.append(f"  {cluster_path}: cluster config is empty or not a valid YAML mapping.")
         _print_validation_errors(errors)
@@ -5193,6 +5470,7 @@ def validate_study_config(study_cfg: dict, study_path: str, skip_base_file_check
     @param[in] skip_base_file_check When True, skip file-existence check for base_configs paths.
     """
     errors = []
+    _validate_yaml_schema_keys(study_cfg, _STUDY_SCHEMA, study_path, errors)
     if not isinstance(study_cfg, dict) or not study_cfg:
         errors.append(f"  {study_path}: study config is empty or not a valid YAML mapping.")
         _print_validation_errors(errors)
