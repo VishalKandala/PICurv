@@ -219,6 +219,133 @@ def test_validate_post_rejects_normalize_field_for_non_pressure_field(tmp_path):
     assert "currently only supports 'P'" in result.stderr
 
 
+def test_validate_rejects_misplaced_grid_da_processors_under_generator(tmp_path):
+    """!
+    @brief Test that validate rejects DMDA layout keys nested under grid.generator.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    case_cfg["grid"] = {
+        "mode": "grid_gen",
+        "generator": {
+            "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
+            "grid_type": "cpipe",
+            "da_processors_x": 2,
+        },
+    }
+    case_path = tmp_path / "case_misnested_da.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "unsupported key at grid.generator: 'da_processors_x'" in result.stderr
+    assert "da_processors_x" in result.stderr
+    assert "This key is valid at: grid, grid.programmatic_settings." in result.stderr
+
+
+def test_validate_rejects_mis_cased_grid_da_processor_key_with_suggestion(tmp_path):
+    """!
+    @brief Test that validate rejects mis-cased DMDA layout keys with a same-level suggestion.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    case_cfg["grid"]["da_processors_Z"] = 1
+    case_path = tmp_path / "case_mis_cased_da.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "unsupported key at grid: 'da_processors_Z'" in result.stderr
+    assert "Did you mean 'da_processors_z'?" in result.stderr
+
+
+def test_validate_rejects_unknown_solver_key(tmp_path):
+    """!
+    @brief Test that validate rejects unknown keys in solver.yml.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["mystery_block"] = {"enabled": True}
+    solver_path = tmp_path / "solver_unknown.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "unsupported key at <root>: 'mystery_block'" in result.stderr
+    assert "mystery_block" in result.stderr
+
+
+def test_dry_run_rejects_unknown_case_key_before_planning(tmp_path):
+    """!
+    @brief Test that run --dry-run fails on unsupported case keys.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    case_cfg["grid"]["generator"] = {"da_processors_x": 2}
+    case_path = tmp_path / "case_unknown_nested.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--dry-run",
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "unsupported key at grid.generator: 'da_processors_x'" in result.stderr
+    assert "This key is valid at: grid, grid.programmatic_settings." in result.stderr
+    assert "DRY-RUN PLAN" not in result.stdout
+
+
 def test_statistics_output_artifacts_are_relative_to_run_directory(tmp_path):
     """!
     @brief Test that statistics output artifacts are relative to run directory.
