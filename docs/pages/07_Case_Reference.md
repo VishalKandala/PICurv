@@ -160,7 +160,12 @@ models:
   physics:
     dimensionality: "3D"
     turbulence:
-      les: false
+      les:
+        enabled: false
+      rans:
+        enabled: false
+      wall_function:
+        enabled: false
     particles:
       count: 0
       init_mode: "Surface"
@@ -171,11 +176,26 @@ Common mappings:
 - `domain.blocks` -> `-nblk`
 - periodic flags -> `-i_periodic/-j_periodic/-k_periodic`
 - `physics.dimensionality: "2D"` -> `-TwoD 1`
-- `physics.turbulence.les` -> `-les`
+- `physics.turbulence.les.enabled/model` -> `-les` (`0` none, `1` constant Smagorinsky, `2` dynamic Smagorinsky)
+- `physics.turbulence.les.constant_cs` -> `-const_cs`
+- `physics.turbulence.les.max_cs` -> `-max_cs`
+- `physics.turbulence.les.dynamic_frequency` -> `-dynamic_freq`
+- `physics.turbulence.les.test_filter` -> `-testfilter_ik` (`volume_weighted_box` = 0, `homogeneous_ik` = 1)
+- `physics.turbulence.rans.enabled/model` -> `-rans` (`k_omega` accepted; runtime update currently incomplete)
+- `physics.turbulence.wall_function.enabled` -> `-wallfunction`
+- `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness`
 - `physics.particles.count` -> `-numParticles`
 - `physics.particles.init_mode` -> `-pinit` (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`)
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
 - point source coordinates -> `-psrc_x/-psrc_y/-psrc_z`
+
+Legacy turbulence shorthand remains valid:
+
+- `les: false` -> `-les 0`
+- `les: true` or `les: 1` -> constant Smagorinsky (`-les 1`)
+- `les: 2` -> dynamic Smagorinsky (`-les 2`)
+
+LES and RANS are mutually exclusive in one case. `wall_function` is a sibling option because wall functions can be used with wall-modeled LES or RANS boundary treatments.
 
 Restart note:
 

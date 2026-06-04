@@ -172,9 +172,32 @@ models:
         z: 0.5
 
     turbulence:
-      les: false           # [true/false] -> -les (Large Eddy Simulation)
-      rans: false          # [true/false] -> -rans (Reynolds-Averaged Navier-Stokes)
-      wall_function: false # [true/false] -> -wallfunction
+      # Preferred structured LES form. Legacy shorthand is still accepted:
+      #   les: false       -> -les 0
+      #   les: true        -> -les 1 (constant Smagorinsky)
+      #   les: 1           -> constant Smagorinsky
+      #   les: 2           -> dynamic Smagorinsky
+      les:
+        enabled: false
+        # model is only needed when enabled: true. Options: constant_smagorinsky | dynamic_smagorinsky
+        # model: "constant_smagorinsky"
+        constant_cs: 0.03             # -> -const_cs; used by constant_smagorinsky
+        max_cs: 0.5                   # -> -max_cs; clip for dynamic_smagorinsky
+        dynamic_frequency: 1          # -> -dynamic_freq; recompute dynamic Cs every N steps
+        test_filter: "volume_weighted_box" # volume_weighted_box | homogeneous_ik -> -testfilter_ik
+
+      # RANS selector. The k-omega runtime path is accepted but currently incomplete.
+      rans:
+        enabled: false
+        # model is only needed when enabled: true. Currently supported: k_omega
+        # model: "k_omega"
+
+      # Wall functions are independent of LES/RANS and apply on WALL faces.
+      wall_function:
+        enabled: false
+        # model is only needed when enabled: true. Currently supported: log_law
+        # model: "log_law"
+        roughness_height: 1.0e-16     # -> -wall_roughness
   
   # --- Statistical Analysis ---
   statistics:

@@ -79,7 +79,8 @@ models:
 
   physics:
     turbulence:
-      les: false            # No LES -- analytical flow only
+      les:
+        enabled: false      # No LES -- analytical flow only
 
     particles:
       count: 10000          # Moderate ensemble for interpolation error statistics

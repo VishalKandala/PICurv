@@ -80,6 +80,11 @@ For each run, `picurv` generates:
 - `scalar_transport.schmidt_number` and `scalar_transport.turbulent_schmidt_number`
   are the structured scalar/Brownian transport controls; do not use passthrough
   for ordinary Schmidt-number tuning.
+- `case.yml -> models.physics.turbulence` is the structured turbulence control surface.
+  LES uses `les.enabled/model` plus `constant_cs`, `max_cs`, `dynamic_frequency`,
+  and `test_filter`; wall functions use `wall_function.enabled/model/roughness_height`.
+  Legacy `les: true` remains constant Smagorinsky (`-les 1`), while `les: 2`
+  selects dynamic Smagorinsky.
 
 Analytical-mode compatibility rule:
 

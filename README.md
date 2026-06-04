@@ -119,6 +119,10 @@ Equivalent manual step after init: `picurv sync-binaries --case-dir my_case`.
 commands can rebuild, pull, and resync from the original code directory.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
+Turbulence model selection lives in `case.yml -> models.physics.turbulence`.
+Use the structured `les.enabled/model` block for constant or dynamic Smagorinsky,
+`rans.enabled/model` for the accepted k-omega selector, and sibling
+`wall_function.enabled/model/roughness_height` settings for wall treatment.
 The `search_robustness` example family adds a dedicated `search_metrics.csv` runtime artifact
 for particle walking-search and migration observability. The `scatter_verification` example family
 adds `solver.yml -> verification.sources.scalar`, prescribes particle `Psi` from analytical truth,

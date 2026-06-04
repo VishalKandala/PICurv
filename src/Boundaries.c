@@ -2398,8 +2398,8 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
     if (grid_start_k == 0) loop_start_k = grid_start_k + 1;
     if (grid_end_k == grid_size_k) loop_end_k = grid_end_k - 1;
     
-    // Wall roughness parameter (currently smooth wall)
-    const PetscReal wall_roughness_height = 1.e-16;
+    // Wall roughness parameter (smooth wall by default, configurable via -wall_roughness).
+    const PetscReal wall_roughness_height = user->simCtx->wall_roughness_height;
     
     // =========================================================================
     // STEP 3: Process each of the 6 domain faces
