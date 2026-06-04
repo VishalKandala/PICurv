@@ -565,6 +565,91 @@ def test_parse_solver_config_maps_scalar_transport_flags():
     assert flags["-turb_schmidt_number"] == 0.9
 
 
+def test_parse_model_flags_maps_structured_turbulence_options():
+    """!
+    @brief Test that structured turbulence settings map to C runtime flags.
+    """
+    picurv = load_picurv_module()
+    case_cfg = {
+        "models": {
+            "physics": {
+                "turbulence": {
+                    "les": {
+                        "enabled": True,
+                        "model": "dynamic_smagorinsky",
+                        "max_cs": 0.42,
+                        "dynamic_frequency": 3,
+                        "test_filter": "homogeneous_ik",
+                    },
+                    "rans": {"enabled": False},
+                    "wall_function": {
+                        "enabled": True,
+                        "model": "log_law",
+                        "roughness_height": 1.0e-5,
+                    },
+                }
+            }
+        }
+    }
+    control_lines = []
+
+    picurv.parse_and_add_model_flags(case_cfg, control_lines)
+
+    assert "-les 2" in control_lines
+    assert "-max_cs 0.42" in control_lines
+    assert "-dynamic_freq 3" in control_lines
+    assert "-testfilter_ik 1" in control_lines
+    assert "-rans 0" in control_lines
+    assert "-wallfunction 1" in control_lines
+    assert "-wall_roughness 1e-05" in control_lines
+
+
+def test_parse_model_flags_preserves_legacy_les_true_constant_smagorinsky():
+    """!
+    @brief Test that legacy les:true still maps to constant Smagorinsky.
+    """
+    picurv = load_picurv_module()
+    case_cfg = {
+        "models": {
+            "physics": {
+                "turbulence": {
+                    "les": True,
+                }
+            }
+        }
+    }
+    control_lines = []
+
+    picurv.parse_and_add_model_flags(case_cfg, control_lines)
+
+    assert "-les 1" in control_lines
+
+
+def test_parse_model_flags_allows_minimal_disabled_turbulence_blocks():
+    """!
+    @brief Test that disabled turbulence blocks do not require model selectors.
+    """
+    picurv = load_picurv_module()
+    case_cfg = {
+        "models": {
+            "physics": {
+                "turbulence": {
+                    "les": {"enabled": False},
+                    "rans": {"enabled": False},
+                    "wall_function": {"enabled": False},
+                }
+            }
+        }
+    }
+    control_lines = []
+
+    picurv.parse_and_add_model_flags(case_cfg, control_lines)
+
+    assert "-les 0" in control_lines
+    assert "-rans 0" in control_lines
+    assert "-wallfunction 0" in control_lines
+
+
 def test_parse_solver_config_maps_structured_poisson_solver_flags():
     """!
     @brief Test that parse_solver_config maps preferred Poisson solver YAML into PETSc flags.

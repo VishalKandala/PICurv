@@ -41,7 +41,8 @@ models:
 
   physics:
     turbulence:
-      les: false
+      les:
+        enabled: false
 
     particles:
       count: 100000

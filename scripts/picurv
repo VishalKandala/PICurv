@@ -4323,6 +4323,11 @@ _CASE_SCHEMA = {
     ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source"},
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
     ("models", "physics", "turbulence"): {"les", "rans", "wall_function"},
+    ("models", "physics", "turbulence", "les"): {
+        "enabled", "model", "constant_cs", "max_cs", "dynamic_frequency", "test_filter",
+    },
+    ("models", "physics", "turbulence", "rans"): {"enabled", "model"},
+    ("models", "physics", "turbulence", "wall_function"): {"enabled", "model", "roughness_height"},
     ("models", "statistics"): {"time_averaging"},
     ("boundary_conditions", "[]"): {"face", "type", "handler", "params"},
     ("boundary_conditions", "[]", "[]"): {"face", "type", "handler", "params"},
@@ -4702,6 +4707,67 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                         errors.append(
                             f"  {case_path}: models.physics.particles.point_source.{coord} is required when init_mode is PointSource."
                         )
+
+    # --- case.yml: turbulence model validation ---
+    turbulence_cfg = case_cfg.get('models', {}).get('physics', {}).get('turbulence', {})
+    if turbulence_cfg is not None and not isinstance(turbulence_cfg, dict):
+        errors.append(f"  {case_path}: 'models.physics.turbulence' must be a mapping.")
+    elif isinstance(turbulence_cfg, dict) and turbulence_cfg:
+        try:
+            append_turbulence_flags(case_cfg.get('models', {}), [])
+        except ValueError as e:
+            errors.append(f"  {case_path}: {e}")
+
+        les_cfg = turbulence_cfg.get('les')
+        rans_cfg = turbulence_cfg.get('rans')
+        wall_cfg = turbulence_cfg.get('wall_function')
+
+        if isinstance(les_cfg, dict):
+            for key in ('enabled',):
+                if key in les_cfg and not isinstance(les_cfg[key], bool):
+                    errors.append(f"  {case_path}: models.physics.turbulence.les.{key} must be true or false.")
+            for key in ('constant_cs', 'max_cs'):
+                if key in les_cfg:
+                    try:
+                        value = float(les_cfg[key])
+                        if value < 0.0:
+                            errors.append(f"  {case_path}: models.physics.turbulence.les.{key} must be nonnegative.")
+                    except (TypeError, ValueError):
+                        errors.append(f"  {case_path}: models.physics.turbulence.les.{key} must be numeric.")
+            if 'dynamic_frequency' in les_cfg:
+                try:
+                    value = int(les_cfg['dynamic_frequency'])
+                    if value <= 0:
+                        errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be positive.")
+                except (TypeError, ValueError):
+                    errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be an integer.")
+
+        if isinstance(rans_cfg, dict):
+            if 'enabled' in rans_cfg and not isinstance(rans_cfg['enabled'], bool):
+                errors.append(f"  {case_path}: models.physics.turbulence.rans.enabled must be true or false.")
+            try:
+                rans_enabled = bool(rans_cfg.get('enabled', True)) and normalize_rans_model(rans_cfg.get('model', 'k_omega')) != 0
+            except ValueError:
+                rans_enabled = False
+            if rans_enabled:
+                warnings.append(
+                    f"{case_path}: models.physics.turbulence.rans is accepted, but the k-omega runtime update is currently incomplete."
+                )
+        elif rans_cfg:
+            warnings.append(
+                f"{case_path}: models.physics.turbulence.rans is accepted, but the k-omega runtime update is currently incomplete."
+            )
+
+        if isinstance(wall_cfg, dict):
+            if 'enabled' in wall_cfg and not isinstance(wall_cfg['enabled'], bool):
+                errors.append(f"  {case_path}: models.physics.turbulence.wall_function.enabled must be true or false.")
+            if 'roughness_height' in wall_cfg:
+                try:
+                    value = float(wall_cfg['roughness_height'])
+                    if value < 0.0:
+                        errors.append(f"  {case_path}: models.physics.turbulence.wall_function.roughness_height must be nonnegative.")
+                except (TypeError, ValueError):
+                    errors.append(f"  {case_path}: models.physics.turbulence.wall_function.roughness_height must be numeric.")
 
     # --- solver.yml: basic structure ---
     if not isinstance(solver_cfg, dict) or not solver_cfg:
@@ -6944,6 +7010,186 @@ def normalize_interpolation_method(value: str) -> int:
         )
     return mapped
 
+def normalize_les_model(value) -> int:
+    """!
+    @brief Maps LES model selectors to C enum/int codes (-les).
+    @param[in] value LES selector name or legacy integer/bool value.
+    @return Integer code accepted by -les.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, int):
+        if value in (0, 1, 2):
+            return value
+        raise ValueError("models.physics.turbulence.les must be 0, 1, 2, false/true, or a supported model block.")
+    if value is None:
+        raise ValueError("LES model cannot be None")
+
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "none": 0,
+        "off": 0,
+        "disabled": 0,
+        "no_les": 0,
+        "constant": 1,
+        "constant_smagorinsky": 1,
+        "smagorinsky": 1,
+        "dynamic": 2,
+        "dynamic_smagorinsky": 2,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown LES model '{value}'. Use one of: 'none', "
+            "'constant_smagorinsky', 'dynamic_smagorinsky'."
+        )
+    return mapped
+
+def normalize_les_test_filter(value) -> int:
+    """!
+    @brief Maps LES test-filter names to the C -testfilter_ik flag.
+    @param[in] value Test-filter selector name or legacy integer/bool value.
+    @return 0 for volume-weighted box, 1 for homogeneous i/k Simpson filtering.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, int):
+        if value in (0, 1):
+            return value
+        raise ValueError("models.physics.turbulence.les.test_filter must be 0, 1, or a supported filter name.")
+    if value is None:
+        raise ValueError("LES test_filter cannot be None")
+
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "volume_weighted_box": 0,
+        "box": 0,
+        "general_box": 0,
+        "homogeneous_ik": 1,
+        "ik_homogeneous": 1,
+        "simpson_ik": 1,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown LES test_filter '{value}'. Use one of: "
+            "'volume_weighted_box', 'homogeneous_ik'."
+        )
+    return mapped
+
+def normalize_rans_model(value) -> int:
+    """!
+    @brief Maps RANS model selectors to the current C -rans switch.
+    @param[in] value RANS selector name or legacy integer/bool value.
+    @return Integer code accepted by -rans.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, int):
+        if value in (0, 1):
+            return value
+        raise ValueError("models.physics.turbulence.rans must be 0, 1, false/true, or a supported model block.")
+    if value is None:
+        raise ValueError("RANS model cannot be None")
+
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "none": 0,
+        "off": 0,
+        "disabled": 0,
+        "k_omega": 1,
+        "komega": 1,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(f"Unknown RANS model '{value}'. Use one of: 'none', 'k_omega'.")
+    return mapped
+
+def normalize_wall_function_model(value) -> str:
+    """!
+    @brief Validates wall-function model selectors exposed in YAML.
+    @param[in] value Wall-function selector name.
+    @return Canonical wall-function model name.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if value is None:
+        return "log_law"
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    if key in {"log_law", "loglaw"}:
+        return "log_law"
+    raise ValueError("Unknown wall_function model '%s'. Use: 'log_law'." % value)
+
+def resolve_enabled_flag(cfg: dict, path: str, default: bool = True) -> bool:
+    """!
+    @brief Resolves a structured `enabled` flag and rejects non-boolean values.
+    @param[in] cfg Mapping that may contain `enabled`.
+    @param[in] path Human-readable config path for diagnostics.
+    @param[in] default Value used when `enabled` is omitted.
+    @return Boolean enabled state.
+    @throws ValueError if `enabled` is not a YAML boolean.
+    """
+    if 'enabled' not in cfg:
+        return default
+    if not isinstance(cfg['enabled'], bool):
+        raise ValueError(f"{path}.enabled must be true or false.")
+    return cfg['enabled']
+
+def append_turbulence_flags(models: dict, control_lines: list):
+    """!
+    @brief Appends turbulence model flags from legacy or structured case.yml blocks.
+    @param[in] models Parsed case.yml `models` mapping.
+    @param[out] control_lines A list of strings to which C-flags will be appended.
+    """
+    turbulence_cfg = models.get('physics', {}).get('turbulence', {})
+    if not turbulence_cfg:
+        return
+    if not isinstance(turbulence_cfg, dict):
+        raise ValueError("models.physics.turbulence must be a mapping.")
+
+    les_cfg = turbulence_cfg.get('les')
+    rans_cfg = turbulence_cfg.get('rans')
+    wall_cfg = turbulence_cfg.get('wall_function')
+    les_code = None
+    rans_code = None
+
+    if isinstance(les_cfg, dict):
+        enabled = resolve_enabled_flag(les_cfg, "models.physics.turbulence.les")
+        model_value = les_cfg.get('model', 'constant_smagorinsky')
+        les_code = normalize_les_model(model_value) if enabled else 0
+        control_lines.append(f"-les {les_code}")
+        if 'constant_cs' in les_cfg:
+            control_lines.append(f"-const_cs {format_flag_value(les_cfg['constant_cs'])}")
+        if 'max_cs' in les_cfg:
+            control_lines.append(f"-max_cs {format_flag_value(les_cfg['max_cs'])}")
+        if 'dynamic_frequency' in les_cfg:
+            control_lines.append(f"-dynamic_freq {format_flag_value(les_cfg['dynamic_frequency'])}")
+        if 'test_filter' in les_cfg:
+            control_lines.append(f"-testfilter_ik {normalize_les_test_filter(les_cfg['test_filter'])}")
+    elif les_cfg is not None:
+        les_code = normalize_les_model(les_cfg)
+        control_lines.append(f"-les {les_code}")
+
+    if isinstance(rans_cfg, dict):
+        enabled = resolve_enabled_flag(rans_cfg, "models.physics.turbulence.rans")
+        model_value = rans_cfg.get('model', 'k_omega')
+        rans_code = normalize_rans_model(model_value) if enabled else 0
+        control_lines.append(f"-rans {rans_code}")
+    elif rans_cfg is not None:
+        rans_code = normalize_rans_model(rans_cfg)
+        control_lines.append(f"-rans {rans_code}")
+
+    if les_code and rans_code:
+        raise ValueError("models.physics.turbulence cannot enable both LES and RANS in the same case.")
+
+    if isinstance(wall_cfg, dict):
+        enabled = resolve_enabled_flag(wall_cfg, "models.physics.turbulence.wall_function")
+        normalize_wall_function_model(wall_cfg.get('model'))
+        control_lines.append(f"-wallfunction {1 if enabled else 0}")
+        if 'roughness_height' in wall_cfg:
+            control_lines.append(f"-wall_roughness {format_flag_value(wall_cfg['roughness_height'])}")
+    elif wall_cfg is not None:
+        control_lines.append(f"-wallfunction {format_flag_value(wall_cfg)}")
+
 def append_passthrough_flags(control_lines: list, options: dict):
     """!
     @brief Appends raw CLI flags to the control list from a {flag: value} dict.
@@ -7045,7 +7291,6 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
         'domain': {'blocks': '-nblk', 'i_periodic': '-i_periodic', 'j_periodic': '-j_periodic', 'k_periodic': '-k_periodic'},
         'physics.fsi': {'immersed': '-imm', 'moving_fsi': '-fsi'},
         'physics.particles': {'count': '-numParticles'},
-        'physics.turbulence': {'les': '-les', 'rans': '-rans', 'wall_function': '-wallfunction'},
         'statistics': {'time_averaging': '-averaging'}
     }
     for section_path, flags in FLAG_MAP.items():
@@ -7056,6 +7301,8 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
                 if yaml_key in current_level:
                     control_lines.append(f"{flag} {format_flag_value(current_level[yaml_key])}")
         except KeyError: continue
+
+    append_turbulence_flags(models, control_lines)
 
     if models.get('physics', {}).get('dimensionality') == '2D':
         control_lines.append("-TwoD 1")

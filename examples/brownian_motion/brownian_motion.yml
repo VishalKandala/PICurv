@@ -79,9 +79,10 @@ models:
   physics:
     turbulence:
       # Disable LES so nu_t = 0 and Gamma_eff = nu/Sc exactly.
-      # If les: true, Smagorinsky would add a spatially varying nu_t
+      # If LES is enabled, Smagorinsky would add a spatially varying nu_t
       # that contaminates Gamma_eff and invalidates the Einstein comparison.
-      les: false
+      les:
+        enabled: false
 
     particles:
       count: 50000          # Large ensemble for low MSD statistical noise.

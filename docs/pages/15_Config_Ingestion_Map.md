@@ -23,6 +23,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `case.grid.da_processors_*` | `-da_processors_x/y/z` | `src/setup.c` | `src/grid.c` DMDA creation |
 | `case.models.domain.*` | `-nblk`, periodic flags | `src/setup.c` | `src/grid.c`, BC setup |
 | `case.models.physics.particles.*` | `-numParticles`, `-pinit`, `-particle_restart_mode`, `-psrc_*` | `src/setup.c` | `src/ParticleSwarm.c`, `src/ParticleMotion.c`, statistics kernels |
+| `case.models.physics.turbulence.*` | `-les`, `-const_cs`, `-max_cs`, `-dynamic_freq`, `-testfilter_ik`, `-rans`, `-wallfunction`, `-wall_roughness` | `src/setup.c` | `src/solvers.c`, `src/les.c`, `src/Filter.c`, `src/Boundaries.c`, `src/wallfunction.c` |
 | `solver.interpolation.method` | `-interpolation_method` | `src/setup.c` | `src/interpolation.c` (dispatch in @ref InterpolateEulerFieldToSwarm) |
 | `case.boundary_conditions` | `bcs*.run` rows | BC parser path (`src/Boundaries.c` + helpers) | BC handler factory and boundary application |
 | `solver.operation_mode.*` | `-euler_field_source`, `-analytical_type`, `-analytical_uniform_u/-v/-w` | `src/setup.c` | `src/initialcondition.c`, `src/grid.c`, `src/AnalyticalSolutions.c` |
