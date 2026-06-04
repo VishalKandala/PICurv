@@ -1798,6 +1798,82 @@ def test_dry_run_grid_gen_lists_planned_grid_artifacts(tmp_path):
     assert not run_dir.exists()
 
 
+def test_grid_gen_hyphenated_generator_keys_warn_without_aliasing(tmp_path):
+    """!
+    @brief Test that unsupported hyphenated grid.generator keys warn but remain ignored.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["grid"] = {
+        "mode": "grid_gen",
+        "generator": {
+            "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
+            "grid_type": "cpipe",
+            "stats-file": "config/grid.generated.info",
+            "cli_args": ["--ncells-i", "2", "--ncells-j", "2", "--ncells-k", "4", "--no-show-stats", "--no-write-vtk"],
+        },
+    }
+    case_path = tmp_path / "case_grid_gen_hyphen.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    warning = "grid.generator.stats-file is ignored; use grid.generator.stats_file."
+
+    validate_result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ],
+        cwd=tmp_path,
+    )
+    assert validate_result.returncode == 0, validate_result.stderr
+    assert warning in validate_result.stderr
+
+    dry_run_result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+    assert dry_run_result.returncode == 0, dry_run_result.stderr
+    assert warning in dry_run_result.stderr
+
+    run_result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--no-submit",
+        ],
+        cwd=tmp_path,
+    )
+    assert run_result.returncode == 0, run_result.stderr
+    assert warning in run_result.stderr
+    run_dirs = sorted((tmp_path / "runs").glob("case_grid_gen_hyphen_*"))
+    assert len(run_dirs) == 1
+    assert not (run_dirs[0] / "config" / "grid.generated.info").exists()
+
+
 def test_dry_run_generated_profile_lists_planned_artifacts(tmp_path):
     """!
     @brief Test dry-run previews generated profile artifacts.

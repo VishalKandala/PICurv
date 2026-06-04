@@ -1357,6 +1357,16 @@ POST_RUN_CONTROL_ALIASES = {
 }
 
 
+GRID_GENERATOR_HYPHEN_KEY_HINTS = {
+    "config-file": "config_file",
+    "grid-type": "grid_type",
+    "cli-args": "cli_args",
+    "output-file": "output_file",
+    "stats-file": "stats_file",
+    "vts-file": "vts_file",
+}
+
+
 def _mapping_value_with_aliases(mapping: dict, *keys, default=None):
     """!
     @brief Return the first defined value from a mapping across alias keys.
@@ -1384,6 +1394,22 @@ def get_post_run_control_value(post_cfg: dict, canonical_key: str, default=None)
     aliases = POST_RUN_CONTROL_ALIASES.get(canonical_key, (canonical_key,))
     rc = post_cfg.get("run_control", {})
     return _mapping_value_with_aliases(rc, *aliases, default=default)
+
+
+def warn_on_grid_generator_hyphen_keys(generator: dict, case_path: str, warnings: list) -> None:
+    """!
+    @brief Warn when grid.generator uses unsupported hyphenated wrapper keys.
+    @param[in] generator grid.generator mapping from case.yml.
+    @param[in] case_path Case file path for diagnostics.
+    @param[in,out] warnings Warning list to append to.
+    """
+    if not isinstance(generator, dict):
+        return
+    for bad_key, expected_key in GRID_GENERATOR_HYPHEN_KEY_HINTS.items():
+        if bad_key in generator and bad_key != expected_key:
+            warnings.append(
+                f"{case_path}: grid.generator.{bad_key} is ignored; use grid.generator.{expected_key}."
+            )
 
 
 def get_post_source_data(post_cfg: dict):
@@ -4309,6 +4335,8 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         if not isinstance(gen_cfg, dict):
             errors.append(f"  {case_path}: 'grid.generator' must be a mapping when grid.mode is 'grid_gen'.")
         else:
+            warn_on_grid_generator_hyphen_keys(gen_cfg, case_path, warnings)
+
             config_file = gen_cfg.get('config_file')
             if not config_file:
                 errors.append(f"  {case_path}: 'grid.generator.config_file' is required for grid.mode='grid_gen'.")
