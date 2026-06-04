@@ -39,9 +39,26 @@ Extension-ready next steps:
 2. add sweep resume/retry policies,
 3. add scheduler backends beyond Slurm without changing C contracts.
 
-@section p17_ml_sec 4. Data-Driven Particle Closure Integration
+@section p17_completion_sec 4. Runtime Completion Extensions
 
-@subsection p17_ml_offline_ssec 4.1 Offline (Recommended First)
+The current runtime already supports safe early shutdown for walltime and signal
+events. Physics-based completion is a separate future extension and should keep
+that same checkpoint discipline.
+
+Extension-ready next steps:
+1. add optional convergence-stop criteria under `solver.yml -> solution_convergence`,
+2. limit deterministic fixed-state stopping to `mode: steady_deterministic`,
+3. use explicit tolerances, minimum samples, and dwell windows before declaring completion,
+4. keep `mode: transient` diagnostic-only because nonzero drift can be the expected physics,
+5. route any automatic completion through the existing final-write/safe-checkpoint path.
+
+For statistically steady turbulence, prefer postprocessing-heavy turbulence
+analysis after runtime window metrics indicate stationarity; runtime completion
+criteria should remain lightweight and conservative.
+
+@section p17_ml_sec 5. Data-Driven Particle Closure Integration
+
+@subsection p17_ml_offline_ssec 5.1 Offline (Recommended First)
 
 - Use solver/post outputs as training/inference datasets.
 - Keep ML scripts external (Python pipeline).
@@ -49,7 +66,7 @@ Extension-ready next steps:
 
 This requires minimal C changes and is ideal for rapid iteration.
 
-@subsection p17_ml_coupled_ssec 4.2 Tightly Coupled Inference (Runtime)
+@subsection p17_ml_coupled_ssec 5.2 Tightly Coupled Inference (Runtime)
 
 For in-solver inference:
 1. add runtime-selectable closure model interface in `ParticlePhysics.c`,
@@ -60,14 +77,14 @@ For in-solver inference:
 
 Keep deterministic fallback as default for robustness.
 
-@section p17_guardrails_sec 5. Guardrails for Safe Growth
+@section p17_guardrails_sec 6. Guardrails for Safe Growth
 
 - Keep new user options structured first; reserve passthrough for temporary gaps.
 - Keep ingestion mostly in `setup.c`/`io.c`.
 - Update mapping docs and ingress manifest together with code changes.
 - Require at least one template/example update per new user-visible feature.
 
-@section p17_related_sec 6. Related Docs
+@section p17_related_sec 7. Related Docs
 
 - User contract: **@subpage 14_Config_Contract**
 - Ingestion map: **@subpage 15_Config_Ingestion_Map**
@@ -94,4 +111,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

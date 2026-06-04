@@ -94,3 +94,19 @@ python3 scripts/profile.gen field-slice \
 
 Prefer the `picurv` conductor for normal cases, because it derives dimensions
 from `case.yml`, `grid.mode`, block index, and BC face.
+
+## Design Intent
+
+Profile sources intentionally converge on one artifact contract: a dimensional
+canonical `PICSLICE` that `picurv` can validate, nondimensionalize, stage, and
+wire into `bcs.run` as `source_file`. This keeps the C handler source-agnostic:
+hand-authored files, analytical generators, and old-field slices all reach the
+solver through the same path.
+
+`profile.gen` is the standalone engine for profile-producing operations.
+`picurv precompute` is the orchestration command for materializing configured
+grid/profile artifacts before a solve, and `picurv run --solve` performs the
+same materialization automatically when generator-style sources are selected.
+Future canonical profiles or derived-profile sources should extend
+`profile.gen` first, then be exposed through `prescribed_flow.params.source`
+using the same artifact pipeline.

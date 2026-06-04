@@ -176,6 +176,11 @@ Mode intent:
 - `statistical_steady`: adjacent-window drift of global observables for runs whose instantaneous fields should not settle pointwise.
 - `transient`: logs the same deterministic drift family for diagnosis, but without any implied steady-state interpretation.
 
+Future completion semantics:
+- `steady_deterministic` is the intended home for future convergence-based completion criteria for fixed-state runs, such as stopping or marking a run complete once field-drift metrics remain below configured tolerances for a required dwell period.
+- `transient` should remain diagnostic-only for physically evolving runs, even though it currently logs the same deterministic drift columns as `steady_deterministic`.
+- any future automatic stop feature should be opt-in, tolerance-driven, and routed through the same safe checkpoint/final-write path used by existing runtime shutdown guards.
+
 @section p08_interp_sec 7. interpolation
 
 ```yaml
