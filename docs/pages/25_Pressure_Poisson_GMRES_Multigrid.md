@@ -104,7 +104,7 @@ The main remaining gap is `PoissonSolver_MG`: it is exercised in runtime smoke, 
 @section p25_refs_sec 6. Related Pages
 
 - **@subpage 23_Fractional_Step_Method**
-- **@subpage 24_Dual_Time_Picard_RK4**
+- **@subpage 24_Dual_Time_Picard_Jameson_RK**
 - **@subpage 31_Momentum_Solvers**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->

@@ -14,16 +14,20 @@ Dispatch currently happens in function @ref FlowSolver within the step orchestra
 Accepted YAML values:
 
 - `Explicit RK4` -> `EXPLICIT_RK`
-- `Dual Time Picard RK4` -> `DUALTIME_PICARD_RK4`
+- `Dual Time Picard Jameson RK` -> `DUALTIME_PICARD_JAMESON_RK`
 
 Only implemented values are exposed in the enum, parser, and dispatcher. New
 solver values should be added only with a real implementation plus matching
 parser, docs, and test updates.
 
+For compatibility, the former `Dual Time Picard RK4` YAML display name and
+`DUALTIME_PICARD_RK4` C CLI value still select the Jameson solver. New
+configuration and code must use the Jameson names.
+
 @section p31_status_sec 2. Implementation Status Matrix
 
 - `EXPLICIT_RK`: implemented by @ref MomentumSolver_Explicit_RungeKutta4
-- `DUALTIME_PICARD_RK4`: implemented by @ref MomentumSolver_DualTime_Picard_RK4
+- `DUALTIME_PICARD_JAMESON_RK`: implemented by @ref MomentumSolver_DualTime_Picard_JamesonRK
 
 @section p31_controls_sec 3. Numerical Controls In Use
 
@@ -35,7 +39,7 @@ Main controls consumed by implemented solvers:
 - `-imp_stol`
 - `-pseudo_cfl`, `-min_pseudo_cfl`, `-max_pseudo_cfl`
 - `-pseudo_cfl_growth_factor`, `-pseudo_cfl_reduction_factor`
-- `-mom_dt_rk4_residual_norm_noise_allowance_factor`
+- `-mom_dt_jameson_residual_norm_noise_allowance_factor`
 
 Defaults and final option ingestion are in function @ref CreateSimulationContext during startup parsing.
 
@@ -44,7 +48,7 @@ Defaults and final option ingestion are in function @ref CreateSimulationContext
 Current testing is uneven by solver path:
 
 - dispatch and guardrails are directly covered through `FlowSolver`-side unit tests
-- `MomentumSolver_DualTime_Picard_RK4` is exercised mainly through smoke and runtime orchestration
+- `MomentumSolver_DualTime_Picard_JamesonRK` is exercised mainly through smoke and runtime orchestration
 - `MomentumSolver_Explicit_RungeKutta4` still needs a direct positive-path harness
 
 That means the momentum stack is currently a stronger regression gate than bespoke debugging surface.

@@ -6,7 +6,7 @@ operation_mode:
   eulerian_field_source: "solve"
 
 strategy:
-  momentum_solver: "Dual Time Picard RK4"
+  momentum_solver: "Dual Time Picard Jameson RK"
 tolerances:
   max_iterations: 50
   absolute_tol: 1.0e-8
@@ -14,7 +14,7 @@ tolerances:
   step_tol: 1.0e-8
 
 momentum_solver:
-  dual_time_picard_rk4:
+  dual_time_picard_jameson_rk:
     pseudo_cfl:
       initial: 0.1
       minimum: 0.001

@@ -90,7 +90,7 @@ Function names come from `include/*.h` and represent the safest integration seam
   - APIs: @ref AdvanceSimulation, @ref FlowSolver, @ref UpdateSolverHistoryVectors
 - pressure/projection/rhs:
   - files: `poisson.c`, `rhs.c`, `momentumsolvers.c`, `BodyForces.c`
-  - APIs: @ref PoissonSolver_MG, @ref Projection, @ref ComputeRHS, @ref MomentumSolver_DualTime_Picard_RK4
+  - APIs: @ref PoissonSolver_MG, @ref Projection, @ref ComputeRHS, @ref MomentumSolver_DualTime_Picard_JamesonRK
 - grid/metrics:
   - files: `grid.c`, `Metric.c`
   - APIs: @ref DefineAllGridDimensions, @ref InitializeAllGridDMs, @ref AssignAllGridCoordinates, @ref CalculateAllGridMetrics

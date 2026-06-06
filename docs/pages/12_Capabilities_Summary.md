@@ -43,7 +43,7 @@ Particle controls include:
 Momentum:
 
 - named momentum strategy selection,
-- active implementations: explicit RK and dual-time Picard RK4,
+- active implementations: explicit RK and dual-time Picard Jameson RK,
 - tunable tolerances and pseudo-CFL controls.
 
 Pressure:
@@ -133,4 +133,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

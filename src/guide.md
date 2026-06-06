@@ -17,7 +17,7 @@ This directory contains the C implementation for the solver, postprocessor, and 
   - APIs: `AdvanceSimulation`, `FlowSolver`, `UpdateSolverHistoryVectors`
 - momentum/rhs/pressure:
   - files: `momentumsolvers.c`, `rhs.c`, `poisson.c`, `BodyForces.c`, `Filter.c`, `les.c`
-  - APIs: `MomentumSolver_DualTime_Picard_RK4`, `ComputeRHS`, `PoissonSolver_MG`, `Projection`, `ComputeSmagorinskyConstant`
+  - APIs: `MomentumSolver_DualTime_Picard_JamesonRK`, `ComputeRHS`, `PoissonSolver_MG`, `Projection`, `ComputeSmagorinskyConstant`
 - grid/metrics:
   - files: `grid.c`, `Metric.c`
   - APIs: `DefineAllGridDimensions`, `InitializeAllGridDMs`, `AssignAllGridCoordinates`, `CalculateAllGridMetrics`

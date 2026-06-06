@@ -37,7 +37,7 @@
 
 - Interface contract cleanup:
   - removed deprecated numeric and alternate-string selector forms for field initialization, particle initialization, and analytical type selection; docs now use canonical YAML values only.
-  - removed deprecated direct/internal momentum solver selector forms; `strategy.momentum_solver` now accepts only `Explicit RK4` and `Dual Time Picard RK4`.
+  - renamed the dual-time smoother from `Dual Time Picard RK4` to the more precise `Dual Time Picard Jameson RK`; deprecated RK4 selector, YAML-block, noise-control, C API, and C CLI spellings remain accepted as compatibility aliases.
   - removed the exposed placeholder Newton-Krylov momentum solver modes from parser and C runtime enums.
   - canonical `PICGRID` headers are required for file-based grids in C runtime ingestion.
   - added `grid.gen legacy1d` converter and optional `grid.legacy_conversion` wrapper in `picurv` for headerless 1D-axis legacy payload migration.
@@ -78,7 +78,7 @@
 - Initial Doxygen docs scaffold, architecture, and developer guide pages.
 - Main docs refresh:
   - updated tutorials/references for current YAML -> `picurv` -> C contract.
-  - added method overview pages (CurvIB, fractional-step, dual-time RK4, pressure Poisson/multigrid, walking search, interpolation/projection, IEM/averaging).
+  - added method overview pages (CurvIB, fractional-step, dual-time Jameson RK, pressure Poisson/multigrid, walking search, interpolation/projection, IEM/averaging).
   - added non-dimensionalization page and linked it into nav/reference flow.
   - updated landing page visuals (`docs/assets/curv.gif`, `docs/assets/paraview_flat_channel.png`).
   - added maintenance backlog page for low-priority warning/refactor tracking.

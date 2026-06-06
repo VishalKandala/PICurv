@@ -314,6 +314,36 @@ def test_validate_rejects_unknown_solver_key(tmp_path):
     assert "mystery_block" in result.stderr
 
 
+def test_validate_accepts_deprecated_rk4_solver_aliases(tmp_path):
+    """!
+    @brief Test validation accepts deprecated RK4 solver spellings during the compatibility window.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["strategy"]["momentum_solver"] = "Dual Time Picard RK4"
+    jameson_cfg = solver_cfg["momentum_solver"].pop("dual_time_picard_jameson_rk")
+    jameson_cfg["rk4_residual_noise_allowance_factor"] = 1.05
+    solver_cfg["momentum_solver"]["dual_time_picard_rk4"] = jameson_cfg
+    solver_path = tmp_path / "solver_rk4_compat.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_dry_run_rejects_unknown_case_key_before_planning(tmp_path):
     """!
     @brief Test that run --dry-run fails on unsupported case keys.
@@ -545,6 +575,62 @@ def test_parse_solver_config_maps_solution_convergence_flags():
 
     assert flags["-solution_convergence_mode"] == '"PERIODIC_DETERMINISTIC"'
     assert flags["-solution_convergence_period_steps"] == 12
+
+
+def test_parse_solver_config_maps_canonical_jameson_controls():
+    """!
+    @brief Test canonical Jameson solver controls map to canonical C runtime flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "strategy": {"momentum_solver": "Dual Time Picard Jameson RK"},
+        "momentum_solver": {
+            "dual_time_picard_jameson_rk": {
+                "jameson_residual_noise_allowance_factor": 1.07,
+            },
+        },
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-mom_solver_type"] == '"DUALTIME_PICARD_JAMESON_RK"'
+    assert flags["-mom_dt_jameson_residual_norm_noise_allowance_factor"] == 1.07
+
+
+def test_parse_solver_config_maps_deprecated_rk4_controls_to_jameson_flags():
+    """!
+    @brief Test deprecated RK4 YAML spellings remain readable but emit canonical Jameson flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "strategy": {"momentum_solver": "Dual Time Picard RK4"},
+        "momentum_solver": {
+            "dual_time_picard_rk4": {
+                "rk4_residual_noise_allowance_factor": 1.08,
+            },
+        },
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-mom_solver_type"] == '"DUALTIME_PICARD_JAMESON_RK"'
+    assert flags["-mom_dt_jameson_residual_norm_noise_allowance_factor"] == 1.08
+
+
+def test_parse_solver_config_rejects_mixed_jameson_and_rk4_aliases():
+    """!
+    @brief Test canonical and deprecated Jameson solver blocks cannot be supplied together.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "momentum_solver": {
+            "dual_time_picard_jameson_rk": {},
+            "dual_time_picard_rk4": {},
+        },
+    }
+
+    with pytest.raises(ValueError, match="do not also set its deprecated dual_time_picard_rk4 alias"):
+        picurv.parse_solver_config(solver_cfg)
 
 
 def test_parse_solver_config_maps_scalar_transport_flags():

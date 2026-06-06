@@ -62,7 +62,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 21_Methods_Overview**
 - **@subpage 22_CURVIB_Method**
 - **@subpage 23_Fractional_Step_Method**
-- **@subpage 24_Dual_Time_Picard_RK4**
+- **@subpage 24_Dual_Time_Picard_Jameson_RK**
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**
 - **@subpage 26_Walking_Search_Method**
 - **@subpage 27_Trilinear_Interpolation_and_Projection**

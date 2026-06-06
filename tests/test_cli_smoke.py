@@ -890,7 +890,7 @@ def test_removed_selector_aliases_are_rejected():
     picurv = load_picurv_module()
 
     rejected = [
-        (picurv.normalize_momentum_solver_type, "DUALTIME_PICARD_RK4"),
+        (picurv.normalize_momentum_solver_type, "DUALTIME_PICARD_JAMESON_RK"),
         (picurv.normalize_momentum_solver_type, "Dual Time NK Arnoldi"),
         (picurv.normalize_field_init_mode, "0"),
         (picurv.normalize_particle_init_mode, "2"),
@@ -904,6 +904,16 @@ def test_removed_selector_aliases_are_rejected():
         except ValueError:
             continue
         raise AssertionError(f"{func.__name__} unexpectedly accepted deprecated input {value!r}")
+
+
+def test_momentum_solver_jameson_name_accepts_rk4_compatibility_alias():
+    """!
+    @brief Test the canonical Jameson name and deprecated RK4 display alias normalize identically.
+    """
+    picurv = load_picurv_module()
+
+    assert picurv.normalize_momentum_solver_type("Dual Time Picard Jameson RK") == "DUALTIME_PICARD_JAMESON_RK"
+    assert picurv.normalize_momentum_solver_type("Dual Time Picard RK4") == "DUALTIME_PICARD_JAMESON_RK"
 
 
 def test_normalize_analytical_type_accepts_uniform_flow():

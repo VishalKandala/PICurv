@@ -177,7 +177,7 @@ Useful env knobs:
   - add non-restart MPI migration tests for multi-pass handoff, newcomer flagging, and particle-count conservation
 - momentum:
   - add direct positive-path tests for `MomentumSolver_Explicit_RungeKutta4`
-  - add one small direct invariant harness for `MomentumSolver_DualTime_Picard_RK4`
+  - add one small direct invariant harness for `MomentumSolver_DualTime_Picard_JamesonRK`
 - pressure/Poisson:
   - add deeper `PoissonSolver_MG` and periodic/IBM stencil checks beyond the current `Projection`/`PoissonLHSNew` helper surface
 - grid/metrics/setup:
