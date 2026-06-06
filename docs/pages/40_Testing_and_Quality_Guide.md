@@ -465,7 +465,7 @@ P1 (next):
 - non-restart MPI particle-migration tests for multi-pass handoff, newcomer flagging, and count conservation
 - direct positive-path momentum harnesses:
   - `MomentumSolver_Explicit_RungeKutta4`
-  - one small invariant case for `MomentumSolver_DualTime_Picard_RK4`
+  - one small invariant case for `MomentumSolver_DualTime_Picard_JamesonRK`
 - deeper `PoissonSolver_MG` and periodic/IBM stencil behavior checks beyond the current helper-level `unit-poisson-rhs` surface
 - broader richer-runtime fixture variants so grid/setup/metric tests cover more than the tiny Cartesian baseline
 - broaden the MPI rank matrix to larger optional decompositions (for example `SMOKE_MPI_MATRIX_NPROCS="2 3 4 6"`) in CI/nightly profiles

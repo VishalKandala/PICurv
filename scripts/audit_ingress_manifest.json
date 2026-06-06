@@ -87,6 +87,7 @@
     "-min_pseudo_cfl",
     "-mixed",
     "-mom_atol",
+    "-mom_dt_jameson_residual_norm_noise_allowance_factor",
     "-mom_dt_rk4_residual_norm_noise_allowance_factor",
     "-mom_max_pseudo_steps",
     "-mom_rtol",

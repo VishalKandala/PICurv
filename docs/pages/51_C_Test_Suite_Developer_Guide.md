@@ -295,7 +295,7 @@ The current highest-value additions are:
   - `LOST` and `MIGRATING_OUT` outcomes
 - explicit direction-complete and failure-path coverage for the `GuessParticleOwnerWithBBox` heuristic
 - non-restart MPI particle migration tests covering multi-pass handoff, newcomer flagging, and count conservation
-- direct positive-path momentum harnesses for `MomentumSolver_Explicit_RungeKutta4` and one small invariant case for `MomentumSolver_DualTime_Picard_RK4`
+- direct positive-path momentum harnesses for `MomentumSolver_Explicit_RungeKutta4` and one small invariant case for `MomentumSolver_DualTime_Picard_JamesonRK`
 - deeper `PoissonSolver_MG` and periodic/IBM stencil behavior checks beyond the current helper-level `unit-poisson-rhs` surface
 - richer-runtime fixture variants for more geometry/topology cases than the tiny Cartesian baseline
 

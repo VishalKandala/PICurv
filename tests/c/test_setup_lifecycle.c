@@ -108,7 +108,8 @@ static PetscErrorCode PrepareContextOnlyConfig(char *tmpdir,
         "-cgrids 0\n"
         "-nblk 1\n"
         "-euler_field_source solve\n"
-        "-mom_solver_type EXPLICIT_RK\n"
+        "-mom_solver_type DUALTIME_PICARD_RK4\n"
+        "-mom_dt_rk4_residual_norm_noise_allowance_factor 1.07\n"
         "-mg_level 1\n"
         "-poisson 0\n"
         "-tio 0\n"
@@ -372,6 +373,10 @@ static PetscErrorCode TestSetupLifecycleCleanupAcrossInitializationStates(void)
     PetscCall(BuildContextOnly(&context_only, context_tmpdir, sizeof(context_tmpdir)));
     PetscCall(PicurvAssertBool((PetscBool)(context_only != NULL), "CreateSimulationContext should allocate the top-level SimCtx"));
     PetscCall(PicurvAssertIntEqual(1, context_only->block_number, "CreateSimulationContext should parse the configured block count"));
+    PetscCall(PicurvAssertIntEqual(MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK, context_only->mom_solver_type,
+                                   "deprecated RK4 selector should normalize to the Jameson solver enum"));
+    PetscCall(PicurvAssertRealNear(1.07, context_only->mom_dt_jameson_residual_norm_noise_allowance_factor, 1.0e-12,
+                                   "deprecated RK4 residual-noise option should populate the Jameson control"));
     PetscCall(PetscOptionsClear(NULL));
     PetscCall(PicurvRemoveTempDir(context_tmpdir));
     PetscCall(FreeLifecycleContext(&context_only));

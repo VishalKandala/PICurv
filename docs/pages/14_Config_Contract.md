@@ -73,7 +73,9 @@ For each run, `picurv` generates:
 - `verification.sources.diffusivity.*` -> `-verification_diffusivity_*`
 - `verification.sources.scalar.*` -> `-verification_scalar_*`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
-- Solver-specific block support currently includes `momentum_solver.dual_time_picard_rk4`.
+- Solver-specific block support currently includes `momentum_solver.dual_time_picard_jameson_rk`.
+- Deprecated `dual_time_picard_rk4` and `rk4_residual_noise_allowance_factor`
+  spellings are accepted only as compatibility aliases and normalize to Jameson controls.
 - `solution_convergence.*` -> `-solution_convergence_*` for physical solution drift logging.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.

@@ -25,7 +25,7 @@
 extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
 
 /**
- * @brief Solves the Momentum Equations using Dual-Time Stepping with a Fixed-Point RK4 Smoother.
+ * @brief Solves the momentum equations using dual-time Picard iteration with Jameson RK smoothing.
  *
  * =================================================================================================
  * GLOSSARY & THEORETICAL BASIS
@@ -59,8 +59,8 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  * =================================================================================================
  *
  * @param user Primary `UserCtx` input for the operation.
- * @param ibm Parameter `ibm` passed to `MomentumSolver_DualTime_Picard_RK4()`.
- * @param fsi Parameter `fsi` passed to `MomentumSolver_DualTime_Picard_RK4()`.
+ * @param ibm Parameter `ibm` passed to `MomentumSolver_DualTime_Picard_JamesonRK()`.
+ * @param fsi Parameter `fsi` passed to `MomentumSolver_DualTime_Picard_JamesonRK()`.
  * @return PetscErrorCode 0 on success.
  *
  * @note Testing status:
@@ -68,6 +68,9 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  *       tests. A smaller direct invariant-style positive-path harness remains
  *       part of the next-gap backlog.
  */
-PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
+PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
+
+/** @deprecated Use MomentumSolver_DualTime_Picard_JamesonRK(). */
+#define MomentumSolver_DualTime_Picard_RK4 MomentumSolver_DualTime_Picard_JamesonRK
 
 #endif // MOMENTUMSOLVERS_H

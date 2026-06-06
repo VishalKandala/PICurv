@@ -28,15 +28,15 @@ static PetscErrorCode ComputeTotalResidual(UserCtx *user)
     
     if (COEF_TIME_ACCURACY > 1.1 && ti != tistart && ti != 1) {
         // --- BDF2 (Second Order Backward Difference) ---
-        // Formula: (1.5*U^{n} - 2.0*U^{n-1} + 0.5*U^{n-2}) / dt
-        // Moved to RHS: -1.5/dt * U^{n} + ...
+        // Formula: (1.5*U^{n} - 2.0*U^{n-1} + 0.5*U^{n-2}) / dt  = RHS_Spatial(U^{n})
+        // Moved to : -1.5/dt * U^{n} + 2.0/dt * U^{n-1} - 0.5/dt * U^{n-2} + RHS_Spatial(U^{n})
         ierr = VecAXPY(user->Rhs, -COEF_TIME_ACCURACY/dt, user->Ucont);
         ierr = VecAXPY(user->Rhs, +2.0/dt, user->Ucont_o);
         ierr = VecAXPY(user->Rhs, -0.5/dt, user->Ucont_rm1);
     } else {
         // --- BDF1 (First Order / Euler Implicit) ---
-        // Formula: (U^{n} - U^{n-1}) / dt
-        // Moved to RHS: -1.0/dt * U^{n} + ...
+        // Formula: (U^{n} - U^{n-1}) / dt = RHS_Spatial(U^{n})
+        // Moved to RHS: -1.0/dt * U^{n} + 1.0/dt * U^{n-1} + RHS_Spatial(U^{n})
         ierr = VecAXPY(user->Rhs, -1.0/dt, user->Ucont);
         ierr = VecAXPY(user->Rhs, +1.0/dt, user->Ucont_o);
     }
@@ -158,12 +158,12 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "MomentumSolver_DualTime_Picard_RK4"
+#define __FUNCT__ "MomentumSolver_DualTime_Picard_JamesonRK"
 /**
- * @brief Internal helper implementation: `MomentumSolver_DualTime_Picard_RK4()`.
+ * @brief Internal helper implementation: `MomentumSolver_DualTime_Picard_JamesonRK()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
+PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 {
     (void)ibm;
     (void)fsi;
@@ -175,7 +175,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
     const PetscInt ti = simCtx->step;
     const PetscReal dt = simCtx->dt;       // Physical Time Step
     const PetscReal cfl = simCtx->pseudo_cfl;     // Initial CFL Scaling
-    const PetscReal alfa[] = {0.25, 1.0/3.0, 0.5, 1.0}; // RK4 Coefficients
+    const PetscReal alfa[] = {0.25, 1.0/3.0, 0.5, 1.0}; // Jameson RK smoothing coefficients
     Vec *pRhs; // Per-block backup of Rhs at last accepted pseudo-state.
 
     // State flags
@@ -264,7 +264,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
 	
         for (PetscInt bi = 0; bi < block_number; bi++) {
             
-            // === 4-Stage Explicit Runge-Kutta Loop ===
+            // === 4-Stage Jameson RK Smoothing Loop ===
             for (istage = 0; istage < 4; istage++) {
                 
                 LOG_ALLOW(GLOBAL,LOG_TRACE," Pseudo-Iter: %d | RK-Stage: %d\n", pseudo_iter, istage);
@@ -358,7 +358,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
 
             // TRIGGER: Divergence Detected
             is_diverging = (PetscBool)(pseudo_iter > 1 && 
-                resid_norm_curr[bi] > simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor*resid_norm_prev[bi] && 
+                resid_norm_curr[bi] > simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor*resid_norm_prev[bi] &&
                 delta_sol_norm_curr[bi] > delta_sol_norm_prev[bi]
                 ); 
             
@@ -417,7 +417,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_RK4(UserCtx *user, IBMNodes *ibm, 
                 PetscBool is_stagnating;       
                 is_stagnating = (PetscBool)(resid_ratio >= 0.98 && resid_ratio < 1.0);
                 PetscBool is_noisy;            
-                is_noisy = (PetscBool)(resid_ratio >= 1.0 && resid_ratio < simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor);
+                is_noisy = (PetscBool)(resid_ratio >= 1.0 && resid_ratio < simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor);
                 
                 PetscReal current_cfl = pseudo_dt_scaling[bi];
                 PetscReal cfl_floor = 10*simCtx->min_pseudo_cfl; // Define a "low CFL" threshold for more aggressive acceleration.

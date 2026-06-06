@@ -501,7 +501,9 @@ typedef enum {
  */
 typedef enum{
     MOMENTUM_SOLVER_EXPLICIT_RK = 0,
-    MOMENTUM_SOLVER_DUALTIME_PICARD_RK4 = 1
+    MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK = 1,
+    /** @deprecated Use MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK. */
+    MOMENTUM_SOLVER_DUALTIME_PICARD_RK4 = MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK
 } MomentumSolverType;
 
 /** @brief Selects the runtime solution-convergence diagnostics mode. */
@@ -699,7 +701,7 @@ typedef struct SimCtx {
     PetscReal ren, pseudo_cfl, cdisx, cdisy, cdisz;
     PetscReal pseudo_cfl_reduction_factor, pseudo_cfl_growth_factor; // st, vnn
     PetscReal max_pseudo_cfl, min_pseudo_cfl; // New addition for adaptive pseudo-CFL
-    PetscReal mom_dt_rk4_residual_norm_noise_allowance_factor; // New addition for divergence detection
+    PetscReal mom_dt_jameson_residual_norm_noise_allowance_factor; // New addition for divergence detection
     PetscBool ps_ksp_pic_monitor_true_residual; // Parsed once from options for custom Poisson monitor logging.
     PetscInt  FieldInitialization; 
     Cmpnts    InitialConstantContra;
@@ -820,6 +822,9 @@ typedef struct SimCtx {
    PetscReal	r[101], tin[101], uinr[101][1001];
 
 } SimCtx;
+
+/** @deprecated Use mom_dt_jameson_residual_norm_noise_allowance_factor. */
+#define mom_dt_rk4_residual_norm_noise_allowance_factor mom_dt_jameson_residual_norm_noise_allowance_factor
 
 
 /**

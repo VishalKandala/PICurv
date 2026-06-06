@@ -26,7 +26,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
 - Schema home: `solver.yml -> strategy.momentum_solver`
 - Canonical values:
   - `Explicit RK4`
-  - `Dual Time Picard RK4`
+  - `Dual Time Picard Jameson RK`
 - Python hook:
   - `normalize_momentum_solver_type()` in `scripts/picurv`
 - Generated mapping:
@@ -42,7 +42,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
 - Tests/docs to update:
   - `tests/test_cli_smoke.py`
   - **@subpage 08_Solver_Reference**
-  - **@subpage 24_Dual_Time_Picard_RK4**
+  - **@subpage 24_Dual_Time_Picard_Jameson_RK**
   - **@subpage 31_Momentum_Solvers**
 
 @section p50_bc_sec 3. Boundary Condition Type Or Handler

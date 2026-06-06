@@ -33,16 +33,19 @@ Mappings:
 
 ```yaml
 strategy:
-  momentum_solver: "Dual Time Picard RK4"
+  momentum_solver: "Dual Time Picard Jameson RK"
   central_diff: false
 ```
 
 Mappings:
-- `momentum_solver` -> `-mom_solver_type` (`picurv` accepts `Explicit RK4` or `Dual Time Picard RK4`)
+- `momentum_solver` -> `-mom_solver_type` (`picurv` accepts `Explicit RK4` or `Dual Time Picard Jameson RK`)
 - `central_diff` -> `-central`
 
 Older boolean toggles are not supported; use `strategy.momentum_solver`.
 Only implemented momentum solver values are accepted by `picurv` and the C runtime.
+The deprecated `Dual Time Picard RK4` display name, `dual_time_picard_rk4`
+solver block, and `rk4_residual_noise_allowance_factor` key remain readable
+compatibility aliases; generated controls always use the canonical Jameson names.
 
 @section p08_tol_sec 3. tolerances
 
@@ -64,7 +67,7 @@ Mappings:
 
 ```yaml
 momentum_solver:
-  dual_time_picard_rk4:
+  dual_time_picard_jameson_rk:
     max_pseudo_steps: 50
     absolute_tol: 1.0e-8
     relative_tol: 1.0e-5
@@ -75,15 +78,16 @@ momentum_solver:
       maximum: 1.0
       growth_factor: 1.0
       reduction_factor: 1.0
-    rk4_residual_noise_allowance_factor: 1.05
+    jameson_residual_noise_allowance_factor: 1.05
 ```
 
 Mappings include:
 - `-pseudo_cfl`, `-min_pseudo_cfl`, `-max_pseudo_cfl`
 - `-pseudo_cfl_growth_factor`, `-pseudo_cfl_reduction_factor`
-- `-mom_dt_rk4_residual_norm_noise_allowance_factor`
+- `-mom_dt_jameson_residual_norm_noise_allowance_factor`
 
 Rule: solver-specific blocks must match selected momentum solver type.
+Do not set canonical Jameson keys and their deprecated RK4 aliases together.
 
 @section p08_poisson_sec 5. poisson_solver
 
@@ -275,7 +279,7 @@ For mapping and extension workflows:
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 31_Momentum_Solvers**
-- **@subpage 24_Dual_Time_Picard_RK4**
+- **@subpage 24_Dual_Time_Picard_Jameson_RK**
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**
 - **@subpage 50_Modular_Selector_Extension_Guide**
 

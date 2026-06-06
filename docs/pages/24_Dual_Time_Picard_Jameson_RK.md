@@ -1,8 +1,8 @@
-@page 24_Dual_Time_Picard_RK4 Dual-Time Picard RK4 Momentum Solver
+@page 24_Dual_Time_Picard_Jameson_RK Dual-Time Picard Jameson RK Momentum Solver
 
-@anchor _Dual_Time_Picard_RK4
+@anchor _Dual_Time_Picard_Jameson_RK
 
-This page documents the currently active implicit-style momentum strategy in PICurv: dual-time Picard iteration with RK4 pseudo-time smoothing.
+This page documents the currently active implicit-style momentum strategy in PICurv: dual-time Picard iteration with Jameson RK pseudo-time smoothing.
 
 @tableofcontents
 
@@ -18,7 +18,10 @@ Implementation details from `ComputeTotalResidual`:
 
 - `R_spatial` comes from @ref ComputeRHS
 - `R_time` uses BDF1/BDF2-style terms from `Ucont`, `Ucont_o`, and `Ucont_rm1`,
-- RK4 stages use coefficients \f$\{1/4,1/3,1/2,1\}\f$.
+- Jameson RK smoothing stages use coefficients \f$\{1/4,1/3,1/2,1\}\f$.
+- Each stage evaluates a fresh residual at the previous stage state, then forms
+  the next stage from the fixed pseudo-iteration base state. This is not
+  classical fourth-order Runge-Kutta time integration.
 
 @section p24_convergence_sec 2. Convergence and Backtracking
 
@@ -45,8 +48,14 @@ User-facing configuration (`solver.yml`) maps to:
 - `tolerances.absolute_tol` -> `-mom_atol`
 - `tolerances.relative_tol` -> `-mom_rtol`
 - `tolerances.step_tol` -> `-imp_stol`
-- `momentum_solver.dual_time_picard_rk4.pseudo_cfl.*` -> pseudo-CFL flags
-- `rk4_residual_noise_allowance_factor` -> `-mom_dt_rk4_residual_norm_noise_allowance_factor`
+- `momentum_solver.dual_time_picard_jameson_rk.pseudo_cfl.*` -> pseudo-CFL flags
+- `jameson_residual_noise_allowance_factor` -> `-mom_dt_jameson_residual_norm_noise_allowance_factor`
+
+The former `Dual Time Picard RK4`, `dual_time_picard_rk4`,
+`rk4_residual_noise_allowance_factor`, `DUALTIME_PICARD_RK4`, and
+`-mom_dt_rk4_residual_norm_noise_allowance_factor` spellings remain deprecated
+compatibility aliases. Canonical configuration and generated controls use the
+Jameson names.
 
 Parsing and normalization are performed in `scripts/picurv`, with final option ingestion in function @ref CreateSimulationContext during setup.
 Only the currently implemented momentum solver values are exposed; add new ones
@@ -54,7 +63,7 @@ only when the parser and dispatcher are extended in the same change.
 
 @section p24_touchpoints_sec 4. Core Code Touchpoints
 
-- implementation: @ref MomentumSolver_DualTime_Picard_RK4
+- implementation: @ref MomentumSolver_DualTime_Picard_JamesonRK
 - explicit comparator path: @ref MomentumSolver_Explicit_RungeKutta4
 - runtime dispatch: @ref FlowSolver
 - options ingestion: @ref CreateSimulationContext
@@ -76,7 +85,7 @@ For contributor extension steps, see **@subpage 50_Modular_Selector_Extension_Gu
 
 ## CFD Reader Guidance and Practical Use
 
-This page describes **Dual-Time Picard RK4 Momentum Solver** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+This page describes **Dual-Time Picard Jameson RK Momentum Solver** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
 
 Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
 
@@ -93,4 +102,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

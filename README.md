@@ -436,7 +436,7 @@ Current next-gap backlog:
   - add non-restart MPI handoff tests for multi-pass migration, newcomer flagging, and count conservation
 - momentum solvers:
   - add direct positive-path coverage for `MomentumSolver_Explicit_RungeKutta4`
-  - add a small invariant-style direct harness for the positive `MomentumSolver_DualTime_Picard_RK4` path so debugging does not rely only on smoke
+  - add a small invariant-style direct harness for the positive `MomentumSolver_DualTime_Picard_JamesonRK` path so debugging does not rely only on smoke
 - pressure/Poisson:
   - add more direct `PoissonSolver_MG` and periodic/IBM stencil behavior checks beyond the current `unit-poisson-rhs` helper coverage
 - grid/metrics/setup:

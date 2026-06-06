@@ -67,7 +67,7 @@ scalar_transport:
 # ==============================================================================
 # --- Main Time-Stepping Scheme ---
 strategy:
-  momentum_solver: "Dual Time Picard RK4" # -> -mom_solver_type. Options: "Explicit RK4", "Dual Time Picard RK4"
+  momentum_solver: "Dual Time Picard Jameson RK" # -> -mom_solver_type. Options: "Explicit RK4", "Dual Time Picard Jameson RK"
   central_diff: false # [true/false] -> -central
 
 # --- Convergence Criteria for the Momentum Solver ---
@@ -80,8 +80,8 @@ tolerances:
 # --- Advanced Momentum Solver Controls (optional) ---
 # This section exposes newer dual-time controls directly (no passthrough needed).
 momentum_solver:
-  # Solver-specific controls for Dual Time Picard RK4.
-  dual_time_picard_rk4:
+  # Solver-specific controls for Dual Time Picard Jameson RK.
+  dual_time_picard_jameson_rk:
     max_pseudo_steps: 50         # -> -mom_max_pseudo_steps
     absolute_tol: 1.0e-8         # -> -mom_atol
     relative_tol: 1.0e-5         # -> -mom_rtol
@@ -92,7 +92,7 @@ momentum_solver:
       maximum: 1.0               # -> -max_pseudo_cfl
       growth_factor: 1.0         # -> -pseudo_cfl_growth_factor
       reduction_factor: 1.0      # -> -pseudo_cfl_reduction_factor
-    rk4_residual_noise_allowance_factor: 1.05 # -> -mom_dt_rk4_residual_norm_noise_allowance_factor
+    jameson_residual_noise_allowance_factor: 1.05 # -> -mom_dt_jameson_residual_norm_noise_allowance_factor
 
 # --- Physical Solution Convergence Logging ---
 # This layer is separate from the inner solver-health logs. It always records

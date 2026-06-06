@@ -56,7 +56,7 @@ Persistent divergence or noisy pressure correction usually indicates a Poisson t
 
 @section p23_refs_sec 5. Related Pages
 
-- **@subpage 24_Dual_Time_Picard_RK4**
+- **@subpage 24_Dual_Time_Picard_Jameson_RK**
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**
 - **@subpage 39_Common_Fatal_Errors**
 

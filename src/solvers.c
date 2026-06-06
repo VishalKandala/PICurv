@@ -18,10 +18,10 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    if (simCtx->mom_solver_type != MOMENTUM_SOLVER_DUALTIME_PICARD_RK4 &&
+    if (simCtx->mom_solver_type != MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK &&
         simCtx->mom_solver_type != MOMENTUM_SOLVER_EXPLICIT_RK) {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                "Unknown momentum solver type %d. Supported values are EXPLICIT_RK and DUALTIME_PICARD_RK4.",
+                "Unknown momentum solver type %d. Supported values are EXPLICIT_RK and DUALTIME_PICARD_JAMESON_RK.",
                 simCtx->mom_solver_type);
     }
 
@@ -100,8 +100,8 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
     // ierr = ImpRK(user, NULL, NULL); CHKERRQ(ierr);
     // Add new momentum solver types here only after wiring the enum, parser, docs, and tests.
-    if(simCtx->mom_solver_type == MOMENTUM_SOLVER_DUALTIME_PICARD_RK4) {
-        ierr = MomentumSolver_DualTime_Picard_RK4(user,NULL,NULL); CHKERRQ(ierr);
+    if(simCtx->mom_solver_type == MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK) {
+        ierr = MomentumSolver_DualTime_Picard_JamesonRK(user,NULL,NULL); CHKERRQ(ierr);
     } else if(simCtx->mom_solver_type == MOMENTUM_SOLVER_EXPLICIT_RK) {   
     // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
     ierr = MomentumSolver_Explicit_RungeKutta4(user, NULL, NULL); CHKERRQ(ierr);

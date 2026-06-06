@@ -201,8 +201,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->channelz = 0;
 
     // --- Group 5: Solver & Numerics Parameters ---
-    simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4; simCtx->mom_max_pseudo_steps = 50;
-    simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor = 1.05; // New addition for divergence detection
+    simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK; simCtx->mom_max_pseudo_steps = 50;
+    simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor = 1.05; // New addition for divergence detection
     simCtx->mom_atol = 1e-7; simCtx->mom_rtol = 1e-4; simCtx->imp_stol = 1.e-8;
     simCtx->mglevels = 3; simCtx->mg_MAX_IT = 30; simCtx->mg_idx = 1;
     simCtx->mg_preItr = 1; simCtx->mg_poItr = 1;
@@ -565,12 +565,13 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // Keep parser acceptance aligned with the enum and FlowSolver dispatch.
     if (mom_solver_type_flg) {
-        if(strcmp(mom_solver_type_char, "DUALTIME_PICARD_RK4") == 0) {
-            simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_RK4;
+        if(strcmp(mom_solver_type_char, "DUALTIME_PICARD_JAMESON_RK") == 0 ||
+           strcmp(mom_solver_type_char, "DUALTIME_PICARD_RK4") == 0) {
+            simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK;
         } else if (strcmp(mom_solver_type_char, "EXPLICIT_RK") == 0) {
             simCtx->mom_solver_type = MOMENTUM_SOLVER_EXPLICIT_RK;
         } else {
-            LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_RK4', 'EXPLICIT_RK'.\n", mom_solver_type_char);
+            LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_JAMESON_RK', 'EXPLICIT_RK'.\n", mom_solver_type_char);
             SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -mom_solver_type: '%s'.", mom_solver_type_char);
         }
     }
@@ -618,7 +619,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL, NULL, "-min_pseudo_cfl", &simCtx->min_pseudo_cfl, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl_reduction_factor", &simCtx->pseudo_cfl_reduction_factor, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl_growth_factor", &simCtx->pseudo_cfl_growth_factor, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_rk4_residual_norm_noise_allowance_factor",&simCtx->mom_dt_rk4_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
+    // Read the deprecated RK4 spelling first so the canonical Jameson option wins if both are present.
+    ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_rk4_residual_norm_noise_allowance_factor",&simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_jameson_residual_norm_noise_allowance_factor",&simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsHasName(NULL, NULL, "-ps_ksp_pic_monitor_true_residual", &simCtx->ps_ksp_pic_monitor_true_residual); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-finit", &simCtx->FieldInitialization, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);

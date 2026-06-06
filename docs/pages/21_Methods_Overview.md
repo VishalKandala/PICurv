@@ -40,7 +40,7 @@ The method pages below document each major stage in detail.
 
 - **@subpage 22_CURVIB_Method**: curvilinear grid/metric framework and immersed-boundary context.
 - **@subpage 23_Fractional_Step_Method**: predictor/projection incompressible update.
-- **@subpage 24_Dual_Time_Picard_RK4**: implicit-in-physical-time momentum iteration.
+- **@subpage 24_Dual_Time_Picard_Jameson_RK**: implicit-in-physical-time momentum iteration.
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**: Poisson assembly and PETSc multigrid/KSP path.
 - **@subpage 26_Walking_Search_Method**: particle cell location and migration orchestration.
 - **@subpage 27_Trilinear_Interpolation_and_Projection**: Eulerian-Lagrangian field exchange.

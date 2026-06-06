@@ -6,7 +6,7 @@ This directory stores reusable `solver.yml` profiles that define numerical strat
 
 - solver mode (`solve`, `load`, `analytical`),
 - momentum strategy and tolerances,
-- strategy-specific option blocks (for example `dual_time_picard_rk4`),
+- strategy-specific option blocks (for example `dual_time_picard_jameson_rk`),
 - scalar transport properties such as Schmidt numbers,
 - pressure/Poisson/multigrid settings,
 - raw PETSc passthrough options.
@@ -34,7 +34,7 @@ For full schema coverage, see:
 Use `strategy.momentum_solver` with exact values:
 
 - `Explicit RK4`
-- `Dual Time Picard RK4`
+- `Dual Time Picard Jameson RK`
 
 Any newly introduced selector should only be exposed after parser normalization, runtime dispatch, and docs/tests are updated in one cohesive change.
 

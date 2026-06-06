@@ -4347,10 +4347,17 @@ _SOLVER_SCHEMA = {
     ("operation_mode", "uniform_flow"): {"u", "v", "w"},
     ("strategy",): {"momentum_solver", "central_diff"},
     ("tolerances",): {"max_iterations", "absolute_tol", "relative_tol", "step_tol"},
-    ("momentum_solver",): {"type", "dual_time_picard_rk4"},
+    ("momentum_solver",): {"type", "dual_time_picard_jameson_rk", "dual_time_picard_rk4"},
+    ("momentum_solver", "dual_time_picard_jameson_rk"): {
+        "max_pseudo_steps", "absolute_tol", "relative_tol", "step_tol", "pseudo_cfl",
+        "jameson_residual_noise_allowance_factor", "rk4_residual_noise_allowance_factor",
+    },
+    ("momentum_solver", "dual_time_picard_jameson_rk", "pseudo_cfl"): {
+        "initial", "minimum", "maximum", "growth_factor", "reduction_factor",
+    },
     ("momentum_solver", "dual_time_picard_rk4"): {
         "max_pseudo_steps", "absolute_tol", "relative_tol", "step_tol", "pseudo_cfl",
-        "rk4_residual_noise_allowance_factor",
+        "jameson_residual_noise_allowance_factor", "rk4_residual_noise_allowance_factor",
     },
     ("momentum_solver", "dual_time_picard_rk4", "pseudo_cfl"): {
         "initial", "minimum", "maximum", "growth_factor", "reduction_factor",
@@ -4984,21 +4991,27 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         elif isinstance(ms_cfg, dict):
             unsupported_flat_keys = {
                 'max_pseudo_steps', 'absolute_tol', 'relative_tol', 'step_tol',
-                'pseudo_cfl', 'rk4_residual_noise_allowance_factor'
+                'pseudo_cfl', 'jameson_residual_noise_allowance_factor',
+                'rk4_residual_noise_allowance_factor'
             }
             present_unsupported = sorted(unsupported_flat_keys.intersection(ms_cfg.keys()))
             if present_unsupported:
                 errors.append(
                     f"  {solver_path}: unsupported flat keys in 'momentum_solver' are not supported: {present_unsupported}. "
-                    "Use solver-specific sub-blocks (e.g., momentum_solver.dual_time_picard_rk4)."
+                    "Use solver-specific sub-blocks (e.g., momentum_solver.dual_time_picard_jameson_rk)."
                 )
 
-            allowed_ms_keys = {'dual_time_picard_rk4'}
+            allowed_ms_keys = {'dual_time_picard_jameson_rk', 'dual_time_picard_rk4'}
             unknown_ms_keys = sorted(set(ms_cfg.keys()) - allowed_ms_keys)
             if unknown_ms_keys:
                 errors.append(
                     f"  {solver_path}: unsupported momentum_solver blocks/keys: {unknown_ms_keys}. "
-                    "Currently supported: 'dual_time_picard_rk4'."
+                    "Currently supported: 'dual_time_picard_jameson_rk'."
+                )
+            if 'dual_time_picard_jameson_rk' in ms_cfg and 'dual_time_picard_rk4' in ms_cfg:
+                errors.append(
+                    f"  {solver_path}: use only momentum_solver.dual_time_picard_jameson_rk; "
+                    "do not also set its deprecated dual_time_picard_rk4 alias."
                 )
 
             selected_solver = None
@@ -5008,38 +5021,48 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                 except ValueError:
                     pass
             if selected_solver is None:
-                selected_solver = "DUALTIME_PICARD_RK4"
+                selected_solver = "DUALTIME_PICARD_JAMESON_RK"
 
-            if selected_solver != "DUALTIME_PICARD_RK4" and 'dual_time_picard_rk4' in ms_cfg:
+            has_dualtime_block = (
+                'dual_time_picard_jameson_rk' in ms_cfg or 'dual_time_picard_rk4' in ms_cfg
+            )
+            if selected_solver != "DUALTIME_PICARD_JAMESON_RK" and has_dualtime_block:
                 errors.append(
-                    f"  {solver_path}: momentum_solver.dual_time_picard_rk4 is set but selected solver is "
+                    f"  {solver_path}: momentum_solver.dual_time_picard_jameson_rk is set but selected solver is "
                     f"{selected_solver}. Solver-specific blocks must match the selected solver."
                 )
 
-            dt_picard_cfg = ms_cfg.get('dual_time_picard_rk4')
+            dt_picard_cfg = ms_cfg.get('dual_time_picard_jameson_rk', ms_cfg.get('dual_time_picard_rk4'))
             if dt_picard_cfg is not None:
                 if not isinstance(dt_picard_cfg, dict):
-                    errors.append(f"  {solver_path}: momentum_solver.dual_time_picard_rk4 must be a mapping.")
+                    errors.append(f"  {solver_path}: momentum_solver.dual_time_picard_jameson_rk must be a mapping.")
                 else:
                     allowed_dt_keys = {
                         'max_pseudo_steps', 'absolute_tol', 'relative_tol', 'step_tol',
-                        'pseudo_cfl', 'rk4_residual_noise_allowance_factor'
+                        'pseudo_cfl', 'jameson_residual_noise_allowance_factor',
+                        'rk4_residual_noise_allowance_factor'
                     }
                     unknown_dt_keys = sorted(set(dt_picard_cfg.keys()) - allowed_dt_keys)
                     if unknown_dt_keys:
                         errors.append(
-                            f"  {solver_path}: unsupported keys in momentum_solver.dual_time_picard_rk4: {unknown_dt_keys}."
+                            f"  {solver_path}: unsupported keys in momentum_solver.dual_time_picard_jameson_rk: {unknown_dt_keys}."
+                        )
+                    if ('jameson_residual_noise_allowance_factor' in dt_picard_cfg and
+                            'rk4_residual_noise_allowance_factor' in dt_picard_cfg):
+                        errors.append(
+                            f"  {solver_path}: use only jameson_residual_noise_allowance_factor; "
+                            "do not also set its deprecated rk4_residual_noise_allowance_factor alias."
                         )
                     if 'pseudo_cfl' in dt_picard_cfg:
                         pcfl_cfg = dt_picard_cfg['pseudo_cfl']
                         if not isinstance(pcfl_cfg, dict):
-                            errors.append(f"  {solver_path}: momentum_solver.dual_time_picard_rk4.pseudo_cfl must be a mapping.")
+                            errors.append(f"  {solver_path}: momentum_solver.dual_time_picard_jameson_rk.pseudo_cfl must be a mapping.")
                         else:
                             allowed_pcfl_keys = {'initial', 'minimum', 'maximum', 'growth_factor', 'reduction_factor'}
                             unknown_pcfl_keys = sorted(set(pcfl_cfg.keys()) - allowed_pcfl_keys)
                             if unknown_pcfl_keys:
                                 errors.append(
-                                    f"  {solver_path}: unsupported keys in momentum_solver.dual_time_picard_rk4.pseudo_cfl: {unknown_pcfl_keys}."
+                                    f"  {solver_path}: unsupported keys in momentum_solver.dual_time_picard_jameson_rk.pseudo_cfl: {unknown_pcfl_keys}."
                                 )
 
         solution_convergence_cfg = solver_cfg.get('solution_convergence', {})
@@ -6757,12 +6780,13 @@ def normalize_momentum_solver_type(value: str) -> str:
     raw = str(value).strip()
     mapped = {
         "Explicit RK4": "EXPLICIT_RK",
-        "Dual Time Picard RK4": "DUALTIME_PICARD_RK4",
+        "Dual Time Picard Jameson RK": "DUALTIME_PICARD_JAMESON_RK",
+        "Dual Time Picard RK4": "DUALTIME_PICARD_JAMESON_RK",
     }.get(raw)
     if mapped is None:
         raise ValueError(
             f"Unknown momentum solver '{value}'. Use one of: "
-            "'Explicit RK4', 'Dual Time Picard RK4'."
+            "'Explicit RK4', 'Dual Time Picard Jameson RK'."
         )
     return mapped
 
@@ -7445,7 +7469,7 @@ def parse_solver_config(solver_cfg: dict) -> dict:
 
     ms = solver_cfg.get('momentum_solver', {})
     if selected_solver is None:
-        selected_solver = "DUALTIME_PICARD_RK4"
+        selected_solver = "DUALTIME_PICARD_JAMESON_RK"
     flags['-mom_solver_type'] = f"\"{selected_solver}\""
 
     if 'tolerances' in solver_cfg:
@@ -7485,26 +7509,39 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                 flags['-pseudo_cfl_growth_factor'] = pcfl['growth_factor']
             if 'reduction_factor' in pcfl:
                 flags['-pseudo_cfl_reduction_factor'] = pcfl['reduction_factor']
-        if 'rk4_residual_noise_allowance_factor' in cfg:
-            flags['-mom_dt_rk4_residual_norm_noise_allowance_factor'] = cfg['rk4_residual_noise_allowance_factor']
+        if 'jameson_residual_noise_allowance_factor' in cfg:
+            flags['-mom_dt_jameson_residual_norm_noise_allowance_factor'] = cfg['jameson_residual_noise_allowance_factor']
+        elif 'rk4_residual_noise_allowance_factor' in cfg:
+            flags['-mom_dt_jameson_residual_norm_noise_allowance_factor'] = cfg['rk4_residual_noise_allowance_factor']
 
     if isinstance(ms, dict):
-        allowed_ms_keys = {'type', 'dual_time_picard_rk4'}
+        allowed_ms_keys = {'type', 'dual_time_picard_jameson_rk', 'dual_time_picard_rk4'}
         unknown_ms_keys = sorted(set(ms.keys()) - allowed_ms_keys)
         if unknown_ms_keys:
             raise ValueError(
                 f"Unsupported momentum_solver keys/blocks: {unknown_ms_keys}. "
-                "Currently supported block: 'dual_time_picard_rk4'."
+                "Currently supported block: 'dual_time_picard_jameson_rk'."
             )
 
-        dt_picard_cfg = ms.get('dual_time_picard_rk4')
+        if 'dual_time_picard_jameson_rk' in ms and 'dual_time_picard_rk4' in ms:
+            raise ValueError(
+                "Use only momentum_solver.dual_time_picard_jameson_rk; "
+                "do not also set its deprecated dual_time_picard_rk4 alias."
+            )
+        dt_picard_cfg = ms.get('dual_time_picard_jameson_rk', ms.get('dual_time_picard_rk4'))
         if dt_picard_cfg is not None:
-            if selected_solver != "DUALTIME_PICARD_RK4":
+            if selected_solver != "DUALTIME_PICARD_JAMESON_RK":
                 raise ValueError(
-                    f"momentum_solver.dual_time_picard_rk4 is set but selected solver is {selected_solver}."
+                    f"momentum_solver.dual_time_picard_jameson_rk is set but selected solver is {selected_solver}."
                 )
             if not isinstance(dt_picard_cfg, dict):
-                raise ValueError("momentum_solver.dual_time_picard_rk4 must be a mapping.")
+                raise ValueError("momentum_solver.dual_time_picard_jameson_rk must be a mapping.")
+            if ('jameson_residual_noise_allowance_factor' in dt_picard_cfg and
+                    'rk4_residual_noise_allowance_factor' in dt_picard_cfg):
+                raise ValueError(
+                    "Use only jameson_residual_noise_allowance_factor; "
+                    "do not also set its deprecated rk4_residual_noise_allowance_factor alias."
+                )
             _append_dualtime_options(dt_picard_cfg)
     solution_convergence_cfg = solver_cfg.get('solution_convergence', {})
     if solution_convergence_cfg is not None:
