@@ -90,6 +90,8 @@
     "-mom_dt_jameson_residual_norm_noise_allowance_factor",
     "-mom_dt_rk4_residual_norm_noise_allowance_factor",
     "-mom_max_pseudo_steps",
+    "-mom_resid_atol",
+    "-mom_resid_rtol",
     "-mom_rtol",
     "-mom_solver_type",
     "-nblk",

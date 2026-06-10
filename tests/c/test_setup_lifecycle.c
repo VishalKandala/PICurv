@@ -110,6 +110,8 @@ static PetscErrorCode PrepareContextOnlyConfig(char *tmpdir,
         "-euler_field_source solve\n"
         "-mom_solver_type DUALTIME_PICARD_RK4\n"
         "-mom_dt_rk4_residual_norm_noise_allowance_factor 1.07\n"
+        "-mom_resid_atol 1.0e-8\n"
+        "-mom_resid_rtol 1.0e-3\n"
         "-mg_level 1\n"
         "-poisson 0\n"
         "-tio 0\n"
@@ -377,6 +379,10 @@ static PetscErrorCode TestSetupLifecycleCleanupAcrossInitializationStates(void)
                                    "deprecated RK4 selector should normalize to the Jameson solver enum"));
     PetscCall(PicurvAssertRealNear(1.07, context_only->mom_dt_jameson_residual_norm_noise_allowance_factor, 1.0e-12,
                                    "deprecated RK4 residual-noise option should populate the Jameson control"));
+    PetscCall(PicurvAssertRealNear(1.0e-8, context_only->mom_resid_atol, 1.0e-12,
+                                   "momentum absolute residual tolerance should be parsed"));
+    PetscCall(PicurvAssertRealNear(1.0e-3, context_only->mom_resid_rtol, 1.0e-12,
+                                   "momentum relative residual tolerance should be parsed"));
     PetscCall(PetscOptionsClear(NULL));
     PetscCall(PicurvRemoveTempDir(context_tmpdir));
     PetscCall(FreeLifecycleContext(&context_only));

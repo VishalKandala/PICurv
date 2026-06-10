@@ -16,8 +16,8 @@ momentum_solver:
       initial: 0.1
       minimum: 0.001
       maximum: 1.0
-      growth_factor: 1.0
-      reduction_factor: 1.0
+      growth_factor: 1.05
+      reduction_factor: 0.75
 
 poisson_solver:
   method: "fgmres"

@@ -46,3 +46,16 @@ Verification-only source overrides should stay under the structured `verificatio
 2. Tune momentum tolerances.
 3. Tune Poisson tolerance and multigrid sweeps.
 4. Revisit grid quality and BC consistency if instability persists.
+
+The standard implicit profile enables hardened momentum convergence with
+`residual_relative_tol: 1.0e-3`. Omitting both residual tolerances, or setting
+both non-positive, preserves the legacy update-only convergence rule. A looser
+`1.0e-2` residual-relative tolerance can be useful for exploratory LES, but
+should be treated as an explicit accuracy/runtime tradeoff.
+
+For the Picard-Jameson controller, `max_iterations` limits total attempted
+trials. The pseudo-CFL is global, rejected trials roll back globally, and the
+controller-selected next CFL carries into the next physical timestep.
+
+Detailed behavior and tuning guidance:
+- https://vishalkandala.me/picurv-docs/24_Dual_Time_Picard_Jameson_RK.html

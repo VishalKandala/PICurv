@@ -692,7 +692,7 @@ typedef struct SimCtx {
     //================ Group 5: Solver & Numerics Parameters ================
     MomentumSolverType mom_solver_type;
     PetscInt  mom_max_pseudo_steps;
-    PetscReal mom_atol, mom_rtol, imp_stol;
+    PetscReal mom_atol, mom_rtol, mom_resid_atol, mom_resid_rtol, imp_stol;
     PetscInt  mglevels,mg_MAX_IT, mg_idx, mg_preItr, mg_poItr;
     PetscInt  poisson;
     PetscReal poisson_tol;

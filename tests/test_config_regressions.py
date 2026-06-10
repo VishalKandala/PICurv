@@ -597,6 +597,79 @@ def test_parse_solver_config_maps_canonical_jameson_controls():
     assert flags["-mom_dt_jameson_residual_norm_noise_allowance_factor"] == 1.07
 
 
+def test_parse_solver_config_maps_optional_momentum_residual_tolerances():
+    """!
+    @brief Test optional residual tolerances map to the momentum runtime flags.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "strategy": {"momentum_solver": "Dual Time Picard Jameson RK"},
+        "tolerances": {
+            "absolute_tol": 1.0e-8,
+            "relative_tol": 1.0e-4,
+            "residual_absolute_tol": 0.0,
+            "residual_relative_tol": 1.0e-3,
+        },
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-mom_resid_atol"] == 0.0
+    assert flags["-mom_resid_rtol"] == 1.0e-3
+
+
+def test_parse_solver_config_keeps_deprecated_step_tolerance_compatible():
+    """!
+    @brief Test deprecated step_tol remains readable during its compatibility window.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {"tolerances": {"step_tol": 1.0e-8}}
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-imp_stol"] == 1.0e-8
+
+
+@pytest.mark.parametrize(
+    ("controller_update", "expected_error"),
+    [
+        ({"growth_factor": 0.99}, "pseudo_cfl.growth_factor must be at least 1"),
+        ({"reduction_factor": 1.0}, "pseudo_cfl.reduction_factor must be in (0, 1)"),
+        ({"minimum": 0.2, "initial": 0.1, "maximum": 1.0}, "pseudo_cfl requires minimum <= initial <= maximum"),
+    ],
+)
+def test_validate_rejects_invalid_picard_jameson_controller_bounds(
+    tmp_path, controller_update, expected_error
+):
+    """!
+    @brief Test validation rejects invalid adaptive pseudo-CFL controller bounds.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] controller_update Invalid pseudo-CFL values injected into the valid fixture.
+    @param[in] expected_error Expected validation diagnostic fragment.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["momentum_solver"]["dual_time_picard_jameson_rk"]["pseudo_cfl"].update(controller_update)
+    solver_path = tmp_path / "solver_invalid_controller.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert expected_error in result.stderr
+
+
 def test_parse_solver_config_maps_deprecated_rk4_controls_to_jameson_flags():
     """!
     @brief Test deprecated RK4 YAML spellings remain readable but emit canonical Jameson flags.

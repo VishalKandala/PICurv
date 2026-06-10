@@ -11,7 +11,8 @@ tolerances:
   max_iterations: 50
   absolute_tol: 1.0e-8
   relative_tol: 1.0e-3
-  step_tol: 1.0e-8
+  residual_absolute_tol: 0.0
+  residual_relative_tol: 1.0e-3
 
 momentum_solver:
   dual_time_picard_jameson_rk:
@@ -19,8 +20,8 @@ momentum_solver:
       initial: 0.1
       minimum: 0.001
       maximum: 1.0
-      growth_factor: 1.0
-      reduction_factor: 1.0
+      growth_factor: 1.05
+      reduction_factor: 0.75
 
 poisson_solver:
   method: "fgmres"

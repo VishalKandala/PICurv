@@ -48,6 +48,13 @@ Profile-generation note:
 - `picurv precompute --case ...` writes the same deterministic profile artifacts
   without launching the solver, mirroring the run `config/` layout.
 
+Momentum-solver note:
+
+- use the residual tolerances and pseudo-CFL block shown in
+  `master_solver.yml` for the dual-time Picard-Jameson solver.
+- `step_tol` remains readable only for compatibility and is not used by active
+  momentum solvers.
+
 ## Why This Matters For CFD Teams
 
 - It reduces configuration drift between projects.
@@ -61,3 +68,4 @@ Profile-generation note:
 - https://vishalkandala.me/picurv-docs/14_Config_Contract.html
 - https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html
 - https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
+- https://vishalkandala.me/picurv-docs/24_Dual_Time_Picard_Jameson_RK.html

@@ -54,14 +54,21 @@ tolerances:
   max_iterations: 50
   absolute_tol: 1.0e-7
   relative_tol: 1.0e-4
-  step_tol: 1.0e-8
+  residual_absolute_tol: 0.0
+  residual_relative_tol: 1.0e-3
 ```
 
 Mappings:
 - `max_iterations` -> `-mom_max_pseudo_steps`
 - `absolute_tol` -> `-mom_atol`
 - `relative_tol` -> `-mom_rtol`
-- `step_tol` -> `-imp_stol`
+- `residual_absolute_tol` -> `-mom_resid_atol`
+- `residual_relative_tol` -> `-mom_resid_rtol`
+
+When both residual tolerances are non-positive, the solver preserves its
+existing update-only convergence criterion. `step_tol`/`-imp_stol` remains
+accepted as a deprecated compatibility option but is unused by active
+momentum solvers.
 
 @section p08_msolver_sec 4. momentum_solver (Solver-Specific Block)
 
@@ -71,13 +78,12 @@ momentum_solver:
     max_pseudo_steps: 50
     absolute_tol: 1.0e-8
     relative_tol: 1.0e-5
-    step_tol: 1.0e-8
     pseudo_cfl:
       initial: 0.1
       minimum: 0.001
       maximum: 1.0
-      growth_factor: 1.0
-      reduction_factor: 1.0
+      growth_factor: 1.05
+      reduction_factor: 0.75
     jameson_residual_noise_allowance_factor: 1.05
 ```
 
