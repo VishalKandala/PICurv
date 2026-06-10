@@ -553,18 +553,10 @@ def create_summary_run_dir(
         + "\n",
         encoding="utf-8",
     )
-    (config_dir / "case.yml").write_text(
-        "\n".join(
-            [
-                "models:",
-                "  physics:",
-                "    particles:",
-                "      count: 120",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    case_cfg = yaml.safe_load((FIXTURES / "valid" / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["models"]["physics"]["particles"]["count"] = 120
+    (config_dir / "case.yml").write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+    shutil.copy(FIXTURES / "valid" / "solver.yml", config_dir / "solver.yml")
     (run_dir / "manifest.json").write_text(
         json.dumps(
             {
@@ -2861,6 +2853,117 @@ def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["cell_changes"] == 2
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["new_count"] == 1
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["gone_count"] == 0
+
+
+def test_summarize_overview_json_succeeds_without_runtime_artifacts(tmp_path):
+    """!
+    @brief Test that config-only overview does not require timestep artifacts.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_summary_logs=False, include_particle_snapshot=False)
+
+    result = run_picurv(["summarize", "--run-dir", str(run_dir), "--overview", "--format", "json"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["run_overview"]["run_id"] == "demo_run"
+    assert set(payload["configuration"]) == {"case", "solver", "monitor"}
+    assert payload["configuration"]["case"]["properties"]["reynolds_number"] == pytest.approx(200.0)
+    assert payload["configuration"]["case"]["run_control"]["dt_nondimensional"] == pytest.approx(0.04)
+    assert payload["configuration"]["solver"]["momentum"]["type"] == "DUALTIME_PICARD_JAMESON_RK"
+    assert payload["configuration"]["monitor"]["profiling"]["mode"] == "selected"
+    assert "step" not in payload
+
+
+def test_summarize_config_selectors_are_additive_without_health(tmp_path):
+    """!
+    @brief Test that explicit config selectors combine without requesting timestep health.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_summary_logs=False, include_particle_snapshot=False)
+
+    result = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--case", "--solver", "--format", "json"],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert set(payload["configuration"]) == {"case", "solver"}
+    assert "run_overview" not in payload
+    assert "step" not in payload
+
+
+def test_summarize_overview_and_latest_combines_config_and_health(tmp_path):
+    """!
+    @brief Test that overview and timestep-health selectors combine additively.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path)
+
+    result = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--overview", "--latest", "--format", "json"],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["step"] == 10
+    assert payload["continuity"]["available"] is True
+    assert payload["run_overview"]["run_id"] == "demo_run"
+    assert set(payload["configuration"]) == {"case", "solver", "monitor"}
+
+
+def test_summarize_selected_missing_config_fails_cleanly(tmp_path):
+    """!
+    @brief Test that an explicitly selected missing copied config produces a structured error.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_summary_logs=False, include_particle_snapshot=False)
+    (run_dir / "config" / "solver.yml").unlink()
+
+    result = run_picurv(["summarize", "--run-dir", str(run_dir), "--solver"], cwd=tmp_path)
+
+    assert result.returncode == 1
+    assert "CFG_FILE_NOT_FOUND" in result.stderr
+    assert "solver.yml" in result.stderr
+
+
+def test_summarize_selected_malformed_config_fails_cleanly(tmp_path):
+    """!
+    @brief Test that an explicitly selected malformed copied config produces a structured error.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_summary_logs=False, include_particle_snapshot=False)
+    (run_dir / "config" / "solver.yml").write_text("strategy: [\n", encoding="utf-8")
+
+    result = run_picurv(["summarize", "--run-dir", str(run_dir), "--solver"], cwd=tmp_path)
+
+    assert result.returncode == 1
+    assert "CFG_INVALID_VALUE" in result.stderr
+    assert "solver.yml" in result.stderr
+
+
+def test_summarize_overview_text_renders_dedicated_sections(tmp_path):
+    """!
+    @brief Test that overview text output renders dedicated configuration headings without health.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_summary_logs=False, include_particle_snapshot=False)
+
+    result = run_picurv(["summarize", "--run-dir", str(run_dir), "--overview"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "RUN OVERVIEW" in result.stdout
+    assert "CASE SUMMARY" in result.stdout
+    assert "SOLVER SUMMARY" in result.stdout
+    assert "MONITOR SUMMARY" in result.stdout
+    assert "3D | 1 block(s) | Re=200" in result.stdout
+    assert "Boundary Conditions" in result.stdout
+    assert "Momentum Tolerances" in result.stdout
+    assert "Output Cadence" in result.stdout
+    assert "strategy:" not in result.stdout
+    assert "RUN STEP SUMMARY" not in result.stdout
 
 
 def test_summarize_latest_uses_chronological_append_order_for_continue_run(tmp_path):
