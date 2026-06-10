@@ -139,7 +139,7 @@ Current Python files and primary responsibilities:
   - CLI help and argument contract checks
   - dry-run JSON schema assertions
   - staged Slurm workflow coverage for `submit`, `cancel`, and `sweep`
-  - `summarize` JSON/text output and failure-path checks
+  - `summarize` configuration/health JSON/text output, time-history discovery/plot orchestration, standalone `plot.gen`, and failure-path checks
   - restart resolution/pathing checks
   - cluster no-submit manifest and sbatch-rank checks
   - grid-gen header/node-count checks

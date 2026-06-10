@@ -18,6 +18,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - YAML-driven orchestration through the conductor (`scripts/picurv`, launched by `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Staged local/Slurm run workflows with `--no-submit`, delayed `submit`, and Slurm run-directory-based `cancel`
+- Read-only run/config summaries plus scalar log time-history plotting through `summarize` and `scripts/plot.gen`
 - Graceful final snapshot writes on early shutdown signals (`SIGUSR1`, `SIGTERM`, `SIGINT`) at safe checkpoints
 - Parameter sweep orchestration with Slurm arrays (`study.yml`), including cross-product `parameters` sweeps and explicit coupled `parameter_sets`
 - Solver and postprocessor executables from one build system
@@ -227,6 +228,8 @@ Add `--cluster my_case/slurm_cluster.yml` to the staged run command to generate 
 ./bin/picurv summarize --run-dir runs/<run_id> --overview
 ./bin/picurv summarize --run-dir runs/<run_id> --latest
 ./bin/picurv summarize --run-dir runs/<run_id> --case --solver --latest
+./bin/picurv summarize --run-dir runs/<run_id> --list-plot-series
+./bin/picurv summarize --run-dir runs/<run_id> --plot momentum.residual_norm --last 100
 ```
 
 Plain `picurv cancel` hard-cancels the recorded Slurm job. Add `--graceful`
@@ -316,8 +319,11 @@ For exact current options, always use script-local help:
 ./bin/picurv cancel --help
 ./bin/picurv validate --help
 ./bin/picurv sweep --help
+./bin/picurv summarize --help
 python3 scripts/grid.gen --help
 python3 scripts/grid.gen legacy1d --help
+python3 scripts/profile.gen --help
+python3 scripts/plot.gen --help
 ```
 
 Helper script help:
@@ -341,6 +347,7 @@ Detailed long-form option docs:
 - Single run:
   - `runs/<run_id>/config/` generated C-facing runtime artifacts (`*.control`, `bcs*.run`, `post.run`, etc.)
   - `runs/<run_id>/scheduler/` scheduler scripts/manifests when cluster mode is used
+  - `runs/<run_id>/summary/plots/` automatic headless `summarize --plot` fallback images
   - `runs/<run_id>/visualization/` and/or post outputs
 - Parameter sweep:
   - `studies/<study_id>/cases/` materialized case variants
@@ -352,7 +359,7 @@ Detailed long-form option docs:
 PICurv uses an intent-based local testing model so the command name tells you what kind of validation you are running.
 
 The Python-side CLI suites explicitly cover help/parser and behavior paths for
-`submit`, `cancel`, `summarize`, and `sweep`, plus real CLI wrapper execution for
+`submit`, `cancel`, `summarize` configuration/health/plotting, and `sweep`, plus real CLI wrapper execution for
 `build`, `sync-binaries`, `sync-config`, `status-source`, and `pull-source`.
 
 Canonical targets:

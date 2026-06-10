@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""!
+@file plot.gen
+@brief Standalone renderer for normalized PICurv time-history plot requests.
+
+The conductor owns run discovery and log parsing. This helper only validates
+normalized series data and renders it with matplotlib.
+"""
+
+import argparse
+import json
+import os
+import sys
+
+
+def _drop_imported_package(package_name: str):
+    """!
+    @brief Remove a failed or partial import package tree from sys.modules.
+    @param[in] package_name Top-level package name.
+    """
+    prefix = package_name + "."
+    for module_name in list(sys.modules):
+        if module_name == package_name or module_name.startswith(prefix):
+            sys.modules.pop(module_name, None)
+
+
+def _prune_incompatible_python_site_paths(paths: list) -> list:
+    """!
+    @brief Remove site-package paths for a different Python major/minor version.
+    @param[in] paths Candidate sys.path entries.
+    @return Filtered path list.
+    """
+    current = f"python{sys.version_info[0]}.{sys.version_info[1]}"
+    return [
+        path
+        for path in paths
+        if current in str(path).lower() or ("site-packages" not in str(path) and "dist-packages" not in str(path))
+    ]
+
+
+def require_matplotlib_pyplot():
+    """!
+    @brief Import matplotlib.pyplot with compatibility-path retry.
+    @return Imported matplotlib.pyplot module.
+    """
+    original_path = list(sys.path)
+    try:
+        import matplotlib.pyplot as pyplot
+        return pyplot
+    except Exception as exc:
+        first_error = exc
+        try:
+            _drop_imported_package("matplotlib")
+            sys.path = _prune_incompatible_python_site_paths(original_path)
+            import matplotlib.pyplot as pyplot
+            return pyplot
+        except Exception as retry_exc:
+            raise RuntimeError(
+                "matplotlib is required for plotting. "
+                f"First error: {first_error}. Retry error: {retry_exc}"
+            ) from retry_exc
+        finally:
+            sys.path = original_path
+
+
+def read_plot_request(input_path: str) -> dict:
+    """!
+    @brief Read one normalized plot request from a file or stdin.
+    @param[in] input_path JSON file path or `-` for stdin.
+    @return Parsed request mapping.
+    """
+    if input_path == "-":
+        return json.load(sys.stdin)
+    with open(input_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def validate_plot_request(request: dict) -> dict:
+    """!
+    @brief Validate and normalize a time-history plot request.
+    @param[in] request Candidate request mapping.
+    @return Validated request mapping.
+    """
+    if not isinstance(request, dict):
+        raise ValueError("plot request must be a JSON object")
+    if request.get("schema_version") != 1:
+        raise ValueError("plot request schema_version must be 1")
+    if request.get("plot_type") != "time_history":
+        raise ValueError("plot_type must be 'time_history'")
+    lines = request.get("lines")
+    if not isinstance(lines, list) or not lines:
+        raise ValueError("plot request requires at least one line")
+    for index, line in enumerate(lines):
+        if not isinstance(line, dict) or not str(line.get("label", "")).strip():
+            raise ValueError(f"lines[{index}] requires a non-empty label")
+        points = line.get("points")
+        if not isinstance(points, list) or not points:
+            raise ValueError(f"lines[{index}] requires at least one point")
+        for point_index, point in enumerate(points):
+            if not isinstance(point, list) or len(point) != 2:
+                raise ValueError(f"lines[{index}].points[{point_index}] must be [x, y]")
+            if not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in point):
+                raise ValueError(f"lines[{index}].points[{point_index}] must contain numeric values")
+    return request
+
+
+def _is_headless(plt) -> bool:
+    """!
+    @brief Return whether interactive plotting is unavailable.
+    @param[in] plt Imported matplotlib.pyplot module.
+    @return True when the current environment/backend is headless.
+    """
+    backend = str(plt.get_backend()).lower()
+    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) or "agg" in backend
+
+
+def render_plot_request(request: dict, output_override: "str | None" = None) -> str:
+    """!
+    @brief Render a validated time-history plot request.
+    @param[in] request Validated normalized plot request.
+    @param[in] output_override Optional explicit output path.
+    @return Human-readable rendering status.
+    """
+    plt = require_matplotlib_pyplot()
+    output_path = output_override or request.get("output_path")
+    headless = _is_headless(plt)
+    if not output_path and headless:
+        output_path = request.get("fallback_output_path")
+        if not output_path:
+            raise ValueError("headless plotting requires fallback_output_path")
+
+    plt.figure(figsize=(9.0, 5.2))
+    for line in request["lines"]:
+        x_values = [point[0] for point in line["points"]]
+        y_values = [point[1] for point in line["points"]]
+        plt.plot(x_values, y_values, linewidth=1.5, marker="o", markersize=3, label=line["label"])
+    plt.xlabel(request.get("x_label", "Timestep"))
+    plt.ylabel(request.get("y_label", request.get("series", "Value")))
+    plt.title(request.get("title", request.get("series", "Time History")))
+    if request.get("y_scale") == "log":
+        plt.yscale("log")
+    plt.grid(True, alpha=0.3, which="both")
+    if len(request["lines"]) > 1 or request["lines"][0].get("label") != request.get("series"):
+        plt.legend()
+    plt.tight_layout()
+
+    if output_path:
+        output_path = os.path.abspath(output_path)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        plt.savefig(output_path, dpi=150)
+        plt.close()
+        return f"[SUCCESS] Saved time-history plot: {output_path}"
+
+    plt.show()
+    plt.close()
+    return f"[SUCCESS] Displayed time-history plot: {request.get('series')}"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """!
+    @brief Build the standalone plot.gen argument parser.
+    @return Configured argument parser.
+    """
+    parser = argparse.ArgumentParser(description="Render a normalized PICurv time-history plot request.")
+    parser.add_argument("--input", required=True, help="Plot-request JSON path, or '-' to read JSON from stdin.")
+    parser.add_argument("--output", help="Optional output image path; suppresses interactive display.")
+    return parser
+
+
+def main(argv=None) -> int:
+    """!
+    @brief CLI entrypoint.
+    @param[in] argv Optional argv override for tests.
+    @return Process exit code.
+    """
+    args = build_parser().parse_args(argv)
+    try:
+        request = validate_plot_request(read_plot_request(args.input))
+        print(render_plot_request(request, output_override=args.output))
+        return 0
+    except Exception as exc:
+        print(f"[ERROR] plot.gen failed: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

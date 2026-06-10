@@ -89,7 +89,20 @@ Study flow (`sweep`):
 - metric aggregation and optional plots,
 - study manifest and reproducible directory structure.
 
-@section p12_extension_sec 7. Extensibility Status
+@section p12_inspection_sec 7. Run Inspection and Plotting
+
+`picurv summarize` supports:
+
+- curated run, case, solver, and monitor configuration dashboards,
+- selected-step health summaries from continuity, particles, momentum, Poisson, profiling, memory, and convergence logs,
+- discovery of available plottable numeric histories with `--list-plot-series`,
+- full or last-N append-order time-history plots with `--plot` and `--last`,
+- per-block and per-function lines, automatic positive residual/norm log scaling, explicit saves, and headless fallback.
+
+PICurv owns run/log interpretation; standalone `scripts/plot.gen` renders
+versioned normalized JSON requests without knowing run-directory layouts.
+
+@section p12_extension_sec 8. Extensibility Status
 
 Current extension pathways are documented and active for:
 
@@ -105,7 +118,7 @@ Reference pages:
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 17_Workflow_Extensibility**
 
-@section p12_next_steps_sec 8. Suggested Reading Order
+@section p12_next_steps_sec 9. Suggested Reading Order
 
 1. **@subpage 13_Code_Architecture**
 2. **@subpage 21_Methods_Overview**

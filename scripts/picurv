@@ -12537,6 +12537,284 @@ def render_selected_summary(payload: dict, output_format: str = "text"):
         render_run_summary(health_payload, output_format="text")
 
 
+_SUMMARY_PLOT_LOG_SCALE_FIELDS = {
+    "delta_norm", "delta_rel", "residual_norm", "residual_rel",
+    "unpreconditioned_norm", "true_norm", "relative_norm",
+    "u_abs_l2", "u_rel_l2", "p_abs_l2", "p_rel_l2",
+}
+
+
+def _append_summary_plot_record(records: list, source: str, step, line: str, values: dict, source_path: str):
+    """!
+    @brief Append one numeric append-ordered record for summarize plotting.
+    @param[out] records Destination record list.
+    @param[in] source Qualified source prefix.
+    @param[in] step Logged timestep.
+    @param[in] line Human-readable line identity.
+    @param[in] values Candidate field mapping.
+    @param[in] source_path Source artifact path.
+    """
+    numeric = {
+        key: value
+        for key, value in values.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    if step is not None and numeric:
+        records.append({"source": source, "step": int(step), "line": line, "values": numeric, "source_path": source_path})
+
+
+def _collect_summary_plot_records(context: dict) -> list:
+    """!
+    @brief Collect append-ordered numeric records from summarize-supported scalar logs.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @return Append-ordered plot record list.
+    """
+    records = []
+    log_dir = context["log_dir"]
+
+    continuity_path = os.path.join(log_dir, "Continuity_Metrics.log")
+    if os.path.isfile(continuity_path):
+        with open(continuity_path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                parts = [part.strip() for part in raw_line.split("|")]
+                if len(parts) < 8:
+                    continue
+                step, block = _parse_int_loose(parts[0]), _parse_int_loose(parts[1])
+                _append_summary_plot_record(
+                    records, "continuity", step, f"block {block}",
+                    {
+                        "max_divergence": _parse_float_loose(parts[2]),
+                        "rhs_sum": _parse_float_loose(parts[4]),
+                        "flux_in": _parse_float_loose(parts[5]),
+                        "flux_out": _parse_float_loose(parts[6]),
+                        "net_flux": _parse_float_loose(parts[7]),
+                    },
+                    continuity_path,
+                )
+
+    particle_path = os.path.join(log_dir, "Particle_Metrics.log")
+    if os.path.isfile(particle_path):
+        with open(particle_path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                parts = [part.strip() for part in raw_line.split("|")]
+                if len(parts) < 8:
+                    continue
+                step = _parse_int_loose(parts[1])
+                offset = 1 if len(parts) >= 9 else 0
+                _append_summary_plot_record(
+                    records, "particles", step, "particles",
+                    {
+                        "total_particles": _parse_int_loose(parts[2]),
+                        "lost_particles": _parse_int_loose(parts[3]),
+                        "lost_particles_cumulative": _parse_int_loose(parts[4]) if offset else None,
+                        "migrated_particles": _parse_int_loose(parts[4 + offset]),
+                        "occupied_cells": _parse_int_loose(parts[5 + offset]),
+                        "load_imbalance": _parse_float_loose(parts[6 + offset]),
+                        "migration_passes": _parse_int_loose(parts[7 + offset]),
+                    },
+                    particle_path,
+                )
+
+    momentum_regex = re.compile(
+        r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\|\s*\|"
+        r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
+        r"\s*\|dUk\|/\|dUprev\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
+        r"\s*\|Rk\|/\|Rprev\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
+    )
+    for path in sorted(glob.glob(os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log"))):
+        block_match = re.search(r"Block_(\d+)\.log$", path)
+        if not block_match:
+            continue
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                match = momentum_regex.search(raw_line)
+                if match:
+                    _append_summary_plot_record(
+                        records, "momentum", int(match.group("step")), f"block {block_match.group(1)}",
+                        {
+                            "pseudo_iterations": int(match.group("pseudo_iter")),
+                            "pseudo_cfl": float(match.group("pseudo_cfl")),
+                            "delta_norm": float(match.group("delta")),
+                            "delta_rel": float(match.group("delta_rel")),
+                            "residual_norm": float(match.group("resid")),
+                            "residual_rel": float(match.group("resid_rel")),
+                        },
+                        path,
+                    )
+
+    poisson_regex = re.compile(
+        r"ts:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|\s*iter:\s*(?P<iter>\d+)\s*\|"
+        r"\s*Unprecond Norm:\s*(?P<unpre>[-+0-9.eE]+)\s*\|\s*True Norm:\s*(?P<true>[-+0-9.eE]+)"
+        r"(?:\s*\|\s*Rel Norm:\s*(?P<rel>[-+0-9.eE]+))?"
+    )
+    for path in sorted(glob.glob(os.path.join(log_dir, "Poisson_Solver_Convergence_History_Block_*.log"))):
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                match = poisson_regex.search(raw_line)
+                if match:
+                    _append_summary_plot_record(
+                        records, "poisson", int(match.group("step")), f"block {match.group('block')}",
+                        {
+                            "iterations": int(match.group("iter")),
+                            "unpreconditioned_norm": float(match.group("unpre")),
+                            "true_norm": float(match.group("true")),
+                            "relative_norm": _parse_float_loose(match.group("rel")),
+                        },
+                        path,
+                    )
+
+    profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
+    if os.path.isfile(profiling_path):
+        with open(profiling_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+            for row in csv.DictReader(f):
+                _append_summary_plot_record(
+                    records, "profiling", _parse_int_loose(row.get("step")), row.get("function") or "unknown",
+                    {"calls": _parse_int_loose(row.get("calls")), "step_time_s": _parse_float_loose(row.get("step_time_s"))},
+                    profiling_path,
+                )
+
+    diagnostics = resolve_diagnostics_config(context["monitor_cfg"])
+    memory_path = os.path.join(log_dir, diagnostics["runtime_memory_log"].get("file", "Runtime_Memory.log"))
+    if os.path.isfile(memory_path):
+        with open(memory_path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                parts = raw_line.split()
+                if len(parts) >= 8 and parts[1] in {"Step", "Post"}:
+                    _append_summary_plot_record(
+                        records, "memory", _parse_int_loose(parts[0]), "memory",
+                        {
+                            "process_current_mb_max": _parse_float_loose(parts[2]),
+                            "process_peak_mb_max": _parse_float_loose(parts[3]),
+                            "petsc_allocated_mb_max": _parse_float_loose(parts[4]),
+                            "petsc_peak_allocated_mb_max": _parse_float_loose(parts[5]),
+                            "process_change_mb_max": _parse_float_loose(parts[6]),
+                        },
+                        memory_path,
+                    )
+
+    convergence_path = os.path.join(log_dir, "solution_convergence.log")
+    if os.path.isfile(convergence_path):
+        columns = None
+        with open(convergence_path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith(("=", "-")):
+                    continue
+                if columns is None:
+                    columns = [part.strip() for part in raw_line.split("|")]
+                    continue
+                parts = [part.strip() for part in raw_line.split("|")]
+                step = _parse_int_loose(parts[0])
+                values = {name: _parse_float_loose(value) for name, value in zip(columns, parts) if name not in {"step", "mode", "ref"}}
+                _append_summary_plot_record(records, "convergence", step, "convergence", values, convergence_path)
+    return records
+
+
+def _build_summary_plot_catalog(records: list) -> list:
+    """!
+    @brief Build available qualified-series metadata from plot records.
+    @param[in] records Append-ordered plot record list.
+    @return Available series catalog.
+    """
+    catalog = {}
+    for record in records:
+        for field in record["values"]:
+            name = f"{record['source']}.{field}"
+            item = catalog.setdefault(name, {"series": name, "lines": {}, "source_paths": set(), "sample_count": 0})
+            item["lines"][record["line"]] = item["lines"].get(record["line"], 0) + 1
+            item["source_paths"].add(record["source_path"])
+            item["sample_count"] += 1
+    return [
+        {
+            **item,
+            "lines": [{"label": label, "sample_count": count} for label, count in sorted(item["lines"].items())],
+            "source_paths": sorted(item["source_paths"]),
+        }
+        for _, item in sorted(catalog.items())
+    ]
+
+
+def _build_summary_plot_request(context: dict, records: list, series: str, last_n: "int | None", linear_y: bool, output_path: "str | None") -> dict:
+    """!
+    @brief Build one normalized plot.gen request from collected summarize records.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @param[in] records Append-ordered plot record list.
+    @param[in] series Qualified series name.
+    @param[in] last_n Optional last-N records per plotted line.
+    @param[in] linear_y Whether to force linear scaling.
+    @param[in] output_path Optional explicit output path.
+    @return Versioned normalized plot request.
+    """
+    source, separator, field = series.partition(".")
+    if not separator:
+        raise ValueError("plot series must be qualified as '<source>.<field>'")
+    matching = [record for record in records if record["source"] == source and field in record["values"]]
+    if not matching:
+        raise ValueError(f"Plot series '{series}' is unavailable. Use --list-plot-series to inspect available series.")
+    grouped = {}
+    for record in matching:
+        grouped.setdefault(record["line"], []).append([record["step"], record["values"][field]])
+    if last_n is not None:
+        grouped = {label: points[-last_n:] for label, points in grouped.items()}
+    all_values = [point[1] for points in grouped.values() for point in points]
+    use_log = not linear_y and field in _SUMMARY_PLOT_LOG_SCALE_FIELDS and all(value > 0 for value in all_values)
+    window_token = f"last-{last_n}" if last_n is not None else "full"
+    safe_series = re.sub(r"[^A-Za-z0-9_.-]+", "_", series)
+    fallback = os.path.join(context["run_dir"], "summary", "plots", f"{safe_series}_{window_token}.png")
+    return {
+        "schema_version": 1,
+        "plot_type": "time_history",
+        "series": series,
+        "title": f"{series} time history",
+        "x_label": "Timestep",
+        "y_label": series,
+        "y_scale": "log" if use_log else "linear",
+        "window": {"mode": "last" if last_n is not None else "full", "last": last_n},
+        "lines": [{"label": label, "points": points} for label, points in sorted(grouped.items())],
+        "output_path": os.path.abspath(output_path) if output_path else None,
+        "fallback_output_path": fallback,
+    }
+
+
+def _render_summary_plot_catalog(catalog: list, output_format: str):
+    """!
+    @brief Render available summarize plot-series metadata.
+    @param[in] catalog Available series catalog.
+    @param[in] output_format Text or JSON output format.
+    """
+    if output_format == "json":
+        print(json.dumps({"available_series": catalog}, indent=2, sort_keys=True))
+        return
+    print("\nAVAILABLE TIME-HISTORY SERIES")
+    print("=" * 78)
+    for item in catalog:
+        labels = ", ".join(line["label"] for line in item["lines"])
+        print(f"  {item['series']:<42} samples={item['sample_count']:<5} lines={labels}")
+        print(f"    source: {', '.join(os.path.relpath(path) for path in item['source_paths'])}")
+
+
+def _invoke_plot_gen(request: dict):
+    """!
+    @brief Invoke standalone plot.gen with one normalized request over stdin.
+    @param[in] request Versioned normalized plot request.
+    """
+    plotgen_path = os.path.join(SCRIPT_PATH, "plot.gen")
+    if not os.path.isfile(plotgen_path):
+        raise ValueError(f"plot.gen script not found: {plotgen_path}")
+    result = subprocess.run(
+        [sys.executable, plotgen_path, "--input", "-"],
+        input=json.dumps(request),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.stdout:
+        print(result.stdout.rstrip())
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "unknown plotting error").strip()
+        raise ValueError(f"plot.gen failed with exit code {result.returncode}: {details}")
+
+
 def summarize_workflow(args):
     """!
     @brief Build and render a read-only health summary for a run step.
@@ -12546,6 +12824,53 @@ def summarize_workflow(args):
         fail_cli_usage("--step must be a non-negative integer.")
     if args.snapshot_rows < 1:
         fail_cli_usage("--snapshot-rows must be at least 1.")
+    plot_series = getattr(args, "plot_series", None)
+    list_plot_series = bool(getattr(args, "list_plot_series", False))
+    last_n = getattr(args, "last_n", None)
+    plot_output = getattr(args, "plot_output", None)
+    linear_y = bool(getattr(args, "linear_y", False))
+    plot_mode = bool(plot_series or list_plot_series)
+    existing_selectors = any(
+        [
+            getattr(args, "overview", False),
+            getattr(args, "case", False),
+            getattr(args, "solver", False),
+            getattr(args, "monitor", False),
+            args.step is not None,
+            getattr(args, "latest", False),
+            getattr(args, "max_step", False),
+        ]
+    )
+    if plot_mode and existing_selectors:
+        fail_cli_usage("Plot discovery and --plot cannot be combined with config or selected-step selectors.")
+    if not plot_series and (last_n is not None or plot_output or linear_y):
+        fail_cli_usage("--last, --plot-output, and --linear-y require --plot.")
+    if last_n is not None and last_n < 1:
+        fail_cli_usage("--last must be a positive integer.")
+    if plot_series and args.output_format == "json":
+        fail_cli_usage("--plot does not support --format json; use --list-plot-series --format json for structured discovery.")
+    if plot_mode:
+        context = _build_summary_context(args.run_dir)
+        try:
+            records = _collect_summary_plot_records(context)
+            catalog = _build_summary_plot_catalog(records)
+            if list_plot_series:
+                if not catalog:
+                    raise ValueError("No plottable scalar histories were found in the run logs.")
+                _render_summary_plot_catalog(catalog, args.output_format)
+                return
+            request = _build_summary_plot_request(context, records, plot_series, last_n, linear_y, plot_output)
+            _invoke_plot_gen(request)
+            return
+        except ValueError as exc:
+            emit_structured_error(
+                ERROR_CODE_CFG_INVALID_VALUE,
+                key="plot",
+                file_path=context["log_dir"],
+                message=str(exc),
+            )
+            sys.exit(1)
+
     selected_configs = {
         name
         for name in ("case", "solver", "monitor")
@@ -13623,16 +13948,18 @@ def _add_summarize_parser(subparsers):
     """
     p_summarize = subparsers.add_parser(
         "summarize",
-        help="Summarize copied run configs and/or one run step.",
+        help="Summarize run configs/health and plot scalar log histories.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Build read-only configuration overviews and run-health summaries.\n"
+            "Build read-only configuration overviews, run-health summaries, and scalar time-history plots.\n"
             "It does not modify solver output and works for active or completed runs.\n\n"
             "Examples:\n"
             "  picurv summarize --run-dir runs/my_run --overview\n"
             "  picurv summarize --run-dir runs/my_run --case --solver\n"
             "  picurv summarize --run-dir runs/my_run --latest\n"
             "  picurv summarize --run-dir runs/my_run --monitor --step 500\n"
+            "  picurv summarize --run-dir runs/my_run --list-plot-series\n"
+            "  picurv summarize --run-dir runs/my_run --plot momentum.residual_norm --last 100\n"
             "  picurv summarize --run-dir runs/my_run --latest --format json"
         ),
         epilog="Next: use `picurv run ...` to create runs or `picurv sweep ...` for multi-case studies.",
@@ -13646,6 +13973,23 @@ def _add_summarize_parser(subparsers):
     p_summarize.add_argument("--case", action="store_true", help="Summarize the copied run-local case.yml.")
     p_summarize.add_argument("--solver", action="store_true", help="Summarize the copied run-local solver.yml.")
     p_summarize.add_argument("--monitor", action="store_true", help="Summarize the copied run-local monitor.yml.")
+    plot_group = p_summarize.add_mutually_exclusive_group()
+    plot_group.add_argument(
+        "--list-plot-series",
+        dest="list_plot_series",
+        action="store_true",
+        help="List scalar time histories available to --plot.",
+    )
+    plot_group.add_argument(
+        "--list-series",
+        dest="list_plot_series",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    plot_group.add_argument("--plot", dest="plot_series", help="Plot one qualified scalar history, such as momentum.residual_norm.")
+    p_summarize.add_argument("--last", dest="last_n", type=int, help="Plot only the last N chronological records per line.")
+    p_summarize.add_argument("--plot-output", help="Save the plot to this path instead of opening an interactive window.")
+    p_summarize.add_argument("--linear-y", action="store_true", help="Force linear y-axis scaling instead of automatic residual/norm log scaling.")
     step_group = p_summarize.add_mutually_exclusive_group()
     step_group.add_argument("--step", type=int, help="Specific completed timestep to summarize.")
     step_group.add_argument(
@@ -13989,6 +14333,8 @@ def build_main_parser():
             "  picurv precompute --case case.yml --output-dir precomputed/my_case\n"
             "  picurv run --post-process --continue --run-dir runs/my_run --post post.yml\n"
             "  picurv summarize --run-dir runs/my_run --latest\n"
+            "  picurv summarize --run-dir runs/my_run --list-plot-series\n"
+            "  picurv summarize --run-dir runs/my_run --plot momentum.residual_norm --last 100\n"
             "  picurv submit --run-dir runs/my_run\n"
             "  picurv cancel --run-dir runs/my_run\n"
             "  picurv cancel --run-dir runs/my_run --stage solve --graceful\n"
@@ -14000,7 +14346,7 @@ def build_main_parser():
             "  - Launch planning: picurv run ... --dry-run\n"
             "  - Post-only catch-up: picurv run --post-process --continue --run-dir ... --post ...\n"
             "  - Deferred submission: picurv submit --run-dir ...\n"
-            "  - Run inspection: picurv summarize ...\n"
+            "  - Run inspection/plots: picurv summarize ...\n"
             "  - Run cancellation: picurv cancel --run-dir ...; use --graceful for solver final-output shutdown"
         ),
     )

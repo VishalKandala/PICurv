@@ -54,7 +54,7 @@ is a test-local routine.
   - CLI help and argument contract checks
   - dry-run plan schema checks (text/json)
   - staged Slurm workflow coverage for `submit`, `cancel`, and `sweep`
-  - run summary coverage for `summarize` JSON/text output plus failure paths
+  - run summary coverage for `summarize` JSON/text output, time-history discovery/plot orchestration, standalone `plot.gen`, and failure paths
   - restart path resolution checks
   - cluster no-submit manifest/script checks
   - grid-gen/PICGRID header and node-count translation checks
