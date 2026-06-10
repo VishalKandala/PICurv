@@ -22,6 +22,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PICURV = REPO_ROOT / "scripts" / "picurv"
 PROFILE_GEN = REPO_ROOT / "scripts" / "profile.gen"
+PLOT_GEN = REPO_ROOT / "scripts" / "plot.gen"
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 
@@ -38,6 +39,41 @@ def run_picurv(args, cwd=REPO_ROOT, env=None):
     if env:
         merged_env.update(env)
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False, env=merged_env)
+
+
+def create_fake_matplotlib(tmp_path: Path) -> Path:
+    """!
+    @brief Create a minimal fake matplotlib.pyplot package for plotting CLI tests.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Directory to prepend to PYTHONPATH.
+    """
+    package_root = tmp_path / "fake-python"
+    package_dir = package_root / "matplotlib"
+    package_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    (package_dir / "pyplot.py").write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "def get_backend(): return 'Agg'",
+                "def figure(*args, **kwargs): pass",
+                "def plot(*args, **kwargs): pass",
+                "def xlabel(*args, **kwargs): pass",
+                "def ylabel(*args, **kwargs): pass",
+                "def title(*args, **kwargs): pass",
+                "def yscale(*args, **kwargs): pass",
+                "def grid(*args, **kwargs): pass",
+                "def legend(*args, **kwargs): pass",
+                "def tight_layout(*args, **kwargs): pass",
+                "def show(*args, **kwargs): pass",
+                "def close(*args, **kwargs): pass",
+                "def savefig(path, *args, **kwargs): Path(path).write_bytes(b'fake-png')",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return package_root
 
 
 def load_picurv_module():
@@ -749,6 +785,8 @@ def test_top_level_help_smoke():
     assert result.returncode == 0
     assert "validate" in result.stdout
     assert "picurv cancel --run-dir runs/my_run --stage solve --graceful" in result.stdout
+    assert "picurv summarize --run-dir runs/my_run --list-plot-series" in result.stdout
+    assert "picurv summarize --run-dir runs/my_run --plot momentum.residual_norm --last 100" in result.stdout
     assert "Next commands:" in result.stdout
 
 
@@ -834,6 +872,11 @@ def test_summarize_help_smoke():
     assert result.returncode == 0
     assert "--run-dir" in result.stdout
     assert "--snapshot-rows" in result.stdout
+    assert "--list-plot-series" in result.stdout
+    assert "--list-series" not in result.stdout
+    assert "--plot PLOT_SERIES" in result.stdout
+    assert "--plot-output PLOT_OUTPUT" in result.stdout
+    assert "--linear-y" in result.stdout
 
 
 def test_submit_help_smoke():
@@ -2964,6 +3007,209 @@ def test_summarize_overview_text_renders_dedicated_sections(tmp_path):
     assert "Output Cadence" in result.stdout
     assert "strategy:" not in result.stdout
     assert "RUN STEP SUMMARY" not in result.stdout
+
+
+def test_plot_gen_saves_normalized_time_history_request(tmp_path):
+    """!
+    @brief Test standalone plot.gen saves a normalized time-history request.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    request_path = tmp_path / "plot-request.json"
+    output_path = tmp_path / "history.png"
+    fake_python = create_fake_matplotlib(tmp_path)
+    request_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "plot_type": "time_history",
+                "series": "momentum.residual_norm",
+                "title": "Momentum residual",
+                "x_label": "Timestep",
+                "y_label": "momentum.residual_norm",
+                "y_scale": "log",
+                "lines": [{"label": "block 0", "points": [[1, 0.1], [2, 0.01]]}],
+                "fallback_output_path": str(tmp_path / "fallback.png"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(PLOT_GEN), "--input", str(request_path), "--output", str(output_path)],
+        cwd=str(tmp_path),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(fake_python), "MPLBACKEND": "Agg"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output_path.is_file()
+    assert "Saved time-history plot" in result.stdout
+
+
+def test_plot_gen_headless_stdin_uses_fallback_output(tmp_path):
+    """!
+    @brief Test standalone plot.gen reads stdin and saves its headless fallback.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    fallback_path = tmp_path / "fallback.png"
+    fake_python = create_fake_matplotlib(tmp_path)
+    request = {
+        "schema_version": 1,
+        "plot_type": "time_history",
+        "series": "particles.total_particles",
+        "lines": [{"label": "particles", "points": [[1, 10], [2, 12]]}],
+        "fallback_output_path": str(fallback_path),
+    }
+
+    result = subprocess.run(
+        [sys.executable, str(PLOT_GEN), "--input", "-"],
+        cwd=str(tmp_path),
+        input=json.dumps(request),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(fake_python), "MPLBACKEND": "Agg"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert fallback_path.is_file()
+    assert "Saved time-history plot" in result.stdout
+
+
+def test_plot_gen_rejects_malformed_request(tmp_path):
+    """!
+    @brief Test standalone plot.gen rejects malformed normalized input.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    request_path = tmp_path / "bad-request.json"
+    request_path.write_text('{"schema_version": 1, "plot_type": "time_history", "lines": []}', encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(PLOT_GEN), "--input", str(request_path)],
+        cwd=str(tmp_path),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "requires at least one line" in result.stderr
+
+
+def test_summarize_list_plot_series_json_reports_available_histories(tmp_path):
+    """!
+    @brief Test summarize lists only plot series available in existing logs.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path)
+
+    result = run_picurv(["summarize", "--run-dir", str(run_dir), "--list-plot-series", "--format", "json"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    by_name = {item["series"]: item for item in payload["available_series"]}
+    assert "momentum.residual_norm" in by_name
+    assert "poisson.true_norm" in by_name
+    assert "profiling.step_time_s" in by_name
+    assert by_name["momentum.residual_norm"]["lines"][0]["label"] == "block 0"
+
+
+def test_summarize_list_series_remains_a_hidden_compatibility_alias(tmp_path):
+    """!
+    @brief Test the former list-series spelling remains functional but undocumented.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path)
+
+    result = run_picurv(["summarize", "--run-dir", str(run_dir), "--list-series", "--format", "json"], cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "momentum.residual_norm" in result.stdout
+
+
+def test_summarize_plot_saves_through_plot_gen(tmp_path):
+    """!
+    @brief Test summarize builds a normalized request and delegates saving to plot.gen.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path)
+    output_path = tmp_path / "momentum.png"
+    fake_python = create_fake_matplotlib(tmp_path)
+
+    result = run_picurv(
+        [
+            "summarize", "--run-dir", str(run_dir),
+            "--plot", "momentum.residual_norm",
+            "--plot-output", str(output_path),
+        ],
+        cwd=tmp_path,
+        env={"PYTHONPATH": str(fake_python), "MPLBACKEND": "Agg"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output_path.is_file()
+    assert "Saved time-history plot" in result.stdout
+
+
+def test_summarize_plot_request_preserves_duplicate_steps_and_last_window(tmp_path):
+    """!
+    @brief Test plot request construction keeps append-order duplicate steps and last-N records.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_summary_continue_append_run_dir(tmp_path)
+    context = picurv._build_summary_context(str(run_dir))
+    records = picurv._collect_summary_plot_records(context)
+
+    full_request = picurv._build_summary_plot_request(context, records, "momentum.residual_norm", None, False, None)
+    last_request = picurv._build_summary_plot_request(context, records, "momentum.residual_norm", 2, False, None)
+
+    assert [point[0] for point in full_request["lines"][0]["points"]] == [2055, 2422, 2055, 2060]
+    assert [point[0] for point in last_request["lines"][0]["points"]] == [2055, 2060]
+    assert full_request["y_scale"] == "log"
+
+
+def test_summarize_plot_rejects_incompatible_selector_and_json(tmp_path):
+    """!
+    @brief Test plot mode rejects incompatible summary selectors and JSON rendering.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path)
+
+    combined = run_picurv(["summarize", "--run-dir", str(run_dir), "--plot", "momentum.residual_norm", "--latest"], cwd=tmp_path)
+    json_plot = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--plot", "momentum.residual_norm", "--format", "json"],
+        cwd=tmp_path,
+    )
+
+    assert combined.returncode == 2
+    assert "Plot discovery and --plot cannot be combined" in combined.stderr
+    assert json_plot.returncode == 2
+    assert "does not support --format json" in json_plot.stderr
+
+
+def test_summarize_plot_rejects_unavailable_series_and_invalid_last(tmp_path):
+    """!
+    @brief Test plot mode rejects unavailable qualified series and invalid windows.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path)
+
+    unavailable = run_picurv(["summarize", "--run-dir", str(run_dir), "--plot", "momentum.not_real"], cwd=tmp_path)
+    invalid_last = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--plot", "momentum.residual_norm", "--last", "0"],
+        cwd=tmp_path,
+    )
+
+    assert unavailable.returncode == 1
+    assert "Use --list-plot-series" in unavailable.stderr
+    assert invalid_last.returncode == 2
+    assert "--last must be a positive integer" in invalid_last.stderr
 
 
 def test_summarize_latest_uses_chronological_append_order_for_continue_run(tmp_path):

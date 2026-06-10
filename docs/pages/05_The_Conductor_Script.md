@@ -291,6 +291,7 @@ Runtime stream logs:
 ```bash
 ./bin/picurv summarize --run-dir <run_dir> \
   [--overview] [--case] [--solver] [--monitor] \
+  [--list-plot-series | --plot <qualified-series>] [--last <n>] \
   [--latest | --max-step | --step <n>] [--format json]
 ```
 
@@ -301,6 +302,10 @@ Behavior:
 - config-only selectors work before runtime logs exist,
 - timestep selectors read existing runtime artifacts and still require summary-capable logs,
 - plain `summarize --run-dir ...` preserves the implicit latest-step health behavior,
+- `--list-plot-series` discovers numeric scalar histories available to `--plot`,
+- `--plot <qualified-series>` delegates time-history rendering to `scripts/plot.gen`,
+- plots use full append-order history by default; `--last <n>` keeps the last N chronological records per line,
+- `--plot-output <path>` saves without opening a window; headless interactive requests save under `summary/plots/`,
 - builds a best-effort step summary without changing solver output,
 - works for active runs and completed runs,
 - reports unavailable sections when a source log is missing or disabled.
@@ -312,6 +317,9 @@ Examples:
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --case --solver
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --latest
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --monitor --step 500
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --list-plot-series
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --plot momentum.residual_norm --last 100
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --plot memory.process_peak_mb_max --plot-output peak.png
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --latest --format json
 ```
 
@@ -320,6 +328,27 @@ derived values such as Reynolds number, nondimensional timestep, normalized
 solver selections, effective monitoring cadence, and enabled diagnostics. Text
 output uses glanceable dashboards with aligned field groups and compact tables;
 use `--format json` for structured automation output.
+
+Plotting supports numeric scalar histories from continuity, particle metrics,
+momentum, Poisson, profiling, runtime memory, and solution-convergence logs.
+Block-based histories render one line per block and profiling histories render
+one line per function. Residual/norm series use logarithmic scaling when all
+values are positive; `--linear-y` forces linear scaling. Plot mode is standalone
+and does not combine with overview/config/selected-step selectors.
+
+`scripts/plot.gen` is the standalone rendering layer. It accepts the versioned,
+normalized JSON request produced by `picurv` through stdin, and can also render
+a saved request directly:
+
+```bash
+python3 scripts/plot.gen --input request.json
+cat request.json | python3 scripts/plot.gen --input -
+python3 scripts/plot.gen --input request.json --output history.png
+```
+
+The normalized request contains plot labels, scale selection, window metadata,
+and ordered labeled lines of numeric `[timestep, value]` points. `plot.gen`
+does not parse PICurv run directories or logs.
 
 Typical sources:
 
@@ -538,6 +567,26 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
   - `--case <path>`
 - optional:
   - `--output-dir <path>` (defaults to `precomputed/<case-name>`)
+
+`summarize`:
+- required:
+  - `--run-dir <path>`
+- config/run views:
+  - `--overview`
+  - `--case`
+  - `--solver`
+  - `--monitor`
+- selected-step health:
+  - mutually exclusive `--step <n>`, `--latest`, or `--max-step`
+  - `--snapshot-rows <positive-int>`
+- standalone time-history discovery/plotting:
+  - mutually exclusive `--list-plot-series` or `--plot <qualified-series>`
+  - `--last <positive-int>` (requires `--plot`)
+  - `--plot-output <path>` (requires `--plot`)
+  - `--linear-y` (requires `--plot`)
+  - plot/list modes cannot combine with config/run views or selected-step health
+- output:
+  - `--format {text,json}` (`--list-plot-series` supports JSON; `--plot` rejects JSON)
 
 `submit`:
 - required:

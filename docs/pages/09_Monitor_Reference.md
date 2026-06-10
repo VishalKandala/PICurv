@@ -149,6 +149,9 @@ for the solver stage, with analogous `PostProcessor` log names for post runs.
   process/PETSc allocation signals per step.
 - `picurv summarize` reports the latest runtime memory signals when the log is
   present.
+- `picurv summarize --list-plot-series` exposes available plottable scalar monitor histories,
+  and `--plot <qualified-series>` renders full or last-N append-order histories
+  through standalone `scripts/plot.gen`.
 
 @section p09_solver_monitoring_sec 5. solver_monitoring
 
