@@ -28,7 +28,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - PETSc build available via `PETSC_DIR` (and `PETSC_ARCH` when required by your install)
 - C toolchain + MPI (`gcc/clang`, `mpicc`, GNU Make)
 - Python 3.10+ recommended for the managed PICurv CLI environment
-- Optional for plotting in sweep post-processing: `matplotlib`
+- Python CLI dependencies installed by bootstrap: `pyyaml`, `numpy`, `packaging`, and `matplotlib`
 
 Automated setup (recommended):
 ```bash
@@ -37,6 +37,12 @@ export PETSC_DIR=/path/to/petsc
 # export PETSC_ARCH=arch-linux-c-debug
 ./scripts/bootstrap_install.sh --install-shell-hook
 ```
+Bootstrap installs `matplotlib` into the managed environment by default so
+`summarize --plot` and sweep post-processing plots work immediately.
+It preserves the environment's existing pip version by default; use
+`--upgrade-pip` only when an explicit pip upgrade is needed.
+It also verifies imports with `PYTHONPATH` and user-site packages disabled,
+matching the isolated environment used by the `picurv` launcher.
 The bootstrap script creates `.picurv-venv/` by default and installs the Python
 CLI dependencies there, while PETSc/MPI/compiler dependencies remain in your
 loaded system or module environment. It also records the seed Python runtime

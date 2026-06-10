@@ -15,6 +15,29 @@ import os
 import sys
 
 
+class MissingPlotDependencyError(RuntimeError):
+    """!
+    @brief Raised when an optional plotting dependency is unavailable.
+    """
+
+
+def _missing_module_name(*errors) -> "str | None":
+    """!
+    @brief Return the first missing module named by an exception chain.
+    @param[in] errors Candidate import exceptions.
+    @return Missing top-level module name when available.
+    """
+    for error in errors:
+        current = error
+        seen = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, ModuleNotFoundError) and current.name:
+                return current.name.split(".", 1)[0]
+            current = current.__cause__ or current.__context__
+    return None
+
+
 def _drop_imported_package(package_name: str):
     """!
     @brief Remove a failed or partial import package tree from sys.modules.
@@ -57,9 +80,12 @@ def require_matplotlib_pyplot():
             import matplotlib.pyplot as pyplot
             return pyplot
         except Exception as retry_exc:
-            raise RuntimeError(
-                "matplotlib is required for plotting. "
-                f"First error: {first_error}. Retry error: {retry_exc}"
+            dependency = _missing_module_name(first_error, retry_exc) or "matplotlib"
+            raise MissingPlotDependencyError(
+                f"Python dependency '{dependency}' required for plotting is unavailable. Repair the active "
+                f"PICurv environment with 'env -u PYTHONPATH PYTHONNOUSERSITE=1 {sys.executable} "
+                f"-m pip install --no-cache-dir --force-reinstall {dependency}'. "
+                f"Import errors: {first_error}; {retry_exc}"
             ) from retry_exc
         finally:
             sys.path = original_path
@@ -180,6 +206,9 @@ def main(argv=None) -> int:
         request = validate_plot_request(read_plot_request(args.input))
         print(render_plot_request(request, output_override=args.output))
         return 0
+    except MissingPlotDependencyError as exc:
+        print(f"[ERROR] plot.gen missing dependency: {exc}", file=sys.stderr)
+        return 3
     except Exception as exc:
         print(f"[ERROR] plot.gen failed: {exc}", file=sys.stderr)
         return 1

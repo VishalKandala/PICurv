@@ -59,9 +59,9 @@ picurv --help
 Useful variants:
 
 ```bash
-./scripts/bootstrap_install.sh --with-plotting
 ./scripts/bootstrap_install.sh --venv-dir /path/to/picurv-venv
 ./scripts/bootstrap_install.sh --python-bin /path/to/python3.11
+./scripts/bootstrap_install.sh --upgrade-pip
 ./scripts/bootstrap_install.sh --install-shell-hook
 ./scripts/bootstrap_install.sh --no-venv
 ```
@@ -70,6 +70,11 @@ Use `--no-venv` when your site requires Python packages to come from modules or
 a centrally managed environment. If the only visible interpreter is Python 3.6,
 load a newer Python module before the default bootstrap path; otherwise use
 `--no-venv` and site-approved package versions.
+
+Bootstrap does not upgrade pip during a normal install. This keeps routine
+updates smaller and avoids unnecessary package churn on quota-constrained
+cluster home directories. Pass `--upgrade-pip` when an explicit upgrade is
+needed.
 
 @section p01_install_tools_sec 3. Install Base Toolchain (Manual Path)
 
@@ -80,7 +85,7 @@ sudo apt-get update
 sudo apt-get install -y build-essential gfortran mpich git make pkg-config libx11-dev python3 python3-pip python3-venv
 python3 -m venv .picurv-venv
 .picurv-venv/bin/python -m pip install --upgrade pip
-.picurv-venv/bin/python -m pip install pyyaml numpy
+.picurv-venv/bin/python -m pip install pyyaml numpy packaging matplotlib
 ```
 
 RHEL/CentOS/Fedora:
@@ -90,14 +95,16 @@ sudo yum groupinstall -y "Development Tools"
 sudo yum install -y mpich-devel python3 python3-pip git
 python3 -m venv .picurv-venv
 .picurv-venv/bin/python -m pip install --upgrade pip
-.picurv-venv/bin/python -m pip install pyyaml numpy
+.picurv-venv/bin/python -m pip install pyyaml numpy packaging matplotlib
 ```
 
-Optional (study plot generation):
+`matplotlib` is part of the standard Python dependency set because it powers
+`summarize --plot` and study plot generation.
 
-```bash
-.picurv-venv/bin/python -m pip install matplotlib
-```
+Bootstrap verifies `yaml`, `numpy`, `packaging`, and `matplotlib` imports with
+`PYTHONPATH` and user-site packages disabled. This matches the isolated Python
+environment used by the `picurv` launcher and catches dependencies that are
+visible only through a loaded cluster module.
 
 @section p01_petsc_sec 4. Install PETSc
 
