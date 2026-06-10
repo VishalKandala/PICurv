@@ -4346,7 +4346,10 @@ _SOLVER_SCHEMA = {
     ("operation_mode",): {"eulerian_field_source", "analytical_type", "uniform_flow"},
     ("operation_mode", "uniform_flow"): {"u", "v", "w"},
     ("strategy",): {"momentum_solver", "central_diff"},
-    ("tolerances",): {"max_iterations", "absolute_tol", "relative_tol", "step_tol"},
+    ("tolerances",): {
+        "max_iterations", "absolute_tol", "relative_tol", "step_tol",
+        "residual_absolute_tol", "residual_relative_tol",
+    },
     ("momentum_solver",): {"type", "dual_time_picard_jameson_rk", "dual_time_picard_rk4"},
     ("momentum_solver", "dual_time_picard_jameson_rk"): {
         "max_pseudo_steps", "absolute_tol", "relative_tol", "step_tol", "pseudo_cfl",
@@ -4985,6 +4988,17 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                     except (TypeError, ValueError):
                         errors.append(f"  {solver_path}: scalar_transport.{key} must be numeric.")
 
+        tolerances_cfg = solver_cfg.get('tolerances', {})
+        if tolerances_cfg is not None and not isinstance(tolerances_cfg, dict):
+            errors.append(f"  {solver_path}: 'tolerances' must be a mapping when provided.")
+        elif isinstance(tolerances_cfg, dict):
+            for key in ("absolute_tol", "relative_tol", "residual_absolute_tol", "residual_relative_tol"):
+                if key in tolerances_cfg:
+                    try:
+                        float(tolerances_cfg[key])
+                    except (TypeError, ValueError):
+                        errors.append(f"  {solver_path}: tolerances.{key} must be numeric.")
+
         ms_cfg = solver_cfg.get('momentum_solver', {})
         if ms_cfg is not None and not isinstance(ms_cfg, dict):
             errors.append(f"  {solver_path}: 'momentum_solver' must be a mapping when provided.")
@@ -5064,6 +5078,36 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                                 errors.append(
                                     f"  {solver_path}: unsupported keys in momentum_solver.dual_time_picard_jameson_rk.pseudo_cfl: {unknown_pcfl_keys}."
                                 )
+                            numeric_pcfl = {}
+                            for key in allowed_pcfl_keys:
+                                if key in pcfl_cfg:
+                                    try:
+                                        numeric_pcfl[key] = float(pcfl_cfg[key])
+                                    except (TypeError, ValueError):
+                                        errors.append(
+                                            f"  {solver_path}: momentum_solver.dual_time_picard_jameson_rk.pseudo_cfl.{key} must be numeric."
+                                        )
+                            if numeric_pcfl.get('minimum', 1.0) <= 0.0:
+                                errors.append(f"  {solver_path}: pseudo_cfl.minimum must be positive.")
+                            if numeric_pcfl.get('growth_factor', 1.0) < 1.0:
+                                errors.append(f"  {solver_path}: pseudo_cfl.growth_factor must be at least 1.")
+                            reduction = numeric_pcfl.get('reduction_factor', 1.0)
+                            if reduction <= 0.0 or reduction >= 1.0:
+                                errors.append(f"  {solver_path}: pseudo_cfl.reduction_factor must be in (0, 1).")
+                            if all(key in numeric_pcfl for key in ('minimum', 'initial', 'maximum')):
+                                if not numeric_pcfl['minimum'] <= numeric_pcfl['initial'] <= numeric_pcfl['maximum']:
+                                    errors.append(f"  {solver_path}: pseudo_cfl requires minimum <= initial <= maximum.")
+                    noise_key = (
+                        'jameson_residual_noise_allowance_factor'
+                        if 'jameson_residual_noise_allowance_factor' in dt_picard_cfg
+                        else 'rk4_residual_noise_allowance_factor'
+                    )
+                    if noise_key in dt_picard_cfg:
+                        try:
+                            if float(dt_picard_cfg[noise_key]) < 1.0:
+                                errors.append(f"  {solver_path}: {noise_key} must be at least 1.")
+                        except (TypeError, ValueError):
+                            errors.append(f"  {solver_path}: {noise_key} must be numeric.")
 
         solution_convergence_cfg = solver_cfg.get('solution_convergence', {})
         if solution_convergence_cfg is not None and not isinstance(solution_convergence_cfg, dict):
@@ -7478,6 +7522,8 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             'max_iterations': '-mom_max_pseudo_steps',
             'absolute_tol': '-mom_atol',
             'relative_tol': '-mom_rtol',
+            'residual_absolute_tol': '-mom_resid_atol',
+            'residual_relative_tol': '-mom_resid_rtol',
             'step_tol': '-imp_stol'
         }
         for key, flag in tol_map.items():

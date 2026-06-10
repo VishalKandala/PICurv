@@ -36,12 +36,24 @@ Main controls consumed by implemented solvers:
 - `-mom_max_pseudo_steps`
 - `-mom_atol`
 - `-mom_rtol`
-- `-imp_stol`
+- `-mom_resid_atol`, `-mom_resid_rtol`
 - `-pseudo_cfl`, `-min_pseudo_cfl`, `-max_pseudo_cfl`
 - `-pseudo_cfl_growth_factor`, `-pseudo_cfl_reduction_factor`
 - `-mom_dt_jameson_residual_norm_noise_allowance_factor`
 
 Defaults and final option ingestion are in function @ref CreateSimulationContext during startup parsing.
+
+For the dual-time Jameson solver, `max_iterations` counts total attempted
+trials, including rejected trials. When both residual tolerances are disabled,
+legacy update-only `absolute AND relative` convergence is preserved. Enabling
+either residual tolerance selects update `absolute OR relative`, combined with
+the enabled residual criteria.
+
+The dual-time controller uses one global pseudo-CFL and globally accepts or
+rolls back a complete four-stage trial. The selected next pseudo-CFL is carried
+directly into the next physical timestep. `step_tol`/`-imp_stol` remains
+accepted only as a deprecated compatibility input and is unused by active
+momentum solvers.
 
 @section p31_testing_sec 4. Current test status
 

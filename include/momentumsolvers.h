@@ -39,10 +39,9 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  * This is technically a Fixed-Point iteration on the operator:
  * U_new = U_old + pseudo_dt_scaling * dt_pseudo * Total_Residual(U_old)
  * We use a 4-Stage Explicit RK scheme (Jameson-Schmidt-Turkel coeffs) to smooth errors.
- * 3. STABILITY: Backtracking Line Search
- * If a pseudo-time step causes the Residual or Solution Error to GROW (Divergence),
- * the solver "Backtracks": it restores the previous solution, cuts the pseudo-time step
- * scaling factor (pseudo_dt_scaling) in half, and retries the iteration.
+ * 3. STABILITY: Adaptive Pseudo-CFL Trial Acceptance and Rollback
+ * If a pseudo-time trial causes excessive residual growth, the solver restores the
+ * previous accepted state, reduces the global pseudo-CFL, and retries.
  * =================================================================================================
  * VARIABLE MAPPING
  * =================================================================================================

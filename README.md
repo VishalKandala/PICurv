@@ -457,6 +457,7 @@ Detailed guide:
 - 10-minute start: https://vishalkandala.me/picurv-docs/38_Start_Here_10_Minutes.html
 - Installation guide: https://vishalkandala.me/picurv-docs/01_Installation.html
 - Conductor CLI: https://vishalkandala.me/picurv-docs/05_The_Conductor_Script.html
+- Picard-Jameson momentum solver: https://vishalkandala.me/picurv-docs/24_Dual_Time_Picard_Jameson_RK.html
 - Workflow recipes and config cookbook: https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
 - Config contract: https://vishalkandala.me/picurv-docs/14_Config_Contract.html
 - Config ingestion map: https://vishalkandala.me/picurv-docs/15_Config_Ingestion_Map.html

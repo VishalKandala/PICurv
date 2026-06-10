@@ -6,6 +6,20 @@
 
 ## Unreleased
 
+- Picard-Jameson momentum-controller hardening:
+  - changed pseudo-time trial acceptance and rollback to one global
+    transactional decision across blocks and MPI ranks.
+  - bounded runtime by counting rejected and accepted trials against
+    `max_iterations`, and guaranteed nonfatal exits retain the last accepted
+    finite state.
+  - unified pseudo-CFL adaptation and carry-over, removed the extra hard-coded
+    reduction multiplier and independent low-CFL rebound, and added controller
+    bounds validation.
+  - added optional `residual_absolute_tol` and `residual_relative_tol`;
+    configurations without enabled residual tolerances retain legacy
+    update-only convergence semantics.
+  - deprecated unused `step_tol` while retaining compatibility ingestion.
+
 - Search robustness observability:
   - added always-on aggregate search instrumentation for particle-enabled runs.
   - added `logs/search_metrics.csv` with timestep-level search, traversal, tie-break, boundary-clamp, bbox-guess, pass-depth, per-step loss, run-local cumulative loss, V2 population/outcome counters, and derived `search_failure_fraction`, `search_work_index`, and `re_search_fraction` signals.

@@ -190,11 +190,13 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     PetscErrorCode ierr;
     PetscMPIInt    rank;
     PetscInt       istage, pseudo_iter;
+    PetscInt       accepted_iter = 0, rejected_iter = 0, recovery_streak = 0;
     PetscReal      ts, te, cput;
 
     // --- Global Convergence Metrics ---
     PetscReal global_norm_delta = 10.0; 
     PetscReal global_rel_delta  = 1.0;  
+    PetscReal global_norm_resid = 1.0;
     PetscReal global_rel_resid  = 1.0;  
 
     // --- Local Metric Arrays (Per Block) ---
@@ -256,11 +258,22 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     
     // --- 2. Main Pseudo-Time Iteration Loop ---
     pseudo_iter = 0;
-    while ((force_restart || (global_norm_delta > tol_abs_delta || global_rel_delta > tol_rtol_delta) || pseudo_iter < 1)
-            && pseudo_iter < max_pseudo_steps)
+    PetscBool residual_convergence_enabled =
+        (PetscBool)(simCtx->mom_resid_atol > 0.0 || simCtx->mom_resid_rtol > 0.0);
+    PetscBool converged = PETSC_FALSE;
+    PetscBool last_trial_nonfinite = PETSC_FALSE;
+    while (!converged && pseudo_iter < max_pseudo_steps)
     {
         pseudo_iter++;
         force_restart = PETSC_FALSE;
+
+        // Every attempt starts from the last globally accepted state.
+        for (PetscInt bi = 0; bi < block_number; bi++) {
+            ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
+            ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
+            ierr = UpdateLocalGhosts(&user[bi], "Ucont"); CHKERRQ(ierr);
+            ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
+        }
 	
         for (PetscInt bi = 0; bi < block_number; bi++) {
             
@@ -334,11 +347,13 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         // --- Update Global Convergence Criteria ---
         global_norm_delta = -1.0e20; 
         global_rel_delta  = -1.0e20; 
+        global_norm_resid = -1.0e20;
         global_rel_resid  = -1.0e20;
         
         for (PetscInt bi = 0; bi < block_number; bi++) {
             global_norm_delta = PetscMax(delta_sol_norm_curr[bi], global_norm_delta);
             global_rel_delta  = PetscMax(delta_sol_rel_curr[bi],  global_rel_delta);
+            global_norm_resid = PetscMax(resid_norm_curr[bi],      global_norm_resid);
             global_rel_resid  = PetscMax(resid_rel_curr[bi],      global_rel_resid);
         }
         ierr = PetscTime(&te); CHKERRQ(ierr);
@@ -346,168 +361,141 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         LOG_ALLOW(GLOBAL, LOG_INFO, "  Pseudo-Iter(k) %d: |dUk|=%e, |dUk|/|dU0| = %e, |Rk|/|R0| = %e, CPU=%.2fs\n",
               pseudo_iter, global_norm_delta, global_rel_delta, global_rel_resid, cput);
 
-        // === Backtracking Line Search ===
+        // === Adaptive Pseudo-CFL Trial Acceptance and Rollback ===
+        const PetscReal resid_floor = 1.0e-30;
+        PetscReal global_trial_ratio = 0.0;
+        PetscBool global_nonfinite = PETSC_FALSE;
         for (PetscInt bi = 0; bi < block_number; bi++) {
-
-            PetscReal resid_ratio = resid_norm_curr[bi] / resid_norm_prev[bi];
-            
-            PetscBool is_sol_nan, is_resid_nan, is_diverging;
-            // Check for NaNs in Solution and Residual
-            is_sol_nan = (PetscBool)PetscIsNanReal(delta_sol_norm_curr[bi]);
-            is_resid_nan = (PetscBool)PetscIsNanReal(resid_norm_curr[bi]);
-
-            // TRIGGER: Divergence Detected
-            is_diverging = (PetscBool)(pseudo_iter > 1 && 
-                resid_norm_curr[bi] > simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor*resid_norm_prev[bi] &&
-                delta_sol_norm_curr[bi] > delta_sol_norm_prev[bi]
-                ); 
-            
-                if(is_diverging || is_sol_nan || is_resid_nan) {
-
-                    if(is_sol_nan){
-                        LOG_ALLOW(LOCAL, LOG_WARNING, "  Block %d: NaN detected in solution update norm.\n", bi);
-                    }
-                    if(is_resid_nan){
-                        LOG_ALLOW(LOCAL, LOG_WARNING, "  Block %d: NaN detected in residual norm.\n", bi);
-                    }
-                    if(is_diverging){
-                        LOG_ALLOW(LOCAL, LOG_WARNING, "  Block %d: Divergence detected (|R| and |dU| increasing).\n", bi);
-                    }
-
-                    if(pseudo_dt_scaling[bi] < simCtx->min_pseudo_cfl) {
-                        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_CONV_FAILED, 
-                            "Block %d: Solver diverged (NaN or explosion) and min time-step reached. Simulation aborted.", bi);
-                    }
-
-                    // For nan situations, we always backtrack.
-                    force_restart = PETSC_TRUE;
-
-                // 1. Reduce Step Size
-                pseudo_dt_scaling[bi] *= 0.5*simCtx->pseudo_cfl_reduction_factor; // Aggressive deceleration (1/2 x reduction factor).
-                // NOTE: pseudo_iter-- is handled once after this loop to avoid multi-decrement for block_number > 1.
-
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Block %d: Backtracking triggered. Reducing scaling to %f.\n", bi, pseudo_dt_scaling[bi]);
-                
-                // 3. RESTORE from Backup
-                ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
-
-                ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
-                
-                // 4. SYNC Ghost Cells
-                ierr = UpdateLocalGhosts(&user[bi],"Ucont"); CHKERRQ(ierr);
-                //ierr = DMGlobalToLocalBegin(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
-                //ierr = DMGlobalToLocalEnd(user[bi].fda, user[bi].Ucont, INSERT_VALUES, user[bi].lUcont); CHKERRQ(ierr);
-
-                // 5. Reset current norms to avoid polluting next loop check.
-                delta_sol_norm_curr[bi] = 1000.0;
-                resid_norm_curr[bi] = 1000.0;
-
-            } 
-            else {
-                // SUCCESS: Step accepted. Update Backup and History.
-                ierr = VecCopy(user[bi].Ucont, user[bi].pUcont); CHKERRQ(ierr);
-                ierr = VecCopy(user[bi].Rhs,   pRhs[bi]);        CHKERRQ(ierr);
-                resid_norm_prev[bi]     = resid_norm_curr[bi];
-                delta_sol_norm_prev[bi] = delta_sol_norm_curr[bi];
-
-                // Adaptive Ramping of solution speed (Pseudo-CFL)
-
-                PetscBool is_converging_fast;  
-                is_converging_fast = (PetscBool)(resid_ratio < 0.9);
-                PetscBool is_stagnating;       
-                is_stagnating = (PetscBool)(resid_ratio >= 0.98 && resid_ratio < 1.0);
-                PetscBool is_noisy;            
-                is_noisy = (PetscBool)(resid_ratio >= 1.0 && resid_ratio < simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor);
-                
-                PetscReal current_cfl = pseudo_dt_scaling[bi];
-                PetscReal cfl_floor = 10*simCtx->min_pseudo_cfl; // Define a "low CFL" threshold for more aggressive acceleration.
-                PetscReal cfl_ceiling = 0.75*simCtx->max_pseudo_cfl; // Define a "high CFL" threshold for mild acceleration.
-
-                if(is_converging_fast){ 
-                    // Residual is falling fast (good convergence)
-                    pseudo_dt_scaling[bi] *= simCtx->pseudo_cfl_growth_factor;
-                } else if(is_stagnating && current_cfl < cfl_floor){ 
-                    // Residual is falling very slow (weak convergence.) we accelerate at low CFL
-                    pseudo_dt_scaling[bi] *= PetscMin(1.2*simCtx->pseudo_cfl_growth_factor, 1.1); // more aggressive acceleration at low CFL
-                } else if(is_stagnating && current_cfl >= cfl_floor && current_cfl < cfl_ceiling && !is_noisy){ 
-                    // moderate CFL - normal acceleration
-                    pseudo_dt_scaling[bi] *= simCtx->pseudo_cfl_growth_factor;
-                } else if(is_stagnating && current_cfl >= cfl_ceiling && !is_noisy){ 
-                    // high CFL - mild acceleration (creep)
-                    pseudo_dt_scaling[bi] *= PetscMax(0.95*simCtx->pseudo_cfl_growth_factor,1.005);
-                } else if(is_noisy){ 
-                    // Residual is rising slightly (within noise allowance). we decelerate mildly.
-                    if(current_cfl > cfl_ceiling){
-                        // High CFL - more aggressive deceleration
-                        pseudo_dt_scaling[bi] *= PetscMax(0.9*simCtx->pseudo_cfl_reduction_factor,0.9);
-                    } else if(current_cfl > cfl_floor && current_cfl <= cfl_ceiling){
-                        // Moderate CFL - mild deceleration
-                        pseudo_dt_scaling[bi] *= simCtx->pseudo_cfl_reduction_factor;
-                    } else if(current_cfl <= cfl_floor){
-                        // Low CFL - gentle acceleration
-                        // rise in residual likely due to noise, so we back off slightly.
-                        pseudo_dt_scaling[bi] *= PetscMax(0.95*simCtx->pseudo_cfl_growth_factor,1.01);
-                    }
-                } 
-                // Clamp to max bound.
-                pseudo_dt_scaling[bi] = PetscMin(pseudo_dt_scaling[bi], simCtx->max_pseudo_cfl);
-                pseudo_dt_scaling[bi] = PetscMax(pseudo_dt_scaling[bi], simCtx->min_pseudo_cfl);
+            PetscReal ratio;
+            if (resid_norm_prev[bi] > resid_floor) {
+                ratio = resid_norm_curr[bi] / resid_norm_prev[bi];
+            } else if (resid_norm_curr[bi] <= resid_floor) {
+                ratio = 0.0;
+            } else {
+                ratio = PETSC_MAX_REAL;
             }
+            global_trial_ratio = PetscMax(global_trial_ratio, ratio);
+            global_nonfinite = (PetscBool)(global_nonfinite ||
+                PetscIsInfOrNanReal(delta_sol_norm_curr[bi]) ||
+                PetscIsInfOrNanReal(resid_norm_curr[bi]) ||
+                PetscIsInfOrNanReal(ratio));
         }
 
-        // Decrement once regardless of how many blocks backtracked.
-        if (force_restart) pseudo_iter--;
+        PetscReal reduced_trial_ratio;
+        PetscMPIInt local_nonfinite = global_nonfinite ? 1 : 0;
+        PetscMPIInt reduced_nonfinite = 0;
+        ierr = MPI_Allreduce(&global_trial_ratio, &reduced_trial_ratio, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        ierr = MPI_Allreduce(&local_nonfinite, &reduced_nonfinite, 1, MPI_INT, MPI_LOR, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        global_trial_ratio = reduced_trial_ratio;
+        global_nonfinite = reduced_nonfinite ? PETSC_TRUE : PETSC_FALSE;
+        last_trial_nonfinite = global_nonfinite;
+        force_restart = (PetscBool)(global_nonfinite ||
+            global_trial_ratio > simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor);
+
+        if (force_restart) {
+            PetscReal old_cfl = pseudo_dt_scaling[0];
+            PetscReal next_cfl = PetscMax(simCtx->min_pseudo_cfl,
+                old_cfl * simCtx->pseudo_cfl_reduction_factor);
+            rejected_iter++;
+            recovery_streak = 0;
+            for (PetscInt bi = 0; bi < block_number; bi++) {
+                ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
+                ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
+                ierr = UpdateLocalGhosts(&user[bi], "Ucont"); CHKERRQ(ierr);
+                ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
+                pseudo_dt_scaling[bi] = next_cfl;
+            }
+            LOG_ALLOW(GLOBAL, LOG_DEBUG,
+                      "  Momentum trial %d rejected (ratio=%e, nonfinite=%d); CFL %.6f -> %.6f.\n",
+                      pseudo_iter, global_trial_ratio, (int)global_nonfinite, old_cfl, next_cfl);
+            if (global_nonfinite && old_cfl <= simCtx->min_pseudo_cfl) {
+                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_CONV_FAILED,
+                        "Momentum solver produced a non-finite trial at minimum pseudo-CFL.");
+            }
+            continue;
+        }
+
+        accepted_iter++;
+        last_trial_nonfinite = PETSC_FALSE;
+        for (PetscInt bi = 0; bi < block_number; bi++) {
+            ierr = VecCopy(user[bi].Ucont, user[bi].pUcont); CHKERRQ(ierr);
+            ierr = VecCopy(user[bi].Rhs, pRhs[bi]); CHKERRQ(ierr);
+            resid_norm_prev[bi] = resid_norm_curr[bi];
+            delta_sol_norm_prev[bi] = delta_sol_norm_curr[bi];
+        }
+
+        PetscReal next_cfl = pseudo_dt_scaling[0];
+        if (global_trial_ratio < 0.90) {
+            next_cfl *= simCtx->pseudo_cfl_growth_factor;
+            recovery_streak = 0;
+        } else if (global_trial_ratio <= 1.0) {
+            recovery_streak++;
+            if (recovery_streak >= 3) {
+                next_cfl *= simCtx->pseudo_cfl_growth_factor;
+                recovery_streak = 0;
+            }
+        } else {
+            next_cfl *= simCtx->pseudo_cfl_reduction_factor;
+            recovery_streak = 0;
+        }
+        next_cfl = PetscMin(next_cfl, simCtx->max_pseudo_cfl);
+        next_cfl = PetscMax(next_cfl, simCtx->min_pseudo_cfl);
+        for (PetscInt bi = 0; bi < block_number; bi++) pseudo_dt_scaling[bi] = next_cfl;
+
+        PetscBool update_pass;
+        PetscBool residual_pass = PETSC_TRUE;
+        if (residual_convergence_enabled) {
+            update_pass = (PetscBool)(global_norm_delta <= tol_abs_delta || global_rel_delta <= tol_rtol_delta);
+            residual_pass = (PetscBool)(
+                (simCtx->mom_resid_atol > 0.0 && global_norm_resid <= simCtx->mom_resid_atol) ||
+                (simCtx->mom_resid_rtol > 0.0 && global_rel_resid <= simCtx->mom_resid_rtol));
+        } else {
+            update_pass = (PetscBool)(global_norm_delta <= tol_abs_delta && global_rel_delta <= tol_rtol_delta);
+        }
+        converged = (PetscBool)(update_pass && residual_pass);
 
         if (block_number > 1) {
              // ierr = Block_Interface_U(user); CHKERRQ(ierr);
         }
     } // End while loop
 
-
-    // Smart CFL Carry Over
-
-    PetscReal local_min_cfl = 1.0e20;
-    PetscReal global_min_cfl;
-
-    PetscReal cfl_floor = 10*simCtx->min_pseudo_cfl;
-
-    // 1. Find the "Weakest Link" (lowest CFL) across local blocks
-    for (PetscInt bi = 0; bi < block_number; bi++) {
-        if (pseudo_dt_scaling[bi] < local_min_cfl) {
-            local_min_cfl = pseudo_dt_scaling[bi];
-        }
+    if (last_trial_nonfinite) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_CONV_FAILED,
+                "Momentum solver exhausted its attempt limit while recovering from a non-finite trial.");
     }
 
-    // 2. MPI Reduction (Crucial if blocks are distributed across ranks)
-    // We want the minimum CFL across the entire simulation, not just this processor.
-    ierr = MPI_Allreduce(&local_min_cfl, &global_min_cfl, 1, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD); CHKERRQ(ierr);
-
-    // 3. Apply Safety Factor & Update simCtx
-    // We use a factor (e.g., 0.85) to back off slightly for the start of the next timestep
-    // to accommodate the initial residual spike from the BDF term.
-    
-    PetscReal cfl_carry_over_relaxation_factor = 1.0; // Could be parameterized in simCtx if desired.
-    
-    PetscReal next_start_cfl;
-
-    if(global_min_cfl < cfl_floor){
-        // If the minimum CFL is very low, we back off more aggressively.
-        next_start_cfl = cfl_floor * 1.5;
-    } else{
-        next_start_cfl = global_min_cfl * cfl_carry_over_relaxation_factor;
-    }
-    
-    next_start_cfl = PetscMin(next_start_cfl, simCtx->max_pseudo_cfl);
-    next_start_cfl = PetscMax(next_start_cfl, simCtx->min_pseudo_cfl);
+    // Carry the controller-selected next CFL directly into the next physical step.
+    PetscReal next_start_cfl = pseudo_dt_scaling[0];
 
     // 5. Save for next Physical Time Step
     if (!rank) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "  CFL Adaptation: Step %d finished at CFL %.3f. Next step will start at CFL %.3f.\n", 
-                  simCtx->step, global_min_cfl, next_start_cfl);
+                  simCtx->step, pseudo_dt_scaling[0], next_start_cfl);
     }
     
     // Update the context so the next call to MomentumSolver reads this new value
     simCtx->pseudo_cfl = next_start_cfl;    
+
+    // Ensure every nonfatal exit exposes the last accepted finite state.
+    for (PetscInt bi = 0; bi < block_number; bi++) {
+        ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
+        ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(&user[bi], "Ucont"); CHKERRQ(ierr);
+        ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
+    }
+
+    if (!converged) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "Momentum solver reached %d attempts without convergence; continuing from the last accepted finite state.\n",
+                  pseudo_iter);
+    }
+    if (accepted_iter == 0) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "Momentum solver accepted no pseudo-time trials; retaining the physical-step entry state.\n");
+    }
+    LOG_ALLOW(GLOBAL, LOG_INFO,
+              "Momentum solver finished after %d attempts (%d accepted, %d rejected), next CFL=%.6f.\n",
+              pseudo_iter, accepted_iter, rejected_iter, next_start_cfl);
 
     // --- Final Cleanup ---
     for (PetscInt bi = 0; bi < block_number; bi++) {
@@ -524,7 +512,6 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     ierr = PetscFree2(resid_norm_curr,     pseudo_dt_scaling); CHKERRQ(ierr);
     ierr = PetscFree(resid_rel_curr); CHKERRQ(ierr);
     
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Momentum Solver converged/completed after %d pseudo-iterations.\n", pseudo_iter);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

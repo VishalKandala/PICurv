@@ -75,7 +75,8 @@ tolerances:
   max_iterations: 50   # [Integer] -> -mom_max_pseudo_steps
   absolute_tol: 1.0e-8 # [Float] -> -mom_atol
   relative_tol: 1.0e-5 # [Float] -> -mom_rtol
-  step_tol:     1.0e-8 # [Float] -> -imp_stol
+  residual_absolute_tol: 0.0 # Disabled when non-positive
+  residual_relative_tol: 1.0e-3 # Use 1.0e-2 for looser exploratory LES
 
 # --- Advanced Momentum Solver Controls (optional) ---
 # This section exposes newer dual-time controls directly (no passthrough needed).
@@ -85,13 +86,12 @@ momentum_solver:
     max_pseudo_steps: 50         # -> -mom_max_pseudo_steps
     absolute_tol: 1.0e-8         # -> -mom_atol
     relative_tol: 1.0e-5         # -> -mom_rtol
-    step_tol: 1.0e-8             # -> -imp_stol
     pseudo_cfl:
       initial: 0.1               # -> -pseudo_cfl
       minimum: 0.001             # -> -min_pseudo_cfl
       maximum: 1.0               # -> -max_pseudo_cfl
-      growth_factor: 1.0         # -> -pseudo_cfl_growth_factor
-      reduction_factor: 1.0      # -> -pseudo_cfl_reduction_factor
+      growth_factor: 1.05        # -> -pseudo_cfl_growth_factor
+      reduction_factor: 0.75     # -> -pseudo_cfl_reduction_factor
     jameson_residual_noise_allowance_factor: 1.05 # -> -mom_dt_jameson_residual_norm_noise_allowance_factor
 
 # --- Physical Solution Convergence Logging ---
@@ -198,4 +198,4 @@ petsc_passthrough_options:
   # -max_pseudo_cfl: 1.0
   # -min_pseudo_cfl: 0.001
   # -pseudo_cfl_growth_factor: 1.0
-  # -pseudo_cfl_reduction_factor: 1.0
+  # -pseudo_cfl_reduction_factor: 0.75
