@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_PETSC=0
 SKIP_SYSTEM_DEPS=0
 USE_VENV=1
-WITH_PLOTTING=0
+UPGRADE_PIP=0
 INSTALL_SHELL_HOOK=0
 PETSC_VERSION="3.20.3"
 PETSC_PREFIX="${HOME}/software"
@@ -35,7 +35,8 @@ Options:
   --python-bin <path>        Python interpreter to seed the venv or use directly.
   --venv-dir <dir>           Managed venv path (default: .picurv-venv).
   --no-venv                  Use the selected Python directly.
-  --with-plotting            Also install matplotlib for sweep plot generation.
+  --with-plotting            Compatibility option; matplotlib is installed by default.
+  --upgrade-pip              Upgrade pip before installing Python dependencies.
   --install-shell-hook       Add an idempotent source line to ~/.bashrc.
   --shell-rc <path>          Shell startup file for --install-shell-hook.
   --skip-system-deps         Skip apt package installation.
@@ -77,6 +78,15 @@ python_version_label() {
 
 python_is_supported_seed() {
   "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'
+}
+
+verify_python_dependencies() {
+  local python_bin="$1"
+
+  log "Verifying PICurv Python dependencies in isolated launcher mode..."
+  if ! env -u PYTHONPATH PYTHONNOUSERSITE=1 "${python_bin}" -c 'import yaml, numpy, packaging, matplotlib'; then
+    die "PICurv Python dependency verification failed. Repair the isolated environment with: env -u PYTHONPATH PYTHONNOUSERSITE=1 ${python_bin} -m pip install --no-cache-dir --force-reinstall pyyaml numpy packaging matplotlib"
+  fi
 }
 
 python_runtime_library_dirs() {
@@ -156,7 +166,8 @@ while [[ $# -gt 0 ]]; do
     --python-bin) PYTHON_BIN="${2:?missing value for --python-bin}"; shift 2 ;;
     --venv-dir) VENV_DIR="$(absolute_path "${2:?missing value for --venv-dir}")"; shift 2 ;;
     --no-venv) USE_VENV=0; shift ;;
-    --with-plotting) WITH_PLOTTING=1; shift ;;
+    --with-plotting) shift ;;
+    --upgrade-pip) UPGRADE_PIP=1; shift ;;
     --install-shell-hook) INSTALL_SHELL_HOOK=1; shift ;;
     --shell-rc) SHELL_RC="$(absolute_path "${2:?missing value for --shell-rc}")"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -198,23 +209,25 @@ if [[ "${USE_VENV}" -eq 1 ]]; then
   log "Creating/updating managed Python environment at ${VENV_DIR}..."
   "${PYTHON_BIN}" -m venv "${VENV_DIR}"
   CLI_PYTHON="${VENV_DIR}/bin/python"
-  env -u PYTHONPATH PYTHONNOUSERSITE=1 "${CLI_PYTHON}" -m pip install --upgrade pip
-  PYTHON_PACKAGES=(pyyaml numpy)
-  if [[ "${WITH_PLOTTING}" -eq 1 ]]; then
-    PYTHON_PACKAGES+=(matplotlib)
+  if [[ "${UPGRADE_PIP}" -eq 1 ]]; then
+    log "Upgrading pip in managed Python environment..."
+    env -u PYTHONPATH PYTHONNOUSERSITE=1 "${CLI_PYTHON}" -m pip install --upgrade pip
   fi
+  PYTHON_PACKAGES=(pyyaml numpy packaging matplotlib)
   log "Installing Python dependencies into managed venv: ${PYTHON_PACKAGES[*]}"
   env -u PYTHONPATH PYTHONNOUSERSITE=1 "${CLI_PYTHON}" -m pip install "${PYTHON_PACKAGES[@]}"
 else
   CLI_PYTHON="${PYTHON_BIN}"
   log "Installing Python dependencies with site-managed Python: ${CLI_PYTHON}"
-  "${CLI_PYTHON}" -m pip install --upgrade pip
-  PYTHON_PACKAGES=(pyyaml numpy)
-  if [[ "${WITH_PLOTTING}" -eq 1 ]]; then
-    PYTHON_PACKAGES+=(matplotlib)
+  if [[ "${UPGRADE_PIP}" -eq 1 ]]; then
+    log "Upgrading pip for site-managed Python..."
+    "${CLI_PYTHON}" -m pip install --upgrade pip
   fi
+  PYTHON_PACKAGES=(pyyaml numpy packaging matplotlib)
   "${CLI_PYTHON}" -m pip install "${PYTHON_PACKAGES[@]}"
 fi
+
+verify_python_dependencies "${CLI_PYTHON}"
 
 printf '%s\n' "$(command -v "${CLI_PYTHON}" || printf '%s' "${CLI_PYTHON}")" > "${REPO_ROOT}/.picurv-python"
 write_python_env_file "${CLI_PYTHON}"

@@ -304,6 +304,7 @@ Behavior:
 - plain `summarize --run-dir ...` preserves the implicit latest-step health behavior,
 - `--list-plot-series` discovers numeric scalar histories available to `--plot`,
 - `--plot <qualified-series>` delegates time-history rendering to `scripts/plot.gen`,
+- plotting requires `matplotlib`, which bootstrap installs in the managed PICurv environment by default,
 - plots use full append-order history by default; `--last <n>` keeps the last N chronological records per line,
 - `--plot-output <path>` saves without opening a window; headless interactive requests save under `summary/plots/`,
 - builds a best-effort step summary without changing solver output,

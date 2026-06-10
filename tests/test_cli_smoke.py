@@ -76,6 +76,36 @@ def create_fake_matplotlib(tmp_path: Path) -> Path:
     return package_root
 
 
+def create_broken_matplotlib(tmp_path: Path) -> Path:
+    """!
+    @brief Create a matplotlib package that deterministically fails to import.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return Directory to prepend to PYTHONPATH.
+    """
+    package_root = tmp_path / "broken-python"
+    package_dir = package_root / "matplotlib"
+    package_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text("raise ImportError('matplotlib intentionally unavailable')\n", encoding="utf-8")
+    return package_root
+
+
+def create_matplotlib_with_missing_dependency(tmp_path: Path, dependency: str) -> Path:
+    """!
+    @brief Create a matplotlib package that reports one missing transitive dependency.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] dependency Missing module name to report.
+    @return Directory to prepend to PYTHONPATH.
+    """
+    package_root = tmp_path / "missing-dependency-python"
+    package_dir = package_root / "matplotlib"
+    package_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text(
+        f"raise ModuleNotFoundError(\"No module named '{dependency}'\", name='{dependency}')\n",
+        encoding="utf-8",
+    )
+    return package_root
+
+
 def load_picurv_module():
     """!
     @brief Load `scripts/picurv` as an importable module for white-box CLI tests.
@@ -400,8 +430,31 @@ def test_bootstrap_help_documents_python_environment_modes():
     )
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    for flag in ("--venv-dir", "--no-venv", "--python-bin", "--with-plotting", "--install-shell-hook", "--shell-rc"):
+    for flag in (
+        "--venv-dir",
+        "--no-venv",
+        "--python-bin",
+        "--with-plotting",
+        "--upgrade-pip",
+        "--install-shell-hook",
+        "--shell-rc",
+    ):
         assert flag in result.stdout
+    assert "matplotlib is installed by default" in result.stdout
+
+
+def test_bootstrap_installs_matplotlib_in_default_python_dependency_set():
+    """!
+    @brief Test bootstrap includes matplotlib in every supported Python installation mode.
+    """
+    bootstrap = (REPO_ROOT / "scripts" / "bootstrap_install.sh").read_text(encoding="utf-8")
+
+    assert bootstrap.count("PYTHON_PACKAGES=(pyyaml numpy packaging matplotlib)") == 2
+    assert bootstrap.count('if [[ "${UPGRADE_PIP}" -eq 1 ]]') == 2
+    assert bootstrap.count("-m pip install --upgrade pip") == 2
+    assert "env -u PYTHONPATH PYTHONNOUSERSITE=1" in bootstrap
+    assert "import yaml, numpy, packaging, matplotlib" in bootstrap
+
 
 def test_launcher_prefers_managed_venv_python(tmp_path):
     """!
@@ -3101,6 +3154,77 @@ def test_plot_gen_rejects_malformed_request(tmp_path):
     assert "requires at least one line" in result.stderr
 
 
+def test_plot_gen_reports_missing_matplotlib_with_install_command(tmp_path):
+    """!
+    @brief Test standalone plot.gen distinguishes a missing optional dependency.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    request_path = tmp_path / "plot-request.json"
+    broken_python = create_broken_matplotlib(tmp_path)
+    request_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "plot_type": "time_history",
+                "series": "continuity.net_flux",
+                "lines": [{"label": "block 0", "points": [[1, 0.1]]}],
+                "fallback_output_path": str(tmp_path / "fallback.png"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(PLOT_GEN), "--input", str(request_path)],
+        cwd=str(tmp_path),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(broken_python)},
+    )
+
+    assert result.returncode == 3
+    assert "plot.gen missing dependency" in result.stderr
+    assert "Python dependency 'matplotlib'" in result.stderr
+    assert "--force-reinstall matplotlib" in result.stderr
+
+
+def test_plot_gen_reports_specific_missing_transitive_dependency(tmp_path):
+    """!
+    @brief Test standalone plot.gen names a missing matplotlib dependency.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    request_path = tmp_path / "plot-request.json"
+    broken_python = create_matplotlib_with_missing_dependency(tmp_path, "packaging")
+    request_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "plot_type": "time_history",
+                "series": "convergence.mean_ke",
+                "lines": [{"label": "convergence", "points": [[1, 0.1]]}],
+                "fallback_output_path": str(tmp_path / "fallback.png"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(PLOT_GEN), "--input", str(request_path)],
+        cwd=str(tmp_path),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(broken_python)},
+    )
+
+    assert result.returncode == 3
+    assert "Python dependency 'packaging'" in result.stderr
+    assert "--force-reinstall packaging" in result.stderr
+
+
 def test_summarize_list_plot_series_json_reports_available_histories(tmp_path):
     """!
     @brief Test summarize lists only plot series available in existing logs.
@@ -3154,6 +3278,27 @@ def test_summarize_plot_saves_through_plot_gen(tmp_path):
     assert result.returncode == 0, result.stderr
     assert output_path.is_file()
     assert "Saved time-history plot" in result.stdout
+
+
+def test_summarize_plot_reports_missing_matplotlib_as_dependency_error(tmp_path):
+    """!
+    @brief Test summarize reports missing matplotlib without misclassifying the configuration.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path)
+    broken_python = create_broken_matplotlib(tmp_path)
+
+    result = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--plot", "momentum.residual_norm"],
+        cwd=tmp_path,
+        env={"PYTHONPATH": str(broken_python)},
+    )
+
+    assert result.returncode == 1
+    assert "ERROR DEPENDENCY_MISSING" in result.stderr
+    assert "key=plotting" in result.stderr
+    assert "--force-reinstall matplotlib" in result.stderr
+    assert "CFG_INVALID_VALUE" not in result.stderr
 
 
 def test_summarize_plot_request_preserves_duplicate_steps_and_last_window(tmp_path):

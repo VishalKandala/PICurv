@@ -322,6 +322,7 @@ ERROR_CODE_CFG_INVALID_VALUE = "CFG_INVALID_VALUE"
 ERROR_CODE_CFG_FILE_NOT_FOUND = "CFG_FILE_NOT_FOUND"
 ERROR_CODE_CFG_GRID_PARSE = "CFG_GRID_PARSE"
 ERROR_CODE_CFG_INCONSISTENT_COMBO = "CFG_INCONSISTENT_COMBO"
+ERROR_CODE_DEPENDENCY_MISSING = "DEPENDENCY_MISSING"
 
 _ERROR_HINTS = {
     ERROR_CODE_CLI_USAGE_INVALID: "Run 'picurv <command> --help' to see valid argument combinations.",
@@ -332,6 +333,7 @@ _ERROR_HINTS = {
     ERROR_CODE_CFG_FILE_NOT_FOUND: "Fix the path or create the missing file before running again.",
     ERROR_CODE_CFG_GRID_PARSE: "Validate grid file format and numeric payload (block count, dims, coordinates).",
     ERROR_CODE_CFG_INCONSISTENT_COMBO: "Fix conflicting options/keys so the configuration is internally consistent.",
+    ERROR_CODE_DEPENDENCY_MISSING: "Install the named optional dependency for the Python interpreter used by picurv.",
 }
 
 
@@ -8086,6 +8088,12 @@ class CommandExecutionError(RuntimeError):
         )
 
 
+class PlotDependencyError(RuntimeError):
+    """!
+    @brief Raised when plot.gen reports a missing optional dependency.
+    """
+
+
 def _run_captured_command(command: list, run_dir: str) -> subprocess.CompletedProcess:
     """!
     @brief Run a command and capture combined stdout/stderr details for later inspection.
@@ -12812,6 +12820,8 @@ def _invoke_plot_gen(request: dict):
         print(result.stdout.rstrip())
     if result.returncode != 0:
         details = (result.stderr or result.stdout or "unknown plotting error").strip()
+        if result.returncode == 3:
+            raise PlotDependencyError(details)
         raise ValueError(f"plot.gen failed with exit code {result.returncode}: {details}")
 
 
@@ -12862,6 +12872,14 @@ def summarize_workflow(args):
             request = _build_summary_plot_request(context, records, plot_series, last_n, linear_y, plot_output)
             _invoke_plot_gen(request)
             return
+        except PlotDependencyError as exc:
+            emit_structured_error(
+                ERROR_CODE_DEPENDENCY_MISSING,
+                key="plotting",
+                file_path=sys.executable,
+                message=str(exc),
+            )
+            sys.exit(1)
         except ValueError as exc:
             emit_structured_error(
                 ERROR_CODE_CFG_INVALID_VALUE,
@@ -13986,7 +14004,11 @@ def _add_summarize_parser(subparsers):
         action="store_true",
         help=argparse.SUPPRESS,
     )
-    plot_group.add_argument("--plot", dest="plot_series", help="Plot one qualified scalar history, such as momentum.residual_norm.")
+    plot_group.add_argument(
+        "--plot",
+        dest="plot_series",
+        help="Plot one qualified scalar history, such as momentum.residual_norm (requires matplotlib).",
+    )
     p_summarize.add_argument("--last", dest="last_n", type=int, help="Plot only the last N chronological records per line.")
     p_summarize.add_argument("--plot-output", help="Save the plot to this path instead of opening an interactive window.")
     p_summarize.add_argument("--linear-y", action="store_true", help="Force linear y-axis scaling instead of automatic residual/norm log scaling.")

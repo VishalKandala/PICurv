@@ -17,6 +17,7 @@ This directory is the Python/shell control plane for PICurv. It covers user work
 - `plot.gen`
   - standalone renderer for versioned normalized time-history JSON requests
   - used by `picurv summarize --plot`; owns matplotlib styling, interactive display, saving, and headless fallback
+  - requires `matplotlib`, which `bootstrap_install.sh` installs by default
 - `audit_ingress.py`
   - scans `src/setup.c` and `src/io.c` for `PetscOptionsGet*`/`PetscOptionsHasName` usage
   - compares discovered flags with `scripts/audit_ingress_manifest.json`

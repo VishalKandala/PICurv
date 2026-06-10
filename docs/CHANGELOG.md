@@ -87,6 +87,10 @@
   - added `picurv summarize` for read-only per-step health summaries derived from existing run artifacts.
   - expanded `picurv summarize` with additive `--overview`, `--case`, `--solver`, and `--monitor` configuration views that work before timestep artifacts exist.
   - added `summarize --list-plot-series` and `--plot` time-history workflows backed by standalone `scripts/plot.gen`, with append-order windows, automatic residual/norm log scaling, explicit saves, and headless fallback.
+  - report missing `matplotlib` as an actionable `DEPENDENCY_MISSING` plotting error instead of a configuration-value error.
+  - install `matplotlib` by default in the bootstrap-managed Python environment so plotting works after a standard install.
+  - preserve the existing pip version during normal bootstrap runs; add explicit `--upgrade-pip` for environments that need it.
+  - verify Python dependencies under the launcher's isolated environment and report the specific missing plotting dependency.
   - local wrapper stream logs for solver/post stages now write under `runs/<run_id>/scheduler/` instead of `runs/<run_id>/logs/`.
   - summary lookup can use continuity, particle metrics, momentum, Poisson, profiling, and sampled particle snapshot artifacts when present.
   - sampled particle snapshot summaries now include compact speed/bounds/rank/weight diagnostics plus sampled deltas against the previous snapshot when possible.
