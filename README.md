@@ -224,7 +224,9 @@ Add `--cluster my_case/slurm_cluster.yml` to the staged run command to generate 
 ```bash
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve
 ./bin/picurv cancel --run-dir runs/<run_id> --stage solve --graceful
+./bin/picurv summarize --run-dir runs/<run_id> --overview
 ./bin/picurv summarize --run-dir runs/<run_id> --latest
+./bin/picurv summarize --run-dir runs/<run_id> --case --solver --latest
 ```
 
 Plain `picurv cancel` hard-cancels the recorded Slurm job. Add `--graceful`

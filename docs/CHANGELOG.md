@@ -85,6 +85,7 @@
 
 - Run inspection and local log routing:
   - added `picurv summarize` for read-only per-step health summaries derived from existing run artifacts.
+  - expanded `picurv summarize` with additive `--overview`, `--case`, `--solver`, and `--monitor` configuration views that work before timestep artifacts exist.
   - local wrapper stream logs for solver/post stages now write under `runs/<run_id>/scheduler/` instead of `runs/<run_id>/logs/`.
   - summary lookup can use continuity, particle metrics, momentum, Poisson, profiling, and sampled particle snapshot artifacts when present.
   - sampled particle snapshot summaries now include compact speed/bounds/rank/weight diagnostics plus sampled deltas against the previous snapshot when possible.

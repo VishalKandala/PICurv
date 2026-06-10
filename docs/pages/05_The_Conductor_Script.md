@@ -286,15 +286,21 @@ Runtime stream logs:
 - wrapper stdout/stderr stream logs now live under `runs/<run_id>/scheduler/` for both local and Slurm launches.
 - this avoids collisions with solver startup, which recreates the C log directory.
 
-@section p05_summarize_sec 5. summarize: Read-Only Run Health Summary
+@section p05_summarize_sec 5. summarize: Read-Only Run Configuration and Health Summary
 
 ```bash
-./bin/picurv summarize --run-dir <run_dir> [--latest | --step <n>] [--format json]
+./bin/picurv summarize --run-dir <run_dir> \
+  [--overview] [--case] [--solver] [--monitor] \
+  [--latest | --max-step | --step <n>] [--format json]
 ```
 
 Behavior:
 
-- reads copied run configs plus existing runtime artifacts,
+- `--overview` reports run metadata plus curated case, solver, and monitor summaries,
+- `--case`, `--solver`, and `--monitor` are additive selectors for individual copied configs,
+- config-only selectors work before runtime logs exist,
+- timestep selectors read existing runtime artifacts and still require summary-capable logs,
+- plain `summarize --run-dir ...` preserves the implicit latest-step health behavior,
 - builds a best-effort step summary without changing solver output,
 - works for active runs and completed runs,
 - reports unavailable sections when a source log is missing or disabled.
@@ -302,10 +308,18 @@ Behavior:
 Examples:
 
 ```bash
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --overview
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --case --solver
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --latest
-./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --step 500
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --monitor --step 500
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --latest --format json
 ```
+
+Configuration summaries include configured values plus useful normalized and
+derived values such as Reynolds number, nondimensional timestep, normalized
+solver selections, effective monitoring cadence, and enabled diagnostics. Text
+output uses glanceable dashboards with aligned field groups and compact tables;
+use `--format json` for structured automation output.
 
 Typical sources:
 

@@ -10700,8 +10700,11 @@ def _read_yaml_if_exists(filepath: str):
     """
     if not filepath or not os.path.isfile(filepath):
         return None
-    with open(filepath, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except yaml.YAMLError:
+        return None
 
 
 def _read_json_if_exists(filepath: str):
@@ -10781,8 +10784,14 @@ def _build_summary_context(run_dir: str) -> dict:
         sys.exit(1)
 
     config_dir = os.path.join(run_dir, "config")
-    monitor_cfg = _read_yaml_if_exists(os.path.join(config_dir, "monitor.yml")) or {}
-    case_cfg = _read_yaml_if_exists(os.path.join(config_dir, "case.yml")) or {}
+    config_paths = {
+        "case": os.path.join(config_dir, "case.yml"),
+        "solver": os.path.join(config_dir, "solver.yml"),
+        "monitor": os.path.join(config_dir, "monitor.yml"),
+    }
+    monitor_cfg = _read_yaml_if_exists(config_paths["monitor"]) or {}
+    case_cfg = _read_yaml_if_exists(config_paths["case"]) or {}
+    solver_cfg = _read_yaml_if_exists(config_paths["solver"]) or {}
     manifest = _read_json_if_exists(os.path.join(run_dir, "manifest.json")) or {}
 
     io_cfg = monitor_cfg.get("io", {}) if isinstance(monitor_cfg, dict) else {}
@@ -10816,11 +10825,230 @@ def _build_summary_context(run_dir: str) -> dict:
         "scheduler_dir": scheduler_dir,
         "monitor_cfg": monitor_cfg,
         "case_cfg": case_cfg,
+        "solver_cfg": solver_cfg,
+        "config_paths": config_paths,
         "manifest": manifest,
         "profiling_cfg": profiling_cfg,
         "particle_console_output_freq": particle_console_output_freq,
         "particle_log_interval": particle_log_interval,
         "particle_count_cfg": particle_count_cfg,
+    }
+
+
+def _require_summary_config(context: dict, name: str) -> dict:
+    """!
+    @brief Return one explicitly requested copied config or fail with a structured error.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @param[in] name Config selector name.
+    @return Parsed config mapping.
+    """
+    path = context["config_paths"][name]
+    cfg = context.get(f"{name}_cfg")
+    if not os.path.isfile(path):
+        emit_structured_error(
+            ERROR_CODE_CFG_FILE_NOT_FOUND,
+            key=name,
+            file_path=path,
+            message=f"Copied run config '{name}.yml' was not found.",
+            hint="Use a staged run directory containing the requested copied config.",
+        )
+        sys.exit(1)
+    if not isinstance(cfg, dict) or not cfg:
+        emit_structured_error(
+            ERROR_CODE_CFG_INVALID_VALUE,
+            key=name,
+            file_path=path,
+            message=f"Copied run config '{name}.yml' is empty or is not a YAML mapping.",
+        )
+        sys.exit(1)
+    return cfg
+
+
+def _build_run_overview(context: dict) -> dict:
+    """!
+    @brief Build timestep-independent run metadata for summarize.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @return Curated run metadata mapping.
+    """
+    manifest = context["manifest"]
+    return {
+        "run_id": manifest.get("run_id", os.path.basename(context["run_dir"])),
+        "run_dir": context["run_dir"],
+        "created_at": manifest.get("created_at"),
+        "launch_mode": manifest.get("launch_mode"),
+        "git_commit": manifest.get("git_commit"),
+        "solver_num_procs": manifest.get("solver_num_procs", manifest.get("num_procs")),
+        "post_num_procs": manifest.get("post_num_procs"),
+        "stages_requested": manifest.get("stages_requested"),
+        "stages_completed_or_submitted": manifest.get("stages_completed_or_submitted"),
+    }
+
+
+def _summarize_turbulence(turbulence_cfg: dict) -> dict:
+    """!
+    @brief Build compact turbulence and wall-model selections.
+    @param[in] turbulence_cfg Case turbulence configuration mapping.
+    @return Curated turbulence and wall-model mapping.
+    """
+    result = {}
+    for key in ("les", "rans", "wall_function"):
+        value = turbulence_cfg.get(key)
+        if isinstance(value, dict):
+            result[key] = {
+                "enabled": value.get("enabled", True),
+                "model": value.get("model"),
+                **{k: v for k, v in value.items() if k not in {"enabled", "model"}},
+            }
+        elif value is not None:
+            result[key] = value
+    return result
+
+
+def _build_case_overview(context: dict) -> dict:
+    """!
+    @brief Build a curated case.yml summary with useful derived quantities.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @return Curated case configuration mapping.
+    """
+    cfg = _require_summary_config(context, "case")
+    props = cfg.get("properties", {})
+    scaling = props.get("scaling", {})
+    fluid = props.get("fluid", {})
+    run = cfg.get("run_control", {})
+    grid = cfg.get("grid", {})
+    models = cfg.get("models", {})
+    domain = models.get("domain", {})
+    physics = models.get("physics", {})
+    particles = physics.get("particles", {})
+    start = int(run.get("start_step", 0))
+    total = int(run.get("total_steps", 0))
+    dt = float(run.get("dt_physical", 0.0))
+    length_ref = float(scaling.get("length_ref"))
+    velocity_ref = float(scaling.get("velocity_ref"))
+    density = float(fluid.get("density"))
+    viscosity = float(fluid.get("viscosity"))
+    prepared_bcs = validate_and_prepare_boundary_conditions(cfg)
+    bc_blocks = []
+    for block_idx, block in enumerate(prepared_bcs):
+        bc_blocks.append(
+            {
+                "block": block_idx,
+                "faces": [
+                    {"face": row["face"], "type": row["type"], "handler": row["handler"]}
+                    for row in block
+                ],
+            }
+        )
+    return {
+        "run_control": {
+            "start_step": start,
+            "total_steps": total,
+            "end_step": start + total,
+            "dt_physical": dt,
+            "duration_physical": total * dt,
+            "dt_nondimensional": dt * velocity_ref / length_ref,
+        },
+        "properties": {
+            "length_ref": length_ref,
+            "velocity_ref": velocity_ref,
+            "density": density,
+            "viscosity": viscosity,
+            "reynolds_number": density * velocity_ref * length_ref / viscosity if viscosity else None,
+            "initial_conditions": props.get("initial_conditions", {}),
+        },
+        "grid": {
+            "mode": grid.get("mode"),
+            "processor_layout": resolve_grid_da_processor_layout(grid),
+            "programmatic_settings": grid.get("programmatic_settings") if grid.get("mode") == "programmatic_c" else None,
+            "source_file": grid.get("source_file"),
+        },
+        "domain": {
+            "blocks": domain.get("blocks", 1),
+            "dimensionality": physics.get("dimensionality", "3D"),
+            "periodic": {axis: bool(domain.get(f"{axis}_periodic", False)) for axis in ("i", "j", "k")},
+        },
+        "physics": {
+            "fsi": physics.get("fsi", {}),
+            "particles": particles,
+            "turbulence": _summarize_turbulence(physics.get("turbulence", {}) or {}),
+            "statistics": models.get("statistics", {}),
+        },
+        "boundary_conditions": bc_blocks,
+    }
+
+
+def _build_solver_overview(context: dict) -> dict:
+    """!
+    @brief Build a curated solver.yml summary with normalized selections.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @return Curated solver configuration mapping.
+    """
+    cfg = _require_summary_config(context, "solver")
+    strategy = cfg.get("strategy", {}) or {}
+    selected = normalize_momentum_solver_type(strategy.get("momentum_solver", "Dual Time Picard Jameson RK"))
+    momentum_cfg = cfg.get("momentum_solver", {}) or {}
+    dualtime = momentum_cfg.get("dual_time_picard_jameson_rk", momentum_cfg.get("dual_time_picard_rk4", {})) or {}
+    poisson = cfg.get("poisson_solver", cfg.get("pressure_solver", {})) or {}
+    convergence = cfg.get("solution_convergence", {}) or {}
+    convergence_mode = normalize_solution_convergence_mode(convergence.get("mode", "steady_deterministic"))
+    operation_mode = cfg.get("operation_mode", {}) or {}
+    operation_mode = {
+        **operation_mode,
+        "eulerian_field_source": normalize_eulerian_field_source(operation_mode.get("eulerian_field_source", "solve")),
+    }
+    if operation_mode.get("analytical_type") is not None:
+        operation_mode["analytical_type"] = normalize_analytical_type(operation_mode["analytical_type"])
+    passthrough = cfg.get("petsc_passthrough_options", {}) or {}
+    return {
+        "operation_mode": operation_mode,
+        "momentum": {
+            "type": selected,
+            "central_diff": bool(strategy.get("central_diff", False)),
+            "tolerances": cfg.get("tolerances", {}),
+            "controls": dualtime,
+        },
+        "poisson": poisson,
+        "interpolation": cfg.get("interpolation", {"method": "Trilinear"}),
+        "solution_convergence": {**convergence, "mode": convergence_mode},
+        "scalar_transport": cfg.get("scalar_transport", {}),
+        "verification": cfg.get("verification", {}),
+        "petsc_passthrough": {"count": len(passthrough), "options": sorted(passthrough.keys())},
+    }
+
+
+def _build_monitor_overview(context: dict) -> dict:
+    """!
+    @brief Build a curated monitor.yml summary with resolved defaults.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @return Curated monitor configuration mapping.
+    """
+    cfg = _require_summary_config(context, "monitor")
+    logging_cfg = cfg.get("logging", {}) or {}
+    io_cfg = cfg.get("io", {}) or {}
+    diagnostics = resolve_diagnostics_config(cfg, context["run_dir"], "Solver")
+    monitoring_flags = resolve_solver_monitoring_flags(cfg)
+    enabled_petsc = sorted(key for key, value in diagnostics["petsc"].items() if value not in (False, None))
+    return {
+        "logging": {
+            "verbosity": logging_cfg.get("verbosity", "WARNING"),
+            "enabled_functions": logging_cfg.get("enabled_functions", []),
+        },
+        "profiling": resolve_profiling_config(cfg),
+        "diagnostics": {
+            "enabled_petsc": enabled_petsc,
+            "petsc": diagnostics["petsc"],
+            "runtime_memory_log": diagnostics["runtime_memory_log"],
+        },
+        "io": {
+            "data_output_frequency": io_cfg.get("data_output_frequency"),
+            "particle_console_output_frequency": resolve_particle_console_output_frequency(io_cfg),
+            "particle_log_interval": io_cfg.get("particle_log_interval"),
+            "directories": io_cfg.get("directories", {}),
+        },
+        "solver_monitoring": {
+            "enabled_flags": sorted(flag for flag, value in monitoring_flags.items() if value not in (False, None)),
+            "flags": monitoring_flags,
+        },
     }
 
 
@@ -12029,6 +12257,286 @@ def render_run_summary(payload: dict, output_format: str = "text"):
     print("=" * 60)
 
 
+_CONFIG_SUMMARY_WIDTH = 78
+
+
+def _summary_display_value(value) -> str:
+    """!
+    @brief Format one configuration-summary value for compact text output.
+    @param[in] value Value to format.
+    @return Compact human-readable value.
+    """
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return "enabled" if value else "disabled"
+    if isinstance(value, float):
+        return f"{value:.6g}"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_summary_display_value(item) for item in value) if value else "none"
+    if isinstance(value, dict):
+        if not value:
+            return "none"
+        return ", ".join(f"{key}={_summary_display_value(item)}" for key, item in value.items())
+    return str(value)
+
+
+def _print_config_header(title: str, subtitle: "str | None" = None):
+    """!
+    @brief Print a strong dashboard-style configuration summary header.
+    @param[in] title Section title.
+    @param[in] subtitle Optional one-line section subtitle.
+    """
+    print("\n" + "=" * _CONFIG_SUMMARY_WIDTH)
+    print(f"{title:^78}")
+    if subtitle:
+        print(f"{subtitle:^78}")
+    print("=" * _CONFIG_SUMMARY_WIDTH)
+
+
+def _print_config_group(title: str, rows: list):
+    """!
+    @brief Print an aligned configuration-summary field group.
+    @param[in] title Group title.
+    @param[in] rows Sequence of `(label, value)` pairs.
+    """
+    visible_rows = [(label, value) for label, value in rows if value is not None]
+    if not visible_rows:
+        return
+    print(f"\n  {title}")
+    print(f"  {'-' * (len(title) + 1)}")
+    for label, value in visible_rows:
+        print(f"    {label:<32} {_summary_display_value(value)}")
+
+
+def _flatten_summary_mapping(mapping: dict, prefix: str = "") -> list:
+    """!
+    @brief Flatten nested summary mappings into readable dotted field rows.
+    @param[in] mapping Mapping to flatten.
+    @param[in] prefix Optional parent-field prefix.
+    @return Sequence of `(field, value)` pairs.
+    """
+    rows = []
+    for key, value in mapping.items():
+        label = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, dict) and value:
+            rows.extend(_flatten_summary_mapping(value, label))
+        else:
+            rows.append((label, value))
+    return rows
+
+
+def _render_run_overview_text(summary: dict):
+    """!
+    @brief Render run metadata as a compact dashboard.
+    @param[in] summary Curated run overview mapping.
+    """
+    _print_config_header("RUN OVERVIEW", summary.get("run_id"))
+    _print_config_group(
+        "Identity",
+        [
+            ("Run directory", os.path.relpath(summary.get("run_dir")) if summary.get("run_dir") else None),
+            ("Created", summary.get("created_at")),
+            ("Launch mode", summary.get("launch_mode")),
+            ("Git commit", summary.get("git_commit")),
+        ],
+    )
+    _print_config_group(
+        "Execution",
+        [
+            ("Solver MPI processes", summary.get("solver_num_procs")),
+            ("Post MPI processes", summary.get("post_num_procs")),
+            ("Stages requested", summary.get("stages_requested")),
+            ("Stages ready/completed", summary.get("stages_completed_or_submitted")),
+        ],
+    )
+
+
+def _render_case_summary_text(summary: dict):
+    """!
+    @brief Render the case summary as a glanceable simulation dashboard.
+    @param[in] summary Curated case configuration mapping.
+    """
+    run = summary.get("run_control", {})
+    props = summary.get("properties", {})
+    grid = summary.get("grid", {})
+    domain = summary.get("domain", {})
+    physics = summary.get("physics", {})
+    subtitle = (
+        f"{domain.get('dimensionality', '-')} | {domain.get('blocks', '-')} block(s) | "
+        f"Re={_summary_display_value(props.get('reynolds_number'))}"
+    )
+    _print_config_header("CASE SUMMARY", subtitle)
+    _print_config_group(
+        "Simulation",
+        [
+            ("Step range", f"{run.get('start_step')} -> {run.get('end_step')} ({run.get('total_steps')} steps)"),
+            ("Physical timestep", run.get("dt_physical")),
+            ("Nondimensional timestep", run.get("dt_nondimensional")),
+            ("Physical duration", run.get("duration_physical")),
+            ("Initial conditions", props.get("initial_conditions")),
+        ],
+    )
+    _print_config_group(
+        "Fluid And Scaling",
+        [
+            ("Reynolds number", props.get("reynolds_number")),
+            ("Reference length", props.get("length_ref")),
+            ("Reference velocity", props.get("velocity_ref")),
+            ("Density", props.get("density")),
+            ("Viscosity", props.get("viscosity")),
+        ],
+    )
+    _print_config_group(
+        "Domain And Grid",
+        [
+            ("Grid mode", grid.get("mode")),
+            ("Blocks", domain.get("blocks")),
+            ("Dimensionality", domain.get("dimensionality")),
+            ("Periodic axes", domain.get("periodic")),
+            ("MPI grid layout", grid.get("processor_layout")),
+            ("Grid source", grid.get("source_file")),
+        ],
+    )
+    if grid.get("programmatic_settings"):
+        _print_config_group("Programmatic Grid", _flatten_summary_mapping(grid["programmatic_settings"]))
+    _print_config_group(
+        "Physics",
+        [
+            ("Particles", physics.get("particles")),
+            ("FSI", physics.get("fsi")),
+            ("Turbulence", physics.get("turbulence")),
+            ("Statistics", physics.get("statistics")),
+        ],
+    )
+    boundary_blocks = summary.get("boundary_conditions", [])
+    if boundary_blocks:
+        print("\n  Boundary Conditions")
+        print("  --------------------")
+        print(f"    {'Block':<7} {'Face':<8} {'Type':<12} Handler")
+        print(f"    {'-' * 7} {'-' * 8} {'-' * 12} {'-' * 20}")
+        for block in boundary_blocks:
+            for face in block.get("faces", []):
+                print(
+                    f"    {block.get('block', '-')!s:<7} {face.get('face', '-'):<8} "
+                    f"{face.get('type', '-'):<12} {face.get('handler', '-')}"
+                )
+
+
+def _render_solver_summary_text(summary: dict):
+    """!
+    @brief Render the solver summary as a glanceable numerical-method dashboard.
+    @param[in] summary Curated solver configuration mapping.
+    """
+    momentum = summary.get("momentum", {})
+    poisson = summary.get("poisson", {})
+    operation = summary.get("operation_mode", {})
+    subtitle = (
+        f"Field: {operation.get('eulerian_field_source', '-')} | "
+        f"Momentum: {momentum.get('type', '-')} | Poisson: {poisson.get('method', '-')}"
+    )
+    _print_config_header("SOLVER SUMMARY", subtitle)
+    _print_config_group("Operation", _flatten_summary_mapping(operation))
+    _print_config_group(
+        "Primary Methods",
+        [
+            ("Momentum solver", momentum.get("type")),
+            ("Central differencing", momentum.get("central_diff")),
+            ("Poisson method", poisson.get("method")),
+            ("Interpolation", summary.get("interpolation")),
+            ("Convergence mode", summary.get("solution_convergence", {}).get("mode")),
+        ],
+    )
+    _print_config_group("Momentum Tolerances", _flatten_summary_mapping(momentum.get("tolerances", {})))
+    _print_config_group("Momentum Controls", _flatten_summary_mapping(momentum.get("controls", {})))
+    _print_config_group("Poisson Configuration", _flatten_summary_mapping(poisson))
+    _print_config_group("Solution Convergence", _flatten_summary_mapping(summary.get("solution_convergence", {})))
+    _print_config_group("Scalar Transport", _flatten_summary_mapping(summary.get("scalar_transport", {})))
+    _print_config_group("Verification Sources", _flatten_summary_mapping(summary.get("verification", {})))
+    passthrough = summary.get("petsc_passthrough", {})
+    _print_config_group(
+        "Advanced PETSc Options",
+        [("Option count", passthrough.get("count")), ("Option names", passthrough.get("options"))],
+    )
+
+
+def _render_monitor_summary_text(summary: dict):
+    """!
+    @brief Render the monitor summary as a glanceable observability dashboard.
+    @param[in] summary Curated monitor configuration mapping.
+    """
+    logging_cfg = summary.get("logging", {})
+    profiling = summary.get("profiling", {})
+    diagnostics = summary.get("diagnostics", {})
+    io_cfg = summary.get("io", {})
+    memory_log = diagnostics.get("runtime_memory_log", {})
+    subtitle = (
+        f"Verbosity: {logging_cfg.get('verbosity', '-')} | Profiling: {profiling.get('mode', '-')} | "
+        f"Output every {_summary_display_value(io_cfg.get('data_output_frequency'))} steps"
+    )
+    _print_config_header("MONITOR SUMMARY", subtitle)
+    _print_config_group(
+        "Logging",
+        [
+            ("Verbosity", logging_cfg.get("verbosity")),
+            ("Enabled functions", logging_cfg.get("enabled_functions")),
+        ],
+    )
+    _print_config_group("Profiling", _flatten_summary_mapping(profiling))
+    _print_config_group(
+        "Output Cadence",
+        [
+            ("Field output", io_cfg.get("data_output_frequency")),
+            ("Particle snapshots", io_cfg.get("particle_console_output_frequency")),
+            ("Particle row interval", io_cfg.get("particle_log_interval")),
+        ],
+    )
+    _print_config_group("Output Directories", _flatten_summary_mapping(io_cfg.get("directories", {})))
+    _print_config_group(
+        "Diagnostics",
+        [
+            ("Enabled PETSc diagnostics", diagnostics.get("enabled_petsc")),
+            ("Runtime memory log", memory_log.get("enabled")),
+            ("Runtime memory file", memory_log.get("file")),
+        ],
+    )
+    _print_config_group("PETSc Diagnostic Settings", _flatten_summary_mapping(diagnostics.get("petsc", {})))
+    solver_monitoring = summary.get("solver_monitoring", {})
+    _print_config_group(
+        "Solver Monitoring",
+        [
+            ("Enabled flags", solver_monitoring.get("enabled_flags")),
+            ("All flags", solver_monitoring.get("flags")),
+        ],
+    )
+
+
+def render_selected_summary(payload: dict, output_format: str = "text"):
+    """!
+    @brief Render selected timestep-independent config views and optional health.
+    @param[in] payload Combined selected summary payload.
+    @param[in] output_format Output format.
+    """
+    if output_format == "json":
+        json_payload = {key: value for key, value in payload.items() if key != "_health_requested"}
+        print(json.dumps(json_payload, indent=2, sort_keys=True))
+        return
+
+    if payload.get("run_overview") is not None:
+        _render_run_overview_text(payload["run_overview"])
+    renderers = {
+        "case": _render_case_summary_text,
+        "solver": _render_solver_summary_text,
+        "monitor": _render_monitor_summary_text,
+    }
+    for key in ("case", "solver", "monitor"):
+        if key in payload.get("configuration", {}):
+            renderers[key](payload["configuration"][key])
+    if payload.get("_health_requested"):
+        health_payload = {key: value for key, value in payload.items() if key not in {"run_overview", "configuration", "_health_requested"}}
+        render_run_summary(health_payload, output_format="text")
+
+
 def summarize_workflow(args):
     """!
     @brief Build and render a read-only health summary for a run step.
@@ -12038,17 +12546,61 @@ def summarize_workflow(args):
         fail_cli_usage("--step must be a non-negative integer.")
     if args.snapshot_rows < 1:
         fail_cli_usage("--snapshot-rows must be at least 1.")
+    selected_configs = {
+        name
+        for name in ("case", "solver", "monitor")
+        if bool(getattr(args, name, False))
+    }
+    if getattr(args, "overview", False):
+        selected_configs.update({"case", "solver", "monitor"})
+    explicit_health = args.step is not None or bool(getattr(args, "latest", False)) or bool(getattr(args, "max_step", False))
+    health_requested = explicit_health or (not selected_configs and not getattr(args, "overview", False))
+
+    context = None
+    combined = {}
+    if selected_configs or getattr(args, "overview", False):
+        context = _build_summary_context(args.run_dir)
+        if getattr(args, "overview", False):
+            combined["run_overview"] = _build_run_overview(context)
+        combined["configuration"] = {}
+        builders = {
+            "case": _build_case_overview,
+            "solver": _build_solver_overview,
+            "monitor": _build_monitor_overview,
+        }
+        for name in ("case", "solver", "monitor"):
+            if name in selected_configs:
+                try:
+                    combined["configuration"][name] = builders[name](context)
+                except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+                    emit_structured_error(
+                        ERROR_CODE_CFG_INVALID_VALUE,
+                        key=name,
+                        file_path=context["config_paths"][name],
+                        message=f"Could not summarize copied {name}.yml: {exc}",
+                    )
+                    sys.exit(1)
+
+    if not health_requested:
+        combined["_health_requested"] = False
+        render_selected_summary(combined, output_format=args.output_format)
+        return
+
     requested_step = args.step
     if requested_step is None and getattr(args, "latest", False):
         requested_step = None
     selection_mode = "max_step" if getattr(args, "max_step", False) else "latest"
-    payload = build_run_summary_payload(
+    health_payload = build_run_summary_payload(
         args.run_dir,
         step=requested_step,
         snapshot_rows=args.snapshot_rows,
         selection_mode=selection_mode,
     )
-    render_run_summary(payload, output_format=args.output_format)
+    if not combined:
+        render_run_summary(health_payload, output_format=args.output_format)
+        return
+    combined = {**health_payload, **combined, "_health_requested": True}
+    render_selected_summary(combined, output_format=args.output_format)
 
 
 def _resolve_submission_target(run_dir: str = None, study_dir: str = None) -> dict:
@@ -13071,19 +13623,29 @@ def _add_summarize_parser(subparsers):
     """
     p_summarize = subparsers.add_parser(
         "summarize",
-        help="Summarize one run step from existing logs and copied configs.",
+        help="Summarize copied run configs and/or one run step.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Build a read-only run-health summary from existing runtime artifacts.\n"
+            "Build read-only configuration overviews and run-health summaries.\n"
             "It does not modify solver output and works for active or completed runs.\n\n"
             "Examples:\n"
+            "  picurv summarize --run-dir runs/my_run --overview\n"
+            "  picurv summarize --run-dir runs/my_run --case --solver\n"
             "  picurv summarize --run-dir runs/my_run --latest\n"
-            "  picurv summarize --run-dir runs/my_run --step 500\n"
+            "  picurv summarize --run-dir runs/my_run --monitor --step 500\n"
             "  picurv summarize --run-dir runs/my_run --latest --format json"
         ),
         epilog="Next: use `picurv run ...` to create runs or `picurv sweep ...` for multi-case studies.",
     )
     p_summarize.add_argument("--run-dir", required=True, help="Path to the run directory to inspect.")
+    p_summarize.add_argument(
+        "--overview",
+        action="store_true",
+        help="Summarize run metadata plus copied case, solver, and monitor configs without implicitly requesting health.",
+    )
+    p_summarize.add_argument("--case", action="store_true", help="Summarize the copied run-local case.yml.")
+    p_summarize.add_argument("--solver", action="store_true", help="Summarize the copied run-local solver.yml.")
+    p_summarize.add_argument("--monitor", action="store_true", help="Summarize the copied run-local monitor.yml.")
     step_group = p_summarize.add_mutually_exclusive_group()
     step_group.add_argument("--step", type=int, help="Specific completed timestep to summarize.")
     step_group.add_argument(
