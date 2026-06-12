@@ -1,0 +1,71 @@
+# Serial geometric-periodic smoke test.
+# A uniform velocity field in a fully periodic Cartesian cube is an exact
+# steady solution. Run this case with one MPI rank.
+
+run_control:
+  start_step: 0
+  total_steps: 5
+  dt_physical: 0.001
+
+properties:
+  scaling:
+    length_ref: 1.0
+    velocity_ref: 1.0
+  fluid:
+    density: 1.0
+    viscosity: 0.0
+  initial_conditions:
+    mode: "Constant"
+    u_physical: 1.0
+    v_physical: 0.5
+    w_physical: -0.25
+
+grid:
+  mode: programmatic_c
+  programmatic_settings:
+    im: 8
+    jm: 8
+    km: 8
+    xMins: 0.0
+    xMaxs: 1.0
+    yMins: 0.0
+    yMaxs: 1.0
+    zMins: 0.0
+    zMaxs: 1.0
+    rxs: 1.0
+    rys: 1.0
+    rzs: 1.0
+    cgrids: 0
+
+models:
+  domain:
+    blocks: 1
+    i_periodic: true
+    j_periodic: true
+    k_periodic: true
+  physics:
+    particles:
+      count: 0
+    turbulence:
+      les:
+        enabled: false
+
+boundary_conditions:
+  - face: "-Xi"
+    type: PERIODIC
+    handler: geometric
+  - face: "+Xi"
+    type: PERIODIC
+    handler: geometric
+  - face: "-Eta"
+    type: PERIODIC
+    handler: geometric
+  - face: "+Eta"
+    type: PERIODIC
+    handler: geometric
+  - face: "-Zeta"
+    type: PERIODIC
+    handler: geometric
+  - face: "+Zeta"
+    type: PERIODIC
+    handler: geometric

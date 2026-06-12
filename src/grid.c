@@ -410,19 +410,9 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
       }
     }
     
-    // After populating the local coordinate vector, we must perform a
-    // Local-to-Global and then Global-to-Local scatter to correctly
-    // populate the ghost node coordinates across process boundaries.
-    Vec gCoor, lCoor;
-    ierr = DMGetCoordinates(user->da, &gCoor); CHKERRQ(ierr);
-    ierr = DMGetCoordinatesLocal(user->da, &lCoor); CHKERRQ(ierr);
-    
+    // Populate local ghost coordinates from the owned global coordinates.
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Scattering coordinates to update ghost nodes for block %d...\n", simCtx->rank, user->_this);
-    ierr = DMLocalToGlobalBegin(user->fda, lCoor, INSERT_VALUES, gCoor); CHKERRQ(ierr);
-    ierr = DMLocalToGlobalEnd(user->fda, lCoor, INSERT_VALUES, gCoor); CHKERRQ(ierr);
-    
-    ierr = DMGlobalToLocalBegin(user->fda, gCoor, INSERT_VALUES, lCoor); CHKERRQ(ierr);
-    ierr = DMGlobalToLocalEnd(user->fda, gCoor, INSERT_VALUES, lCoor); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Coordinates"); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
 
@@ -454,7 +444,7 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     PetscErrorCode ierr;
     DMDALocalInfo  info;
     Cmpnts       ***coor;
-    Vec            lCoor;
+    Vec            gCoor;
     
     PetscFunctionBeginUser;
 
@@ -463,7 +453,7 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Generating coordinates for block %d...\n", user->simCtx->rank, user->_this);
     
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
-    ierr = DMGetCoordinatesLocal(user->da, &lCoor); CHKERRQ(ierr);
+    ierr = DMGetCoordinates(user->da, &gCoor); CHKERRQ(ierr);
 
     PetscInt xs = info.xs, xe = info.xs + info.xm;
     PetscInt ys = info.ys, ye = info.ys + info.ym;
@@ -475,14 +465,14 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Local Info for block %d - X domain - [%.4f,%.4f], Y range - [%.4f,%.4f], Z range - [%.4f,%.4f]\n",
               user->simCtx->rank, user->_this, user->Min_X,user->Max_X,user->Min_Y,user->Max_Y,user->Min_Z,user->Max_Z);          
               
-    ierr = VecSet(lCoor, 0.0); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
+    ierr = VecSet(gCoor, 0.0); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, gCoor, &coor); CHKERRQ(ierr);
     
     PetscReal Lx = user->Max_X - user->Min_X;
     PetscReal Ly = user->Max_Y - user->Min_Y;
     PetscReal Lz = user->Max_Z - user->Min_Z;
 
-    // Loop over the local nodes, including ghost nodes, owned by this process.
+    // Loop over the nodes owned by this process.
     for (PetscInt k = zs; k < ze; k++) {
         for (PetscInt j = ys; j < ye; j++) {
             for (PetscInt i = xs; i < xe; i++) {
@@ -507,7 +497,7 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 
 
 
-    ierr = DMDAVecRestoreArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, gCoor, &coor); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
 
@@ -528,7 +518,7 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
     PetscInt       IM = user->IM, JM = user->JM, KM = user->KM;
     DMDALocalInfo  info;
     Cmpnts       ***coor;
-    Vec            lCoor;
+    Vec            gCoor;
     PetscReal      *gc = NULL; // Global coordinate buffer, allocated on all ranks
 
     PetscFunctionBeginUser;
@@ -564,10 +554,11 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
     // 3. Broadcast the coordinate block for the current block to all other processes.
     ierr = MPI_Bcast(gc, 3 * n_nodes, MPIU_REAL, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
     
-    // 4. Each rank populates its local portion of the coordinate vector.
+    // 4. Each rank populates its owned portion of the global coordinate vector.
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
-    ierr = DMGetCoordinatesLocal(user->da, &lCoor); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
+    ierr = DMGetCoordinates(user->da, &gCoor); CHKERRQ(ierr);
+    ierr = VecSet(gCoor, 0.0); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, gCoor, &coor); CHKERRQ(ierr);
 
     for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
         for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
@@ -583,7 +574,7 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
     }
     
     // 5. Clean up and restore.
-    ierr = DMDAVecRestoreArray(user->fda, lCoor, &coor); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, gCoor, &coor); CHKERRQ(ierr);
     ierr = PetscFree(gc); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
@@ -600,7 +591,7 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
 static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_user)
 {
     PetscErrorCode ierr;
-    Vec            c_lCoor, f_lCoor; // Coarse and Fine local coordinate vectors
+    Vec            c_gCoor, f_lCoor;
     Cmpnts       ***c_coor;
     const Cmpnts ***f_coor; // Use const for read-only access
     DMDALocalInfo  c_info;
@@ -615,10 +606,11 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
 
     ierr = DMDAGetLocalInfo(coarse_user->da, &c_info); CHKERRQ(ierr);
 
-    ierr = DMGetCoordinatesLocal(coarse_user->da, &c_lCoor); CHKERRQ(ierr);
+    ierr = DMGetCoordinates(coarse_user->da, &c_gCoor); CHKERRQ(ierr);
     ierr = DMGetCoordinatesLocal(fine_user->da, &f_lCoor); CHKERRQ(ierr);
     
-    ierr = DMDAVecGetArray(coarse_user->fda, c_lCoor, &c_coor); CHKERRQ(ierr);
+    ierr = VecSet(c_gCoor, 0.0); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(coarse_user->fda, c_gCoor, &c_coor); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(fine_user->fda, f_lCoor, &f_coor); CHKERRQ(ierr);
 
     // Get the local owned range of the coarse grid.
@@ -652,16 +644,11 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
         }
     }
 
-    ierr = DMDAVecRestoreArray(coarse_user->fda, c_lCoor, &c_coor); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(coarse_user->fda, c_gCoor, &c_coor); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(fine_user->fda, f_lCoor, &f_coor); CHKERRQ(ierr);
 
-    // After populating the local portion, scatter to update ghost regions.
-    Vec c_gCoor;
-    ierr = DMGetCoordinates(coarse_user->da, &c_gCoor); CHKERRQ(ierr);
-    ierr = DMLocalToGlobalBegin(coarse_user->fda, c_lCoor, INSERT_VALUES, c_gCoor); CHKERRQ(ierr);
-    ierr = DMLocalToGlobalEnd(coarse_user->fda, c_lCoor, INSERT_VALUES, c_gCoor); CHKERRQ(ierr);
-    ierr = DMGlobalToLocalBegin(coarse_user->fda, c_gCoor, INSERT_VALUES, c_lCoor); CHKERRQ(ierr);
-    ierr = DMGlobalToLocalEnd(coarse_user->fda, c_gCoor, INSERT_VALUES, c_lCoor); CHKERRQ(ierr);
+    // Populate the coarse-grid local ghost coordinates from the restricted global coordinates.
+    ierr = UpdateLocalGhosts(coarse_user, "Coordinates"); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
 

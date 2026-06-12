@@ -138,7 +138,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx);
  * Includes optional debugging output (max norms before/after).
  *
  * @param user       The UserCtx structure containing the vectors and DMs.
- * @param fieldName  The name of the field to update ("Ucat", "Ucont", "P", "Nvert", etc.).
+ * @param fieldName  The name of the field to update ("Coordinates", "Ucat", "Ucont", "P", "Nvert", etc.).
  *
  * @return PetscErrorCode 0 on success, non-zero on failure.
  *
