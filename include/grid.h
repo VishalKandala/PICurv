@@ -68,6 +68,17 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx);
  */
 PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx);
 
+/**
+ * @brief Validates that configured geometric periodic seams match by translation.
+ *
+ * Each active periodic direction is checked independently using the physical nodal
+ * coordinates. On success, the constant seam translation is stored in the UserCtx.
+ *
+ * @param user Grid/block context with assigned coordinates and boundary configuration.
+ * @return PetscErrorCode 0 on success, or a user-input error for unsupported geometry.
+ */
+PetscErrorCode ValidatePeriodicGeometry(UserCtx *user);
+
 
 /**
  * @brief Computes the local bounding box of the grid on the current process.

@@ -69,6 +69,113 @@ static void MarkYPeriodic(UserCtx *user)
     user->boundary_faces[BC_FACE_POS_Y].handler_type = BC_HANDLER_PERIODIC_GEOMETRIC;
 }
 /**
+ * @brief Tests periodic configuration rejects an unpaired geometric periodic face.
+ */
+static PetscErrorCode TestPeriodicConfigurationRequiresPairedFaces(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscErrorCode ierr_validate = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = PERIODIC;
+    user->boundary_faces[BC_FACE_NEG_X].handler_type = BC_HANDLER_PERIODIC_GEOMETRIC;
+
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    ierr_validate = BoundarySystem_Validate(user);
+    PetscCall(PetscPopErrorHandler());
+
+    PetscCall(PicurvAssertBool((PetscBool)(ierr_validate != 0), "unpaired periodic faces should be rejected"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests constant translational periodic geometry is accepted and stored.
+ */
+static PetscErrorCode TestPeriodicGeometryStoresTranslation(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Vec gcoor = NULL;
+    const Cmpnts ***coor = NULL;
+    PetscReal expected_x = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+
+    PetscCall(DMGetCoordinates(user->da, &gcoor));
+    PetscCall(DMDAVecGetArrayRead(user->fda, gcoor, &coor));
+    expected_x = coor[0][0][user->info.mx - 2].x - coor[0][0][0].x;
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, gcoor, &coor));
+
+    PetscCall(ValidatePeriodicGeometry(user));
+    PetscCall(PicurvAssertBool(user->periodic_translation_valid[0], "X-periodic translation should be marked valid"));
+    PetscCall(PicurvAssertBool((PetscBool)!user->periodic_translation_valid[1], "Y translation should remain invalid"));
+    PetscCall(PicurvAssertBool((PetscBool)!user->periodic_translation_valid[2], "Z translation should remain invalid"));
+    PetscCall(PicurvAssertRealNear(expected_x, user->periodic_translation[0].x, 1.0e-12, "stored X translation"));
+    PetscCall(PicurvAssertRealNear(0.0, user->periodic_translation[0].y, 1.0e-12, "stored X translation y component"));
+    PetscCall(PicurvAssertRealNear(0.0, user->periodic_translation[0].z, 1.0e-12, "stored X translation z component"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests mixed periodic directions are validated and stored independently.
+ */
+static PetscErrorCode TestPeriodicGeometryStoresMixedTranslations(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 6, 4, PETSC_TRUE, PETSC_TRUE, PETSC_FALSE));
+    MarkXPeriodic(user);
+    MarkYPeriodic(user);
+
+    PetscCall(ValidatePeriodicGeometry(user));
+    PetscCall(PicurvAssertBool(user->periodic_translation_valid[0], "mixed-periodic X translation should be valid"));
+    PetscCall(PicurvAssertBool(user->periodic_translation_valid[1], "mixed-periodic Y translation should be valid"));
+    PetscCall(PicurvAssertBool((PetscBool)!user->periodic_translation_valid[2], "mixed-periodic Z translation should remain invalid"));
+    PetscCall(PicurvAssertBool((PetscBool)(PetscAbsReal(user->periodic_translation[0].x) > 0.0),
+                               "mixed-periodic X translation should have nonzero x component"));
+    PetscCall(PicurvAssertBool((PetscBool)(PetscAbsReal(user->periodic_translation[1].y) > 0.0),
+                               "mixed-periodic Y translation should have nonzero y component"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests non-translational seam geometry fails before metric construction.
+ */
+static PetscErrorCode TestPeriodicGeometryRejectsVaryingTranslation(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Vec gcoor = NULL;
+    Cmpnts ***coor = NULL;
+    PetscErrorCode ierr_validate = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+
+    PetscCall(DMGetCoordinates(user->da, &gcoor));
+    PetscCall(DMDAVecGetArray(user->fda, gcoor, &coor));
+    coor[1][1][user->info.mx - 2].y += 0.25;
+    PetscCall(DMDAVecRestoreArray(user->fda, gcoor, &coor));
+    PetscCall(UpdateLocalGhosts(user, "Coordinates"));
+
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    ierr_validate = ValidatePeriodicGeometry(user);
+    PetscCall(PetscPopErrorHandler());
+
+    PetscCall(PicurvAssertBool((PetscBool)(ierr_validate != 0), "varying seam translation should be rejected"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests periodic geometric factory construction in the non-gating periodic harness.
  */
 static PetscErrorCode TestPeriodicGeometricFactoryAssignment(void)
@@ -427,6 +534,10 @@ int main(int argc, char **argv)
     PetscErrorCode ierr;
     const PicurvTestCase cases[] = {
         {"periodic-geometric-factory-assignment", TestPeriodicGeometricFactoryAssignment},
+        {"periodic-configuration-requires-paired-faces", TestPeriodicConfigurationRequiresPairedFaces},
+        {"periodic-geometry-stores-translation", TestPeriodicGeometryStoresTranslation},
+        {"periodic-geometry-stores-mixed-translations", TestPeriodicGeometryStoresMixedTranslations},
+        {"periodic-geometry-rejects-varying-translation", TestPeriodicGeometryRejectsVaryingTranslation},
         {"transfer-periodic-face-field-copies-x-faces", TestTransferPeriodicFaceFieldCopiesXFaces},
         {"apply-metrics-periodic-bcs-copies-aj-faces", TestApplyMetricsPeriodicBCsCopiesAjFaces},
         {"synchronize-periodic-cell-fields-copies-mixed-axes", TestSynchronizePeriodicCellFieldsCopiesMixedAxes},

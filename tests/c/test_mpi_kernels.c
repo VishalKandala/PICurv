@@ -193,6 +193,36 @@ static PetscErrorCode TestPeriodicCellFieldSynchronizationMultiRank(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests periodic seam translation discovery when seam nodes are on different ranks.
+ */
+static PetscErrorCode TestPeriodicGeometryValidationMultiRank(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal expected_translation = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+    PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
+                               "periodic geometry validation test requires the x axis to be partitioned"));
+
+    expected_translation = (PetscReal)(user->info.mx - 2) / (PetscReal)user->info.mx;
+    PetscCall(ValidatePeriodicGeometry(user));
+
+    PetscCall(PicurvAssertBool(user->periodic_translation_valid[0],
+                               "distributed X-periodic translation should be marked valid"));
+    PetscCall(PicurvAssertRealNear(expected_translation, user->periodic_translation[0].x, 1.0e-12,
+                                   "distributed X-periodic translation"));
+    PetscCall(PicurvAssertRealNear(0.0, user->periodic_translation[0].y, 1.0e-12,
+                                   "distributed X-periodic translation y component"));
+    PetscCall(PicurvAssertRealNear(0.0, user->periodic_translation[0].z, 1.0e-12,
+                                   "distributed X-periodic translation z component"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests restart fast-path migration using preloaded cell ownership metadata.
  */
 
@@ -261,6 +291,7 @@ int main(int argc, char **argv)
         {"distribute-particles-collective-consistency", TestDistributeParticlesCollectiveConsistency},
         {"bounding-box-collectives-multi-rank", TestBoundingBoxCollectivesMultiRank},
         {"periodic-cell-field-synchronization-multi-rank", TestPeriodicCellFieldSynchronizationMultiRank},
+        {"periodic-geometry-validation-multi-rank", TestPeriodicGeometryValidationMultiRank},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
     };
 

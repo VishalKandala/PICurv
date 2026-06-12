@@ -830,15 +830,44 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
 PetscErrorCode BoundarySystem_Validate(UserCtx *user)
 {
     PetscErrorCode ierr;
+    const BCFace neg_faces[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
+    const BCFace pos_faces[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
+    const char axis_names[3] = {'X', 'Y', 'Z'};
+    DMBoundaryType bx, by, bz;
+    PetscBool dm_periodic[3];
     PetscFunctionBeginUser;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Validating parsed boundary condition configuration...\n");
+    ierr = DMDAGetInfo(user->da, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                       &bx, &by, &bz, NULL); CHKERRQ(ierr);
+    dm_periodic[0] = (PetscBool)(bx == DM_BOUNDARY_PERIODIC);
+    dm_periodic[1] = (PetscBool)(by == DM_BOUNDARY_PERIODIC);
+    dm_periodic[2] = (PetscBool)(bz == DM_BOUNDARY_PERIODIC);
 
-    // --- Rule Set 1: Driven Flow Handler Consistency ---
+    // --- Rule Set 1: Geometric periodic faces must be paired and match the DM topology. ---
+    for (PetscInt axis = 0; axis < 3; axis++) {
+        const PetscBool neg_periodic =
+            user->boundary_faces[neg_faces[axis]].mathematical_type == PERIODIC;
+        const PetscBool pos_periodic =
+            user->boundary_faces[pos_faces[axis]].mathematical_type == PERIODIC;
+
+        PetscCheck(neg_periodic == pos_periodic, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                   "Configuration Error: Periodic boundaries in the %c direction must be paired; "
+                   "%s is %s while %s is %s.",
+                   axis_names[axis],
+                   BCFaceToString(neg_faces[axis]), neg_periodic ? "PERIODIC" : "not periodic",
+                   BCFaceToString(pos_faces[axis]), pos_periodic ? "PERIODIC" : "not periodic");
+        PetscCheck(dm_periodic[axis] == neg_periodic, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                   "Configuration Error: The %c-direction DM periodic flag (%d) does not match "
+                   "the paired boundary configuration (%s).",
+                   axis_names[axis], (int)dm_periodic[axis], neg_periodic ? "PERIODIC" : "not periodic");
+    }
+
+    // --- Rule Set 2: Driven Flow Handler Consistency ---
     // This specialized validator will check all rules related to driven flow handlers.
     ierr = Validate_DrivenFlowConfiguration(user); CHKERRQ(ierr);
 
-    // --- Rule Set 2: (Future Extension) Overset Interface Consistency ---
+    // --- Rule Set 3: (Future Extension) Overset Interface Consistency ---
     // ierr = Validate_OversetConfiguration(user); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Boundary configuration is valid.\n");

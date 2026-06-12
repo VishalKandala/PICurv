@@ -1838,6 +1838,14 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
     // Propogate BC Configuration to coarser levels.
     ierr = PropagateBoundaryConfigToCoarserLevels(simCtx); CHKERRQ(ierr);
 
+    // Validate the geometric contract before any metric consumes periodic geometry.
+    for (PetscInt level = simCtx->usermg.mglevels - 1; level >= 0; level--) {
+        UserCtx *level_users = simCtx->usermg.mgctx[level].user;
+        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+            ierr = ValidatePeriodicGeometry(&level_users[bi]); CHKERRQ(ierr);
+        }
+    }
+
     // --- Calculate Grid Metrics (requires BC configuration) ---
     // NOTE: This MUST be called here (after BC initialization but before inlet/outlet calculations) because:
     // 1. Periodic BC corrections in metric calculations need boundary_faces data to be populated

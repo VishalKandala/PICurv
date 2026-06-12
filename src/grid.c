@@ -360,6 +360,152 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Returns one Cartesian component from a coordinate/vector value.
+ */
+static inline PetscReal CoordinateComponent(Cmpnts value, PetscInt component)
+{
+    if (component == 0) return value.x;
+    if (component == 1) return value.y;
+    return value.z;
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ValidatePeriodicGeometry"
+/**
+ * @brief Implementation of \ref ValidatePeriodicGeometry().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/grid.h`.
+ */
+PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
+{
+    const BCFace neg_faces[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
+    const BCFace pos_faces[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
+    const char axis_names[3] = {'X', 'Y', 'Z'};
+    const Cmpnts ***coor = NULL;
+    Vec lcoor = NULL;
+    DMDALocalInfo info;
+
+    PetscFunctionBeginUser;
+    PetscCall(DMDAGetLocalInfo(user->da, &info));
+    PetscCall(DMGetCoordinatesLocal(user->da, &lcoor));
+    PetscCheck(lcoor != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+               "Cannot validate periodic geometry before local coordinates are assigned.");
+    for (PetscInt axis = 0; axis < 3; axis++) {
+        const PetscBool neg_periodic =
+            user->boundary_faces[neg_faces[axis]].mathematical_type == PERIODIC;
+        const PetscBool pos_periodic =
+            user->boundary_faces[pos_faces[axis]].mathematical_type == PERIODIC;
+        PetscReal local_min[3] = {PETSC_MAX_REAL, PETSC_MAX_REAL, PETSC_MAX_REAL};
+        PetscReal local_max[3] = {-PETSC_MAX_REAL, -PETSC_MAX_REAL, -PETSC_MAX_REAL};
+        PetscReal global_min[3], global_max[3];
+        PetscInt local_count = 0, global_count = 0;
+
+        user->periodic_translation_valid[axis] = PETSC_FALSE;
+        user->periodic_translation[axis] = (Cmpnts){0.0, 0.0, 0.0};
+        if (!neg_periodic && !pos_periodic) continue;
+
+        PetscCheck(neg_periodic && pos_periodic, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                   "Periodic geometry in the %c direction requires paired negative and positive faces.",
+                   axis_names[axis]);
+        const PetscInt axis_size = axis == 0 ? info.mx : (axis == 1 ? info.my : info.mz);
+        PetscCheck(axis_size >= 5, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                   "%c-periodic geometry on block %d level %d requires at least four physical "
+                   "nodes in that direction; found %d.",
+                   axis_names[axis], user->_this, user->thislevel, axis_size - 1);
+
+        PetscCall(DMDAVecGetArrayRead(user->fda, lcoor, &coor));
+        if (axis == 0 && info.xs == 0) {
+            for (PetscInt k = PetscMax(info.zs, 0); k < PetscMin(info.zs + info.zm, info.mz - 1); k++) {
+                for (PetscInt j = PetscMax(info.ys, 0); j < PetscMin(info.ys + info.ym, info.my - 1); j++) {
+                    const Cmpnts delta = {
+                        coor[k][j][-2].x - coor[k][j][0].x,
+                        coor[k][j][-2].y - coor[k][j][0].y,
+                        coor[k][j][-2].z - coor[k][j][0].z
+                    };
+                    for (PetscInt c = 0; c < 3; c++) {
+                        local_min[c] = PetscMin(local_min[c], CoordinateComponent(delta, c));
+                        local_max[c] = PetscMax(local_max[c], CoordinateComponent(delta, c));
+                    }
+                    local_count++;
+                }
+            }
+        } else if (axis == 1 && info.ys == 0) {
+            for (PetscInt k = PetscMax(info.zs, 0); k < PetscMin(info.zs + info.zm, info.mz - 1); k++) {
+                for (PetscInt i = PetscMax(info.xs, 0); i < PetscMin(info.xs + info.xm, info.mx - 1); i++) {
+                    const Cmpnts delta = {
+                        coor[k][-2][i].x - coor[k][0][i].x,
+                        coor[k][-2][i].y - coor[k][0][i].y,
+                        coor[k][-2][i].z - coor[k][0][i].z
+                    };
+                    for (PetscInt c = 0; c < 3; c++) {
+                        local_min[c] = PetscMin(local_min[c], CoordinateComponent(delta, c));
+                        local_max[c] = PetscMax(local_max[c], CoordinateComponent(delta, c));
+                    }
+                    local_count++;
+                }
+            }
+        } else if (axis == 2 && info.zs == 0) {
+            for (PetscInt j = PetscMax(info.ys, 0); j < PetscMin(info.ys + info.ym, info.my - 1); j++) {
+                for (PetscInt i = PetscMax(info.xs, 0); i < PetscMin(info.xs + info.xm, info.mx - 1); i++) {
+                    const Cmpnts delta = {
+                        coor[-2][j][i].x - coor[0][j][i].x,
+                        coor[-2][j][i].y - coor[0][j][i].y,
+                        coor[-2][j][i].z - coor[0][j][i].z
+                    };
+                    for (PetscInt c = 0; c < 3; c++) {
+                        local_min[c] = PetscMin(local_min[c], CoordinateComponent(delta, c));
+                        local_max[c] = PetscMax(local_max[c], CoordinateComponent(delta, c));
+                    }
+                    local_count++;
+                }
+            }
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, lcoor, &coor));
+
+        PetscCallMPI(MPI_Allreduce(local_min, global_min, 3, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD));
+        PetscCallMPI(MPI_Allreduce(local_max, global_max, 3, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
+        PetscCallMPI(MPI_Allreduce(&local_count, &global_count, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD));
+        PetscCheck(global_count > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+                   "No physical seam nodes were available to validate %c-periodic geometry.",
+                   axis_names[axis]);
+
+        PetscReal translation[3];
+        PetscReal scale = 1.0;
+        PetscReal max_mismatch = 0.0;
+        for (PetscInt c = 0; c < 3; c++) {
+            translation[c] = 0.5 * (global_min[c] + global_max[c]);
+            scale = PetscMax(scale, PetscAbsReal(translation[c]));
+            max_mismatch = PetscMax(max_mismatch, global_max[c] - global_min[c]);
+        }
+        const PetscReal tolerance = 1.0e-9 * scale + 100.0 * PETSC_MACHINE_EPSILON;
+        const PetscReal magnitude = PetscSqrtReal(
+            PetscSqr(translation[0]) + PetscSqr(translation[1]) + PetscSqr(translation[2]));
+
+        PetscCheck(max_mismatch <= tolerance, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                   "Unsupported %c-periodic geometry on block %d level %d: opposite physical "
+                   "surfaces are not related by one constant translation. Maximum component "
+                   "mismatch is %.12e (tolerance %.12e).",
+                   axis_names[axis], user->_this, user->thislevel,
+                   (double)max_mismatch, (double)tolerance);
+        PetscCheck(magnitude > tolerance, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                   "Unsupported %c-periodic geometry on block %d level %d: seam translation "
+                   "magnitude %.12e is zero or too small.",
+                   axis_names[axis], user->_this, user->thislevel, (double)magnitude);
+
+        user->periodic_translation[axis] =
+            (Cmpnts){translation[0], translation[1], translation[2]};
+        user->periodic_translation_valid[axis] = PETSC_TRUE;
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "Validated %c-periodic geometry for block %d level %d with translation "
+                  "(%.12e, %.12e, %.12e).\n",
+                  axis_names[axis], user->_this, user->thislevel,
+                  (double)translation[0], (double)translation[1], (double)translation[2]);
+    }
+
+    PetscFunctionReturn(0);
+}
+
 
 #undef __FUNCT__
 #define __FUNCT__ "SetFinestLevelCoordinates"

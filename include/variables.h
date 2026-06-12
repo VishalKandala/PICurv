@@ -848,6 +848,8 @@ typedef struct UserCtx {
     PetscInt GridOrientation, isc, jsc, ksc, _this;
     PetscReal rx, ry, rz;
     PetscInt cgrid;
+    Cmpnts periodic_translation[3];
+    PetscBool periodic_translation_valid[3];
 
     // --- Boundary Conditions & Interfacing ---
     BoundaryFaceConfig boundary_faces[6];
