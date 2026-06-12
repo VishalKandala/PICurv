@@ -17,6 +17,18 @@
 // A small constant to prevent division by zero in sensitive calculations.
 const double LES_EPSILON = 1.0e-12;
 
+/**
+ * @brief Synchronizes the completed Smagorinsky coefficient field.
+ */
+static PetscErrorCode FinalizeSmagorinskyConstantField(UserCtx *user)
+{
+    const char *fields[] = {"CS"};
+
+    PetscFunctionBeginUser;
+    PetscCall(SynchronizePeriodicCellFields(user, 1, fields));
+    PetscCall(UpdateLocalGhosts(user, "CS"));
+    PetscFunctionReturn(0);
+}
 
 #undef __FUNCT__
 #define __FUNCT__ "ComputeSmagorinskyConstant"
@@ -41,6 +53,7 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
     // enough for the dynamic procedure to be stable. Set Cs to zero.
     if (simCtx->step < 2 && simCtx->StartStep == 0) {
         ierr = VecSet(user->CS, 0.0); CHKERRQ(ierr);
+        ierr = FinalizeSmagorinskyConstantField(user); CHKERRQ(ierr);
         LOG_ALLOW(GLOBAL,LOG_DEBUG,"Setting Smagorinsky coefficient Cs=0.0 for initial steps (step=%d)\n", simCtx->step);
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
@@ -51,6 +64,7 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
     if (simCtx->les == CONSTANT_SMAGORINSKY) {
         LOG_ALLOW(GLOBAL,LOG_INFO,"Using constant-coefficient Smagorinsky model with Cs=%.4f \n", simCtx->Const_CS);
         ierr = VecSet(user->CS, simCtx->Const_CS); CHKERRQ(ierr); // A typical constant value
+        ierr = FinalizeSmagorinskyConstantField(user); CHKERRQ(ierr);
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
@@ -290,9 +304,7 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
 	ierr = VecDestroy(&lLM); CHKERRQ(ierr);
 	ierr = VecDestroy(&lMM); CHKERRQ(ierr);
 
-    // Communicate ghost point data for the newly computed Cs field
-	ierr = DMGlobalToLocalBegin(da, user->CS, INSERT_VALUES, user->lCs); CHKERRQ(ierr);
-	ierr = DMGlobalToLocalEnd(da, user->CS, INSERT_VALUES, user->lCs); CHKERRQ(ierr);
+    ierr = FinalizeSmagorinskyConstantField(user); CHKERRQ(ierr);
 
     PetscReal max_norm;
     ierr = VecMax(user->CS, NULL, &max_norm); CHKERRQ(ierr);
@@ -396,7 +408,8 @@ PetscErrorCode ComputeEddyViscosityLES(UserCtx *user)
 	ierr = DMGlobalToLocalBegin(da, user->Nu_t, INSERT_VALUES, user->lNu_t); CHKERRQ(ierr);
 	ierr = DMGlobalToLocalEnd(da, user->Nu_t, INSERT_VALUES, user->lNu_t); CHKERRQ(ierr);
 
-    ierr = TransferPeriodicField(user,"Eddy Viscosity");CHKERRQ(ierr);
+    const char *periodic_fields[] = {"Nu_t"};
+    ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);
 
     PetscReal max_norm;
     ierr = VecMax(user->Nu_t, NULL, &max_norm); CHKERRQ(ierr);

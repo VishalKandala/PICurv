@@ -7,9 +7,31 @@
 
 #include "ParticleMotion.h"
 #include "ParticleSwarm.h"
+#include "Boundaries.h"
 #include "grid.h"
 
 #include <stdlib.h>
+
+/**
+ * @brief Marks both x boundary faces as geometric periodic boundaries.
+ */
+static void MarkXPeriodic(UserCtx *user)
+{
+    user->boundary_faces[BC_FACE_NEG_X].face_id = BC_FACE_NEG_X;
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = PERIODIC;
+    user->boundary_faces[BC_FACE_NEG_X].handler_type = BC_HANDLER_PERIODIC_GEOMETRIC;
+    user->boundary_faces[BC_FACE_POS_X].face_id = BC_FACE_POS_X;
+    user->boundary_faces[BC_FACE_POS_X].mathematical_type = PERIODIC;
+    user->boundary_faces[BC_FACE_POS_X].handler_type = BC_HANDLER_PERIODIC_GEOMETRIC;
+}
+
+/**
+ * @brief Returns a deterministic scalar value for periodic-transfer assertions.
+ */
+static PetscReal PeriodicScalarValue(PetscInt i, PetscInt j, PetscInt k, PetscReal offset)
+{
+    return offset + (PetscReal)(i + 10 * j + 100 * k);
+}
 /**
  * @brief Tests collective particle distribution consistency across MPI ranks.
  */
@@ -89,6 +111,88 @@ static PetscErrorCode TestBoundingBoxCollectivesMultiRank(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests distributed synchronization of persistent cell-centered scalar fields.
+ */
+
+static PetscErrorCode TestPeriodicCellFieldSynchronizationMultiRank(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal ***p = NULL;
+    PetscReal ***cs = NULL;
+    PetscReal ***diffusivity = NULL;
+    const char *fields[] = {"P", "CS", "Diffusivity"};
+    PetscInt xs, xe, ys, ye, zs, ze, mx;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+    PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
+                               "periodic cell synchronization test requires the x axis to be partitioned"));
+    PetscCall(DMCreateGlobalVector(user->da, &user->CS));
+    PetscCall(DMCreateLocalVector(user->da, &user->lCs));
+
+    xs = user->info.xs;
+    xe = xs + user->info.xm;
+    ys = user->info.ys;
+    ye = ys + user->info.ym;
+    zs = user->info.zs;
+    ze = zs + user->info.zm;
+    mx = user->info.mx;
+
+    PetscCall(DMDAVecGetArray(user->da, user->P, &p));
+    PetscCall(DMDAVecGetArray(user->da, user->CS, &cs));
+    PetscCall(DMDAVecGetArray(user->da, user->Diffusivity, &diffusivity));
+    for (PetscInt k = zs; k < ze; ++k) {
+        for (PetscInt j = ys; j < ye; ++j) {
+            for (PetscInt i = xs; i < xe; ++i) {
+                p[k][j][i] = PeriodicScalarValue(i, j, k, 0.0);
+                cs[k][j][i] = PeriodicScalarValue(i, j, k, 1000.0);
+                diffusivity[k][j][i] = PeriodicScalarValue(i, j, k, 2000.0);
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
+    PetscCall(DMDAVecRestoreArray(user->da, user->CS, &cs));
+    PetscCall(DMDAVecRestoreArray(user->da, user->Diffusivity, &diffusivity));
+
+    PetscCall(SynchronizePeriodicCellFields(user, 3, fields));
+
+    PetscCall(DMDAVecGetArrayRead(user->da, user->P, &p));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->CS, &cs));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->Diffusivity, &diffusivity));
+    if (xs == 0) {
+        for (PetscInt k = zs; k < ze; ++k) {
+            for (PetscInt j = ys; j < ye; ++j) {
+                PetscCall(PicurvAssertRealNear(PeriodicScalarValue(mx - 2, j, k, 0.0), p[k][j][0], 1.0e-12,
+                                               "distributed P negative endpoint should copy the opposite interior"));
+                PetscCall(PicurvAssertRealNear(PeriodicScalarValue(mx - 2, j, k, 1000.0), cs[k][j][0], 1.0e-12,
+                                               "distributed CS negative endpoint should copy the opposite interior"));
+                PetscCall(PicurvAssertRealNear(PeriodicScalarValue(mx - 2, j, k, 2000.0), diffusivity[k][j][0], 1.0e-12,
+                                               "distributed Diffusivity negative endpoint should copy the opposite interior"));
+            }
+        }
+    }
+    if (xe == mx) {
+        for (PetscInt k = zs; k < ze; ++k) {
+            for (PetscInt j = ys; j < ye; ++j) {
+                PetscCall(PicurvAssertRealNear(PeriodicScalarValue(1, j, k, 0.0), p[k][j][mx - 1], 1.0e-12,
+                                               "distributed P positive endpoint should copy the opposite interior"));
+                PetscCall(PicurvAssertRealNear(PeriodicScalarValue(1, j, k, 1000.0), cs[k][j][mx - 1], 1.0e-12,
+                                               "distributed CS positive endpoint should copy the opposite interior"));
+                PetscCall(PicurvAssertRealNear(PeriodicScalarValue(1, j, k, 2000.0), diffusivity[k][j][mx - 1], 1.0e-12,
+                                               "distributed Diffusivity positive endpoint should copy the opposite interior"));
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->P, &p));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->CS, &cs));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->Diffusivity, &diffusivity));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests restart fast-path migration using preloaded cell ownership metadata.
  */
 
@@ -156,6 +260,7 @@ int main(int argc, char **argv)
     const PicurvTestCase cases[] = {
         {"distribute-particles-collective-consistency", TestDistributeParticlesCollectiveConsistency},
         {"bounding-box-collectives-multi-rank", TestBoundingBoxCollectivesMultiRank},
+        {"periodic-cell-field-synchronization-multi-rank", TestPeriodicCellFieldSynchronizationMultiRank},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
     };
 

@@ -327,6 +327,8 @@ PetscErrorCode CorrectChannelFluxProfile(UserCtx *user)
  */
 PetscErrorCode Projection(UserCtx *user)
 {
+  PetscErrorCode ierr;
+
   PetscFunctionBeginUser;
   PROFILE_FUNCTION_BEGIN;  
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering Projection step to correct velocity field.\n");
@@ -833,9 +835,8 @@ PetscErrorCode Projection(UserCtx *user)
 
   // --- Convert velocity to Cartesian and update ghost nodes ---
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Converting velocity to Cartesian and finalizing ghost nodes.\n");
-  Contra2Cart(user);
-  UpdateLocalGhosts(user,"Ucat");
-  RefreshBoundaryGhostCells(user);
+  ierr = Contra2Cart(user); CHKERRQ(ierr);
+  ierr = FinalizePostProjectionCellFields(user); CHKERRQ(ierr);
   //GhostNodeVelocity(user);
 
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting Projection step.\n");
@@ -853,6 +854,8 @@ PetscErrorCode Projection(UserCtx *user)
  */
 PetscErrorCode UpdatePressure(UserCtx *user)
 {
+  PetscErrorCode ierr;
+
   PetscFunctionBeginUser;
   PROFILE_FUNCTION_BEGIN;
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering UpdatePressure.\n");
@@ -867,9 +870,6 @@ PetscErrorCode UpdatePressure(UserCtx *user)
   PetscInt xs = info.xs, xe = info.xs + info.xm;
   PetscInt ys = info.ys, ye = info.ys + info.ym;
   PetscInt zs = info.zs, ze = info.zs + info.zm;
-  PetscInt mx = info.mx, my = info.my, mz = info.mz;
-
-  PetscInt i,j,k;
 
   // --- Get direct pointer access to PETSc vector data for performance ---
   PetscReal ***p, ***phi;
@@ -897,123 +897,15 @@ PetscErrorCode UpdatePressure(UserCtx *user)
   //================================================================================
   // Section 3: Handle Periodic Boundary Condition Synchronization
   //================================================================================
-  // This block is executed only if at least one boundary is periodic.
-  // The original code contained many redundant Get/Restore and update calls.
-  // This refactored version performs the same effective logic but in a single,
-  // efficient pass, which is numerically equivalent and much cleaner.
-  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC ||
-      user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC ||
-      user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC)
-  {
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Synchronizing ghost cells for periodic boundaries.\n");
-
-    // First, update the local vectors (including ghost regions) with the new global data.
-    DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
-    DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-    DMGlobalToLocalBegin(da, user->Phi, INSERT_VALUES, user->lPhi);
-    DMGlobalToLocalEnd(da, user->Phi, INSERT_VALUES, user->lPhi);
-
-    // Get pointers to all necessary local and global arrays ONCE.
-    PetscReal ***lp, ***lphi;
-    DMDAVecGetArray(da, user->lP, &lp);
-    DMDAVecGetArray(da, user->lPhi, &lphi);
-    DMDAVecGetArray(da, user->P, &p);
-    DMDAVecGetArray(da, user->Phi, &phi);
-
-    // --- X-Direction Periodic Update ---
-    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
-      // Update left boundary physical cells from right boundary ghost cells
-      if (xs == 0) {
-        PetscInt i = 0;
-        for (k = zs; k < ze; k++) {
-          for (j = ys; j < ye; j++) {
-            // Note: Accessing lp[...][i-2] reads from the ghost cell region.
-            p[k][j][i] = lp[k][j][i - 2];
-            phi[k][j][i] = lphi[k][j][i - 2];
-          }
-        }
-      }
-      // Update right boundary physical cells from left boundary ghost cells
-      if (xe == mx) {
-        PetscInt i = mx - 1;
-        for (k = zs; k < ze; k++) {
-          for (j = ys; j < ye; j++) {
-            p[k][j][i] = lp[k][j][i + 2];
-            phi[k][j][i] = lphi[k][j][i + 2];
-          }
-        }
-      }
-    }
-
-    // --- Y-Direction Periodic Update ---
-    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
-      // Update bottom boundary
-      if (ys == 0) {
-        PetscInt j = 0;
-        for (k = zs; k < ze; k++) {
-          for (i = xs; i < xe; i++) {
-            p[k][j][i] = lp[k][j - 2][i];
-            phi[k][j][i] = lphi[k][j - 2][i];
-          }
-        }
-      }
-      // Update top boundary
-      if (ye == my) {
-        PetscInt j = my - 1;
-        for (k = zs; k < ze; k++) {
-          for (i = xs; i < xe; i++) {
-            p[k][j][i] = lp[k][j + 2][i];
-            phi[k][j][i] = lphi[k][j + 2][i];
-          }
-        }
-      }
-    }
-
-    // --- Z-Direction Periodic Update ---
-    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
-      // Update front boundary
-      if (zs == 0) {
-        PetscInt k = 0;
-        for (j = ys; j < ye; j++) {
-          for (i = xs; i < xe; i++) {
-            p[k][j][i] = lp[k - 2][j][i];
-            phi[k][j][i] = lphi[k - 2][j][i];
-          }
-        }
-      }
-      // Update back boundary
-      if (ze == mz) {
-        PetscInt k = mz - 1;
-        for (j = ys; j < ye; j++) {
-          for (i = xs; i < xe; i++) {
-            p[k][j][i] = lp[k + 2][j][i];
-            phi[k][j][i] = lphi[k + 2][j][i];
-          }
-        }
-      }
-    }
-    
-    // Restore all arrays ONCE.
-    DMDAVecRestoreArray(da, user->lP, &lp);
-    DMDAVecRestoreArray(da, user->lPhi, &lphi);
-    DMDAVecRestoreArray(da, user->P, &p);
-    DMDAVecRestoreArray(da, user->Phi, &phi);
-
-    // After manually updating the physical boundary cells, we must call
-    // DMGlobalToLocal again to ensure all processes have the updated ghost
-    // values for the *next* function that needs them.
-    DMGlobalToLocalBegin(da, user->P, INSERT_VALUES, user->lP);
-    DMGlobalToLocalEnd(da, user->P, INSERT_VALUES, user->lP);
-    DMGlobalToLocalBegin(da, user->Phi, INSERT_VALUES, user->lPhi);
-    DMGlobalToLocalEnd(da, user->Phi, INSERT_VALUES, user->lPhi);
-  }
+  const char *periodic_fields[] = {"P", "Phi"};
+  ierr = SynchronizePeriodicCellFields(user, 2, periodic_fields); CHKERRQ(ierr);
   
   //================================================================================
   // Section 4: Final Cleanup (pointers already restored)
   //================================================================================
 
-  UpdateLocalGhosts(user,"P");
-  UpdateLocalGhosts(user,"Phi");
+  ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
+  ierr = UpdateLocalGhosts(user, "Phi"); CHKERRQ(ierr);
   
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting UpdatePressure.\n");
   PROFILE_FUNCTION_END;

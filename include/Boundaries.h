@@ -281,11 +281,30 @@ PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user);
 PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field_name, char direction);
 
 /**
- * @brief (Orchestrator) Applies periodic transfer for one field across all i/j/k directions.
+ * @brief Synchronizes periodic endpoint cells for a list of cell-centered fields.
  *
- * This wrapper executes directional periodic transfers in the prescribed order with
- * intermediate ghost synchronization where needed, so callers can request a complete
- * periodic update for a single field without handling the directional details.
+ * The fields are first communicated from global to local storage. Each periodic
+ * direction is then transferred in i-j-k order, with an intermediate ghost
+ * refresh after every active direction so periodic edges and corners inherit the
+ * values established by earlier directions. Non-periodic directions are skipped.
+ *
+ * Supported fields are `Ucat`, `P`, `Phi`, `Nvert`, `Nu_t`, `CS`, and
+ * `Diffusivity` (`Eddy Viscosity` and `Cs` are accepted as compatibility
+ * aliases for `Nu_t` and `CS`, respectively).
+ *
+ * @param user The main UserCtx struct.
+ * @param num_fields The number of entries in field_names.
+ * @param field_names The cell-centered fields to synchronize.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields, const char *field_names[]);
+
+/**
+ * @brief Legacy monolithic periodic endpoint transfer for one cell-centered field.
+ *
+ * Retained for compatibility with older callers. New code should use
+ * `SynchronizePeriodicCellFields`, which provides ordered directional transfers
+ * with the required intermediate ghost communication.
  *
  * @param user The main UserCtx struct.
  * @param field_name The string identifier for the field to transfer.
@@ -403,12 +422,11 @@ PetscErrorCode UpdateDummyCells(UserCtx *user);
 PetscErrorCode UpdateCornerNodes(UserCtx *user);
 
 /**
- * @brief (Orchestrator) Performs a sequential, deterministic periodic update for a list of fields.
+ * @brief Legacy sequential periodic-corner update for a list of fields.
  *
- * This function orchestrates the resolution of ambiguous periodic corners and edges.
- * It takes an array of field names and updates them in a strict i-sync-j-sync-k order
- * by calling the low-level worker `TransferPeriodicFieldByDirection` and the
- * communication routine `UpdateLocalGhosts`.
+ * Retained for compatibility with older callers. New code should use
+ * `SynchronizePeriodicCellFields`, which additionally skips non-periodic
+ * directions and performs the initial ghost refresh.
  *
  * @param user The main UserCtx struct.
  * @param num_fields The number of fields in the field_names array.
@@ -466,33 +484,27 @@ PetscErrorCode UpdatePeriodicCornerNodes(UserCtx *user, PetscInt num_fields, con
 PetscErrorCode ApplyWallFunction(UserCtx *user);
 
 /**
- * @brief (Public) Orchestrates the "light" refresh of all boundary ghost cells after the projection step.
+ * @brief Finalizes cell-centered fields after the projection step.
  *
- * This function is the correct and complete replacement for the role that `GhostNodeVelocity`
- * played when called from within the `Projection` function. Its purpose is to ensure that
- * all ghost cells for `ucat` and `p` are made consistent with the final, divergence-free
- * interior velocity field computed by the projection step.
+ * This function completes the cell-centered state derived from the final,
+ * divergence-free `Ucont` produced by `Projection`. It fills non-periodic
+ * `Ucat` dummy faces, synchronizes periodic `Ucat` and `P` endpoints, resolves
+ * edges and corners, and refreshes the corresponding local vectors.
  *
- * This function is fundamentally different from `ApplyBoundaryConditions` because it does
- * NOT modify the physical flux field (`ucont`) and does NOT apply physical models like
- * the wall function. It is a purely geometric and data-consistency operation.
+ * This function is fundamentally different from `ApplyBoundaryConditions`: it
+ * does NOT modify `Ucont`, reapply wall functions, or rerun the full physical
+ * boundary-condition workflow.
  *
  * WORKFLOW:
- * 1.  Calls the lightweight `BoundarySystem_RefreshUbcs()` engine. This re-calculates the
- *     `ubcs` target values ONLY for flow-dependent boundary conditions (like Symmetry or Outlets)
- *     using the newly updated interior `ucat` field.
- *
- * 2.  Calls the geometric updaters (`ApplyPeriodicBCs`, `UpdateDummyCells`, `UpdateCornerNodes`)
- *     in the correct, dependency-aware order to fill in all ghost cell values based on the now
- *     fully-refreshed `ubcs` targets.
- *
- * 3.  Performs a final synchronization of local PETSc vectors to ensure all MPI ranks are
- *     consistent before proceeding to the next time step.
+ * 1. Refreshes local `Ucat` and any flow-dependent `Ubcs` targets.
+ * 2. Fills non-periodic dummy faces and establishes periodic cell endpoints.
+ * 3. Resolves edges/corners, restores exact periodic relationships, and refreshes
+ *    local `Ucat` and `P`.
  *
  * @param user The main UserCtx struct, containing all simulation state.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode RefreshBoundaryGhostCells(UserCtx *user);
+PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user);
 
 /**
  * @brief Main boundary-condition orchestrator executed during solver timestepping.

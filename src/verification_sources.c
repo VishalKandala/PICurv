@@ -69,7 +69,11 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
         }
     }
 
-    ierr = UpdateLocalGhosts(user, "Diffusivity"); CHKERRQ(ierr);
+    {
+        const char *periodic_fields[] = {"Diffusivity"};
+        ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Diffusivity"); CHKERRQ(ierr);
+    }
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
               "Applied verification diffusivity override profile '%s' (gamma0=%g, slope_x=%g).\n",
               simCtx->verificationDiffusivity.profile,

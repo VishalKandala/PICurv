@@ -1593,8 +1593,16 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
         dm = user->fda; global_vec = user->Ucat; local_vec = user->lUcat; dof = 3;
     } else if (strcmp(field_name, "P") == 0) {
         dm = user->da; global_vec = user->P; local_vec = user->lP; dof = 1;
+    } else if (strcmp(field_name, "Phi") == 0) {
+        dm = user->da; global_vec = user->Phi; local_vec = user->lPhi; dof = 1;
     } else if (strcmp(field_name, "Nvert") == 0) {
         dm = user->da; global_vec = user->Nvert; local_vec = user->lNvert; dof = 1;
+    } else if (strcmp(field_name, "Nu_t") == 0 || strcmp(field_name, "Eddy Viscosity") == 0) {
+        dm = user->da; global_vec = user->Nu_t; local_vec = user->lNu_t; dof = 1;
+    } else if (strcmp(field_name, "CS") == 0 || strcmp(field_name, "Cs") == 0) {
+        dm = user->da; global_vec = user->CS; local_vec = user->lCs; dof = 1;
+    } else if (strcmp(field_name, "Diffusivity") == 0) {
+        dm = user->da; global_vec = user->Diffusivity; local_vec = user->lDiffusivity; dof = 1;
     } else {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s'", field_name);
     }
@@ -1653,6 +1661,70 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "SynchronizePeriodicCellFields"
+/**
+ * @brief Implementation of \ref SynchronizePeriodicCellFields().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Boundaries.h`.
+ */
+PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields, const char *field_names[])
+{
+    PetscErrorCode ierr;
+    PetscBool      periodic_i;
+    PetscBool      periodic_j;
+    PetscBool      periodic_k;
+
+    PetscFunctionBeginUser;
+
+    if (num_fields == 0) PetscFunctionReturn(0);
+
+    periodic_i =
+        user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC ||
+        user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC;
+    periodic_j =
+        user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC ||
+        user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC;
+    periodic_k =
+        user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC ||
+        user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC;
+
+    if (!periodic_i && !periodic_j && !periodic_k) PetscFunctionReturn(0);
+
+    for (PetscInt field = 0; field < num_fields; field++) {
+        ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+    }
+
+    if (periodic_i) {
+        for (PetscInt field = 0; field < num_fields; field++) {
+            ierr = TransferPeriodicFieldByDirection(user, field_names[field], 'i'); CHKERRQ(ierr);
+        }
+        for (PetscInt field = 0; field < num_fields; field++) {
+            ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+        }
+    }
+
+    if (periodic_j) {
+        for (PetscInt field = 0; field < num_fields; field++) {
+            ierr = TransferPeriodicFieldByDirection(user, field_names[field], 'j'); CHKERRQ(ierr);
+        }
+        for (PetscInt field = 0; field < num_fields; field++) {
+            ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+        }
+    }
+
+    if (periodic_k) {
+        for (PetscInt field = 0; field < num_fields; field++) {
+            ierr = TransferPeriodicFieldByDirection(user, field_names[field], 'k'); CHKERRQ(ierr);
+        }
+        for (PetscInt field = 0; field < num_fields; field++) {
+            ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+        }
+    }
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "TransferPeriodicField"
 /**
  * @brief Internal helper implementation: `TransferPeriodicField()`.
@@ -1677,8 +1749,9 @@ PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
     PROFILE_FUNCTION_BEGIN;
 
     // --- STEP 1: Dispatcher - Set the specific DM, Vecs, and dof based on field_name ---
-    // Field-extension note: to add a new periodic field, add one case here and then
-    // add one call in ApplyPeriodicBCs()/UpdatePeriodicCornerNodes() where appropriate.
+    // Compatibility implementation retained for legacy callers. New periodic
+    // cell fields should be added to the directional dispatcher used by
+    // SynchronizePeriodicCellFields().
     if (strcmp(field_name, "Ucat") == 0) {
         dm         = user->fda;
         global_vec = user->Ucat;
@@ -1948,28 +2021,24 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
 
     LOG_ALLOW(GLOBAL, LOG_TRACE, "Applying periodic boundary conditions for all fields.\n");
 
-    // STEP 1: Perform the collective communication for periodic core fields.
-    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Nvert"); CHKERRQ(ierr);
+    // STEP 1: Synchronize periodic cell-centered fields in deterministic direction order.
+    const char *cell_fields[] = {"Ucat", "P", "Nvert"};
+    ierr = SynchronizePeriodicCellFields(user, 3, cell_fields); CHKERRQ(ierr);
+
     ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
     /* if (user->solve_temperature) { ierr = UpdateLocalGhosts(user, "Temperature"); CHKERRQ(ierr); } */
 
-    // STEP 2: Call the generic copy routine for each face-centered/cell-centered field.
-    ierr = TransferPeriodicField(user, "Ucat"); CHKERRQ(ierr);
-    ierr = TransferPeriodicField(user, "P"); CHKERRQ(ierr);
-    ierr = TransferPeriodicField(user, "Nvert"); CHKERRQ(ierr);
-
-    // STEP 3: Update contravariant flux periodic ghosts and enforce strict seam consistency.
+    // STEP 2: Update contravariant flux periodic ghosts and enforce strict seam consistency.
     // This keeps the staggered Ucont field robust for QUICK-like stencils and periodic flux closure.
     ierr = ApplyUcontPeriodicBCs(user); CHKERRQ(ierr);
     ierr = EnforceUcontPeriodicity(user); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
 
-    // FUTURE EXTENSION: Adding a new scalar field like Temperature is now trivial.
+    // FUTURE EXTENSION: Add new cell fields through SynchronizePeriodicCellFields().
     /*
     if (user->solve_temperature) {
-        ierr = TransferPeriodicField(user, "Temperature"); CHKERRQ(ierr);
+        const char *temperature_field[] = {"Temperature"};
+        ierr = SynchronizePeriodicCellFields(user, 1, temperature_field); CHKERRQ(ierr);
     }
     */
 
@@ -2794,64 +2863,40 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "RefreshBoundaryGhostCells"
+#define __FUNCT__ "FinalizePostProjectionCellFields"
 /**
- * @brief Internal helper implementation: `RefreshBoundaryGhostCells()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref FinalizePostProjectionCellFields().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Boundaries.h`.
  */
-PetscErrorCode RefreshBoundaryGhostCells(UserCtx *user)
+PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
 {
     PetscErrorCode ierr;
+    const char    *cell_fields[] = {"Ucat", "P"};
+
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Starting post-projection refresh of boundary ghost cells.\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finalizing post-projection cell-centered fields.\n");
 
-    // -------------------------------------------------------------------------
-    // STEP 1: Refresh Flow-Dependent Boundary Value Targets (`ubcs`)
-    // -------------------------------------------------------------------------
-    // This is the "physics" part of the refresh. It calls the lightweight engine
-    // to update `ubcs` for any BCs (like Symmetry) that depend on the now-corrected
-    // interior velocity field. This step does NOT touch `ucont`.
-    ierr = BoundarySystem_RefreshUbcs(user); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  `ubcs` targets refreshed.\n");
-
-    ierr = UpdateLocalGhosts(user,"Ucat");
-
-    // STEP 1.5: Apply Wall function if applicable.
-    if(user->simCtx->wallfunction){
-
-        ierr = ApplyWallFunction(user); CHKERRQ(ierr);
-    
-    }
-    // -------------------------------------------------------------------------
-    // STEP 2: Apply Geometric Ghost Cell Updates
-    // -------------------------------------------------------------------------
-    // With `ubcs` now fully up-to-date, we execute the purely geometric
-    // operations to fill the entire ghost cell layer. The order is important.
-
-    // (a) Update the ghost cells on the faces of non-periodic boundaries.
-    ierr = UpdateDummyCells(user); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Face ghost cells (dummy cells) updated.\n");    
-    
-    // (b) Handle periodic boundaries first. This is a direct data copy.
-    // Ghost Update is done inside this function.s
-    ierr = ApplyPeriodicBCs(user); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Periodic boundaries synchronized.\n");
-    
-    // (c) Update the ghost cells at the edges and corners by averaging.
-    ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "  Edge and corner ghost cells updated.\n");
-
-    // (d) Synchronize Ucat after setting corner nodes.
+    // Ensure flow-dependent Ubcs handlers see the newly reconstructed Ucat.
     ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-    
-    // (e) Update the corners for periodic conditions sequentially
-    //  ensuring no race conditions are raised. 
-    const char* ucat_only[] = {"Ucat"};
-    ierr = UpdatePeriodicCornerNodes(user,1,ucat_only);CHKERRQ(ierr);
+    ierr = BoundarySystem_RefreshUbcs(user); CHKERRQ(ierr);
 
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Boundary ghost cell refresh complete.\n");
+    // Establish flat non-periodic faces and periodic endpoints before corners.
+    ierr = UpdateDummyCells(user); CHKERRQ(ierr);
+    ierr = SynchronizePeriodicCellFields(user, 2, cell_fields); CHKERRQ(ierr);
+
+    // Corner averaging can overwrite periodic endpoints, so restore them after.
+    ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
+    ierr = SynchronizePeriodicCellFields(user, 2, cell_fields); CHKERRQ(ierr);
+
+    // Synchronize explicitly because the periodic helper is a no-op when every
+    // direction is non-periodic.
+    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Post-projection cell-centered fields finalized.\n");
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -2930,7 +2975,7 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
         // (j) Ensure All the corners are synchronized with  a well defined protocol  in case of Periodic boundary conditions
         // To avoid race conditions.
         const char* all_fields[] = {"Ucat", "P", "Nvert"};
-        ierr = UpdatePeriodicCornerNodes(user,3,all_fields); CHKERRQ(ierr);
+        ierr = SynchronizePeriodicCellFields(user, 3, all_fields); CHKERRQ(ierr);
 
     }
 

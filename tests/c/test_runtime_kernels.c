@@ -956,10 +956,12 @@ static PetscErrorCode TestComputeSmagorinskyConstantConstantModel(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
+    PetscReal ***lcs = NULL;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     PetscCall(DMCreateGlobalVector(user->da, &user->CS));
+    PetscCall(DMCreateLocalVector(user->da, &user->lCs));
     simCtx->step = 2;
     simCtx->StartStep = 0;
     simCtx->les = CONSTANT_SMAGORINSKY;
@@ -967,6 +969,10 @@ static PetscErrorCode TestComputeSmagorinskyConstantConstantModel(void)
 
     PetscCall(ComputeSmagorinskyConstant(user));
     PetscCall(PicurvAssertVecConstant(user->CS, 0.17, 1.0e-12, "constant Smagorinsky branch should fill CS"));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lCs, &lcs));
+    PetscCall(PicurvAssertRealNear(0.17, lcs[2][2][2], 1.0e-12,
+                                   "constant Smagorinsky branch should refresh local CS"));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lCs, &lcs));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);

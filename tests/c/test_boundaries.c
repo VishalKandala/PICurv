@@ -1020,6 +1020,43 @@ static PetscErrorCode TestOutletConservationHandlerFaceMatrix(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Tests non-periodic cell-field finalization without modifying Ucont.
+ */
+static PetscErrorCode TestFinalizePostProjectionCellFieldsNonPeriodic(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucat = NULL;
+    Cmpnts ***lucat = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(VecSet(user->Ucat, 4.0));
+    PetscCall(VecSet(user->Bcs.Ubcs, 1.0));
+    PetscCall(VecSet(user->P, 3.0));
+    PetscCall(VecSet(user->Ucont, 7.0));
+
+    PetscCall(FinalizePostProjectionCellFields(user));
+
+    PetscCall(PicurvAssertVecConstant(user->Ucont, 7.0, 1.0e-12,
+                                      "post-projection cell finalization must preserve non-periodic Ucont"));
+    PetscCall(PicurvAssertVecConstant(user->P, 3.0, 1.0e-12,
+                                      "constant pressure should remain unchanged during cell finalization"));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcat, &lucat));
+    PetscCall(PicurvAssertRealNear(-2.0, ucat[2][2][0].x, 1.0e-12,
+                                    "non-periodic Ucat dummy face should use Ubcs extrapolation"));
+    PetscCall(PicurvAssertRealNear(-2.0, lucat[2][2][0].x, 1.0e-12,
+                                    "non-periodic local Ucat should contain the finalized dummy face"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcat, &lucat));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
 /**
  * @brief Runs the unit-boundaries PETSc test binary.
  */
@@ -1043,6 +1080,7 @@ int main(int argc, char **argv)
         {"inlet-profile-from-file-handler-behavior", TestInletProfileFromFileHandlerBehavior},
         {"outlet-conservation-handler-behavior", TestOutletConservationHandlerBehavior},
         {"outlet-conservation-handler-face-matrix", TestOutletConservationHandlerFaceMatrix},
+        {"finalize-post-projection-cell-fields-non-periodic", TestFinalizePostProjectionCellFieldsNonPeriodic},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv boundary tests");

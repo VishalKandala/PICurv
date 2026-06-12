@@ -1557,6 +1557,14 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
         globalVec = user->P;
         localVec  = user->lP;
         dm        = user->da;
+    } else if (strcmp(fieldName, "Nu_t") == 0 || strcmp(fieldName, "Eddy Viscosity") == 0) {
+        globalVec = user->Nu_t;
+        localVec  = user->lNu_t;
+        dm        = user->da;
+    } else if (strcmp(fieldName, "CS") == 0 || strcmp(fieldName, "Cs") == 0) {
+        globalVec = user->CS;
+        localVec  = user->lCs;
+        dm        = user->da;
     } else if (strcmp(fieldName, "Diffusivity") == 0) {
         globalVec = user->Diffusivity;
         localVec  = user->lDiffusivity;

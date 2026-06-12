@@ -2075,6 +2075,8 @@ PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
     // Update Ghost Points
     // This is required because downstream operations (Drift Gradient Calculation 
     // and Particle Interpolation) will need access to the halo regions of this field.
+    const char *periodic_fields[] = {"Diffusivity"};
+    ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);
 	ierr = UpdateLocalGhosts(user,"Diffusivity"); CHKERRQ(ierr);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
