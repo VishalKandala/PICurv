@@ -12552,7 +12552,7 @@ _SUMMARY_PLOT_LOG_SCALE_FIELDS = {
 }
 
 
-def _append_summary_plot_record(records: list, source: str, step, line: str, values: dict, source_path: str):
+def _append_summary_plot_record(records: list, source: str, step, line: str, values: dict, source_path: str, segment: int = 0):
     """!
     @brief Append one numeric append-ordered record for summarize plotting.
     @param[out] records Destination record list.
@@ -12561,6 +12561,7 @@ def _append_summary_plot_record(records: list, source: str, step, line: str, val
     @param[in] line Human-readable line identity.
     @param[in] values Candidate field mapping.
     @param[in] source_path Source artifact path.
+    @param[in] segment Zero-based continuation segment within the source artifact.
     """
     numeric = {
         key: value
@@ -12568,7 +12569,23 @@ def _append_summary_plot_record(records: list, source: str, step, line: str, val
         if isinstance(value, (int, float)) and not isinstance(value, bool)
     }
     if step is not None and numeric:
-        records.append({"source": source, "step": int(step), "line": line, "values": numeric, "source_path": source_path})
+        records.append({
+            "source": source,
+            "step": int(step),
+            "line": line,
+            "values": numeric,
+            "source_path": source_path,
+            "segment": int(segment),
+        })
+
+
+def _is_summary_plot_continuation_marker(line: str) -> bool:
+    """!
+    @brief Return whether a log line starts a new continuation segment.
+    @param[in] line Candidate raw or stripped log line.
+    @return True for the shared continuation marker syntax.
+    """
+    return bool(re.match(r"^\s*#?\s*=*\s*Continuation from step\s+\d+", line, re.IGNORECASE))
 
 
 def _collect_summary_plot_records(context: dict) -> list:
@@ -12582,8 +12599,12 @@ def _collect_summary_plot_records(context: dict) -> list:
 
     continuity_path = os.path.join(log_dir, "Continuity_Metrics.log")
     if os.path.isfile(continuity_path):
+        segment = 0
         with open(continuity_path, "r", encoding="utf-8", errors="replace") as f:
             for raw_line in f:
+                if _is_summary_plot_continuation_marker(raw_line):
+                    segment += 1
+                    continue
                 parts = [part.strip() for part in raw_line.split("|")]
                 if len(parts) < 8:
                     continue
@@ -12597,13 +12618,17 @@ def _collect_summary_plot_records(context: dict) -> list:
                         "flux_out": _parse_float_loose(parts[6]),
                         "net_flux": _parse_float_loose(parts[7]),
                     },
-                    continuity_path,
+                    continuity_path, segment,
                 )
 
     particle_path = os.path.join(log_dir, "Particle_Metrics.log")
     if os.path.isfile(particle_path):
+        segment = 0
         with open(particle_path, "r", encoding="utf-8", errors="replace") as f:
             for raw_line in f:
+                if _is_summary_plot_continuation_marker(raw_line):
+                    segment += 1
+                    continue
                 parts = [part.strip() for part in raw_line.split("|")]
                 if len(parts) < 8:
                     continue
@@ -12620,7 +12645,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                         "load_imbalance": _parse_float_loose(parts[6 + offset]),
                         "migration_passes": _parse_int_loose(parts[7 + offset]),
                     },
-                    particle_path,
+                    particle_path, segment,
                 )
 
     momentum_regex = re.compile(
@@ -12633,8 +12658,12 @@ def _collect_summary_plot_records(context: dict) -> list:
         block_match = re.search(r"Block_(\d+)\.log$", path)
         if not block_match:
             continue
+        segment = 0
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for raw_line in f:
+                if _is_summary_plot_continuation_marker(raw_line):
+                    segment += 1
+                    continue
                 match = momentum_regex.search(raw_line)
                 if match:
                     _append_summary_plot_record(
@@ -12647,7 +12676,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                             "residual_norm": float(match.group("resid")),
                             "residual_rel": float(match.group("resid_rel")),
                         },
-                        path,
+                        path, segment,
                     )
 
     poisson_regex = re.compile(
@@ -12656,8 +12685,12 @@ def _collect_summary_plot_records(context: dict) -> list:
         r"(?:\s*\|\s*Rel Norm:\s*(?P<rel>[-+0-9.eE]+))?"
     )
     for path in sorted(glob.glob(os.path.join(log_dir, "Poisson_Solver_Convergence_History_Block_*.log"))):
+        segment = 0
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for raw_line in f:
+                if _is_summary_plot_continuation_marker(raw_line):
+                    segment += 1
+                    continue
                 match = poisson_regex.search(raw_line)
                 if match:
                     _append_summary_plot_record(
@@ -12668,24 +12701,40 @@ def _collect_summary_plot_records(context: dict) -> list:
                             "true_norm": float(match.group("true")),
                             "relative_norm": _parse_float_loose(match.group("rel")),
                         },
-                        path,
+                        path, segment,
                     )
 
     profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
     if os.path.isfile(profiling_path):
+        segment = 0
+        columns = None
         with open(profiling_path, "r", encoding="utf-8", errors="replace", newline="") as f:
-            for row in csv.DictReader(f):
+            for raw_line in f:
+                if _is_summary_plot_continuation_marker(raw_line):
+                    segment += 1
+                    continue
+                values = next(csv.reader([raw_line]))
+                if not values:
+                    continue
+                if columns is None:
+                    columns = values
+                    continue
+                row = dict(zip(columns, values))
                 _append_summary_plot_record(
                     records, "profiling", _parse_int_loose(row.get("step")), row.get("function") or "unknown",
                     {"calls": _parse_int_loose(row.get("calls")), "step_time_s": _parse_float_loose(row.get("step_time_s"))},
-                    profiling_path,
+                    profiling_path, segment,
                 )
 
     diagnostics = resolve_diagnostics_config(context["monitor_cfg"])
     memory_path = os.path.join(log_dir, diagnostics["runtime_memory_log"].get("file", "Runtime_Memory.log"))
     if os.path.isfile(memory_path):
+        segment = 0
         with open(memory_path, "r", encoding="utf-8", errors="replace") as f:
             for raw_line in f:
+                if _is_summary_plot_continuation_marker(raw_line):
+                    segment += 1
+                    continue
                 parts = raw_line.split()
                 if len(parts) >= 8 and parts[1] in {"Step", "Post"}:
                     _append_summary_plot_record(
@@ -12697,15 +12746,19 @@ def _collect_summary_plot_records(context: dict) -> list:
                             "petsc_peak_allocated_mb_max": _parse_float_loose(parts[5]),
                             "process_change_mb_max": _parse_float_loose(parts[6]),
                         },
-                        memory_path,
+                        memory_path, segment,
                     )
 
     convergence_path = os.path.join(log_dir, "solution_convergence.log")
     if os.path.isfile(convergence_path):
         columns = None
+        segment = 0
         with open(convergence_path, "r", encoding="utf-8", errors="replace") as f:
             for raw_line in f:
                 line = raw_line.strip()
+                if _is_summary_plot_continuation_marker(line):
+                    segment += 1
+                    continue
                 if not line or line.startswith(("=", "-")):
                     continue
                 if columns is None:
@@ -12714,7 +12767,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                 parts = [part.strip() for part in raw_line.split("|")]
                 step = _parse_int_loose(parts[0])
                 values = {name: _parse_float_loose(value) for name, value in zip(columns, parts) if name not in {"step", "mode", "ref"}}
-                _append_summary_plot_record(records, "convergence", step, "convergence", values, convergence_path)
+                _append_summary_plot_record(records, "convergence", step, "convergence", values, convergence_path, segment)
     return records
 
 
@@ -12759,6 +12812,14 @@ def _build_summary_plot_request(context: dict, records: list, series: str, last_
     matching = [record for record in records if record["source"] == source and field in record["values"]]
     if not matching:
         raise ValueError(f"Plot series '{series}' is unavailable. Use --list-plot-series to inspect available series.")
+    latest_segments = {}
+    for record in matching:
+        source_path = record["source_path"]
+        latest_segments[source_path] = max(latest_segments.get(source_path, 0), record.get("segment", 0))
+    matching = [
+        record for record in matching
+        if record.get("segment", 0) == latest_segments[record["source_path"]]
+    ]
     grouped = {}
     for record in matching:
         grouped.setdefault(record["line"], []).append([record["step"], record["values"][field]])

@@ -3444,6 +3444,10 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
 	  }
  
             if (monctx->file_handle) {
+                if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+                    PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle,
+                                 "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
+                }
                 PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle, "--- Convergence for Timestep %d, Block %d ---\n", (int)simCtx->step, bi);
             } else {
                 SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not open KSP monitor log file: %s", filen);
