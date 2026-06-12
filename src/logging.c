@@ -1670,6 +1670,9 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
                 default: break;
             }
         }
+        if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+            fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
+        }
 
         switch (simCtx->solutionConvergenceMode) {
             case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC:
@@ -1778,6 +1781,9 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
             PetscFPrintf(PETSC_COMM_SELF, f, "%-10s | %-6s | %-18s | %-30s | %-18s | %-18s | %-18s | %-18s\n",
                          "Timestep", "Block", "Max Divergence", "Max Divergence Location ([k][j][i]=idx)", "Sum(RHS)","Total Flux In", "Total Flux Out", "Net Flux");
             PetscFPrintf(PETSC_COMM_SELF, f, "------------------------------------------------------------------------------------------------------------------------------------------\n");
+        }
+        if (simCtx->continueMode && ti == simCtx->StartStep + 1 && bi == 0) {
+            PetscFPrintf(PETSC_COMM_SELF, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
         }
 
         // Prepare the data strings and values for the current block.
@@ -1999,6 +2005,9 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
             if (step == simCtx->StartStep + 1 && ftell(f) == 0) {
                 PetscFPrintf(PETSC_COMM_SELF, f, "step,function,calls,step_time_s\n");
             }
+        }
+        if (simCtx->continueMode && step == simCtx->StartStep + 1) {
+            PetscFPrintf(PETSC_COMM_SELF, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
         }
 
         for (PetscInt i = 0; i < g_profiler_count; ++i) {
@@ -2759,6 +2768,9 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
             if (ftell(f) == 0) {
                 fprintf(f, "step,time,L2_error,Linf_error,L2_analytical,error_pct\n");
             }
+            if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+                fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
+            }
             PetscReal t = (PetscReal)simCtx->ti * simCtx->dt;
             fprintf(f, "%d,%.6e,%.6e,%.6e,%.6e,%.4f\n",
                     (int)simCtx->step, t,
@@ -2907,6 +2919,9 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
                         "step,time,total_particles,total_cells,occupied_cells,occupancy_fraction,"
                         "mean_particles_per_occupied_cell,particle_integral,grid_integral,"
                         "conservation_error_abs,L1_error,L2_error,Linf_error,relative_L2_error\n");
+            }
+            if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+                fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
             fprintf(f, "%d,%.6e,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
                     (int)simCtx->step,
@@ -3071,6 +3086,9 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                         "search_population,search_located_count,search_lost_count,traversal_steps_sum,re_search_count,"
                         "max_traversal_fail_count,search_failure_fraction,search_work_index,re_search_fraction\n");
             }
+            if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+                fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
+            }
             fprintf(f,
                     "%d,%.6e,%d,%d,%d,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e\n",
                     (int)simCtx->step,
@@ -3203,6 +3221,9 @@ PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
             PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10s | %-12s | %-10s | %-10s | %-10s | %-15s | %-10s | %-10s\n",
                             "Stage", "Timestep", "Total Ptls", "Lost", "Lost Total", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes");
             PetscFPrintf(PETSC_COMM_SELF, f, "-------------------------------------------------------------------------------------------------------------------------------------------\n");
+        }
+        if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+            PetscFPrintf(PETSC_COMM_SELF, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
         }
 
         PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10d | %-12d | %-10d | %-10d | %-10d | %-15d | %-10.2f | %-10d\n",
