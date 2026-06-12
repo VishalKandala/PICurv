@@ -1,0 +1,47 @@
+# Write every timestep so uniform-flow preservation can be inspected directly.
+
+logging:
+  verbosity: INFO
+  enabled_functions: []
+
+profiling:
+  timestep_output:
+    mode: "off"
+  final_summary:
+    enabled: true
+
+diagnostics:
+  petsc:
+    malloc_debug: false
+    malloc_test: false
+    malloc_dump: false
+    malloc_view: false
+    malloc_view_threshold: null
+    memory_view: false
+    log_view: false
+    log_view_memory: false
+    log_all: false
+    log_trace: false
+    objects_dump: false
+    options_left: null
+  runtime_memory_log:
+    enabled: true
+    file: "Runtime_Memory.log"
+
+io:
+  data_output_frequency: 1
+  particle_console_output_frequency: 0
+  particle_log_interval: 1
+  directories:
+    output: "output"
+    restart: "restart"
+    log: "logs"
+    eulerian_subdir: "eulerian"
+    particle_subdir: "particles"
+
+solver_monitoring:
+  poisson:
+    pic_true_residual: true
+    true_residual: false
+    converged_reason: true
+    view: false

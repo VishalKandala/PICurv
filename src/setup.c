@@ -1311,7 +1311,7 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
 
     ierr = DefineAllGridDimensions(simCtx); CHKERRQ(ierr);
     ierr = InitializeAllGridDMs(simCtx); CHKERRQ(ierr);
-    ierr = AssignAllGridCoordinates(simCtx);
+    ierr = AssignAllGridCoordinates(simCtx); CHKERRQ(ierr);
     ierr = CreateAndInitializeAllVectors(simCtx); CHKERRQ(ierr);
     ierr = SetupSolverParameters(simCtx); CHKERRQ(ierr);
     ierr = InitializeSolutionConvergenceState(simCtx); CHKERRQ(ierr);
@@ -1541,7 +1541,11 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Starting ghost update for field '%s'.\n", rank, fieldName);
 
     // --- 1. Identify the correct Vectors and DM ---
-    if (strcmp(fieldName, "Ucat") == 0) {
+    if (strcmp(fieldName, "Coordinates") == 0) {
+        ierr = DMGetCoordinates(user->da, &globalVec); CHKERRQ(ierr);
+        ierr = DMGetCoordinatesLocal(user->da, &localVec); CHKERRQ(ierr);
+        dm = user->fda;
+    } else if (strcmp(fieldName, "Ucat") == 0) {
         globalVec = user->Ucat;
         localVec  = user->lUcat;
         dm        = user->fda;
