@@ -2208,7 +2208,6 @@ static PetscErrorCode Destroy_PeriodicDrivenConstant(BoundaryCondition *self);
 typedef struct {
     char      direction;                // 'X', 'Y', or 'Z', determined at initialization.
     PetscReal targetVolumetricFlux;     // The constant target flux, parsed from parameters.
-    PetscReal boundaryVelocityCorrection; // The "Boundary Trim" value for the Apply() step.
     PetscBool isMasterController;       // Flag: PETSC_TRUE only for the handler on the negative face.
     PetscBool applyBoundaryTrim;        // Flag: PETSC_TRUE if applying Boundary trim on ucont.
 } DrivenConstantData;
@@ -2235,7 +2234,6 @@ PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
     // Initialize fields to safe default values
     data->direction = ' ';
     data->targetVolumetricFlux = 0.0;
-    data->boundaryVelocityCorrection = 0.0;
     data->isMasterController = PETSC_FALSE;
     data->applyBoundaryTrim = PETSC_FALSE;
     
@@ -2488,12 +2486,13 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
     if (globalBoundaryArea > 1.0e-12) {
         // The main correction for the body force is based on the STABLE domain-averaged flux.
         simCtx->bulkVelocityCorrection = (data->targetVolumetricFlux - globalAveragePlanarVolumetricFlux) / globalBoundaryArea;
-        
+
         // The immediate correction for the boundary trim is based on the FAST boundary-specific flux.
-        data->boundaryVelocityCorrection = (data->targetVolumetricFlux - globalCurrentBoundaryFlux) / globalBoundaryArea;
+        // Stored in simCtx so both the NEG and POS face handlers can apply it in their Apply() calls.
+        simCtx->boundaryVelocityCorrection = (data->targetVolumetricFlux - globalCurrentBoundaryFlux) / globalBoundaryArea;
     } else {
         simCtx->bulkVelocityCorrection = 0.0;
-        data->boundaryVelocityCorrection = 0.0;
+        simCtx->boundaryVelocityCorrection = 0.0;
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Driven Flow Controller Update (Dir %c):\n", data->direction);
@@ -2501,7 +2500,7 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Avg Planar Volumetric Flux (Stable): %.6e\n", globalAveragePlanarVolumetricFlux);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Boundary Flux (Fast):            %.6e\n", globalCurrentBoundaryFlux);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Bulk Velocity Correction:     %.6e (For Momentum Source)\n", simCtx->bulkVelocityCorrection);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Boundary Velocity Correction: %.6e (For Boundary Trim)\n", data->boundaryVelocityCorrection);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Boundary Velocity Correction: %.6e (For Boundary Trim)\n", simCtx->boundaryVelocityCorrection);
     
     // Suppress unused parameter warnings for this handler
     (void)local_inflow_contribution;
@@ -2533,7 +2532,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
     }
     
     // If the correction is negligible, no work is needed.
-    if (PetscAbsReal(data->boundaryVelocityCorrection) < 1e-12) {
+    if (PetscAbsReal(user->simCtx->boundaryVelocityCorrection) < 1e-12) {
         PetscFunctionReturn(0);
     }
 
@@ -2544,7 +2543,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
     Cmpnts ***ucont, ***uch, ***csi, ***eta, ***zet;
     PetscReal ***nvert;
     
-    ierr = DMDAVecGetArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->Bcs.Uch, &uch); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
@@ -2567,7 +2566,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
             for (PetscInt k = lzs; k < lze; k++) for (PetscInt j = lys; j < lye; j++) {
                 if (nvert[k][j][i_nvert] < 0.1) {
                     PetscReal faceArea = sqrt(csi[k][j][i_face].x*csi[k][j][i_nvert].x + csi[k][j][i_nvert].y*csi[k][j][i_nvert].y + csi[k][j][i_face].z*csi[k][j][i_face].z);
-                    PetscReal fluxTrim = data->boundaryVelocityCorrection * faceArea;
+                    PetscReal fluxTrim = user->simCtx->boundaryVelocityCorrection * faceArea;
                     if(data->applyBoundaryTrim) ucont[k][j][i_face].x += fluxTrim;
                     uch[k][j][i_face].x = fluxTrim; // Store correction for diagnostics
                 }
@@ -2581,7 +2580,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
             for (PetscInt k = lzs; k < lze; k++) for (PetscInt i = lxs; i < lxe; i++) {
                 if (nvert[k][j_nvert][i] < 0.1) {
                     PetscReal faceArea = sqrt(eta[k][j_face][i].x*eta[k][j_face][i].x + eta[k][j_face][i].y*eta[k][j_face][i].y + eta[k][j_face][i].z*eta[k][j_face][i].z);
-                    PetscReal fluxTrim = data->boundaryVelocityCorrection * faceArea;
+                    PetscReal fluxTrim = user->simCtx->boundaryVelocityCorrection * faceArea;
                     if(data->applyBoundaryTrim) ucont[k][j_face][i].y += fluxTrim;
                     uch[k][j_face][i].y = fluxTrim;
                 }
@@ -2595,7 +2594,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
             for (PetscInt j = lys; j < lye; j++) for (PetscInt i = lxs; i < lxe; i++) {
                 if (nvert[k_nvert][j][i] < 0.1) {
                     PetscReal faceArea = sqrt(zet[k_nvert][j][i].x*zet[k_nvert][j][i].x + zet[k_nvert][j][i].y*zet[k_nvert][j][i].y + zet[k_nvert][j][i].z*zet[k_nvert][j][i].z);
-                    PetscReal fluxTrim = data->boundaryVelocityCorrection * faceArea;
+                    PetscReal fluxTrim = user->simCtx->boundaryVelocityCorrection * faceArea;
                     if(data->applyBoundaryTrim) ucont[k_face][j][i].z += fluxTrim;
                     uch[k_face][j][i].z = fluxTrim;
                 }
@@ -2604,7 +2603,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
     }
 
     // --- Restore arrays ---
-    ierr = DMDAVecRestoreArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Uch, &uch); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);

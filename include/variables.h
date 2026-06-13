@@ -739,6 +739,7 @@ typedef struct SimCtx {
     PetscReal drivingForceMagnitude,forceScalingFactor;
     PetscReal targetVolumetricFlux; // for DRIVEN flow.
     PetscReal bulkVelocityCorrection;
+    PetscReal boundaryVelocityCorrection;
     PetscReal  AreaInSum, AreaOutSum;
     PetscReal  U_bc;
     PetscInt   ccc;

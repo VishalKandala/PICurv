@@ -260,6 +260,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->FluxInSum = 0.0; simCtx->FluxOutSum = 0.0; simCtx->Fluxsum = 0.0;
     simCtx->drivingForceMagnitude = 0.0, simCtx->forceScalingFactor = 1.8;
     simCtx->targetVolumetricFlux  = 0.0;
+    simCtx->bulkVelocityCorrection = 0.0;
+    simCtx->boundaryVelocityCorrection = 0.0;
     simCtx->AreaInSum = 0.0; simCtx->AreaOutSum = 0.0;
     simCtx->U_bc = 0.0; simCtx->ccc = 0;
     simCtx->ratio = 0.0;
@@ -545,8 +547,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-lv", &simCtx->LV, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-Pipe", &simCtx->Pipe, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-Turbulent_Channel_z", &simCtx->channelz, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL,NULL,"-Turbulent_Channel_z_Driving_Force",&simCtx->drivingForceMagnitude,NULL);CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL,NULL,"-Turbulent_Channel_z_Scaling_Factor",&simCtx->forceScalingFactor,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-driven_flow_initial_force",&simCtx->drivingForceMagnitude,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-driven_flow_scaling_factor",&simCtx->forceScalingFactor,NULL);CHKERRQ(ierr);
     //  --- Group 5
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 5: Solver & Numerics Parameters \n");
     char mom_solver_type_char[PETSC_MAX_PATH_LEN];
