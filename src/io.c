@@ -1242,11 +1242,8 @@ PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
     ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, eulerian_ext); CHKERRQ(ierr);
     ierr = ReadOptionalField(user, "cs", "Smagorinsky Constant (Cs)", user->CS, ti, eulerian_ext); CHKERRQ(ierr);
 
-    DMGlobalToLocalBegin(user->da, user->CS, INSERT_VALUES, user->lCs);
-    DMGlobalToLocalEnd(user->da, user->CS, INSERT_VALUES, user->lCs);
-    
-    DMGlobalToLocalBegin(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t);
-    DMGlobalToLocalEnd(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t);
+    ierr = UpdateLocalGhosts(user, "CS"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Nu_t"); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading LES fields.\n");
 
@@ -1272,14 +1269,9 @@ PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
 
     VecCopy(user->K_Omega, user->K_Omega_o);
 
-    DMGlobalToLocalBegin(user->fda2, user->K_Omega, INSERT_VALUES, user->lK_Omega);
-    DMGlobalToLocalEnd(user->fda2, user->K_Omega, INSERT_VALUES, user->lK_Omega);
-
-    DMGlobalToLocalBegin(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t);
-    DMGlobalToLocalEnd(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t);
-
-    DMGlobalToLocalBegin(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o);
-    DMGlobalToLocalEnd(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o);
+    ierr = UpdateLocalGhosts(user, "K_Omega"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Nu_t"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "K_Omega_o"); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading RANS fields.\n");
 

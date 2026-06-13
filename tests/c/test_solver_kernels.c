@@ -278,9 +278,9 @@ static PetscErrorCode TestAnalyticalSolutionEngineTaylorGreenSamples(void)
     PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "TGV3D", sizeof(simCtx->AnalyticalSolutionType)));
 
     PetscCall(DMDAVecGetArray(user->fda, user->Cent, &cent));
-    PetscCall(DMDAVecGetArray(user->fda, user->Centx, &cent_x));
-    PetscCall(DMDAVecGetArray(user->fda, user->Centy, &cent_y));
-    PetscCall(DMDAVecGetArray(user->fda, user->Centz, &cent_z));
+    PetscCall(DMDAVecGetArray(user->fda, user->lCentx, &cent_x));
+    PetscCall(DMDAVecGetArray(user->fda, user->lCenty, &cent_y));
+    PetscCall(DMDAVecGetArray(user->fda, user->lCentz, &cent_z));
     for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
         for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
             for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
@@ -302,9 +302,9 @@ static PetscErrorCode TestAnalyticalSolutionEngineTaylorGreenSamples(void)
     cent_z[0][1][1].x = 0.5 * PETSC_PI;
     cent_z[0][1][1].y = 0.0;
     cent_z[0][1][1].z = 0.0;
-    PetscCall(DMDAVecRestoreArray(user->fda, user->Centz, &cent_z));
-    PetscCall(DMDAVecRestoreArray(user->fda, user->Centy, &cent_y));
-    PetscCall(DMDAVecRestoreArray(user->fda, user->Centx, &cent_x));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lCentz, &cent_z));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lCenty, &cent_y));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lCentx, &cent_x));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Cent, &cent));
 
     PetscCall(AnalyticalSolutionEngine(simCtx));

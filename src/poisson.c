@@ -830,8 +830,8 @@ PetscErrorCode Projection(UserCtx *user)
  
   // --- Update ghost cells for the newly corrected velocity field ---
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Updating ghost cells for corrected velocity.\n");
-  DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
+  const char *staggered_fields[] = {"Ucont"};
+  ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
 
   // --- Convert velocity to Cartesian and update ghost nodes ---
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Converting velocity to Cartesian and finalizing ghost nodes.\n");
@@ -2348,8 +2348,8 @@ PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux,
   DMDAVecRestoreArray(fda, user->lZet, &zet);
   DMDAVecRestoreArray(fda, user->Ucont, &ucor);
 
-  DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
+  const char *staggered_fields[] = {"Ucont"};
+  ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
   return 0;
 }
 
@@ -2403,7 +2403,7 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
     PetscReal x;
     PetscReal y;
     PetscReal z;
-  }***ucor, ***lucor,***csi, ***eta, ***zet;
+  }***ucor, ***csi, ***eta, ***zet;
  
 
   PetscInt xend=mx-2 ,yend=my-2,zend=mz-2;
@@ -2917,94 +2917,8 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
   DMDAVecRestoreArray(fda, user->lZet, &zet);
   DMDAVecRestoreArray(fda, user->Ucont, &ucor);
 
-  DMGlobalToLocalBegin(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  DMGlobalToLocalEnd(fda, user->Ucont, INSERT_VALUES, user->lUcont);
-
-  /* periodic boundary condition update corrected flux */
-  // Mohsen Dec 2015 (kept for transition safety; modern periodic helper path is also active)
-  PetscBool has_periodic_ucont_seam =
-      (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC ||
-       user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC ||
-       user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC ||
-       user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC ||
-       user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC ||
-       user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC);
-  PetscInt  periodic_seam_updates_local = 0, periodic_seam_updates_global = 0;
-  PetscReal periodic_seam_max_delta_local = 0.0, periodic_seam_max_delta_global = 0.0;
-
-  if (has_periodic_ucont_seam) {
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "VolumeFlux: entering legacy periodic Ucont seam refresh block.\n");
-  }
-
-  DMDAVecGetArray(fda, user->lUcont, &lucor);
-  DMDAVecGetArray(fda, user->Ucont, &ucor);
-  
-  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC){
-    if (xs==0){
-      i=xs;
-	      for (k=zs; k<ze; k++) {
-		for (j=ys; j<ye; j++) {
-		  if(j>0 && k>0 && j<user->JM && k<user->KM){
-		    PetscReal old_val = ucor[k][j][i].x;
-		    PetscReal new_val = lucor[k][j][i-2].x;
-		    PetscReal delta = PetscAbsReal(new_val - old_val);
-		    ucor[k][j][i].x = new_val;
-		    if (delta > 1.0e-14) periodic_seam_updates_local++;
-		    periodic_seam_max_delta_local = PetscMax(periodic_seam_max_delta_local, delta);
-		  }
-		}
-	      }
-    }
-  }
-  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC){
-    if (ys==0){
-      j=ys;
-	      for (k=zs; k<ze; k++) {
-		for (i=xs; i<xe; i++) {
-		  if(i>0 && k>0 && i<user->IM && k<user->KM){
-		    PetscReal old_val = ucor[k][j][i].y;
-		    PetscReal new_val = lucor[k][j-2][i].y;
-		    PetscReal delta = PetscAbsReal(new_val - old_val);
-		    ucor[k][j][i].y = new_val;
-		    if (delta > 1.0e-14) periodic_seam_updates_local++;
-		    periodic_seam_max_delta_local = PetscMax(periodic_seam_max_delta_local, delta);
-		  }
-		}
-	      }
-    }
-  }
-  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC){
-    if (zs==0){
-      k=zs;
-	      for (j=ys; j<ye; j++) {
-		for (i=xs; i<xe; i++) {
-		  if(i>0 && j>0 && i<user->IM && j<user->JM){
-		    PetscReal old_val = ucor[k][j][i].z;
-		    PetscReal new_val = lucor[k-2][j][i].z;
-		    PetscReal delta = PetscAbsReal(new_val - old_val);
-		    ucor[k][j][i].z = new_val;
-		    if (delta > 1.0e-14) periodic_seam_updates_local++;
-		    periodic_seam_max_delta_local = PetscMax(periodic_seam_max_delta_local, delta);
-		  }
-		}
-	      }
-    }
-  }
-  DMDAVecRestoreArray(fda, user->lUcont, &lucor);
-  DMDAVecRestoreArray(fda, user->Ucont, &ucor);
-
-  if (has_periodic_ucont_seam) {
-    ierr = MPI_Allreduce(&periodic_seam_updates_local, &periodic_seam_updates_global, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Allreduce(&periodic_seam_max_delta_local, &periodic_seam_max_delta_global, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "VolumeFlux: legacy periodic Ucont seam refresh updated %d values, max |delta|=%.6e.\n",
-              (int)periodic_seam_updates_global, periodic_seam_max_delta_global);
-  }
-
- /*  DMLocalToGlobalBegin(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); */
-/*   DMLocalToGlobalEnd(user->fda, user->lUcont, INSERT_VALUES, user->Ucont); */
-  DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont);
-  DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont);
+  const char *staggered_fields[] = {"Ucont"};
+  ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
 
   if (NumberOfBodies > 1) {
     free(lIB_Flux);
@@ -3113,6 +3027,7 @@ static PetscErrorCode FullyBlocked(UserCtx *user)
  */
 static PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
 {
+  PetscErrorCode ierr;
   //  DA		da = user_c->da, fda = user_c->fda;
 
 
@@ -3195,8 +3110,7 @@ static PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
   DMDAVecRestoreArray(user_h->da, user_h->lNvert, &nvert_h);
   DMDAVecRestoreArray(user_c->da, user_c->Nvert, &nvert);
 
-  DMGlobalToLocalBegin(user_c->da, user_c->Nvert, INSERT_VALUES, user_c->lNvert);
-  DMGlobalToLocalEnd(user_c->da, user_c->Nvert, INSERT_VALUES, user_c->lNvert);
+  ierr = UpdateLocalGhosts(user_c, "Nvert"); CHKERRQ(ierr);
   //Mohsen Dec 2015
   DMDAVecGetArray(user_c->da, user_c->lNvert, &nvert);
   DMDAVecGetArray(user_c->da, user_c->Nvert, &nvert_h);
@@ -3217,8 +3131,7 @@ static PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
 
   DMDAVecRestoreArray(user_c->da, user_c->lNvert, &nvert);
   DMDAVecRestoreArray(user_c->da, user_c->Nvert, &nvert_h);
-  DMGlobalToLocalBegin(user_c->da, user_c->Nvert, INSERT_VALUES, user_c->lNvert);
-  DMGlobalToLocalEnd(user_c->da, user_c->Nvert, INSERT_VALUES, user_c->lNvert);
+  ierr = UpdateLocalGhosts(user_c, "Nvert"); CHKERRQ(ierr);
  /*  DMLocalToGlobalBegin(user_c->da, user_c->lNvert, INSERT_VALUES, user_c->Nvert); */
 /*   DMLocalToGlobalEnd(user_c->da, user_c->lNvert, INSERT_VALUES, user_c->Nvert); */
   return 0;

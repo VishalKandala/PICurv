@@ -1440,10 +1440,12 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
             ierr = VecDuplicate(user->Cent, &user->GridSpace); CHKERRQ(ierr); ierr = VecSet(user->GridSpace, 0.0); CHKERRQ(ierr);
             ierr = VecDuplicate(user->lCent, &user->lGridSpace); CHKERRQ(ierr); ierr = VecSet(user->lGridSpace, 0.0); CHKERRQ(ierr);
 
-            // Face-center coordinate vectors are LOCAL to hold calculated values before scattering
-            ierr = VecDuplicate(user->lCent, &user->Centx); CHKERRQ(ierr); ierr = VecSet(user->Centx, 0.0); CHKERRQ(ierr);
-            ierr = VecDuplicate(user->lCent, &user->Centy); CHKERRQ(ierr); ierr = VecSet(user->Centy, 0.0); CHKERRQ(ierr);
-            ierr = VecDuplicate(user->lCent, &user->Centz); CHKERRQ(ierr); ierr = VecSet(user->Centz, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->Cent, &user->Centx); CHKERRQ(ierr); ierr = VecSet(user->Centx, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->Cent, &user->Centy); CHKERRQ(ierr); ierr = VecSet(user->Centy, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->Cent, &user->Centz); CHKERRQ(ierr); ierr = VecSet(user->Centz, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCent, &user->lCentx); CHKERRQ(ierr); ierr = VecSet(user->lCentx, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCent, &user->lCenty); CHKERRQ(ierr); ierr = VecSet(user->lCenty, 0.0); CHKERRQ(ierr);
+            ierr = VecDuplicate(user->lCent, &user->lCentz); CHKERRQ(ierr); ierr = VecSet(user->lCentz, 0.0); CHKERRQ(ierr);
 
 	    if(level == usermg->mglevels -1){
 	    // --- Group G: Turbulence Models (Finest Level Only) ---
@@ -1522,6 +1524,179 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "RepairPeriodicNormalFaceGhosts"
+/**
+ * @brief Repairs the adjacent normal ghost layer for periodic face-staggered data.
+ *
+ * PETSc wraps every component with cell-style indexing. A face family instead
+ * needs its adjacent normal ghost shifted by one additional physical face. With
+ * the width-three periodic DMDA, the required value is available in the deeper
+ * PETSc ghost at -3 or n+2. Tangential ghosts retain PETSc's native wraparound.
+ */
+static PetscErrorCode RepairPeriodicNormalFaceGhosts(UserCtx *user, DM dm, Vec local_vec,
+                                                      PetscInt dof, char face_direction,
+                                                      PetscBool component_staggered)
+{
+    DMDALocalInfo info;
+    PetscInt xs, xe, ys, ye, zs, ze;
+    PetscInt gxs, gxe, gys, gye, gzs, gze;
+    PetscInt mx, my, mz;
+
+    PetscFunctionBeginUser;
+    if (!face_direction && !component_staggered) PetscFunctionReturn(0);
+
+    PetscCall(DMDAGetLocalInfo(dm, &info));
+    xs = info.xs; xe = info.xs + info.xm;
+    ys = info.ys; ye = info.ys + info.ym;
+    zs = info.zs; ze = info.zs + info.zm;
+    gxs = info.gxs; gxe = info.gxs + info.gxm;
+    gys = info.gys; gye = info.gys + info.gym;
+    gzs = info.gzs; gze = info.gzs + info.gzm;
+    mx = info.mx; my = info.my; mz = info.mz;
+
+    if (component_staggered) {
+        Cmpnts ***array;
+        PetscCall(DMDAVecGetArray(dm, local_vec, &array));
+
+        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) {
+            PetscCheck(gxs <= -3, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                       "Periodic Ucont.x ghost repair requires DMDA stencil width at least 3.");
+            for (PetscInt k = gzs; k < gze; k++) for (PetscInt j = gys; j < gye; j++)
+                array[k][j][-1].x = array[k][j][-3].x;
+        }
+        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) {
+            PetscCheck(gxe > mx + 2, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                       "Periodic Ucont.x ghost repair requires DMDA stencil width at least 3.");
+            for (PetscInt k = gzs; k < gze; k++) for (PetscInt j = gys; j < gye; j++)
+                array[k][j][mx].x = array[k][j][mx + 2].x;
+        }
+        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) {
+            PetscCheck(gys <= -3, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                       "Periodic Ucont.y ghost repair requires DMDA stencil width at least 3.");
+            for (PetscInt k = gzs; k < gze; k++) for (PetscInt i = gxs; i < gxe; i++)
+                array[k][-1][i].y = array[k][-3][i].y;
+        }
+        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) {
+            PetscCheck(gye > my + 2, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                       "Periodic Ucont.y ghost repair requires DMDA stencil width at least 3.");
+            for (PetscInt k = gzs; k < gze; k++) for (PetscInt i = gxs; i < gxe; i++)
+                array[k][my][i].y = array[k][my + 2][i].y;
+        }
+        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) {
+            PetscCheck(gzs <= -3, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                       "Periodic Ucont.z ghost repair requires DMDA stencil width at least 3.");
+            for (PetscInt j = gys; j < gye; j++) for (PetscInt i = gxs; i < gxe; i++)
+                array[-1][j][i].z = array[-3][j][i].z;
+        }
+        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) {
+            PetscCheck(gze > mz + 2, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                       "Periodic Ucont.z ghost repair requires DMDA stencil width at least 3.");
+            for (PetscInt j = gys; j < gye; j++) for (PetscInt i = gxs; i < gxe; i++)
+                array[mz][j][i].z = array[mz + 2][j][i].z;
+        }
+
+        PetscCall(DMDAVecRestoreArray(dm, local_vec, &array));
+        PetscFunctionReturn(0);
+    }
+
+    if (dof == 1) {
+        PetscReal ***array;
+        PetscCall(DMDAVecGetArray(dm, local_vec, &array));
+
+        if (face_direction == 'i') {
+            if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) {
+                PetscCheck(gxs <= -3, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic I-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt k = gzs; k < gze; k++) for (PetscInt j = gys; j < gye; j++)
+                    array[k][j][-1] = array[k][j][-3];
+            }
+            if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) {
+                PetscCheck(gxe > mx + 2, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic I-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt k = gzs; k < gze; k++) for (PetscInt j = gys; j < gye; j++)
+                    array[k][j][mx] = array[k][j][mx + 2];
+            }
+        } else if (face_direction == 'j') {
+            if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) {
+                PetscCheck(gys <= -3, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic J-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt k = gzs; k < gze; k++) for (PetscInt i = gxs; i < gxe; i++)
+                    array[k][-1][i] = array[k][-3][i];
+            }
+            if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) {
+                PetscCheck(gye > my + 2, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic J-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt k = gzs; k < gze; k++) for (PetscInt i = gxs; i < gxe; i++)
+                    array[k][my][i] = array[k][my + 2][i];
+            }
+        } else if (face_direction == 'k') {
+            if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) {
+                PetscCheck(gzs <= -3, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic K-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt j = gys; j < gye; j++) for (PetscInt i = gxs; i < gxe; i++)
+                    array[-1][j][i] = array[-3][j][i];
+            }
+            if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) {
+                PetscCheck(gze > mz + 2, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic K-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt j = gys; j < gye; j++) for (PetscInt i = gxs; i < gxe; i++)
+                    array[mz][j][i] = array[mz + 2][j][i];
+            }
+        }
+
+        PetscCall(DMDAVecRestoreArray(dm, local_vec, &array));
+    } else {
+        Cmpnts ***array;
+        PetscCall(DMDAVecGetArray(dm, local_vec, &array));
+
+        if (face_direction == 'i') {
+            if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) {
+                PetscCheck(gxs <= -3, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic I-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt k = gzs; k < gze; k++) for (PetscInt j = gys; j < gye; j++)
+                    array[k][j][-1] = array[k][j][-3];
+            }
+            if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) {
+                PetscCheck(gxe > mx + 2, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic I-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt k = gzs; k < gze; k++) for (PetscInt j = gys; j < gye; j++)
+                    array[k][j][mx] = array[k][j][mx + 2];
+            }
+        } else if (face_direction == 'j') {
+            if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) {
+                PetscCheck(gys <= -3, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic J-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt k = gzs; k < gze; k++) for (PetscInt i = gxs; i < gxe; i++)
+                    array[k][-1][i] = array[k][-3][i];
+            }
+            if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) {
+                PetscCheck(gye > my + 2, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic J-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt k = gzs; k < gze; k++) for (PetscInt i = gxs; i < gxe; i++)
+                    array[k][my][i] = array[k][my + 2][i];
+            }
+        } else if (face_direction == 'k') {
+            if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) {
+                PetscCheck(gzs <= -3, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic K-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt j = gys; j < gye; j++) for (PetscInt i = gxs; i < gxe; i++)
+                    array[-1][j][i] = array[-3][j][i];
+            }
+            if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) {
+                PetscCheck(gze > mz + 2, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                           "Periodic K-face ghost repair requires DMDA stencil width at least 3.");
+                for (PetscInt j = gys; j < gye; j++) for (PetscInt i = gxs; i < gxe; i++)
+                    array[mz][j][i] = array[mz + 2][j][i];
+            }
+        }
+
+        PetscCall(DMDAVecRestoreArray(dm, local_vec, &array));
+    }
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "UpdateLocalGhosts"
 /**
  * @brief Internal helper implementation: `UpdateLocalGhosts()`.
@@ -1534,6 +1709,9 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
     Vec            globalVec = NULL;
     Vec            localVec = NULL;
     DM             dm = NULL; // The DM associated with this field pair
+    PetscInt       dof = 0;
+    char           face_direction = '\0';
+    PetscBool      component_staggered = PETSC_FALSE;
 
     PetscFunctionBeginUser; // Use User version for application code
     PROFILE_FUNCTION_BEGIN;
@@ -1545,14 +1723,30 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
         ierr = DMGetCoordinates(user->da, &globalVec); CHKERRQ(ierr);
         ierr = DMGetCoordinatesLocal(user->da, &localVec); CHKERRQ(ierr);
         dm = user->fda;
+        dof = 3;
     } else if (strcmp(fieldName, "Ucat") == 0) {
         globalVec = user->Ucat;
         localVec  = user->lUcat;
         dm        = user->fda;
+        dof       = 3;
     } else if (strcmp(fieldName, "Ucont") == 0) {
         globalVec = user->Ucont;
         localVec  = user->lUcont;
         dm        = user->fda;
+        dof       = 3;
+        component_staggered = PETSC_TRUE;
+    } else if (strcmp(fieldName, "Ucont_o") == 0) {
+        globalVec = user->Ucont_o;
+        localVec  = user->lUcont_o;
+        dm        = user->fda;
+        dof       = 3;
+        component_staggered = PETSC_TRUE;
+    } else if (strcmp(fieldName, "Ucont_rm1") == 0) {
+        globalVec = user->Ucont_rm1;
+        localVec  = user->lUcont_rm1;
+        dm        = user->fda;
+        dof       = 3;
+        component_staggered = PETSC_TRUE;
     } else if (strcmp(fieldName, "P") == 0) {
         globalVec = user->P;
         localVec  = user->lP;
@@ -1577,14 +1771,20 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
         globalVec = user->Csi;
         localVec  = user->lCsi;
         dm        = user->fda;
+        dof       = 3;
+        face_direction = 'i';
     } else if (strcmp(fieldName, "Eta") == 0) {
         globalVec = user->Eta;
         localVec  = user->lEta;
         dm        = user->fda;
+        dof       = 3;
+        face_direction = 'j';
     }  else if (strcmp(fieldName, "Zet") == 0) {
         globalVec = user->Zet;
         localVec  = user->lZet;
         dm        = user->fda;
+        dof       = 3;
+        face_direction = 'k';
     }else if (strcmp(fieldName, "Nvert") == 0) {
         globalVec = user->Nvert;
         localVec  = user->lNvert;
@@ -1602,54 +1802,96 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
         globalVec = user->GridSpace;
         localVec  = user->lGridSpace;
         dm        = user->fda;
+    }else if (strcmp(fieldName, "Centx") == 0) {
+        globalVec = user->Centx;
+        localVec  = user->lCentx;
+        dm        = user->fda;
+        dof       = 3;
+        face_direction = 'i';
+    }else if (strcmp(fieldName, "Centy") == 0) {
+        globalVec = user->Centy;
+        localVec  = user->lCenty;
+        dm        = user->fda;
+        dof       = 3;
+        face_direction = 'j';
+    }else if (strcmp(fieldName, "Centz") == 0) {
+        globalVec = user->Centz;
+        localVec  = user->lCentz;
+        dm        = user->fda;
+        dof       = 3;
+        face_direction = 'k';
     }else if (strcmp(fieldName,"ICsi") == 0){
       globalVec = user->ICsi;
       localVec  = user->lICsi;
       dm        = user->fda;
+      dof       = 3;
+      face_direction = 'i';
     }else if (strcmp(fieldName,"IEta") == 0){
       globalVec = user->IEta;
       localVec  = user->lIEta;
       dm        = user->fda;
+      dof       = 3;
+      face_direction = 'i';
     }else if (strcmp(fieldName,"IZet") == 0){
       globalVec = user->IZet;
       localVec  = user->lIZet;
       dm        = user->fda;
+      dof       = 3;
+      face_direction = 'i';
     }else if (strcmp(fieldName,"JCsi") == 0){
       globalVec = user->JCsi;
       localVec  = user->lJCsi;
       dm        = user->fda;
+      dof       = 3;
+      face_direction = 'j';
     }else if (strcmp(fieldName,"JEta") == 0){
       globalVec = user->JEta;
       localVec  = user->lJEta;
       dm        = user->fda;
+      dof       = 3;
+      face_direction = 'j';
     }else if (strcmp(fieldName,"JZet") == 0){
       globalVec = user->JZet;
       localVec  = user->lJZet;
       dm        = user->fda;
+      dof       = 3;
+      face_direction = 'j';
     }else if (strcmp(fieldName,"KCsi") == 0){
       globalVec = user->KCsi;
       localVec  = user->lKCsi;
       dm        = user->fda;
+      dof       = 3;
+      face_direction = 'k';
     }else if (strcmp(fieldName,"KEta") == 0){
       globalVec = user->KEta;
       localVec  = user->lKEta;
       dm        = user->fda;
+      dof       = 3;
+      face_direction = 'k';
     }else if (strcmp(fieldName,"KZet") == 0){
       globalVec = user->KZet;
       localVec  = user->lKZet;
       dm        = user->fda;
+      dof       = 3;
+      face_direction = 'k';
     }else if (strcmp(fieldName,"IAj") == 0){
       globalVec = user->IAj;
       localVec  = user->lIAj;
       dm        = user->da;
+      dof       = 1;
+      face_direction = 'i';
     }else if (strcmp(fieldName,"JAj") == 0){
       globalVec = user->JAj;
       localVec  = user->lJAj;
       dm        = user->da;
+      dof       = 1;
+      face_direction = 'j';
     }else if (strcmp(fieldName,"KAj") == 0){
       globalVec = user->KAj;
       localVec  = user->lKAj;
       dm        = user->da;
+      dof       = 1;
+      face_direction = 'k';
     }else if (strcmp(fieldName,"Phi") == 0){ // Pressure correction term.
       globalVec = user->Phi;
       localVec  = user->lPhi;
@@ -1658,6 +1900,22 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
       globalVec = user->Psi;
       localVec  = user->lPsi;
       dm        = user->da;
+    }else if (strcmp(fieldName,"Nvert_o") == 0){
+      globalVec = user->Nvert_o;
+      localVec  = user->lNvert_o;
+      dm        = user->da;
+    }else if (strcmp(fieldName,"ParticleCount") == 0){
+      globalVec = user->ParticleCount;
+      localVec  = user->lParticleCount;
+      dm        = user->da;
+    }else if (strcmp(fieldName,"K_Omega") == 0){
+      globalVec = user->K_Omega;
+      localVec  = user->lK_Omega;
+      dm        = user->fda2;
+    }else if (strcmp(fieldName,"K_Omega_o") == 0){
+      globalVec = user->K_Omega_o;
+      localVec  = user->lK_Omega_o;
+      dm        = user->fda2;
     }else {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Field '%s' not recognized for ghost update.", fieldName);
     }
@@ -1693,6 +1951,8 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Calling DMGlobalToLocalBegin/End for '%s'.\n", rank, fieldName);
     ierr = DMGlobalToLocalBegin(dm, globalVec, INSERT_VALUES, localVec); CHKERRQ(ierr);
     ierr = DMGlobalToLocalEnd(dm, globalVec, INSERT_VALUES, localVec); CHKERRQ(ierr);
+    ierr = RepairPeriodicNormalFaceGhosts(user, dm, localVec, dof, face_direction,
+                                          component_staggered); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Completed DMGlobalToLocalBegin/End for '%s'.\n", rank, fieldName);
 
     // --- 5. Optional Debugging: Norm After Update ---
@@ -3219,6 +3479,9 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->Centx) { ierr = VecDestroy(&user->Centx); CHKERRQ(ierr); }
     if (user->Centy) { ierr = VecDestroy(&user->Centy); CHKERRQ(ierr); }
     if (user->Centz) { ierr = VecDestroy(&user->Centz); CHKERRQ(ierr); }
+    if (user->lCentx) { ierr = VecDestroy(&user->lCentx); CHKERRQ(ierr); }
+    if (user->lCenty) { ierr = VecDestroy(&user->lCenty); CHKERRQ(ierr); }
+    if (user->lCentz) { ierr = VecDestroy(&user->lCentz); CHKERRQ(ierr); }
 
     // --- Group G: Turbulence Model Vectors (Finest level, conditional on les/rans) ---
     if (user->Nu_t) { ierr = VecDestroy(&user->Nu_t); CHKERRQ(ierr); }

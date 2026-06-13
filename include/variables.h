@@ -884,7 +884,8 @@ typedef struct UserCtx {
   
     // --- Grid Metrics (Global and Local) ---
   Vec Cent, lCent, Csi, Eta, Zet, Aj, lCsi, lEta, lZet, lAj, GridSpace,lGridSpace;
-  Vec   Centx,Centy,Centz; // these are already local vectors.
+  Vec   Centx,Centy,Centz;
+  Vec   lCentx,lCenty,lCentz;
   Vec 	ICsi, IEta, IZet, IAj, lICsi, lIEta, lIZet, lIAj;
   Vec 	JCsi, JEta, JZet, JAj, lJCsi, lJEta, lJZet, lJAj;
   Vec 	KCsi, KEta, KZet, KAj, lKCsi, lKEta, lKZet, lKAj;

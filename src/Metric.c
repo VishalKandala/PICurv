@@ -590,74 +590,10 @@ PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user)
  */
 PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
 {
-    PetscErrorCode ierr;
-    DMDALocalInfo  info = user->info;
-    PetscInt       xs = info.xs, xe = info.xs + info.xm;
-    PetscInt       mx = info.mx;
-    PetscInt       gys = info.gys, gye = info.gys + info.gym;
-    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
-    Cmpnts       ***centx, ***gs;
+    const char *fields[] = {"Centx"};
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    // Check if X-periodic boundaries exist
-    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC && 
-        user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC) {
-        LOG_ALLOW(LOCAL, LOG_TRACE, "No X-periodic boundaries; skipping Centx corrections.\n");
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0);
-    }
-
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Applying X-periodic corrections to Centx.\n");
-
-    ierr = DMDAVecGetArray(user->fda, user->Centx, &centx); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-
-    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) {
-        if (user->cgrid) {
-            for (PetscInt k=gzs+1; k<gze; k++) {
-                for (PetscInt j=gys+1; j<gye; j++) {
-                    centx[k][j][-1].x = centx[k][j][-3].x;
-                    centx[k][j][-1].y = centx[k][j][-3].y;
-                    centx[k][j][-1].z = centx[k][j][-3].z;
-                }
-            }
-        } else {
-            for (PetscInt k=gzs+1; k<gze; k++) {
-                for (PetscInt j=gys+1; j<gye; j++) {
-                    centx[k][j][-1].x = centx[k][j][0].x - gs[k][j][-2].x;
-                    centx[k][j][-1].y = centx[k][j][0].y;
-                    centx[k][j][-1].z = centx[k][j][0].z;
-                }
-            }
-        }
-    }
-
-    if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) {
-        if (user->cgrid) {
-            for (PetscInt k=gzs+1; k<gze; k++) {
-                for (PetscInt j=gys+1; j<gye; j++) {
-                    centx[k][j][mx-1].x = centx[k][j][mx+1].x;
-                    centx[k][j][mx-1].y = centx[k][j][mx+1].y;
-                    centx[k][j][mx-1].z = centx[k][j][mx+1].z;
-                }
-            }
-        } else {
-            for (PetscInt k=gzs+1; k<gze; k++) {
-                for (PetscInt j=gys+1; j<gye; j++) {
-                    centx[k][j][mx-1].x = centx[k][j][mx-2].x + gs[k][j][mx+1].x;
-                    centx[k][j][mx-1].y = centx[k][j][mx-2].y;
-                    centx[k][j][mx-1].z = centx[k][j][mx-2].z;
-                }
-            }
-        }
-    }
-
-    ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Centx, &centx); CHKERRQ(ierr);
-
-    PROFILE_FUNCTION_END;
+    PetscCall(SynchronizePeriodicFaceFields(user, 'i', 1, fields));
     PetscFunctionReturn(0);
 }
 
@@ -670,74 +606,10 @@ PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
  */
 PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
 {
-    PetscErrorCode ierr;
-    DMDALocalInfo  info = user->info;
-    PetscInt       ys = info.ys, ye = info.ys + info.ym;
-    PetscInt       my = info.my;
-    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
-    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
-    Cmpnts       ***centy, ***gs;
+    const char *fields[] = {"Centy"};
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    // Check if Y-periodic boundaries exist
-    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC && 
-        user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC) {
-        LOG_ALLOW(LOCAL, LOG_TRACE, "No Y-periodic boundaries; skipping Centy corrections.\n");
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0);
-    }
-
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Applying Y-periodic corrections to Centy.\n");
-
-    ierr = DMDAVecGetArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-
-    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) {
-        if (user->cgrid) {
-            for (PetscInt k=gzs+1; k<gze; k++) {
-                for (PetscInt i=gxs+1; i<gxe; i++) {
-                    centy[k][-1][i].x = centy[k][-3][i].x;
-                    centy[k][-1][i].y = centy[k][-3][i].y;
-                    centy[k][-1][i].z = centy[k][-3][i].z;
-                }
-            }
-        } else {
-            for (PetscInt k=gzs+1; k<gze; k++) {
-                for (PetscInt i=gxs+1; i<gxe; i++) {
-                    centy[k][-1][i].x = centy[k][0][i].x;
-                    centy[k][-1][i].y = centy[k][0][i].y - gs[k][-2][i].y;
-                    centy[k][-1][i].z = centy[k][0][i].z;
-                }
-            }
-        }
-    }
-
-    if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) {
-        if (user->cgrid) {
-            for (PetscInt k=gzs+1; k<gze; k++) {
-                for (PetscInt i=gxs+1; i<gxe; i++) {
-                    centy[k][my-1][i].x = centy[k][my+1][i].x;
-                    centy[k][my-1][i].y = centy[k][my+1][i].y;
-                    centy[k][my-1][i].z = centy[k][my+1][i].z;
-                }
-            }
-        } else {
-            for (PetscInt k=gzs+1; k<gze; k++) {
-                for (PetscInt i=gxs+1; i<gxe; i++) {
-                    centy[k][my-1][i].x = centy[k][my-2][i].x;
-                    centy[k][my-1][i].y = centy[k][my-2][i].y + gs[k][my+1][i].y;
-                    centy[k][my-1][i].z = centy[k][my-2][i].z;
-                }
-            }
-        }
-    }
-
-    ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
-
-    PROFILE_FUNCTION_END;
+    PetscCall(SynchronizePeriodicFaceFields(user, 'j', 1, fields));
     PetscFunctionReturn(0);
 }
 
@@ -750,74 +622,10 @@ PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
  */
 PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
 {
-    PetscErrorCode ierr;
-    DMDALocalInfo  info = user->info;
-    PetscInt       zs = info.zs, ze = info.zs + info.zm;
-    PetscInt       mz = info.mz;
-    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
-    PetscInt       gys = info.gys, gye = info.gys + info.gym;
-    Cmpnts       ***centz, ***gs;
+    const char *fields[] = {"Centz"};
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    // Check if Z-periodic boundaries exist
-    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC && 
-        user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC) {
-        LOG_ALLOW(LOCAL, LOG_TRACE, "No Z-periodic boundaries; skipping Centz corrections.\n");
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0);
-    }
-
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Applying Z-periodic corrections to Centz.\n");
-
-    ierr = DMDAVecGetArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-
-    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) {
-        if (user->cgrid) {
-            for (PetscInt j=gys+1; j<gye; j++) {
-                for (PetscInt i=gxs+1; i<gxe; i++) {
-                    centz[-1][j][i].x = centz[-3][j][i].x;
-                    centz[-1][j][i].y = centz[-3][j][i].y;
-                    centz[-1][j][i].z = centz[-3][j][i].z;
-                }
-            }
-        } else {
-            for (PetscInt j=gys+1; j<gye; j++) {
-                for (PetscInt i=gxs+1; i<gxe; i++) {
-                    centz[-1][j][i].x = centz[0][j][i].x;
-                    centz[-1][j][i].y = centz[0][j][i].y;
-                    centz[-1][j][i].z = centz[0][j][i].z - gs[-2][j][i].z;
-                }
-            }
-        }
-    }
-
-    if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) {
-        if (user->cgrid) {
-            for (PetscInt j=gys+1; j<gye; j++) {
-                for (PetscInt i=gxs+1; i<gxe; i++) {
-                    centz[mz-1][j][i].x = centz[mz+1][j][i].x;
-                    centz[mz-1][j][i].y = centz[mz+1][j][i].y;
-                    centz[mz-1][j][i].z = centz[mz+1][j][i].z;
-                }
-            }
-        } else {
-            for (PetscInt j=gys+1; j<gye; j++) {
-                for (PetscInt i=gxs+1; i<gxe; i++) {
-                    centz[mz-1][j][i].x = centz[mz-2][j][i].x;
-                    centz[mz-1][j][i].y = centz[mz-2][j][i].y;
-                    centz[mz-1][j][i].z = centz[mz-2][j][i].z + gs[mz+1][j][i].z;
-                }
-            }
-        }
-    }
-
-    ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
-
-    PROFILE_FUNCTION_END;
+    PetscCall(SynchronizePeriodicFaceFields(user, 'k', 1, fields));
     PetscFunctionReturn(0);
 }
 
@@ -1308,10 +1116,6 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
     PetscInt ys = info.ys, ye = info.ys + info.ym, my = info.my;
     PetscInt zs = info.zs, ze = info.zs + info.zm, mz = info.mz;
-    PetscInt gxs = info.gxs, gxe = info.gxs + info.gxm;
-    PetscInt gys = info.gys, gye = info.gys + info.gym;
-    PetscInt gzs = info.gzs, gze = info.gzs + info.gzm;
-    
     PetscInt lxe = xe;
     PetscInt lys = ys; PetscInt lye = ye;
     PetscInt lzs = zs; PetscInt lze = ze;
@@ -1331,14 +1135,11 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 
     //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Calculating i-face centers (Centx) with i[%d,%d], j[%d,%d], k[%d,%d] ...\n", user->simCtx->rank,gxs,gxe,gys,gye,gzs,gze);
 
-    // Loop over the ghosted region to calculate all local face centers
-    // To ensure we don't mistakenly calculate unused/dummy elements along non-dominant directions.
-    PetscInt j_end = (ye == mx)? my - 1:gye;
-    PetscInt k_end = (ze == mz)? mz - 1:gze;
-
-    for (PetscInt k = gzs + 1; k < k_end; k++) {
-        for (PetscInt j = gys + 1; j < j_end; j++) {
-            for (PetscInt i = gxs; i < gxe; i++) {
+    // Populate only owned physical face centers. Periodic endpoint and ghost
+    // coordinates are established by the canonical face-field synchronizer.
+    for (PetscInt k = PetscMax(zs, 1); k < PetscMin(ze, mz - 1); k++) {
+        for (PetscInt j = PetscMax(ys, 1); j < PetscMin(ye, my - 1); j++) {
+            for (PetscInt i = xs; i < PetscMin(xe, mx - 1); i++) {
                 //----- DEBUG ------
                 //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:     Calculating i-face center at (k=%d, j=%d, i=%d)\n", user->simCtx->rank, k, j, i);
                 //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:       Using corner nodes: (%f,%f,%f), (%f,%f,%f), (%f,%f,%f), (%f,%f,%f)\n", user->simCtx->rank,
@@ -1385,19 +1186,15 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
-    // For periodic BCs, exchange ghosts between processes
-    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || 
-        user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
-        ierr = DMLocalToLocalBegin(user->fda, user->Centx, INSERT_VALUES, user->Centx); CHKERRQ(ierr);
-        ierr = DMLocalToLocalEnd(user->fda, user->Centx, INSERT_VALUES, user->Centx); CHKERRQ(ierr);
+    {
+        const char *face_centers[] = {"Centx"};
+        ierr = SynchronizePeriodicFaceFields(user, 'i', 1, face_centers); CHKERRQ(ierr);
     }
-
-    ierr = ApplyPeriodicCorrectionsToIFaceCenter(user); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   i-face centers (Centx) calculated and ghosts updated.\n", user->simCtx->rank);
 
     // --- Part 2: Calculate metrics using face-centered coordinates ---
-    ierr = DMDAVecGetArrayRead(user->fda, user->Centx, &centx_const); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCentx, &centx_const); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->ICsi, &icsi); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->IEta, &ieta); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->IZet, &izet); CHKERRQ(ierr);
@@ -1480,7 +1277,7 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
         }
     }
 
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->Centx, &centx_const); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCentx, &centx_const); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->ICsi, &icsi); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->IEta, &ieta); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->IZet, &izet); CHKERRQ(ierr);
@@ -1530,10 +1327,6 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
     PetscInt ys = info.ys, ye = info.ys + info.ym, my = info.my;
     PetscInt zs = info.zs, ze = info.zs + info.zm, mz = info.mz;
-    PetscInt gxs = info.gxs, gxe = info.gxs + info.gxm;
-    PetscInt gys = info.gys, gye = info.gys + info.gym;
-    PetscInt gzs = info.gzs, gze = info.gzs + info.gzm;
-    
     PetscInt lxs = xs; PetscInt lxe = xe;
     PetscInt lye = ye;
     PetscInt lzs = zs; PetscInt lze = ze;
@@ -1551,14 +1344,9 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     ierr = DMDAVecGetArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
     //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
-    // Loop over the ghosted region to calculate all local face centers
-    // To ensure we don't mistakenly calculate unused/dummy elements along non-dominant directions.
-    PetscInt k_end = (ze == mz)? mz - 1:gze;
-    PetscInt i_end = (xe == mx)? mx - 1:gxe;
-
-    for (PetscInt k = gzs + 1; k < k_end; k++) {
-        for (PetscInt j = gys; j < gye; j++) {
-            for (PetscInt i = gxs + 1; i < i_end; i++) {
+    for (PetscInt k = PetscMax(zs, 1); k < PetscMin(ze, mz - 1); k++) {
+        for (PetscInt j = ys; j < PetscMin(ye, my - 1); j++) {
+            for (PetscInt i = PetscMax(xs, 1); i < PetscMin(xe, mx - 1); i++) {
                 centy[k][j][i].x = 0.25 * (coor[k][j][i].x + coor[k-1][j][i].x + coor[k][j][i-1].x + coor[k-1][j][i-1].x);
                 centy[k][j][i].y = 0.25 * (coor[k][j][i].y + coor[k-1][j][i].y + coor[k][j][i-1].y + coor[k-1][j][i-1].y);
                 centy[k][j][i].z = 0.25 * (coor[k][j][i].z + coor[k-1][j][i].z + coor[k][j][i-1].z + coor[k-1][j][i-1].z);
@@ -1593,19 +1381,15 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     ierr = DMDAVecRestoreArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
-    // For periodic BCs, exchange ghosts between processes
-    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || 
-        user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
-        ierr = DMLocalToLocalBegin(user->fda, user->Centy, INSERT_VALUES, user->Centy); CHKERRQ(ierr);
-        ierr = DMLocalToLocalEnd(user->fda, user->Centy, INSERT_VALUES, user->Centy); CHKERRQ(ierr);
+    {
+        const char *face_centers[] = {"Centy"};
+        ierr = SynchronizePeriodicFaceFields(user, 'j', 1, face_centers); CHKERRQ(ierr);
     }
-
-    ierr = ApplyPeriodicCorrectionsToJFaceCenter(user); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   j-face centers (Centx) calculated and ghosts updated.\n", user->simCtx->rank);
 
     // --- Part 2: Calculate metrics using face-centered coordinates ---
-    ierr = DMDAVecGetArrayRead(user->fda, user->Centy, &centy_const); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCenty, &centy_const); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->JCsi, &jcsi); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->JEta, &jeta); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->JZet, &jzet); CHKERRQ(ierr);
@@ -1688,7 +1472,7 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
         }
     }
 
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->Centy, &centy_const); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCenty, &centy_const); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->JCsi, &jcsi); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->JEta, &jeta); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->JZet, &jzet); CHKERRQ(ierr);
@@ -1738,10 +1522,6 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
     PetscInt ys = info.ys, ye = info.ys + info.ym, my = info.my;
     PetscInt zs = info.zs, ze = info.zs + info.zm, mz = info.mz;
-    PetscInt gxs = info.gxs, gxe = info.gxs + info.gxm;
-    PetscInt gys = info.gys, gye = info.gys + info.gym;
-    PetscInt gzs = info.gzs, gze = info.gzs + info.gzm;
-    
     PetscInt lxs = xs; PetscInt lxe = xe;
     PetscInt lys = ys; PetscInt lye = ye;
     PetscInt lze = ze;
@@ -1759,11 +1539,9 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     ierr = DMDAVecGetArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
     //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
-    // Loop over the ghosted region to calculate all local face centers
-    // To ensure we don't mistakenly calculate unused/dummy elements along non-dominant directions.
-    for (PetscInt k = gzs; k < gze; k++) {
-        for (PetscInt j = gys; j < gye; j++) {
-            for (PetscInt i = gxs + 1; i < gxe; i++) {
+    for (PetscInt k = zs; k < PetscMin(ze, mz - 1); k++) {
+        for (PetscInt j = PetscMax(ys, 1); j < PetscMin(ye, my - 1); j++) {
+            for (PetscInt i = PetscMax(xs, 1); i < PetscMin(xe, mx - 1); i++) {
                 centz[k][j][i].x = 0.25 * (coor[k][j][i].x + coor[k][j-1][i].x + coor[k][j][i-1].x + coor[k][j-1][i-1].x);
                 centz[k][j][i].y = 0.25 * (coor[k][j][i].y + coor[k][j-1][i].y + coor[k][j][i-1].y + coor[k][j-1][i-1].y);
                 centz[k][j][i].z = 0.25 * (coor[k][j][i].z + coor[k][j-1][i].z + coor[k][j][i-1].z + coor[k][j-1][i-1].z);
@@ -1798,19 +1576,15 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     ierr = DMDAVecRestoreArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
-    // For periodic BCs, exchange ghosts between processes
-    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || 
-        user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
-        ierr = DMLocalToLocalBegin(user->fda, user->Centz, INSERT_VALUES, user->Centz); CHKERRQ(ierr);
-        ierr = DMLocalToLocalEnd(user->fda, user->Centz, INSERT_VALUES, user->Centz); CHKERRQ(ierr);
+    {
+        const char *face_centers[] = {"Centz"};
+        ierr = SynchronizePeriodicFaceFields(user, 'k', 1, face_centers); CHKERRQ(ierr);
     }
-
-    ierr = ApplyPeriodicCorrectionsToKFaceCenter(user); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   k-face centers (Centx) calculated and ghosts updated.\n", user->simCtx->rank);
 
     // --- Part 2: Calculate metrics using face-centered coordinates ---
-    ierr = DMDAVecGetArrayRead(user->fda, user->Centz, &centz_const); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCentz, &centz_const); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->KCsi, &kcsi); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->KEta, &keta); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->KZet, &kzet); CHKERRQ(ierr);
@@ -1893,7 +1667,7 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
         }
     }
 
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->Centz, &centz_const); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCentz, &centz_const); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->KCsi, &kcsi); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->KEta, &keta); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->fda, user->KZet, &kzet); CHKERRQ(ierr);

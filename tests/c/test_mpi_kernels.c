@@ -222,6 +222,183 @@ static PetscErrorCode TestPeriodicGeometryValidationMultiRank(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Tests translated face-center ghosts when the periodic axis is partitioned.
+ */
+static PetscErrorCode TestPeriodicFaceCenterCoordinatesMultiRank(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***centx = NULL;
+    const Cmpnts ***lcentx = NULL;
+    const char *fields[] = {"Centx"};
+    PetscReal translation, spacing;
+    PetscInt xs, xe, mx;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+    PetscCall(ValidatePeriodicGeometry(user));
+    PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
+                               "face-center coordinate test requires the x axis to be partitioned"));
+    translation = user->periodic_translation[0].x;
+    spacing = translation / (PetscReal)(user->info.mx - 2);
+    xs = user->info.xs;
+    xe = xs + user->info.xm;
+    mx = user->info.mx;
+
+    PetscCall(DMDAVecGetArray(user->fda, user->Centx, &centx));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; k++) {
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; j++) {
+            for (PetscInt i = xs; i < xe; i++) {
+                centx[k][j][i] = (Cmpnts){spacing * i, 2.0 + j, 3.0 + k};
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Centx, &centx));
+
+    PetscCall(SynchronizePeriodicFaceFields(user, 'i', 1, fields));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCentx, &lcentx));
+    if (xs == 0) {
+        PetscCall(PicurvAssertRealNear(-spacing, lcentx[2][2][-1].x, 1.0e-12,
+                                       "distributed translated Centx negative adjacent ghost"));
+        PetscCall(PicurvAssertRealNear(0.0, lcentx[2][2][0].x, 1.0e-12,
+                                       "distributed translated Centx negative endpoint"));
+    }
+    if (xe == mx) {
+        PetscCall(PicurvAssertRealNear(translation + spacing, lcentx[2][2][mx - 1].x, 1.0e-12,
+                                       "distributed translated Centx positive endpoint"));
+        PetscCall(PicurvAssertRealNear(translation + 2.0 * spacing, lcentx[2][2][mx].x, 1.0e-12,
+                                       "distributed translated Centx positive adjacent ghost"));
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCentx, &lcentx));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests persistent I-face synchronization across an MPI-partitioned seam.
+ */
+static PetscErrorCode TestPeriodicFaceFieldSynchronizationMultiRank(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal ***iaj = NULL;
+    const char *fields[] = {"IAj"};
+    PetscInt xs, xe, ys, ye, zs, ze, mx;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+    PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
+                               "periodic face synchronization test requires the x axis to be partitioned"));
+
+    xs = user->info.xs; xe = xs + user->info.xm;
+    ys = user->info.ys; ye = ys + user->info.ym;
+    zs = user->info.zs; ze = zs + user->info.zm;
+    mx = user->info.mx;
+
+    PetscCall(DMDAVecGetArray(user->da, user->IAj, &iaj));
+    for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) {
+        iaj[k][j][i] = PeriodicScalarValue(i, j, k, 3000.0);
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, user->IAj, &iaj));
+
+    PetscCall(SynchronizePeriodicFaceFields(user, 'i', 1, fields));
+
+    PetscCall(DMDAVecGetArrayRead(user->da, user->IAj, &iaj));
+    if (xs == 0) {
+        for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
+            PetscCall(PicurvAssertRealNear(PeriodicScalarValue(mx - 2, j, k, 3000.0), iaj[k][j][0], 1.0e-12,
+                                           "distributed I-face negative seam should copy the opposite physical seam"));
+        }
+    }
+    if (xe == mx) {
+        for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
+            PetscCall(PicurvAssertRealNear(PeriodicScalarValue(1, j, k, 3000.0), iaj[k][j][mx - 1], 1.0e-12,
+                                           "distributed I-face positive dummy should copy the leading physical face"));
+        }
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->IAj, &iaj));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests persistent Ucont synchronization across an MPI-partitioned seam.
+ */
+static PetscErrorCode TestPeriodicStaggeredFieldSynchronizationMultiRank(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucont = NULL;
+    const char *fields[] = {"Ucont"};
+    PetscInt xs, xe, ys, ye, zs, ze, mx;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+    PetscCall(PicurvAssertBool((PetscBool)(user->info.xm < user->info.mx),
+                               "periodic staggered synchronization test requires the x axis to be partitioned"));
+
+    xs = user->info.xs; xe = xs + user->info.xm;
+    ys = user->info.ys; ye = ys + user->info.ym;
+    zs = user->info.zs; ze = zs + user->info.zm;
+    mx = user->info.mx;
+
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
+    for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) {
+        PetscReal value = PeriodicScalarValue(i, j, k, 0.0);
+        ucont[k][j][i] = (Cmpnts){value + 1000.0, value + 2000.0, value + 3000.0};
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
+
+    PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fields));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    if (xs == 0) {
+        for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
+            PetscReal expected = PeriodicScalarValue(mx - 2, j, k, 0.0);
+            PetscCall(PicurvAssertRealNear(expected + 1000.0, ucont[k][j][0].x, 1.0e-12,
+                                           "distributed Ucont.x negative seam"));
+            PetscCall(PicurvAssertRealNear(expected + 2000.0, ucont[k][j][0].y, 1.0e-12,
+                                           "distributed Ucont.y negative X endpoint"));
+        }
+    }
+    if (xe == mx) {
+        for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
+            PetscReal expected = PeriodicScalarValue(1, j, k, 0.0);
+            PetscCall(PicurvAssertRealNear(expected + 2000.0, ucont[k][j][mx - 1].y, 1.0e-12,
+                                           "distributed Ucont.y positive X dummy"));
+            PetscCall(PicurvAssertRealNear(expected + 3000.0, ucont[k][j][mx - 1].z, 1.0e-12,
+                                           "distributed Ucont.z positive X dummy"));
+        }
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &ucont));
+    if (xs == 0) {
+        for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
+            PetscCall(PicurvAssertRealNear(PeriodicScalarValue(mx - 3, j, k, 1000.0), ucont[k][j][-1].x, 1.0e-12,
+                                           "distributed Ucont.x negative adjacent ghost repair"));
+            PetscCall(PicurvAssertRealNear(PeriodicScalarValue(1, j, k, 2000.0), ucont[k][j][-1].y, 1.0e-12,
+                                           "distributed Ucont.y tangential X wraparound"));
+        }
+    }
+    if (xe == mx) {
+        for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) {
+            PetscCall(PicurvAssertRealNear(PeriodicScalarValue(2, j, k, 1000.0), ucont[k][j][mx].x, 1.0e-12,
+                                           "distributed Ucont.x positive adjacent ghost repair"));
+            PetscCall(PicurvAssertRealNear(PeriodicScalarValue(mx - 2, j, k, 2000.0), ucont[k][j][mx].y, 1.0e-12,
+                                           "distributed Ucont.y positive tangential X wraparound"));
+        }
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, &ucont));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
 /**
  * @brief Tests restart fast-path migration using preloaded cell ownership metadata.
  */
@@ -292,6 +469,9 @@ int main(int argc, char **argv)
         {"bounding-box-collectives-multi-rank", TestBoundingBoxCollectivesMultiRank},
         {"periodic-cell-field-synchronization-multi-rank", TestPeriodicCellFieldSynchronizationMultiRank},
         {"periodic-geometry-validation-multi-rank", TestPeriodicGeometryValidationMultiRank},
+        {"periodic-face-center-coordinates-multi-rank", TestPeriodicFaceCenterCoordinatesMultiRank},
+        {"periodic-face-field-synchronization-multi-rank", TestPeriodicFaceFieldSynchronizationMultiRank},
+        {"periodic-staggered-field-synchronization-multi-rank", TestPeriodicStaggeredFieldSynchronizationMultiRank},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
     };
 

@@ -281,9 +281,9 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
         ierr = DMDAVecGetArray(user->da, user->P, &p); CHKERRQ(ierr);
         ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
         ierr = DMDAVecGetArrayRead(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->Centx, &cent_x); CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->Centy, &cent_y); CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->Centz, &cent_z); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, user->lCentx, &cent_x); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, user->lCenty, &cent_y); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(user->fda, user->lCentz, &cent_z); CHKERRQ(ierr);
 
         // --- Set INTERIOR cell-centered velocity (Ucat) ---
         for (PetscInt k_cell = lzs; k_cell < lze; k_cell++) {
@@ -350,9 +350,9 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
         ierr = DMDAVecRestoreArray(user->da, user->P, &p); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->Centx, &cent_x); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->Centy, &cent_y); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->Centz, &cent_z); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCentx, &cent_x); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCenty, &cent_y); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCentz, &cent_z); CHKERRQ(ierr);
 
         // Pre-Dummy cell update synchronization.
         ierr = UpdateLocalGhosts(user,"Ucat");
@@ -470,7 +470,8 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
         ierr = VecZeroEntries(user->P); CHKERRQ(ierr);
 
         // --- Step 4: Finalize state — derive Ucat from Ucont via metric inversion ---
-        ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
+        const char *staggered_fields[] = {"Ucont"};
+        ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
         ierr = Contra2Cart(user);                CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, "Ucat");  CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, "P");     CHKERRQ(ierr);

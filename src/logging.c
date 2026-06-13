@@ -2486,13 +2486,13 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
     } else if (strcasecmp(field_name, "Ucont") == 0) {
         vec_local = user->lUcont; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'm'; // Mixed
     } else if (strcasecmp(field_name, "Csi") == 0 || strcasecmp(field_name, "X-Face-Centers") == 0) {
-        vec_local = (strcasecmp(field_name, "Csi") == 0) ? user->lCsi : user->Centx;
+        vec_local = (strcasecmp(field_name, "Csi") == 0) ? user->lCsi : user->lCentx;
         dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'x';
     } else if (strcasecmp(field_name, "Eta") == 0 || strcasecmp(field_name, "Y-Face-Centers") == 0) {
-        vec_local = (strcasecmp(field_name, "Eta") == 0) ? user->lEta : user->Centy;
+        vec_local = (strcasecmp(field_name, "Eta") == 0) ? user->lEta : user->lCenty;
         dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'y';
     } else if (strcasecmp(field_name, "Zet") == 0 || strcasecmp(field_name, "Z-Face-Centers") == 0) {
-        vec_local = (strcasecmp(field_name, "Zet") == 0) ? user->lZet : user->Centz;
+        vec_local = (strcasecmp(field_name, "Zet") == 0) ? user->lZet : user->lCentz;
         dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'z';
     } else if (strcasecmp(field_name, "Coordinates") == 0) {
         ierr = DMGetCoordinatesLocal(user->da, &vec_local); CHKERRQ(ierr);

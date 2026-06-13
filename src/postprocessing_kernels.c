@@ -83,11 +83,7 @@ PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
     
     // --- 4. Post-scaling updates for special cases ---
     if (strcasecmp(field_name, "Coordinates") == 0) {
-        Vec l_coords;
-        ierr = DMGetCoordinates(user->da, &target_vec); CHKERRQ(ierr); // Re-get the global vector
-        ierr = DMGetCoordinatesLocal(user->da, &l_coords); CHKERRQ(ierr);
-        ierr = DMGlobalToLocalBegin(user->fda, target_vec, INSERT_VALUES, l_coords); CHKERRQ(ierr);
-        ierr = DMGlobalToLocalEnd(user->fda, target_vec, INSERT_VALUES, l_coords); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Coordinates"); CHKERRQ(ierr);
     }
 
     PROFILE_FUNCTION_END;

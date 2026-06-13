@@ -12,6 +12,7 @@
 
 PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 {
+  PetscErrorCode ierr;
 
   // --- CONTEXT ACQUISITION BLOCK ---
   // Get the master simulation context from the UserCtx.
@@ -35,7 +36,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
   PetscReal	ucon, up, um;
   PetscReal	coef = 0.125, innerblank=7.;
 
-  PetscInt	lxs, lxe, lys, lye, lzs, lze, gxs, gxe, gys, gye, gzs,gze;
+  PetscInt	lxs, lxe, lys, lye, lzs, lze;
 
   PetscReal	***nvert,***aj;
 
@@ -46,9 +47,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
   xs = info.xs; xe = xs + info.xm;
   ys = info.ys; ye = ys + info.ym;
   zs = info.zs; ze = zs + info.zm;
-  gxs = info.gxs; gxe = gxs + info.gxm;
-  gys = info.gys; gye = gys + info.gym;
-  gzs = info.gzs; gze = gzs + info.gzm;
+  ierr = PreparePeriodicQuickStencilFields(user, Ucat, user->lNvert); CHKERRQ(ierr);
 
   DMDAVecGetArray(fda, Ucont, &ucont);
   DMDAVecGetArray(fda, Ucat,  &ucat);
@@ -101,90 +100,6 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
   if (ye==my) lye=ye-1;
   if (ze==mz) lze=ze-1;
   
-  //Mohsen Sep 2012//
-/* First update the computational ghost points velocity for periodic boundary conditions
- just for this subroutine because of Quick scheme for velocity deravatives */
- /*  for (k=zs; k<ze; k++) { */
-/*     for (j=ys; j<ye; j++) { */
-/*       for (i=xs; i<xe; i++) { */
-/* 	if (i==1 && (j==1) && (k==0 || k==1)) */
-/* 	  PetscPrintf(PETSC_COMM_SELF, "@ i= %d j=%d k=%d u is %.15le v is %.15le  w is %.15le \n",i,j,k,ucat[k][j][i].x,ucat[k][j][i].y,ucat[k][j][i].z ); */
-/*       } */
-/*     } */
-/*   } */
-  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC){
-    if (xs==0){
-      i=xs-1;
-      for (k=gzs; k<gze; k++) {
-	for (j=gys; j<gye; j++) {
-	  ucat[k][j][i].x=ucat[k][j][i-2].x;
-	  ucat[k][j][i].y=ucat[k][j][i-2].y;
-	  ucat[k][j][i].z=ucat[k][j][i-2].z;
-	  nvert[k][j][i]=nvert[k][j][i-2];
-	}
-      }
-    }
-    if (xe==mx){
-      i=mx;
-      for (k=gzs; k<gze; k++) {
-	for (j=gys; j<gye; j++) {
-	  ucat[k][j][i].x=ucat[k][j][i+2].x;
-	  ucat[k][j][i].y=ucat[k][j][i+2].y;
-	  ucat[k][j][i].z=ucat[k][j][i+2].z;
-	  nvert[k][j][i]=nvert[k][j][i+2];
-	}
-      }
-    }
-  }  
-  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC){
-    if (ys==0){
-      j=ys-1;
-      for (k=gzs; k<gze; k++) {
-	for (i=gxs; i<gxe; i++) {
-	  ucat[k][j][i].x=ucat[k][j-2][i].x;
-	  ucat[k][j][i].y=ucat[k][j-2][i].y;
-	  ucat[k][j][i].z=ucat[k][j-2][i].z;
-	  nvert[k][j][i]=nvert[k][j-2][i];
-	}
-      }
-    }
-    if (ye==my){
-      j=my;
-      for (k=gzs; k<gze; k++) {
-	for (i=gxs; i<gxe; i++) {
-	  ucat[k][j][i].x=ucat[k][j+2][i].x;
-	  ucat[k][j][i].y=ucat[k][j+2][i].y;
-	  ucat[k][j][i].z=ucat[k][j+2][i].z;
-	  nvert[k][j][i]=nvert[k][j+2][i];
-	}
-      }
-    }
-  }
-  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC){
-    if (zs==0){
-      k=zs-1;
-      for (j=gys; j<gye; j++) {
-	for (i=gxs; i<gxe; i++) {
-	  ucat[k][j][i].x=ucat[k-2][j][i].x;
-	  ucat[k][j][i].y=ucat[k-2][j][i].y;
-	  ucat[k][j][i].z=ucat[k-2][j][i].z;
-	  nvert[k][j][i]=nvert[k-2][j][i];
-	}
-      }
-    }
-    if (ze==mz){
-      k=mz;
-      for (j=gys; j<gye; j++) {
-	for (i=gxs; i<gxe; i++) {
-	  ucat[k][j][i].x=ucat[k+2][j][i].x;
-	  ucat[k][j][i].y=ucat[k+2][j][i].y;
-	  ucat[k][j][i].z=ucat[k+2][j][i].z;
-	  nvert[k][j][i]=nvert[k+2][j][i];
-	}
-      }
-    }
-  }
-
   VecSet(Conv, 0.0);
  
  /* Calculating the convective terms on cell centers.
@@ -1294,83 +1209,15 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     ierr = DMDAVecRestoreArray(fda, Rc, &rc); CHKERRQ(ierr);
 
     PetscBarrier(NULL);
- 
-    DMLocalToLocalBegin(fda, Rct, INSERT_VALUES, Rct);
-    DMLocalToLocalEnd(fda, Rct, INSERT_VALUES, Rct);
 
 	// Compute and Add Body Force term if applicable.
-	ierr = ComputeBodyForces(user,Rct);
-
-    DMDAVecGetArray(fda, Rct, &rct);
-
-	
-    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC){
-      if (xs==0){
-	i=xs;
-	for (k=lzs; k<lze; k++) {
-	  for (j=lys; j<lye; j++) {
-	    rct[k][j][i].x=rct[k][j][i-2].x;
-	  }
-	}
-      }
-
-      if (xe==mx){
-	i=mx-1;
-	for (k=lzs; k<lze; k++) {
-	  for (j=lys; j<lye; j++) {
-	    rct[k][j][i].x=rct[k][j][i+2].x;
-	  }
-	}
-      }
-    }
-
-    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC){
-      if (ys==0){
-	j=ys;
-	for (k=lzs; k<lze; k++) {
-	  for (i=lxs; i<lxe; i++) {
-	    rct[k][j][i].y=rct[k][j-2][i].y;
-	  }
-	}
-      }
-
-      if (ye==my){
-	j=my-1;
-	for (k=lzs; k<lze; k++) {
-	  for (i=lxs; i<lxe; i++) {
-	    rct[k][j][i].y=rct[k][j+2][i].y;
-	  }
-	}
-      }
-    }
-    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC){
-      if (zs==0){
-	k=zs;
-	for (j=lys; j<lye; j++) {
-	  for (i=lxs; i<lxe; i++) {
-	    rct[k][j][i].z=rct[k-2][j][i].z;
-	  }
-	}
-      }
-      if (ze==mz){
-	k=mz-1;
-	for (j=lys; j<lye; j++) {
-	  for (i=lxs; i<lxe; i++) {
-	    rct[k][j][i].z=rct[k+2][j][i].z;
-	  }
-	}
-      }
-    }
+	ierr = ComputeBodyForces(user,Rct); CHKERRQ(ierr);
+    ierr = SynchronizePeriodicLocalStaggeredField(user, Rct); CHKERRQ(ierr);
     
     // 6. Add Pressure Gradient Term and Finalize RHS
     // This involves calculating pressure derivatives (dpdc, dpde, dpdz) and using
     // them to adjust the contravariant RHS. The full stencil logic is preserved.
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Adding pressure gradient term to RHS...\n");
-    
-    ierr = DMDAVecRestoreArray(fda, Rct, &rct); CHKERRQ(ierr);
-    
-    ierr = DMLocalToLocalBegin(fda, Rct, INSERT_VALUES, Rct); CHKERRQ(ierr);
-    ierr = DMLocalToLocalEnd(fda, Rct, INSERT_VALUES, Rct); CHKERRQ(ierr);
     
     ierr = DMDAVecGetArray(fda, Rct, &rct); CHKERRQ(ierr);
 

@@ -252,7 +252,8 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
     ierr = ApplyBoundaryConditions(user); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition applied.\n");
     // 2. Sync contravariant velocity field.
-    ierr = UpdateLocalGhosts(user, "Ucont"); CHKERRQ(ierr);
+    const char *staggered_fields[] = {"Ucont"};
+    ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_TRACE," Ucont field ghosts updated.\n");
     
     // 3. Convert to Cartesian velocity.
@@ -305,7 +306,8 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
 	//	ierr = Block_Interface_U(user_finest); CHKERRQ(ierr);
         // After interface update, ghost regions might be stale. Refresh them.
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-             ierr = UpdateLocalGhosts(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
+             const char *staggered_fields[] = {"Ucont"};
+             ierr = SynchronizePeriodicStaggeredFields(&user_finest[bi], 1, staggered_fields); CHKERRQ(ierr);
              ierr = UpdateLocalGhosts(&user_finest[bi], "Ucat"); CHKERRQ(ierr);
         }
     }
@@ -340,7 +342,6 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
         ierr = ApplyBoundaryConditions(&user_finest[bi]); CHKERRQ(ierr);
         // After reading from a file, the local ghost regions MUST be updated
         // to ensure consistency across process boundaries for the first time step.
-        //ierr = UpdateLocalGhosts(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
         //ierr = UpdateLocalGhosts(&user_finest[bi], "Ucat"); CHKERRQ(ierr);
         //ierr = UpdateLocalGhosts(&user_finest[bi], "P"); CHKERRQ(ierr);
         // ... add ghost updates for any other fields read from file ...

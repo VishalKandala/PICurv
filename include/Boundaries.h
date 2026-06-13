@@ -288,8 +288,8 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
  * refresh after every active direction so periodic edges and corners inherit the
  * values established by earlier directions. Non-periodic directions are skipped.
  *
- * Supported fields are `Ucat`, `P`, `Phi`, `Nvert`, `Nu_t`, `CS`, and
- * `Diffusivity` (`Eddy Viscosity` and `Cs` are accepted as compatibility
+ * Supported fields are `Ucat`, `P`, `Phi`, `Nvert`, `Nu_t`, `CS`, `Diffusivity`,
+ * and `Aj` (`Eddy Viscosity` and `Cs` are accepted as compatibility
  * aliases for `Nu_t` and `CS`, respectively).
  *
  * @param user The main UserCtx struct.
@@ -298,6 +298,98 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields, const char *field_names[]);
+
+/**
+ * @brief Transfers one persistent single-face-family field in one periodic direction.
+ *
+ * This lower-level helper updates owned global endpoint/dummy values from an
+ * up-to-date local ghosted vector. `face_direction` identifies the field's
+ * storage family (`'i'`, `'j'`, or `'k'`); `periodic_direction` selects the
+ * direction transferred during this call.
+ *
+ * @param user The main UserCtx struct.
+ * @param field_name Registered persistent I/J/K-face field name.
+ * @param face_direction Face family containing the field (`'i'`, `'j'`, or `'k'`).
+ * @param periodic_direction Periodic direction to transfer (`'i'`, `'j'`, or `'k'`).
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *field_name,
+                                                    char face_direction, char periodic_direction);
+
+/**
+ * @brief Synchronizes persistent fields belonging to one face family.
+ *
+ * The function performs deterministic I/J/K directional passes with an
+ * intermediate ghost refresh after each active periodic direction. It updates
+ * persistent global seam/dummy values only; face-specific local stencil repair
+ * remains a separate operation.
+ *
+ * @param user The main UserCtx struct.
+ * @param face_direction Face family shared by every field (`'i'`, `'j'`, or `'k'`).
+ * @param num_fields Number of entries in `field_names`.
+ * @param field_names Registered persistent face-field names.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
+                                             PetscInt num_fields, const char *field_names[]);
+
+/**
+ * @brief Transfers one persistent component-staggered field in one periodic direction.
+ *
+ * A component-staggered vector stores its x, y, and z components on I-, J-, and
+ * K-faces, respectively. Persistent endpoint synchronization uses the same
+ * endpoint copy for all components; component-specific behavior is required
+ * later when repairing local stencil ghosts.
+ *
+ * @param user The main UserCtx struct.
+ * @param field_name Registered component-staggered field name.
+ * @param periodic_direction Periodic direction to transfer (`'i'`, `'j'`, or `'k'`).
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, const char *field_name,
+                                                         char periodic_direction);
+
+/**
+ * @brief Synchronizes persistent component-staggered vector fields.
+ *
+ * The function performs deterministic I/J/K endpoint transfers with an
+ * intermediate ghost refresh after every active periodic direction. Currently
+ * `Ucont` is the only registered component-staggered field.
+ *
+ * @param user The main UserCtx struct.
+ * @param num_fields Number of entries in `field_names`.
+ * @param field_names Registered component-staggered field names.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fields,
+                                                  const char *field_names[]);
+
+/**
+ * @brief Repairs the outer adjacent periodic ghosts used by QUICK cell stencils.
+ *
+ * The supplied local vectors must already contain a current PETSc periodic
+ * ghost exchange. The vector and scalar fields are repaired two logical cells
+ * across each active periodic seam so QUICK's `i-1/i+2` equivalents are valid.
+ *
+ * @param user Main block context containing periodic boundary metadata.
+ * @param local_vector_field Ghosted three-component cell-centered field.
+ * @param local_scalar_field Ghosted scalar cell-centered field.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode PreparePeriodicQuickStencilFields(UserCtx *user, Vec local_vector_field,
+                                                 Vec local_scalar_field);
+
+/**
+ * @brief Synchronizes one local-only component-staggered periodic work field.
+ *
+ * This helper communicates locally computed owned entries, establishes the
+ * normal-component periodic endpoint values, and communicates once more.
+ *
+ * @param user Main block context containing periodic boundary metadata.
+ * @param local_field Ghosted local component-staggered vector.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode SynchronizePeriodicLocalStaggeredField(UserCtx *user, Vec local_field);
 
 /**
  * @brief Legacy monolithic periodic endpoint transfer for one cell-centered field.
@@ -332,9 +424,8 @@ PetscErrorCode TransferPeriodicFaceField(UserCtx *user, const char *field_name);
 /**
  * @brief (Orchestrator) Updates all metric-related fields in the local ghost cell regions for periodic boundaries.
  *
- * This function calls the TransferPeriodicFaceField primitive for each of the 16
- * metric fields that require a 2-cell deep periodic ghost cell update.
- * This is a direct replacement for the legacy Update_Metrics_PBC function.
+ * This function synchronizes cell-centered `Aj` and the persistent I/J/K metric
+ * face families through the canonical MPI-safe synchronizers.
  *
  * @param user The main UserCtx struct.
  * @return PetscErrorCode 0 on success.
@@ -345,9 +436,8 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user);
  * @brief Applies periodic boundary conditions by copying data across domain boundaries for all relevant fields.
  *
  * This is the canonical periodic orchestrator for geometric consistency. It updates
- * `Ucat`, `P`, and `Nvert` through the generic field transfer helper and also updates
- * staggered `Ucont` periodicity via `ApplyUcontPeriodicBCs()` and
- * `EnforceUcontPeriodicity()`.
+ * `Ucat`, `P`, and `Nvert` through the generic cell synchronizer and updates
+ * staggered `Ucont` through the component-staggered synchronizer.
  *
  * Future extension rule: add new periodic variables by extending the existing field
  * string dispatchers and invoking them from this orchestrator.
@@ -356,32 +446,6 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user);
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ApplyPeriodicBCs(UserCtx *user);
-
-/**
- * @brief (Orchestrator) Updates the contravariant velocity field in the local ghost cell regions for periodic boundaries.
- *
- * This function calls the TransferPeriodicFaceField primitive for the Ucont field.
- * This is a direct replacement for the legacy Update_U_Cont_PBC function.
- *
- * @param user The main UserCtx struct.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode ApplyUcontPeriodicBCs(UserCtx *user);
-
-/**
- * @brief Enforces strict periodicity on the interior contravariant velocity field.
- *
- * This function is a "fix-up" routine for staggered grids. After a solver step,
- * numerical inaccuracies can lead to small discrepancies between fluxes on opposing
- * periodic boundaries. This function manually corrects this by copying the flux value
- * from the first boundary face (retrieved from a ghost cell) to the last interior face.
- *
- * This routine involves MPI communication to synchronize the grid before and after the copy.
- *
- * @param user The main UserCtx struct.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode EnforceUcontPeriodicity(UserCtx *user);
 
 /**
  * @brief Updates the dummy cells (ghost nodes) on the faces of the local domain for NON-PERIODIC boundaries.

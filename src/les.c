@@ -405,8 +405,7 @@ PetscErrorCode ComputeEddyViscosityLES(UserCtx *user)
 	ierr = DMDAVecRestoreArrayRead(da, user->lAj, (PetscReal***)&aj); CHKERRQ(ierr);
 
     // Update ghost points for the newly computed eddy viscosity
-	ierr = DMGlobalToLocalBegin(da, user->Nu_t, INSERT_VALUES, user->lNu_t); CHKERRQ(ierr);
-	ierr = DMGlobalToLocalEnd(da, user->Nu_t, INSERT_VALUES, user->lNu_t); CHKERRQ(ierr);
+	ierr = UpdateLocalGhosts(user, "Nu_t"); CHKERRQ(ierr);
 
     const char *periodic_fields[] = {"Nu_t"};
     ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);

@@ -472,9 +472,12 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     PetscCall(CreateZeroedLocalVector(user->fda, &user->lCent));
     PetscCall(CreateZeroedGlobalVector(user->fda, &user->GridSpace));
     PetscCall(CreateZeroedLocalVector(user->fda, &user->lGridSpace));
-    PetscCall(CreateZeroedLocalVector(user->fda, &user->Centx));
-    PetscCall(CreateZeroedLocalVector(user->fda, &user->Centy));
-    PetscCall(CreateZeroedLocalVector(user->fda, &user->Centz));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Centx));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Centy));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->Centz));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->lCentx));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->lCenty));
+    PetscCall(CreateZeroedLocalVector(user->fda, &user->lCentz));
     PetscCall(CreateZeroedGlobalVector(user->fda, &user->Ucat_nodal));
     PetscCall(CreateZeroedGlobalVector(user->fda, &user->DiffusivityGradient));
     PetscCall(CreateZeroedLocalVector(user->fda, &user->lDiffusivityGradient));
@@ -862,6 +865,9 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
         PetscCall(DestroyVecIfSet(&user->Centx));
         PetscCall(DestroyVecIfSet(&user->Centy));
         PetscCall(DestroyVecIfSet(&user->Centz));
+        PetscCall(DestroyVecIfSet(&user->lCentx));
+        PetscCall(DestroyVecIfSet(&user->lCenty));
+        PetscCall(DestroyVecIfSet(&user->lCentz));
         PetscCall(DestroyVecIfSet(&user->Ucat_nodal));
         PetscCall(DestroyVecIfSet(&user->Bcs.Ubcs));
         PetscCall(DestroyVecIfSet(&user->Bcs.Uch));

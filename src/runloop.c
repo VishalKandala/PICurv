@@ -354,20 +354,15 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user)
     // --- Synchronize Local Ghost Regions for the new history vectors ---
     // This is essential so that stencils in the next time step's calculations
     // have correct values from neighboring processes.
-    ierr = DMGlobalToLocalBegin(user->fda, user->Ucont_o, INSERT_VALUES, user->lUcont_o); CHKERRQ(ierr);
-    ierr = DMGlobalToLocalEnd(user->fda, user->Ucont_o, INSERT_VALUES, user->lUcont_o); CHKERRQ(ierr);
-
-    ierr = DMGlobalToLocalBegin(user->fda, user->Ucont_rm1, INSERT_VALUES, user->lUcont_rm1); CHKERRQ(ierr);
-    ierr = DMGlobalToLocalEnd(user->fda, user->Ucont_rm1, INSERT_VALUES, user->lUcont_rm1); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Ucont_o"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, "Ucont_rm1"); CHKERRQ(ierr);
     
     if (simCtx->immersed) {
-        ierr = DMGlobalToLocalBegin(user->da, user->Nvert_o, INSERT_VALUES, user->lNvert_o); CHKERRQ(ierr);
-        ierr = DMGlobalToLocalEnd(user->da, user->Nvert_o, INSERT_VALUES, user->lNvert_o); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Nvert_o"); CHKERRQ(ierr);
     }
     
     if (simCtx->rans) {
-       ierr = DMGlobalToLocalBegin(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o); CHKERRQ(ierr);
-       ierr = DMGlobalToLocalEnd(user->fda2, user->K_Omega_o, INSERT_VALUES, user->lK_Omega_o); CHKERRQ(ierr);
+       ierr = UpdateLocalGhosts(user, "K_Omega_o"); CHKERRQ(ierr);
     }
     
     PetscFunctionReturn(0);
