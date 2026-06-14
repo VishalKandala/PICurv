@@ -679,18 +679,20 @@ const char* BCFaceToString(BCFace face) {
 }
 
 /**
- * @brief Implementation of \ref FieldInitializationToString().
+ * @brief Implementation of \ref InitialConditionModeToString().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/logging.h`.
- * @see FieldInitializationToString()
+ * @see InitialConditionModeToString()
  */
-const char* FieldInitializationToString(PetscInt FieldInitialization)
+const char* InitialConditionModeToString(InitialConditionMode mode)
 {
-    switch(FieldInitialization){
-        case 0: return "Zero";
-        case 1: return "Constant";
-        case 2: return "Poiseuille";
-        default: return "Unknown Field Initialization";
+    switch(mode){
+        case IC_MODE_ZERO: return "Zero";
+        case IC_MODE_CONSTANT_CARTESIAN: return "Cartesian Constant";
+        case IC_MODE_POISEUILLE: return "Poiseuille";
+        case IC_MODE_CONSTANT_STREAMWISE: return "Streamwise Constant";
+        case IC_MODE_FILE: return "File";
+        default: return "Unknown Initial Condition";
     }
 }
 

@@ -429,7 +429,7 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
         PetscInt      mx = info.mx, my = info.my, mz = info.mz;
 
         // --- Step 1: Set Ucont (contravariant flux) via Cart2Contra ---
-        ierr = Cart2Contra(user, u, v, w); CHKERRQ(ierr);
+        ierr = UniformCart2Contra(user, u, v, w); CHKERRQ(ierr);
 
         // --- Step 2: Set Ubcs at boundaries (physical Cartesian velocity) ---
         Cmpnts ***ubcs;

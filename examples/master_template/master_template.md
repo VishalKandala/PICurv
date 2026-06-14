@@ -45,7 +45,7 @@ For shared site MPI quirks across login-node and batch runs, `picurv init` now c
   profile generation, or `source.type: field_slice` to reuse an old `ufield`
   slice.
 - Use `picurv precompute --case ...` when you want to generate and inspect
-  grid/profile artifacts before launching the solver.
+  grid/profile/initial-condition artifacts before launching the solver.
 - Prefer explicit schema keys over passthrough flags when both exist.
 - Document non-default assumptions in the case directory for reproducibility.
 

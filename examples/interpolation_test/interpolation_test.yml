@@ -45,7 +45,8 @@ properties:
     density: 1.0            # kg/m^3
     viscosity: 0.01         # Pa.s  --> Re = rho*U*L/mu = 100
   initial_conditions:
-    mode: "Zero"            # Analytical mode overrides the Eulerian field
+    mode: generated
+    generator: zero         # Analytical mode overrides the Eulerian field.
 
 run_control:
   start_step: 0

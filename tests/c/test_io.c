@@ -326,6 +326,8 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
                                      "DisplayBanner should include BC-derived periodic axes"));
     PetscCall(AssertCapturedContains(captured, "Number of Particles         : 0",
                                      "DisplayBanner should include the total particle count"));
+    PetscCall(AssertCapturedContains(captured, "Eulerian State Source       : initial condition (Zero)",
+                                     "DisplayBanner should identify a fresh solve IC as the Eulerian source"));
     PetscCall(AssertCapturedOmits(captured, "Particle Console Cadence",
                                   "DisplayBanner should omit particle console cadence when no particles are configured"));
     PetscCall(AssertCapturedOmits(captured, "Particle Log Row Sampling",
@@ -346,6 +348,10 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
     simCtx->LoggingFrequency = 4;
     PetscCall(PetscStrncpy(simCtx->particleRestartMode, "load", sizeof(simCtx->particleRestartMode)));
     PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Eulerian State Source       : restart step 3",
+                                     "DisplayBanner should identify restart authority"));
+    PetscCall(AssertCapturedOmits(captured, "initial condition (",
+                                  "DisplayBanner should not present an IC as active during restart"));
     PetscCall(AssertCapturedContains(captured, "Number of Particles         : 8",
                                      "DisplayBanner should include the active particle count"));
     PetscCall(AssertCapturedContains(captured, "Periodic I Translation",
@@ -364,6 +370,14 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
                                      "DisplayBanner should include default interpolation method when particles are configured"));
     PetscCall(AssertCapturedOmits(captured, "Particles Initialized At",
                                   "DisplayBanner should omit inlet-face placement details for point-source particle initialization"));
+
+    simCtx->StartStep = 0;
+    PetscCall(PetscStrncpy(simCtx->eulerianSource, "load", sizeof(simCtx->eulerianSource)));
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Eulerian State Source       : load",
+                                     "DisplayBanner should identify load authority"));
+    PetscCall(AssertCapturedOmits(captured, "initial condition (",
+                                  "DisplayBanner should not present an IC as active in load mode"));
 
     simCtx->StartStep = 0;
     simCtx->particleConsoleOutputFreq = 6;

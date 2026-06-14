@@ -25,7 +25,8 @@ properties:
     density: 1.0
     viscosity: 0.001
   initial_conditions:
-    mode: "Zero"
+    mode: generated
+    generator: zero
 
 run_control:
   start_step: 0

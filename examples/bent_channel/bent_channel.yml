@@ -21,8 +21,10 @@ properties:
     density: 200.0      # [kg/m^3]
     viscosity: 1.0      # [Pa.s] -> results in Re = (200*1*1)/1 = 200
   initial_conditions:
-    mode: "Constant"
-    velocity_physical: 1.0   # streamwise speed [m/s]; INLET on -Zeta infers flow direction
+    mode: generated
+    generator: streamwise_constant
+    params:
+      velocity_physical: 1.0   # streamwise speed [m/s]; INLET on -Zeta infers flow direction
 
 # --- Grid Definition ---
 grid:

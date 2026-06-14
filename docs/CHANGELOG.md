@@ -6,6 +6,14 @@
 
 ## Unreleased
 
+- Initial-condition contract and workflow:
+  - replaced user-facing legacy IC selectors with canonical `generated` and `file` modes.
+  - added built-in zero, Cartesian constant, streamwise constant, and Poiseuille generators.
+  - added single-block file-backed `Ucat` and `Ucont` startup through the existing field reader.
+  - added `ic_gen` run/precompute orchestration, defaulting to `scripts/ic.gen` with an optional compatible script override.
+  - made initial conditions subordinate to analytical, load, and restart Eulerian-state authority.
+  - aligned grid, inlet-profile, and IC generators around repository defaults plus optional case-relative or absolute overrides.
+
 - Picard-Jameson momentum-controller hardening:
   - changed pseudo-time trial acceptance and rollback to one global
     transactional decision across blocks and MPI ranks.

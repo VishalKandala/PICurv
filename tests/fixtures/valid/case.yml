@@ -11,10 +11,12 @@ properties:
     density: 200.0
     viscosity: 1.0
   initial_conditions:
-    mode: "Constant"
-    u_physical: 0.0
-    v_physical: 0.0
-    w_physical: 1.0
+    mode: generated
+    generator: constant
+    params:
+      u_physical: 0.0
+      v_physical: 0.0
+      w_physical: 1.0
 
 grid:
   mode: programmatic_c

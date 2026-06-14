@@ -15,12 +15,11 @@ properties:
     density: 1.0
     viscosity: 0.0
   initial_conditions:
-    mode: generated
-    generator: constant
+    mode: "generated"
+    generator: "streamwise_constant"
     params:
-      u_physical: 1.0
-      v_physical: 0.5
-      w_physical: -0.25
+      velocity_physical: 1.0
+      flow_direction: "+Zeta"
 
 grid:
   mode: programmatic_c

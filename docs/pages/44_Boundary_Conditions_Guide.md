@@ -62,7 +62,9 @@ Specifically:
 supplied directly with `source.type: file`, generated analytically with
 `source.type: generated`, or sliced from an old `ufield*.dat` with
 `source.type: field_slice`. The Python conductor resolves the face/grid context
-and delegates dimensional profile writes to `scripts/profile.gen`:
+and delegates dimensional profile writes to `scripts/profile.gen`. Generated and
+field-sliced sources may set optional `source.script` to a compatible case-relative
+or absolute override:
 
 ```text
 PICSLICE
@@ -118,6 +120,7 @@ boundary_conditions:
       source:
         type: generated
         generator: square_duct_poiseuille
+        # script: tools/custom_profile.py  # optional
         params:
           bulk_velocity: 1.0
           n_terms: 101

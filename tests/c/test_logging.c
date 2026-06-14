@@ -598,10 +598,18 @@ static PetscErrorCode TestStringConversionHelpers(void)
     PetscFunctionBeginUser;
     PetscCall(PicurvAssertBool(strcmp(BCFaceToString(BC_FACE_NEG_X), "-Xi (I-Min)") == 0,
                                "BCFaceToString should report the negative-x face"));
-    PetscCall(PicurvAssertBool(strcmp(FieldInitializationToString(0), "Zero") == 0,
-                               "FieldInitializationToString should report the zero mode"));
-    PetscCall(PicurvAssertBool(strcmp(FieldInitializationToString(99), "Unknown Field Initialization") == 0,
-                               "FieldInitializationToString should reject unknown selectors"));
+    PetscCall(PicurvAssertBool(strcmp(InitialConditionModeToString(IC_MODE_ZERO), "Zero") == 0,
+                               "InitialConditionModeToString should report the zero mode"));
+    PetscCall(PicurvAssertBool(strcmp(InitialConditionModeToString(IC_MODE_CONSTANT_CARTESIAN), "Cartesian Constant") == 0,
+                               "InitialConditionModeToString should report the Cartesian constant mode"));
+    PetscCall(PicurvAssertBool(strcmp(InitialConditionModeToString(IC_MODE_CONSTANT_STREAMWISE), "Streamwise Constant") == 0,
+                               "InitialConditionModeToString should report the streamwise constant mode"));
+    PetscCall(PicurvAssertBool(strcmp(InitialConditionModeToString(IC_MODE_POISEUILLE), "Poiseuille") == 0,
+                               "InitialConditionModeToString should report the Poiseuille mode"));
+    PetscCall(PicurvAssertBool(strcmp(InitialConditionModeToString(IC_MODE_FILE), "File") == 0,
+                               "InitialConditionModeToString should report the file mode"));
+    PetscCall(PicurvAssertBool(strcmp(InitialConditionModeToString((InitialConditionMode)99), "Unknown Initial Condition") == 0,
+                               "InitialConditionModeToString should reject unknown selectors"));
     PetscCall(PicurvAssertBool(strcmp(ParticleInitializationToString(PARTICLE_INIT_VOLUME), "Volume") == 0,
                                "ParticleInitializationToString should report the volume mode"));
     PetscCall(PicurvAssertBool(strcmp(LESModelToString(CONSTANT_SMAGORINSKY), "Constant Smagorinsky") == 0,

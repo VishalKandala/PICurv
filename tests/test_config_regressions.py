@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +42,27 @@ def load_picurv_module():
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
+
+
+def test_maintained_examples_use_canonical_initial_condition_contract():
+    """!
+    @brief Verify maintained examples and the valid fixture do not regress to legacy IC YAML.
+    """
+    case_paths = sorted((REPO_ROOT / "examples").rglob("*.yml"))
+    case_paths.append(FIXTURES / "valid" / "case.yml")
+    checked = []
+    for path in case_paths:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        initial_conditions = ((payload.get("properties") or {}).get("initial_conditions"))
+        if initial_conditions is None:
+            continue
+        checked.append(path)
+        assert initial_conditions.get("mode") in {"generated", "file"}, path
+        if initial_conditions["mode"] == "generated":
+            assert initial_conditions.get("generator") in {
+                "zero", "constant", "streamwise_constant", "poiseuille", "ic_gen"
+            }, path
+    assert checked
 
 
 def test_audit_ingress_manifest_matches_c_ingress():

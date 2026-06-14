@@ -2201,7 +2201,6 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             }
         }
         if(strcmp(simCtx->eulerianSource,"solve")==0 || strcmp(simCtx->eulerianSource,"load")==0){
-            const char* field_init_str = FieldInitializationToString(simCtx->FieldInitialization);
             ierr = PetscPrintf(PETSC_COMM_WORLD," Reynolds Number             : %le\n", simCtx->ren); CHKERRQ(ierr);
             //ierr = PetscPrintf(PETSC_COMM_WORLD," Von-Neumann Number          : %le\n", simCtx->vnn); CHKERRQ(ierr);
             if(strcmp(simCtx->eulerianSource,"solve")==0){
@@ -2210,25 +2209,42 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Initial Pseudo-CFL    : %le\n", simCtx->pseudo_cfl); CHKERRQ(ierr);
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
             }
-            ierr = PetscPrintf(PETSC_COMM_SELF, " Field Initialization Mode   : %s\n", field_init_str); CHKERRQ(ierr);
-            if (simCtx->FieldInitialization == 1) {
-                if (simCtx->icCoordinateSystem == 0) {
+            if (strcmp(simCtx->eulerianSource, "load") == 0) {
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Eulerian State Source       : load (%s)\n",
+                                   simCtx->restart_dir); CHKERRQ(ierr);
+            } else if (simCtx->StartStep > 0) {
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Eulerian State Source       : restart step %d (%s)\n",
+                                   simCtx->StartStep, simCtx->restart_dir); CHKERRQ(ierr);
+            } else {
+                const char* field_init_str = InitialConditionModeToString(simCtx->initialConditionMode);
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Eulerian State Source       : initial condition (%s)\n",
+                                   field_init_str); CHKERRQ(ierr);
+            }
+            if (strcmp(simCtx->eulerianSource, "solve") == 0 && simCtx->StartStep == 0 &&
+                simCtx->initialConditionMode == IC_MODE_CONSTANT_CARTESIAN) {
                     ierr = PetscPrintf(PETSC_COMM_SELF,
                         " Constant Velocity (Cart.)   : x=%.4f  y=%.4f  z=%.4f\n",
                         (double)simCtx->InitialConstantContra.x,
                         (double)simCtx->InitialConstantContra.y,
                         (double)simCtx->InitialConstantContra.z); CHKERRQ(ierr);
-                } else {
+            } else if (strcmp(simCtx->eulerianSource, "solve") == 0 && simCtx->StartStep == 0 &&
+                       simCtx->initialConditionMode == IC_MODE_CONSTANT_STREAMWISE) {
                     ierr = PetscPrintf(PETSC_COMM_SELF,
                         " Constant Velocity (Curv.)   : speed=%.4f  direction=%s\n",
                         (double)simCtx->icVelocityPhysical,
                         FlowDirectionToString(simCtx->flowDirection)); CHKERRQ(ierr);
-                }
-            } else if (simCtx->FieldInitialization == 2) {
+            } else if (strcmp(simCtx->eulerianSource, "solve") == 0 && simCtx->StartStep == 0 &&
+                       simCtx->initialConditionMode == IC_MODE_POISEUILLE) {
                 ierr = PetscPrintf(PETSC_COMM_SELF,
                     " Poiseuille Peak Velocity    : speed=%.4f  direction=%s\n",
                     (double)simCtx->icVelocityPhysical,
                     FlowDirectionToString(simCtx->flowDirection)); CHKERRQ(ierr);
+            } else if (strcmp(simCtx->eulerianSource, "solve") == 0 && simCtx->StartStep == 0 &&
+                       simCtx->initialConditionMode == IC_MODE_FILE) {
+                ierr = PetscPrintf(PETSC_COMM_SELF,
+                    " Initial Velocity File       : field=%s directory=%s\n",
+                    simCtx->initialConditionField == IC_FIELD_UCAT ? "Ucat" : "Ucont",
+                    simCtx->initialConditionDirectory); CHKERRQ(ierr);
             }
         } else if(strcmp(simCtx->eulerianSource,"analytical")==0){
             ierr = PetscPrintf(PETSC_COMM_WORLD," Analytical Solution Type : %s\n", simCtx->AnalyticalSolutionType); CHKERRQ(ierr);

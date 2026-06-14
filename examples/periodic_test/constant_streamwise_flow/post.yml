@@ -1,0 +1,35 @@
+# Produce nodal velocity and normalized pressure at every smoke-test timestep.
+
+source_data:
+  directory: "<solver_output_dir>"
+
+run_control:
+  start_step: 0
+  end_step: 5
+  step_interval: 1
+
+global_operations:
+  dimensionalize: true
+
+eulerian_pipeline:
+  - task: nodal_average
+    input_field: "P"
+    output_field: "P_nodal"
+  - task: nodal_average
+    input_field: "Ucat"
+    output_field: "Ucat_nodal"
+  - task: normalize_field
+    field: "P"
+    reference_point: [1, 1, 1]
+
+io:
+  output_directory: "visualization/periodic_uniform_flow"
+  output_filename_prefix: "periodic_uniform_flow"
+  eulerian_fields:
+    - "Ucat_nodal"
+    - "P_nodal"
+  eulerian_fields_averaged: []
+  output_particles: false
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"

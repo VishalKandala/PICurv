@@ -22,36 +22,40 @@ properties:
     density: 1000.0
     viscosity: 0.001
   initial_conditions:
-    mode: "Constant"       # Zero | Constant | Poiseuille
-    u_physical: 1.5        # cartesian Constant: explicit x/y/z components
-    v_physical: 0.0
-    w_physical: 0.0
+    mode: generated
+    generator: constant
+    params:
+      u_physical: 1.5
+      v_physical: 0.0
+      w_physical: 0.0
 ```
 
 Alternative IC forms:
 
 ```yaml
-# curvilinear Constant — single streamwise speed (periodic or no-inlet case)
+# Single streamwise speed
 initial_conditions:
-  mode: "Constant"
-  velocity_physical: 1.5
-  flow_direction: "+Zeta"  # required when no INLET face; omit if INLET provides direction
+  mode: generated
+  generator: streamwise_constant
+  params:
+    velocity_physical: 1.5
+    flow_direction: "+Zeta"
 
-# Poiseuille — parabolic profile
+# File-backed Cartesian velocity
 initial_conditions:
-  mode: "Poiseuille"
-  peak_velocity_physical: 1.5
-  flow_direction: "+Zeta"  # required when no INLET face
+  mode: file
+  field: Ucat
+  source_file: initial_conditions/velocity.dat
 ```
 
 Key mappings:
 - `scaling.length_ref` -> `-scaling_L_ref`
 - `scaling.velocity_ref` -> `-scaling_U_ref`
 - `fluid.density` and `fluid.viscosity` are used by `picurv` to compute Reynolds number -> `-ren`
-- `initial_conditions.mode` -> `-finit` (`Zero`→0, `Constant`→1, `Poiseuille`→2)
-- `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z` (cartesian Constant)
-- `velocity_physical` -> `-ic_velocity_physical` + `-ic_coordinate_system 1` (curvilinear Constant)
-- `peak_velocity_physical` -> `-ic_velocity_physical` (Poiseuille)
+- `generator: zero|constant|poiseuille|streamwise_constant` -> the corresponding built-in `-finit` mode
+- `mode: file` and `generator: ic_gen` -> `-finit 4`, `-ic_field`, and staged `-ic_dir`
+- `params.u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
+- `params.velocity_physical` and `params.peak_velocity_physical` -> `-ic_velocity_physical`
 - `flow_direction` -> `-flow_direction <int>` (`+Xi=0,-Xi=1,+Eta=2,-Eta=3,+Zeta=4,-Zeta=5`)
 
 For the scaling model and conversion logic, see **@subpage 19_Nondimensionalization**.
@@ -59,13 +63,12 @@ For detailed startup behavior of field initialization modes, see **@subpage 33_I
 
 Practical contract notes:
 
-- `initial_conditions.mode` must be set explicitly.
-- `mode: "Zero"` may omit velocity components entirely.
-- `mode: "Constant"` with `u/v/w_physical` → cartesian mode (`flow_direction` forbidden).
-- `mode: "Constant"` with `velocity_physical` → curvilinear/streamwise mode.
-- `mode: "Poiseuille"` uses `peak_velocity_physical` as the centerline speed (not bulk mean).
+- `initial_conditions.mode` is `generated` or `file`.
+- generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`.
+- `generator: ic_gen` defaults to `scripts/ic.gen`; optional `params.script` selects a compatible override.
+- file-backed ICs accept one PETSc binary `Ucat` or `Ucont` vector and currently require a single-block case.
 - `flow_direction` is required for curvilinear Constant and Poiseuille when no INLET face exists.
-- Mixing `u/v/w_physical` and `velocity_physical` in the same block is an error.
+- `eulerian_field_source` and restart selection supersede `initial_conditions`.
 
 @section p07_run_control_sec 2. run_control
 
@@ -235,6 +238,8 @@ Supported type/handler combinations:
   - file-backed: `params.source.type: file`, `params.source.path`
   - generated: `params.source.type: generated`, `params.source.generator: square_duct_poiseuille`
   - field-sliced: `params.source.type: field_slice`, `params.source.field_file`, `params.source.grid_file`, `params.source.slice`
+  - generated and field-sliced sources default to `scripts/profile.gen`; optional
+    `params.source.script` selects a compatible override
 - `OUTLET` + `conservation`
 - `WALL` + `noslip`
 - `PERIODIC` + `geometric`

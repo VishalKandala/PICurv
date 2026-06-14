@@ -11,150 +11,139 @@ It covers both user-facing YAML inputs and the C implementation path that applie
 
 Startup sequence:
 
-1. `scripts/picurv` converts YAML to control flags (`-finit`, `-ucont_*`, `-pinit`, etc.).
-2. @ref InitializeEulerianState chooses fresh-start, load, or analytical branch.
-3. For fresh starts, @ref SetInitialInteriorField initializes interior `Ucont`.
-4. Boundary handlers then enforce face values and ghost-cell consistency.
+1. `scripts/picurv` resolves built-in, file, or external-generator YAML.
+2. File-backed ICs are staged in the filename layout expected by @ref ReadFieldData.
+3. @ref InitializeEulerianState chooses fresh solve, restart load, or analytical initialization.
+4. On a fresh solve, @ref PopulateInitialUcont populates `Ucont`; existing finalization then applies
+   boundary values and derives the remaining velocity state.
 5. If particles are enabled, @ref InitializeParticleSwarm runs independently after Eulerian setup.
 
 @section p33_euler_sec 2. Eulerian Field Initialization (`properties.initial_conditions`)
 
-There are three IC modes (Zero, Constant, Poiseuille) and two Constant sub-modes (cartesian
-and curvilinear). The sub-mode is inferred from which velocity keys are present — no explicit
-`coordinate_system` key is needed.
+The canonical contract has two modes: `generated` and `file`. Generated ICs may use a built-in
+C generator or the repository `scripts/ic.gen` utility. Both produce the same solver-facing result: one
+initial velocity field.
 
-**Zero** — set everything to zero:
-
-```yaml
-properties:
-  initial_conditions:
-    mode: "Zero"
-```
-
-**Constant, cartesian** — three Cartesian components; works for any domain:
+Built-in zero:
 
 ```yaml
 properties:
   initial_conditions:
-    mode: "Constant"
-    u_physical: 1.5   # x-component (physical units)
-    v_physical: 0.0
-    w_physical: 0.0
+    mode: generated
+    generator: zero
 ```
 
-**Constant, curvilinear** — single streamwise speed; requires `flow_direction` or an INLET face:
+Built-in Cartesian constant:
 
 ```yaml
 properties:
   initial_conditions:
-    mode: "Constant"
-    velocity_physical: 1.5        # streamwise speed (physical units)
-    flow_direction: "+Zeta"       # required when no INLET face is present
+    mode: generated
+    generator: constant
+    params:
+      u_physical: 1.5
+      v_physical: 0.0
+      w_physical: 0.0
 ```
 
-Valid `flow_direction` tokens: `+Xi`, `-Xi`, `+Eta`, `-Eta`, `+Zeta`, `-Zeta`.
-
-**Poiseuille** — separable parabolic profile in the two cross-stream directions:
+Built-in streamwise constant:
 
 ```yaml
 properties:
   initial_conditions:
-    mode: "Poiseuille"
-    peak_velocity_physical: 1.5   # centerline speed (physical units)
-    flow_direction: "+Zeta"       # required when no INLET face is present
+    mode: generated
+    generator: streamwise_constant
+    params:
+      velocity_physical: 1.5
+      flow_direction: "+Zeta"
 ```
 
-`picurv` mapping:
+Built-in Poiseuille:
 
-| YAML key | CLI flag | Notes |
-|----------|----------|-------|
-| `mode: "Zero"` | `-finit 0` | velocity components ignored |
-| `mode: "Constant"` + `u/v/w_physical` | `-finit 1 -ucont_x … -ucont_y … -ucont_z …` | cartesian sub-mode; `flow_direction` forbidden |
-| `mode: "Constant"` + `velocity_physical` | `-finit 1 -ic_coordinate_system 1 -ic_velocity_physical …` | curvilinear sub-mode |
-| `mode: "Poiseuille"` | `-finit 2 -ic_velocity_physical …` | `peak_velocity_physical` is the centerline speed |
-| `flow_direction: "+Zeta"` | `-flow_direction 4` | token-to-int map: `+Xi=0,-Xi=1,+Eta=2,-Eta=3,+Zeta=4,-Zeta=5` |
+```yaml
+properties:
+  initial_conditions:
+    mode: generated
+    generator: poiseuille
+    params:
+      peak_velocity_physical: 1.5
+      flow_direction: "+Zeta"
+```
 
-`flow_direction` resolution order (C side):
-1. Derived from identified INLET face (if present).
-2. Explicit `-flow_direction` CLI flag (set by `flow_direction` key).
-3. Error — one of the above is required for curvilinear Constant and Poiseuille.
+File-backed `Ucat` or `Ucont`:
 
-Launcher-side contract:
+```yaml
+properties:
+  initial_conditions:
+    mode: file
+    field: Ucat
+    source_file: initial_conditions/velocity.dat
+```
 
-- `mode` must be set explicitly.
-- For `Zero`, velocity keys may be omitted.
-- For `Constant`, provide either `u/v/w_physical` (cartesian) **or** `velocity_physical` (curvilinear), not both.
-- For cartesian `Constant`, `flow_direction` is forbidden.
-- For curvilinear `Constant` and `Poiseuille`, `flow_direction` is required when no INLET face exists.
-- When both `flow_direction` and an INLET face are present (Poiseuille only), their axes must agree.
+The input must be one PETSc binary `.dat` vector readable by @ref ReadFieldData. `Ucat` inputs
+are converted by @ref Cart2Contra; `Ucont` inputs are used directly. The first implementation
+supports one block only because it intentionally reuses the existing single-field
+@ref ReadFieldData path.
 
-C-side entry points:
+Repository generator:
 
-- @ref InitializeEulerianState
-- @ref SetInitialInteriorField
-- @ref Cart2Contra
-- @ref FieldInitializationToString
+```yaml
+properties:
+  initial_conditions:
+    mode: generated
+    generator: ic_gen
+    params:
+      field: Ucat
+      script: tools/custom_ic.py  # optional; defaults to scripts/ic.gen
+      config_file: config/initial_condition.yml
+      output_file: config/initial_condition.generated.dat
+```
 
-@section p33_euler_modes_sec 3. Eulerian Mode Details
+The launcher invokes `scripts/ic.gen` by default, or the optional case-relative/absolute
+`params.script` override, as:
 
-`-finit = 0` (Zero):
+```text
+python <ic-generator> -c <config_file> --field Ucat|Ucont --output <output_file> [cli_args...]
+```
 
-- sets all interior contravariant velocity components to zero.
+`picurv run --solve` materializes the result after grid preparation. `picurv precompute --case ...`
+materializes and stages the same artifact without running the solver.
 
-`-finit = 1` (Constant Velocity) — two sub-modes selected by `-ic_coordinate_system`:
+@section p33_euler_modes_sec 3. C Runtime Modes and Entry Points
 
-- **Cartesian** (`-ic_coordinate_system 0`, default): `Cart2Contra` dots the Cartesian vector
-  `(-ucont_x, -ucont_y, -ucont_z)` with face-area metric vectors (`Csi`, `Eta`, `Zet`) at every
-  interior node, filling all three contravariant components correctly.  The old
-  `identifiedInletBCFace`-based path is no longer used for this mode.
+The launcher maps the contract to one @ref InitialConditionMode:
 
-- **Curvilinear / streamwise** (`-ic_coordinate_system 1`): sets only the normal contravariant
-  component along the streamwise axis (derived from `flow_direction`), scaled by the face-area
-  magnitude.  The two cross-stream components are left at zero.
+| Initial-condition selection | C mode |
+|-----------------------------|--------|
+| `generator: zero` | `IC_MODE_ZERO` |
+| `generator: constant` | `IC_MODE_CONSTANT_CARTESIAN` |
+| `generator: streamwise_constant` | `IC_MODE_CONSTANT_STREAMWISE` |
+| `generator: poiseuille` | `IC_MODE_POISEUILLE` |
+| `mode: file` or `generator: ic_gen` | `IC_MODE_FILE` |
 
-`-finit = 2` (Poiseuille-like Normal Velocity):
+@ref PopulateInitialUcont is the fresh-solve dispatcher. Built-in modes reuse
+@ref SetInitialInteriorField and @ref UniformCart2Contra. File mode reuses @ref ReadFieldData;
+when its field selector is `Ucat`, @ref Cart2Contra converts the loaded vector field to `Ucont`.
+After that point, the existing finalization path treats every IC source identically.
 
-- computes a separable parabolic profile in the two cross-stream index directions,
-- applies zero-clamping to suppress roundoff negatives near corners,
-- `peak_velocity_physical` is the centerline speed (`Vmax`), not the bulk/mean average.
-
-@section p33_euler_formula_sec 4. Contravariant Initialization Note
-
-Contravariant velocity (flux) at a face equals the physical velocity dotted with the face-area
-metric vector:
-
-\f[
-U_\xi = \mathbf{v} \cdot \mathbf{A}_\xi, \quad
-U_\eta = \mathbf{v} \cdot \mathbf{A}_\eta, \quad
-U_\zeta = \mathbf{v} \cdot \mathbf{A}_\zeta.
-\f]
-
-`Cart2Contra` performs this dot product over all owned interior nodes for the cartesian Constant
-mode and is also used by the analytical solver.  For curvilinear / Poiseuille modes the
-streamwise normal component is computed directly from the face-area magnitude and the physical
-speed.
-
-Because face areas scale with mesh spacing and curvature, the same physical speed produces
-different `Ucont` magnitudes on stretched or curved meshes — this is expected and correct.
-
-@section p33_restart_modes_sec 5. Eulerian Restart Branches
+@section p33_restart_modes_sec 4. Authority and Restart Branches
 
 In @ref InitializeEulerianState "InitializeEulerianState":
 
-- `StartStep == 0`:
-  - `eulerian_field_source=solve`: fresh initialization path.
-  - `eulerian_field_source=load`: reads initial fields from restart files.
-  - `eulerian_field_source=analytical`: uses analytical initializer.
-- `StartStep > 0`:
-  - `load` source reloads restart fields for the requested step.
-  - `analytical` source regenerates analytical field at current `(t, step)`.
+- `eulerian_field_source=solve` and `StartStep == 0` consumes `initial_conditions`.
+- `eulerian_field_source=solve` and `StartStep > 0` consumes the restart path.
+- `eulerian_field_source=load` consumes the existing load path.
+- `eulerian_field_source=analytical` consumes the analytical initializer.
+
+Thus `eulerian_field_source` supersedes `initial_conditions`; the launcher does not materialize
+a configured file or `ic_gen` artifact when another source has authority.
 
 Operational note:
 
 - `StartStep` identifies the saved restart state being loaded, not the first new step to compute.
 - If a run completed through step `N`, restart with `start_step: N`; the first newly advanced step will be `N+1`.
 
-@section p33_particle_link_sec 6. Particle Initialization Relation
+@section p33_particle_link_sec 5. Particle Initialization Relation
 
 Particle initialization is configured in `case.yml -> models.physics.particles`, but executed by a separate subsystem.
 
@@ -163,7 +152,7 @@ For full particle mode and restart details, use:
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 34_Particle_Model_Overview**
 
-@section p33_checks_sec 7. Practical Checks
+@section p33_checks_sec 6. Practical Checks
 
 After startup, confirm:
 
@@ -176,11 +165,12 @@ Common pitfalls:
 - using `Poiseuille` in strongly non-rectangular topology and expecting a textbook cylindrical profile,
 - supplying a bulk/mean velocity to Poiseuille mode when the current implementation expects `Vmax`,
 - forgetting that initialization sets the interior only; boundary handlers then overwrite face values,
-- mixing `u/v/w_physical` and `velocity_physical` in the same `initial_conditions` block,
+- providing a PETSc vector whose size does not match the target DM,
+- attempting a file-backed IC for a multi-block case in the first implementation,
 - omitting `flow_direction` when the domain is fully periodic (no INLET face),
 - comparing `u_physical` directly to `Ucont` without accounting for metric-face scaling.
 
-@section p33_refs_sec 8. Related Pages
+@section p33_refs_sec 7. Related Pages
 
 - **@subpage 07_Case_Reference**
 - **@subpage 14_Config_Contract**

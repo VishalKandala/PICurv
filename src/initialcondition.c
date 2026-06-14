@@ -20,7 +20,7 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
 
     SimCtx *simCtx = user->simCtx;
     
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Setting initial INTERIOR field for '%s' with profile %d.\n", fieldName, simCtx->FieldInitialization);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Setting initial INTERIOR field for '%s' with mode %d.\n", fieldName, simCtx->initialConditionMode);
 
     // This function currently only implements logic for Ucont.
     if (strcmp(fieldName, "Ucont") != 0) {
@@ -43,20 +43,21 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
     const PetscReal v_cart = simCtx->InitialConstantContra.y;
     const PetscReal w_cart = simCtx->InitialConstantContra.z;
 
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "IC cartesian=(%.3f,%.3f,%.3f) ic_velocity_physical=%.3f ic_coordinate_system=%d\n",
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "IC cartesian=(%.3f,%.3f,%.3f) ic_velocity_physical=%.3f mode=%d\n",
               (double)u_cart, (double)v_cart, (double)w_cart,
-              (double)simCtx->icVelocityPhysical, (int)simCtx->icCoordinateSystem);
+              (double)simCtx->icVelocityPhysical, (int)simCtx->initialConditionMode);
 
-    // --- 2. Early dispatch: cartesian Constant delegates to Cart2Contra ---
-    if (simCtx->FieldInitialization == 1 && simCtx->icCoordinateSystem == 0) {
-        ierr = Cart2Contra(user, u_cart, v_cart, w_cart); CHKERRQ(ierr);
+    // --- 2. Early dispatch: cartesian Constant delegates to the uniform converter ---
+    if (simCtx->initialConditionMode == IC_MODE_CONSTANT_CARTESIAN) {
+        ierr = UniformCart2Contra(user, u_cart, v_cart, w_cart); CHKERRQ(ierr);
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
     // --- 3. Resolve flow direction for streamwise Constant and Poiseuille ---
-    const PetscBool needs_flow_dir = (simCtx->FieldInitialization == 2) ||
-                                     (simCtx->FieldInitialization == 1 && simCtx->icCoordinateSystem == 1);
+    const PetscBool needs_flow_dir = (PetscBool)(
+        simCtx->initialConditionMode == IC_MODE_POISEUILLE ||
+        simCtx->initialConditionMode == IC_MODE_CONSTANT_STREAMWISE);
     FlowDirection fd          = FLOW_DIR_UNSET;
     PetscInt      flow_axis   = 0;
     PetscReal     flow_dir_sign = 1.0;
@@ -112,13 +113,13 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
                     Cmpnts ucont_val = {0.0, 0.0, 0.0}; // Default to zero velocity
                     PetscReal normal_velocity_mag = 0.0;
 
-                    switch (simCtx->FieldInitialization) {
-                        case 0:
+                    switch (simCtx->initialConditionMode) {
+                        case IC_MODE_ZERO:
                             break;
-                        case 1: // streamwise: single component along flow_axis
+                        case IC_MODE_CONSTANT_STREAMWISE:
                             normal_velocity_mag = simCtx->icVelocityPhysical;
                             break;
-                        case 2: // Poiseuille parabolic profile
+                        case IC_MODE_POISEUILLE:
                             {
                                 PetscInt cs1, cs2, n1, n2;
                                 if (flow_axis == 0)      { cs1 = j; cs2 = k; n1 = jm_phys; n2 = km_phys; }
@@ -134,12 +135,11 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
                             }
                             break;
                         default:
-                            LOG_ALLOW(LOCAL, LOG_WARNING, "Unrecognized FieldInitialization profile %d. Defaulting to zero.\n", simCtx->FieldInitialization);
+                            LOG_ALLOW(LOCAL, LOG_WARNING, "Unrecognized initial-condition mode %d. Defaulting to zero.\n", simCtx->initialConditionMode);
                             break;
                     }
 
                     // Step B: apply flow direction and set the single contravariant flux component.
-                    // Skipped for cartesian Constant (case 1, icCoordinateSystem=0) which sets ucont_val directly.
                     if (normal_velocity_mag != 0.0) {
                         const PetscReal signed_vel = normal_velocity_mag * flow_dir_sign * user->GridOrientation;
                         if (flow_axis == 0) {
@@ -173,6 +173,56 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
 
     PROFILE_FUNCTION_END;
 
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LoadInitialUcont"
+/**
+ * @brief Load a staged file IC and return with Ucont populated.
+ */
+static PetscErrorCode LoadInitialUcont(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    SimCtx *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+    ierr = PetscStrncpy(simCtx->_io_context_buffer, simCtx->initialConditionDirectory,
+                        sizeof(simCtx->_io_context_buffer)); CHKERRQ(ierr);
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
+
+    if (simCtx->initialConditionField == IC_FIELD_UCAT) {
+        ierr = ReadFieldData(user, "ufield", user->Ucat, 0, "dat"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+        ierr = Cart2Contra(user); CHKERRQ(ierr);
+    } else if (simCtx->initialConditionField == IC_FIELD_UCONT) {
+        ierr = ReadFieldData(user, "vfield", user->Ucont, 0, "dat"); CHKERRQ(ierr);
+    } else {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+                "Unsupported file initial-condition field selector %d.",
+                simCtx->initialConditionField);
+    }
+
+    simCtx->current_io_directory = NULL;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "PopulateInitialUcont"
+/**
+ * @brief Dispatch one fresh-start IC and return with Ucont populated.
+ */
+PetscErrorCode PopulateInitialUcont(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    SimCtx *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+    if (simCtx->initialConditionMode == IC_MODE_FILE) {
+        ierr = LoadInitialUcont(user); CHKERRQ(ierr);
+    } else {
+        ierr = SetInitialInteriorField(user, "Ucont"); CHKERRQ(ierr);
+    }
     PetscFunctionReturn(0);
 }
 
@@ -232,7 +282,7 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
         //    Replaces the legacy `if(InitialGuessOne)` block.
 
 	LOG_ALLOW(GLOBAL,LOG_TRACE," Initializing Interior Ucont field.\n");
-        ierr = SetInitialInteriorField(&user_finest[bi], "Ucont"); CHKERRQ(ierr);
+        ierr = PopulateInitialUcont(&user_finest[bi]); CHKERRQ(ierr);
 	LOG_ALLOW(GLOBAL,LOG_TRACE," Interior Ucont field initialized.\n");
 
     // 2. Apply all boundary conditions, convert to Cartesian, and sync ghosts.

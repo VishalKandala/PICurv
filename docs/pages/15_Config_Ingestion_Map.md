@@ -81,25 +81,18 @@ These keys are consumed by `picurv` orchestration only:
 
 Some launcher behaviors depend on other config selections before values ever reach C:
 
-- `case.properties.initial_conditions.mode: Zero`
-  allows velocity keys to be omitted; `picurv` writes no velocity flags (C defaults to zero).
-- `case.properties.initial_conditions.mode: Constant`
-  supports two sub-modes inferred from which keys are present:
-  - **Cartesian** (`u_physical/v_physical/w_physical`): emits `-ucont_x/-ucont_y/-ucont_z`;
-    `flow_direction` is forbidden.
-  - **Curvilinear/streamwise** (`velocity_physical`): emits `-ic_coordinate_system 1
-    -ic_velocity_physical`; requires `flow_direction` or an INLET face to define the streamwise axis.
-  - Mixing cartesian and curvilinear keys in the same block is a validation error.
-- `case.properties.initial_conditions.mode: Poiseuille`
-  requires `peak_velocity_physical` (the centerline `Vmax`, not bulk mean); emits
-  `-ic_velocity_physical`; requires `flow_direction` or an INLET face; when both are present their
-  axes must agree.
+- `case.properties.initial_conditions.mode: generated` resolves `generator` and `params` into
+  built-in C flags or a staged `ic_gen` PETSc vector.
+- `case.properties.initial_conditions.mode: file` validates and stages one `Ucat` or `Ucont`
+  PETSc vector in the existing @ref ReadFieldData naming layout.
+- file-backed ICs are rejected for multi-block cases in the first implementation.
+- `solver.operation_mode.eulerian_field_source` and `case.run_control.start_step` supersede IC
+  materialization when load, analytical, or restart state has authority.
 - `solver.operation_mode.eulerian_field_source: analytical`
   routes through the analytical grid-ingestion split:
   `TGV3D` still requires `case.grid.mode: programmatic_c`, while `ZERO_FLOW` and `UNIFORM_FLOW`
   accept `case.grid.mode: programmatic_c` or `case.grid.mode: file`.
-- `case.properties.initial_conditions.mode`
-  is now an explicit launcher requirement even though raw C has its own internal default.
+- `case.properties.initial_conditions.mode` is an explicit launcher requirement.
 
 This means the YAML contract is intentionally stricter than "whatever C would do with missing
 options" in several places.

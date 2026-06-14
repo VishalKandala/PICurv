@@ -59,16 +59,17 @@ For each run, `picurv` generates:
   old-field slices are produced by Python, written under `config/`, summarized
   in `profile.info`, then converted to the existing C-side `source_file` contract.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
-- `properties.initial_conditions.mode` is required explicitly by the launcher.
-- `properties.initial_conditions.mode: Zero` may omit velocity components.
-- `properties.initial_conditions.mode: Constant` supports two sub-modes (inferred from keys present):
-  - **Cartesian**: provide `u_physical`, `v_physical`, `w_physical`; `flow_direction` is forbidden.
-  - **Curvilinear/streamwise**: provide `velocity_physical` (scalar speed); requires `flow_direction`
-    or an INLET face to define the streamwise axis.
-  - Mixing cartesian and curvilinear keys in the same block is an error.
-- `properties.initial_conditions.mode: Poiseuille` requires `peak_velocity_physical` (the centerline
-  speed, not bulk mean); requires `flow_direction` or an INLET face; when both are present their
-  axes must agree.
+- `properties.initial_conditions.mode` is `generated` or `file`.
+- generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`; their
+  inputs live under `params`.
+- `generator: ic_gen` requires `params.field` and `params.config_file`, defaults to
+  `scripts/ic.gen`, accepts optional `params.script`, and stages its PETSc vector output exactly like file mode.
+- generated and field-sliced `prescribed_flow` sources default to `scripts/profile.gen`
+  and accept optional `source.script`.
+- `mode: file` requires `field: Ucat|Ucont` and `source_file`.
+- file-backed ICs currently support single-block cases only.
+- `solver.operation_mode.eulerian_field_source` and `run_control.start_step` determine whether
+  `initial_conditions` has authority.
 
 @section p14_solver_sec 4. Solver Contract Highlights
 
@@ -218,7 +219,7 @@ Launcher defaults vs C defaults:
 Examples:
 
 - omitting `properties.initial_conditions.mode` is rejected at the launcher level,
-- omitting velocity components for `mode: Zero` is accepted and defaults to zero,
+- `generator: zero` requires no `params`,
 - omitting `models.physics.particles.restart_mode` on a particle restart emits a warning that C will default to `load`.
 
 For workflow growth patterns (grid generation orchestration, multi-run studies, and ML coupling paths), see **@subpage 17_Workflow_Extensibility**.

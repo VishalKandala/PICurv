@@ -123,26 +123,23 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
 
 - Schema home: `case.yml -> properties.initial_conditions.mode`
 - Canonical values:
-  - `Zero`
-  - `Constant` — two sub-modes, inferred from YAML keys present
-  - `Poiseuille`
+  - `generated` with `generator: zero|constant|streamwise_constant|poiseuille|ic_gen`
+  - `file` with `field: Ucat|Ucont`
 - Python hooks:
-  - `normalize_field_init_mode()`
+  - `resolve_initial_condition_config()`
+  - `stage_initial_condition_file()`
+  - `run_initial_condition_generator()`
   - `normalize_flow_direction_token()`
   - `resolve_ic_cli_params()`
-  - `_ic_has_inlet()`
 - Generated mapping:
-  - `mode` -> `-finit`
-  - cartesian Constant (`u/v/w_physical` present): `-ucont_x/-ucont_y/-ucont_z`
-  - curvilinear Constant (`velocity_physical` present): `-ic_coordinate_system 1 -ic_velocity_physical`
-  - Poiseuille: `-ic_velocity_physical`
-  - `flow_direction` (curvilinear Constant / Poiseuille, when no INLET): `-flow_direction <int>`
+  - built-in generator -> matching `-finit` and parameter flags
+  - file or `ic_gen` -> `-finit 4 -ic_field ... -ic_dir ...`
 - C storage/parser:
-  - `FieldInitialization`, `icCoordinateSystem`, `icVelocityPhysical`, `flowDirection` in `SimCtx`
-  - Parsed via `-finit`, `-ic_coordinate_system`, `-ic_velocity_physical`, `-flow_direction`
+  - `initialConditionMode`, `initialConditionField`, `initialConditionDirectory`,
+    `icVelocityPhysical`, and `flowDirection` in `SimCtx`
 - Runtime:
-  - `src/initialcondition.c` — `SetInitialInteriorField`
-  - `src/setup.c` — `Cart2Contra`
+  - `src/initialcondition.c` — `PopulateInitialUcont`, `SetInitialInteriorField`
+  - `src/setup.c` — `Cart2Contra`, `UniformCart2Contra`
 - Tests/docs to update:
   - `tests/test_cli_smoke.py`
   - **@subpage 33_Initial_Conditions**

@@ -268,10 +268,8 @@ static PetscErrorCode TestSetInitialInteriorFieldIgnoresNonUcontRequest(void)
 /**
  * @brief Tests cartesian Constant IC: Cart2Contra sets contravariant flux via metric dot product.
  *
- * On a 5×5×5-cell unit cube (dx=dy=dz=0.2), the Zeta metric vector at any interior node is
- * zet=(0, 0, dx*dy)=(0, 0, 0.04). Cart2Contra with (u,v,w)=(0,0,2) gives
- * ucont.z = zet.z * w = 0.04 * 2.0 = 0.08; the Xi and Eta components remain zero because
- * csi.z = eta.z = 0 on a Cartesian grid.
+ * The minimal runtime fixture uses identity face metrics. UniformCart2Contra
+ * therefore maps (u,v,w)=(0,0,2) directly to a Zeta flux of 2.
  */
 static PetscErrorCode TestSetInitialInteriorFieldCartesianConstantSetsContravariantFlux(void)
 {
@@ -281,8 +279,7 @@ static PetscErrorCode TestSetInitialInteriorFieldCartesianConstantSetsContravari
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
-    simCtx->FieldInitialization  = 1;
-    simCtx->icCoordinateSystem   = 0;   /* cartesian — delegates to Cart2Contra */
+    simCtx->initialConditionMode = IC_MODE_CONSTANT_CARTESIAN;
     simCtx->InitialConstantContra.x = 0.0;
     simCtx->InitialConstantContra.y = 0.0;
     simCtx->InitialConstantContra.z = 2.0;
@@ -290,10 +287,9 @@ static PetscErrorCode TestSetInitialInteriorFieldCartesianConstantSetsContravari
 
     PetscCall(SetInitialInteriorField(user, "Ucont"));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
-    /* dx=dy=1/5=0.2; zet.z=dx*dy=0.04; ucont.z = 0.04*2.0 = 0.08 */
     PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].x, 1.0e-10, "Xi flux is zero for pure-z velocity on Cartesian grid"));
     PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].y, 1.0e-10, "Eta flux is zero for pure-z velocity on Cartesian grid"));
-    PetscCall(PicurvAssertRealNear(0.08, ucont[1][1][1].z, 1.0e-10, "Zeta flux = zet.z * w = 0.04 * 2.0"));
+    PetscCall(PicurvAssertRealNear(2.0, ucont[1][1][1].z, 1.0e-10, "Zeta flux follows the identity fixture metric"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
@@ -303,8 +299,8 @@ static PetscErrorCode TestSetInitialInteriorFieldCartesianConstantSetsContravari
 /**
  * @brief Tests curvilinear Constant IC: flow_direction selects the streamwise axis.
  *
- * icVelocityPhysical=2.0, FLOW_DIR_POS_ZETA.  On a 5×5×5-cell unit cube,
- * area magnitude = |zet| = 0.04, so ucont.z = 2.0*0.04 = 0.08.
+ * icVelocityPhysical=2.0, FLOW_DIR_POS_ZETA. The minimal runtime fixture uses
+ * identity face metrics, so ucont.z = 2.0.
  * Xi and Eta components are left at zero regardless of InitialConstantContra.
  */
 static PetscErrorCode TestSetInitialInteriorFieldCurvilinearConstantViaFlowDirection(void)
@@ -315,8 +311,7 @@ static PetscErrorCode TestSetInitialInteriorFieldCurvilinearConstantViaFlowDirec
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
-    simCtx->FieldInitialization  = 1;
-    simCtx->icCoordinateSystem   = 1;                /* curvilinear/streamwise */
+    simCtx->initialConditionMode = IC_MODE_CONSTANT_STREAMWISE;
     simCtx->icVelocityPhysical   = 2.0;
     simCtx->flowDirection        = FLOW_DIR_POS_ZETA;
     user->GridOrientation        = 1;
@@ -330,9 +325,165 @@ static PetscErrorCode TestSetInitialInteriorFieldCurvilinearConstantViaFlowDirec
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].x, 1.0e-10, "Xi flux is zero in curvilinear Zeta mode"));
     PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].y, 1.0e-10, "Eta flux is zero in curvilinear Zeta mode"));
-    PetscCall(PicurvAssertRealNear(0.08, ucont[1][1][1].z, 1.0e-10, "Zeta flux = velocity_physical * |zet| = 2.0*0.04"));
+    PetscCall(PicurvAssertRealNear(2.0, ucont[1][1][1].z, 1.0e-10, "Zeta flux follows the identity fixture metric"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
 
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests zero IC clears physical-cell contravariant velocity.
+ */
+static PetscErrorCode TestSetInitialInteriorFieldZeroClearsInterior(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucont = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    simCtx->initialConditionMode = IC_MODE_ZERO;
+    PetscCall(VecSet(user->Ucont, 7.0));
+
+    PetscCall(SetInitialInteriorField(user, "Ucont"));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].x, 1.0e-12, "zero IC clears interior Xi flux"));
+    PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].y, 1.0e-12, "zero IC clears interior Eta flux"));
+    PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].z, 1.0e-12, "zero IC clears interior Zeta flux"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests Poiseuille IC follows the discrete cross-stream profile and reaches zero at edges.
+ */
+static PetscErrorCode TestSetInitialInteriorFieldPoiseuilleProfile(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucont = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    simCtx->initialConditionMode = IC_MODE_POISEUILLE;
+    simCtx->icVelocityPhysical = 3.0;
+    simCtx->flowDirection = FLOW_DIR_POS_ZETA;
+    user->GridOrientation = 1;
+    PetscCall(VecZeroEntries(user->Ucont));
+
+    PetscCall(SetInitialInteriorField(user, "Ucont"));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(3.0 * 64.0 / 81.0, ucont[2][2][2].z, 1.0e-12,
+                                   "Poiseuille IC follows the discrete center-adjacent profile value"));
+    PetscCall(PicurvAssertRealNear(0.0, ucont[2][1][1].z, 1.0e-12, "Poiseuille IC is zero at cross-stream edge"));
+    PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].x, 1.0e-12, "Poiseuille IC leaves Xi flux zero"));
+    PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].y, 1.0e-12, "Poiseuille IC leaves Eta flux zero"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests spatially varying Cartesian-field conversion to contravariant fluxes.
+ */
+static PetscErrorCode TestCart2ContraConvertsCartesianField(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucat = NULL;
+    Cmpnts ***ucont = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    for (PetscInt k = 0; k < 6; k++)
+        for (PetscInt j = 0; j < 6; j++)
+            for (PetscInt i = 0; i < 6; i++)
+                ucat[k][j][i] = (Cmpnts){(PetscReal)i, 2.0, 3.0};
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(Cart2Contra(user));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(1.5, ucont[1][1][1].x, 1.0e-10,
+                                   "Xi flux uses face-interpolated Ucat"));
+    PetscCall(PicurvAssertRealNear(2.0, ucont[1][1][1].y, 1.0e-10,
+                                   "Eta flux uses Cartesian y velocity"));
+    PetscCall(PicurvAssertRealNear(3.0, ucont[1][1][1].z, 1.0e-10,
+                                   "Zeta flux uses Cartesian z velocity"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests loading a staged Ucat file IC and converting it to Ucont.
+ */
+static PetscErrorCode TestPopulateInitialUcontLoadsStagedUcat(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucont = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(VecSet(user->Ucat, 2.5));
+    PetscCall(PetscStrncpy(simCtx->_io_context_buffer, tmpdir, sizeof(simCtx->_io_context_buffer)));
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
+    PetscCall(WriteFieldData(user, "ufield", user->Ucat, 0, "dat"));
+    simCtx->current_io_directory = NULL;
+
+    PetscCall(VecZeroEntries(user->Ucat));
+    PetscCall(VecZeroEntries(user->Ucont));
+    simCtx->initialConditionMode = IC_MODE_FILE;
+    simCtx->initialConditionField = IC_FIELD_UCAT;
+    PetscCall(PetscStrncpy(simCtx->initialConditionDirectory, tmpdir, sizeof(simCtx->initialConditionDirectory)));
+    PetscCall(PopulateInitialUcont(user));
+
+    PetscCall(PicurvAssertVecConstant(user->Ucat, 2.5, 1.0e-12, "file IC should restore Ucat"));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(2.5, ucont[1][1][1].x, 1.0e-12, "file Ucat IC should populate interior Xi flux"));
+    PetscCall(PicurvAssertRealNear(2.5, ucont[1][1][1].y, 1.0e-12, "file Ucat IC should populate interior Eta flux"));
+    PetscCall(PicurvAssertRealNear(2.5, ucont[1][1][1].z, 1.0e-12, "file Ucat IC should populate interior Zeta flux"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests loading a staged Ucont file IC without Cartesian conversion.
+ */
+static PetscErrorCode TestPopulateInitialUcontLoadsStagedUcont(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(VecSet(user->Ucont, 4.5));
+    PetscCall(PetscStrncpy(simCtx->_io_context_buffer, tmpdir, sizeof(simCtx->_io_context_buffer)));
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
+    PetscCall(WriteFieldData(user, "vfield", user->Ucont, 0, "dat"));
+    simCtx->current_io_directory = NULL;
+
+    PetscCall(VecZeroEntries(user->Ucont));
+    simCtx->initialConditionMode = IC_MODE_FILE;
+    simCtx->initialConditionField = IC_FIELD_UCONT;
+    PetscCall(PetscStrncpy(simCtx->initialConditionDirectory, tmpdir, sizeof(simCtx->initialConditionDirectory)));
+    PetscCall(PopulateInitialUcont(user));
+
+    PetscCall(PicurvAssertVecConstant(user->Ucont, 4.5, 1.0e-12, "file Ucont IC should restore Ucont directly"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -1262,6 +1413,11 @@ int main(int argc, char **argv)
         {"set-initial-interior-field-ignores-non-ucont-request", TestSetInitialInteriorFieldIgnoresNonUcontRequest},
         {"set-initial-interior-field-cartesian-constant-sets-contravariant-flux", TestSetInitialInteriorFieldCartesianConstantSetsContravariantFlux},
         {"set-initial-interior-field-curvilinear-constant-via-flow-direction", TestSetInitialInteriorFieldCurvilinearConstantViaFlowDirection},
+        {"set-initial-interior-field-zero-clears-interior", TestSetInitialInteriorFieldZeroClearsInterior},
+        {"set-initial-interior-field-poiseuille-profile", TestSetInitialInteriorFieldPoiseuilleProfile},
+        {"cart2contra-converts-cartesian-field", TestCart2ContraConvertsCartesianField},
+        {"populate-initial-ucont-loads-staged-ucat", TestPopulateInitialUcontLoadsStagedUcat},
+        {"populate-initial-ucont-loads-staged-ucont", TestPopulateInitialUcontLoadsStagedUcont},
         {"interpolate-all-fields-to-swarm-constant-fields", TestInterpolateAllFieldsToSwarmConstantFields},
         {"interpolate-all-fields-to-swarm-corner-averaged-constant-fields", TestInterpolateAllFieldsToSwarmCornerAveragedConstantFields},
         {"scatter-all-particle-fields-to-euler-fields-averages-psi", TestScatterAllParticleFieldsToEulerFieldsAveragesPsi},

@@ -2726,6 +2726,43 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
                 val = gen.get(key)
                 if isinstance(val, str):
                     gen[key] = resolve_path(case_anchor_path, val)
+    ic = (case_cfg.get("properties", {}) or {}).get("initial_conditions", {})
+    if isinstance(ic, dict):
+        if str(ic.get("mode", "")).strip().lower() == "file":
+            source_file = ic.get("source_file")
+            if isinstance(source_file, str):
+                ic["source_file"] = resolve_path(case_anchor_path, source_file)
+        elif str(ic.get("generator", "")).strip().lower() == "ic_gen":
+            params = ic.get("params", {})
+            if isinstance(params, dict):
+                for key in ("script", "config_file"):
+                    value = params.get(key)
+                    if isinstance(value, str):
+                        params[key] = resolve_path(case_anchor_path, value)
+    boundary_conditions = case_cfg.get("boundary_conditions", [])
+    blocks = boundary_conditions if boundary_conditions and isinstance(boundary_conditions[0], list) else [boundary_conditions]
+    for block in blocks:
+        if not isinstance(block, list):
+            continue
+        for bc in block:
+            if not isinstance(bc, dict) or str(bc.get("handler", "")).strip().lower() != "prescribed_flow":
+                continue
+            source = ((bc.get("params") or {}).get("source") or {})
+            if not isinstance(source, dict):
+                continue
+            source_type = str(source.get("type", "")).strip().lower()
+            if source_type == "file":
+                keys = ("path",)
+            elif source_type == "generated":
+                keys = ("script",)
+            elif source_type == "field_slice":
+                keys = ("script", "field_file", "grid_file", "source_case")
+            else:
+                keys = ()
+            for key in keys:
+                value = source.get(key)
+                if isinstance(value, str):
+                    source[key] = resolve_path(case_anchor_path, value)
 
 
 def prepare_case_for_continuation(run_dir: str, case_id: str, last_step: int,
@@ -3116,6 +3153,24 @@ def _resolve_run_artifact_path(run_dir: str, configured_path: str, default_path:
         path = os.path.join("config", path)
     return os.path.abspath(os.path.join(run_dir, path))
 
+def _resolve_generator_script(configured_script: str, case_path: str, default_name: str) -> str:
+    """!
+    @brief Resolve an optional generator script override or repository default.
+    @param[in] configured_script Optional absolute or case-relative script path.
+    @param[in] case_path Current case.yml path used to anchor relative overrides.
+    @param[in] default_name Repository generator filename under SCRIPT_PATH.
+    @return Absolute generator script path.
+    """
+    if configured_script is None:
+        return os.path.join(SCRIPT_PATH, default_name)
+    if not isinstance(configured_script, str) or not configured_script.strip():
+        raise ValueError(f"Generator script override for {default_name} must be a non-empty path.")
+    script = configured_script.strip()
+    if os.path.isabs(script):
+        return os.path.abspath(script)
+    case_dir = os.path.dirname(os.path.abspath(case_path)) if case_path else os.getcwd()
+    return os.path.abspath(os.path.join(case_dir, script))
+
 def _normalize_square_duct_poiseuille_params(params, field_name: str) -> dict:
     """!
     @brief Validate square-duct Poiseuille generator parameters.
@@ -3152,6 +3207,7 @@ def _normalize_field_slice_source(source, field_name: str) -> dict:
     """
     allowed = {
         "type",
+        "script",
         "field_file",
         "grid_file",
         "source_case",
@@ -3178,6 +3234,11 @@ def _normalize_field_slice_source(source, field_name: str) -> dict:
         "grid_file": grid_file.strip(),
         "slice": _normalize_field_slice_selector(source.get("slice"), f"{field_name}.slice"),
     }
+    if source.get("script") is not None:
+        script = source.get("script")
+        if not isinstance(script, str) or not script.strip():
+            raise ValueError(f"{field_name}.script must be a non-empty path when provided.")
+        normalized["script"] = script.strip()
     if source.get("source_case") is not None:
         source_case = source.get("source_case")
         if not isinstance(source_case, str) or not source_case.strip():
@@ -3271,7 +3332,8 @@ def _normalize_field_slice_selector(slice_cfg, field_name: str) -> dict:
 
 def generate_square_duct_poiseuille_picslice(output_path: str, dims: tuple, params: dict,
                                              target_grid: str = None, target_block: int = 0,
-                                             target_face: str = None) -> dict:
+                                             target_face: str = None, script: str = None,
+                                             case_path: str = None) -> dict:
     """!
     @brief Generate a dimensional canonical PICSLICE for square-duct Poiseuille flow.
     @param[in] output_path Path to write.
@@ -3280,10 +3342,12 @@ def generate_square_duct_poiseuille_picslice(output_path: str, dims: tuple, para
     @param[in] target_grid Optional canonical target PICGRID for grid-aware sampling.
     @param[in] target_block Target block index when `target_grid` is provided.
     @param[in] target_face Target inlet face when `target_grid` is provided.
+    @param[in] script Optional profile.gen-compatible script override.
+    @param[in] case_path Current case.yml path used to anchor relative script overrides.
     @return Summary dictionary.
     """
     n1, n2 = tuple(dims)
-    profilegen_script = os.path.join(SCRIPT_PATH, "profile.gen")
+    profilegen_script = _resolve_generator_script(script, case_path, "profile.gen")
     if not os.path.isfile(profilegen_script):
         raise ValueError(f"profile.gen script not found: {profilegen_script}")
     cmd = [
@@ -3337,7 +3401,7 @@ def generate_field_slice_picslice(output_path: str, expected_dims: tuple, source
     field_file = _resolve_case_relative_path(source["field_file"], case_dir)
     source_grid = _resolve_case_relative_path(source["grid_file"], case_dir)
     velocity_scale = _resolve_field_slice_velocity_scale(source, case_dir)
-    profilegen_script = os.path.join(SCRIPT_PATH, "profile.gen")
+    profilegen_script = _resolve_generator_script(source.get("script"), case_path, "profile.gen")
     if not os.path.isfile(profilegen_script):
         raise ValueError(f"profile.gen script not found: {profilegen_script}")
     n1, n2 = tuple(expected_dims)
@@ -3806,10 +3870,11 @@ def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
                 f"{field_name}.generator must be one of {sorted(GENERATED_PROFILE_GENERATORS)} "
                 f"(got '{source.get('generator')}')."
             )
-        unknown = sorted(set(source.keys()) - {"type", "generator", "output_file", "params"})
+        unknown = sorted(set(source.keys()) - {"type", "generator", "script", "output_file", "params"})
         if unknown:
             raise ValueError(
-                f"Unknown keys in {field_name}: {unknown}. Allowed: ['generator', 'output_file', 'params', 'type']."
+                f"Unknown keys in {field_name}: {unknown}. "
+                "Allowed: ['generator', 'output_file', 'params', 'script', 'type']."
             )
         normalized = {
             "type": "generated",
@@ -3821,6 +3886,11 @@ def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
             if not isinstance(output_file, str) or not output_file.strip():
                 raise ValueError(f"{field_name}.output_file must be a non-empty path when provided.")
             normalized["output_file"] = output_file.strip()
+        script = source.get("script")
+        if script is not None:
+            if not isinstance(script, str) or not script.strip():
+                raise ValueError(f"{field_name}.script must be a non-empty path when provided.")
+            normalized["script"] = script.strip()
         return normalized
 
     if source_type == "field_slice":
@@ -3967,6 +4037,8 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
                     target_grid=generated_target_grid,
                     target_block=block_idx,
                     target_face=face,
+                    script=source.get("script"),
+                    case_path=case_path,
                 )
             elif source.get("type") == "generated":
                 raise ValueError(f"Unsupported generated profile generator '{source['generator']}'.")
@@ -4299,9 +4371,11 @@ _CASE_SCHEMA = {
     ("properties", "scaling"): {"length_ref", "velocity_ref"},
     ("properties", "fluid"): {"density", "viscosity"},
     ("properties", "initial_conditions"): {
-        "mode", "u_physical", "v_physical", "w_physical", "peak_velocity_physical",
+        "mode", "generator", "params", "field", "source_file",
+        "u_physical", "v_physical", "w_physical", "peak_velocity_physical",
         "velocity_physical", "flow_direction",
     },
+    ("properties", "initial_conditions", "params"): None,
     ("grid",): {
         "mode", "source_file", "programmatic_settings", "generator", "legacy_conversion",
         "da_processors_x", "da_processors_y", "da_processors_z",
@@ -4665,20 +4739,15 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
     elif 'mode' not in ic:
         errors.append(
             f"  {case_path}: missing key 'properties.initial_conditions.mode'. "
-            "Specify 'Zero', 'Constant', or 'Poiseuille' explicitly."
+            "Specify 'generated' or 'file' explicitly."
         )
     else:
         try:
-            finit_code = normalize_field_init_mode(ic['mode'])
+            resolve_initial_condition_config(ic, prepared_blocks, U_ref=1.0)
+        except KeyError as e:
+            errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
-        else:
-            try:
-                resolve_ic_cli_params(ic, finit_code, prepared_blocks, U_ref=1.0)
-            except KeyError as e:
-                errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
-            except ValueError as e:
-                errors.append(f"  {case_path}: {e}")
 
     # --- case.yml: particle initialization validation ---
     particles_cfg = case_cfg.get('models', {}).get('physics', {}).get('particles', {})
@@ -6628,6 +6697,8 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                             target_grid=generated_target_grid,
                             target_block=i,
                             target_face=face,
+                            script=source.get("script"),
+                            case_path=case_path,
                         )
                     else:
                         raise ValueError(f"Unsupported generated profile generator '{source['generator']}'.")
@@ -6883,6 +6954,182 @@ def normalize_field_init_mode(value: str) -> int:
             f"Unknown initial_conditions mode '{value}'. Use one of: 'Zero', 'Constant', 'Poiseuille'."
         )
     return mapped
+
+def normalize_initial_condition_field(value: str) -> "tuple[str, int]":
+    """!
+    @brief Normalize a file IC field selector to its staged basename and C enum value.
+    @param[in] value User-facing Ucat or Ucont selector.
+    @return Tuple of staged field basename and C enum value.
+    """
+    normalized = str(value or "").strip().lower()
+    if normalized == "ucat":
+        return "ufield", 0
+    if normalized == "ucont":
+        return "vfield", 1
+    raise ValueError("initial_conditions.field must be 'Ucat' or 'Ucont'.")
+
+def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float) -> dict:
+    """!
+    @brief Resolve legacy and structured initial-condition YAML into one launcher contract.
+    @param[in] ic Initial-condition YAML mapping.
+    @param[in] prepared_blocks Normalized boundary-condition blocks.
+    @param[in] U_ref Physical reference velocity.
+    @return Normalized launcher initial-condition contract.
+    """
+    if not isinstance(ic, dict):
+        raise ValueError("properties.initial_conditions must be a mapping.")
+    mode = str(ic.get("mode", "")).strip()
+
+    # Backward-compatible legacy spelling.
+    if mode in {"Zero", "Constant", "Poiseuille"}:
+        finit_code = normalize_field_init_mode(mode)
+        params = resolve_ic_cli_params(ic, finit_code, prepared_blocks, U_ref)
+        if finit_code == 1 and params.pop("ic_coordinate_system", 0) == 1:
+            finit_code = 3
+        return {"finit": finit_code, "cli_params": params, "kind": "builtin", "label": mode}
+
+    normalized_mode = mode.lower().replace("-", "_").replace(" ", "_")
+    if normalized_mode == "file":
+        if prepared_blocks and len(prepared_blocks) > 1:
+            raise ValueError("File-backed initial conditions currently support single-block cases only.")
+        source_file = ic.get("source_file")
+        if not isinstance(source_file, str) or not source_file.strip():
+            raise ValueError("initial_conditions.source_file is required when mode is 'file'.")
+        field_name, field_code = normalize_initial_condition_field(ic.get("field"))
+        return {
+            "finit": 4, "cli_params": {}, "kind": "file", "label": "file",
+            "source_file": source_file.strip(), "field_name": field_name, "field_code": field_code,
+        }
+    if normalized_mode != "generated":
+        raise ValueError("initial_conditions.mode must be 'generated' or 'file'.")
+
+    generator = str(ic.get("generator", "")).strip().lower().replace("-", "_").replace(" ", "_")
+    params = ic.get("params", {})
+    if not isinstance(params, dict):
+        raise ValueError("initial_conditions.params must be a mapping.")
+    if generator == "ic_gen":
+        if prepared_blocks and len(prepared_blocks) > 1:
+            raise ValueError("File-backed initial conditions currently support single-block cases only.")
+        script = params.get("script")
+        if script is not None and (not isinstance(script, str) or not script.strip()):
+            raise ValueError("initial_conditions.params.script must be a non-empty path when provided.")
+        field_name, field_code = normalize_initial_condition_field(params.get("field"))
+        config_file = params.get("config_file")
+        if not isinstance(config_file, str) or not config_file.strip():
+            raise ValueError("initial_conditions.params.config_file is required for generator 'ic_gen'.")
+        cli_args = params.get("cli_args", [])
+        if cli_args is None:
+            cli_args = []
+        if not isinstance(cli_args, list):
+            raise ValueError("initial_conditions.params.cli_args must be a list.")
+        return {
+            "finit": 4, "cli_params": {}, "kind": "ic_gen", "label": "ic_gen",
+            "field_name": field_name, "field_code": field_code,
+            "config_file": config_file.strip(),
+            "script": script.strip() if script is not None else None,
+            "output_file": params.get("output_file"),
+            "cli_args": cli_args,
+        }
+
+    generator_modes = {
+        "zero": (0, "Zero"),
+        "constant": (1, "Constant"),
+        "streamwise_constant": (3, "Constant"),
+        "poiseuille": (2, "Poiseuille"),
+    }
+    if generator not in generator_modes:
+        raise ValueError(
+            "initial_conditions.generator must be one of: zero, constant, "
+            "streamwise_constant, poiseuille, ic_gen."
+        )
+    finit_code, legacy_mode = generator_modes[generator]
+    legacy_ic = dict(params)
+    legacy_ic["mode"] = legacy_mode
+    cli_params = resolve_ic_cli_params(
+        legacy_ic,
+        1 if finit_code == 3 else finit_code,
+        prepared_blocks,
+        U_ref,
+    )
+    cli_params.pop("ic_coordinate_system", None)
+    return {"finit": finit_code, "cli_params": cli_params, "kind": "builtin", "label": generator}
+
+def validate_petsc_vec_binary(path: str) -> dict:
+    """!
+    @brief Validate the basic PETSc binary VecView envelope used by ReadFieldData.
+    @param[in] path PETSc binary vector path.
+    @return Summary containing the absolute path and scalar count.
+    """
+    import struct
+    with open(path, "rb") as fin:
+        header = fin.read(8)
+        if len(header) != 8:
+            raise ValueError(f"PETSc Vec file is too short: {path}")
+        class_id, scalar_count = struct.unpack(">ii", header)
+        if class_id != 1211214 or scalar_count < 0:
+            raise ValueError(f"Invalid PETSc Vec header in {path}.")
+        payload = fin.read()
+    if len(payload) != scalar_count * 8:
+        raise ValueError(
+            f"PETSc Vec payload size mismatch in {path}: expected {scalar_count * 8} bytes, found {len(payload)}."
+        )
+    return {"path": os.path.abspath(path), "scalar_count": scalar_count}
+
+def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: dict) -> str:
+    """!
+    @brief Run the repository IC generator.
+    @param[in] case_path Source case YAML path.
+    @param[in] run_dir Run or precompute output directory.
+    @param[in] resolved_ic Normalized external-generator contract.
+    @return Generated PETSc vector path.
+    """
+    case_dir = os.path.dirname(os.path.abspath(case_path))
+    script = _resolve_generator_script(resolved_ic.get("script"), case_path, "ic.gen")
+    config_file = resolved_ic["config_file"]
+    config_file = config_file if os.path.isabs(config_file) else os.path.abspath(os.path.join(case_dir, config_file))
+    if not os.path.isfile(script):
+        raise ValueError(f"ic.gen script not found: {script}")
+    if not os.path.isfile(config_file):
+        raise ValueError(f"initial-condition generator config file not found: {config_file}")
+    default_output = os.path.join("config", "initial_condition.generated.dat")
+    output_path = _resolve_run_artifact_path(
+        run_dir, resolved_ic.get("output_file"), default_output, default_to_config_dir=True
+    )
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    cmd = [sys.executable, script, "-c", config_file, "--field",
+           "Ucat" if resolved_ic["field_code"] == 0 else "Ucont",
+           "--output", output_path]
+    cmd.extend(str(token) for token in resolved_ic.get("cli_args", []))
+    result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        raise ValueError(f"ic.gen failed with exit code {result.returncode}. Details:\n{details}")
+    validate_petsc_vec_binary(output_path)
+    return output_path
+
+def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict) -> dict:
+    """!
+    @brief Materialize and stage one file-backed IC in ReadFieldData's expected layout.
+    @param[in] run_dir Run or precompute output directory.
+    @param[in] case_path Source case YAML path.
+    @param[in] resolved_ic Normalized file-backed IC contract.
+    @return Source, staged path, and staging-directory summary.
+    """
+    if resolved_ic["kind"] == "ic_gen":
+        source_path = run_initial_condition_generator(case_path, run_dir, resolved_ic)
+    else:
+        source_path = resolved_ic["source_file"]
+        if not os.path.isabs(source_path):
+            source_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(case_path)), source_path))
+        if not os.path.isfile(source_path):
+            raise ValueError(f"Initial-condition source file not found: {source_path}")
+        validate_petsc_vec_binary(source_path)
+    stage_dir = os.path.join(run_dir, "config", "initial_condition")
+    os.makedirs(stage_dir, exist_ok=True)
+    staged_path = os.path.join(stage_dir, f"{resolved_ic['field_name']}00000_0.dat")
+    if os.path.abspath(source_path) != os.path.abspath(staged_path):
+        shutil.copy2(source_path, staged_path)
+    return {"source": os.path.abspath(source_path), "staged": os.path.abspath(staged_path), "directory": os.path.abspath(stage_dir)}
 
 def normalize_flow_direction_token(value: str) -> int:
     """!
@@ -7878,32 +8125,37 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         dt_phys = float(run_ctrl['dt_physical'])
         T_ref = L_ref / U_ref if U_ref != 0 else float('inf')
         dt_nondim = dt_phys / T_ref if T_ref != float('inf') else 0.0
-        finit_mode_str = ic['mode']
-        finit_code = normalize_field_init_mode(finit_mode_str)
-        ic_params = resolve_ic_cli_params(ic, finit_code, prepared_blocks, U_ref)
+        resolved_ic = resolve_initial_condition_config(ic, prepared_blocks, U_ref)
+        finit_mode_str = resolved_ic["label"]
+        finit_code = resolved_ic["finit"]
+        ic_params = resolved_ic["cli_params"]
         print(f"  - Reynolds Number (Re) = {reynolds:.4f}")
         print(f"  - Non-Dimensional dt*  = {dt_nondim:.6f}")
-        if finit_code == 1 and ic_params.get("ic_coordinate_system", 0) == 1:
-            ic_sub = "curvilinear"
-        elif finit_code == 1:
-            ic_sub = "cartesian"
-        else:
-            ic_sub = ""
-        ic_sub_label = f" [{ic_sub}]" if ic_sub else ""
-        print(f"  - Field Initialization Mode: {finit_mode_str}{ic_sub_label} (Code: {finit_code})")
+        eulerian_source = normalize_eulerian_field_source(
+            (solver_cfg.get("operation_mode", {}) or {}).get("eulerian_field_source", "solve")
+        )
+        start_step = int(run_ctrl.get("start_step", 0) or 0)
+        ic_is_authoritative = eulerian_source == "solve" and start_step == 0
         ic_cli = []
-        if "ic_coordinate_system" in ic_params:
-            ic_cli.append(f"-ic_coordinate_system {ic_params['ic_coordinate_system']}")
-        if "ucont_x" in ic_params:
-            ic_cli.extend([
-                f"-ucont_x {ic_params['ucont_x']}",
-                f"-ucont_y {ic_params['ucont_y']}",
-                f"-ucont_z {ic_params['ucont_z']}",
-            ])
-        if "ic_velocity_physical" in ic_params:
-            ic_cli.append(f"-ic_velocity_physical {ic_params['ic_velocity_physical']}")
-        if "flow_direction" in ic_params:
-            ic_cli.append(f"-flow_direction {ic_params['flow_direction']}")
+        if ic_is_authoritative:
+            print(f"  - Initial Condition: {finit_mode_str} (Code: {finit_code})")
+            if "ucont_x" in ic_params:
+                ic_cli.extend([
+                    f"-ucont_x {ic_params['ucont_x']}",
+                    f"-ucont_y {ic_params['ucont_y']}",
+                    f"-ucont_z {ic_params['ucont_z']}",
+                ])
+            if "ic_velocity_physical" in ic_params:
+                ic_cli.append(f"-ic_velocity_physical {ic_params['ic_velocity_physical']}")
+            if "flow_direction" in ic_params:
+                ic_cli.append(f"-flow_direction {ic_params['flow_direction']}")
+        else:
+            print(
+                f"[WARN] Ignoring configured initial condition '{finit_mode_str}' because "
+                f"eulerian_field_source={eulerian_source!r} and start_step={start_step} select another source.",
+                file=sys.stderr,
+            )
+            finit_code = 0
         control_lines.extend([
             f"-start_step {run_ctrl['start_step']}", f"-totalsteps {run_ctrl['total_steps']}",
             f"-ren {reynolds}", f"-dt {dt_nondim}", f"-finit {finit_code}",
@@ -8005,6 +8257,19 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         for key, value in grid_settings.items(): control_lines.append(f"-{key} {format_flag_value(value)}")
     else:
         raise ValueError(f"Unknown or missing grid mode '{grid_mode}' in case.yml.")
+
+    if resolved_ic["kind"] in {"file", "ic_gen"}:
+        if ic_is_authoritative:
+            try:
+                staged_ic = stage_initial_condition_file(run_dir, configs["case_path"], resolved_ic)
+            except Exception as e:
+                print(f"[FATAL] Failed to stage initial condition: {e}", file=sys.stderr)
+                sys.exit(1)
+            control_lines.extend([
+                f"-ic_field {resolved_ic['field_code']}",
+                f"-ic_dir {staged_ic['directory']}",
+            ])
+            print(f"  - Staged initial condition: {os.path.relpath(staged_ic['staged'])}")
 
     try:
         bcs_files = generate_multi_block_bcs(run_dir, run_id, case_cfg, source_files)
@@ -9196,6 +9461,7 @@ def build_run_dry_plan(args) -> dict:
         )
         add_planned_grid_artifacts(plan, loaded_case_cfg, run_dir)
         add_planned_profile_artifacts(plan, loaded_case_cfg, run_dir)
+        add_planned_initial_condition_artifacts(plan, loaded_case_cfg, solver_cfg, run_dir)
         if has_explicit_monitor_whitelist(loaded_monitor_cfg):
             plan["artifacts"].append(os.path.join(config_dir, "whitelist.run"))
         if profiling_preview["mode"] == "selected":
@@ -9506,6 +9772,40 @@ def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> N
     if has_generated:
         plan["artifacts"].append(os.path.join(config_dir, "profile.info"))
 
+def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_cfg: dict, run_dir: str) -> None:
+    """!
+    @brief Add authoritative file-backed initial-condition artifacts to a dry-run plan.
+    @param[in,out] plan Dry-run plan receiving artifact paths.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] solver_cfg Parsed solver configuration.
+    @param[in] run_dir Planned run directory.
+    """
+    source = normalize_eulerian_field_source(
+        (solver_cfg.get("operation_mode", {}) or {}).get("eulerian_field_source", "solve")
+    )
+    start_step = int((case_cfg.get("run_control", {}) or {}).get("start_step", 0) or 0)
+    if source != "solve" or start_step != 0:
+        return
+    try:
+        resolved = resolve_initial_condition_config(
+            (case_cfg.get("properties", {}) or {}).get("initial_conditions", {}),
+            validate_and_prepare_boundary_conditions(case_cfg),
+            U_ref=1.0,
+        )
+    except (KeyError, ValueError):
+        return
+    if resolved["kind"] not in {"file", "ic_gen"}:
+        return
+    config_dir = os.path.join(run_dir, "config")
+    plan["artifacts"].append(
+        os.path.join(config_dir, "initial_condition", f"{resolved['field_name']}00000_0.dat")
+    )
+    if resolved["kind"] == "ic_gen":
+        plan["artifacts"].append(_resolve_run_artifact_path(
+            run_dir, resolved.get("output_file"), os.path.join("config", "initial_condition.generated.dat"),
+            default_to_config_dir=True,
+        ))
+
 
 def render_run_dry_plan(plan: dict, output_format: str = "text"):
     """!
@@ -9737,12 +10037,27 @@ def precompute_workflow(args):
     if profile_summaries:
         artifacts.append(os.path.join(config_dir, "profile.info"))
 
+    initial_condition = None
+    resolved_ic = resolve_initial_condition_config(
+        (case_cfg.get("properties", {}) or {}).get("initial_conditions", {}),
+        validate_and_prepare_boundary_conditions(case_cfg),
+        U_ref=float((case_cfg.get("properties", {}).get("scaling", {}) or {}).get("velocity_ref", 1.0)),
+    )
+    if resolved_ic["kind"] == "ic_gen":
+        initial_condition = stage_initial_condition_file(output_dir, case_path, resolved_ic)
+        artifacts.extend([initial_condition["source"], initial_condition["staged"]])
+    elif resolved_ic["kind"] == "file":
+        print("[INFO] File initial condition does not require generated precompute output.")
+    else:
+        print(f"[INFO] Built-in initial-condition generator '{resolved_ic['label']}' runs in the C solver.")
+
     manifest = {
         "case": case_path,
         "output_dir": output_dir,
         "grid_mode": grid_mode,
         "artifacts": artifacts,
         "profiles": profile_summaries,
+        "initial_condition": initial_condition,
     }
     manifest_path = os.path.join(config_dir, "precompute.manifest.json")
     write_json_file(manifest_path, manifest)
@@ -14114,15 +14429,16 @@ def _add_precompute_parser(subparsers):
         help="Generate deterministic case artifacts without launching the solver.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Generate configured deterministic artifacts, such as grid_gen grids and\n"
-            "generated prescribed-flow inlet profiles, into a run-like config layout.\n\n"
+            "Generate configured deterministic artifacts, such as grid_gen grids,\n"
+            "generated prescribed-flow inlet profiles, and ic_gen initial conditions,\n"
+            "into a run-like config layout.\n\n"
             "Examples:\n"
             "  picurv precompute --case case.yml\n"
             "  picurv precompute --case case.yml --output-dir precomputed/channel"
         ),
-        epilog="Next: point grid/source file modes at the generated artifacts or run solve with generated modes directly.",
+        epilog="Next: inspect generated artifacts or run solve with the configured generated modes directly.",
     )
-    p_precompute.add_argument("--case", required=True, help="Path to case.yml containing grid/profile generator settings.")
+    p_precompute.add_argument("--case", required=True, help="Path to case.yml containing grid/profile/IC generator settings.")
     p_precompute.add_argument(
         "--output-dir",
         help="Directory where precomputed artifacts should be written. Defaults to precomputed/<case-name>.",

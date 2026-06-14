@@ -145,6 +145,21 @@ typedef enum {
     LEFT = 0, RIGHT, BOTTOM, TOP, FRONT, BACK, NUM_FACES
 } Face;
 
+/** @brief Selects the algorithm used to populate a fresh Eulerian velocity field. */
+typedef enum {
+    IC_MODE_ZERO = 0,
+    IC_MODE_CONSTANT_CARTESIAN = 1,
+    IC_MODE_POISEUILLE = 2,
+    IC_MODE_CONSTANT_STREAMWISE = 3,
+    IC_MODE_FILE = 4
+} InitialConditionMode;
+
+/** @brief Selects the authoritative velocity representation in a staged file IC. */
+typedef enum {
+    IC_FIELD_UCAT = 0,
+    IC_FIELD_UCONT = 1
+} InitialConditionField;
+
 
 //--------------------------------------------------------------------------------
 //                 3. PARTICLE LOCATION SYSTEM STRUCTS
@@ -718,10 +733,11 @@ typedef struct SimCtx {
     PetscReal max_pseudo_cfl, min_pseudo_cfl; // New addition for adaptive pseudo-CFL
     PetscReal mom_dt_jameson_residual_norm_noise_allowance_factor; // New addition for divergence detection
     PetscBool ps_ksp_pic_monitor_true_residual; // Parsed once from options for custom Poisson monitor logging.
-    PetscInt  FieldInitialization;
+    InitialConditionMode initialConditionMode;
+    InitialConditionField initialConditionField;
+    char initialConditionDirectory[PETSC_MAX_PATH_LEN];
     Cmpnts    InitialConstantContra;  /* Cartesian (u,v,w) for constant-cartesian IC */
     FlowDirection flowDirection;      /* explicit flow direction for streamwise/Poiseuille */
-    PetscInt  icCoordinateSystem;     /* 0=cartesian (default), 1=curvilinear/streamwise */
     PetscReal icVelocityPhysical;     /* scalar speed for curvilinear Constant and Poiseuille */
     Cmpnts    AnalyticalUniformVelocity;
     SolutionConvergenceMode solutionConvergenceMode;

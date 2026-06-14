@@ -246,7 +246,8 @@ Minimal zero-flow startup:
 ```yaml
 properties:
   initial_conditions:
-    mode: "Zero"
+    mode: generated
+    generator: zero
 ```
 
 Constant cartesian velocity (channel with explicit components):
@@ -254,10 +255,12 @@ Constant cartesian velocity (channel with explicit components):
 ```yaml
 properties:
   initial_conditions:
-    mode: "Constant"
-    u_physical: 0.0
-    v_physical: 0.0
-    w_physical: 1.0
+    mode: generated
+    generator: constant
+    params:
+      u_physical: 0.0
+      v_physical: 0.0
+      w_physical: 1.0
 ```
 
 Constant streamwise velocity for a periodic box (no INLET face):
@@ -265,9 +268,11 @@ Constant streamwise velocity for a periodic box (no INLET face):
 ```yaml
 properties:
   initial_conditions:
-    mode: "Constant"
-    velocity_physical: 1.0
-    flow_direction: "+Zeta"   # required when no INLET face; omit when INLET provides direction
+    mode: generated
+    generator: streamwise_constant
+    params:
+      velocity_physical: 1.0
+      flow_direction: "+Zeta"
 ```
 
 Poiseuille with a clear scalar input (INLET face present — no `flow_direction` needed):
@@ -275,8 +280,10 @@ Poiseuille with a clear scalar input (INLET face present — no `flow_direction`
 ```yaml
 properties:
   initial_conditions:
-    mode: "Poiseuille"
-    peak_velocity_physical: 1.25
+    mode: generated
+    generator: poiseuille
+    params:
+      peak_velocity_physical: 1.25
 ```
 
 Poiseuille for a periodic domain (no INLET face):
@@ -284,9 +291,11 @@ Poiseuille for a periodic domain (no INLET face):
 ```yaml
 properties:
   initial_conditions:
-    mode: "Poiseuille"
-    peak_velocity_physical: 1.25
-    flow_direction: "+Zeta"
+    mode: generated
+    generator: poiseuille
+    params:
+      peak_velocity_physical: 1.25
+      flow_direction: "+Zeta"
 ```
 
 Generated grid workflow:

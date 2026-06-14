@@ -22,10 +22,12 @@ properties:
     density: 200.0      # [kg/m^3]
     viscosity: 1.0      # [Pa.s] -> results in Re = (200*1*1)/1 = 200
   initial_conditions:
-    mode: "Constant"
-    u_physical: 0.0
-    v_physical: 0.0
-    w_physical: 1.0     # Initial flow is in the z-direction
+    mode: generated
+    generator: constant
+    params:
+      u_physical: 0.0
+      v_physical: 0.0
+      w_physical: 1.0     # Initial flow is in the z-direction
 
 # --- Grid Definition ---
 grid:

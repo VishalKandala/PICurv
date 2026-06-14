@@ -403,16 +403,18 @@ solver. It uses the same `case.yml` generator settings as `run --solve`:
 
 - `grid.mode: grid_gen` writes the configured dimensional `PICGRID`,
 - `prescribed_flow.source.type: generated` delegates dimensional `.picslice`
-  profile generation to `scripts/profile.gen` and writes `profile.info`,
+  profile generation to `scripts/profile.gen` or optional `source.script` and writes `profile.info`,
 - `prescribed_flow.source.type: field_slice` extracts a dimensional `.picslice`
   from an old Cartesian `ufield*.dat` plus its old `PICGRID`,
-- `config/precompute.manifest.json` records generated paths and profile stats.
+- `initial_conditions.generator: ic_gen` runs `scripts/ic.gen` or optional `params.script` and
+  stages its PETSc vector output,
+- `config/precompute.manifest.json` records generated paths, profile stats, and IC staging.
 
 The output layout mirrors `runs/<run_id>/config/` so inspected artifacts can be
-reused later with `grid.mode: file` and `prescribed_flow.source.type: file`.
+reused later with file-backed grid, profile, and initial-condition modes.
 
 Design intent: `precompute` is the extensible artifact-materialization route for
-deterministic case inputs. It should host future grid/profile preprocessing that
+deterministic case inputs. It should host future grid/profile/IC preprocessing that
 can be inspected before launch, while `run --solve` should perform the same
 materialization automatically for generator-style case settings.
 

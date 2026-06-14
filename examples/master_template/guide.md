@@ -48,6 +48,16 @@ Profile-generation note:
 - `picurv precompute --case ...` writes the same deterministic profile artifacts
   without launching the solver, mirroring the run `config/` layout.
 
+Initial-condition note:
+
+- `initial_conditions.mode: generated` selects a built-in generator or `ic_gen`.
+- `initial_conditions.mode: file` accepts one PETSc `Ucat` or `Ucont` `.dat` vector.
+- `picurv precompute --case ...` also materializes configured `ic_gen` output.
+- `ic_gen` defaults to `scripts/ic.gen`; `params.script` optionally selects a compatible override.
+- generated and field-sliced prescribed profiles default to `scripts/profile.gen`; `source.script`
+  optionally selects a compatible override.
+- file-backed initial conditions currently support single-block cases only.
+
 Momentum-solver note:
 
 - use the residual tolerances and pseudo-CFL block shown in

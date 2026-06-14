@@ -216,12 +216,13 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->pseudo_cfl_growth_factor = 1.0; //simCtx->vnn = 0.1;
     simCtx->ps_ksp_pic_monitor_true_residual = PETSC_FALSE;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
-    simCtx->FieldInitialization = 0;
+    simCtx->initialConditionMode = IC_MODE_ZERO;
+    simCtx->initialConditionField = IC_FIELD_UCAT;
+    strcpy(simCtx->initialConditionDirectory, "config/initial_condition");
     simCtx->InitialConstantContra.x = 0.0;
     simCtx->InitialConstantContra.y = 0.0;
     simCtx->InitialConstantContra.z = 0.0;
     simCtx->flowDirection = FLOW_DIR_UNSET;
-    simCtx->icCoordinateSystem = 0;
     simCtx->icVelocityPhysical = 0.0;
     simCtx->AnalyticalUniformVelocity.x = 0.0;
     simCtx->AnalyticalUniformVelocity.y = 0.0;
@@ -491,7 +492,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0 && strcmp(simCtx->eulerianSource,"analytical")!=0){
       SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Invalid value for -euler_field_source. Must be 'load','analytical' or 'solve'. You provided '%s'.",simCtx->eulerianSource);
     }
-
     if (simCtx->walltimeGuardEnabled) {
       const char *job_start_env = getenv("PICURV_JOB_START_EPOCH");
       const char *limit_env = getenv("PICURV_WALLTIME_LIMIT_SECONDS");
@@ -645,7 +645,26 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
                 "Pseudo-CFL controls require growth_factor >= 1, 0 < reduction_factor < 1, and noise allowance >= 1.");
     }
     ierr = PetscOptionsHasName(NULL, NULL, "-ps_ksp_pic_monitor_true_residual", &simCtx->ps_ksp_pic_monitor_true_residual); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-finit", &simCtx->FieldInitialization, NULL); CHKERRQ(ierr);
+    {
+        PetscInt ic_mode = (PetscInt)simCtx->initialConditionMode;
+        PetscInt ic_field = (PetscInt)simCtx->initialConditionField;
+        ierr = PetscOptionsGetInt(NULL, NULL, "-finit", &ic_mode, NULL); CHKERRQ(ierr);
+        ierr = PetscOptionsGetInt(NULL, NULL, "-ic_field", &ic_field, NULL); CHKERRQ(ierr);
+        simCtx->initialConditionMode = (InitialConditionMode)ic_mode;
+        simCtx->initialConditionField = (InitialConditionField)ic_field;
+    }
+    ierr = PetscOptionsGetString(NULL, NULL, "-ic_dir", simCtx->initialConditionDirectory,
+                                 sizeof(simCtx->initialConditionDirectory), NULL); CHKERRQ(ierr);
+    if (simCtx->initialConditionMode < IC_MODE_ZERO || simCtx->initialConditionMode > IC_MODE_FILE) {
+      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+              "Invalid value for -finit. Expected an initial-condition mode in [0,4], got %d.",
+              simCtx->initialConditionMode);
+    }
+    if (simCtx->initialConditionField < IC_FIELD_UCAT || simCtx->initialConditionField > IC_FIELD_UCONT) {
+      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+              "Invalid value for -ic_field. Expected 0 (Ucat) or 1 (Ucont), got %d.",
+              simCtx->initialConditionField);
+    }
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_y", &simCtx->InitialConstantContra.y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_z", &simCtx->InitialConstantContra.z, NULL); CHKERRQ(ierr);
@@ -655,7 +674,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
         ierr = PetscOptionsGetInt(NULL, NULL, "-flow_direction", &fd_int, &fd_set); CHKERRQ(ierr);
         if (fd_set) simCtx->flowDirection = (FlowDirection)fd_int;
     }
-    ierr = PetscOptionsGetInt(NULL, NULL, "-ic_coordinate_system", &simCtx->icCoordinateSystem, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ic_velocity_physical", &simCtx->icVelocityPhysical, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_u", &simCtx->AnalyticalUniformVelocity.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_v", &simCtx->AnalyticalUniformVelocity.y, NULL); CHKERRQ(ierr);
@@ -1038,6 +1056,11 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
     //     Eulerian fields from a file (eulerianSource == "load").
     if (simCtx->StartStep > 0 || strcmp(simCtx->eulerianSource,"load")== 0){ // If this is a restart run
         ierr = VerifyPathExistence(simCtx->restart_dir, PETSC_TRUE, PETSC_FALSE, "Restart source directory", &exists); CHKERRQ(ierr);
+    }
+    if (simCtx->StartStep == 0 && strcmp(simCtx->eulerianSource, "solve") == 0 &&
+        simCtx->initialConditionMode == IC_MODE_FILE) {
+        ierr = VerifyPathExistence(simCtx->initialConditionDirectory, PETSC_TRUE, PETSC_FALSE,
+                                   "Initial-condition source directory", &exists); CHKERRQ(ierr);
     }
     if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) {
         ierr = VerifyPathExistence(simCtx->pps->source_dir, PETSC_TRUE, PETSC_FALSE, "Post-processing source directory", &exists); CHKERRQ(ierr);
@@ -2836,6 +2859,70 @@ PetscErrorCode Contra2Cart(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "Cart2Contra"
 /**
+ * @brief Convert a spatially varying Cartesian velocity field to contravariant fluxes.
+ */
+PetscErrorCode Cart2Contra(UserCtx *user)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo info;
+    const Cmpnts ***ucat_arr, ***csi_arr, ***eta_arr, ***zet_arr;
+    Cmpnts ***ucont_arr;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lUcat, &ucat_arr); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi_arr); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet_arr); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont_arr); CHKERRQ(ierr);
+
+    const PetscInt i_start = PetscMax(info.xs, 1);
+    const PetscInt j_start = PetscMax(info.ys, 1);
+    const PetscInt k_start = PetscMax(info.zs, 1);
+    const PetscInt i_end = PetscMin(info.xs + info.xm, info.mx - 1);
+    const PetscInt j_end = PetscMin(info.ys + info.ym, info.my - 1);
+    const PetscInt k_end = PetscMin(info.zs + info.zm, info.mz - 1);
+
+    for (PetscInt k = k_start; k < k_end; k++) {
+        for (PetscInt j = j_start; j < j_end; j++) {
+            for (PetscInt i = i_start; i < i_end; i++) {
+                const Cmpnts u_xi = {
+                    0.5 * (ucat_arr[k][j][i].x + ucat_arr[k][j][i + 1].x),
+                    0.5 * (ucat_arr[k][j][i].y + ucat_arr[k][j][i + 1].y),
+                    0.5 * (ucat_arr[k][j][i].z + ucat_arr[k][j][i + 1].z)
+                };
+                const Cmpnts u_eta = {
+                    0.5 * (ucat_arr[k][j][i].x + ucat_arr[k][j + 1][i].x),
+                    0.5 * (ucat_arr[k][j][i].y + ucat_arr[k][j + 1][i].y),
+                    0.5 * (ucat_arr[k][j][i].z + ucat_arr[k][j + 1][i].z)
+                };
+                const Cmpnts u_zeta = {
+                    0.5 * (ucat_arr[k][j][i].x + ucat_arr[k + 1][j][i].x),
+                    0.5 * (ucat_arr[k][j][i].y + ucat_arr[k + 1][j][i].y),
+                    0.5 * (ucat_arr[k][j][i].z + ucat_arr[k + 1][j][i].z)
+                };
+                ucont_arr[k][j][i].x = csi_arr[k][j][i].x * u_xi.x + csi_arr[k][j][i].y * u_xi.y + csi_arr[k][j][i].z * u_xi.z;
+                ucont_arr[k][j][i].y = eta_arr[k][j][i].x * u_eta.x + eta_arr[k][j][i].y * u_eta.y + eta_arr[k][j][i].z * u_eta.z;
+                ucont_arr[k][j][i].z = zet_arr[k][j][i].x * u_zeta.x + zet_arr[k][j][i].y * u_zeta.y + zet_arr[k][j][i].z * u_zeta.z;
+            }
+        }
+    }
+
+    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont_arr); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet_arr); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi_arr); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcat, &ucat_arr); CHKERRQ(ierr);
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "UniformCart2Contra"
+/**
  * @brief Convert a uniform Cartesian velocity (u,v,w) to contravariant fluxes in Ucont.
  * @details Computes the dot product of the physical velocity with each face-area vector:
  *   U^xi  = csi · (u,v,w),  U^eta = eta · (u,v,w),  U^zeta = zet · (u,v,w).
@@ -2846,7 +2933,7 @@ PetscErrorCode Contra2Cart(UserCtx *user)
  * @param v     Physical Cartesian y-velocity.
  * @param w     Physical Cartesian z-velocity.
  */
-PetscErrorCode Cart2Contra(UserCtx *user, PetscReal u, PetscReal v, PetscReal w)
+PetscErrorCode UniformCart2Contra(UserCtx *user, PetscReal u, PetscReal v, PetscReal w)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;

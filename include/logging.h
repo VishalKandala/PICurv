@@ -582,11 +582,11 @@ PetscErrorCode LoadAllowedFunctionsFromFile(const char   filename[],
 const char* BCFaceToString(BCFace face);
 
 /**
- * @brief Helper function to convert FieldInitialization to a string representation.
- * @param[in] FieldInitialization The FieldInitialization value.
- * @return Pointer to a constant string representing the FieldInitialization.
+ * @brief Convert an initial-condition mode to a string representation.
+ * @param[in] mode Initial-condition mode value.
+ * @return Pointer to a constant string representing the initial-condition mode.
  */
-const char* FieldInitializationToString(PetscInt FieldInitialization);
+const char* InitialConditionModeToString(InitialConditionMode mode);
 
 /**
  * @brief Convert a FlowDirection enum value to its YAML token string.
@@ -598,7 +598,7 @@ const char* FlowDirectionToString(FlowDirection fd);
 /**
  * @brief Helper function to convert ParticleInitialization to a string representation.
  * @param[in] ParticleInitialization The ParticleInitialization enum value.
- * @return Pointer to a constant string representing the FieldInitialization.
+ * @return Pointer to a constant string representing the particle initialization type.
  */
 const char* ParticleInitializationToString(ParticleInitializationType ParticleInitialization);
 

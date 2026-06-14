@@ -27,17 +27,17 @@
  * @brief Sets the initial values for the INTERIOR of a specified Eulerian field.
  *
  * This function initializes the interior nodes of `Ucont` based on the mode selected
- * by `simCtx->FieldInitialization` and the coordinate system flag `simCtx->icCoordinateSystem`.
+ * by `simCtx->initialConditionMode`.
  *
  * Supported profiles for "Ucont":
- *  - 0: Zero. All interior contravariant components are set to zero.
- *  - 1 (icCoordinateSystem=0): Cartesian Constant. `Cart2Contra` dots the Cartesian
+ *  - IC_MODE_ZERO: All interior contravariant components are set to zero.
+ *  - IC_MODE_CONSTANT_CARTESIAN: `UniformCart2Contra` dots the Cartesian
  *       vector `(InitialConstantContra.x/y/z)` with the local metric vectors to fill
  *       all three contravariant components correctly across the entire interior.
- *  - 1 (icCoordinateSystem=1): Curvilinear/Streamwise Constant. Sets only the
+ *  - IC_MODE_CONSTANT_STREAMWISE: Sets only the
  *       contravariant component along the streamwise axis (from `flowDirection` or the
  *       identified INLET face) proportional to `icVelocityPhysical * |A_n|`.
- *  - 2: Poiseuille. Separable parabolic profile in the two cross-stream index directions;
+ *  - IC_MODE_POISEUILLE: Separable parabolic profile in the two cross-stream index directions;
  *       centerline speed is `icVelocityPhysical`; streamwise axis from `flowDirection`
  *       or the identified INLET face.
  *
@@ -46,6 +46,16 @@
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName);
+
+/**
+ * @brief Populate Ucont for one fresh-start block from the configured IC mode.
+ *
+ * Built-in modes generate Ucont directly. File mode loads either Ucat or Ucont
+ * from the staged IC directory and converts Ucat when necessary.
+ * @param[in,out] user Block context whose velocity field is populated.
+ * @return PETSc error code.
+ */
+PetscErrorCode PopulateInitialUcont(UserCtx *user);
 
 /**
  * @brief High-level orchestrator to set the complete initial state of the Eulerian solver.

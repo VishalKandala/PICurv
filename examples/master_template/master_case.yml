@@ -61,31 +61,27 @@ properties:
   # The state of the fluid at the start of the simulation (t=0).
   # Values are in physical units [m/s].
   initial_conditions:
-    # --- Field Initialization Mode ---
-    # Options:
-    #   "Zero"       - all velocity components set to zero.
-    #   "Constant"   - uniform velocity field; two sub-modes (see below).
-    #   "Poiseuille" - separable parabolic profile in the two cross-stream directions.
-    mode: "Constant"
+    # Built-in generators: zero | constant | streamwise_constant | poiseuille
+    mode: generated
+    generator: constant
+    params:
+      u_physical: 0.0   # [m/s]
+      v_physical: 0.0
+      w_physical: 1.0
 
-    # --- Constant, cartesian sub-mode (default when u/v/w_physical keys are present) ---
-    # Provide all three Cartesian components; flow_direction must NOT be set.
-    u_physical: 0.0   # [m/s]
-    v_physical: 0.0
-    w_physical: 1.0
+    # File IC: one PETSc .dat velocity field, staged for ReadFieldData.
+    # mode: file
+    # field: Ucat       # Ucat | Ucont
+    # source_file: initial_conditions/velocity.dat
 
-    # --- Constant, curvilinear/streamwise sub-mode (when velocity_physical key is present) ---
-    # Sets a uniform speed along the streamwise axis only.
-    # Requires flow_direction (or an INLET face that defines the axis).
-    # velocity_physical: 1.0        # [m/s] — replaces u/v/w_physical
-    # flow_direction: "+Zeta"       # +Xi | -Xi | +Eta | -Eta | +Zeta | -Zeta
-
-    # --- Poiseuille sub-mode ---
-    # peak_velocity_physical is the centerline speed (Vmax), not the bulk mean.
-    # Requires flow_direction (or an INLET face).
-    # mode: "Poiseuille"
-    # peak_velocity_physical: 1.0   # [m/s]
-    # flow_direction: "+Zeta"       # required when no INLET face present
+    # External deterministic generator, materialized during run/precompute.
+    # mode: generated
+    # generator: ic_gen
+    # params:
+    #   field: Ucat
+    #   script: tools/custom_ic.py  # Optional; defaults to scripts/ic.gen
+    #   config_file: config/initial_condition.cfg
+    #   output_file: config/initial_condition.generated.dat
 
 # ==============================================================================
 # 3. GRID DEFINITION
@@ -254,6 +250,7 @@ boundary_conditions:
     #   source:
     #     type: generated
     #     generator: square_duct_poiseuille
+    #     script: tools/custom_profile.py  # Optional; defaults to scripts/profile.gen
     #     output_file: config/inlet_profile_block0_negEta.generated.picslice
     #     params:
     #       bulk_velocity: 1.5
@@ -264,6 +261,7 @@ boundary_conditions:
     # params:
     #   source:
     #     type: field_slice
+    #     script: tools/custom_profile.py  # Optional; defaults to scripts/profile.gen
     #     field_file: ../old_run/output/eulerian/ufield10000_0.dat
     #     grid_file: ../old_run/config/grid.run
     #     source_case: ../old_run/config/case.yml

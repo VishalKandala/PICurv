@@ -1718,6 +1718,9 @@ PY
 
 run_geometric_periodic_smoke() {
   local periodic_case="${tmp_root}/constant-uniform-geometric-periodic"
+  local streamwise_case="${tmp_root}/constant-streamwise-geometric-periodic"
+  local file_ic_case="${tmp_root}/file-ic-geometric-periodic"
+  local source_ufield=""
   local saved_nprocs="${nprocs}"
 
   cp -R "${repo_root}/examples/periodic_test/constant_uniform_flow" "${periodic_case}"
@@ -1731,6 +1734,45 @@ run_geometric_periodic_smoke() {
     "constant_uniform_geometric_periodic"
   require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "geometric-periodic continuity metrics log"
   require_file_contains "${LAST_SOLVER_LOG}" "Periodic Axes (BC-derived)  : I=YES, J=YES, K=YES" "BC-derived periodic axes"
+  source_ufield="$(find "${LAST_RUN_DIR}/output/eulerian" -maxdepth 1 -type f -name 'ufield00000_0.dat' | head -n 1)"
+  require_file "${source_ufield}" "file-IC source Ucat"
+
+  cp -R "${repo_root}/examples/periodic_test/constant_uniform_flow" "${file_ic_case}"
+  python3 - "${file_ic_case}/case.yml" "${source_ufield}" <<'PY'
+import sys
+import yaml
+
+case_path, source_ufield = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+case_cfg["run_control"]["total_steps"] = 1
+case_cfg["properties"]["initial_conditions"] = {
+    "mode": "file",
+    "field": "Ucat",
+    "source_file": source_ufield,
+}
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+PY
+  run_case_workflow \
+    "${file_ic_case}" \
+    "${file_ic_case}/case.yml" \
+    "${file_ic_case}/solver.yml" \
+    "${file_ic_case}/monitor.yml" \
+    "${file_ic_case}/post.yml" \
+    "file_ic_geometric_periodic"
+  require_file_contains "${LAST_SOLVER_LOG}" "Eulerian State Source       : initial condition (File)" "file-IC banner source"
+  require_file_contains "${LAST_SOLVER_LOG}" "Initial Velocity File       : field=Ucat" "file-IC banner field"
+
+  cp -R "${repo_root}/examples/periodic_test/constant_streamwise_flow" "${streamwise_case}"
+  run_case_workflow \
+    "${streamwise_case}" \
+    "${streamwise_case}/case.yml" \
+    "${streamwise_case}/solver.yml" \
+    "${streamwise_case}/monitor.yml" \
+    "${streamwise_case}/post.yml" \
+    "constant_streamwise_geometric_periodic"
+  require_file_contains "${LAST_SOLVER_LOG}" "initial condition (Streamwise Constant)" "streamwise-IC banner source"
   nprocs="${saved_nprocs}"
 }
 
