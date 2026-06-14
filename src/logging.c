@@ -2347,8 +2347,47 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
         fieldVec = user->Diffusivity; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(fieldName, "DiffusivityGradient") == 0) {
         fieldVec = user->DiffusivityGradient; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(fieldName, "Phi") == 0) {
+        fieldVec = user->Phi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(fieldName, "Nvert") == 0) {
+        fieldVec = user->Nvert; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(fieldName, "Aj") == 0) {
+        fieldVec = user->Aj; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
+    } else if (strcasecmp(fieldName, "Cent") == 0 || strcasecmp(fieldName, "Center-Coordinates") == 0) {
+        fieldVec = user->Cent; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(fieldName, "Ucont") == 0) {
         fieldVec = user->lUcont; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
+    } else if (strcasecmp(fieldName, "Centx") == 0 || strcasecmp(fieldName, "X-Face-Centers") == 0) {
+        fieldVec = user->Centx; dm = user->fda; dof = 3; strcpy(data_layout, "I-Face");
+    } else if (strcasecmp(fieldName, "Centy") == 0 || strcasecmp(fieldName, "Y-Face-Centers") == 0) {
+        fieldVec = user->Centy; dm = user->fda; dof = 3; strcpy(data_layout, "J-Face");
+    } else if (strcasecmp(fieldName, "Centz") == 0 || strcasecmp(fieldName, "Z-Face-Centers") == 0) {
+        fieldVec = user->Centz; dm = user->fda; dof = 3; strcpy(data_layout, "K-Face");
+    } else if (strcasecmp(fieldName, "Csi") == 0 || strcasecmp(fieldName, "ICsi") == 0 ||
+               strcasecmp(fieldName, "IEta") == 0 || strcasecmp(fieldName, "IZet") == 0) {
+        fieldVec = strcasecmp(fieldName, "Csi") == 0 ? user->Csi :
+                   (strcasecmp(fieldName, "ICsi") == 0 ? user->ICsi :
+                    (strcasecmp(fieldName, "IEta") == 0 ? user->IEta : user->IZet));
+        dm = user->fda; dof = 3; strcpy(data_layout, "I-Face");
+    } else if (strcasecmp(fieldName, "Eta") == 0 || strcasecmp(fieldName, "JCsi") == 0 ||
+               strcasecmp(fieldName, "JEta") == 0 || strcasecmp(fieldName, "JZet") == 0) {
+        fieldVec = strcasecmp(fieldName, "Eta") == 0 ? user->Eta :
+                   (strcasecmp(fieldName, "JCsi") == 0 ? user->JCsi :
+                    (strcasecmp(fieldName, "JEta") == 0 ? user->JEta : user->JZet));
+        dm = user->fda; dof = 3; strcpy(data_layout, "J-Face");
+    } else if (strcasecmp(fieldName, "Zet") == 0 || strcasecmp(fieldName, "KCsi") == 0 ||
+               strcasecmp(fieldName, "KEta") == 0 || strcasecmp(fieldName, "KZet") == 0) {
+        fieldVec = strcasecmp(fieldName, "Zet") == 0 ? user->Zet :
+                   (strcasecmp(fieldName, "KCsi") == 0 ? user->KCsi :
+                    (strcasecmp(fieldName, "KEta") == 0 ? user->KEta : user->KZet));
+        dm = user->fda; dof = 3; strcpy(data_layout, "K-Face");
+    } else if (strcasecmp(fieldName, "IAj") == 0 || strcasecmp(fieldName, "JAj") == 0 ||
+               strcasecmp(fieldName, "KAj") == 0) {
+        fieldVec = strcasecmp(fieldName, "IAj") == 0 ? user->IAj :
+                   (strcasecmp(fieldName, "JAj") == 0 ? user->JAj : user->KAj);
+        dm = user->da; dof = 1;
+        strcpy(data_layout, strcasecmp(fieldName, "IAj") == 0 ? "I-Face" :
+                            (strcasecmp(fieldName, "JAj") == 0 ? "J-Face" : "K-Face"));
     } else if (strcasecmp(fieldName, "Coordinates") == 0) {
         ierr = DMGetCoordinates(user->da, &fieldVec); CHKERRQ(ierr);
         dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
@@ -2501,16 +2540,35 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
         vec_local = user->lPsi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
     } else if (strcasecmp(field_name, "Center-Coordinates") == 0) {
         vec_local = user->lCent; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(field_name, "Ucont") == 0) {
-        vec_local = user->lUcont; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'm'; // Mixed
-    } else if (strcasecmp(field_name, "Csi") == 0 || strcasecmp(field_name, "X-Face-Centers") == 0) {
-        vec_local = (strcasecmp(field_name, "Csi") == 0) ? user->lCsi : user->lCentx;
+    } else if (strcasecmp(field_name, "Ucont") == 0 ||
+               strcasecmp(field_name, "Ucont_o") == 0 ||
+               strcasecmp(field_name, "Ucont_rm1") == 0) {
+        vec_local = strcasecmp(field_name, "Ucont") == 0 ? user->lUcont :
+                    (strcasecmp(field_name, "Ucont_o") == 0 ? user->lUcont_o : user->lUcont_rm1);
+        dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'm'; // Mixed
+    } else if (strcasecmp(field_name, "Csi") == 0 || strcasecmp(field_name, "X-Face-Centers") == 0 ||
+               strcasecmp(field_name, "ICsi") == 0 || strcasecmp(field_name, "IEta") == 0 ||
+               strcasecmp(field_name, "IZet") == 0) {
+        vec_local = strcasecmp(field_name, "Csi") == 0 ? user->lCsi :
+                    (strcasecmp(field_name, "X-Face-Centers") == 0 ? user->lCentx :
+                     (strcasecmp(field_name, "ICsi") == 0 ? user->lICsi :
+                      (strcasecmp(field_name, "IEta") == 0 ? user->lIEta : user->lIZet)));
         dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'x';
-    } else if (strcasecmp(field_name, "Eta") == 0 || strcasecmp(field_name, "Y-Face-Centers") == 0) {
-        vec_local = (strcasecmp(field_name, "Eta") == 0) ? user->lEta : user->lCenty;
+    } else if (strcasecmp(field_name, "Eta") == 0 || strcasecmp(field_name, "Y-Face-Centers") == 0 ||
+               strcasecmp(field_name, "JCsi") == 0 || strcasecmp(field_name, "JEta") == 0 ||
+               strcasecmp(field_name, "JZet") == 0) {
+        vec_local = strcasecmp(field_name, "Eta") == 0 ? user->lEta :
+                    (strcasecmp(field_name, "Y-Face-Centers") == 0 ? user->lCenty :
+                     (strcasecmp(field_name, "JCsi") == 0 ? user->lJCsi :
+                      (strcasecmp(field_name, "JEta") == 0 ? user->lJEta : user->lJZet)));
         dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'y';
-    } else if (strcasecmp(field_name, "Zet") == 0 || strcasecmp(field_name, "Z-Face-Centers") == 0) {
-        vec_local = (strcasecmp(field_name, "Zet") == 0) ? user->lZet : user->lCentz;
+    } else if (strcasecmp(field_name, "Zet") == 0 || strcasecmp(field_name, "Z-Face-Centers") == 0 ||
+               strcasecmp(field_name, "KCsi") == 0 || strcasecmp(field_name, "KEta") == 0 ||
+               strcasecmp(field_name, "KZet") == 0) {
+        vec_local = strcasecmp(field_name, "Zet") == 0 ? user->lZet :
+                    (strcasecmp(field_name, "Z-Face-Centers") == 0 ? user->lCentz :
+                     (strcasecmp(field_name, "KCsi") == 0 ? user->lKCsi :
+                      (strcasecmp(field_name, "KEta") == 0 ? user->lKEta : user->lKZet)));
         dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'z';
     } else if (strcasecmp(field_name, "Coordinates") == 0) {
         ierr = DMGetCoordinatesLocal(user->da, &vec_local); CHKERRQ(ierr);

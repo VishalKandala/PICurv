@@ -1175,9 +1175,6 @@ grid["jm"] = 8
 grid["km"] = 16
 case_cfg.setdefault("models", {}).setdefault("domain", {})
 case_cfg["models"]["domain"]["blocks"] = 1
-case_cfg["models"]["domain"]["i_periodic"] = False
-case_cfg["models"]["domain"]["j_periodic"] = False
-case_cfg["models"]["domain"]["k_periodic"] = True
 case_cfg.setdefault("models", {}).setdefault("physics", {})
 case_cfg["models"]["physics"]["particles"] = {"count": 0}
 case_cfg["boundary_conditions"] = [
@@ -1719,27 +1716,21 @@ PY
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${stress_mpi_nprocs}" "MPI stress rank count in runtime summary"
 }
 
-run_periodic_dev_smoke() {
-  local periodic_case="${tmp_root}/flat-periodic-flux-dev"
+run_geometric_periodic_smoke() {
+  local periodic_case="${tmp_root}/constant-uniform-geometric-periodic"
   local saved_nprocs="${nprocs}"
-  local periodic_nprocs="${nprocs}"
 
-  if [[ "${periodic_nprocs}" -lt 2 ]]; then
-    periodic_nprocs=2
-  fi
-
-  nprocs="${periodic_nprocs}"
-  "${picurv_exe}" init flat_channel --dest "${periodic_case}" >/dev/null
-  prepare_flat_case_periodic_flux_stress "${periodic_case}"
+  cp -R "${repo_root}/examples/periodic_test/constant_uniform_flow" "${periodic_case}"
+  nprocs=1
   run_case_workflow \
     "${periodic_case}" \
-    "${periodic_case}/flat_channel.yml" \
-    "${periodic_case}/Imp-MG-Standard.yml" \
-    "${periodic_case}/Standard_Output.yml" \
-    "${periodic_case}/standard_analysis.yml" \
-    "flat_periodic_flux_dev"
-  require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "periodic dev continuity metrics log"
-  require_count_ge "${LAST_RUN_DIR}/viz/periodic_flux_stress" "*.vts" 1 "periodic dev post VTS files"
+    "${periodic_case}/case.yml" \
+    "${periodic_case}/solver.yml" \
+    "${periodic_case}/monitor.yml" \
+    "${periodic_case}/post.yml" \
+    "constant_uniform_geometric_periodic"
+  require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "geometric-periodic continuity metrics log"
+  require_file_contains "${LAST_SOLVER_LOG}" "Periodic Axes (BC-derived)  : I=YES, J=YES, K=YES" "BC-derived periodic axes"
   nprocs="${saved_nprocs}"
 }
 
@@ -1752,8 +1743,8 @@ parse_mpi_launcher "${mpi_launcher}"
 export PICURV_MPI_LAUNCHER="${mpi_launcher}"
 python3 -c "import yaml" >/dev/null 2>&1 || die "python dependency 'pyyaml' is required for smoke profile mutation."
 case "${smoke_mode}" in
-  standard|stress|periodic-dev) ;;
-  *) die "unknown smoke mode '${smoke_mode}' (expected 'standard', 'stress', or 'periodic-dev')" ;;
+  standard|stress|periodic) ;;
+  *) die "unknown smoke mode '${smoke_mode}' (expected 'standard', 'stress', or 'periodic')" ;;
 esac
 
 echo "==> PICurv smoke: simulator help"
@@ -1762,10 +1753,10 @@ run_help_smoke "${simulator_exe}" "PICurv Simulator"
 echo "==> PICurv smoke: postprocessor help"
 run_help_smoke "${postprocessor_exe}" "Unified Post-Processing Tool"
 
-if [[ "${smoke_mode}" == "periodic-dev" ]]; then
-  echo "==> PICurv smoke: periodic development runtime harness"
-  run_periodic_dev_smoke
-  echo "PICurv periodic-dev smoke completed successfully."
+if [[ "${smoke_mode}" == "periodic" ]]; then
+  echo "==> PICurv smoke: geometric-periodic runtime harness"
+  run_geometric_periodic_smoke
+  echo "PICurv geometric-periodic smoke completed successfully."
   exit 0
 fi
 

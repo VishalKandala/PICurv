@@ -236,12 +236,18 @@ Use `grid_gen` when:
 - you want a reusable mesh recipe with controlled overrides,
 - you want generated `.info`/`.vts` outputs alongside the mesh.
 
+For a generated grid used with geometric-periodic BCs, each opposite periodic
+surface must be a pointwise translated copy of its partner. The translation
+must be nonzero and constant over the entire surface; rotating, shearing, and
+nonmatching surface pairs are rejected at runtime.
+
 @section p48_related_sec 8. Related Pages
 
 - **@subpage 07_Case_Reference**
 - **@subpage 14_Config_Contract**
 - **@subpage 17_Workflow_Extensibility**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
+- **@subpage 54_Geometric_Periodic_Boundaries**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

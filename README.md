@@ -390,12 +390,12 @@ Canonical targets:
 - `make unit-runtime`
 - `make unit-simulation`: aggregate simulation-core debugging target (`unit-boundaries + unit-solver + unit-poisson-rhs + unit-runtime + unit-particles`)
 - `make unit-mpi`: dedicated multi-rank MPI consistency tests (`TEST_MPI_NPROCS`, default 2)
-- `make unit-periodic-dev`: non-gating periodic-boundary development harness
+- `make unit-periodic`: focused geometric-periodic boundary and synchronization tests
 - `make smoke`: executable-level end-to-end smoke checks (template matrix + flat/bent/brownian tiny runtime sequences)
 - `make smoke-mpi`: multi-rank runtime smoke checks for tiny flat+bent solve/post plus flat particle+restart workflows (`SMOKE_MPI_NPROCS`, default 2)
 - `make smoke-mpi-matrix`: multi-rank runtime smoke across a rank matrix (`SMOKE_MPI_MATRIX_NPROCS`, default `2 3`)
 - `make smoke-stress`: opt-in medium-budget smoke extension tier (particle cycling, restart chain, parabolic-inlet runtime coverage, periodic constant-flux validate/dry-run coverage, extra-rank MPI particle stress)
-- `make smoke-periodic-dev`: non-gating periodic runtime harness for the in-development periodic BC path
+- `make smoke-periodic`: geometric-periodic real runtime harness
 - `make check`: full local validation sweep (`test-python + doctor + unit + smoke`)
 - `make check-mpi`: `make check` plus multi-rank MPI tests
 - `make check-mpi-matrix`: `make check` plus rank-matrix MPI smoke and `unit-mpi`
@@ -428,15 +428,15 @@ make doctor
 make unit-setup
 make unit-simulation
 make unit-mpi
-make unit-periodic-dev
+make unit-periodic
 make coverage-python
 make smoke
-make smoke-periodic-dev
+make smoke-periodic
 make check
 make check-full
 ```
 
-Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-setup` for setup/cleanup lifecycle coverage, `make unit-simulation` for the normal simulation-core debugging loop, and narrower `make unit-*` targets when you are isolating one subsystem. The shared C test layer now has two fixture styles: a fast minimal PETSc fixture for kernel tests and a richer tiny-runtime fixture built through the real setup path for behavior and orchestrator tests. Use `make smoke` to run template-matrix init/validate/dry-run coverage across `flat_channel`, `bent_channel`, and `brownian_motion` plus tiny real runtime workflows (flat with/without particles, bent-channel solve/post, restart `load/init`, restart-equivalence split-vs-continuous, analytical Brownian). Use `make smoke-mpi` for multi-rank runtime smoke on flat+bent plus flat particle/restart branches, `make smoke-mpi-matrix` for rank-sweep runtime smoke, and `make smoke-stress` for the opt-in medium-budget extension tier. Periodic BC work is intentionally non-gating for now: `make unit-periodic-dev` and `make smoke-periodic-dev` are the dedicated development harnesses, and failures there do not block `check`, `check-full`, or `coverage-c`. Use `make coverage` for line-coverage gates. Use `make check` at the end of a development cycle, `make check-mpi`/`make check-mpi-matrix` when multi-rank assertions are in scope, `make check-full` before release tagging, and `make check-stress` when you also want the stress layer.
+Use `make doctor` after provisioning PETSc to confirm the local toolchain can build and run a minimal PETSc-backed program. Use `make unit-setup` for setup/cleanup lifecycle coverage, `make unit-simulation` for the normal simulation-core debugging loop, and narrower `make unit-*` targets when you are isolating one subsystem. The shared C test layer now has two fixture styles: a fast minimal PETSc fixture for kernel tests and a richer tiny-runtime fixture built through the real setup path for behavior and orchestrator tests. Use `make smoke` to run template-matrix init/validate/dry-run coverage across `flat_channel`, `bent_channel`, and `brownian_motion` plus tiny real runtime workflows (flat with/without particles, bent-channel solve/post, restart `load/init`, restart-equivalence split-vs-continuous, analytical Brownian). Geometric-periodic Eulerian coverage is part of the standard `unit` and `check` gates through `unit-periodic` and `smoke-periodic`; the old `*-periodic-dev` names remain compatibility aliases. Use `make smoke-mpi` for multi-rank runtime smoke on flat+bent plus flat particle/restart branches, `make smoke-mpi-matrix` for rank-sweep runtime smoke, and `make smoke-stress` for the opt-in medium-budget extension tier.
 
 Smoke treats `bin/simulator -help` and `bin/postprocessor -help` as successful
 when the expected startup banner appears, even if the local PETSc build exits

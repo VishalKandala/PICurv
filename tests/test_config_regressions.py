@@ -376,6 +376,34 @@ def test_dry_run_rejects_unknown_case_key_before_planning(tmp_path):
     assert "DRY-RUN PLAN" not in result.stdout
 
 
+def test_validate_rejects_legacy_domain_periodic_flags(tmp_path):
+    """!
+    @brief Test that periodicity is configured only through paired boundary conditions.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    case_cfg["models"]["domain"]["i_periodic"] = True
+    case_path = tmp_path / "case_legacy_periodic_flag.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "unsupported key at models.domain: 'i_periodic'" in result.stderr
+
+
 def test_statistics_output_artifacts_are_relative_to_run_directory(tmp_path):
     """!
     @brief Test that statistics output artifacts are relative to run directory.

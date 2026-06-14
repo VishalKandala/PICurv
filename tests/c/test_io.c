@@ -322,6 +322,8 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
                                      "DisplayBanner should include field/restart cadence"));
     PetscCall(AssertCapturedContains(captured, "Immersed Boundary          : DISABLED",
                                      "DisplayBanner should include immersed-boundary state"));
+    PetscCall(AssertCapturedContains(captured, "Periodic Axes (BC-derived)  : I=NO, J=NO, K=NO",
+                                     "DisplayBanner should include BC-derived periodic axes"));
     PetscCall(AssertCapturedContains(captured, "Number of Particles         : 0",
                                      "DisplayBanner should include the total particle count"));
     PetscCall(AssertCapturedOmits(captured, "Particle Console Cadence",
@@ -337,12 +339,19 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
 
     simCtx->StartStep = 3;
     simCtx->np = 8;
+    simCtx->i_periodic = 1;
+    user->periodic_translation_valid[0] = PETSC_TRUE;
+    user->periodic_translation[0] = (Cmpnts){1.0, 0.0, 0.0};
     simCtx->particleConsoleOutputFreq = 0;
     simCtx->LoggingFrequency = 4;
     PetscCall(PetscStrncpy(simCtx->particleRestartMode, "load", sizeof(simCtx->particleRestartMode)));
     PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
     PetscCall(AssertCapturedContains(captured, "Number of Particles         : 8",
                                      "DisplayBanner should include the active particle count"));
+    PetscCall(AssertCapturedContains(captured, "Periodic I Translation",
+                                     "DisplayBanner should include validated periodic translation"));
+    PetscCall(AssertCapturedContains(captured, "Particle Periodic Wrapping  : UNSUPPORTED",
+                                     "DisplayBanner should distinguish Eulerian periodicity from particle wrapping"));
     PetscCall(AssertCapturedContains(captured, "Particle Console Cadence   : DISABLED",
                                      "DisplayBanner should show disabled particle console cadence when particles are configured"));
     PetscCall(AssertCapturedContains(captured, "Particle Log Row Sampling  : every 4 particle(s)",

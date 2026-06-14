@@ -18,7 +18,8 @@ PICurv currently supports three grid ingestion modes:
 Domain controls include:
 
 - single- and multi-block support,
-- per-direction periodicity,
+- per-direction geometric periodicity for Eulerian fields, derived from paired
+  BCs and requiring matching surfaces under a constant translation,
 - optional DMDA partition hints (`da_processors_x/y/z`).
 
 @section p12_physics_sec 2. Physics and Model Selection
@@ -37,6 +38,8 @@ Particle controls include:
 - restart modes (`init`, `load`),
 - grid-to-particle interpolation method (`Trilinear` direct cell-center or `CornerAveraged` legacy),
 - scalar micromixing update path (IEM-style `Psi` model).
+
+Particle positions are not currently wrapped across periodic boundaries.
 
 @section p12_solver_sec 3. Numerical Solver Stack
 

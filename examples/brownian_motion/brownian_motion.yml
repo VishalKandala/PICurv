@@ -28,7 +28,9 @@
 #    Point source at (0.5, 0.5, 0.5) --> particles stay in [0.31, 0.69]
 #    Safe inside [0, 1]^3 even with WALL BCs on every face.
 #
-#  NOTE: WALL boundaries are acceptable here because the particle cloud remains
+#  NOTE: Eulerian geometric periodicity is supported, but particles are not
+#        wrapped across periodic boundaries. WALL boundaries are acceptable
+#        here because the particle cloud remains
 #        far from every boundary over the default run, so removal losses are
 #        negligibly unlikely.
 #  NOTE: Uniform Cartesian grid ensures Gamma is spatially uniform,

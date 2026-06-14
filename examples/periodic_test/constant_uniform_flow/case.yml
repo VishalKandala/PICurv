@@ -23,9 +23,10 @@ properties:
 grid:
   mode: programmatic_c
   programmatic_settings:
-    im: 8
-    jm: 8
-    km: 8
+    # Keep every multigrid level above the four-physical-node periodic minimum.
+    im: 16
+    jm: 16
+    km: 16
     xMins: 0.0
     xMaxs: 1.0
     yMins: 0.0
@@ -40,9 +41,6 @@ grid:
 models:
   domain:
     blocks: 1
-    i_periodic: true
-    j_periodic: true
-    k_periodic: true
   physics:
     particles:
       count: 0

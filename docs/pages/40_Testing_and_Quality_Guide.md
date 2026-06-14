@@ -40,12 +40,12 @@ Canonical commands:
 - `make unit-runtime`
 - `make unit-simulation`
 - `make unit-mpi`
-- `make unit-periodic-dev`
+- `make unit-periodic`
 - `make smoke`
 - `make smoke-mpi`
 - `make smoke-mpi-matrix`
 - `make smoke-stress`
-- `make smoke-periodic-dev`
+- `make smoke-periodic`
 - `make check`
 - `make check-mpi`
 - `make check-mpi-matrix`
@@ -74,7 +74,7 @@ make unit-io
 make unit-runtime
 make unit-mpi
 make smoke
-make smoke-periodic-dev
+make smoke-periodic
 make check
 make check-full
 ```
@@ -92,7 +92,7 @@ Guidance:
 - Use `make smoke` after building binaries to execute tiny real solve/post/restart workflows.
 - Use `make smoke-mpi-matrix` when you need a rank-sweep MPI runtime sanity check.
 - Use `make smoke-stress` when you want the opt-in medium-budget runtime extension tier.
-- Use `make unit-periodic-dev` and `make smoke-periodic-dev` only while working on the in-development periodic BC path; they are intentionally non-gating.
+- Use `make unit-periodic` and `make smoke-periodic` when changing geometric-periodic Eulerian behavior; both are included in the standard gates.
 - Use `make coverage` to enforce line-coverage floors for core Python scripts and C sources.
 - Use `make check` as the pre-merge gate at the end of a development cycle.
 - Use `make check-mpi` when multi-rank MPI behavior is in scope.
@@ -275,7 +275,7 @@ The current smoke runner verifies:
 - multi-rank flat particle runtime + restart (`load`/`init`) runs (`make smoke-mpi`)
 - rank-matrix MPI runtime sweep across flat+bent+flat-particle-restart (`make smoke-mpi-matrix`)
 - opt-in stress extensions for longer particle cycling, chained restarts, parabolic-inlet runtime coverage, periodic constant-flux validate/dry-run coverage, and extra-rank MPI particle runs (`make smoke-stress`)
-- periodic runtime development harness for the in-progress periodic constant-flux path (`make smoke-periodic-dev`, non-gating)
+- geometric-periodic real runtime harness (`make smoke-periodic`, included in `check`)
 
 These checks are intentionally tiny but execute real solver/postprocessor runtime paths.
 For the `-help` smoke checks, banner presence is authoritative: the local PETSc
@@ -289,7 +289,7 @@ make smoke
 make smoke-mpi
 make smoke-mpi-matrix
 make smoke-stress
-make smoke-periodic-dev
+make smoke-periodic
 ```
 
 @subsection p40_smoke_knobs_ssec 6.1 Useful Smoke Knobs
@@ -325,7 +325,7 @@ Use it when you want maximum local confidence before ending a development cycle.
 `make check-full` is the comprehensive MPI-inclusive gate. It runs `make check`, then `make unit-mpi`, `make smoke-mpi`, and `make smoke-mpi-matrix`.
 
 `make check-stress` extends `make check-full` by running `make smoke-stress` afterward.
-`make smoke-periodic-dev` is intentionally outside the default gates and may fail honestly while periodic BC work is still in development.
+`make smoke-periodic` runs as part of `make check`; `make unit-periodic` runs as part of `make unit`.
 
 Use `check-full` for release candidates or CI workflows where both focused multi-rank tests and rank-matrix runtime checks are required in a single pass.
 
@@ -407,14 +407,14 @@ The smoke suite uses these named runtime sequences:
 - `S5`: multi-rank tiny solve+post runs for flat and bent channels, plus flat particle base/restart (`load` and `init`) branches
 - `S6`: restart-equivalence run for flat channel (continuous vs split restart continuity metric agreement)
 - `S7`: periodic constant-flux validate + dry-run contract coverage in the opt-in stress tier
-- `S8`: periodic constant-flux real runtime development harness (`make smoke-periodic-dev`, non-gating)
+- `S8`: geometric-periodic real runtime harness (`make smoke-periodic`, gating)
 
 Runtime file coverage map (unit targets + runtime sequences):
 
 - `src/AnalyticalSolutions.c`: `unit-solver`, `S4`
-- `src/BC_Handlers.c`: `unit-boundaries`, `unit-periodic-dev`, `unit-runtime`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`, `S7`, `S8`
+- `src/BC_Handlers.c`: `unit-boundaries`, `unit-periodic`, `unit-runtime`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`, `S7`, `S8`
 - `src/BodyForces.c`: `unit-solver`, `unit-poisson-rhs`, `S1`, `S2`
-- `src/Boundaries.c`: `unit-boundaries`, `unit-periodic-dev`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`, `S7`, `S8`
+- `src/Boundaries.c`: `unit-boundaries`, `unit-periodic`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`, `S7`, `S8`
 - `src/Filter.c`: `unit-solver`
 - `src/Metric.c`: `unit-metric`, `unit-grid`, `S1`, `S1b`, `S2`, `S5`, `S6`
 - `src/ParticleMotion.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`

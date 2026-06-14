@@ -366,7 +366,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -489,10 +489,14 @@ unit-runtime: $(UNIT_RUNTIME_EXE)
 unit-mpi: $(UNIT_MPI_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_MPI_NPROCS) $<
 
-## @target unit-periodic-dev
-## @brief Runs non-gating periodic-boundary development harnesses.
-unit-periodic-dev: $(UNIT_PERIODIC_DEV_EXE)
+## @target unit-periodic
+## @brief Runs focused geometric-periodic boundary tests.
+unit-periodic: $(UNIT_PERIODIC_DEV_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
+## @target unit-periodic-dev
+## @brief Compatibility alias for `unit-periodic`.
+unit-periodic-dev: unit-periodic
 
 ## @target unit-simulation
 ## @brief Runs the simulation-core debugging suites without the setup/post/IO layers.
@@ -500,7 +504,7 @@ unit-simulation: unit-boundaries unit-solver unit-poisson-rhs unit-runtime unit-
 
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
-unit: unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime
+unit: unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-periodic
 
 ## @target ctest
 ## @brief Compatibility alias for `unit`.
@@ -582,10 +586,14 @@ smoke-mpi-matrix: simulator postprocessor conductor
 smoke-stress: simulator postprocessor conductor
 	@bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$(TEST_NPROCS)" "stress"
 
+## @target smoke-periodic
+## @brief Runs the geometric-periodic runtime smoke harness.
+smoke-periodic: simulator postprocessor conductor
+	@bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$(TEST_NPROCS)" "periodic"
+
 ## @target smoke-periodic-dev
-## @brief Runs the non-gating periodic-boundary smoke harness against the current in-development runtime path.
-smoke-periodic-dev: simulator postprocessor conductor
-	@bash $(SMOKE_RUNNER) "$(SIMULATOR_EXE)" "$(POSTPROCESSOR_EXE)" "$(MPI_LAUNCHER)" "$(TEST_NPROCS)" "periodic-dev"
+## @brief Compatibility alias for `smoke-periodic`.
+smoke-periodic-dev: smoke-periodic
 
 ## @target check
 ## @brief Runs the full local validation sweep (Python, doctor, unit, smoke).
@@ -594,6 +602,7 @@ check:
 	@$(MAKE) --no-print-directory doctor-runner SYSTEM=$(SYSTEM)
 	@$(MAKE) --no-print-directory unit SYSTEM=$(SYSTEM)
 	@$(MAKE) --no-print-directory smoke SYSTEM=$(SYSTEM)
+	@$(MAKE) --no-print-directory smoke-periodic SYSTEM=$(SYSTEM)
 
 ## @target check-mpi
 ## @brief Runs `check` plus dedicated multi-rank MPI tests.

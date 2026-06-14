@@ -36,7 +36,7 @@ poisson_solver:
   preconditioner:
     type: "multigrid"
   multigrid:
-    levels: 3
+    levels: 2
     pre_sweeps: 2
     post_sweeps: 2
     cycle: "v"
@@ -50,9 +50,6 @@ poisson_solver:
         method: "fgmres"
         preconditioner: "bjacobi"
       level_1:
-        method: "richardson"
-        preconditioner: "bjacobi"
-      level_2:
         method: "richardson"
         preconditioner: "bjacobi"
 

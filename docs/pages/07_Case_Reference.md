@@ -173,9 +173,6 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 models:
   domain:
     blocks: 1
-    i_periodic: false
-    j_periodic: false
-    k_periodic: false
   physics:
     dimensionality: "3D"
     turbulence:
@@ -193,7 +190,8 @@ models:
 
 Common mappings:
 - `domain.blocks` -> `-nblk`
-- periodic flags -> `-i_periodic/-j_periodic/-k_periodic`
+- periodic axes are derived from paired `PERIODIC` boundary conditions before
+  DMDA creation; `models.domain` does not accept periodic flags
 - `physics.dimensionality: "2D"` -> `-TwoD 1`
 - `physics.turbulence.les.enabled/model` -> `-les` (`0` none, `1` constant Smagorinsky, `2` dynamic Smagorinsky)
 - `physics.turbulence.les.constant_cs` -> `-const_cs`

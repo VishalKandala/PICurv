@@ -1724,10 +1724,6 @@ def test_validate_constant_curvilinear_periodic_requires_flow_direction(tmp_path
         '    mode: "Constant"\n    velocity_physical: 1.0\n',
     )
     case_text = case_text.replace(
-        "    blocks: 1\n",
-        "    blocks: 1\n    k_periodic: true\n",
-    )
-    case_text = case_text.replace(
         "  - face: \"-Zeta\"\n    type: INLET\n    handler: constant_velocity\n    params:\n      vx: 0.0\n      vy: 0.0\n      vz: 1.0\n",
         "  - face: \"-Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
     )
@@ -1758,10 +1754,6 @@ def test_validate_constant_curvilinear_periodic_with_flow_direction_passes(tmp_p
     case_text = case_text.replace(
         '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
         '    mode: "Constant"\n    velocity_physical: 1.0\n    flow_direction: "+Zeta"\n',
-    )
-    case_text = case_text.replace(
-        "    blocks: 1\n",
-        "    blocks: 1\n    k_periodic: true\n",
     )
     case_text = case_text.replace(
         "  - face: \"-Zeta\"\n    type: INLET\n    handler: constant_velocity\n    params:\n      vx: 0.0\n      vy: 0.0\n      vz: 1.0\n",
@@ -1842,10 +1834,6 @@ def test_validate_poiseuille_with_flow_direction_no_inlet_passes(tmp_path):
     case_text = case_text.replace(
         '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
         '    mode: "Poiseuille"\n    peak_velocity_physical: 1.0\n    flow_direction: "+Zeta"\n',
-    )
-    case_text = case_text.replace(
-        "    blocks: 1\n",
-        "    blocks: 1\n    k_periodic: true\n",
     )
     case_text = case_text.replace(
         "  - face: \"-Zeta\"\n    type: INLET\n    handler: constant_velocity\n    params:\n      vx: 0.0\n      vy: 0.0\n      vz: 1.0\n",

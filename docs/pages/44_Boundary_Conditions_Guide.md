@@ -182,7 +182,21 @@ Validator checks:
 2. driven periodic handler (`constant_flux`) must match on both faces of a periodic pair.
 3. incomplete face sets fail validation immediately.
 
-The C side also performs periodic consistency checks while deriving global periodicity in @ref DeterminePeriodicity.
+The C side derives periodic axes from those pairs in @ref DeterminePeriodicity,
+before DMDA creation. There are no independent YAML periodic flags.
+
+For each active axis, @ref ValidatePeriodicGeometry also requires:
+
+- at least four physical nodes along the periodic direction,
+- pointwise matching opposite surfaces under one nonzero constant Cartesian
+  translation,
+- the same translation at every point on the paired surfaces.
+
+These rules are checked independently for mixed periodic/non-periodic cases.
+PETSc periodic DMDAs wrap indices; PICurv separately constructs translated
+coordinate images and synchronizes cell-centered, face-family, and
+component-staggered Eulerian fields. Particle periodic wrapping is not
+implemented.
 
 @section p44_c_pipeline_sec 5. C-Side Parsing and Dispatch
 
@@ -288,6 +302,8 @@ boundary_conditions:
 - `Duplicate face`: same face declared twice in one block.
 - `incomplete ... Missing faces`: not all 6 faces provided.
 - `Inconsistent periodicity`: one side periodic and opposite side non-periodic.
+- `Periodic geometry validation failed`: paired surfaces do not differ by one
+  constant nonzero translation, or the periodic axis is too short.
 - `Unknown params`: extra keys not allowed for selected handler.
 
 @section p44_refs_sec 9. Related Pages
@@ -298,6 +314,7 @@ boundary_conditions:
 - **@subpage 13_Code_Architecture**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 50_Modular_Selector_Extension_Guide**
+- **@subpage 54_Geometric_Periodic_Boundaries**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

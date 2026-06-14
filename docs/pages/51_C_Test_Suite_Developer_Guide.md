@@ -208,12 +208,12 @@ Canonical user-facing targets:
 - `make unit-runtime`
 - `make unit-simulation`
 - `make unit-mpi`
-- `make unit-periodic-dev`
+- `make unit-periodic`
 - `make smoke`
 - `make smoke-mpi`
 - `make smoke-mpi-matrix`
 - `make smoke-stress`
-- `make smoke-periodic-dev`
+- `make smoke-periodic`
 - `make coverage-c`
 - `make check`
 - `make check-mpi`
@@ -258,7 +258,7 @@ Smoke checks include:
 - analytical Brownian branch
 - MPI rank variants and rank-matrix sweeps
 - opt-in stress extensions (`make smoke-stress`) for longer particle cycling, chained restarts, parabolic-inlet runtime coverage, periodic constant-flux validate/dry-run coverage, and extra-rank MPI particle runs
-- periodic runtime development harness (`make smoke-periodic-dev`) for the in-progress periodic constant-flux path; not part of the default gate
+- geometric-periodic runtime harness (`make smoke-periodic`), included in the default gate
 
 Environment knobs relevant to C contributors:
 

@@ -34,13 +34,13 @@ is a test-local routine.
   - `make unit-runtime`
   - `make unit-simulation`
   - `make unit-mpi`
-  - `make unit-periodic-dev`
+  - `make unit-periodic`
 - smoke/integration:
   - `make smoke`
   - `make smoke-mpi`
   - `make smoke-mpi-matrix`
   - `make smoke-stress`
-  - `make smoke-periodic-dev`
+  - `make smoke-periodic`
 - aggregate gates:
   - `make check`
   - `make check-mpi`
@@ -90,7 +90,7 @@ is a test-local routine.
 - `test_grid.c`: local/global bounding-box helpers
 - `test_metric.c`: metric inversion, contravariant velocity, face geometry helpers
 - `test_boundaries.c`: boundary factory plus direct handler-behavior checks
-- `test_periodic_dev.c`: non-gating periodic geometric/driven boundary harnesses
+- `test_periodic_dev.c`: gating geometric-periodic boundary and synchronization harness
 - `test_poisson_rhs.c`: pressure update, RHS, projection, body-force and diffusivity helpers
 - `test_runtime_kernels.c`: setup/runloop/particle/interpolation/scatter/wall/walltime-guard/LES helper contracts
 - `test_mpi_kernels.c`: multi-rank particle distribution, bbox collectives, and restart migration behavior
@@ -122,11 +122,10 @@ Opt-in stress smoke (`make smoke-stress`) additionally verifies:
 - BC-focused runtime variants for the stable path (parabolic inlet) plus periodic constant-flux validate/dry-run coverage
 - an extra-rank MPI particle runtime stress case
 
-Periodic development smoke (`make smoke-periodic-dev`) is separate and non-gating:
+Geometric-periodic smoke (`make smoke-periodic`) is part of the standard `check` gate:
 
 - real runtime solve+post coverage for the current periodic constant-flux development path
-- allowed to fail honestly while periodic BC support is still in development
-- never part of `make check`, `make check-full`, or `make coverage-c`
+- verifies the supported Eulerian geometric-periodic runtime path
 
 Multi-rank smoke (`make smoke-mpi`, `make smoke-mpi-matrix`) additionally verifies:
 
@@ -156,8 +155,8 @@ Useful env knobs:
 - editing core simulation numerics or particle orchestration:
   - `make unit-simulation`
 - editing periodic BC code under development:
-  - `make unit-periodic-dev`
-  - `make smoke-periodic-dev`
+  - `make unit-periodic`
+  - `make smoke-periodic`
 - editing runtime orchestration, restart, or output contracts:
   - `make smoke` plus MPI variant if rank behavior is involved
 - running the opt-in medium-budget extension tier:
@@ -189,7 +188,7 @@ Useful env knobs:
   - `2026-03-20` audit snapshot: `src/runloop.c` (`64.76%`) still needs more runtime-orchestration branch coverage
   - `2026-03-20` audit snapshot: `src/Boundaries.c` (`68.10%`) still needs additional non-periodic boundary edge-case coverage
 - periodic BC:
-  - keep routing new periodic work into `unit-periodic-dev` and `smoke-periodic-dev` until the product runtime path is stable enough for the default gate
+  - add nontrivial curvilinear seam and deeper periodic Poisson coverage
 
 ## Notes
 
@@ -198,7 +197,7 @@ Useful env knobs:
 - `doctor`, `unit-*`, `smoke*`, `check*`, and `coverage-c` require PETSc/MPI tooling.
 - `check-full` is the single-command comprehensive gate (`check` + `unit-mpi` + `smoke-mpi` + `smoke-mpi-matrix`).
 - `check-stress` extends `check-full` with the opt-in `smoke-stress` layer.
-- periodic development harnesses are intentionally non-gating.
+- geometric-periodic harnesses are included in the standard gates.
 - compatibility aliases (`install-check`, `ctest-*`) still exist, but canonical names are preferred in docs and CI.
 
 ## Authoritative Docs

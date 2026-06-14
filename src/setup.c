@@ -777,9 +777,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-da_processors_x", &simCtx->da_procs_x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-da_processors_y", &simCtx->da_procs_y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-da_processors_z", &simCtx->da_procs_z, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-i_periodic", &simCtx->i_periodic, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-j_periodic", &simCtx->j_periodic, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-k_periodic", &simCtx->k_periodic, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-pbc_domain", &simCtx->blkpbc, NULL); CHKERRQ(ierr);
     // NOTE: pseudo_periodic was not parsed. We will omit its parsing call. 
     ierr = PetscOptionsGetReal(NULL, NULL, "-grid_rotation_angle", &simCtx->grid_rotation_angle, NULL); CHKERRQ(ierr);

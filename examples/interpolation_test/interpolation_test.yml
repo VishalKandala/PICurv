@@ -31,8 +31,9 @@
 #  TGV has w = 0, so particles do not drift in Z. The anisotropic grid
 #  means Z-interpolation error will be much smaller than X/Y error.
 #
-#  NOTE: WALL boundaries are used because periodic BCs do not wrap
-#        particles in the current solver. TGV3D is vortical with no net
+#  NOTE: Eulerian geometric periodicity is supported, but periodic BCs do not
+#        wrap particles in the current solver, so WALL boundaries are used.
+#        TGV3D is vortical with no net
 #        transport, so particles circulate locally and remain interior.
 # ==============================================================================
 

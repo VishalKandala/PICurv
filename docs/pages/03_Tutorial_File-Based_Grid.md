@@ -40,6 +40,10 @@ Behavior:
 - Coordinates are non-dimensionalized before C execution using `properties.scaling.length_ref`.
 - Generated normalized grid is staged into run config artifacts.
 
+For geometric-periodic file grids, the runtime additionally verifies that each
+paired surface matches pointwise under one nonzero constant translation and
+that the periodic axis has at least four physical nodes.
+
 @section p03_run_sec 3. Run the Case
 
 ```bash
@@ -84,4 +88,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

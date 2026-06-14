@@ -158,9 +158,8 @@ models:
   # --- Domain and Block Configuration ---
   domain:
     blocks: 1          # [Integer] -> -nblk. CRITICAL for multi-block setups.
-    i_periodic: false  # [true/false] -> -i_periodic
-    j_periodic: false  # [true/false] -> -j_periodic
-    k_periodic: false  # [true/false] -> -k_periodic
+    # Periodic axes are derived exclusively from paired PERIODIC boundary
+    # conditions. Do not add separate periodic flags here.
 
   # --- Core Physics Modules ---
   physics:
@@ -219,6 +218,11 @@ models:
 # --- For MULTI-BLOCK cases: Provide a LIST OF LISTS. The outer list corresponds
 #     to the block index [0, 1, ...], and each inner list defines the 6 faces
 #     for that block. See the multi-block example commented out below. ---
+# --- Geometric periodicity: set both opposite faces to PERIODIC/geometric.
+#     Periodic axes are derived from these BC pairs. The paired grid surfaces
+#     must match pointwise under one nonzero constant Cartesian translation,
+#     and the axis must contain at least four physical nodes. Periodic particle
+#     wrapping is not implemented. See examples/periodic_test/. ---
 boundary_conditions:
   # --- Example for a Single Block Case ---
   - face: "-Xi"

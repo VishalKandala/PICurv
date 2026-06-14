@@ -1,6 +1,6 @@
 /**
  * @file test_periodic_dev.c
- * @brief Non-gating periodic-boundary development harnesses.
+ * @brief Focused geometric-periodic boundary tests.
  */
 
 #include "test_support.h"
@@ -268,7 +268,7 @@ static PetscErrorCode TestPeriodicQuickStencilPreparation(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests periodic geometric factory construction in the non-gating periodic harness.
+ * @brief Tests periodic geometric factory construction.
  */
 static PetscErrorCode TestPeriodicGeometricFactoryAssignment(void)
 {
@@ -654,93 +654,7 @@ static PetscErrorCode TestFinalizePostProjectionCellFieldsMixedBoundaries(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests periodic driven-flow controller initialization, sensing, and trim application.
- */
-static PetscErrorCode TestPeriodicDrivenConstantHandlerBehavior(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    BoundaryCondition *bc = NULL;
-    BCContext ctx;
-    PetscReal dummy_inflow = 0.0;
-    PetscReal dummy_outflow = 0.0;
-    Cmpnts ***ucont = NULL;
-    Cmpnts ***uch = NULL;
-
-    PetscFunctionBeginUser;
-    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
-    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 6, 6, 6, PETSC_FALSE, PETSC_FALSE, PETSC_TRUE));
-    PetscCall(PicurvPopulateIdentityMetrics(user));
-    PetscCall(VecSet(user->Ucont, 1.0));
-    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
-    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
-
-    user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
-    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = PERIODIC;
-    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
-    user->boundary_faces[BC_FACE_POS_Z].face_id = BC_FACE_POS_Z;
-    user->boundary_faces[BC_FACE_POS_Z].mathematical_type = PERIODIC;
-    user->boundary_faces[BC_FACE_POS_Z].handler_type = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
-    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "target_flux", "30.0"));
-    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "apply_trim", "true"));
-
-    ctx.user = user;
-    ctx.face_id = BC_FACE_NEG_Z;
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX, &bc));
-    PetscCall(bc->Initialize(bc, &ctx));
-    PetscCall(bc->PreStep(bc, &ctx, &dummy_inflow, &dummy_outflow));
-    PetscCall(PicurvAssertRealNear(30.0, simCtx->targetVolumetricFlux, 1.0e-12, "periodic driven initialization should store the target flux"));
-    PetscCall(PicurvAssertRealNear(0.2, simCtx->bulkVelocityCorrection, 1.0e-12, "periodic driven controller should compute the bulk correction from the measured flux"));
-
-    PetscCall(bc->Apply(bc, &ctx));
-    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &ucont));
-    PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Uch, &uch));
-    PetscCall(PicurvAssertRealNear(1.2, ucont[0][3][3].z, 1.0e-12, "periodic driven trim should update the boundary face flux"));
-    PetscCall(PicurvAssertRealNear(0.2, uch[0][3][3].z, 1.0e-12, "periodic driven trim should be recorded in Uch"));
-    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, &ucont));
-    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Uch, &uch));
-
-    PetscCall(DestroyBoundaryHandler(&bc));
-    FreeBC_ParamList(user->boundary_faces[BC_FACE_NEG_Z].params);
-    user->boundary_faces[BC_FACE_NEG_Z].params = NULL;
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
-/**
- * @brief Tests that the periodic driven handler rejects non-periodic faces during initialization.
- */
-static PetscErrorCode TestPeriodicDrivenConstantRejectsNonPeriodicFace(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    BoundaryCondition *bc = NULL;
-    BCContext ctx;
-    PetscErrorCode ierr_init = 0;
-
-    PetscFunctionBeginUser;
-    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
-    user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
-    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = WALL;
-    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
-    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "target_flux", "5.0"));
-    ctx.user = user;
-    ctx.face_id = BC_FACE_NEG_Z;
-
-    PetscCall(BoundaryCondition_Create(BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX, &bc));
-    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
-    ierr_init = bc->Initialize(bc, &ctx);
-    PetscCall(PetscPopErrorHandler());
-    PetscCall(PicurvAssertBool((PetscBool)(ierr_init != 0), "periodic driven initialization should reject non-periodic faces"));
-
-    PetscCall(DestroyBoundaryHandler(&bc));
-    FreeBC_ParamList(user->boundary_faces[BC_FACE_NEG_Z].params);
-    user->boundary_faces[BC_FACE_NEG_Z].params = NULL;
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
-/**
- * @brief Runs the non-gating periodic development PETSc test binary.
+ * @brief Runs the focused geometric-periodic PETSc test binary.
  */
 int main(int argc, char **argv)
 {
@@ -759,16 +673,14 @@ int main(int argc, char **argv)
         {"synchronize-periodic-face-fields-copies-mixed-axes", TestSynchronizePeriodicFaceFieldsCopiesMixedAxes},
         {"synchronize-periodic-staggered-fields-copies-mixed-axes", TestSynchronizePeriodicStaggeredFieldsCopiesMixedAxes},
         {"finalize-post-projection-cell-fields-mixed-boundaries", TestFinalizePostProjectionCellFieldsMixedBoundaries},
-        {"periodic-driven-constant-handler-behavior", TestPeriodicDrivenConstantHandlerBehavior},
-        {"periodic-driven-constant-rejects-non-periodic-face", TestPeriodicDrivenConstantRejectsNonPeriodicFace},
     };
 
-    ierr = PetscInitialize(&argc, &argv, NULL, "PICurv periodic development tests");
+    ierr = PetscInitialize(&argc, &argv, NULL, "PICurv geometric-periodic tests");
     if (ierr) {
         return (int)ierr;
     }
 
-    ierr = PicurvRunTests("unit-periodic-dev", cases, sizeof(cases) / sizeof(cases[0]));
+    ierr = PicurvRunTests("unit-periodic", cases, sizeof(cases) / sizeof(cases[0]));
     if (ierr) {
         PetscFinalize();
         return (int)ierr;

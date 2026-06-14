@@ -96,19 +96,23 @@ Verification:
 @subsection p11_bc_periodic_ssec 2.2 Enable Periodicity in One Direction
 
 ```yaml
-models:
-  domain:
-    i_periodic: true
+boundary_conditions:
+  blocks:
+    - id: 0
+      faces:
+        - {face: "-Xi", type: PERIODIC, handler: geometric}
+        - {face: "+Xi", type: PERIODIC, handler: geometric}
 ```
 
-Use `PERIODIC` BC type on both paired faces with supported handlers:
-
-- `geometric`
-- `constant_flux` (requires `target_flux`)
+Periodicity is derived exclusively from paired `PERIODIC` boundary conditions;
+there are no separate YAML periodic flags. Geometric periodicity requires the
+opposite grid surfaces to match pointwise under one constant Cartesian
+translation and at least four physical nodes along the periodic axis.
 
 Verification:
 
-- confirm paired-face consistency in validation output.
+- confirm the startup banner reports the expected BC-derived periodic axis and
+  validated translation.
 
 @section p11_run_sec 3. Running and Monitoring
 

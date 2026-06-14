@@ -25,6 +25,14 @@ Code reference:
 | `CFG_GRID_PARSE` | Grid payload/format error | Fix block count, dimensions, or coordinate rows. |
 | `CFG_INCONSISTENT_COMBO` | Conflicting options/keys | Align related flags/keys (periodic pairs, scheduler, process counts). |
 
+Geometric-periodic runtime validation can also stop before timestepping:
+
+| Message fragment | Likely cause | Fix |
+|---|---|---|
+| `Periodic geometry requires at least four physical nodes` | Periodic direction is too short for the supported stencils | Increase the node count along that axis. |
+| `Periodic geometry translation ... is zero` | Opposite surfaces occupy the same coordinates | Supply distinct translated opposite surfaces or remove periodic BCs. |
+| `Periodic geometry translation varies` / `surfaces do not match` | Opposite surfaces are not pointwise copies under one constant translation | Regenerate or correct the grid so every paired point differs by the same translation. |
+
 @section p39_legacy_sec 2. High-Frequency Fatal Messages (Runtime Paths)
 
 | Message fragment | Likely cause | Fix command(s) |

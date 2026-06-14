@@ -858,8 +858,10 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName);
  * - **Cell-Centered Fields ("Ucat", "P"):** It correctly applies the "Shifted Index Architecture,"
  *   where the value for geometric `Cell i` is stored at array index `i+1`. It labels
  *   the output to clearly distinguish between true physical values and ghost values.
- * - **Face-Centered Fields ("Ucont"):** It uses a direct index mapping, where the value for
- *   the face at `Node i` is stored at index `i`.
+ * - **Single-Face-Family Fields:** `Csi/ICsi/IEta/IZet/Centx` belong to the
+ *   I-face family, with corresponding J- and K-face families.
+ * - **Component-Staggered Fields ("Ucont" and histories):** x/y/z components
+ *   live on I/J/K faces respectively.
  * - **Node-Centered Fields ("Coordinates"):** It uses a direct index mapping, where the value for
  *   `Node i` is stored at index `i`.
  *

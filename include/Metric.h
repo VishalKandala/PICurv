@@ -128,11 +128,11 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
 PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz);
 
 /**
- * @brief Applies periodic boundary corrections to cell centers (Cent) and grid spacing (GridSpace).
+ * @brief Builds translated periodic images for cell centers and grid spacing.
  *
- * This function handles the special logic needed when periodic boundaries are present.
- * For coarse grids (cgrid), it directly copies from ghost regions. For fine grids,
- * it calculates the boundary values using the GridSpace information.
+ * PETSc wraps field indices but does not translate coordinates. This routine
+ * applies the validated per-axis geometric translation to wrapped center
+ * coordinates and refreshes the associated local grid spacing.
  *
  * @param user The UserCtx containing grid and field data.
  * @return PetscErrorCode 0 on success.
@@ -140,10 +140,10 @@ PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, C
 PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user);
 
 /**
- * @brief Applies periodic boundary corrections to i-face centers (Centx).
+ * @brief Builds translated periodic images for i-face centers (Centx).
  *
- * Only X-direction periodicity affects Centx. This function must be called
- * after Centx has been initially computed but before it's used for metric calculations.
+ * Every active periodic axis can affect the ghost images of Centx. This must
+ * be called after Centx is computed and before it is used for metric calculations.
  *
  * @param user The UserCtx containing grid and field data.
  * @return PetscErrorCode 0 on success.
@@ -151,10 +151,10 @@ PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user);
 PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user);
 
 /**
- * @brief Applies periodic boundary corrections to j-face centers (Centy).
+ * @brief Builds translated periodic images for j-face centers (Centy).
  *
- * Only Y-direction periodicity affects Centy. This function must be called
- * after Centy has been initially computed but before it's used for metric calculations.
+ * Every active periodic axis can affect the ghost images of Centy. This must
+ * be called after Centy is computed and before it is used for metric calculations.
  *
  * @param user The UserCtx containing grid and field data.
  * @return PetscErrorCode 0 on success.
@@ -162,10 +162,10 @@ PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user);
 PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user);
 
 /**
- * @brief Applies periodic boundary corrections to k-face centers (Centz).
+ * @brief Builds translated periodic images for k-face centers (Centz).
  *
- * Only Z-direction periodicity affects Centz. This function must be called
- * after Centz has been initially computed but before it's used for metric calculations.
+ * Every active periodic axis can affect the ghost images of Centz. This must
+ * be called after Centz is computed and before it is used for metric calculations.
  *
  * @param user The UserCtx containing grid and field data.
  * @return PetscErrorCode 0 on success.

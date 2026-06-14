@@ -27,7 +27,10 @@ Key properties:
 - **Second-order accurate** on both uniform and curvilinear grids.
 - **No intermediate staging**: operates directly on the ghosted cell-centered field (`lUcat`, `lDiffusivity`, etc.) and ghosted cell center coordinates (`lCent`). No extra ghost exchange is needed beyond what the solver already provides.
 - **Boundary handling**: at non-periodic boundaries, the dual-cell octant is clamped to use only physical cell centers, and trilinear weights are left unclamped (may exceed [0,1]) to provide second-order linear extrapolation. Weights still sum to 1.0.
-- **Periodic boundaries**: ghost cell centers and field values are properly set by `ApplyPeriodicCorrectionsToCellCentersAndSpacing()` and `DMGlobalToLocal` with `DM_BOUNDARY_PERIODIC`, so no special handling is needed.
+- **Periodic boundaries**: PETSc supplies wrapped field indices, while
+  `ApplyPeriodicCorrectionsToCellCentersAndSpacing()` supplies translated
+  coordinate images. This interpolation path is Eulerian-only; particles are
+  not currently wrapped across periodic boundaries.
 
 Code path: @ref InterpolateEulerFieldToSwarm dispatches to `InterpolateEulerFieldFromCenterToSwarm`.
 
@@ -122,4 +125,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

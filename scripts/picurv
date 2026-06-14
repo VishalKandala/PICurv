@@ -4320,7 +4320,7 @@ _CASE_SCHEMA = {
         "enabled", "format", "script", "output_file", "axis_columns", "strict_trailing", "cli_args",
     },
     ("models",): {"domain", "physics", "statistics"},
-    ("models", "domain"): {"blocks", "i_periodic", "j_periodic", "k_periodic"},
+    ("models", "domain"): {"blocks"},
     ("models", "physics"): {"dimensionality", "fsi", "particles", "turbulence"},
     ("models", "physics", "fsi"): {"immersed", "moving_fsi"},
     ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source"},
@@ -7443,7 +7443,7 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
     """
     models = case_cfg.get('models', {})
     FLAG_MAP = {
-        'domain': {'blocks': '-nblk', 'i_periodic': '-i_periodic', 'j_periodic': '-j_periodic', 'k_periodic': '-k_periodic'},
+        'domain': {'blocks': '-nblk'},
         'physics.fsi': {'immersed': '-imm', 'moving_fsi': '-fsi'},
         'physics.particles': {'count': '-numParticles'},
         'statistics': {'time_averaging': '-averaging'}
@@ -11041,6 +11041,12 @@ def _build_case_overview(context: dict) -> dict:
     density = float(fluid.get("density"))
     viscosity = float(fluid.get("viscosity"))
     prepared_bcs = validate_and_prepare_boundary_conditions(cfg)
+    first_block_faces = {row["face"]: row for row in prepared_bcs[0]}
+    periodic_axes = {
+        "i": first_block_faces["-Xi"]["type"] == "PERIODIC",
+        "j": first_block_faces["-Eta"]["type"] == "PERIODIC",
+        "k": first_block_faces["-Zeta"]["type"] == "PERIODIC",
+    }
     bc_blocks = []
     for block_idx, block in enumerate(prepared_bcs):
         bc_blocks.append(
@@ -11078,7 +11084,7 @@ def _build_case_overview(context: dict) -> dict:
         "domain": {
             "blocks": domain.get("blocks", 1),
             "dimensionality": physics.get("dimensionality", "3D"),
-            "periodic": {axis: bool(domain.get(f"{axis}_periodic", False)) for axis in ("i", "j", "k")},
+            "periodic": periodic_axes,
         },
         "physics": {
             "fsi": physics.get("fsi", {}),
