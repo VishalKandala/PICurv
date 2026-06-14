@@ -214,6 +214,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->max_pseudo_cfl = 1.0; simCtx->min_pseudo_cfl = 0.001;
     simCtx->pseudo_cfl_reduction_factor = 0.75;
     simCtx->pseudo_cfl_growth_factor = 1.0; //simCtx->vnn = 0.1;
+    simCtx->no_pseudo_cfl_backtrack = PETSC_FALSE;
     simCtx->ps_ksp_pic_monitor_true_residual = PETSC_FALSE;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
     simCtx->initialConditionMode = IC_MODE_ZERO;
@@ -631,6 +632,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // Read the deprecated RK4 spelling first so the canonical Jameson option wins if both are present.
     ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_rk4_residual_norm_noise_allowance_factor",&simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_jameson_residual_norm_noise_allowance_factor",&simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetBool(NULL, NULL, "-no_pseudo_cfl_backtrack", &simCtx->no_pseudo_cfl_backtrack, NULL); CHKERRQ(ierr);
     if (simCtx->min_pseudo_cfl <= 0.0 ||
         simCtx->pseudo_cfl < simCtx->min_pseudo_cfl ||
         simCtx->pseudo_cfl > simCtx->max_pseudo_cfl) {

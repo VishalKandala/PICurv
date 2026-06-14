@@ -203,6 +203,8 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     PetscReal *delta_sol_norm_init, *delta_sol_norm_prev, *delta_sol_norm_curr, *delta_sol_rel_curr;
     PetscReal *resid_norm_init,     *resid_norm_prev,     *resid_norm_curr,     *resid_rel_curr;
     PetscReal *pseudo_dt_scaling;
+    PetscReal *trial_ratio_log;        /* per-block step-to-step residual ratio (for diagnostics) */
+    PetscReal  last_accepted_resid;    /* last accepted |R|, for final summary */
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -215,7 +217,9 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     ierr = PetscMalloc2(block_number, &resid_norm_init,     block_number, &resid_norm_prev); CHKERRQ(ierr);
     ierr = PetscMalloc2(block_number, &resid_norm_curr,     block_number, &pseudo_dt_scaling); CHKERRQ(ierr);
     ierr = PetscMalloc1(block_number, &resid_rel_curr); CHKERRQ(ierr);
+    ierr = PetscMalloc1(block_number, &trial_ratio_log); CHKERRQ(ierr);
     ierr = PetscMalloc1(block_number, &pRhs); CHKERRQ(ierr);
+    last_accepted_resid = 0.0;
 
     ierr = PetscTime(&ts); CHKERRQ(ierr);
 
@@ -329,19 +333,15 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                     resid_rel_curr[bi] = 0.0;
 	        }
 	      
-            // --- File Logging ---
-            if (!rank) {
-                FILE *f;
-                char filen[PETSC_MAX_PATH_LEN + 128];
-                ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Momentum_Solver_Convergence_History_Block_%1d.log", simCtx->log_dir, bi); CHKERRQ(ierr);
-                if(simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode) f = fopen(filen, "w");
-                else f = fopen(filen, "a");
-                if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1) {
-                    PetscFPrintf(PETSC_COMM_WORLD, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
-                }
-                PetscFPrintf(PETSC_COMM_WORLD, f, "Step: %d | PseudoIter(k): %d| | Pseudo-cfl: %.4f |dUk|: %le | |dUk|/|dUprev|: %le | |Rk|: %le | |Rk|/|Rprev|: %le \n",
-                             (int)ti, (int)pseudo_iter, pseudo_dt_scaling[bi], delta_sol_norm_curr[bi], delta_sol_rel_curr[bi], resid_norm_curr[bi],resid_rel_curr[bi]);
-                fclose(f);
+            /* Pre-compute per-block step-to-step trial ratio for later file logging. */
+            {
+                const PetscReal resid_floor_log = 1.0e-30;
+                if (resid_norm_prev[bi] > resid_floor_log)
+                    trial_ratio_log[bi] = resid_norm_curr[bi] / resid_norm_prev[bi];
+                else if (resid_norm_curr[bi] <= resid_floor_log)
+                    trial_ratio_log[bi] = 0.0;
+                else
+                    trial_ratio_log[bi] = PETSC_MAX_REAL;
             }
         } // End loop over blocks
 
@@ -361,6 +361,11 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         cput = te - ts;
         LOG_ALLOW(GLOBAL, LOG_INFO, "  Pseudo-Iter(k) %d: |dUk|=%e, |dUk|/|dU0| = %e, |Rk|/|R0| = %e, CPU=%.2fs\n",
               pseudo_iter, global_norm_delta, global_rel_delta, global_rel_resid, cput);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG,
+                  "    [k=%d] trial_ratio=%.4e (threshold=%.3f) | |R_prev|=%.6e | |R_curr|=%.6e | CFL=%.6f\n",
+                  pseudo_iter, trial_ratio_log[0],
+                  simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,
+                  resid_norm_prev[0], resid_norm_curr[0], pseudo_dt_scaling[0]);
 
         // === Adaptive Pseudo-CFL Trial Acceptance and Rollback ===
         const PetscReal resid_floor = 1.0e-30;
@@ -390,8 +395,13 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         global_trial_ratio = reduced_trial_ratio;
         global_nonfinite = reduced_nonfinite ? PETSC_TRUE : PETSC_FALSE;
         last_trial_nonfinite = global_nonfinite;
-        force_restart = (PetscBool)(global_nonfinite ||
-            global_trial_ratio > simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor);
+        if (simCtx->no_pseudo_cfl_backtrack) {
+            /* Diagnostic mode: commit every finite trial; only non-finite triggers rollback. */
+            force_restart = global_nonfinite;
+        } else {
+            force_restart = (PetscBool)(global_nonfinite ||
+                global_trial_ratio > simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor);
+        }
 
         if (force_restart) {
             PetscReal old_cfl = pseudo_dt_scaling[0];
@@ -407,18 +417,54 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                 ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
                 pseudo_dt_scaling[bi] = next_cfl;
             }
-            LOG_ALLOW(GLOBAL, LOG_DEBUG,
-                      "  Momentum trial %d rejected (ratio=%e, nonfinite=%d); CFL %.6f -> %.6f.\n",
-                      pseudo_iter, global_trial_ratio, (int)global_nonfinite, old_cfl, next_cfl);
-            if (global_nonfinite && old_cfl <= simCtx->min_pseudo_cfl) {
-                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_CONV_FAILED,
-                        "Momentum solver produced a non-finite trial at minimum pseudo-CFL.");
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "  Trial %d REJECTED (ratio=%.4e, nonfinite=%d); CFL %.6f -> %.6f%s\n",
+                      pseudo_iter, global_trial_ratio, (int)global_nonfinite, old_cfl, next_cfl,
+                      (old_cfl == next_cfl) ? " [AT FLOOR — no CFL reduction]" : "");
+            /* Log rejected trial to file before rolling back. */
+            if (!rank) {
+                for (PetscInt bi = 0; bi < block_number; bi++) {
+                    FILE *f;
+                    char filen[PETSC_MAX_PATH_LEN + 128];
+                    ierr = PetscSNPrintf(filen, sizeof(filen),
+                        "%s/Momentum_Solver_Convergence_History_Block_%1d.log",
+                        simCtx->log_dir, bi); CHKERRQ(ierr);
+                    if (simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode)
+                        f = fopen(filen, "w");
+                    else
+                        f = fopen(filen, "a");
+                    if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1)
+                        PetscFPrintf(PETSC_COMM_WORLD, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
+                    PetscFPrintf(PETSC_COMM_WORLD, f,
+                        "Step: %d | PseudoIter(k): %d | Pseudo-cfl: %.4f | |dUk|: %le | "
+                        "|dUk|/|dU0|: %le | |Rk|: %le | |Rk|/|R0|: %le | "
+                        "trial_ratio: %le | status: rejected | cfl_after: %.6f\n",
+                        (int)ti, (int)pseudo_iter, old_cfl,
+                        delta_sol_norm_curr[bi], delta_sol_rel_curr[bi],
+                        resid_norm_curr[bi], resid_rel_curr[bi],
+                        trial_ratio_log[bi], next_cfl);
+                    fclose(f);
+                }
+            }
+            if (old_cfl <= simCtx->min_pseudo_cfl) {
+                if (global_nonfinite) {
+                    SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_CONV_FAILED,
+                            "Momentum solver produced a non-finite trial at minimum pseudo-CFL.");
+                }
+                /* Finite rejection at the CFL floor: reducing further is impossible.
+                   Break instead of retrying bit-identically until max_pseudo_steps. */
+                LOG_ALLOW(GLOBAL, LOG_WARNING,
+                          "  Trial %d REJECTED (ratio=%.4e) at minimum pseudo-CFL (%.6f) with no "
+                          "further reduction possible; breaking retry loop, returning last accepted state.\n",
+                          pseudo_iter, global_trial_ratio, old_cfl);
+                break;
             }
             continue;
         }
 
         accepted_iter++;
         last_trial_nonfinite = PETSC_FALSE;
+        last_accepted_resid  = resid_norm_curr[0]; /* track for final summary */
         for (PetscInt bi = 0; bi < block_number; bi++) {
             ierr = VecCopy(user[bi].Ucont, user[bi].pUcont); CHKERRQ(ierr);
             ierr = VecCopy(user[bi].Rhs, pRhs[bi]); CHKERRQ(ierr);
@@ -443,6 +489,37 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         next_cfl = PetscMin(next_cfl, simCtx->max_pseudo_cfl);
         next_cfl = PetscMax(next_cfl, simCtx->min_pseudo_cfl);
         for (PetscInt bi = 0; bi < block_number; bi++) pseudo_dt_scaling[bi] = next_cfl;
+
+        LOG_ALLOW(GLOBAL, LOG_DEBUG,
+                  "  Trial %d ACCEPTED (ratio=%.4e); |dU_consec|=%.6e | CFL %.6f -> %.6f\n",
+                  pseudo_iter, global_trial_ratio, global_norm_delta,
+                  pseudo_dt_scaling[0], next_cfl);
+
+        /* --- Post-decision file logging (one row per accepted trial) --- */
+        if (!rank) {
+            for (PetscInt bi = 0; bi < block_number; bi++) {
+                FILE *f;
+                char filen[PETSC_MAX_PATH_LEN + 128];
+                ierr = PetscSNPrintf(filen, sizeof(filen),
+                    "%s/Momentum_Solver_Convergence_History_Block_%1d.log",
+                    simCtx->log_dir, bi); CHKERRQ(ierr);
+                if (simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode)
+                    f = fopen(filen, "w");
+                else
+                    f = fopen(filen, "a");
+                if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1)
+                    PetscFPrintf(PETSC_COMM_WORLD, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
+                PetscFPrintf(PETSC_COMM_WORLD, f,
+                    "Step: %d | PseudoIter(k): %d | Pseudo-cfl: %.4f | |dUk|: %le | "
+                    "|dUk|/|dU0|: %le | |Rk|: %le | |Rk|/|R0|: %le | "
+                    "trial_ratio: %le | status: accepted | cfl_after: %.6f\n",
+                    (int)ti, (int)pseudo_iter, pseudo_dt_scaling[bi],
+                    delta_sol_norm_curr[bi], delta_sol_rel_curr[bi],
+                    resid_norm_curr[bi], resid_rel_curr[bi],
+                    trial_ratio_log[bi], next_cfl);
+                fclose(f);
+            }
+        }
 
         PetscBool update_pass;
         PetscBool residual_pass = PETSC_TRUE;
@@ -497,8 +574,12 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                   "Momentum solver accepted no pseudo-time trials; retaining the physical-step entry state.\n");
     }
     LOG_ALLOW(GLOBAL, LOG_INFO,
-              "Momentum solver finished after %d attempts (%d accepted, %d rejected), next CFL=%.6f.\n",
-              pseudo_iter, accepted_iter, rejected_iter, next_start_cfl);
+              "Momentum solver finished: %d attempts (%d accepted, %d rejected), "
+              "last accepted |R|=%.6e, last accepted |dU|=%.6e, next CFL=%.6f.\n",
+              pseudo_iter, accepted_iter, rejected_iter,
+              (accepted_iter > 0) ? last_accepted_resid : resid_norm_init[0],
+              (accepted_iter > 0) ? delta_sol_norm_prev[0] : 0.0,
+              next_start_cfl);
 
     // --- Final Cleanup ---
     for (PetscInt bi = 0; bi < block_number; bi++) {
@@ -514,6 +595,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     ierr = PetscFree2(resid_norm_init,     resid_norm_prev);CHKERRQ(ierr);
     ierr = PetscFree2(resid_norm_curr,     pseudo_dt_scaling); CHKERRQ(ierr);
     ierr = PetscFree(resid_rel_curr); CHKERRQ(ierr);
+    ierr = PetscFree(trial_ratio_log); CHKERRQ(ierr);
     
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

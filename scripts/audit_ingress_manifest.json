@@ -97,6 +97,7 @@
     "-mom_solver_type",
     "-nblk",
     "-no_of_bodies",
+    "-no_pseudo_cfl_backtrack",
     "-numParticles",
     "-only_setup",
     "-output_dir",
