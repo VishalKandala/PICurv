@@ -369,6 +369,9 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     simCtx->i_periodic = x_periodic ? 1 : 0;
     simCtx->j_periodic = y_periodic ? 1 : 0;
     simCtx->k_periodic = z_periodic ? 1 : 0;
+    simCtx->flowDirection     = FLOW_DIR_UNSET;
+    simCtx->icCoordinateSystem = 0;
+    simCtx->icVelocityPhysical = 0.0;
     PetscCall(PetscStrncpy(simCtx->euler_subdir, "euler", sizeof(simCtx->euler_subdir)));
     PetscCall(PetscStrncpy(simCtx->particle_subdir, "particles", sizeof(simCtx->particle_subdir)));
     PetscCall(PetscStrncpy(simCtx->output_dir, "/tmp", sizeof(simCtx->output_dir)));

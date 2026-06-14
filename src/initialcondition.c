@@ -31,59 +31,63 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
         PetscFunctionReturn(0);
     }
 
-    // --- 1. Get references to required data and PETSc arrays ---
-    DM            fieldDM = user->fda;
-    Vec           fieldVec = user->Ucont;
+    // --- 1. Get DMDA info and grid dimensions ---
     DMDALocalInfo info;
-    ierr = DMDAGetLocalInfo(fieldDM, &info); CHKERRQ(ierr);
+    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
 
-    Vec      localCoor;
-    Cmpnts ***coor_arr;
-    ierr = DMGetCoordinatesLocal(user->da, &localCoor); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, localCoor, &coor_arr); CHKERRQ(ierr);
-    
+    const PetscInt im_phys = info.mx - 1;
+    const PetscInt jm_phys = info.my - 1;
+    const PetscInt km_phys = info.mz - 1;
+
+    const PetscReal u_cart = simCtx->InitialConstantContra.x;
+    const PetscReal v_cart = simCtx->InitialConstantContra.y;
+    const PetscReal w_cart = simCtx->InitialConstantContra.z;
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "IC cartesian=(%.3f,%.3f,%.3f) ic_velocity_physical=%.3f ic_coordinate_system=%d\n",
+              (double)u_cart, (double)v_cart, (double)w_cart,
+              (double)simCtx->icVelocityPhysical, (int)simCtx->icCoordinateSystem);
+
+    // --- 2. Early dispatch: cartesian Constant delegates to Cart2Contra ---
+    if (simCtx->FieldInitialization == 1 && simCtx->icCoordinateSystem == 0) {
+        ierr = Cart2Contra(user, u_cart, v_cart, w_cart); CHKERRQ(ierr);
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    // --- 3. Resolve flow direction for streamwise Constant and Poiseuille ---
+    const PetscBool needs_flow_dir = (simCtx->FieldInitialization == 2) ||
+                                     (simCtx->FieldInitialization == 1 && simCtx->icCoordinateSystem == 1);
+    FlowDirection fd          = FLOW_DIR_UNSET;
+    PetscInt      flow_axis   = 0;
+    PetscReal     flow_dir_sign = 1.0;
+
+    if (needs_flow_dir) {
+        if (user->inletFaceDefined)
+            fd = (FlowDirection)user->identifiedInletBCFace;
+        else if (simCtx->flowDirection != FLOW_DIR_UNSET)
+            fd = simCtx->flowDirection;
+        else
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_USER,
+                    "Streamwise Constant and Poiseuille IC modes require either an INLET face or -flow_direction.");
+        flow_axis     = (PetscInt)fd / 2;
+        flow_dir_sign = ((PetscInt)fd % 2 == 0) ? 1.0 : -1.0;
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "IC flow_direction=%d (axis=%d sign=%.1f)\n",
+                  (int)fd, (int)flow_axis, (double)flow_dir_sign);
+    }
+
+    // --- 4. Open arrays for non-cartesian modes ---
     Cmpnts ***csi_arr, ***eta_arr, ***zet_arr;
     ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi_arr); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet_arr); CHKERRQ(ierr);
-   
-    const PetscInt im_phys = info.mx - 1;
-    const PetscInt jm_phys = info.my - 1;
-    const PetscInt km_phys = info.mz - 1;    
 
-    // --- 2. Compute Cell-Center Coordinates (only if needed by the selected profile) ---
-    Cmpnts ***cent_coor = NULL;
-    PetscInt xs_cell=0, xm_cell=0, ys_cell=0, ym_cell=0, zs_cell=0, zm_cell=0;
-    
-    if (simCtx->FieldInitialization == 2) { // Profile 2 (Poiseuille) requires cell centers.
-        
-        ierr = GetOwnedCellRange(&info, 0, &xs_cell, &xm_cell); CHKERRQ(ierr);
-        ierr = GetOwnedCellRange(&info, 1, &ys_cell, &ym_cell); CHKERRQ(ierr);
-        ierr = GetOwnedCellRange(&info, 2, &zs_cell, &zm_cell); CHKERRQ(ierr);
-      
-        if (xm_cell > 0 && ym_cell > 0 && zm_cell > 0) {
-            ierr = Allocate3DArray(&cent_coor, zm_cell, ym_cell, xm_cell); CHKERRQ(ierr);
-            ierr = InterpolateFieldFromCornerToCenter(coor_arr, cent_coor, user); CHKERRQ(ierr);
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Computed temporary cell-center coordinates for Poiseuille profile.\n");
-        }
-    }
-    
-    // --- 3. Loop Over Owned Nodes and Apply Initial Condition to Interior ---
     Cmpnts ***ucont_arr;
-    ierr = DMDAVecGetArray(fieldDM, fieldVec, &ucont_arr); CHKERRQ(ierr);
-    
+    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont_arr); CHKERRQ(ierr);
+
     PetscInt i, j, k;
     const PetscInt xs = info.xs, xe = info.xs + info.xm;
     const PetscInt ys = info.ys, ye = info.ys + info.ym;
     const PetscInt zs = info.zs, ze = info.zs + info.zm;
-    
-    const Cmpnts uin = simCtx->InitialConstantContra; // Max/average velocity from user options
-    // Flow into a negative face (e.g., -Zeta at k=0) is in the positive physical direction (+z).
-    // Flow into a positive face (e.g., +Zeta at k=mz-1) is in the negative physical direction (-z).
-
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Initial Constant Flux (Contravariant) = (%.3f, %.3f, %.3f)\n",(double)uin.x, (double)uin.y, (double)uin.z);
-    
-    const PetscReal flow_direction_sign = (user->identifiedInletBCFace % 2 == 0) ? 1.0 : -1.0;
         
     for (k = zs; k < ze; k++) {
         for (j = ys; j < ye; j++) {
@@ -108,109 +112,51 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
                     Cmpnts ucont_val = {0.0, 0.0, 0.0}; // Default to zero velocity
                     PetscReal normal_velocity_mag = 0.0;
 
-                    // Step A: Determine the magnitude of the desired physical normal velocity.
                     switch (simCtx->FieldInitialization) {
-                        case 0: // Zero initial velocity
-                            normal_velocity_mag = 0.0;
+                        case 0:
                             break;
- 		        case 1: /* Constant Normal Velocity */
-		            if (user->identifiedInletBCFace == BC_FACE_NEG_X ||
-			    user->identifiedInletBCFace == BC_FACE_POS_X) {
-			    normal_velocity_mag = uin.x;
-		            } else if (user->identifiedInletBCFace == BC_FACE_NEG_Y || user->identifiedInletBCFace == BC_FACE_POS_Y) {
-			   normal_velocity_mag = uin.y;
-		            } else {
-			   normal_velocity_mag = uin.z;
-		            }
-		      break; 
-                        case 2: // Poiseuille Normal Velocity
+                        case 1: // streamwise: single component along flow_axis
+                            normal_velocity_mag = simCtx->icVelocityPhysical;
+                            break;
+                        case 2: // Poiseuille parabolic profile
                             {
-			                                      // This profile assumes flow is aligned with the k-index direction.
-                                // It uses grid indices (i,j) to define the cross-section, which works for bent geometries.
-                                PetscReal u0 = 0.0;
-                                if (user->identifiedInletBCFace <= BC_FACE_POS_X) u0 = uin.x;
-                                else if (user->identifiedInletBCFace <= BC_FACE_POS_Y) u0 = uin.y;
-                                else u0 = uin.z; // Assumes Z-like inlet direction
-
-                                // Define channel geometry in "index space" based on global grid dimensions
-                                // We subtract 2.0 because the interior runs from index 1 to mx-2 (or my-2).
-                                const PetscReal i_width  = (PetscReal)(im_phys - 2);
-                                const PetscReal j_width  = (PetscReal)(jm_phys - 2);
-                                const PetscReal i_center = 1.0 + i_width / 2.0;
-                                const PetscReal j_center = 1.0 + j_width / 2.0;
-
-                                // Create normalized coordinates for the current point (i,j), ranging from -1 to 1
-                                const PetscReal i_norm = (i - i_center) / (i_width / 2.0);
-                                const PetscReal j_norm = (j - j_center) / (j_width / 2.0);
-
-                                // Apply the parabolic profile for a rectangular/square channel
-                                // V(i,j) = V_max * (1 - i_norm^2) * (1 - j_norm^2)
-                                const PetscReal profile_i = 1.0 - i_norm * i_norm;
-                                const PetscReal profile_j = 1.0 - j_norm * j_norm;
-                                normal_velocity_mag = u0 * profile_i * profile_j;
-
-                                // Clamp to zero for any points outside the channel (or due to minor float errors)
-                                if (normal_velocity_mag < 0.0) {
-                                    normal_velocity_mag = 0.0;
-                                }
+                                PetscInt cs1, cs2, n1, n2;
+                                if (flow_axis == 0)      { cs1 = j; cs2 = k; n1 = jm_phys; n2 = km_phys; }
+                                else if (flow_axis == 1) { cs1 = i; cs2 = k; n1 = im_phys; n2 = km_phys; }
+                                else                     { cs1 = i; cs2 = j; n1 = im_phys; n2 = jm_phys; }
+                                const PetscReal w1 = (PetscReal)(n1 - 2);
+                                const PetscReal w2 = (PetscReal)(n2 - 2);
+                                const PetscReal n1_norm = (cs1 - (1.0 + w1 / 2.0)) / (w1 / 2.0);
+                                const PetscReal n2_norm = (cs2 - (1.0 + w2 / 2.0)) / (w2 / 2.0);
+                                normal_velocity_mag = simCtx->icVelocityPhysical *
+                                                      (1.0 - n1_norm * n1_norm) * (1.0 - n2_norm * n2_norm);
+                                if (normal_velocity_mag < 0.0) normal_velocity_mag = 0.0;
                             }
                             break;
-			    /*
-                                PetscReal r_sq = 0.0;
-                                const PetscInt i_local = i - xs_cell, j_local = j - ys_cell, k_local = k - zs_cell;
-                                if (cent_coor && i_local >= 0 && i_local < xm_cell && j_local >= 0 && j_local < ym_cell && k_local >= 0 && k_local < zm_cell) {
-                                    const Cmpnts* center = &cent_coor[k_local][j_local][i_local];
-                                    if (user->identifiedInletBCFace <= BC_FACE_POS_X) r_sq = center->y * center->y + center->z * center->z;
-                                    else if (user->identifiedInletBCFace <= BC_FACE_POS_Y) r_sq = center->x * center->x + center->z * center->z;
-                                    else r_sq = center->x * center->x + center->y * center->y;
-				    // pick the correct contravariant component for center‐line speed 
-				    PetscReal u0;
-				    if (user->identifiedInletBCFace == BC_FACE_NEG_X ||
-					user->identifiedInletBCFace == BC_FACE_POS_X) {
-				      u0 = uin.x;
-				    } else if (user->identifiedInletBCFace == BC_FACE_NEG_Y ||
-					       user->identifiedInletBCFace == BC_FACE_POS_Y) {
-				      u0 = uin.y;
-				    } else {
-				      u0 = uin.z;
-				    }
-				    // now form the parabolic profile as before 
-                                    normal_velocity_mag = 2.0 * u0 * (1.0 - 4.0 * r_sq);
-                                }
-                            }
-                            break;
-			    */
                         default:
                             LOG_ALLOW(LOCAL, LOG_WARNING, "Unrecognized FieldInitialization profile %d. Defaulting to zero.\n", simCtx->FieldInitialization);
-                            normal_velocity_mag = 0.0;
                             break;
                     }
 
-                    // Step B: Apply direction sign and set the correct contravariant component.
-                    // The contravariant component U^n = v_n * Area_n, where v_n is the physical normal velocity.
+                    // Step B: apply flow direction and set the single contravariant flux component.
+                    // Skipped for cartesian Constant (case 1, icCoordinateSystem=0) which sets ucont_val directly.
                     if (normal_velocity_mag != 0.0) {
-		       const PetscReal signed_normal_vel = normal_velocity_mag * flow_direction_sign*user->GridOrientation;
-                        
-                        if (user->identifiedInletBCFace == BC_FACE_NEG_X || user->identifiedInletBCFace == BC_FACE_POS_X) {
-                            const PetscReal area_i = sqrt(csi_arr[k][j][i].x * csi_arr[k][j][i].x + csi_arr[k][j][i].y * csi_arr[k][j][i].y + csi_arr[k][j][i].z * csi_arr[k][j][i].z);
-			    
-                            ucont_val.x = signed_normal_vel * area_i;
-
-			    LOG_LOOP_ALLOW(GLOBAL,LOG_VERBOSE,k,50," ucont_val.x = %.6f (signed_normal_vel=%.3f × area=%.4f)\n",ucont_val.x, signed_normal_vel, area_i);
-                        } 
-                        else if (user->identifiedInletBCFace == BC_FACE_NEG_Y || user->identifiedInletBCFace == BC_FACE_POS_Y) {
-                            const PetscReal area_j = sqrt(eta_arr[k][j][i].x * eta_arr[k][j][i].x + eta_arr[k][j][i].y * eta_arr[k][j][i].y + eta_arr[k][j][i].z * eta_arr[k][j][i].z);
-			     
-                            ucont_val.y = signed_normal_vel * area_j;
-
-			    LOG_LOOP_ALLOW(GLOBAL,LOG_VERBOSE,k,50," ucont_val.y = %.6f (signed_normal_vel=%.3f × area=%.4f)\n",ucont_val.y, signed_normal_vel, area_j);
-                        } 
-                        else { // Z-inlet
-                            const PetscReal area_k = sqrt(zet_arr[k][j][i].x * zet_arr[k][j][i].x + zet_arr[k][j][i].y * zet_arr[k][j][i].y + zet_arr[k][j][i].z * zet_arr[k][j][i].z);
-
-                            ucont_val.z = signed_normal_vel * area_k;
-
-			    LOG_LOOP_ALLOW(GLOBAL,LOG_VERBOSE,k,50," i,j,k,ucont_val.z = %d, %d, %d, %.6f (signed_normal_vel=%.3f × area=%.4f)\n",i,j,k,ucont_val.z, signed_normal_vel, area_k);
+                        const PetscReal signed_vel = normal_velocity_mag * flow_dir_sign * user->GridOrientation;
+                        if (flow_axis == 0) {
+                            const PetscReal area = sqrt(csi_arr[k][j][i].x * csi_arr[k][j][i].x +
+                                                        csi_arr[k][j][i].y * csi_arr[k][j][i].y +
+                                                        csi_arr[k][j][i].z * csi_arr[k][j][i].z);
+                            ucont_val.x = signed_vel * area;
+                        } else if (flow_axis == 1) {
+                            const PetscReal area = sqrt(eta_arr[k][j][i].x * eta_arr[k][j][i].x +
+                                                        eta_arr[k][j][i].y * eta_arr[k][j][i].y +
+                                                        eta_arr[k][j][i].z * eta_arr[k][j][i].z);
+                            ucont_val.y = signed_vel * area;
+                        } else {
+                            const PetscReal area = sqrt(zet_arr[k][j][i].x * zet_arr[k][j][i].x +
+                                                        zet_arr[k][j][i].y * zet_arr[k][j][i].y +
+                                                        zet_arr[k][j][i].z * zet_arr[k][j][i].z);
+                            ucont_val.z = signed_vel * area;
                         }
                     }
                     ucont_arr[k][j][i] = ucont_val;
@@ -218,17 +164,12 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
             }
         }
     }
-    ierr = DMDAVecRestoreArray(fieldDM, fieldVec, &ucont_arr); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont_arr); CHKERRQ(ierr);
 
-    // --- 5. Cleanup: Restore arrays and free temporary memory ---
-    ierr = DMDAVecRestoreArrayRead(user->fda, localCoor, &coor_arr); CHKERRQ(ierr);
+    // --- 5. Restore arrays ---
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi_arr); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet_arr); CHKERRQ(ierr);
-    
-    if (cent_coor) {
-        ierr = Deallocate3DArray(cent_coor, zm_cell, ym_cell); CHKERRQ(ierr);
-    }
 
     PROFILE_FUNCTION_END;
 

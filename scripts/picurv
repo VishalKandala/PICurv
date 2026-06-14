@@ -4300,6 +4300,7 @@ _CASE_SCHEMA = {
     ("properties", "fluid"): {"density", "viscosity"},
     ("properties", "initial_conditions"): {
         "mode", "u_physical", "v_physical", "w_physical", "peak_velocity_physical",
+        "velocity_physical", "flow_direction",
     },
     ("grid",): {
         "mode", "source_file", "programmatic_settings", "generator", "legacy_conversion",
@@ -4673,7 +4674,7 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             errors.append(f"  {case_path}: {e}")
         else:
             try:
-                resolve_initial_velocity_components(ic, finit_code, prepared_blocks=prepared_blocks)
+                resolve_ic_cli_params(ic, finit_code, prepared_blocks, U_ref=1.0)
             except KeyError as e:
                 errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
             except ValueError as e:
@@ -6883,6 +6884,140 @@ def normalize_field_init_mode(value: str) -> int:
         )
     return mapped
 
+def normalize_flow_direction_token(value: str) -> int:
+    """!
+    @brief Maps a face-token flow direction string to the C FlowDirection enum integer.
+    @param[in] value One of '+Xi', '-Xi', '+Eta', '-Eta', '+Zeta', '-Zeta'.
+    @return Integer 0-5 matching the FlowDirection enum.
+    @throws ValueError on unknown value.
+    """
+    mapped = {
+        "+Xi": 0, "-Xi": 1,
+        "+Eta": 2, "-Eta": 3,
+        "+Zeta": 4, "-Zeta": 5,
+    }.get(str(value).strip())
+    if mapped is None:
+        raise ValueError(
+            f"Unknown initial_conditions.flow_direction '{value}'. "
+            "Use one of: '+Xi', '-Xi', '+Eta', '-Eta', '+Zeta', '-Zeta'."
+        )
+    return mapped
+
+def _ic_has_inlet(prepared_blocks) -> bool:
+    """!
+    @brief Return True if any prepared BC block contains an INLET face.
+    @param[in] prepared_blocks List of prepared BC lists (one per domain block).
+    @return True if at least one INLET entry exists across all blocks.
+    """
+    if not prepared_blocks:
+        return False
+    for block_bcs in prepared_blocks:
+        for entry in block_bcs:
+            if entry.get("type") == "INLET":
+                return True
+    return False
+
+def resolve_ic_cli_params(ic: dict, finit_code: int, prepared_blocks, U_ref: float) -> dict:
+    """!
+    @brief Resolve all IC parameters and return a dict of PETSc option values.
+    @param[in] ic The properties.initial_conditions mapping.
+    @param[in] finit_code Normalized -finit integer code.
+    @param[in] prepared_blocks Normalized BC blocks (may be None).
+    @param[in] U_ref Reference velocity for non-dimensionalization.
+    @return Dict with keys matching PETSc option names (without leading dash).
+    @throws KeyError if a required key is absent.
+    @throws ValueError on invalid combinations or values.
+    """
+    result = {}
+
+    if finit_code == 0:
+        return result
+
+    if finit_code == 1:  # Constant
+        has_cartesian   = any(k in ic for k in ("u_physical", "v_physical", "w_physical"))
+        has_curvilinear = "velocity_physical" in ic
+
+        if has_cartesian and has_curvilinear:
+            raise ValueError(
+                "initial_conditions: cannot mix u/v/w_physical (cartesian) and "
+                "velocity_physical (curvilinear) — use one or the other."
+            )
+
+        if has_curvilinear:  # curvilinear: scalar speed along flow_direction axis
+            cs_code = 1
+            result["ic_coordinate_system"] = cs_code
+            try:
+                vel_phys = float(ic["velocity_physical"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Invalid value for initial_conditions.velocity_physical: {ic['velocity_physical']!r}. "
+                    "Expected a numeric value."
+                ) from exc
+            result["ic_velocity_physical"] = vel_phys / U_ref if U_ref != 0 else 0.0
+
+            if "flow_direction" in ic:
+                result["flow_direction"] = normalize_flow_direction_token(ic["flow_direction"])
+            elif not _ic_has_inlet(prepared_blocks):
+                raise ValueError(
+                    "initial_conditions.flow_direction is required for curvilinear Constant IC "
+                    "when no INLET face exists."
+                )
+
+        else:  # cartesian: u/v/w_physical → Cart2Contra (default when no velocity_physical)
+            if "flow_direction" in ic:
+                raise ValueError(
+                    "initial_conditions.flow_direction is not valid for cartesian Constant IC. "
+                    "Use velocity_physical + flow_direction for curvilinear mode."
+                )
+            cs_code = 0
+            result["ic_coordinate_system"] = cs_code
+            u, v, w = parse_initial_velocity_components(ic, finit_code, require_explicit=True)
+            scale = 1.0 / U_ref if U_ref != 0 else 0.0
+            result["ucont_x"] = u * scale
+            result["ucont_y"] = v * scale
+            result["ucont_z"] = w * scale
+
+    elif finit_code == 2:  # Poiseuille
+        if any(k in ic for k in ("u_physical", "v_physical", "w_physical")):
+            raise ValueError(
+                "For Poiseuille mode, use peak_velocity_physical, not u_physical/v_physical/w_physical."
+            )
+        if "velocity_physical" in ic:
+            raise ValueError(
+                "For Poiseuille mode, use peak_velocity_physical, not velocity_physical."
+            )
+        if "peak_velocity_physical" not in ic:
+            raise KeyError("peak_velocity_physical")
+        try:
+            peak = float(ic["peak_velocity_physical"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid value for initial_conditions.peak_velocity_physical: "
+                f"{ic['peak_velocity_physical']!r}. Expected a numeric value."
+            ) from exc
+        result["ic_velocity_physical"] = peak / U_ref if U_ref != 0 else 0.0
+
+        if "flow_direction" in ic:
+            fd_int = normalize_flow_direction_token(ic["flow_direction"])
+            # Cross-check: explicit flow_direction must align with INLET face if one exists
+            if _ic_has_inlet(prepared_blocks):
+                inlet_axis = infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks)
+                fd_axis_name = {0: "x", 1: "y", 2: "z"}.get(fd_int // 2, "?")
+                if inlet_axis and fd_axis_name != inlet_axis:
+                    token = ic["flow_direction"]
+                    raise ValueError(
+                        f"initial_conditions.flow_direction '{token}' (axis '{fd_axis_name}') "
+                        f"does not match INLET face axis '{inlet_axis}'."
+                    )
+            result["flow_direction"] = fd_int
+        elif not _ic_has_inlet(prepared_blocks):
+            raise ValueError(
+                "initial_conditions.flow_direction is required for Poiseuille IC "
+                "when no INLET face exists."
+            )
+
+    return result
+
 def normalize_eulerian_field_source(value: str) -> str:
     """!
     @brief Normalizes the Eulerian field source selector to the C-side canonical string.
@@ -6984,56 +7119,6 @@ def infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks: list) -> "str | N
             f"on the same axis. Found axes: {sorted(inlet_axes)}. Use u_physical/v_physical/w_physical instead."
         )
     return next(iter(inlet_axes))
-
-def resolve_initial_velocity_components(initial_conditions: dict, finit_code: int, *, prepared_blocks: "list | None" = None) -> "tuple[float, float, float]":
-    """!
-    @brief Resolve initial-condition velocity inputs to `(u, v, w)` physical components.
-    @param[in] initial_conditions The `properties.initial_conditions` mapping from case.yml.
-    @param[in] finit_code Normalized `-finit` integer code.
-    @param[in] prepared_blocks Optional normalized BC blocks, required for scalar Poiseuille peak velocity.
-    @return Tuple `(u, v, w)` in physical units.
-    @throws KeyError if required explicit component keys are missing.
-    @throws ValueError on invalid combinations or invalid scalar values.
-    """
-    peak_key = "peak_velocity_physical"
-    has_peak_velocity = peak_key in initial_conditions
-
-    if has_peak_velocity and finit_code != 2:
-        raise ValueError(
-            "properties.initial_conditions.peak_velocity_physical is only valid when initial_conditions.mode is 'Poiseuille'."
-        )
-
-    if finit_code == 2 and has_peak_velocity:
-        component_keys = ("u_physical", "v_physical", "w_physical")
-        if any(key in initial_conditions for key in component_keys):
-            raise ValueError(
-                "For Poiseuille mode, use either peak_velocity_physical or u_physical/v_physical/w_physical, not both."
-            )
-        try:
-            peak_velocity = float(initial_conditions[peak_key])
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Invalid value for properties.initial_conditions.{peak_key}: {initial_conditions[peak_key]!r}. "
-                "Expected a numeric value."
-            ) from exc
-
-        if prepared_blocks is None:
-            raise ValueError(
-                "properties.initial_conditions.peak_velocity_physical requires valid boundary_conditions so the inlet axis can be inferred."
-            )
-
-        inlet_axis = infer_unique_inlet_axis_from_prepared_bcs(prepared_blocks)
-        if inlet_axis is None:
-            raise ValueError(
-                "properties.initial_conditions.peak_velocity_physical requires at least one INLET face so the inlet axis can be inferred."
-            )
-        if inlet_axis == "x":
-            return (peak_velocity, 0.0, 0.0)
-        if inlet_axis == "y":
-            return (0.0, peak_velocity, 0.0)
-        return (0.0, 0.0, peak_velocity)
-
-    return parse_initial_velocity_components(initial_conditions, finit_code, require_explicit=(finit_code != 0))
 
 def normalize_particle_init_mode(value: str) -> int:
     """!
@@ -7795,14 +7880,34 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         dt_nondim = dt_phys / T_ref if T_ref != float('inf') else 0.0
         finit_mode_str = ic['mode']
         finit_code = normalize_field_init_mode(finit_mode_str)
-        u, v, w = resolve_initial_velocity_components(ic, finit_code, prepared_blocks=prepared_blocks)
+        ic_params = resolve_ic_cli_params(ic, finit_code, prepared_blocks, U_ref)
         print(f"  - Reynolds Number (Re) = {reynolds:.4f}")
         print(f"  - Non-Dimensional dt*  = {dt_nondim:.6f}")
-        print(f"  - Field Initialization Mode: {finit_mode_str} (Code: {finit_code})")
+        if finit_code == 1 and ic_params.get("ic_coordinate_system", 0) == 1:
+            ic_sub = "curvilinear"
+        elif finit_code == 1:
+            ic_sub = "cartesian"
+        else:
+            ic_sub = ""
+        ic_sub_label = f" [{ic_sub}]" if ic_sub else ""
+        print(f"  - Field Initialization Mode: {finit_mode_str}{ic_sub_label} (Code: {finit_code})")
+        ic_cli = []
+        if "ic_coordinate_system" in ic_params:
+            ic_cli.append(f"-ic_coordinate_system {ic_params['ic_coordinate_system']}")
+        if "ucont_x" in ic_params:
+            ic_cli.extend([
+                f"-ucont_x {ic_params['ucont_x']}",
+                f"-ucont_y {ic_params['ucont_y']}",
+                f"-ucont_z {ic_params['ucont_z']}",
+            ])
+        if "ic_velocity_physical" in ic_params:
+            ic_cli.append(f"-ic_velocity_physical {ic_params['ic_velocity_physical']}")
+        if "flow_direction" in ic_params:
+            ic_cli.append(f"-flow_direction {ic_params['flow_direction']}")
         control_lines.extend([
             f"-start_step {run_ctrl['start_step']}", f"-totalsteps {run_ctrl['total_steps']}",
             f"-ren {reynolds}", f"-dt {dt_nondim}", f"-finit {finit_code}",
-            f"-ucont_x {u/U_ref if U_ref!=0 else 0}", f"-ucont_y {v/U_ref if U_ref!=0 else 0}", f"-ucont_z {w/U_ref if U_ref!=0 else 0}",
+            *ic_cli,
             f"-scaling_L_ref {L_ref}", f"-scaling_U_ref {U_ref}", f"-scaling_rho_ref {rho}"
         ])
     except (KeyError, TypeError, ZeroDivisionError, ValueError) as e:

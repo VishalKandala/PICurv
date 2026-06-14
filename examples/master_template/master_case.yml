@@ -62,22 +62,30 @@ properties:
   # Values are in physical units [m/s].
   initial_conditions:
     # --- Field Initialization Mode ---
-    # Defines the type of initial velocity field.
     # Options:
-    #   - "Zero": All velocity components are zero.
-    #   - "Constant": A uniform velocity field is applied everywhere.
-    #   - "Poiseuille": A parabolic velocity profile (for channel/pipe flow).
-    mode: "Constant"  # This will be translated to -finit
+    #   "Zero"       - all velocity components set to zero.
+    #   "Constant"   - uniform velocity field; two sub-modes (see below).
+    #   "Poiseuille" - separable parabolic profile in the two cross-stream directions.
+    mode: "Constant"
 
-    # --- Initial Velocity ---
-    # For 'Constant': set u_physical/v_physical/w_physical.
-    # For 'Poiseuille': prefer 'peak_velocity_physical' (scalar Vmax mapped to the
-    # primary inlet axis), or use u_physical/v_physical/w_physical as an explicit component override.
-    # peak_velocity_physical: 1.0
-    # Values are in physical units [m/s].
-    u_physical: 0.0
+    # --- Constant, cartesian sub-mode (default when u/v/w_physical keys are present) ---
+    # Provide all three Cartesian components; flow_direction must NOT be set.
+    u_physical: 0.0   # [m/s]
     v_physical: 0.0
-    w_physical: 0.0
+    w_physical: 1.0
+
+    # --- Constant, curvilinear/streamwise sub-mode (when velocity_physical key is present) ---
+    # Sets a uniform speed along the streamwise axis only.
+    # Requires flow_direction (or an INLET face that defines the axis).
+    # velocity_physical: 1.0        # [m/s] — replaces u/v/w_physical
+    # flow_direction: "+Zeta"       # +Xi | -Xi | +Eta | -Eta | +Zeta | -Zeta
+
+    # --- Poiseuille sub-mode ---
+    # peak_velocity_physical is the centerline speed (Vmax), not the bulk mean.
+    # Requires flow_direction (or an INLET face).
+    # mode: "Poiseuille"
+    # peak_velocity_physical: 1.0   # [m/s]
+    # flow_direction: "+Zeta"       # required when no INLET face present
 
 # ==============================================================================
 # 3. GRID DEFINITION

@@ -26,20 +26,20 @@
 /**
  * @brief Sets the initial values for the INTERIOR of a specified Eulerian field.
  *
- * This function initializes the interior nodes of `Ucont` based on a profile selected
- * by `user->FieldInitialization`. It explicitly skips any node that lies on a global
- * boundary, as those values are set by the Boundary System's `Initialize` methods.
+ * This function initializes the interior nodes of `Ucont` based on the mode selected
+ * by `simCtx->FieldInitialization` and the coordinate system flag `simCtx->icCoordinateSystem`.
  *
- * The initialization is directional, aligned with the primary INLET face that was
- * identified by the parser. This ensures the initial flow is physically meaningful.
- *
- * Supported `user->FieldInitialization` profiles for "Ucont":
- *  - 0: Zero Velocity. All interior components of Ucont are set to 0.
- *  - 1: Constant Normal Velocity. The contravariant velocity component normal to the
- *       inlet direction is set such that the physical velocity normal to those grid
- *       planes is a constant `uin`. Other contravariant components are zero.
- *  - 2: Poiseuille Normal Velocity. The contravariant component normal to the
- *       inlet direction is set with a parabolic profile.
+ * Supported profiles for "Ucont":
+ *  - 0: Zero. All interior contravariant components are set to zero.
+ *  - 1 (icCoordinateSystem=0): Cartesian Constant. `Cart2Contra` dots the Cartesian
+ *       vector `(InitialConstantContra.x/y/z)` with the local metric vectors to fill
+ *       all three contravariant components correctly across the entire interior.
+ *  - 1 (icCoordinateSystem=1): Curvilinear/Streamwise Constant. Sets only the
+ *       contravariant component along the streamwise axis (from `flowDirection` or the
+ *       identified INLET face) proportional to `icVelocityPhysical * |A_n|`.
+ *  - 2: Poiseuille. Separable parabolic profile in the two cross-stream index directions;
+ *       centerline speed is `icVelocityPhysical`; streamwise axis from `flowDirection`
+ *       or the identified INLET face.
  *
  * @param user      The main UserCtx struct, containing all simulation data and configuration.
  * @param fieldName A string ("Ucont" or "P") identifying which field to initialize.

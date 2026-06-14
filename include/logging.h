@@ -589,6 +589,13 @@ const char* BCFaceToString(BCFace face);
 const char* FieldInitializationToString(PetscInt FieldInitialization);
 
 /**
+ * @brief Convert a FlowDirection enum value to its YAML token string.
+ * @param[in] fd FlowDirection value.
+ * @return Token string such as "+Zeta", or "from INLET" when FLOW_DIR_UNSET.
+ */
+const char* FlowDirectionToString(FlowDirection fd);
+
+/**
  * @brief Helper function to convert ParticleInitialization to a string representation.
  * @param[in] ParticleInitialization The ParticleInitialization enum value.
  * @return Pointer to a constant string representing the FieldInitialization.

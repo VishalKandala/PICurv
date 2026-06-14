@@ -266,10 +266,14 @@ static PetscErrorCode TestSetInitialInteriorFieldIgnoresNonUcontRequest(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests constant-profile interior initialization on a Z-direction inlet.
+ * @brief Tests cartesian Constant IC: Cart2Contra sets contravariant flux via metric dot product.
+ *
+ * On a 5×5×5-cell unit cube (dx=dy=dz=0.2), the Zeta metric vector at any interior node is
+ * zet=(0, 0, dx*dy)=(0, 0, 0.04). Cart2Contra with (u,v,w)=(0,0,2) gives
+ * ucont.z = zet.z * w = 0.04 * 2.0 = 0.08; the Xi and Eta components remain zero because
+ * csi.z = eta.z = 0 on a Cartesian grid.
  */
-
-static PetscErrorCode TestSetInitialInteriorFieldConstantProfileOnZInlet(void)
+static PetscErrorCode TestSetInitialInteriorFieldCartesianConstantSetsContravariantFlux(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -277,9 +281,8 @@ static PetscErrorCode TestSetInitialInteriorFieldConstantProfileOnZInlet(void)
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
-    user->GridOrientation = 1;
-    user->identifiedInletBCFace = BC_FACE_NEG_Z;
-    simCtx->FieldInitialization = 1;
+    simCtx->FieldInitialization  = 1;
+    simCtx->icCoordinateSystem   = 0;   /* cartesian — delegates to Cart2Contra */
     simCtx->InitialConstantContra.x = 0.0;
     simCtx->InitialConstantContra.y = 0.0;
     simCtx->InitialConstantContra.z = 2.0;
@@ -287,10 +290,47 @@ static PetscErrorCode TestSetInitialInteriorFieldConstantProfileOnZInlet(void)
 
     PetscCall(SetInitialInteriorField(user, "Ucont"));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
-    PetscCall(PicurvAssertRealNear(0.0, ucont[1][1][1].x, 1.0e-12, "x contravariant component remains zero"));
-    PetscCall(PicurvAssertRealNear(0.0, ucont[1][1][1].y, 1.0e-12, "y contravariant component remains zero"));
-    PetscCall(PicurvAssertRealNear(2.0, ucont[1][1][1].z, 1.0e-12, "z contravariant component should match constant inlet magnitude"));
-    PetscCall(PicurvAssertRealNear(0.0, ucont[0][1][1].z, 1.0e-12, "boundary/ghost cell should remain unchanged"));
+    /* dx=dy=1/5=0.2; zet.z=dx*dy=0.04; ucont.z = 0.04*2.0 = 0.08 */
+    PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].x, 1.0e-10, "Xi flux is zero for pure-z velocity on Cartesian grid"));
+    PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].y, 1.0e-10, "Eta flux is zero for pure-z velocity on Cartesian grid"));
+    PetscCall(PicurvAssertRealNear(0.08, ucont[1][1][1].z, 1.0e-10, "Zeta flux = zet.z * w = 0.04 * 2.0"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests curvilinear Constant IC: flow_direction selects the streamwise axis.
+ *
+ * icVelocityPhysical=2.0, FLOW_DIR_POS_ZETA.  On a 5×5×5-cell unit cube,
+ * area magnitude = |zet| = 0.04, so ucont.z = 2.0*0.04 = 0.08.
+ * Xi and Eta components are left at zero regardless of InitialConstantContra.
+ */
+static PetscErrorCode TestSetInitialInteriorFieldCurvilinearConstantViaFlowDirection(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucont = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    simCtx->FieldInitialization  = 1;
+    simCtx->icCoordinateSystem   = 1;                /* curvilinear/streamwise */
+    simCtx->icVelocityPhysical   = 2.0;
+    simCtx->flowDirection        = FLOW_DIR_POS_ZETA;
+    user->GridOrientation        = 1;
+    /* InitialConstantContra intentionally non-zero to confirm only z-component is set */
+    simCtx->InitialConstantContra.x = 99.0;
+    simCtx->InitialConstantContra.y = 99.0;
+    simCtx->InitialConstantContra.z = 99.0;
+    PetscCall(VecSet(user->Ucont, 0.0));
+
+    PetscCall(SetInitialInteriorField(user, "Ucont"));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].x, 1.0e-10, "Xi flux is zero in curvilinear Zeta mode"));
+    PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].y, 1.0e-10, "Eta flux is zero in curvilinear Zeta mode"));
+    PetscCall(PicurvAssertRealNear(0.08, ucont[1][1][1].z, 1.0e-10, "Zeta flux = velocity_physical * |zet| = 2.0*0.04"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
@@ -1220,7 +1260,8 @@ int main(int argc, char **argv)
         {"update-particle-position-diffusivity-gradient-only", TestUpdateParticlePositionDiffusivityGradientOnly},
         {"update-particle-field-iem-relaxation", TestUpdateParticleFieldIEMRelaxation},
         {"set-initial-interior-field-ignores-non-ucont-request", TestSetInitialInteriorFieldIgnoresNonUcontRequest},
-        {"set-initial-interior-field-constant-profile-on-z-inlet", TestSetInitialInteriorFieldConstantProfileOnZInlet},
+        {"set-initial-interior-field-cartesian-constant-sets-contravariant-flux", TestSetInitialInteriorFieldCartesianConstantSetsContravariantFlux},
+        {"set-initial-interior-field-curvilinear-constant-via-flow-direction", TestSetInitialInteriorFieldCurvilinearConstantViaFlowDirection},
         {"interpolate-all-fields-to-swarm-constant-fields", TestInterpolateAllFieldsToSwarmConstantFields},
         {"interpolate-all-fields-to-swarm-corner-averaged-constant-fields", TestInterpolateAllFieldsToSwarmCornerAveragedConstantFields},
         {"scatter-all-particle-fields-to-euler-fields-averages-psi", TestScatterAllParticleFieldsToEulerFieldsAveragesPsi},

@@ -220,6 +220,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->InitialConstantContra.x = 0.0;
     simCtx->InitialConstantContra.y = 0.0;
     simCtx->InitialConstantContra.z = 0.0;
+    simCtx->flowDirection = FLOW_DIR_UNSET;
+    simCtx->icCoordinateSystem = 0;
+    simCtx->icVelocityPhysical = 0.0;
     simCtx->AnalyticalUniformVelocity.x = 0.0;
     simCtx->AnalyticalUniformVelocity.y = 0.0;
     simCtx->AnalyticalUniformVelocity.z = 0.0;
@@ -646,6 +649,14 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_x", &simCtx->InitialConstantContra.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_y", &simCtx->InitialConstantContra.y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ucont_z", &simCtx->InitialConstantContra.z, NULL); CHKERRQ(ierr);
+    {
+        PetscInt  fd_int = (PetscInt)FLOW_DIR_UNSET;
+        PetscBool fd_set = PETSC_FALSE;
+        ierr = PetscOptionsGetInt(NULL, NULL, "-flow_direction", &fd_int, &fd_set); CHKERRQ(ierr);
+        if (fd_set) simCtx->flowDirection = (FlowDirection)fd_int;
+    }
+    ierr = PetscOptionsGetInt(NULL, NULL, "-ic_coordinate_system", &simCtx->icCoordinateSystem, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-ic_velocity_physical", &simCtx->icVelocityPhysical, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_u", &simCtx->AnalyticalUniformVelocity.x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_v", &simCtx->AnalyticalUniformVelocity.y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-analytical_uniform_w", &simCtx->AnalyticalUniformVelocity.z, NULL); CHKERRQ(ierr);
@@ -2821,6 +2832,60 @@ PetscErrorCode Contra2Cart(UserCtx *user)
     ierr = DMDAVecRestoreArray(user->fda, user->Ucat, &gucat_arr); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Completed Contravariant-to-Cartesian velocity transformation. \n");
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "Cart2Contra"
+/**
+ * @brief Convert a uniform Cartesian velocity (u,v,w) to contravariant fluxes in Ucont.
+ * @details Computes the dot product of the physical velocity with each face-area vector:
+ *   U^xi  = csi · (u,v,w),  U^eta = eta · (u,v,w),  U^zeta = zet · (u,v,w).
+ * Writes to all owned nodes (xs..xe, ys..ye, zs..ze); boundary ghosts are
+ * overwritten later by ApplyBoundaryConditions.
+ * @param user  UserCtx with fda, Ucont, lCsi, lEta, lZet populated.
+ * @param u     Physical Cartesian x-velocity.
+ * @param v     Physical Cartesian y-velocity.
+ * @param w     Physical Cartesian z-velocity.
+ */
+PetscErrorCode Cart2Contra(UserCtx *user, PetscReal u, PetscReal v, PetscReal w)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+
+    DMDALocalInfo    info;
+    Cmpnts         ***ucont_arr;
+    const Cmpnts   ***csi_arr, ***eta_arr, ***zet_arr;
+
+    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont_arr);        CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi_arr);       CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta_arr);       CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet_arr);       CHKERRQ(ierr);
+
+    const PetscInt xs = info.xs, xe = info.xs + info.xm;
+    const PetscInt ys = info.ys, ye = info.ys + info.ym;
+    const PetscInt zs = info.zs, ze = info.zs + info.zm;
+
+    for (PetscInt k = zs; k < ze; k++) {
+        for (PetscInt j = ys; j < ye; j++) {
+            for (PetscInt i = xs; i < xe; i++) {
+                ucont_arr[k][j][i].x = csi_arr[k][j][i].x * u + csi_arr[k][j][i].y * v + csi_arr[k][j][i].z * w;
+                ucont_arr[k][j][i].y = eta_arr[k][j][i].x * u + eta_arr[k][j][i].y * v + eta_arr[k][j][i].z * w;
+                ucont_arr[k][j][i].z = zet_arr[k][j][i].x * u + zet_arr[k][j][i].y * v + zet_arr[k][j][i].z * w;
+            }
+        }
+    }
+
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet_arr);   CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta_arr);   CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi_arr);   CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont_arr);    CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Cart2Contra: set Ucont from Cartesian (%.3f, %.3f, %.3f).\n",
+              (double)u, (double)v, (double)w);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

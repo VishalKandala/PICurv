@@ -247,6 +247,21 @@ typedef enum {
     BC_FACE_NEG_Z = 4, BC_FACE_POS_Z = 5
 } BCFace;
 
+/** @brief Primary flow direction for streamwise IC and Poiseuille modes.
+ *  Even values = positive-face-normal direction; odd = negative.
+ *  axis = value / 2  (0=Xi, 1=Eta, 2=Zeta).
+ *  sign = (value % 2 == 0) ? +1 : -1.
+ */
+typedef enum {
+    FLOW_DIR_POS_XI   = 0,
+    FLOW_DIR_NEG_XI   = 1,
+    FLOW_DIR_POS_ETA  = 2,
+    FLOW_DIR_NEG_ETA  = 3,
+    FLOW_DIR_POS_ZETA = 4,
+    FLOW_DIR_NEG_ZETA = 5,
+    FLOW_DIR_UNSET    = -1
+} FlowDirection;
+
 /** @brief Defines the general mathematical/physical Category of a boundary. */
 typedef enum {
     WALLFUNCTION       = -1,
@@ -703,8 +718,11 @@ typedef struct SimCtx {
     PetscReal max_pseudo_cfl, min_pseudo_cfl; // New addition for adaptive pseudo-CFL
     PetscReal mom_dt_jameson_residual_norm_noise_allowance_factor; // New addition for divergence detection
     PetscBool ps_ksp_pic_monitor_true_residual; // Parsed once from options for custom Poisson monitor logging.
-    PetscInt  FieldInitialization; 
-    Cmpnts    InitialConstantContra;
+    PetscInt  FieldInitialization;
+    Cmpnts    InitialConstantContra;  /* Cartesian (u,v,w) for constant-cartesian IC */
+    FlowDirection flowDirection;      /* explicit flow direction for streamwise/Poiseuille */
+    PetscInt  icCoordinateSystem;     /* 0=cartesian (default), 1=curvilinear/streamwise */
+    PetscReal icVelocityPhysical;     /* scalar speed for curvilinear Constant and Poiseuille */
     Cmpnts    AnalyticalUniformVelocity;
     SolutionConvergenceMode solutionConvergenceMode;
     PetscInt  solutionConvergencePeriodSteps;

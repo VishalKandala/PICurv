@@ -428,43 +428,19 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
         PetscInt      zs = info.zs, ze = info.zs + info.zm;
         PetscInt      mx = info.mx, my = info.my, mz = info.mz;
 
-        // --- Step 1: Set Ucont (contravariant flux) using metric dot products ---
-        // U^i = g_i · u_phys, where g_i is the face area vector (Csi, Eta, Zet).
-        // This is the curvilinear form: the volume flux through each face.
-        // We loop over ALL owned nodes (including boundary faces) because Contra2Cart
-        // averages adjacent face values — boundary faces must carry valid fluxes.
-        Cmpnts ***ucont, ***ubcs;
-        const Cmpnts ***csi, ***eta, ***zet;
-
-        ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont);         CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs);      CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi);       CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta);       CHKERRQ(ierr);
-        ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet);       CHKERRQ(ierr);
-
-        for (PetscInt k = zs; k < ze; k++) {
-            for (PetscInt j = ys; j < ye; j++) {
-                for (PetscInt i = xs; i < xe; i++) {
-                    ucont[k][j][i].x = csi[k][j][i].x * u + csi[k][j][i].y * v + csi[k][j][i].z * w;
-                    ucont[k][j][i].y = eta[k][j][i].x * u + eta[k][j][i].y * v + eta[k][j][i].z * w;
-                    ucont[k][j][i].z = zet[k][j][i].x * u + zet[k][j][i].y * v + zet[k][j][i].z * w;
-                }
-            }
-        }
+        // --- Step 1: Set Ucont (contravariant flux) via Cart2Contra ---
+        ierr = Cart2Contra(user, u, v, w); CHKERRQ(ierr);
 
         // --- Step 2: Set Ubcs at boundaries (physical Cartesian velocity) ---
+        Cmpnts ***ubcs;
+        ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
         if (xs == 0) for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) ubcs[k][j][xs] = uniform_velocity;
         if (xe == mx) for (PetscInt k = zs; k < ze; k++) for (PetscInt j = ys; j < ye; j++) ubcs[k][j][xe - 1] = uniform_velocity;
         if (ys == 0) for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) ubcs[k][ys][i] = uniform_velocity;
         if (ye == my) for (PetscInt k = zs; k < ze; k++) for (PetscInt i = xs; i < xe; i++) ubcs[k][ye - 1][i] = uniform_velocity;
         if (zs == 0) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) ubcs[zs][j][i] = uniform_velocity;
         if (ze == mz) for (PetscInt j = ys; j < ye; j++) for (PetscInt i = xs; i < xe; i++) ubcs[ze - 1][j][i] = uniform_velocity;
-
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet);   CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta);   CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi);   CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs);  CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont);    CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
 
         // --- Step 3: Zero pressure ---
         ierr = VecZeroEntries(user->P); CHKERRQ(ierr);

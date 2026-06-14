@@ -158,7 +158,8 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `update-particle-position-without-brownian-contribution`
   - `update-particle-field-iem-relaxation`
   - `set-initial-interior-field-ignores-non-ucont-request`
-  - `set-initial-interior-field-constant-profile-on-z-inlet`
+  - `set-initial-interior-field-cartesian-constant-sets-contravariant-flux`
+  - `set-initial-interior-field-curvilinear-constant-via-flow-direction`
   - `interpolate-all-fields-to-swarm-constant-fields`
   - `interpolate-all-fields-to-swarm-corner-averaged-constant-fields`
   - `scatter-all-particle-fields-to-euler-fields-averages-psi`

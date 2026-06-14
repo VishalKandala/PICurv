@@ -688,9 +688,27 @@ const char* FieldInitializationToString(PetscInt FieldInitialization)
 {
     switch(FieldInitialization){
         case 0: return "Zero";
-        case 1: return "Constant Normal velocity";
-        case 2: return "Poiseuille Normal velocity";
+        case 1: return "Constant";
+        case 2: return "Poiseuille";
         default: return "Unknown Field Initialization";
+    }
+}
+
+/**
+ * @brief Convert a FlowDirection enum value to its token string.
+ * @param[in] fd FlowDirection value.
+ * @return Constant string token (e.g. "+Zeta") or "from INLET" when FLOW_DIR_UNSET.
+ */
+const char* FlowDirectionToString(FlowDirection fd)
+{
+    switch ((int)fd) {
+        case FLOW_DIR_POS_XI:   return "+Xi";
+        case FLOW_DIR_NEG_XI:   return "-Xi";
+        case FLOW_DIR_POS_ETA:  return "+Eta";
+        case FLOW_DIR_NEG_ETA:  return "-Eta";
+        case FLOW_DIR_POS_ZETA: return "+Zeta";
+        case FLOW_DIR_NEG_ZETA: return "-Zeta";
+        default:                return "from INLET";
     }
 }
 

@@ -372,6 +372,23 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx);
  */
 PetscErrorCode Contra2Cart(UserCtx *user);
 
+/**
+ * @brief Convert a Cartesian velocity vector to contravariant flux components over all owned nodes.
+ * @ingroup FieldInitialization
+ *
+ * Computes the dot product of the Cartesian vector (u, v, w) with each face-area metric vector
+ * (Csi, Eta, Zet) at every locally owned grid node and writes the result into user->Ucont.
+ * This function must be called before user->Ucont is opened by the caller — it opens and
+ * restores the Vec internally.
+ *
+ * @param[in,out] user  UserCtx for the block; Ucont is written in place.
+ * @param[in]     u     Physical x-velocity component.
+ * @param[in]     v     Physical y-velocity component.
+ * @param[in]     w     Physical z-velocity component.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode Cart2Contra(UserCtx *user, PetscReal u, PetscReal v, PetscReal w);
+
 
 /**
  * @brief Creates and distributes a map of the domain's cell decomposition to all ranks.

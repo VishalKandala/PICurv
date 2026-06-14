@@ -2194,7 +2194,23 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             }
             ierr = PetscPrintf(PETSC_COMM_SELF, " Field Initialization Mode   : %s\n", field_init_str); CHKERRQ(ierr);
             if (simCtx->FieldInitialization == 1) {
-                ierr = PetscPrintf(PETSC_COMM_SELF, " Constant Velocity           : x - %.4f, y - %.4f, z - %.4f \n", (double)simCtx->InitialConstantContra.x,(double)simCtx->InitialConstantContra.y,(double)simCtx->InitialConstantContra.z ); CHKERRQ(ierr);
+                if (simCtx->icCoordinateSystem == 0) {
+                    ierr = PetscPrintf(PETSC_COMM_SELF,
+                        " Constant Velocity (Cart.)   : x=%.4f  y=%.4f  z=%.4f\n",
+                        (double)simCtx->InitialConstantContra.x,
+                        (double)simCtx->InitialConstantContra.y,
+                        (double)simCtx->InitialConstantContra.z); CHKERRQ(ierr);
+                } else {
+                    ierr = PetscPrintf(PETSC_COMM_SELF,
+                        " Constant Velocity (Curv.)   : speed=%.4f  direction=%s\n",
+                        (double)simCtx->icVelocityPhysical,
+                        FlowDirectionToString(simCtx->flowDirection)); CHKERRQ(ierr);
+                }
+            } else if (simCtx->FieldInitialization == 2) {
+                ierr = PetscPrintf(PETSC_COMM_SELF,
+                    " Poiseuille Peak Velocity    : speed=%.4f  direction=%s\n",
+                    (double)simCtx->icVelocityPhysical,
+                    FlowDirectionToString(simCtx->flowDirection)); CHKERRQ(ierr);
             }
         } else if(strcmp(simCtx->eulerianSource,"analytical")==0){
             ierr = PetscPrintf(PETSC_COMM_WORLD," Analytical Solution Type : %s\n", simCtx->AnalyticalSolutionType); CHKERRQ(ierr);

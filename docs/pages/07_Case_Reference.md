@@ -22,31 +22,50 @@ properties:
     density: 1000.0
     viscosity: 0.001
   initial_conditions:
-    mode: "Constant"
-    u_physical: 1.5
+    mode: "Constant"       # Zero | Constant | Poiseuille
+    u_physical: 1.5        # cartesian Constant: explicit x/y/z components
     v_physical: 0.0
     w_physical: 0.0
+```
+
+Alternative IC forms:
+
+```yaml
+# curvilinear Constant — single streamwise speed (periodic or no-inlet case)
+initial_conditions:
+  mode: "Constant"
+  velocity_physical: 1.5
+  flow_direction: "+Zeta"  # required when no INLET face; omit if INLET provides direction
+
+# Poiseuille — parabolic profile
+initial_conditions:
+  mode: "Poiseuille"
+  peak_velocity_physical: 1.5
+  flow_direction: "+Zeta"  # required when no INLET face
 ```
 
 Key mappings:
 - `scaling.length_ref` -> `-scaling_L_ref`
 - `scaling.velocity_ref` -> `-scaling_U_ref`
 - `fluid.density` and `fluid.viscosity` are used by `picurv` to compute Reynolds number -> `-ren`
-- `initial_conditions.mode` -> `-finit` (`Zero`, `Constant`, `Poiseuille`)
-- `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
-- `peak_velocity_physical` (Poiseuille only) -> mapped by `picurv` to the inlet-aligned `-ucont_*` component
+- `initial_conditions.mode` -> `-finit` (`Zero`→0, `Constant`→1, `Poiseuille`→2)
+- `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z` (cartesian Constant)
+- `velocity_physical` -> `-ic_velocity_physical` + `-ic_coordinate_system 1` (curvilinear Constant)
+- `peak_velocity_physical` -> `-ic_velocity_physical` (Poiseuille)
+- `flow_direction` -> `-flow_direction <int>` (`+Xi=0,-Xi=1,+Eta=2,-Eta=3,+Zeta=4,-Zeta=5`)
 
 For the scaling model and conversion logic, see **@subpage 19_Nondimensionalization**.
 For detailed startup behavior of field initialization modes, see **@subpage 33_Initial_Conditions**.
 
 Practical contract notes:
 
-- `initial_conditions.mode` should be set explicitly. The launcher now requires the choice instead of silently inferring it.
+- `initial_conditions.mode` must be set explicitly.
 - `mode: "Zero"` may omit velocity components entirely.
-- `mode: "Constant"` requires explicit `u_physical/v_physical/w_physical`.
-- `mode: "Poiseuille"` may use either:
-  - `peak_velocity_physical` for the scalar centerline-speed input, or
-  - `u_physical/v_physical/w_physical` for an explicit component override.
+- `mode: "Constant"` with `u/v/w_physical` → cartesian mode (`flow_direction` forbidden).
+- `mode: "Constant"` with `velocity_physical` → curvilinear/streamwise mode.
+- `mode: "Poiseuille"` uses `peak_velocity_physical` as the centerline speed (not bulk mean).
+- `flow_direction` is required for curvilinear Constant and Poiseuille when no INLET face exists.
+- Mixing `u/v/w_physical` and `velocity_physical` in the same block is an error.
 
 @section p07_run_control_sec 2. run_control
 

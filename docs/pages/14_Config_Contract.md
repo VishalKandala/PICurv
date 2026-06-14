@@ -61,9 +61,14 @@ For each run, `picurv` generates:
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
 - `properties.initial_conditions.mode` is required explicitly by the launcher.
 - `properties.initial_conditions.mode: Zero` may omit velocity components.
-- `properties.initial_conditions.mode: Poiseuille` supports:
-  - `peak_velocity_physical` (scalar centerline speed), or
-  - `u_physical/v_physical/w_physical` (explicit component override).
+- `properties.initial_conditions.mode: Constant` supports two sub-modes (inferred from keys present):
+  - **Cartesian**: provide `u_physical`, `v_physical`, `w_physical`; `flow_direction` is forbidden.
+  - **Curvilinear/streamwise**: provide `velocity_physical` (scalar speed); requires `flow_direction`
+    or an INLET face to define the streamwise axis.
+  - Mixing cartesian and curvilinear keys in the same block is an error.
+- `properties.initial_conditions.mode: Poiseuille` requires `peak_velocity_physical` (the centerline
+  speed, not bulk mean); requires `flow_direction` or an INLET face; when both are present their
+  axes must agree.
 
 @section p14_solver_sec 4. Solver Contract Highlights
 

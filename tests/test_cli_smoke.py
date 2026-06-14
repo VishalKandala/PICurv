@@ -1686,6 +1686,212 @@ def test_validate_initial_condition_mode_must_be_explicit(tmp_path):
     assert "properties.initial_conditions.mode" in result.stderr
 
 
+def test_validate_constant_curvilinear_with_inlet_needs_no_flow_direction(tmp_path):
+    """!
+    @brief Test that curvilinear Constant IC passes when inlet provides flow direction.
+    @details velocity_physical alone is sufficient when an INLET face exists.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_curv_inlet.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace(
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
+        '    mode: "Constant"\n    velocity_physical: 1.0\n',
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_picurv(
+        ["validate", "--case", str(case_path),
+         "--solver", str(valid / "solver.yml"),
+         "--monitor", str(valid / "monitor.yml")]
+    )
+
+    assert result.returncode == 0
+    assert "[SUCCESS] Validation completed" in result.stdout
+
+
+def test_validate_constant_curvilinear_periodic_requires_flow_direction(tmp_path):
+    """!
+    @brief Test that curvilinear Constant IC fails when periodic and no flow_direction given.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_curv_periodic_no_fd.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace(
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
+        '    mode: "Constant"\n    velocity_physical: 1.0\n',
+    )
+    case_text = case_text.replace(
+        "    blocks: 1\n",
+        "    blocks: 1\n    k_periodic: true\n",
+    )
+    case_text = case_text.replace(
+        "  - face: \"-Zeta\"\n    type: INLET\n    handler: constant_velocity\n    params:\n      vx: 0.0\n      vy: 0.0\n      vz: 1.0\n",
+        "  - face: \"-Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
+    )
+    case_text = case_text.replace(
+        "  - face: \"+Zeta\"\n    type: OUTLET\n    handler: conservation\n",
+        "  - face: \"+Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_picurv(
+        ["validate", "--case", str(case_path),
+         "--solver", str(valid / "solver.yml"),
+         "--monitor", str(valid / "monitor.yml")]
+    )
+
+    assert result.returncode == 1
+    assert "flow_direction" in result.stderr
+
+
+def test_validate_constant_curvilinear_periodic_with_flow_direction_passes(tmp_path):
+    """!
+    @brief Test that curvilinear Constant IC passes when periodic and flow_direction is given.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_curv_periodic_fd.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace(
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
+        '    mode: "Constant"\n    velocity_physical: 1.0\n    flow_direction: "+Zeta"\n',
+    )
+    case_text = case_text.replace(
+        "    blocks: 1\n",
+        "    blocks: 1\n    k_periodic: true\n",
+    )
+    case_text = case_text.replace(
+        "  - face: \"-Zeta\"\n    type: INLET\n    handler: constant_velocity\n    params:\n      vx: 0.0\n      vy: 0.0\n      vz: 1.0\n",
+        "  - face: \"-Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
+    )
+    case_text = case_text.replace(
+        "  - face: \"+Zeta\"\n    type: OUTLET\n    handler: conservation\n",
+        "  - face: \"+Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_picurv(
+        ["validate", "--case", str(case_path),
+         "--solver", str(valid / "solver.yml"),
+         "--monitor", str(valid / "monitor.yml")]
+    )
+
+    assert result.returncode == 0
+    assert "[SUCCESS] Validation completed" in result.stdout
+
+
+def test_validate_constant_mixing_cartesian_and_curvilinear_keys_fails(tmp_path):
+    """!
+    @brief Test that mixing u/v/w_physical and velocity_physical is rejected.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_mixed_keys.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace(
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
+        '    mode: "Constant"\n    u_physical: 1.0\n    velocity_physical: 1.0\n',
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_picurv(
+        ["validate", "--case", str(case_path),
+         "--solver", str(valid / "solver.yml"),
+         "--monitor", str(valid / "monitor.yml")]
+    )
+
+    assert result.returncode == 1
+    assert "cannot mix" in result.stderr
+
+
+def test_validate_constant_cartesian_with_flow_direction_fails(tmp_path):
+    """!
+    @brief Test that adding flow_direction to a cartesian Constant IC is rejected.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_cart_fd.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace(
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n    flow_direction: "+Zeta"\n',
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_picurv(
+        ["validate", "--case", str(case_path),
+         "--solver", str(valid / "solver.yml"),
+         "--monitor", str(valid / "monitor.yml")]
+    )
+
+    assert result.returncode == 1
+    assert "flow_direction" in result.stderr
+
+
+def test_validate_poiseuille_with_flow_direction_no_inlet_passes(tmp_path):
+    """!
+    @brief Test that Poiseuille with explicit flow_direction passes when fully periodic.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_pois_periodic.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_text = case_text.replace(
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
+        '    mode: "Poiseuille"\n    peak_velocity_physical: 1.0\n    flow_direction: "+Zeta"\n',
+    )
+    case_text = case_text.replace(
+        "    blocks: 1\n",
+        "    blocks: 1\n    k_periodic: true\n",
+    )
+    case_text = case_text.replace(
+        "  - face: \"-Zeta\"\n    type: INLET\n    handler: constant_velocity\n    params:\n      vx: 0.0\n      vy: 0.0\n      vz: 1.0\n",
+        "  - face: \"-Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
+    )
+    case_text = case_text.replace(
+        "  - face: \"+Zeta\"\n    type: OUTLET\n    handler: conservation\n",
+        "  - face: \"+Zeta\"\n    type: PERIODIC\n    handler: geometric\n",
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_picurv(
+        ["validate", "--case", str(case_path),
+         "--solver", str(valid / "solver.yml"),
+         "--monitor", str(valid / "monitor.yml")]
+    )
+
+    assert result.returncode == 0
+    assert "[SUCCESS] Validation completed" in result.stdout
+
+
+def test_validate_poiseuille_flow_direction_mismatch_with_inlet_fails(tmp_path):
+    """!
+    @brief Test that flow_direction mismatching the INLET axis is rejected for Poiseuille.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_pois_mismatch.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    # Inlet is on -Zeta (z-axis); flow_direction +Xi (x-axis) should conflict
+    case_text = case_text.replace(
+        '    mode: "Constant"\n    u_physical: 0.0\n    v_physical: 0.0\n    w_physical: 1.0\n',
+        '    mode: "Poiseuille"\n    peak_velocity_physical: 1.0\n    flow_direction: "+Xi"\n',
+    )
+    case_path.write_text(case_text, encoding="utf-8")
+
+    result = run_picurv(
+        ["validate", "--case", str(case_path),
+         "--solver", str(valid / "solver.yml"),
+         "--monitor", str(valid / "monitor.yml")]
+    )
+
+    assert result.returncode == 1
+    assert "flow_direction" in result.stderr
+
+
 def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
     """!
     @brief Test that validate analytical mode requires programmatic grid.

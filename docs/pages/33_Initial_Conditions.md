@@ -19,83 +19,123 @@ Startup sequence:
 
 @section p33_euler_sec 2. Eulerian Field Initialization (`properties.initial_conditions`)
 
-YAML:
+There are three IC modes (Zero, Constant, Poiseuille) and two Constant sub-modes (cartesian
+and curvilinear). The sub-mode is inferred from which velocity keys are present — no explicit
+`coordinate_system` key is needed.
+
+**Zero** — set everything to zero:
 
 ```yaml
 properties:
   initial_conditions:
-    mode: "Constant"   # Zero | Constant | Poiseuille
-    u_physical: 1.5
+    mode: "Zero"
+```
+
+**Constant, cartesian** — three Cartesian components; works for any domain:
+
+```yaml
+properties:
+  initial_conditions:
+    mode: "Constant"
+    u_physical: 1.5   # x-component (physical units)
     v_physical: 0.0
     w_physical: 0.0
 ```
 
-Preferred Poiseuille form:
+**Constant, curvilinear** — single streamwise speed; requires `flow_direction` or an INLET face:
+
+```yaml
+properties:
+  initial_conditions:
+    mode: "Constant"
+    velocity_physical: 1.5        # streamwise speed (physical units)
+    flow_direction: "+Zeta"       # required when no INLET face is present
+```
+
+Valid `flow_direction` tokens: `+Xi`, `-Xi`, `+Eta`, `-Eta`, `+Zeta`, `-Zeta`.
+
+**Poiseuille** — separable parabolic profile in the two cross-stream directions:
 
 ```yaml
 properties:
   initial_conditions:
     mode: "Poiseuille"
-    peak_velocity_physical: 1.5
+    peak_velocity_physical: 1.5   # centerline speed (physical units)
+    flow_direction: "+Zeta"       # required when no INLET face is present
 ```
 
 `picurv` mapping:
 
-- `mode` -> `-finit` via `normalize_field_init_mode`:
-  - `Zero` (or `0`) -> `0`
-  - `Constant` (or `1`) -> `1`
-  - `Poiseuille` (or `2`) -> `2`
-- `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z` after non-dimensionalization by `U_ref`.
-- `peak_velocity_physical` (Poiseuille only) -> `picurv` infers the unique inlet axis from `boundary_conditions` and maps the scalar peak speed onto the matching `-ucont_*` component.
+| YAML key | CLI flag | Notes |
+|----------|----------|-------|
+| `mode: "Zero"` | `-finit 0` | velocity components ignored |
+| `mode: "Constant"` + `u/v/w_physical` | `-finit 1 -ucont_x … -ucont_y … -ucont_z …` | cartesian sub-mode; `flow_direction` forbidden |
+| `mode: "Constant"` + `velocity_physical` | `-finit 1 -ic_coordinate_system 1 -ic_velocity_physical …` | curvilinear sub-mode |
+| `mode: "Poiseuille"` | `-finit 2 -ic_velocity_physical …` | `peak_velocity_physical` is the centerline speed |
+| `flow_direction: "+Zeta"` | `-flow_direction 4` | token-to-int map: `+Xi=0,-Xi=1,+Eta=2,-Eta=3,+Zeta=4,-Zeta=5` |
+
+`flow_direction` resolution order (C side):
+1. Derived from identified INLET face (if present).
+2. Explicit `-flow_direction` CLI flag (set by `flow_direction` key).
+3. Error — one of the above is required for curvilinear Constant and Poiseuille.
 
 Launcher-side contract:
 
-- `mode` should be set explicitly.
-- for `Zero`, velocity components may be omitted and default to zero.
-- for `Constant`, explicit component values are required.
-- for `Poiseuille`, use either:
-  - `peak_velocity_physical`, or
-  - `u_physical/v_physical/w_physical`
-  but not both in the same block.
+- `mode` must be set explicitly.
+- For `Zero`, velocity keys may be omitted.
+- For `Constant`, provide either `u/v/w_physical` (cartesian) **or** `velocity_physical` (curvilinear), not both.
+- For cartesian `Constant`, `flow_direction` is forbidden.
+- For curvilinear `Constant` and `Poiseuille`, `flow_direction` is required when no INLET face exists.
+- When both `flow_direction` and an INLET face are present (Poiseuille only), their axes must agree.
 
 C-side entry points:
 
 - @ref InitializeEulerianState
 - @ref SetInitialInteriorField
+- @ref Cart2Contra
 - @ref FieldInitializationToString
 
 @section p33_euler_modes_sec 3. Eulerian Mode Details
 
 `-finit = 0` (Zero):
 
-- sets interior contravariant velocity to zero.
+- sets all interior contravariant velocity components to zero.
 
-`-finit = 1` (Constant Normal Velocity):
+`-finit = 1` (Constant Velocity) — two sub-modes selected by `-ic_coordinate_system`:
 
-- uses inlet-face orientation to select the normal component,
-- uses `InitialConstantContra` as target normal speed,
-- applies sign according to inlet on min or max face.
+- **Cartesian** (`-ic_coordinate_system 0`, default): `Cart2Contra` dots the Cartesian vector
+  `(-ucont_x, -ucont_y, -ucont_z)` with face-area metric vectors (`Csi`, `Eta`, `Zet`) at every
+  interior node, filling all three contravariant components correctly.  The old
+  `identifiedInletBCFace`-based path is no longer used for this mode.
+
+- **Curvilinear / streamwise** (`-ic_coordinate_system 1`): sets only the normal contravariant
+  component along the streamwise axis (derived from `flow_direction`), scaled by the face-area
+  magnitude.  The two cross-stream components are left at zero.
 
 `-finit = 2` (Poiseuille-like Normal Velocity):
 
-- computes a separable parabolic profile using index-space normalized cross-stream coordinates,
-- applies profile in the two cross-stream directions,
-- clamps small negative roundoff to zero.
-- treats the inlet-aligned input component as the profile peak (`Vmax` / centerline speed), not bulk-average velocity.
-
-This means `peak_velocity_physical` is the clearest user-facing representation for Poiseuille mode.
+- computes a separable parabolic profile in the two cross-stream index directions,
+- applies zero-clamping to suppress roundoff negatives near corners,
+- `peak_velocity_physical` is the centerline speed (`Vmax`), not the bulk/mean average.
 
 @section p33_euler_formula_sec 4. Contravariant Initialization Note
 
-Initialization is applied to contravariant velocity components, scaled by face-area metrics:
+Contravariant velocity (flux) at a face equals the physical velocity dotted with the face-area
+metric vector:
 
 \f[
-U_n = v_n\,A_n,
+U_\xi = \mathbf{v} \cdot \mathbf{A}_\xi, \quad
+U_\eta = \mathbf{v} \cdot \mathbf{A}_\eta, \quad
+U_\zeta = \mathbf{v} \cdot \mathbf{A}_\zeta.
 \f]
 
-where face areas are derived from metric vectors (`Csi`, `Eta`, `Zet`) and sign is aligned with inlet face orientation.
+`Cart2Contra` performs this dot product over all owned interior nodes for the cartesian Constant
+mode and is also used by the analytical solver.  For curvilinear / Poiseuille modes the
+streamwise normal component is computed directly from the face-area magnitude and the physical
+speed.
 
-This is why equivalent physical inflow speed can map to different `Ucont` magnitudes on stretched/curved meshes.
+Because face areas scale with mesh spacing and curvature, the same physical speed produces
+different `Ucont` magnitudes on stretched or curved meshes — this is expected and correct.
 
 @section p33_restart_modes_sec 5. Eulerian Restart Branches
 
@@ -133,9 +173,11 @@ After startup, confirm:
 
 Common pitfalls:
 
-- using `Poiseuille` in strongly non-rectangular topology and expecting textbook cylindrical profile,
+- using `Poiseuille` in strongly non-rectangular topology and expecting a textbook cylindrical profile,
 - supplying a bulk/mean velocity to Poiseuille mode when the current implementation expects `Vmax`,
-- forgetting that initialization sets interior only; boundary handlers then overwrite face behavior,
+- forgetting that initialization sets the interior only; boundary handlers then overwrite face values,
+- mixing `u/v/w_physical` and `velocity_physical` in the same `initial_conditions` block,
+- omitting `flow_direction` when the domain is fully periodic (no INLET face),
 - comparing `u_physical` directly to `Ucont` without accounting for metric-face scaling.
 
 @section p33_refs_sec 8. Related Pages

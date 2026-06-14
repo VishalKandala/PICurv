@@ -124,19 +124,25 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
 - Schema home: `case.yml -> properties.initial_conditions.mode`
 - Canonical values:
   - `Zero`
-  - `Constant`
+  - `Constant` — two sub-modes, inferred from YAML keys present
   - `Poiseuille`
 - Python hooks:
   - `normalize_field_init_mode()`
-  - `resolve_initial_velocity_components()`
+  - `normalize_flow_direction_token()`
+  - `resolve_ic_cli_params()`
+  - `_ic_has_inlet()`
 - Generated mapping:
   - `mode` -> `-finit`
-  - `u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
+  - cartesian Constant (`u/v/w_physical` present): `-ucont_x/-ucont_y/-ucont_z`
+  - curvilinear Constant (`velocity_physical` present): `-ic_coordinate_system 1 -ic_velocity_physical`
+  - Poiseuille: `-ic_velocity_physical`
+  - `flow_direction` (curvilinear Constant / Poiseuille, when no INLET): `-flow_direction <int>`
 - C storage/parser:
-  - `FieldInitialization` in `SimCtx`
-  - `-finit` in @ref CreateSimulationContext
+  - `FieldInitialization`, `icCoordinateSystem`, `icVelocityPhysical`, `flowDirection` in `SimCtx`
+  - Parsed via `-finit`, `-ic_coordinate_system`, `-ic_velocity_physical`, `-flow_direction`
 - Runtime:
-  - `src/initialcondition.c`
+  - `src/initialcondition.c` — `SetInitialInteriorField`
+  - `src/setup.c` — `Cart2Contra`
 - Tests/docs to update:
   - `tests/test_cli_smoke.py`
   - **@subpage 33_Initial_Conditions**
