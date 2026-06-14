@@ -14,6 +14,9 @@ This directory is the Python/shell control plane for PICurv. It covers user work
 - `profile.gen`
   - standalone dimensional `PICSLICE` profile generator used by `picurv` generated and field-sliced profile orchestration
   - currently supports `square_duct_poiseuille`
+- `ic.gen`
+  - standalone expression-based `Ucat`/`Ucont` initial-condition generator
+  - evaluates fields on staged nondimensional PICGRID cell or face geometry and writes PETSc binary vectors
 - `plot.gen`
   - standalone renderer for versioned normalized time-history JSON requests
   - used by `picurv summarize --plot`; owns matplotlib styling, interactive display, saving, and headless fallback
@@ -52,6 +55,7 @@ Use script-local `--help` as the first source of truth:
 - `python3 scripts/grid.gen --help`
 - `python3 scripts/grid.gen legacy1d --help`
 - `python3 scripts/profile.gen --help`
+- `python3 scripts/ic.gen --help`
 - `python3 scripts/plot.gen --help`
 - `python3 scripts/audit_ingress.py --help`
 - `python3 scripts/check_markdown_links.py --help`

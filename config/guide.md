@@ -21,6 +21,7 @@ Two repo-wide patterns are especially important in the current codebase:
 - `monitors/guide.md`
 - `postprocessors/guide.md`
 - `profiles/guide.md`
+- `initial_conditions/guide.md`
 - `runtime/guide.md`
 - `schedulers/guide.md`
 - `solvers/guide.md`

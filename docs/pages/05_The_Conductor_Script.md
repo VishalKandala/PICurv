@@ -401,13 +401,14 @@ Common `run` use cases:
 `precompute` materializes deterministic case artifacts without launching the
 solver. It uses the same `case.yml` generator settings as `run --solve`:
 
-- `grid.mode: grid_gen` writes the configured dimensional `PICGRID`,
+- `grid.mode: grid_gen` writes the configured dimensional `PICGRID`; file and
+  generated grids are also validated and staged as nondimensional `config/grid.run`,
 - `prescribed_flow.source.type: generated` delegates dimensional `.picslice`
   profile generation to `scripts/profile.gen` or optional `source.script` and writes `profile.info`,
 - `prescribed_flow.source.type: field_slice` extracts a dimensional `.picslice`
   from an old Cartesian `ufield*.dat` plus its old `PICGRID`,
 - `initial_conditions.generator: ic_gen` runs `scripts/ic.gen` or optional `params.script` and
-  stages its PETSc vector output,
+  stages its PETSc vector output after the run grid is available,
 - `config/precompute.manifest.json` records generated paths, profile stats, and IC staging.
 
 The output layout mirrors `runs/<run_id>/config/` so inspected artifacts can be

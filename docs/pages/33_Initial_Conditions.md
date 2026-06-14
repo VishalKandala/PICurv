@@ -95,7 +95,7 @@ properties:
     params:
       field: Ucat
       script: tools/custom_ic.py  # optional; defaults to scripts/ic.gen
-      config_file: config/initial_condition.yml
+      config_file: config/initial_conditions/expression.cfg
       output_file: config/initial_condition.generated.dat
 ```
 
@@ -103,11 +103,21 @@ The launcher invokes `scripts/ic.gen` by default, or the optional case-relative/
 `params.script` override, as:
 
 ```text
-python <ic-generator> -c <config_file> --field Ucat|Ucont --output <output_file> [cli_args...]
+python <ic-generator> -c <config_file> --field Ucat|Ucont --output <output_file> --grid <grid.run> [cli_args...]
 ```
 
 `picurv run --solve` materializes the result after grid preparation. `picurv precompute --case ...`
 materializes and stages the same artifact without running the solver.
+
+The repository `ic.gen` accepts an INI `[expression]` section. `Ucat` configs
+define `u`, `v`, and `w`, evaluated at actual cell centers with extrapolated
+dummy-cell centers. `Ucont` configs define `u_xi`, `u_eta`, and `u_zeta`,
+evaluated at their corresponding geometric face centers. Expressions may use
+`x/y/z`, normalized logical `xi/eta/zeta`, storage `i/j/k`, `pi`, and the
+documented numerical functions. The first implementation supports one block.
+The repository generator requires a staged PICGRID, so normal use selects
+`grid.mode: file` or `grid.mode: grid_gen`. A custom `params.script` may define
+its own behavior for `programmatic_c`.
 
 @section p33_euler_modes_sec 3. C Runtime Modes and Entry Points
 

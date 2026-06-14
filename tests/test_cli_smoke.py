@@ -22,6 +22,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PICURV = REPO_ROOT / "scripts" / "picurv"
 PROFILE_GEN = REPO_ROOT / "scripts" / "profile.gen"
+IC_GEN = REPO_ROOT / "scripts" / "ic.gen"
 PLOT_GEN = REPO_ROOT / "scripts" / "plot.gen"
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
@@ -209,6 +210,7 @@ def write_fake_ic_generator(path: Path, require_grid_run: bool = False) -> Path:
         "p.add_argument('-c', required=True)\n"
         "p.add_argument('--field', required=True)\n"
         "p.add_argument('--output', required=True)\n"
+        "p.add_argument('--grid')\n"
         "a=p.parse_args()\n"
         + grid_assertion +
         "shutil.copy2(a.c, a.output)\n",
@@ -535,6 +537,37 @@ def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch)
     assert (output_dir / "config" / "initial_condition" / "vfield00000_0.dat").is_file()
     manifest = json.loads((output_dir / "config" / "precompute.manifest.json").read_text(encoding="utf-8"))
     assert manifest["initial_condition"]["staged"].endswith("vfield00000_0.dat")
+
+
+def test_precompute_materializes_repository_ic_gen_on_staged_file_grid(tmp_path):
+    """!
+    @brief Verify precompute stages a file grid before invoking repository ic.gen.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    grid = write_stretched_picgrid(tmp_path / "grid.picgrid", dims=(3, 3, 3))
+    config = tmp_path / "initial_condition.cfg"
+    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
+    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
+    case_cfg["properties"]["initial_conditions"] = {
+        "mode": "generated",
+        "generator": "ic_gen",
+        "params": {"field": "Ucat", "config_file": str(config)},
+    }
+    case_path = tmp_path / "case.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+    output_dir = tmp_path / "precomputed"
+
+    picurv.precompute_workflow(SimpleNamespace(case=str(case_path), output_dir=str(output_dir)))
+
+    assert (output_dir / "config" / "grid.run").is_file()
+    generated = output_dir / "config" / "initial_condition.generated.dat"
+    staged = output_dir / "config" / "initial_condition" / "ufield00000_0.dat"
+    assert generated.is_file()
+    assert staged.read_bytes() == generated.read_bytes()
+    assert len(read_petsc_vec_binary(generated)) == 4 * 4 * 4 * 3
 
 
 def write_canonical_picslice(path: Path, dims=(3, 3), start=1.0) -> Path:
@@ -1506,6 +1539,90 @@ def test_prescribed_profile_sources_accept_script_override():
 
     assert generated["script"] == "tools/custom_profile.py"
     assert field_slice["script"] == "tools/custom_profile.py"
+
+
+def read_petsc_vec_binary(path: Path):
+    """!
+    @brief Read the minimal PETSc real64 Vec format used by generator tests.
+    @param[in] path PETSc binary path.
+    @return Flat tuple of scalar values.
+    """
+    data = path.read_bytes()
+    class_id, count = struct.unpack(">ii", data[:8])
+    assert class_id == 1211214
+    assert len(data) == 8 + count * 8
+    return struct.unpack(">" + "d" * count, data[8:])
+
+
+def test_ic_gen_ucat_uses_stretched_grid_cell_and_dummy_centers(tmp_path):
+    """!
+    @brief Verify Ucat expressions use actual cell centers and extrapolated dummy centers.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    numpy = pytest.importorskip("numpy")
+    grid = write_stretched_picgrid(tmp_path / "grid.run", dims=(3, 3, 3))
+    config = tmp_path / "initial_condition.cfg"
+    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
+    output = tmp_path / "ucat.dat"
+
+    result = subprocess.run(
+        [sys.executable, str(IC_GEN), "-c", str(config), "--field", "Ucat",
+         "--grid", str(grid), "--output", str(output)],
+        cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    values = numpy.asarray(read_petsc_vec_binary(output)).reshape((4, 4, 4, 3))
+    assert values[1, 1, 1, 0] == pytest.approx(0.125)
+    assert values[1, 1, 2, 0] == pytest.approx(0.625)
+    assert values[1, 1, 0, 0] == pytest.approx(-0.375)
+    assert values[1, 1, 3, 0] == pytest.approx(1.125)
+
+
+def test_ic_gen_ucont_uses_component_face_centers_and_zero_dummy_entries(tmp_path):
+    """!
+    @brief Verify Ucont expressions are sampled on their component face centers.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    numpy = pytest.importorskip("numpy")
+    grid = write_canonical_picgrid(tmp_path / "grid.run", dims=(3, 3, 3))
+    config = tmp_path / "initial_condition.cfg"
+    config.write_text(
+        "[expression]\nu_xi = x\nu_eta = y\nu_zeta = z\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "ucont.dat"
+
+    result = subprocess.run(
+        [sys.executable, str(IC_GEN), "-c", str(config), "--field", "Ucont",
+         "--grid", str(grid), "--output", str(output)],
+        cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    values = numpy.asarray(read_petsc_vec_binary(output)).reshape((4, 4, 4, 3))
+    assert values[1, 1, 0, 0] == pytest.approx(0.0)
+    assert values[1, 1, 2, 0] == pytest.approx(2.0)
+    assert values[1, 0, 1, 1] == pytest.approx(0.0)
+    assert values[2, 1, 1, 2] == pytest.approx(2.0)
+    assert values[0, 0, 0].tolist() == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_ic_gen_rejects_unsafe_expression(tmp_path):
+    """!
+    @brief Verify expression configs cannot invoke arbitrary Python operations.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    grid = write_canonical_picgrid(tmp_path / "grid.run")
+    config = tmp_path / "initial_condition.cfg"
+    config.write_text("[expression]\nu = __import__('os')\nv = 0\nw = 0\n", encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(IC_GEN), "-c", str(config), "--field", "Ucat",
+         "--grid", str(grid), "--output", str(tmp_path / "unsafe.dat")],
+        cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
+    )
+    assert result.returncode == 1
+    assert "only documented numerical functions" in result.stderr
 
 
 def test_profile_gen_square_duct_poiseuille_cli(tmp_path):

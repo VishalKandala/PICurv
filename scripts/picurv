@@ -7099,6 +7099,9 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     cmd = [sys.executable, script, "-c", config_file, "--field",
            "Ucat" if resolved_ic["field_code"] == 0 else "Ucont",
            "--output", output_path]
+    staged_grid = os.path.join(run_dir, "config", "grid.run")
+    if os.path.isfile(staged_grid):
+        cmd.extend(["--grid", staged_grid])
     cmd.extend(str(token) for token in resolved_ic.get("cli_args", []))
     result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
     if result.returncode != 0:
@@ -10023,11 +10026,24 @@ def precompute_workflow(args):
     artifacts = []
     grid_cfg = case_cfg.get("grid", {}) or {}
     grid_mode = grid_cfg.get("mode")
+    scaling = (case_cfg.get("properties", {}) or {}).get("scaling", {}) or {}
+    length_ref = float(scaling.get("length_ref", 1.0))
+    expected_nblk = int((case_cfg.get("models", {}) or {}).get("domain", {}).get("blocks", 1))
+    staged_grid = os.path.join(config_dir, "grid.run")
     if grid_mode == "grid_gen":
         print("[INFO] Precomputing grid via grid.gen...")
         generated_grid = run_grid_generator(case_path, output_dir, grid_cfg)
         artifacts.append(os.path.abspath(generated_grid))
-    elif grid_mode in {"file", "programmatic_c"}:
+        validate_and_nondimensionalize_picgrid(generated_grid, staged_grid, length_ref, expected_nblk=expected_nblk)
+        artifacts.append(os.path.abspath(staged_grid))
+    elif grid_mode == "file":
+        source_grid = _resolve_case_relative_path(grid_cfg.get("source_file"), os.path.dirname(case_path))
+        if isinstance(grid_cfg.get("legacy_conversion"), dict):
+            source_grid = convert_legacy_grid_with_gridgen(case_path, output_dir, grid_cfg, source_grid)
+        validate_and_nondimensionalize_picgrid(source_grid, staged_grid, length_ref, expected_nblk=expected_nblk)
+        artifacts.append(os.path.abspath(staged_grid))
+        print(f"[INFO] Precomputed validated file grid: {staged_grid}")
+    elif grid_mode == "programmatic_c":
         print(f"[INFO] Grid mode '{grid_mode}' does not require precomputed grid generation.")
     else:
         raise ValueError(f"Unsupported grid.mode '{grid_mode}' for precompute.")

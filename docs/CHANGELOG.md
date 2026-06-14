@@ -11,6 +11,7 @@
   - added built-in zero, Cartesian constant, streamwise constant, and Poiseuille generators.
   - added single-block file-backed `Ucat` and `Ucont` startup through the existing field reader.
   - added `ic_gen` run/precompute orchestration, defaulting to `scripts/ic.gen` with an optional compatible script override.
+  - added the repository `scripts/ic.gen` expression engine for grid-aware `Ucat` and staggered `Ucont` PETSc vectors.
   - made initial conditions subordinate to analytical, load, and restart Eulerian-state authority.
   - aligned grid, inlet-profile, and IC generators around repository defaults plus optional case-relative or absolute overrides.
 

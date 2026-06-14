@@ -75,12 +75,13 @@ properties:
     # source_file: initial_conditions/velocity.dat
 
     # External deterministic generator, materialized during run/precompute.
+    # Repository ic.gen requires grid.mode file or grid_gen so grid.run is available.
     # mode: generated
     # generator: ic_gen
     # params:
     #   field: Ucat
     #   script: tools/custom_ic.py  # Optional; defaults to scripts/ic.gen
-    #   config_file: config/initial_condition.cfg
+    #   config_file: config/initial_conditions/expression.cfg
     #   output_file: config/initial_condition.generated.dat
 
 # ==============================================================================
