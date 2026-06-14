@@ -444,6 +444,74 @@ def test_generate_solver_control_file_stages_ic_gen_after_grid(tmp_path):
     assert (run_dir / "config" / "initial_condition" / "ufield00000_0.dat").is_file()
 
 
+def test_generate_solver_control_file_stages_ic_gen_with_programmatic_grid(tmp_path):
+    """!
+    @brief Verify ic_gen is staged after a grid.run is materialized for programmatic_c mode.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    source = write_petsc_vec_binary(tmp_path / "generator_input.dat", [1.0, 2.0, 3.0])
+    write_fake_ic_generator(tmp_path / "ic.gen", require_grid_run=True)
+    case_cfg["grid"] = {
+        "mode": "programmatic_c",
+        "programmatic_settings": {
+            "im": 2, "jm": 2, "km": 2,
+            "xMins": 0.0, "xMaxs": 1.0,
+            "yMins": 0.0, "yMaxs": 1.0,
+            "zMins": 0.0, "zMaxs": 1.0,
+            "rxs": 1.0, "rys": 1.0, "rzs": 1.0,
+            "cgrids": 0,
+        },
+    }
+    case_cfg["properties"]["initial_conditions"] = {
+        "mode": "generated",
+        "generator": "ic_gen",
+        "params": {
+            "field": "Ucat",
+            "script": "ic.gen",
+            "config_file": str(source),
+        },
+    }
+    case_path = tmp_path / "case.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    source_files = {
+        "Case": str(case_path),
+        "Solver": str(valid / "solver.yml"),
+        "Monitor": str(valid / "monitor.yml"),
+    }
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo", monitor_cfg, source_files)
+
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo",
+        {
+            "case": case_cfg,
+            "case_path": str(case_path),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        1,
+        monitor_files,
+    )
+
+    grid_run = run_dir / "config" / "grid.run"
+    assert grid_run.is_file(), "grid.run must be materialized for ic_gen with programmatic_c"
+    assert grid_run.read_text(encoding="utf-8").startswith("PICGRID")
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert "-finit 4" in content
+    assert "-ic_field 0" in content
+    assert "-ic_dir " in content
+    assert (run_dir / "config" / "initial_condition" / "ufield00000_0.dat").is_file()
+
+
 @pytest.mark.parametrize(
     ("eulerian_source", "start_step"),
     [("analytical", 0), ("load", 0), ("solve", 3)],
@@ -568,6 +636,52 @@ def test_precompute_materializes_repository_ic_gen_on_staged_file_grid(tmp_path)
     assert generated.is_file()
     assert staged.read_bytes() == generated.read_bytes()
     assert len(read_petsc_vec_binary(generated)) == 4 * 4 * 4 * 3
+
+
+def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
+    """!
+    @brief Verify precompute materializes grid.run then stages ic_gen for programmatic_c mode.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    config = tmp_path / "ic.cfg"
+    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
+    case_cfg["grid"] = {
+        "mode": "programmatic_c",
+        "programmatic_settings": {
+            "im": 2, "jm": 2, "km": 2,
+            "xMins": 0.0, "xMaxs": 1.0,
+            "yMins": 0.0, "yMaxs": 1.0,
+            "zMins": 0.0, "zMaxs": 1.0,
+            "rxs": 1.0, "rys": 1.0, "rzs": 1.0,
+            "cgrids": 0,
+        },
+    }
+    case_cfg["properties"]["initial_conditions"] = {
+        "mode": "generated",
+        "generator": "ic_gen",
+        "params": {"field": "Ucat", "config_file": str(config)},
+    }
+    case_path = tmp_path / "case.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+    output_dir = tmp_path / "precomputed"
+
+    picurv.precompute_workflow(SimpleNamespace(case=str(case_path), output_dir=str(output_dir)))
+
+    grid_run = output_dir / "config" / "grid.run"
+    assert grid_run.is_file(), "grid.run must be materialized for ic_gen with programmatic_c"
+    assert grid_run.read_text(encoding="utf-8").startswith("PICGRID")
+    generated = output_dir / "config" / "initial_condition.generated.dat"
+    staged = output_dir / "config" / "initial_condition" / "ufield00000_0.dat"
+    assert generated.is_file()
+    assert staged.read_bytes() == generated.read_bytes()
+    # im=jm=km=2 cells → 3 nodes per dim → full DMDA Ucat shape (km+1, jm+1, im+1, 3) = (4,4,4,3)
+    assert len(read_petsc_vec_binary(generated)) == 4 * 4 * 4 * 3
+    manifest = json.loads((output_dir / "config" / "precompute.manifest.json").read_text(encoding="utf-8"))
+    assert any(a.endswith("grid.run") for a in manifest["artifacts"])
+    assert manifest["initial_condition"]["staged"].endswith("ufield00000_0.dat")
 
 
 def write_canonical_picslice(path: Path, dims=(3, 3), start=1.0) -> Path:

@@ -6794,6 +6794,58 @@ def translate_programmatic_grid_settings(grid_settings: dict) -> dict:
     return translated
 
 
+def generate_picgrid_from_programmatic_settings(raw_settings: dict, dest_path: str, L_ref: float) -> dict:
+    """!
+    @brief Generate a canonical PICGRID file from programmatic Cartesian grid settings.
+    @details Implements the same coordinate formula as ComputeStretchedCoord in src/grid.c.
+             im/jm/km in raw_settings are cell counts; node counts are im+1, jm+1, km+1.
+    @param[in] raw_settings programmatic_settings dict from case.yml.
+    @param[in] dest_path Destination PICGRID file path.
+    @param[in] L_ref Reference length for nondimensionalization (must be non-zero).
+    @return Summary dict: nblk, dims [(IM, JM, KM)], total_nodes.
+    """
+    if L_ref == 0.0:
+        raise ValueError("length_ref must be non-zero for programmatic grid generation.")
+    IM = int(raw_settings.get("im", 0)) + 1
+    JM = int(raw_settings.get("jm", 0)) + 1
+    KM = int(raw_settings.get("km", 0)) + 1
+    if IM < 2 or JM < 2 or KM < 2:
+        raise ValueError(
+            f"programmatic_settings im/jm/km must each be >= 1 "
+            f"(got im={IM-1}, jm={JM-1}, km={KM-1})."
+        )
+    x_min = float(raw_settings.get("xMins", 0.0))
+    x_max = float(raw_settings.get("xMaxs", 1.0))
+    y_min = float(raw_settings.get("yMins", 0.0))
+    y_max = float(raw_settings.get("yMaxs", 1.0))
+    z_min = float(raw_settings.get("zMins", 0.0))
+    z_max = float(raw_settings.get("zMaxs", 1.0))
+    rx = float(raw_settings.get("rxs", 1.0))
+    ry = float(raw_settings.get("rys", 1.0))
+    rz = float(raw_settings.get("rzs", 1.0))
+
+    def _stretched(idx, N, length, r):
+        frac = idx / (N - 1.0)
+        if abs(r - 1.0) < 1.0e-9:
+            return length * frac
+        return length * (r ** frac - 1.0) / (r - 1.0)
+
+    Lx, Ly, Lz = x_max - x_min, y_max - y_min, z_max - z_min
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    with open(dest_path, "w") as fout:
+        fout.write("PICGRID\n1\n")
+        fout.write(f"{IM} {JM} {KM}\n")
+        for k in range(KM):
+            z = (z_min + _stretched(k, KM, Lz, rz)) / L_ref
+            for j in range(JM):
+                y = (y_min + _stretched(j, JM, Ly, ry)) / L_ref
+                for i in range(IM):
+                    x = (x_min + _stretched(i, IM, Lx, rx)) / L_ref
+                    fout.write(f"{x:.8e} {y:.8e} {z:.8e}\n")
+    total_nodes = IM * JM * KM
+    return {"nblk": 1, "dims": [(IM, JM, KM)], "total_nodes": total_nodes}
+
+
 GRID_DA_PROCESSOR_KEYS = ("da_processors_x", "da_processors_y", "da_processors_z")
 
 
@@ -8258,6 +8310,19 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         for p_key in GRID_DA_PROCESSOR_KEYS:
             grid_settings.pop(p_key, None)
         for key, value in grid_settings.items(): control_lines.append(f"-{key} {format_flag_value(value)}")
+        if resolved_ic["kind"] == "ic_gen" and ic_is_authoritative:
+            nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
+            try:
+                summary = generate_picgrid_from_programmatic_settings(
+                    grid_cfg.get('programmatic_settings', {}), nondim_grid_path, L_ref
+                )
+                print(
+                    f"[INFO] Materialized grid.run for ic_gen: {os.path.relpath(nondim_grid_path)} "
+                    f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
+                )
+            except Exception as e:
+                print(f"[FATAL] Failed to generate grid.run for ic_gen: {e}", file=sys.stderr)
+                sys.exit(1)
     else:
         raise ValueError(f"Unknown or missing grid mode '{grid_mode}' in case.yml.")
 
@@ -10060,6 +10125,18 @@ def precompute_workflow(args):
         U_ref=float((case_cfg.get("properties", {}).get("scaling", {}) or {}).get("velocity_ref", 1.0)),
     )
     if resolved_ic["kind"] == "ic_gen":
+        if grid_mode == "programmatic_c":
+            try:
+                summary = generate_picgrid_from_programmatic_settings(
+                    grid_cfg.get('programmatic_settings', {}), staged_grid, length_ref
+                )
+                artifacts.append(os.path.abspath(staged_grid))
+                print(
+                    f"[INFO] Materialized programmatic grid.run for ic_gen: {staged_grid} "
+                    f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
+                )
+            except Exception as e:
+                raise RuntimeError(f"Failed to generate grid.run for ic_gen: {e}") from e
         initial_condition = stage_initial_condition_file(output_dir, case_path, resolved_ic)
         artifacts.extend([initial_condition["source"], initial_condition["staged"]])
     elif resolved_ic["kind"] == "file":
