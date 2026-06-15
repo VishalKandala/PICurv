@@ -204,9 +204,12 @@ grid:
   source_file: legacy_flat.grid
   legacy_conversion:
     enabled: true
-    format: legacy1d
-    axis_columns: [0, 1, 2]
+    format: legacy1d            # or column_text; aliases: legacy_1d, les_flat_1d, les-flat-1d
+    output_file: null           # optional: override the generated .picgrid output path
+    script: null                # optional: override the conversion script (default: scripts/grid.gen)
+    axis_columns: [0, 1, 2]    # preferred source columns for X/Y/Z axis rows
     strict_trailing: true
+    cli_args: []                # additional raw tokens forwarded to the conversion script
 ```
 
 Execution sequence:

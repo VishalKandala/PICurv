@@ -117,6 +117,7 @@ For fragile metrics, add smoke tests or fixture-based validation before large qu
 Implementation details worth knowing:
 
 - case expansion uses the full cross-product over all `parameters.*` lists, or explicit paired bundles from `parameter_sets` when coupled overrides must move together.
+- within `parameters`, mapping a parent key to a list of dicts sweeps multiple sub-fields together as a unit — they are NOT cartesian-producted with each other, but ARE cross-producted against other parameters. Example: `case.run_control: [{total_steps: 400, dt_physical: 0.005}, {total_steps: 800, dt_physical: 0.0025}]` sweeps the whole `run_control` block as two groups.
 - generated case configs are revalidated through the same solver/post validators used by `picurv run`.
 - submission chain: solver array → post array (`afterok`) → metrics job (`afterany`).
 - `scheduler/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.

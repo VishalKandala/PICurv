@@ -104,7 +104,7 @@ Mappings:
 - `particle_subsampling_frequency` -> `particle_output_freq`
 - `eulerian_fields` -> `output_fields_instantaneous`
 - `eulerian_fields_averaged` -> `output_fields_averaged` (reserved)
-- `particle_fields` -> `particle_fields_instantaneous`
+- `particle_fields` -> `particle_fields_instantaneous` — **must be non-empty when `output_particles: true`**; an empty list produces no particle VTP output even if particle output is enabled. Standard swarm field names: `position`, `velocity`, `pid`, `CellID`, `weight`.
 - `input_extensions.eulerian` -> `eulerianExt`
 - `input_extensions.particle` -> `particleExt`
 

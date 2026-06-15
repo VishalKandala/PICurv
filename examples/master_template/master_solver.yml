@@ -67,7 +67,10 @@ scalar_transport:
 # ==============================================================================
 # --- Main Time-Stepping Scheme ---
 strategy:
-  momentum_solver: "Dual Time Picard Jameson RK" # -> -mom_solver_type. Options: "Explicit RK4", "Dual Time Picard Jameson RK"
+  # Accepted values:
+  #   "Dual Time Picard Jameson RK"  -> implicit dual-time pseudo-stepping (recommended)
+  #   "Explicit RK4"                 -> explicit fourth-order Runge-Kutta
+  momentum_solver: "Dual Time Picard Jameson RK" # -> -mom_solver_type
   central_diff: false # [true/false] -> -central
 
 # --- Convergence Criteria for the Momentum Solver ---
@@ -77,15 +80,21 @@ tolerances:
   relative_tol: 1.0e-5 # [Float] -> -mom_rtol
   residual_absolute_tol: 0.0 # Disabled when non-positive
   residual_relative_tol: 1.0e-3 # Use 1.0e-2 for looser exploratory LES
+  # Step-change tolerance: stop inner loop when ||u_n+1 - u_n|| < step_tol.
+  # Non-positive or omitted = disabled.
+  # step_tol: 0.0       # [Float] -> -imp_stol
 
 # --- Advanced Momentum Solver Controls (optional) ---
 # This section exposes newer dual-time controls directly (no passthrough needed).
 momentum_solver:
   # Solver-specific controls for Dual Time Picard Jameson RK.
+  # Note: 'dual_time_picard_rk4' is an accepted deprecated alias for this block.
   dual_time_picard_jameson_rk:
     max_pseudo_steps: 50         # -> -mom_max_pseudo_steps
     absolute_tol: 1.0e-8         # -> -mom_atol
     relative_tol: 1.0e-5         # -> -mom_rtol
+    # Step-change tolerance (optional, mirrors tolerances.step_tol):
+    # step_tol: 0.0              # -> -imp_stol
     pseudo_cfl:
       initial: 0.1               # -> -pseudo_cfl
       minimum: 0.001             # -> -min_pseudo_cfl
@@ -93,13 +102,16 @@ momentum_solver:
       growth_factor: 1.05        # -> -pseudo_cfl_growth_factor
       reduction_factor: 0.75     # -> -pseudo_cfl_reduction_factor
     jameson_residual_noise_allowance_factor: 1.05 # -> -mom_dt_jameson_residual_norm_noise_allowance_factor
+    # rk4_residual_noise_allowance_factor is a deprecated alias for the above; use only one.
 
 # --- Physical Solution Convergence Logging ---
 # This layer is separate from the inner solver-health logs. It always records
 # physical solution drift into logs/solution_convergence.csv without changing
 # solver stopping behavior. The optional block below only overrides the mode.
 # solution_convergence:
+#   # enabled: true                # [true/false] Omit or set true to activate logging (default active).
 #   mode: "steady_deterministic"   # -> -solution_convergence_mode
+#                                  # Options: "steady_deterministic" | "periodic_deterministic" | "statistical_steady"
 #   # For periodic runs, compare each timestep to the same phase in the previous cycle.
 #   # periodic_deterministic:
 #   #   period_steps: 200          # -> -solution_convergence_period_steps
@@ -114,10 +126,12 @@ poisson_solver:
   # Solves for pressure correction Phi, then the runtime updates pressure P.
   # The outer linear solver uses PETSc KSP under the hood, but this block uses
   # PICurv-facing names for the common controls.
+  # Note: 'pressure_solver' is an accepted deprecated alias for this block name.
   method: "fgmres"             # -> -ps_ksp_type
   absolute_tolerance: 1.0e-5   # -> -ps_ksp_atol and legacy -poisson_tol
   relative_tolerance: 1.0e-11  # -> -ps_ksp_rtol
   max_iterations: 50           # -> -ps_ksp_max_it
+  # tolerance: 1.0e-5          # Legacy alias for absolute_tolerance -> -poisson_tol
   gmres:
     # Only valid for GMRES-family methods: gmres, fgmres, lgmres.
     restart: 20                # -> -ps_ksp_gmres_restart
@@ -145,13 +159,17 @@ poisson_solver:
     # --- Smoother / Coarse Solver Configuration Per MG Level ---
     # PETSc/PICurv level numbering uses level_0 as the coarsest grid; larger
     # level numbers are progressively finer.
-    # `method` maps to PETSc KSP type. `preconditioner` maps to PETSc PC type.
-    # The default level preconditioner is bjacobi when omitted.
+    # Friendly aliases: `method` -> ksp_type, `preconditioner` -> pc_type.
+    # Any other key is forwarded verbatim as -ps_mg_levels_N_<key>.
+    # Supported direct keys: ksp_type, pc_type, max_it, rtol, atol
     level_solvers:
       level_0:
         # The coarsest level often uses a more robust solver.
         method: "fgmres"          # -> -ps_mg_levels_0_ksp_type
         preconditioner: "bjacobi" # -> -ps_mg_levels_0_pc_type
+        # max_it: 30              # -> -ps_mg_levels_0_max_it
+        # rtol: 1.0e-3            # -> -ps_mg_levels_0_rtol
+        # atol: 1.0e-8            # -> -ps_mg_levels_0_atol
       level_1:
         method: "richardson"
         preconditioner: "bjacobi"

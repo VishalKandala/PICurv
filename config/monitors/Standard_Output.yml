@@ -13,6 +13,8 @@ logging:
 profiling:
   timestep_output:
     mode: "off"
+  final_summary:
+    enabled: true
 
 diagnostics:
   petsc:

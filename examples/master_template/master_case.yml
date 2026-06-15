@@ -61,7 +61,7 @@ properties:
   # The state of the fluid at the start of the simulation (t=0).
   # Values are in physical units [m/s].
   initial_conditions:
-    # Built-in generators: zero | constant | streamwise_constant | poiseuille
+    # Built-in generators: zero | constant | streamwise_constant | poiseuille | ic_gen
     mode: generated
     generator: constant
     params:
@@ -69,12 +69,32 @@ properties:
       v_physical: 0.0
       w_physical: 1.0
 
-    # File IC: one PETSc .dat velocity field, staged for ReadFieldData.
+    # --- Generator: streamwise_constant ---
+    # Sets every cell to the same scalar speed along the dominant flow axis.
+    # Infers flow_direction from the INLET face when one exists; otherwise,
+    # flow_direction is required.
+    # mode: generated
+    # generator: streamwise_constant
+    # params:
+    #   velocity_physical: 1.0        # [m/s] Speed along the flow axis
+    #   flow_direction: "+Zeta"       # "+Xi" | "-Xi" | "+Eta" | "-Eta" | "+Zeta" | "-Zeta"
+    #                                 # Optional when a single INLET face is present.
+
+    # --- Generator: poiseuille ---
+    # Sets the initial velocity to a fully-developed square-duct Poiseuille profile.
+    # flow_direction is required (or inferred from INLET face).
+    # mode: generated
+    # generator: poiseuille
+    # params:
+    #   peak_velocity_physical: 1.5   # [m/s] Centerline (maximum) velocity
+    #   flow_direction: "+Zeta"       # Same options as streamwise_constant
+
+    # --- File IC: one PETSc .dat velocity field, staged for ReadFieldData. ---
     # mode: file
     # field: Ucat       # Ucat | Ucont
     # source_file: initial_conditions/velocity.dat
 
-    # External deterministic generator, materialized during run/precompute.
+    # --- External deterministic generator (ic_gen), materialized during run/precompute. ---
     # Repository ic.gen requires grid.mode file or grid_gen so grid.run is available.
     # mode: generated
     # generator: ic_gen
@@ -121,6 +141,18 @@ grid:
   #   stats_file: "config/grid.generated.info"      # Optional.
   #   vts_file: "config/grid.generated.vts"         # Optional.
 
+  # --- Option D: Legacy Grid Conversion ---
+  # Converts an older column-text grid file to the .picgrid format before solver launch.
+  # Requires scripts/grid.gen (or a custom script) to be present.
+  # legacy_conversion:
+  #   enabled: true                    # [true/false] Must be true to activate this path.
+  #   format: "column_text"            # Currently supported: "column_text"
+  #   script: null                     # Optional override path to conversion script.
+  #   output_file: "config/grid.converted.picgrid"  # Required. Destination path.
+  #   axis_columns: [0, 1, 2]          # Optional. 3-item list of zero-based column indices for x,y,z.
+  #   strict_trailing: false           # [true/false] Optional. Reject files with trailing data.
+  #   cli_args: []                     # Optional raw CLI token list passed to the converter.
+
   # --- Option C: Programmatic Grid Generation in C ---
   # Use this to have the C solver generate a structured Cartesian grid.
   # `im/jm/km` are cell counts in YAML; picurv converts them to node counts
@@ -145,6 +177,12 @@ grid:
     rxs: 1.0
     rys: 1.05
     rzs: 1.0
+
+    # --- Grid Type Flag ---
+    # 0 = regular Cartesian/curvilinear (default). 1 = O-type (cylindrical) grid.
+    # Used by the C metric routines to apply the correct Jacobian formula.
+    # -> -cgrids
+    cgrids: 0
 
 # ==============================================================================
 # 4. MODEL SELECTION
@@ -274,14 +312,64 @@ boundary_conditions:
   - face: "+Eta"
     type: OUTLET
     handler: conservation
-    
+
   - face: "-Zeta"
     type: WALL
     handler: noslip
-    
+
   - face: "+Zeta"
     type: WALL
     handler: noslip
+
+# --- All Supported BC Handlers (reference) ---
+#
+# WALL faces:
+#   handler: noslip                     No-slip (zero velocity) wall.
+#
+# INLET faces:
+#   handler: constant_velocity          Uniform Cartesian velocity.
+#     params: { vx: 1.5, vy: 0.0, vz: 0.0 }
+#
+#   handler: parabolic                  Fully-developed parabolic (Poiseuille) profile.
+#     params: { v_max: 1.5 }           v_max = centerline (peak) velocity [m/s].
+#
+#   handler: prescribed_flow            Profile from a file, generator, or field slice.
+#     params:
+#       source:
+#         type: file
+#         path: profiles/inlet.picslice
+#
+#       # OR generate analytically:
+#       # source:
+#       #   type: generated
+#       #   generator: square_duct_poiseuille
+#       #   output_file: config/inlet_profile.generated.picslice
+#       #   params:
+#       #     bulk_velocity: 1.5
+#       #     n_terms: 101
+#
+#       # OR slice from an existing Ucat field:
+#       # source:
+#       #   type: field_slice
+#       #   field_file: ../old_run/output/eulerian/ufield10000_0.dat
+#       #   grid_file: ../old_run/config/grid.run
+#       #   source_case: ../old_run/config/case.yml
+#       #   output_file: config/inlet_profile.sliced.picslice
+#       #   slice:
+#       #     face: "+Eta"
+#       #     orientation: opposite
+#
+# OUTLET faces:
+#   handler: conservation               Mass-conservation outflow correction.
+#
+# PERIODIC faces (must appear as matching opposite pairs):
+#   handler: geometric                  Pure geometric periodicity (no driving force).
+#     type: PERIODIC
+#   handler: constant_flux              Drives a constant volume flux through the periodic pair.
+#     type: PERIODIC
+#     params:
+#       target_flux: 1.0              Target non-dimensional volumetric flux [m^3/s / (U_ref * L_ref^2)].
+#       apply_trim: false             [true/false] Optional. Trim residual flux imbalance after correction.
 
 # --- Example for a 2-Block Case (syntax example; all handlers shown are currently supported) ---
 # boundary_conditions:

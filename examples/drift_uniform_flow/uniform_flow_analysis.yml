@@ -1,7 +1,13 @@
+source_data:
+  directory: "<solver_output_dir>"
+
 run_control:
   start_step: 0
   end_step: 1000
   step_interval: 100
+
+global_operations:
+  dimensionalize: true
 
 eulerian_pipeline:
   - task: nodal_average
@@ -12,12 +18,17 @@ io:
   output_directory: "viz"
   output_filename_prefix: "Field"
   particle_filename_prefix: "Particle"
+  eulerian_fields:
+    - Ucat_nodal
+  eulerian_fields_averaged: []
+  output_particles: true
+  particle_fields:
+    - 'position'
+    - 'pid'
+  particle_subsampling_frequency: 1
   input_extensions:
     eulerian: "dat"
     particle: "dat"
-  eulerian_fields:
-    - Ucat_nodal
-  output_particles: true
 
 statistics_pipeline:
   output_prefix: "UniformFlowDrift"

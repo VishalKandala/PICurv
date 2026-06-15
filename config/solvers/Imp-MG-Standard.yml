@@ -62,6 +62,22 @@ poisson_solver:
         method: "richardson"  # Finest level
         preconditioner: "bjacobi"
       
+# --- Scalar Transport (optional) ---
+# Uncomment to override solver defaults for diffusivity/Brownian calculations.
+# scalar_transport:
+#   schmidt_number: 1.0              # -> -schmidt_number  (default 1.0)
+#   turbulent_schmidt_number: 0.7    # -> -turb_schmidt_number  (default 0.7)
+
+# --- Physical Solution Convergence Logging (optional) ---
+# Writes logs/solution_convergence.csv each step; does not alter solver stopping.
+# Uncomment and set mode to activate non-default tracking.
+# solution_convergence:
+#   mode: "steady_deterministic"   # steady_deterministic | periodic_deterministic | statistical_steady
+#   # periodic_deterministic:
+#   #   period_steps: 200
+#   # statistical_steady:
+#   #   window_steps: 500
+
 # --- PETSC PASSTHROUGH OPTIONS ---
 # Advanced PETSc options not covered by structured YAML can still go here.
 petsc_passthrough_options: {}

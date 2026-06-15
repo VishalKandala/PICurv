@@ -11,5 +11,6 @@ interpolation:
 
 scalar_transport:
   schmidt_number: 1.0e12
+  turbulent_schmidt_number: 0.7
 
 petsc_passthrough_options: {}

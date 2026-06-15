@@ -17,3 +17,12 @@ operation_mode:
   eulerian_field_source: "analytical"   # Bypasses NS/Poisson solve -- no momentum solver runs
   analytical_type: "ZERO_FLOW"          # Sets Ucat = 0 identically every timestep
 
+scalar_transport:
+  schmidt_number: 1.0
+  turbulent_schmidt_number: 0.7
+
+interpolation:
+  method: "Trilinear"
+
+petsc_passthrough_options: {}
+

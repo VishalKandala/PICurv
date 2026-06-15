@@ -5186,7 +5186,7 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             errors.append(f"  {solver_path}: 'solution_convergence' must be a mapping when provided.")
         elif isinstance(solution_convergence_cfg, dict) and solution_convergence_cfg:
             allowed_solution_convergence_keys = {
-                'mode', 'periodic_deterministic', 'statistical_steady'
+                'enabled', 'mode', 'periodic_deterministic', 'statistical_steady'
             }
             unknown_solution_convergence_keys = sorted(set(solution_convergence_cfg.keys()) - allowed_solution_convergence_keys)
             if unknown_solution_convergence_keys:
@@ -7990,7 +7990,7 @@ def parse_solver_config(solver_cfg: dict) -> dict:
     if solution_convergence_cfg is not None:
         if not isinstance(solution_convergence_cfg, dict):
             raise ValueError("solution_convergence must be a mapping when provided.")
-        if solution_convergence_cfg:
+        if solution_convergence_cfg and solution_convergence_cfg.get('enabled', True):
             mode = normalize_solution_convergence_mode(solution_convergence_cfg.get('mode', 'steady_deterministic'))
             flags['-solution_convergence_mode'] = f"\"{mode}\""
             if mode == "PERIODIC_DETERMINISTIC":

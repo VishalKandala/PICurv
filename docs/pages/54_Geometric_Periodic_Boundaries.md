@@ -49,11 +49,12 @@ Configure both faces of an axis as periodic:
 
 ```yaml
 boundary_conditions:
-  blocks:
-    - id: 0
-      faces:
-        - {face: "-Xi", type: PERIODIC, handler: geometric}
-        - {face: "+Xi", type: PERIODIC, handler: geometric}
+  - face: "-Xi"
+    type: PERIODIC
+    handler: geometric
+  - face: "+Xi"
+    type: PERIODIC
+    handler: geometric
 ```
 
 Do not add `i_periodic`, `j_periodic`, or `k_periodic` under `models.domain`;

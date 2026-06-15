@@ -22,5 +22,11 @@ verification:
       ky: 3.141592653589793
       kz: 3.141592653589793
 
+scalar_transport:
+  schmidt_number: 1.0
+  turbulent_schmidt_number: 0.7
+
 interpolation:
   method: "Trilinear"
+
+petsc_passthrough_options: {}

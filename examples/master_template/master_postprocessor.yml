@@ -111,6 +111,10 @@ statistics_pipeline:
     # Mean-square displacement based on simCtx->psrc_x/y/z reference point.
     - task: msd
 
+# Deprecated: statistics_output_prefix at the top level was an older way to
+# specify the statistics CSV prefix. Use statistics_pipeline.output_prefix instead.
+# statistics_output_prefix: "Stats"
+
 # ==============================================================================
 # SECTION 4: OUTPUT CONFIGURATION
 # ------------------------------------------------------------------------------
@@ -124,10 +128,15 @@ io:
   # 'particle_output_prefix' entries in post.run.
   output_directory: "visualization/standard_analysis"
 
-  # (Required) The base name for the output files. The C code will append
+  # (Required) The base name for the Eulerian output files. The C code will append
   # the timestep and extension, e.g., "eulerian_data_00100.vts".
   # Combined with output_directory to form 'output_prefix' in post.run.
   output_filename_prefix: "eulerian_data"
+
+  # (Optional) The base name for particle output files. Defaults to "Particle".
+  # Combined with output_directory to form 'particle_output_prefix' in post.run.
+  # Maps to 'particle_filename_prefix' in post.run.
+  particle_filename_prefix: "Particle"
 
   # (Required) List of Eulerian fields to save to the output .vts files.
   # You can include original fields ('P', 'Ucat') and newly computed fields

@@ -5,6 +5,9 @@
 # cell-to-node averaging and calculates vorticity.
 # ==========================================================
 
+source_data:
+  directory: "<solver_output_dir>"
+
 run_control:
   # Analyze only the final timestep from the solver run.
   # For a movie, you could use: start_step: 0, end_step: 1000, step_interval: 100
@@ -28,14 +31,23 @@ eulerian_pipeline:
 
   - task: normalize_field
     field: 'P'
-    reference_point: [1,1,1]
+    reference_point: [1, 1, 1]
 
 io:
-
   output_directory: "visualization/standard_analysis"
   output_filename_prefix: "eulerian_data"
+  particle_filename_prefix: "Particle"
 
   eulerian_fields:
-  - 'Ucat_nodal'
-  - 'P_nodal'
-  - 'Qcrit'
+    - 'Ucat_nodal'
+    - 'P_nodal'
+    - 'Qcrit'
+
+  eulerian_fields_averaged: []
+  output_particles: false
+  particle_fields: []
+  particle_subsampling_frequency: 1
+
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"

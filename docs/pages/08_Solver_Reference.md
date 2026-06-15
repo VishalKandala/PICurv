@@ -155,6 +155,7 @@ Rules:
 
 ```yaml
 solution_convergence:
+  enabled: true                  # optional; set false to disable without removing the block
   mode: "steady_deterministic"   # steady_deterministic | periodic_deterministic | statistical_steady | transient
   periodic_deterministic:
     period_steps: 200
@@ -163,6 +164,7 @@ solution_convergence:
 ```
 
 Mappings:
+- `enabled` — when `false`, suppresses all `-solution_convergence_*` flags; default `true`
 - `mode` -> `-solution_convergence_mode`
 - `periodic_deterministic.period_steps` -> `-solution_convergence_period_steps`
 - `statistical_steady.window_steps` -> `-solution_convergence_window_steps`

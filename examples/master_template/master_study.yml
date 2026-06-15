@@ -23,6 +23,20 @@ parameters:
   case.grid.programmatic_settings.jm: [32, 48, 64]
   case.grid.programmatic_settings.km: [64, 96, 128]
 
+# Multi-field group sweep: map a parent key to a list of dicts in parameters:
+# to sweep multiple related sub-fields together (as a unit, not a cartesian
+# product with each other). Cartesian products are still formed against OTHER
+# parameters or groups.
+#
+# Example: sweep dt + total_steps as coupled pairs across two grid resolutions:
+#   parameters:
+#     case.grid.programmatic_settings.im: [32, 64]
+#     case.run_control:
+#       - {start_step: 0, total_steps: 400, dt_physical: 0.005}
+#       - {start_step: 0, total_steps: 800, dt_physical: 0.0025}
+#
+# This produces 4 combinations (2 grid × 2 run_control groups), not 8.
+
 # For coupled overrides that should move together instead of forming a cartesian
 # product, use parameter_sets instead of parameters. Provide exactly one of the
 # two blocks.
@@ -45,12 +59,32 @@ metrics:
   #   source: statistics_csv
   #   file_glob: "**/*_msd.csv"
   #   column: "msd"
-  #   reduction: "last"
+  #   reduction: "last"     # Options: "last" | "min" | "max" | "mean" | "p95"
   #
   # - name: residual_floor
   #   source: log_regex
   #   file_glob: "logs/*solver*.log"
   #   regex: "Final residual\\s*=\\s*([0-9.eE+-]+)"
+  #   reduction: "last"
+  #
+  # --- Derived / normalized metric forms ---
+  #
+  # Normalize a raw column value by one of the sweep parameters.
+  # Useful for grid-convergence error norms (e.g., L2_error / h^2):
+  # - name: msd_per_dt
+  #   source: statistics_csv
+  #   file_glob: "**/*_msd.csv"
+  #   column: "msd"
+  #   reduction: "last"
+  #   normalize_by_parameter: "case.run_control.dt_physical"  # Divide result by this parameter value.
+  #
+  # Compute a ratio of two columns from the same CSV (e.g., signal-to-noise):
+  # - name: signal_noise_ratio
+  #   source: statistics_csv
+  #   file_glob: "**/*_msd.csv"
+  #   numerator_column: "msd"
+  #   denominator_column: "msd_variance"
+  #   denominator_floor: 1.0e-12    # Clamp denominator to avoid division by zero.
   #   reduction: "last"
 
 plotting:

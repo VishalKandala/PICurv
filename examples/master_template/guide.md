@@ -59,6 +59,10 @@ Initial-condition note:
   optionally selects a compatible override.
 - file-backed initial conditions currently support single-block cases only.
 
+Study sweep note:
+
+- `master_study.yml` documents three coupling patterns: `parameters` (full cross-product), `parameter_sets` (explicit coupled bundles), and the multi-field group sweep (map a parent key like `case.run_control` to a list of dicts in `parameters` — each dict sweeps as a unit, not cartesian-producted with each other).
+
 Momentum-solver note:
 
 - use the residual tolerances and pseudo-CFL block shown in

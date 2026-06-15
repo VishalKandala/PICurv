@@ -11,8 +11,24 @@ parameters:
   case.grid.programmatic_settings.jm: [32, 48, 64]
   case.grid.programmatic_settings.km: [64, 96, 128]
 
+# Use parameter_sets instead of parameters when overrides must move together
+# (not cartesian product). Provide exactly one of the two blocks.
+# parameter_sets:
+#   - case.grid.programmatic_settings.im: 32
+#     case.grid.programmatic_settings.jm: 32
+#     case.grid.programmatic_settings.km: 64
+#   - case.grid.programmatic_settings.im: 64
+#     case.grid.programmatic_settings.jm: 64
+#     case.grid.programmatic_settings.km: 128
+
 metrics:
   - msd_final
+  # Explicit form: name a column, choose a reduction, optionally normalize.
+  # - name: final_msd
+  #   source: statistics_csv
+  #   file_glob: "**/*_msd.csv"
+  #   column: "msd"
+  #   reduction: "last"   # last | min | max | mean | p95
 
 plotting:
   enabled: true

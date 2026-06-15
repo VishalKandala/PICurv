@@ -120,6 +120,7 @@ but the shared top-level `grid.da_processors_*` form is preferred.
 - `im/jm/km`
 - `xMins/xMaxs`, `yMins/yMaxs`, `zMins/zMaxs`
 - `rxs/rys/rzs`
+- `cgrids` — per-block integer grid type: `0` = Cartesian (default), `1` = O-type curvilinear → `-cgrids`
 
 Dimension contract:
 - `im/jm/km` in YAML are cell counts.
@@ -146,9 +147,12 @@ grid:
   source_file: legacy_flat.grid
   legacy_conversion:
     enabled: true
-    format: legacy1d           # aliases: legacy_1d, les_flat_1d, les-flat-1d
+    format: legacy1d            # aliases: legacy_1d, les_flat_1d, les-flat-1d; or column_text
+    output_file: null           # optional: override generated .picgrid output path
+    script: null                # optional: override conversion script path (default scripts/grid.gen)
     axis_columns: [0, 1, 2]    # preferred source columns for X/Y/Z axis rows
     strict_trailing: true
+    cli_args: []                # additional raw tokens forwarded to the conversion script
 ```
 
 When enabled, `picurv` first calls `scripts/grid.gen legacy1d` to create a canonical PICGRID file in the run config, then runs the normal validation/non-dimensionalization staging path.

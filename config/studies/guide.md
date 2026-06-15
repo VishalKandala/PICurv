@@ -13,6 +13,9 @@ This directory stores reusable `study.yml` definitions for `picurv sweep` workfl
 Parameter keys may target nested config values such as
 `case.models.physics.particles.count`. Use `parameters` for cross-product sweeps and
 `parameter_sets` when you need explicit coupled bundles instead.
+Within `parameters`, you can also map a parent key (e.g. `case.run_control`) to a list of dicts;
+each dict is applied wholesale as one group, forming a cross-product with other parameters
+but not with each other. This is the "multi-field group sweep" pattern.
 
 Use explicit metric specs whenever the study signal comes from a non-default
 CSV or log artifact. For example, interpolation studies can aggregate values
