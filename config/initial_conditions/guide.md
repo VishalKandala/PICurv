@@ -1,6 +1,6 @@
 # Initial-Condition Generation
 
-`scripts/ic.gen` generates one complete PETSc binary `Ucat` or `Ucont` vector
+`generators/ic.gen` generates one complete PETSc binary `Ucat` or `Ucont` vector
 from expressions evaluated on a staged nondimensional `PICGRID`.
 
 ```ini

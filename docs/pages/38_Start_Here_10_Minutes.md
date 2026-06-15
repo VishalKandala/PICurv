@@ -33,14 +33,14 @@ If any of these are missing, follow **@subpage 01_Installation** first.
 From repository root:
 
 ```bash
-./scripts/picurv build
+./picurv_cli/picurv build
 source etc/picurv.sh
 ```
 
 The first command builds `bin/simulator`, `bin/postprocessor`, and creates
-`bin/picurv` (a launcher for `scripts/picurv`). The second adds `bin/` to your
+`bin/picurv` (a launcher for `picurv_cli/picurv`). The second adds `bin/` to your
 PATH for compiled executables, exports the managed CLI Python when bootstrap has
-created one, and exposes `scripts/` as a fallback for `picurv`, so the command
+created one, and exposes `picurv_cli/` as a fallback for `picurv`, so the command
 still works from any directory even if the launcher has not been rebuilt yet.
 Add the source line to `~/.bashrc` to make it permanent. The build stream is
 also written to `logs/build.log`. If you later run `make` directly and want the

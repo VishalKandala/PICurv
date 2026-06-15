@@ -12,8 +12,8 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PICURV = REPO_ROOT / "scripts" / "picurv"
-AUDIT_FUNCTION_DOCS = REPO_ROOT / "scripts" / "audit_function_docs.py"
+PICURV = REPO_ROOT / "picurv_cli" / "picurv"
+AUDIT_FUNCTION_DOCS = REPO_ROOT / "tests" / "tooling" / "audit_function_docs.py"
 
 EXAMPLE_BUNDLES = [
     {

@@ -60,22 +60,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Scan PETSc option ingress in src/setup.c and src/io.c, then compare "
-            "against scripts/audit_ingress_manifest.json."
+            "against tests/tooling/audit_ingress_manifest.json."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python3 scripts/audit_ingress.py\n"
-            "  python3 scripts/audit_ingress.py --show-scanned\n"
-            "  python3 scripts/audit_ingress.py --manifest scripts/audit_ingress_manifest.json\n"
+            "  python3 tests/tooling/audit_ingress.py\n"
+            "  python3 tests/tooling/audit_ingress.py --show-scanned\n"
+            "  python3 tests/tooling/audit_ingress.py --manifest tests/tooling/audit_ingress_manifest.json\n"
         ),
     )
     parser.add_argument(
         "--manifest",
-        default="scripts/audit_ingress_manifest.json",
+        default="tests/tooling/audit_ingress_manifest.json",
         help=(
             "Manifest JSON path, relative to repository root unless absolute "
-            "(default: scripts/audit_ingress_manifest.json)."
+            "(default: tests/tooling/audit_ingress_manifest.json)."
         ),
     )
     parser.add_argument(
@@ -85,7 +85,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    repo_root = pathlib.Path(__file__).resolve().parents[1]
+    repo_root = pathlib.Path(__file__).resolve().parents[2]
     manifest_path = (repo_root / args.manifest).resolve()
     scan_paths = [repo_root / "src/setup.c", repo_root / "src/io.c"]
 
@@ -120,7 +120,7 @@ def main() -> int:
 
     if missing_in_manifest or stale_in_manifest:
         print(
-            "[FAIL] Ingress drift detected. Update scripts/audit_ingress_manifest.json and docs mapping.",
+            "[FAIL] Ingress drift detected. Update tests/tooling/audit_ingress_manifest.json and docs mapping.",
             file=sys.stderr,
         )
         return 1

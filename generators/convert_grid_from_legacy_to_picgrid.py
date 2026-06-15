@@ -2,7 +2,7 @@
 """Backward-compatible wrapper for legacy grid conversion.
 
 This script now delegates to:
-    python3 scripts/grid.gen legacy1d ...
+    python3 generators/grid.gen legacy1d ...
 so there is a single maintained conversion implementation.
 """
 
@@ -23,13 +23,13 @@ def parse_args() -> argparse.Namespace:
         description="Convert a legacy 1D-axis grid payload into canonical PICGRID format.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "This wrapper delegates to: python3 scripts/grid.gen legacy1d ...\n\n"
+            "This wrapper delegates to: python3 generators/grid.gen legacy1d ...\n\n"
             "Examples:\n"
-            "  python3 scripts/convert_grid_from_legacy_to_picgrid.py \\\n"
+            "  python3 generators/convert_grid_from_legacy_to_picgrid.py \\\n"
             "    --input legacy_flat.grid --output converted.picgrid\n"
-            "  python3 scripts/convert_grid_from_legacy_to_picgrid.py \\\n"
+            "  python3 generators/convert_grid_from_legacy_to_picgrid.py \\\n"
             "    --input legacy_flat.grid --output converted.picgrid --axis-columns 0 1 2\n"
-            "  python3 scripts/convert_grid_from_legacy_to_picgrid.py \\\n"
+            "  python3 generators/convert_grid_from_legacy_to_picgrid.py \\\n"
             "    --input legacy_flat.grid --output converted.picgrid --allow-trailing\n"
         ),
     )
@@ -57,8 +57,8 @@ def main() -> int:
     @return Value returned by `main()`.
     """
     args = parse_args()
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    gridgen = os.path.join(script_dir, "grid.gen")
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    gridgen = os.path.join(project_root, "generators", "grid.gen")
     if not os.path.isfile(gridgen):
         print(f"Error: grid.gen not found at '{gridgen}'.", file=sys.stderr)
         return 1

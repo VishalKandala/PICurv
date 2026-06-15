@@ -10,9 +10,10 @@ import trace
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TARGETS = [
-    "scripts/picurv",
+    "picurv_cli/core.py",
+    "picurv_cli/cli.py",
 ]
 
 
@@ -35,9 +36,9 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python3 scripts/python_coverage_gate.py\n"
-            "  python3 scripts/python_coverage_gate.py --target scripts/picurv --target scripts/grid.gen\n"
-            "  python3 scripts/python_coverage_gate.py --pytest-args -- -q tests/test_cli_smoke.py\n"
+            "  python3 tests/tooling/python_coverage_gate.py\n"
+            "  python3 tests/tooling/python_coverage_gate.py --target picurv_cli/core.py --target generators/grid.gen\n"
+            "  python3 tests/tooling/python_coverage_gate.py --pytest-args -- -q tests/test_cli_smoke.py\n"
         ),
     )
     parser.add_argument(

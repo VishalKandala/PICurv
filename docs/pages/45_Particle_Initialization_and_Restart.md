@@ -146,7 +146,7 @@ Typical errors:
 
 If adding a new particle initialization mode:
 
-1. add validation and mapping in `scripts/picurv`,
+1. add validation and mapping in `picurv_cli/core.py`,
 2. extend `ParticleInitializationType` and parser wiring in C,
 3. implement placement logic in `InitializeParticleBasicProperties` and any inlet reinit path,
 4. update logging string mappings and tests,

@@ -7,7 +7,7 @@ This script enforces the repository's function-level documentation contract for:
 
 - public C declarations in `include/`,
 - C definitions in `src/` and `tests/c/`,
-- Python functions in `scripts/`, `tests/`, and Python-backed executable scripts.
+- Python functions in `picurv_cli/`, `generators/`, and `tests/`.
 
 It is intentionally lightweight. The C side uses signature scanning instead of a
 full parser, while the Python side uses `ast`.
@@ -22,14 +22,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 C_HEADER_DIRS = (REPO_ROOT / "include",)
 C_SOURCE_DIRS = (REPO_ROOT / "src", REPO_ROOT / "tests" / "c")
-PYTHON_DIRS = (REPO_ROOT / "scripts", REPO_ROOT / "tests")
+PYTHON_DIRS = (REPO_ROOT / "picurv_cli", REPO_ROOT / "tests")
 PYTHON_EXTRA_FILES = (
-    REPO_ROOT / "scripts" / "picurv",
-    REPO_ROOT / "scripts" / "grid.gen",
+    REPO_ROOT / "picurv_cli" / "picurv",
+    REPO_ROOT / "generators" / "grid.gen",
+    REPO_ROOT / "generators" / "profile.gen",
+    REPO_ROOT / "generators" / "ic.gen",
+    REPO_ROOT / "generators" / "plot.gen",
 )
 
 C_DECL_START_RE = re.compile(

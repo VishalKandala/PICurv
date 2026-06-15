@@ -14,7 +14,7 @@ Use it as the single directory-guide index so internal `guide.md` files do not n
 - Runnable templates: `examples/`
 - Public headers: `include/`
 - C source implementation: `src/`
-- Automation scripts: `scripts/`
+- Python conductor package and source-tree entrypoint: `picurv_cli/`
 - Tests and fixtures: `tests/`
 - Developer scratch area: `sandbox/`
 - Logs and warnings: `logs/`
@@ -27,7 +27,7 @@ Use it as the single directory-guide index so internal `guide.md` files do not n
 - [Examples Guide](https://github.com/VishalKandala/PICurv/blob/main/examples/guide.md)
 - [Include Guide](https://github.com/VishalKandala/PICurv/blob/main/include/guide.md)
 - [Source Guide](https://github.com/VishalKandala/PICurv/blob/main/src/guide.md)
-- [Scripts Guide](https://github.com/VishalKandala/PICurv/blob/main/scripts/guide.md)
+- [PICurv CLI Package Guide](https://github.com/VishalKandala/PICurv/blob/main/picurv_cli/guide.md)
 - [Tests Guide](https://github.com/VishalKandala/PICurv/blob/main/tests/guide.md)
 - [Sandbox Guide](https://github.com/VishalKandala/PICurv/blob/main/sandbox/guide.md)
 - [Logs Guide](https://github.com/VishalKandala/PICurv/blob/main/logs/guide.md)
@@ -82,4 +82,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

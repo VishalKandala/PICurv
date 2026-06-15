@@ -11,7 +11,7 @@ This directory stores reusable `grid.gen` configuration files for programmatic s
 Generate a grid directly:
 
 ```bash
-python3 scripts/grid.gen --config config/grids/coarse_square_tube_curved.cfg
+python3 generators/grid.gen --config config/grids/coarse_square_tube_curved.cfg
 ```
 
 Use generated grids through `case.yml` with `grid.mode: grid_gen` and `grid.generator.config_file`.

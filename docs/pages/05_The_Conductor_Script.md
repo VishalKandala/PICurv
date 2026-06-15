@@ -13,14 +13,15 @@ It is also the primary user-facing contract layer: many defaults, aliases, and t
 picurv [COMMAND] [ARGS...]
 ```
 
-After `make all`, `bin/picurv` is a launcher for `scripts/picurv` (the single
-source of truth). The launcher uses `.picurv-venv/bin/python` when bootstrap
+After `make all`, `bin/picurv` is a launcher for the stable `picurv_cli/picurv`
+source-tree entrypoint. The implementation lives in `picurv_cli/`. The launcher
+uses `.picurv-venv/bin/python` when bootstrap
 created a managed environment, then a bootstrap-recorded or user-provided
 `PICURV_PYTHON`, and finally `python3`.
-Source `etc/picurv.sh` to add `bin/` to your PATH and expose `scripts/` as a
+Source `etc/picurv.sh` to add `bin/` to your PATH and expose `picurv_cli/` as a
 fallback so `picurv` works from any directory even if `bin/picurv` is
 temporarily absent before `make conductor` recreates the launcher.
-If `bin/picurv` does not exist yet, run `./scripts/picurv build` or `make conductor`.
+If `bin/picurv` does not exist yet, run `./picurv_cli/picurv build` or `make conductor`.
 
 Primary commands:
 - `init`
@@ -48,7 +49,7 @@ Help:
 ```bash
 ./bin/picurv --help
 ./bin/picurv init --help
-./scripts/picurv build --help
+./picurv_cli/picurv build --help
 ./bin/picurv sync-binaries --help
 ./bin/picurv sync-config --help
 ./bin/picurv pull-source --help
@@ -96,7 +97,7 @@ picurv init bent_channel --dest my_bent_case --pin-binaries
 @section p05_build_sec 3. build: Build Project Executables
 
 ```bash
-./scripts/picurv build [--source-root <repo>] [--case-dir <case>] [MAKE_ARGS...]
+./picurv_cli/picurv build [--source-root <repo>] [--case-dir <case>] [MAKE_ARGS...]
 ```
 
 Behavior:
@@ -124,10 +125,10 @@ This writes:
 Examples:
 
 ```bash
-./scripts/picurv build
-./scripts/picurv build clean-project
-./scripts/picurv build SYSTEM=cluster
-./scripts/picurv build postprocessor
+./picurv_cli/picurv build
+./picurv_cli/picurv build clean-project
+./picurv_cli/picurv build SYSTEM=cluster
+./picurv_cli/picurv build postprocessor
 ./my_case/picurv build clean-project
 make audit-build
 ```
@@ -303,7 +304,7 @@ Behavior:
 - timestep selectors read existing runtime artifacts and still require summary-capable logs,
 - plain `summarize --run-dir ...` preserves the implicit latest-step health behavior,
 - `--list-plot-series` discovers numeric scalar histories available to `--plot`,
-- `--plot <qualified-series>` delegates time-history rendering to `scripts/plot.gen`,
+- `--plot <qualified-series>` delegates time-history rendering to `generators/plot.gen`,
 - plotting requires `matplotlib`, which bootstrap installs in the managed PICurv environment by default,
 - continued runs write `# Continuation from step <N>` separators into append-only logs,
 - plots use the latest continuation segment by default; `--last <n>` keeps its last N chronological records per line,
@@ -338,14 +339,14 @@ one line per function. Residual/norm series use logarithmic scaling when all
 values are positive; `--linear-y` forces linear scaling. Plot mode is standalone
 and does not combine with overview/config/selected-step selectors.
 
-`scripts/plot.gen` is the standalone rendering layer. It accepts the versioned,
+`generators/plot.gen` is the standalone rendering layer. It accepts the versioned,
 normalized JSON request produced by `picurv` through stdin, and can also render
 a saved request directly:
 
 ```bash
-python3 scripts/plot.gen --input request.json
-cat request.json | python3 scripts/plot.gen --input -
-python3 scripts/plot.gen --input request.json --output history.png
+python3 generators/plot.gen --input request.json
+cat request.json | python3 generators/plot.gen --input -
+python3 generators/plot.gen --input request.json --output history.png
 ```
 
 The normalized request contains plot labels, scale selection, window metadata,
@@ -404,10 +405,10 @@ solver. It uses the same `case.yml` generator settings as `run --solve`:
 - `grid.mode: grid_gen` writes the configured dimensional `PICGRID`; file and
   generated grids are also validated and staged as nondimensional `config/grid.run`,
 - `prescribed_flow.source.type: generated` delegates dimensional `.picslice`
-  profile generation to `scripts/profile.gen` or optional `source.script` and writes `profile.info`,
+  profile generation to `generators/profile.gen` or optional `source.script` and writes `profile.info`,
 - `prescribed_flow.source.type: field_slice` extracts a dimensional `.picslice`
   from an old Cartesian `ufield*.dat` plus its old `PICGRID`,
-- `initial_conditions.generator: ic_gen` runs `scripts/ic.gen` or optional `params.script` and
+- `initial_conditions.generator: ic_gen` runs `generators/ic.gen` or optional `params.script` and
   stages its PETSc vector output after the run grid is available,
 - `config/precompute.manifest.json` records generated paths, profile stats, and IC staging.
 
@@ -534,7 +535,7 @@ What `validate` is for:
 
 @section p05_command_matrix_sec 8. Full Command and Option Matrix
 
-This section is intentionally exhaustive and mirrors the current `argparse` contract in `scripts/picurv`.
+This section is intentionally exhaustive and mirrors the current `argparse` contract in `picurv_cli/cli.py`.
 Use it as the authoritative option reference when writing docs, examples, wrappers, or CI jobs.
 
 `run`:
@@ -691,7 +692,7 @@ Use `--strict` in CI/pre-submit checks when validating reusable profile librarie
 For file-backed grid modes, `artifacts` includes the planned staged grid path
 (`config/grid.run`). For `grid.mode: grid_gen`, it also includes the generated
 PICGRID path (`config/grid.generated.picgrid` by default) plus any configured
-`stats_file` or `vts_file`. Dry-run still does not run `scripts/grid.gen` or
+`stats_file` or `vts_file`. Dry-run still does not run `generators/grid.gen` or
 write these files.
 For generated prescribed-flow profiles, `artifacts` includes the dimensional
 generated `.picslice`, the solver-scale staged `.picslice`, and `profile.info`.
@@ -773,9 +774,9 @@ For prebuilt reusable profiles, also see the local guides under:
    (e.g. case-local copies from `--pin-binaries` or `sync-binaries`), it is used first.
 2. **Project `bin/` directory** — the default location after `make all`.
 
-`bin/picurv` is a launcher for `scripts/picurv`. This means:
+`bin/picurv` is a launcher for `picurv_cli/picurv`. This means:
 
-- there is exactly one source file (`scripts/picurv`), so code changes never drift,
+- there is one stable executable entrypoint backed by the `picurv_cli/` package,
 - `make conductor` recreates the launcher (idempotent),
 - bootstrap-managed installs run with the repo-local `.picurv-venv` Python,
 - `etc/picurv.sh` adds `bin/` to PATH so `picurv` works from any directory.

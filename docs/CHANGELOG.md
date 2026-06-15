@@ -10,8 +10,8 @@
   - replaced user-facing legacy IC selectors with canonical `generated` and `file` modes.
   - added built-in zero, Cartesian constant, streamwise constant, and Poiseuille generators.
   - added single-block file-backed `Ucat` and `Ucont` startup through the existing field reader.
-  - added `ic_gen` run/precompute orchestration, defaulting to `scripts/ic.gen` with an optional compatible script override.
-  - added the repository `scripts/ic.gen` expression engine for grid-aware `Ucat` and staggered `Ucont` PETSc vectors.
+  - added `ic_gen` run/precompute orchestration, defaulting to `generators/ic.gen` with an optional compatible script override.
+  - added the repository `generators/ic.gen` expression engine for grid-aware `Ucat` and staggered `Ucont` PETSc vectors.
   - made initial conditions subordinate to analytical, load, and restart Eulerian-state authority.
   - aligned grid, inlet-profile, and IC generators around repository defaults plus optional case-relative or absolute overrides.
 
@@ -48,7 +48,7 @@
   - renamed the main solver executable from `picsolver` to `simulator`.
   - `init` now creates config-only case directories; binaries are resolved from `bin/` via PATH.
   - `init --pin-binaries` copies `simulator`/`postprocessor` into the case for version-pinning (protects running jobs from concurrent rebuilds).
-  - `bin/picurv` is now a launcher for `scripts/picurv` (single source of truth).
+  - `bin/picurv` is now a launcher for the `picurv_cli/picurv` source-tree entrypoint.
   - `sync-binaries` pins specific binary versions into a case directory (optional, equivalent to `--pin-binaries` after init).
   - removed the temporary `--copy-binaries` init flag.
 
@@ -89,13 +89,13 @@
 
 - Documentation enforcement and CI:
   - enforced function-level Doxygen-compatible coverage across C product code, C tests, Python product scripts, and Python tests.
-  - added `scripts/audit_function_docs.py` as the repository-wide audit gate.
+  - added `tests/tooling/audit_function_docs.py` as the repository-wide audit gate.
   - wired the audit into repository consistency tests and the GitHub Actions quality workflow as an explicit pre-pytest step.
 
 - Run inspection and local log routing:
   - added `picurv summarize` for read-only per-step health summaries derived from existing run artifacts.
   - expanded `picurv summarize` with additive `--overview`, `--case`, `--solver`, and `--monitor` configuration views that work before timestep artifacts exist.
-  - added `summarize --list-plot-series` and `--plot` time-history workflows backed by standalone `scripts/plot.gen`, with append-order windows, automatic residual/norm log scaling, explicit saves, and headless fallback.
+  - added `summarize --list-plot-series` and `--plot` time-history workflows backed by standalone `generators/plot.gen`, with append-order windows, automatic residual/norm log scaling, explicit saves, and headless fallback.
   - report missing `matplotlib` as an actionable `DEPENDENCY_MISSING` plotting error instead of a configuration-value error.
   - install `matplotlib` by default in the bootstrap-managed Python environment so plotting works after a standard install.
   - preserve the existing pip version during normal bootstrap runs; add explicit `--upgrade-pip` for environments that need it.
@@ -128,8 +128,8 @@
   - `15_Config_Ingestion_Map.md`
   - `16_Config_Extension_Playbook.md`
 - Added ingress drift guard:
-  - `scripts/audit_ingress.py`
-  - `scripts/audit_ingress_manifest.json`
+  - `tests/tooling/audit_ingress.py`
+  - `tests/tooling/audit_ingress_manifest.json`
 - Added documentation note on data-driven particle-closure expansion:
   - offline workflows supported now via solver/post artifacts.
   - tightly coupled inference requires runtime-selectable closure interface extension.

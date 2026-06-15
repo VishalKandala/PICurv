@@ -67,7 +67,7 @@ PICurv uses a two-way coupled Eulerian-Lagrangian strategy:
 - Cluster scheduler integration (`cluster.yml`) for Slurm job generation/submission
 - Study/sweep orchestration (`study.yml`) with Slurm arrays, dependency chaining, and metric plots
 - Multiple grid ingestion modes: `programmatic_c`, `file`, and `grid_gen`
-- Direct and wrapped grid generation through `scripts/grid.gen`
+- Direct and wrapped grid generation through `generators/grid.gen`
 - Named momentum solver strategy with solver-specific option blocks
 - Structured post-processing pipelines (Eulerian, Lagrangian, statistics)
 - Dedicated config contract and ingestion mapping docs for maintenance and extension

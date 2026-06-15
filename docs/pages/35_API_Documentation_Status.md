@@ -13,7 +13,7 @@ Function-level documentation coverage is now enforced across:
 - public C headers in `include/`,
 - C implementations in `src/`,
 - C tests in `tests/c/`,
-- Python product scripts in `scripts/`,
+- Python product code in `picurv_cli/` and `generators/`,
 - Python tests in `tests/`.
 
 The current repository contract requires every executable function to have a
@@ -32,7 +32,7 @@ Configured in `docs/Doxyfile` via:
 
 Repository consistency checks now also enforce function-level documentation via:
 
-- `scripts/audit_function_docs.py`
+- `tests/tooling/audit_function_docs.py`
 
 GitHub Actions quality CI also runs the audit explicitly before `pytest -q` on pull requests and pushes to `main`.
 
@@ -58,7 +58,7 @@ Minimum acceptable quality is interface correctness and discoverability, even wh
 
 @section p35_workflow_sec 4. Practical Cleanup Workflow
 
-1. run `python3 scripts/audit_function_docs.py`,
+1. run `python3 tests/tooling/audit_function_docs.py`,
 2. patch one module at a time (`include/*.h` + matching `src/*.c`, plus affected Python helpers/tests),
 3. run the repo consistency tests that wrap the audit,
 4. run docs build (`make build-docs`) to verify rendered output where needed.

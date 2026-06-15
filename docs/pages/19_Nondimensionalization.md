@@ -47,7 +47,7 @@ Particle and Eulerian data follow the same scale family so interpolation/project
 
 @section p19_pipeline_sec 4. Where This Happens in the Pipeline
 
-- YAML validation and conversion: `scripts/picurv`
+- YAML validation and conversion: `picurv_cli/core.py`
 - Runtime option ingestion: `src/setup.c`
 - Grid/data read-write scaling hooks: `src/io.c`
 - Post re-dimensionalization trigger via `post.yml`:

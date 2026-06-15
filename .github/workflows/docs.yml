@@ -20,7 +20,7 @@ jobs:
         run: |
           test -f docs_build/html/index.html
           test -f docs_build/html/pages.html
-          python3 scripts/generate_doxygen_fallback_indexes.py \
+          python3 tests/tooling/generate_doxygen_fallback_indexes.py \
             --repo-root . \
             --html-dir docs_build/html
 

@@ -13,12 +13,12 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
 - Generated, field-sliced, and file-backed inlet `PICSLICE` profiles for `prescribed_flow`
   boundary conditions, including square-duct Poiseuille generation via
-  `scripts/profile.gen`
+  `generators/profile.gen`
 - Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `logs/scatter_metrics.csv`
-- YAML-driven orchestration through the conductor (`scripts/picurv`, launched by `bin/picurv` after build)
+- YAML-driven orchestration through the source-tree entrypoint (`picurv_cli/picurv`, launched by `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Staged local/Slurm run workflows with `--no-submit`, delayed `submit`, and Slurm run-directory-based `cancel`
-- Read-only run/config summaries plus scalar log time-history plotting through `summarize` and `scripts/plot.gen`
+- Read-only run/config summaries plus scalar log time-history plotting through `summarize` and `generators/plot.gen`
 - Graceful final snapshot writes on early shutdown signals (`SIGUSR1`, `SIGTERM`, `SIGINT`) at safe checkpoints
 - Parameter sweep orchestration with Slurm arrays (`study.yml`), including cross-product `parameters` sweeps and explicit coupled `parameter_sets`
 - Solver and postprocessor executables from one build system
@@ -35,7 +35,7 @@ Automated setup (recommended):
 export PETSC_DIR=/path/to/petsc
 # Set PETSC_ARCH only for old-style in-tree PETSc builds:
 # export PETSC_ARCH=arch-linux-c-debug
-./scripts/bootstrap_install.sh --install-shell-hook
+./bootstrap_install.sh --install-shell-hook
 ```
 Bootstrap installs `matplotlib` into the managed environment by default so
 `summarize --plot` and sweep post-processing plots work immediately.
@@ -51,15 +51,15 @@ different module stack for visualization or post-processing.
 
 If PETSc is not installed yet:
 ```bash
-./scripts/bootstrap_install.sh --install-petsc
+./bootstrap_install.sh --install-petsc
 ```
 For clusters that require site-managed Python packages:
 ```bash
-./scripts/bootstrap_install.sh --no-venv
+./bootstrap_install.sh --no-venv
 ```
 To have bootstrap add the `picurv` shell setup to `~/.bashrc` for future logins:
 ```bash
-./scripts/bootstrap_install.sh --install-shell-hook
+./bootstrap_install.sh --install-shell-hook
 ```
 
 ## Quick Start (Local)
@@ -73,13 +73,13 @@ export PETSC_DIR=/path/to/petsc
 
 2. Install/build with the managed PICurv Python environment:
 ```bash
-./scripts/bootstrap_install.sh --install-shell-hook
+./bootstrap_install.sh --install-shell-hook
 source ~/.bashrc
 ```
 
 For an existing cluster module stack where system packages are already present:
 ```bash
-./scripts/bootstrap_install.sh --skip-system-deps --install-shell-hook
+./bootstrap_install.sh --skip-system-deps --install-shell-hook
 source ~/.bashrc
 ```
 
@@ -93,7 +93,7 @@ Bootstrap does this idempotently with `--install-shell-hook`.
 After build, `picurv` is available as a command from any directory. The
 environment script keeps `bin/` first on `PATH` for compiled executables,
 exports `PICURV_PYTHON` when a managed environment exists, and also exposes
-`scripts/` as a fallback so `picurv` still resolves if a pull or rebase removes
+`picurv_cli/` as a fallback so `picurv` still resolves if a pull or rebase removes
 `bin/picurv` before the conductor launcher is rebuilt.
 
 3. Initialize an example:
@@ -326,21 +326,21 @@ For exact current options, always use script-local help:
 ./bin/picurv validate --help
 ./bin/picurv sweep --help
 ./bin/picurv summarize --help
-python3 scripts/grid.gen --help
-python3 scripts/grid.gen legacy1d --help
-python3 scripts/profile.gen --help
-python3 scripts/plot.gen --help
+python3 generators/grid.gen --help
+python3 generators/grid.gen legacy1d --help
+python3 generators/profile.gen --help
+python3 generators/plot.gen --help
 ```
 
 Helper script help:
 
-- `python3 scripts/audit_ingress.py --help`
-- `python3 scripts/check_markdown_links.py --help`
-- `python3 scripts/python_coverage_gate.py --help`
-- `python3 scripts/c_coverage_gate.py --help`
-- `python3 scripts/generate_doxygen_fallback_indexes.py --help`
-- `python3 scripts/convert_grid_from_legacy_to_picgrid.py --help`
-- `bash scripts/bootstrap_install.sh --help`
+- `python3 tests/tooling/audit_ingress.py --help`
+- `python3 tests/tooling/check_markdown_links.py --help`
+- `python3 tests/tooling/python_coverage_gate.py --help`
+- `python3 tests/tooling/c_coverage_gate.py --help`
+- `python3 tests/tooling/generate_doxygen_fallback_indexes.py --help`
+- `python3 generators/convert_grid_from_legacy_to_picgrid.py --help`
+- `bash bootstrap_install.sh --help`
 
 Detailed long-form option docs:
 
@@ -422,7 +422,7 @@ Compatibility aliases:
 Quick-start commands:
 
 ```bash
-python3 scripts/audit_function_docs.py
+python3 tests/tooling/audit_function_docs.py
 make test
 make doctor
 make unit-setup
@@ -459,7 +459,7 @@ Current next-gap backlog:
 
 Repository contract note:
 
-- `python3 scripts/audit_function_docs.py` enforces Doxygen-style function documentation coverage for C and Python code, including tests.
+- `python3 tests/tooling/audit_function_docs.py` enforces Doxygen-style function documentation coverage for C and Python code, including tests.
 - GitHub Actions now runs that audit explicitly before `pytest -q`, then runs markdown link checks on pull requests and pushes to `main`.
 
 Detailed guide:
@@ -493,7 +493,7 @@ Top-level guides:
 - `examples/guide.md`
 - `include/guide.md`
 - `src/guide.md`
-- `scripts/guide.md`
+- `picurv_cli/guide.md`
 - `sandbox/guide.md`
 - `logs/guide.md`
 
@@ -504,7 +504,7 @@ Grid profile library:
 - `config/grids/` (shared `grid.gen` configs)
 
 Inlet profile generation:
-- `scripts/profile.gen` writes dimensional canonical `PICSLICE` profiles.
+- `generators/profile.gen` writes dimensional canonical `PICSLICE` profiles.
 - `profile.gen field-slice` derives a reusable PICSLICE from an old `ufield*.dat`
   and old canonical `PICGRID` without changing C-side ingestion.
 - `picurv precompute --case ...` materializes configured grid/profile/initial-condition artifacts

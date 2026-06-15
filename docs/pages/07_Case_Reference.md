@@ -65,7 +65,7 @@ Practical contract notes:
 
 - `initial_conditions.mode` is `generated` or `file`.
 - generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`.
-- `generator: ic_gen` defaults to `scripts/ic.gen`; optional `params.script` selects a compatible override.
+- `generator: ic_gen` defaults to `generators/ic.gen`; optional `params.script` selects a compatible override.
 - file-backed ICs accept one PETSc binary `Ucat` or `Ucont` vector and currently require a single-block case.
 - `flow_direction` is required for curvilinear Constant and Poiseuille when no INLET face exists.
 - `eulerian_field_source` and restart selection supersede `initial_conditions`.
@@ -149,13 +149,13 @@ grid:
     enabled: true
     format: legacy1d            # aliases: legacy_1d, les_flat_1d, les-flat-1d; or column_text
     output_file: null           # optional: override generated .picgrid output path
-    script: null                # optional: override conversion script path (default scripts/grid.gen)
+    script: null                # optional: override conversion script path (default generators/grid.gen)
     axis_columns: [0, 1, 2]    # preferred source columns for X/Y/Z axis rows
     strict_trailing: true
     cli_args: []                # additional raw tokens forwarded to the conversion script
 ```
 
-When enabled, `picurv` first calls `scripts/grid.gen legacy1d` to create a canonical PICGRID file in the run config, then runs the normal validation/non-dimensionalization staging path.
+When enabled, `picurv` first calls `generators/grid.gen legacy1d` to create a canonical PICGRID file in the run config, then runs the normal validation/non-dimensionalization staging path.
 
 @subsection p07_grid_gen_ssec 3.3 mode: grid_gen
 
@@ -168,7 +168,7 @@ grid:
     cli_args: ["--ncells-i", "96", "--ncells-j", "96"]
 ```
 
-This runs `scripts/grid.gen` before solver launch and stages generated grid artifacts into the run config.
+This runs `generators/grid.gen` before solver launch and stages generated grid artifacts into the run config.
 `grid.generator.config_file` is required today; `picurv` does not synthesize a temporary grid config.
 `grid.gen` accepts cell-count inputs (`ncells_*` / `--ncells-*`) and writes node counts into the generated `.picgrid` header.
 
@@ -242,7 +242,7 @@ Supported type/handler combinations:
   - file-backed: `params.source.type: file`, `params.source.path`
   - generated: `params.source.type: generated`, `params.source.generator: square_duct_poiseuille`
   - field-sliced: `params.source.type: field_slice`, `params.source.field_file`, `params.source.grid_file`, `params.source.slice`
-  - generated and field-sliced sources default to `scripts/profile.gen`; optional
+  - generated and field-sliced sources default to `generators/profile.gen`; optional
     `params.source.script` selects a compatible override
 - `OUTLET` + `conservation`
 - `WALL` + `noslip`

@@ -118,7 +118,7 @@ Expected behavior: smooth channel flow with profile development consistent with 
 
 @section p02_troubleshooting_sec 9. Common First-Run Issues
 
-- Missing binary: rerun `./scripts/picurv build` and check PETSc vars.
+- Missing binary: rerun `./picurv_cli/picurv build` and check PETSc vars.
 - Validation failure: compare key paths against examples and **@subpage 14_Config_Contract**.
 - Empty post output: verify `--post-process` flag and `post.yml` output settings.
 

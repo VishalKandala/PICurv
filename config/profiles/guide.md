@@ -72,16 +72,16 @@ want to generate and inspect profile artifacts before launching the solver.
 
 ## Standalone Engine
 
-`scripts/profile.gen` is the low-level generator:
+`generators/profile.gen` is the low-level generator:
 
 ```bash
-python3 scripts/profile.gen square_duct_poiseuille \
+python3 generators/profile.gen square_duct_poiseuille \
   --output inlet.picslice \
   --dims 63 63 \
   --bulk-velocity 1.0 \
   --n-terms 101
 
-python3 scripts/profile.gen field-slice \
+python3 generators/profile.gen field-slice \
   --output inlet_from_old_run.picslice \
   --field-file old_run/output/eulerian/ufield10000_0.dat \
   --source-grid old_run/config/grid.run \

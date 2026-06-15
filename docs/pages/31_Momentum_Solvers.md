@@ -70,7 +70,7 @@ That means the momentum stack is currently a stronger regression gate than bespo
 Required steps:
 
 1. define solver implementation function in `src/momentumsolvers.c`,
-2. ensure enum and parser mapping are present (`variables.h`, `setup.c`, `scripts/picurv`),
+2. ensure enum and parser mapping are present (`variables.h`, `setup.c`, `picurv_cli/core.py`),
 3. add dispatch branch in function @ref FlowSolver for the new enum value,
 4. expose and document solver-specific YAML options,
 5. add smoke tests and docs updates.

@@ -1,8 +1,8 @@
-@page 48_Grid_Generator_Guide Grid Generator Guide: scripts/grid.gen
+@page 48_Grid_Generator_Guide Grid Generator Guide: generators/grid.gen
 
 @anchor _Grid_Generator_Guide
 
-`scripts/grid.gen` is the standalone structured-grid utility used by the `grid.mode: grid_gen` workflow and legacy grid conversion paths.
+`generators/grid.gen` is the standalone structured-grid utility used by the `grid.mode: grid_gen` workflow and legacy grid conversion paths.
 This page documents what it can generate or convert directly, how its config files work, and how `picurv` wraps it.
 
 @tableofcontents
@@ -27,17 +27,17 @@ This is distinct from:
 General form:
 
 ```bash
-python3 scripts/grid.gen [--config <cfgfile>] <grid_type> [grid-specific options...]
+python3 generators/grid.gen [--config <cfgfile>] <grid_type> [grid-specific options...]
 ```
 
 Examples from the current script interface:
 
 ```bash
-python3 scripts/grid.gen --config config/grids/coarse_square_tube_curved.cfg pipe --ncells-path 200
-python3 scripts/grid.gen cpipe --orientation xz --vts cpipe_xz.vts
-python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --stretch-i 2.5 --stretch-j 2.5
-python3 scripts/grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 0.01 --first-cell-j-start 0.01
-python3 scripts/grid.gen legacy1d --input legacy_flat.grid --output legacy_flat.picgrid --no-write-vtk
+python3 generators/grid.gen --config config/grids/coarse_square_tube_curved.cfg pipe --ncells-path 200
+python3 generators/grid.gen cpipe --orientation xz --vts cpipe_xz.vts
+python3 generators/grid.gen cpipe --ncells-i 32 --ncells-j 32 --stretch-i 2.5 --stretch-j 2.5
+python3 generators/grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 0.01 --first-cell-j-start 0.01
+python3 generators/grid.gen legacy1d --input legacy_flat.grid --output legacy_flat.picgrid --no-write-vtk
 ```
 
 `grid.gen` accepts both:
@@ -146,7 +146,7 @@ Current contract notes:
 Behavior in `picurv`:
 
 1. validate generator config path and wrapper settings,
-2. call `scripts/grid.gen`,
+2. call `generators/grid.gen`,
 3. validate and non-dimensionalize the generated grid,
 4. stage the runtime `grid.run` artifact for C-side ingestion.
 
@@ -206,7 +206,7 @@ grid:
     enabled: true
     format: legacy1d            # or column_text; aliases: legacy_1d, les_flat_1d, les-flat-1d
     output_file: null           # optional: override the generated .picgrid output path
-    script: null                # optional: override the conversion script (default: scripts/grid.gen)
+    script: null                # optional: override the conversion script (default: generators/grid.gen)
     axis_columns: [0, 1, 2]    # preferred source columns for X/Y/Z axis rows
     strict_trailing: true
     cli_args: []                # additional raw tokens forwarded to the conversion script
@@ -256,7 +256,7 @@ nonmatching surface pairs are rejected at runtime.
 
 ## CFD Reader Guidance and Practical Use
 
-This page describes **Grid Generator Guide: scripts/grid.gen** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+This page describes **Grid Generator Guide: generators/grid.gen** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
 
 Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
 

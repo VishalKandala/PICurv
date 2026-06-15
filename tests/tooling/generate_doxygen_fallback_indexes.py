@@ -121,7 +121,9 @@ def collect_all_source_like_files(repo_root: Path, html_dir: Path) -> list[tuple
     rows: list[tuple[str, str, str]] = []
     rows.extend(collect_file_rows(repo_root, html_dir, "include", HEADER_SUFFIXES))
     rows.extend(collect_file_rows(repo_root, html_dir, "src", SOURCE_SUFFIXES))
-    rows.extend(collect_file_rows(repo_root, html_dir, "scripts", SCRIPT_SUFFIXES))
+    rows.extend(collect_file_rows(repo_root, html_dir, "picurv_cli", SCRIPT_SUFFIXES))
+    rows.extend(collect_file_rows(repo_root, html_dir, "generators", set()))
+    rows.extend(collect_file_rows(repo_root, html_dir, "tests/tooling", SCRIPT_SUFFIXES))
     return rows
 
 
@@ -308,17 +310,19 @@ def write_structured_file_index(repo_root: Path, html_dir: Path) -> None:
     """
     headers = collect_file_rows(repo_root, html_dir, "include", HEADER_SUFFIXES)
     sources = collect_file_rows(repo_root, html_dir, "src", SOURCE_SUFFIXES)
-    scripts = collect_file_rows(repo_root, html_dir, "scripts", SCRIPT_SUFFIXES)
+    runtime_python = collect_file_rows(repo_root, html_dir, "picurv_cli", SCRIPT_SUFFIXES)
+    tooling = collect_file_rows(repo_root, html_dir, "tests/tooling", SCRIPT_SUFFIXES)
     body = (
         section_table("Header Files", render_rows(headers, "No header files found."))
         + section_table("Source Files", render_rows(sources, "No source files found."))
-        + section_table("Scripts", render_rows(scripts, "No script files found."))
+        + section_table("Python Runtime", render_rows(runtime_python, "No Python runtime files found."))
+        + section_table("Repository Tooling", render_rows(tooling, "No repository tooling files found."))
     )
     out = html_dir / "files_structured.html"
     out.write_text(
         render_page(
             "File List (Structured)",
-            "Organized by file role: headers, source files, and scripts.",
+            "Organized by file role: headers, source files, Python runtime, and tooling.",
             body,
         ),
         encoding="utf-8",
@@ -378,7 +382,7 @@ def write_fallback_files_page(repo_root: Path, html_dir: Path) -> None:
     out.write_text(
         render_page(
             "File List",
-            "Fallback file list generated from include/src/scripts.",
+            "Fallback file list generated from runtime and tooling source directories.",
             body,
         ),
         encoding="utf-8",
@@ -419,9 +423,9 @@ def main() -> int:
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python3 scripts/generate_doxygen_fallback_indexes.py \\\n"
+            "  python3 tests/tooling/generate_doxygen_fallback_indexes.py \\\n"
             "    --repo-root . --html-dir docs_build/html\n"
-            "  python3 scripts/generate_doxygen_fallback_indexes.py \\\n"
+            "  python3 tests/tooling/generate_doxygen_fallback_indexes.py \\\n"
             "    --repo-root /path/to/repo --html-dir /path/to/repo/docs_build/html"
         ),
     )
@@ -429,7 +433,7 @@ def main() -> int:
         "--repo-root",
         required=True,
         type=Path,
-        help="Repository root used to scan include/src/scripts and headers.",
+        help="Repository root used to scan runtime, generator, tooling, and header sources.",
     )
     parser.add_argument(
         "--html-dir",

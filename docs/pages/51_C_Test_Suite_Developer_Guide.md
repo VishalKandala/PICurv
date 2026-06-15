@@ -234,7 +234,7 @@ Use this rule set:
 - `smoke`:
   - for real executable launch or tiny end-to-end entrypoint checks
 - `test-python`:
-  - for `scripts/picurv`, schema, and repository metadata behavior
+  - for `picurv_cli/core.py`, schema, and repository metadata behavior
 
 If a test can run against a small local fixture without invoking the full executables, it almost always belongs in `unit-*`.
 

@@ -21,10 +21,10 @@ if [ -n "$_picurv_dir" ]; then
             esac
         fi
     fi
-    # Keep bin/ ahead of scripts/ for compiled executables, but also expose
-    # scripts/ so `picurv` remains available if bin/picurv is temporarily absent
+    # Keep bin/ ahead of picurv_cli/ for compiled executables, but also expose
+    # picurv_cli/ so `picurv` remains available if bin/picurv is temporarily absent
     # after a pull/rebase and before `make conductor` recreates the launcher.
-    for _picurv_path in "$PICURV_DIR/scripts" "$PICURV_DIR/bin"; do
+    for _picurv_path in "$PICURV_DIR/picurv_cli" "$PICURV_DIR/bin"; do
         case ":$PATH:" in
             *":$_picurv_path:"*) ;;  # already on PATH
             *) PATH="$_picurv_path:$PATH" ;;

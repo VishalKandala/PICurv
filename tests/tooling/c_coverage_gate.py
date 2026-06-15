@@ -23,9 +23,9 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python3 scripts/c_coverage_gate.py\n"
-            "  python3 scripts/c_coverage_gate.py --min-line 60\n"
-            "  python3 scripts/c_coverage_gate.py --src-dir src --obj-dir obj --output-dir coverage/c\n"
+            "  python3 tests/tooling/c_coverage_gate.py\n"
+            "  python3 tests/tooling/c_coverage_gate.py --min-line 60\n"
+            "  python3 tests/tooling/c_coverage_gate.py --src-dir src --obj-dir obj --output-dir coverage/c\n"
         ),
     )
     parser.add_argument(
@@ -123,7 +123,7 @@ def main() -> int:
     @return Value returned by `main()`.
     """
     args = parse_args()
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
     src_dir = (repo_root / args.src_dir).resolve()
     obj_dir = (repo_root / args.obj_dir).resolve()
     output_dir = (repo_root / args.output_dir).resolve()

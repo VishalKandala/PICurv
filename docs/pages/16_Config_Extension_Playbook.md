@@ -10,14 +10,14 @@ This playbook defines the standard workflow for adding new options/models withou
 
 1. Choose the schema home (`case.yml`, `solver.yml`, `monitor.yml`, or `post.yml`).
 2. Add template documentation in `examples/master_template/*.yml`.
-3. Add validation and normalization in `scripts/picurv`.
+3. Add validation and normalization in `picurv_cli/core.py`.
 4. Emit the mapped control/post key into generated artifacts.
 5. Add C-side ingestion default + parser wiring (`setup.c` or `io.c`).
 6. Connect runtime consumer logic in domain module (`grid.c`, `poisson.c`, particle modules, etc.).
 7. Update references:
    - `docs/pages/14_Config_Contract.md`
    - `docs/pages/15_Config_Ingestion_Map.md`
-8. Update `scripts/audit_ingress_manifest.json` when PETSc ingress changes.
+8. Update `tests/tooling/audit_ingress_manifest.json` when PETSc ingress changes.
 9. Verify with a config-generation run and static ingress audit.
 
 @section p16_design_sec 2. Design Rules
@@ -34,7 +34,7 @@ Use this checklist when adding a new particle model constant, source term, or in
 1. Schema:
    - Add structured keys under `models.physics.particles` (case) or `solver` (if solver-policy).
 2. Generator:
-   - Map to control flags in `scripts/picurv`.
+   - Map to control flags in `picurv_cli/core.py`.
    - Add validation for domain/range and mode compatibility.
 3. C ingestion:
    - Add default in `CreateSimulationContext`.

@@ -41,7 +41,7 @@ When adding a new page, wire it in both places so it is discoverable from site n
 Before pushing docs changes, run:
 
 ```bash
-python3 scripts/check_markdown_links.py
+python3 tests/tooling/check_markdown_links.py
 ```
 
 This validates Markdown file links in `README.md` and `docs/**/*.md` (excluding generated docs output).

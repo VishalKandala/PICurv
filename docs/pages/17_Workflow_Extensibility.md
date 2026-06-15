@@ -18,7 +18,7 @@ This contract is already explicit in pages 14/15/16 and the ingress audit toolin
 
 Supported today:
 - External grid ingestion (`grid.mode: file`) with validation and non-dimensionalization in `picurv`
-- Pre-run generation (`grid.mode: grid_gen`) via `scripts/grid.gen`
+- Pre-run generation (`grid.mode: grid_gen`) via `generators/grid.gen`
 
 Extension-friendly next steps:
 - Add additional generator wrappers under `grid.generator` (new `grid_type` aliases)

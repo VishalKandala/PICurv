@@ -57,16 +57,16 @@ These keys are consumed by `picurv` orchestration only:
 
 | YAML / Source Key | Generated Artifact Key | Ingestion Site | Runtime Consumer |
 | :--- | :--- | :--- | :--- |
-| `cluster.scheduler.type` | scheduler selector | `scripts/picurv` (`validate_cluster_config`) | `run`/`sweep` scheduler dispatch |
-| `cluster.resources.*` | `#SBATCH` directives | `scripts/picurv` (Slurm renderers) | Slurm scheduler |
-| `cluster.notifications.*` | `#SBATCH --mail-*` | `scripts/picurv` | Slurm scheduler |
-| `cluster.execution.module_setup` | pre-launch shell lines in `*.sbatch` | `scripts/picurv` | batch script runtime env |
-| `cluster.execution.launcher*` | launch command (`srun`/`mpirun`) | `scripts/picurv` | solver launch plus forced single-rank post launch |
-| `study.base_configs.*` | per-case config materialization | `scripts/picurv` (`sweep_workflow`) | case generation pipeline |
-| `study.parameters` | case matrix expansion | `scripts/picurv` (`expand_parameter_matrix`) | study case synthesis |
-| `study.execution.max_concurrent_array_tasks` | Slurm array `%N` throttle | `scripts/picurv` | Slurm scheduler |
-| `study.metrics` | `metrics_table.csv` extraction contract | `scripts/picurv` metric extractors | study aggregation/reporting |
-| `study.plotting` | `results/plots/*` output controls | `scripts/picurv` plotting pipeline | study reporting |
+| `cluster.scheduler.type` | scheduler selector | `picurv_cli/core.py` (`validate_cluster_config`) | `run`/`sweep` scheduler dispatch |
+| `cluster.resources.*` | `#SBATCH` directives | `picurv_cli/core.py` (Slurm renderers) | Slurm scheduler |
+| `cluster.notifications.*` | `#SBATCH --mail-*` | `picurv_cli/core.py` | Slurm scheduler |
+| `cluster.execution.module_setup` | pre-launch shell lines in `*.sbatch` | `picurv_cli/core.py` | batch script runtime env |
+| `cluster.execution.launcher*` | launch command (`srun`/`mpirun`) | `picurv_cli/core.py` | solver launch plus forced single-rank post launch |
+| `study.base_configs.*` | per-case config materialization | `picurv_cli/core.py` (`sweep_workflow`) | case generation pipeline |
+| `study.parameters` | case matrix expansion | `picurv_cli/core.py` (`expand_parameter_matrix`) | study case synthesis |
+| `study.execution.max_concurrent_array_tasks` | Slurm array `%N` throttle | `picurv_cli/core.py` | Slurm scheduler |
+| `study.metrics` | `metrics_table.csv` extraction contract | `picurv_cli/core.py` metric extractors | study aggregation/reporting |
+| `study.plotting` | `results/plots/*` output controls | `picurv_cli/core.py` plotting pipeline | study reporting |
 
 @section p15_exceptions_sec 4. Important Exceptions
 
@@ -99,10 +99,10 @@ options" in several places.
 
 @section p15_maintenance_sec 6. Drift Prevention
 
-- Use `scripts/audit_ingress.py` to compare PETSc option ingress in `setup.c/io.c` with the maintained manifest.
+- Use `tests/tooling/audit_ingress.py` to compare PETSc option ingress in `setup.c/io.c` with the maintained manifest.
 - Keep this map and the manifest updated whenever new options are introduced.
 - Run manually with:
-  - `python3 scripts/audit_ingress.py`
+  - `python3 tests/tooling/audit_ingress.py`
   - or `make audit-ingress`
 
 For roadmap-oriented workflow extensions built on this contract, see **@subpage 17_Workflow_Extensibility**.

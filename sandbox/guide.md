@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`sandbox/` is a developer scratch area for experiments that are not yet production-ready. Use this directory to iterate quickly without polluting canonical workflow assets in `config/`, `examples/`, `scripts/`, or `docs/pages/`.
+`sandbox/` is a developer scratch area for experiments that are not yet production-ready. Use this directory to iterate quickly without polluting canonical workflow assets in `config/`, `examples/`, `picurv_cli/`, `generators/`, or `docs/pages/`.
 
 ## Good Uses
 
@@ -33,7 +33,7 @@ When an experiment stabilizes, promote it out of `sandbox/`:
 
 - reusable config -> `config/`
 - runnable sample case -> `examples/`
-- automation logic -> `scripts/`
+- conductor logic -> `picurv_cli/`; standalone generation -> `generators/`
 - user/developer explanation -> `docs/pages/`
 - production C implementation -> `src/` + `include/`
 

@@ -102,7 +102,7 @@ Study flow (`sweep`):
 - full or last-N append-order time-history plots with `--plot` and `--last`,
 - per-block and per-function lines, automatic positive residual/norm log scaling, explicit saves, and headless fallback.
 
-PICurv owns run/log interpretation; standalone `scripts/plot.gen` renders
+PICurv owns run/log interpretation; standalone `generators/plot.gen` renders
 versioned normalized JSON requests without knowing run-directory layouts.
 
 @section p12_extension_sec 8. Extensibility Status

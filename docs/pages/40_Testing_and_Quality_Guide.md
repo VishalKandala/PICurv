@@ -63,7 +63,7 @@ Compatibility aliases remain available:
 Fast local checks:
 
 ```bash
-python3 scripts/audit_function_docs.py
+python3 tests/tooling/audit_function_docs.py
 make test
 make coverage-python
 make audit-build
@@ -81,9 +81,9 @@ make check-full
 
 Guidance:
 
-- Use `python3 scripts/audit_function_docs.py` when changing C/Python function signatures, docstrings, or test helpers.
-- Use `make test` when working on `scripts/picurv`, schemas, or repository metadata.
-- Use `python3 scripts/check_markdown_links.py` when changing docs/examples.
+- Use `python3 tests/tooling/audit_function_docs.py` when changing C/Python function signatures, docstrings, or test helpers.
+- Use `make test` when working on `picurv_cli/core.py`, schemas, or repository metadata.
+- Use `python3 tests/tooling/check_markdown_links.py` when changing docs/examples.
 - Use `make audit-build` when you want a clean compilation audit with `logs/build.log` and `logs/build.warnings.log` captured under the repo `logs/` directory.
 - Use `make doctor` after provisioning PETSc on a new machine.
 - Use `make unit-setup` when changing setup, teardown, initialization, or rank-info lifecycle code.
@@ -103,7 +103,7 @@ Guidance:
 
 Purpose:
 
-- validate `scripts/picurv`
+- validate `picurv_cli/core.py`
 - validate config translation and contract behavior
 - validate repository-level regression checks
 
@@ -129,7 +129,7 @@ make test-python
 
 CI note:
 
-- `.github/workflows/quality.yml` runs `python scripts/audit_function_docs.py` explicitly before `pytest -q`, then runs markdown link checks on pull requests and pushes to `main`.
+- `.github/workflows/quality.yml` runs `python tests/tooling/audit_function_docs.py` explicitly before `pytest -q`, then runs markdown link checks on pull requests and pushes to `main`.
 
 @subsection p40_python_files_ssec 3.1 Python Test File Matrix
 
@@ -156,7 +156,7 @@ Current Python files and primary responsibilities:
 - `tests/test_repo_consistency.py`
   - validates canonical example bundles with `picurv validate`
   - scans docs/examples/tests for forbidden stale contract terms
-  - runs the repository-wide function documentation audit (`scripts/audit_function_docs.py`)
+  - runs the repository-wide function documentation audit (`tests/tooling/audit_function_docs.py`)
 
 These files are intentionally role-specific to keep failures actionable.
 
@@ -334,10 +334,10 @@ Use `check-full` for release candidates or CI workflows where both focused multi
 Coverage gates are script-backed and checked in-repo:
 
 - `make coverage-python`:
-  - runs `scripts/python_coverage_gate.py`
-  - uses stdlib `trace` and currently focuses on core runtime scripts (default: `scripts/picurv`)
+  - runs `tests/tooling/python_coverage_gate.py`
+  - uses stdlib `trace` and currently focuses on core runtime scripts (default: `picurv_cli/core.py`)
 - `make coverage-c`:
-  - rebuilds with coverage flags, runs `unit + smoke`, then executes `scripts/c_coverage_gate.py`
+  - rebuilds with coverage flags, runs `unit + smoke`, then executes `tests/tooling/c_coverage_gate.py`
   - parses gcov output for weighted line coverage over `src/*.c`
 
 Coverage artifacts:

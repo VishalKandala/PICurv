@@ -35,7 +35,7 @@ Startup branch details:
 
 @section p46_ingestion_sec 2. Python-to-C Configuration Boundary
 
-`scripts/picurv` is the control-plane generator.
+`picurv_cli/core.py` is the control-plane generator.
 It writes normalized runtime artifacts under `runs/<run_id>/config/` and launches C binaries with `-control_file`.
 
 Core generated files consumed by C:
@@ -131,7 +131,7 @@ When adding or changing physics behavior:
 Cross-layer reminder:
 
 - changes in `setup.c` / `io.c` option ingestion should also update:
-  - `scripts/audit_ingress_manifest.json`
+  - `tests/tooling/audit_ingress_manifest.json`
   - `docs/pages/15_Config_Ingestion_Map.md`
   - relevant Python regression tests (`test_config_regressions.py` / `test_cli_smoke.py`)
 

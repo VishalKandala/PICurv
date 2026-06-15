@@ -16,7 +16,8 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PICURV = REPO_ROOT / "scripts" / "picurv"
+PICURV = REPO_ROOT / "picurv_cli" / "picurv"
+PICURV_CORE = REPO_ROOT / "picurv_cli" / "core.py"
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 
@@ -33,10 +34,10 @@ def run_picurv(args, cwd=REPO_ROOT):
 
 def load_picurv_module():
     """!
-    @brief Load `scripts/picurv` as an importable module for regression tests.
+    @brief Load the conductor core as an importable module for regression tests.
     @return Value returned by `load_picurv_module()`.
     """
-    loader = importlib.machinery.SourceFileLoader("picurv_regression_module", str(PICURV))
+    loader = importlib.machinery.SourceFileLoader("picurv_regression_module", str(PICURV_CORE))
     spec = importlib.util.spec_from_loader("picurv_regression_module", loader)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
@@ -70,7 +71,7 @@ def test_audit_ingress_manifest_matches_c_ingress():
     @brief Test that audit ingress manifest matches c ingress.
     """
     result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "audit_ingress.py")],
+        [sys.executable, str(REPO_ROOT / "tests" / "tooling" / "audit_ingress.py")],
         cwd=str(REPO_ROOT),
         text=True,
         capture_output=True,

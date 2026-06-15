@@ -39,7 +39,7 @@ After Poisson solve:
 
 @section p25_config_sec 3. YAML Mapping and PETSc Options
 
-From `solver.yml` via `scripts/picurv`:
+From `solver.yml` via `picurv_cli/core.py`:
 
 - `poisson_solver.method` -> `-ps_ksp_type`
 - `poisson_solver.absolute_tolerance` -> `-ps_ksp_atol` and legacy `-poisson_tol`

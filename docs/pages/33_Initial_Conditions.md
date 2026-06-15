@@ -11,7 +11,7 @@ It covers both user-facing YAML inputs and the C implementation path that applie
 
 Startup sequence:
 
-1. `scripts/picurv` resolves built-in, file, or external-generator YAML.
+1. `picurv_cli/core.py` resolves built-in, file, or external-generator YAML.
 2. File-backed ICs are staged in the filename layout expected by @ref ReadFieldData.
 3. @ref InitializeEulerianState chooses fresh solve, restart load, or analytical initialization.
 4. On a fresh solve, @ref PopulateInitialUcont populates `Ucont`; existing finalization then applies
@@ -21,7 +21,7 @@ Startup sequence:
 @section p33_euler_sec 2. Eulerian Field Initialization (`properties.initial_conditions`)
 
 The canonical contract has two modes: `generated` and `file`. Generated ICs may use a built-in
-C generator or the repository `scripts/ic.gen` utility. Both produce the same solver-facing result: one
+C generator or the repository `generators/ic.gen` utility. Both produce the same solver-facing result: one
 initial velocity field.
 
 Built-in zero:
@@ -94,12 +94,12 @@ properties:
     generator: ic_gen
     params:
       field: Ucat
-      script: tools/custom_ic.py  # optional; defaults to scripts/ic.gen
+      script: tools/custom_ic.py  # optional; defaults to generators/ic.gen
       config_file: config/initial_conditions/expression.cfg
       output_file: config/initial_condition.generated.dat
 ```
 
-The launcher invokes `scripts/ic.gen` by default, or the optional case-relative/absolute
+The launcher invokes `generators/ic.gen` by default, or the optional case-relative/absolute
 `params.script` override, as:
 
 ```text

@@ -17,15 +17,16 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PICURV = REPO_ROOT / "scripts" / "picurv"
+PICURV = REPO_ROOT / "picurv_cli" / "picurv"
+PICURV_CORE = REPO_ROOT / "picurv_cli" / "core.py"
 
 
 def load_picurv_module():
     """!
-    @brief Load `scripts/picurv` as an importable module for maintenance tests.
+    @brief Load the conductor core as an importable module for maintenance tests.
     @return Value returned by `load_picurv_module()`.
     """
-    loader = importlib.machinery.SourceFileLoader("picurv_case_maintenance_module", str(PICURV))
+    loader = importlib.machinery.SourceFileLoader("picurv_case_maintenance_module", str(PICURV_CORE))
     spec = importlib.util.spec_from_loader("picurv_case_maintenance_module", loader)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
@@ -86,7 +87,7 @@ def make_fake_source_repo(root: Path) -> Path:
     """
     (root / "src").mkdir(parents=True)
     (root / "include").mkdir()
-    (root / "scripts").mkdir()
+    (root / "picurv_cli").mkdir()
     (root / "examples" / "demo" / "nested").mkdir(parents=True)
     (root / "bin").mkdir()
 
@@ -105,7 +106,7 @@ def make_fake_source_repo(root: Path) -> Path:
     )
     (root / "src" / "placeholder.c").write_text("/* placeholder */\n", encoding="utf-8")
     (root / "include" / "placeholder.h").write_text("/* placeholder */\n", encoding="utf-8")
-    (root / "scripts" / "placeholder.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    (root / "picurv_cli" / "placeholder.py").write_text("# placeholder\n", encoding="utf-8")
     (root / "examples" / "demo" / "case.yml").write_text("case: baseline\n", encoding="utf-8")
     (root / "examples" / "demo" / "guide.md").write_text("# demo\n", encoding="utf-8")
     (root / "examples" / "demo" / "nested" / "notes.txt").write_text("nested template file\n", encoding="utf-8")

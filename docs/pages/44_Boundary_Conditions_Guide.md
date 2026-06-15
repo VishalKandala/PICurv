@@ -62,7 +62,7 @@ Specifically:
 supplied directly with `source.type: file`, generated analytically with
 `source.type: generated`, or sliced from an old `ufield*.dat` with
 `source.type: field_slice`. The Python conductor resolves the face/grid context
-and delegates dimensional profile writes to `scripts/profile.gen`. Generated and
+and delegates dimensional profile writes to `generators/profile.gen`. Generated and
 field-sliced sources may set optional `source.script` to a compatible case-relative
 or absolute override:
 
@@ -242,7 +242,7 @@ Important contributor note:
 
 If you add a new BC mode, update all three layers in one change:
 
-1. Python validator/writer (`scripts/picurv`),
+1. Python validator/writer (`picurv_cli/core.py`),
 2. C parser/factory/handler implementation,
 3. docs and tests (fixtures + smoke checks).
 

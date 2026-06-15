@@ -25,20 +25,20 @@ From the PICurv repo root:
 export PETSC_DIR=/path/to/petsc
 # Set PETSC_ARCH only for old-style in-tree PETSc builds:
 # export PETSC_ARCH=arch-linux-c-debug
-./scripts/bootstrap_install.sh --install-shell-hook
+./bootstrap_install.sh --install-shell-hook
 ```
 
 If PETSc is not installed yet, let the script build it:
 
 ```bash
-./scripts/bootstrap_install.sh --install-petsc
+./bootstrap_install.sh --install-petsc
 ```
 
 The script installs system and Python dependencies, verifies PETSc/DMSwarm visibility, then builds:
 
 - `bin/simulator` (compiled C solver)
 - `bin/postprocessor` (compiled C post-processor)
-- `bin/picurv` (launcher for `scripts/picurv`, the Python conductor)
+- `bin/picurv` (launcher for `picurv_cli/picurv`, the Python conductor entrypoint)
 
 By default, bootstrap creates `.picurv-venv/` under the repo and installs the
 Python-side CLI dependencies there. PETSc, MPI, compilers, and scheduler tools
@@ -51,7 +51,7 @@ PETSc, skip OS package installation:
 
 ```bash
 module load <compiler-mpi-petsc-stack>
-./scripts/bootstrap_install.sh --skip-system-deps --install-shell-hook
+./bootstrap_install.sh --skip-system-deps --install-shell-hook
 source ~/.bashrc
 picurv --help
 ```
@@ -59,11 +59,11 @@ picurv --help
 Useful variants:
 
 ```bash
-./scripts/bootstrap_install.sh --venv-dir /path/to/picurv-venv
-./scripts/bootstrap_install.sh --python-bin /path/to/python3.11
-./scripts/bootstrap_install.sh --upgrade-pip
-./scripts/bootstrap_install.sh --install-shell-hook
-./scripts/bootstrap_install.sh --no-venv
+./bootstrap_install.sh --venv-dir /path/to/picurv-venv
+./bootstrap_install.sh --python-bin /path/to/python3.11
+./bootstrap_install.sh --upgrade-pip
+./bootstrap_install.sh --install-shell-hook
+./bootstrap_install.sh --no-venv
 ```
 
 Use `--no-venv` when your site requires Python packages to come from modules or
@@ -154,7 +154,7 @@ source /path/to/PICurv/etc/picurv.sh
 
 The `etc/picurv.sh` script sets `PICURV_DIR`, exports `PICURV_PYTHON` when a
 managed venv or bootstrap-selected Python is available, adds `bin/` to your
-`PATH` for compiled executables, and also exposes `scripts/` as a fallback so
+`PATH` for compiled executables, and also exposes `picurv_cli/` as a fallback so
 `picurv` still resolves if `bin/picurv` is temporarily absent before a rebuild.
 It is idempotent and safe to source multiple times.
 
@@ -189,25 +189,25 @@ cd PICurv
 @section p01_build_sec 7. Build with picurv
 
 ```bash
-./scripts/picurv build
+./picurv_cli/picurv build
 ```
 
 Expected binaries:
 
 - `bin/simulator` (compiled C solver)
 - `bin/postprocessor` (compiled C post-processor)
-- `bin/picurv` (launcher → `scripts/picurv`)
+- `bin/picurv` (launcher → `picurv_cli/picurv`)
 
 Useful variants:
 
 ```bash
-./scripts/picurv build clean-project
-./scripts/picurv build SYSTEM=cluster
+./picurv_cli/picurv build clean-project
+./picurv_cli/picurv build SYSTEM=cluster
 make audit-build
 ```
 
 After `source etc/picurv.sh`, use `picurv` directly from any directory.
-`./scripts/picurv build` writes `logs/build.log` in the source repo. If you are
+`./picurv_cli/picurv build` writes `logs/build.log` in the source repo. If you are
 auditing compiler warnings from a direct Make invocation, use `make audit-build`
 to generate both `logs/build.log` and `logs/build.warnings.log`.
 

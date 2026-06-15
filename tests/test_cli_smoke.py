@@ -20,10 +20,11 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PICURV = REPO_ROOT / "scripts" / "picurv"
-PROFILE_GEN = REPO_ROOT / "scripts" / "profile.gen"
-IC_GEN = REPO_ROOT / "scripts" / "ic.gen"
-PLOT_GEN = REPO_ROOT / "scripts" / "plot.gen"
+PICURV = REPO_ROOT / "picurv_cli" / "picurv"
+PICURV_CORE = REPO_ROOT / "picurv_cli" / "core.py"
+PROFILE_GEN = REPO_ROOT / "generators" / "profile.gen"
+IC_GEN = REPO_ROOT / "generators" / "ic.gen"
+PLOT_GEN = REPO_ROOT / "generators" / "plot.gen"
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
 
 
@@ -109,10 +110,10 @@ def create_matplotlib_with_missing_dependency(tmp_path: Path, dependency: str) -
 
 def load_picurv_module():
     """!
-    @brief Load `scripts/picurv` as an importable module for white-box CLI tests.
+    @brief Load the conductor core as an importable module for white-box CLI tests.
     @return Value returned by `load_picurv_module()`.
     """
-    loader = importlib.machinery.SourceFileLoader("picurv_module", str(PICURV))
+    loader = importlib.machinery.SourceFileLoader("picurv_module", str(PICURV_CORE))
     spec = importlib.util.spec_from_loader("picurv_module", loader)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
@@ -586,7 +587,7 @@ def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch)
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     source = write_petsc_vec_binary(tmp_path / "generator_input.dat", [1.0, 2.0, 3.0])
     write_fake_ic_generator(tmp_path / "ic.gen")
-    monkeypatch.setattr(picurv, "SCRIPT_PATH", str(tmp_path))
+    monkeypatch.setattr(picurv, "GENERATORS_PATH", str(tmp_path))
     case_cfg["properties"]["initial_conditions"] = {
         "mode": "generated",
         "generator": "ic_gen",
@@ -829,19 +830,19 @@ def write_legacy_post_recipe(run_dir: Path, run_id: str, post_cfg: dict, monitor
             lines.append(f"{key} = {value}")
     (run_dir / "config" / "post.run").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-def test_env_script_falls_back_to_scripts_when_bin_launcher_is_missing(tmp_path):
+def test_env_script_falls_back_to_package_entrypoint_when_bin_launcher_is_missing(tmp_path):
     """!
-    @brief Test that sourcing `etc/picurv.sh` still exposes `picurv` if `bin/picurv` is absent.
+    @brief Test that sourcing `etc/picurv.sh` exposes the package entrypoint if `bin/picurv` is absent.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     repo = tmp_path / "repo"
     (repo / "etc").mkdir(parents=True)
     (repo / "bin").mkdir()
-    (repo / "scripts").mkdir()
+    (repo / "picurv_cli").mkdir()
 
     shutil.copy2(REPO_ROOT / "etc" / "picurv.sh", repo / "etc" / "picurv.sh")
-    shutil.copy2(REPO_ROOT / "scripts" / "picurv", repo / "scripts" / "picurv")
-    (repo / "scripts" / "picurv").chmod(0o755)
+    shutil.copy2(REPO_ROOT / "picurv_cli" / "picurv", repo / "picurv_cli" / "picurv")
+    (repo / "picurv_cli" / "picurv").chmod(0o755)
 
     result = subprocess.run(
         [
@@ -858,7 +859,7 @@ def test_env_script_falls_back_to_scripts_when_bin_launcher_is_missing(tmp_path)
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     stdout_lines = result.stdout.strip().splitlines()
-    assert stdout_lines == [str(repo / "scripts" / "picurv"), str(repo.resolve())]
+    assert stdout_lines == [str(repo / "picurv_cli" / "picurv"), str(repo.resolve())]
 
 
 def test_make_conductor_creates_python_launcher():
@@ -910,7 +911,7 @@ def test_bootstrap_help_documents_python_environment_modes():
     @brief Test that bootstrap install help exposes venv and site-managed modes.
     """
     result = subprocess.run(
-        [str(REPO_ROOT / "scripts" / "bootstrap_install.sh"), "--help"],
+        [str(REPO_ROOT / "bootstrap_install.sh"), "--help"],
         cwd=str(REPO_ROOT),
         text=True,
         capture_output=True,
@@ -936,7 +937,7 @@ def test_bootstrap_installs_matplotlib_in_default_python_dependency_set():
     """!
     @brief Test bootstrap includes matplotlib in every supported Python installation mode.
     """
-    bootstrap = (REPO_ROOT / "scripts" / "bootstrap_install.sh").read_text(encoding="utf-8")
+    bootstrap = (REPO_ROOT / "bootstrap_install.sh").read_text(encoding="utf-8")
 
     assert bootstrap.count("PYTHON_PACKAGES=(pyyaml numpy packaging matplotlib)") == 2
     assert bootstrap.count('if [[ "${UPGRADE_PIP}" -eq 1 ]]') == 2
@@ -953,11 +954,11 @@ def test_launcher_prefers_managed_venv_python(tmp_path):
     subprocess.run(["make", "conductor"], cwd=str(REPO_ROOT), check=True, timeout=60)
     repo = tmp_path / "repo"
     (repo / "bin").mkdir(parents=True)
-    (repo / "scripts").mkdir()
+    (repo / "picurv_cli").mkdir()
     (repo / ".picurv-venv" / "bin").mkdir(parents=True)
     shutil.copy2(REPO_ROOT / "bin" / "picurv", repo / "bin" / "picurv")
     (repo / "bin" / "picurv").chmod(0o755)
-    (repo / "scripts" / "picurv").write_text("# placeholder\n", encoding="utf-8")
+    (repo / "picurv_cli" / "picurv").write_text("# placeholder\n", encoding="utf-8")
     (repo / ".picurv-python-env").write_text(
         "PICURV_PYTHON_LD_LIBRARY_PATH=/seed/python/lib\n",
         encoding="utf-8",
@@ -980,7 +981,7 @@ def test_launcher_prefers_managed_venv_python(tmp_path):
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     stdout_parts = result.stdout.strip().split(":", 3)
     assert stdout_parts[:3] == ["venv", "unset", "/seed/python/lib"]
-    assert stdout_parts[3].endswith(f"{repo / 'scripts' / 'picurv'} alpha beta")
+    assert stdout_parts[3].endswith(f"{repo / 'picurv_cli' / 'picurv'} alpha beta")
 
 
 def test_launcher_falls_back_to_picurv_python(tmp_path):
@@ -991,7 +992,7 @@ def test_launcher_falls_back_to_picurv_python(tmp_path):
     subprocess.run(["make", "conductor"], cwd=str(REPO_ROOT), check=True, timeout=60)
     repo = tmp_path / "repo"
     (repo / "bin").mkdir(parents=True)
-    (repo / "scripts").mkdir()
+    (repo / "picurv_cli").mkdir()
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     fake_python = write_executable(
@@ -1000,7 +1001,7 @@ def test_launcher_falls_back_to_picurv_python(tmp_path):
     )
     shutil.copy2(REPO_ROOT / "bin" / "picurv", repo / "bin" / "picurv")
     (repo / "bin" / "picurv").chmod(0o755)
-    (repo / "scripts" / "picurv").write_text("# placeholder\n", encoding="utf-8")
+    (repo / "picurv_cli" / "picurv").write_text("# placeholder\n", encoding="utf-8")
 
     result = subprocess.run(
         [str(repo / "bin" / "picurv"), "gamma"],
@@ -1013,7 +1014,7 @@ def test_launcher_falls_back_to_picurv_python(tmp_path):
     )
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    assert result.stdout.strip() == f"override:{repo / 'scripts' / 'picurv'} gamma"
+    assert result.stdout.strip() == f"override:{repo / 'picurv_cli' / 'picurv'} gamma"
 
 
 def make_fake_scancel_env(tmp_path: Path):
@@ -1765,6 +1766,7 @@ def test_profile_gen_square_duct_poiseuille_cli(tmp_path):
         capture_output=True,
         timeout=60,
         check=False,
+            env={**os.environ, "PICURV_DIR": str(REPO_ROOT)},
     )
 
     assert result.returncode == 0, result.stderr
@@ -1828,6 +1830,7 @@ def test_profile_gen_square_duct_poiseuille_grid_aware_normalization(tmp_path):
         capture_output=True,
         timeout=60,
         check=False,
+            env={**os.environ, "PICURV_DIR": str(REPO_ROOT)},
     )
 
     assert result.returncode == 0, result.stderr
@@ -4495,7 +4498,7 @@ def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            str(REPO_ROOT / "scripts" / "grid.gen"),
+            str(REPO_ROOT / "generators" / "grid.gen"),
             "warp",
             "--ncells-i",
             "2",
@@ -4513,6 +4516,7 @@ def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
         capture_output=True,
         timeout=60,
         check=False,
+            env={**os.environ, "PICURV_DIR": str(REPO_ROOT)},
     )
 
     assert result.returncode == 0, result.stderr
@@ -4532,7 +4536,7 @@ def test_grid_gen_legacy1d_conversion_writes_canonical_picgrid(tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            str(REPO_ROOT / "scripts" / "grid.gen"),
+            str(REPO_ROOT / "generators" / "grid.gen"),
             "legacy1d",
             "--input",
             str(legacy_input),
@@ -4546,6 +4550,7 @@ def test_grid_gen_legacy1d_conversion_writes_canonical_picgrid(tmp_path):
         capture_output=True,
         timeout=60,
         check=False,
+            env={**os.environ, "PICURV_DIR": str(REPO_ROOT)},
     )
 
     assert result.returncode == 0, result.stderr
@@ -4865,6 +4870,10 @@ def test_case_local_copied_picurv_prefers_local_binaries(tmp_path):
         capture_output=True,
         timeout=60,
         check=False,
+        env={
+        **os.environ,
+        "PICURV_DIR": str(REPO_ROOT),
+        },
     )
 
     assert result.returncode == 0, result.stderr
@@ -4886,7 +4895,7 @@ def test_init_does_not_copy_any_binaries(tmp_path):
     bin_dir = fake_root / "bin"
     (fake_root / "src").mkdir(parents=True)
     (fake_root / "include").mkdir()
-    (fake_root / "scripts").mkdir()
+    (fake_root / "picurv_cli").mkdir()
     template_dir.mkdir(parents=True)
     bin_dir.mkdir(parents=True)
     (fake_root / "Makefile").write_text("all:\n\t@echo ok\n", encoding="utf-8")
@@ -4930,7 +4939,7 @@ def test_init_pin_binaries_copies_simulator_and_postprocessor(tmp_path):
     bin_dir = fake_root / "bin"
     (fake_root / "src").mkdir(parents=True)
     (fake_root / "include").mkdir()
-    (fake_root / "scripts").mkdir()
+    (fake_root / "picurv_cli").mkdir()
     template_dir.mkdir(parents=True)
     bin_dir.mkdir(parents=True)
     (fake_root / "Makefile").write_text("all:\n\t@echo ok\n", encoding="utf-8")
@@ -7665,7 +7674,7 @@ def test_markdown_link_checker_passes():
     """!
     @brief Test that markdown link checker passes.
     """
-    checker = REPO_ROOT / "scripts" / "check_markdown_links.py"
+    checker = REPO_ROOT / "tests" / "tooling" / "check_markdown_links.py"
     result = subprocess.run(
         [sys.executable, str(checker)],
         cwd=str(REPO_ROOT),
@@ -7674,4 +7683,4 @@ def test_markdown_link_checker_passes():
         timeout=60,
         check=False,
     )
-    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert result.returncode == 0

@@ -52,7 +52,7 @@ These categories should be fixed in small, reviewable batches.
 
 - `sandbox/` is retained as optional developer scratch space.
 - Treat everything in sandbox as non-production unless promoted.
-- Stable outcomes should be moved into `config/`, `examples/`, `scripts/`, or `docs/`.
+- Stable outcomes should be moved into `config/`, `examples/`, `picurv_cli/`, `generators/`, or `docs/`.
 
 @section p29_runtime_obs_sec 7. Runtime Observability Backlog
 

@@ -430,6 +430,11 @@ def _normalized_center_coordinates(nodes):
     n2 = n2p - 1
 
     def cumulative_axis(points):
+        """!
+        @brief Normalize cumulative distances along one averaged face axis.
+        @param[in] points Ordered coordinates along the axis.
+        @return Normalized cumulative distance array.
+        """
         if len(points) <= 1:
             return numpy.asarray([0.0], dtype=float)
         steps = numpy.linalg.norm(numpy.diff(points, axis=0), axis=1)

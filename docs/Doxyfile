@@ -8,10 +8,10 @@ OUTPUT_LANGUAGE        = English
 OPTIMIZE_OUTPUT_FOR_C  = YES
 
 #------------------------- Input ---------------------------
-INPUT                  = include src scripts docs docs/pages examples tests/c tests/guide.md
+INPUT                  = include src picurv_cli generators docs docs/pages examples tests/c tests/tooling tests/guide.md
 FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md *.py *.sh *.flow
 RECURSIVE              = YES
-EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/* */guide.md */38_Start_Here_10_Minutes.md */examples/*.md */examples/*/*.md */scripts/*.md */README.md
+EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/* */guide.md */38_Start_Here_10_Minutes.md */examples/*.md */examples/*/*.md */README.md
 EXAMPLE_PATH           = examples examples/master_template
 
 EXTRACT_ALL            = YES

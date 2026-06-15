@@ -23,10 +23,10 @@ jobs:
           pip install pytest pyyaml numpy
 
       - name: Run function documentation audit
-        run: python scripts/audit_function_docs.py
+        run: python tests/tooling/audit_function_docs.py
 
       - name: Run CLI and config smoke tests
         run: pytest -q
 
       - name: Check markdown links (README + docs + examples)
-        run: python scripts/check_markdown_links.py
+        run: python tests/tooling/check_markdown_links.py

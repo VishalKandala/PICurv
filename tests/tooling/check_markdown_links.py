@@ -23,15 +23,15 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python3 scripts/check_markdown_links.py\n"
-            "  python3 scripts/check_markdown_links.py --repo-root . --docs-dir docs --examples-dir examples\n"
-            "  python3 scripts/check_markdown_links.py --no-readme"
+            "  python3 tests/tooling/check_markdown_links.py\n"
+            "  python3 tests/tooling/check_markdown_links.py --repo-root . --docs-dir docs --examples-dir examples\n"
+            "  python3 tests/tooling/check_markdown_links.py --no-readme"
         ),
     )
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=Path(__file__).resolve().parents[1],
+        default=Path(__file__).resolve().parents[2],
         help="Repository root directory (default: parent of this script).",
     )
     parser.add_argument(

@@ -63,9 +63,9 @@ For each run, `picurv` generates:
 - generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`; their
   inputs live under `params`.
 - `generator: ic_gen` requires `params.field` and `params.config_file`, defaults to
-  `scripts/ic.gen`, accepts optional `params.script`, and stages its PETSc vector output exactly like file mode.
+  `generators/ic.gen`, accepts optional `params.script`, and stages its PETSc vector output exactly like file mode.
   The repository generator evaluates `[expression]` configs on a staged nondimensional single-block PICGRID.
-- generated and field-sliced `prescribed_flow` sources default to `scripts/profile.gen`
+- generated and field-sliced `prescribed_flow` sources default to `generators/profile.gen`
   and accept optional `source.script`.
 - `mode: file` requires `field: Ucat|Ucont` and `source_file`.
 - file-backed ICs currently support single-block cases only.

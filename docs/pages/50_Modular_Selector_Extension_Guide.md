@@ -12,7 +12,7 @@ without drifting the YAML -> launcher -> C runtime contract.
 For every new selector value:
 
 1. define the canonical user-facing value in YAML docs/templates,
-2. add or update Python normalization/validation in `scripts/picurv`,
+2. add or update Python normalization/validation in `picurv_cli/core.py`,
 3. emit the correct generated control/post artifact mapping,
 4. add any C enum/storage and parser wiring,
 5. add the runtime dispatch/consumer branch,
@@ -28,7 +28,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `Explicit RK4`
   - `Dual Time Picard Jameson RK`
 - Python hook:
-  - `normalize_momentum_solver_type()` in `scripts/picurv`
+  - `normalize_momentum_solver_type()` in `picurv_cli/core.py`
 - Generated mapping:
   - `strategy.momentum_solver` -> `-mom_solver_type`
 - C enum/storage:
@@ -53,7 +53,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
 - Python hooks:
   - `BC_TYPE_MAP`
   - `BC_HANDLER_SPECS`
-  - `validate_and_prepare_boundary_conditions()` in `scripts/picurv`
+  - `validate_and_prepare_boundary_conditions()` in `picurv_cli/core.py`
 - Generated artifact:
   - `bcs.run`
 - C parse/load:
@@ -83,7 +83,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `PointSource`
   - `SurfaceEdges`
 - Python hook:
-  - `normalize_particle_init_mode()` in `scripts/picurv`
+  - `normalize_particle_init_mode()` in `picurv_cli/core.py`
 - Generated mapping:
   - `init_mode` -> `-pinit`
 - C enum/storage:
@@ -105,7 +105,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `Trilinear`
   - `CornerAveraged`
 - Python hook:
-  - `normalize_interpolation_method()` in `scripts/picurv`
+  - `normalize_interpolation_method()` in `picurv_cli/core.py`
 - Generated mapping:
   - `interpolation_method` -> `-interpolation_method`
 - C enum/storage:
@@ -152,7 +152,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `ZERO_FLOW`
   - `UNIFORM_FLOW`
 - Python hook:
-  - `normalize_analytical_type()` in `scripts/picurv`
+  - `normalize_analytical_type()` in `picurv_cli/core.py`
 - Generated mapping:
   - `analytical_type` -> `-analytical_type`
 - C storage/parser:
@@ -177,7 +177,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - diffusivity profile `LINEAR_X`
   - scalar profiles `CONSTANT`, `LINEAR_X`, `SIN_PRODUCT`
 - Python hooks:
-  - validation and flag emission in `scripts/picurv`
+  - validation and flag emission in `picurv_cli/core.py`
 - Generated mapping:
   - `verification.sources.diffusivity.mode` -> `-verification_diffusivity_mode`
   - `verification.sources.diffusivity.profile` -> `-verification_diffusivity_profile`
@@ -222,9 +222,9 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `file`
   - `grid_gen`
 - Python orchestration:
-  - `scripts/picurv` grid validation and run-dir staging
+  - `picurv_cli/core.py` grid validation and run-dir staging
 - Generator implementation:
-  - `scripts/grid.gen`
+  - `generators/grid.gen`
 - Generated mapping:
   - `programmatic_c` emits `-im/-jm/-km/...`
   - `file` emits `-grid_file`
@@ -246,7 +246,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `all`
 - Python hooks:
   - `resolve_profiling_config()`
-  - `prepare_monitor_files()` in `scripts/picurv`
+  - `prepare_monitor_files()` in `picurv_cli/core.py`
 - Generated mapping:
   - `timestep_output.mode` -> `-profiling_timestep_mode`
   - `timestep_output.file` -> `-profiling_timestep_file`
@@ -267,7 +267,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
 - Canonical values:
   - `msd`
 - Python hook:
-  - `normalize_statistics_task()` in `scripts/picurv`
+  - `normalize_statistics_task()` in `picurv_cli/core.py`
 - Generated mapping:
   - `msd` -> `ComputeMSD` token in generated `post.run` (dispatched to `ComputeParticleMSD`)
 - C dispatch:

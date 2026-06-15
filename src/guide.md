@@ -57,7 +57,7 @@ Practical tip:
 - Update matching headers for every public symbol change.
 - Add/adjust C tests when modifying numerics, BC handling, or data exchange paths.
 - Re-run relevant `make unit-*` and smoke targets before merge.
-- For control-plane touching changes, also run `make test-python` because `scripts/picurv` controls many runtime defaults and mode gates.
+- For control-plane touching changes, also run `make test-python` because `picurv_cli/core.py` controls many runtime defaults and mode gates.
 
 ## Coverage Lens
 

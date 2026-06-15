@@ -135,7 +135,7 @@ Not all option consumption is explicit `PetscOptionsGet*`; PETSc dynamic ingesti
 
 - New user-visible config key:
   1. add schema/template key
-  2. validate/map in `scripts/picurv`
+  2. validate/map in `picurv_cli/core.py`
   3. parse in `setup.c` or `io.c`
   4. wire runtime consumer
   5. update docs pages 14/15/16

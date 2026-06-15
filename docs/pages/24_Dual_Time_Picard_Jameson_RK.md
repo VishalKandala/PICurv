@@ -73,7 +73,7 @@ The former `Dual Time Picard RK4`, `dual_time_picard_rk4`,
 compatibility aliases. Canonical configuration and generated controls use the
 Jameson names.
 
-Parsing and normalization are performed in `scripts/picurv`, with final option ingestion in function @ref CreateSimulationContext during setup.
+Parsing and normalization are performed in `picurv_cli/core.py`, with final option ingestion in function @ref CreateSimulationContext during setup.
 Only the currently implemented momentum solver values are exposed; add new ones
 only when the parser and dispatcher are extended in the same change.
 
