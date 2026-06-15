@@ -986,6 +986,12 @@ static PetscErrorCode ComputeCurrentFlowObservables(SimCtx *simCtx, PetscReal *m
 
     for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
         const DMDALocalInfo info = user[bi].info;
+        const PetscBool x_per = (PetscBool)(simCtx->i_periodic != 0);
+        const PetscBool y_per = (PetscBool)(simCtx->j_periodic != 0);
+        const PetscBool z_per = (PetscBool)(simCtx->k_periodic != 0);
+        const PetscInt i_end = (x_per && (info.xs + info.xm == info.mx)) ? info.mx - 1 : info.xs + info.xm;
+        const PetscInt j_end = (y_per && (info.ys + info.ym == info.my)) ? info.my - 1 : info.ys + info.ym;
+        const PetscInt k_end = (z_per && (info.zs + info.zm == info.mz)) ? info.mz - 1 : info.zs + info.zm;
         Cmpnts           ***ucat = NULL;
         PetscReal        ***aj = NULL;
         PetscReal        ***nvert = NULL;
@@ -994,9 +1000,9 @@ static PetscErrorCode ComputeCurrentFlowObservables(SimCtx *simCtx, PetscReal *m
         PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Aj, &aj));
         PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Nvert, &nvert));
 
-        for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
-            for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
-                for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+        for (PetscInt k = info.zs; k < k_end; ++k) {
+            for (PetscInt j = info.ys; j < j_end; ++j) {
+                for (PetscInt i = info.xs; i < i_end; ++i) {
                     PetscReal jac = aj[k][j][i];
                     PetscReal cell_volume = 0.0;
                     PetscReal speed = 0.0;
@@ -1138,6 +1144,12 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
 
     for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
         const DMDALocalInfo info = user[bi].info;
+        const PetscBool x_per = (PetscBool)(simCtx->i_periodic != 0);
+        const PetscBool y_per = (PetscBool)(simCtx->j_periodic != 0);
+        const PetscBool z_per = (PetscBool)(simCtx->k_periodic != 0);
+        const PetscInt i_end = (x_per && (info.xs + info.xm == info.mx)) ? info.mx - 1 : info.xs + info.xm;
+        const PetscInt j_end = (y_per && (info.ys + info.ym == info.my)) ? info.my - 1 : info.ys + info.ym;
+        const PetscInt k_end = (z_per && (info.zs + info.zm == info.mz)) ? info.mz - 1 : info.zs + info.zm;
         Cmpnts           ***ucat = NULL;
         Cmpnts           ***ucat_ref = NULL;
         PetscReal        ***pressure = NULL;
@@ -1166,9 +1178,9 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
             PetscCall(DMDAVecGetArrayRead(user[bi].da, pressure_reference_vec, &pressure_ref));
         }
 
-        for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
-            for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
-                for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+        for (PetscInt k = info.zs; k < k_end; ++k) {
+            for (PetscInt j = info.ys; j < j_end; ++j) {
+                for (PetscInt i = info.xs; i < i_end; ++i) {
                     PetscReal jac = aj[k][j][i];
                     PetscReal cell_volume = 0.0;
                     PetscReal speed = 0.0;
@@ -1242,6 +1254,12 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
 
     for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
         const DMDALocalInfo info = user[bi].info;
+        const PetscBool x_per = (PetscBool)(simCtx->i_periodic != 0);
+        const PetscBool y_per = (PetscBool)(simCtx->j_periodic != 0);
+        const PetscBool z_per = (PetscBool)(simCtx->k_periodic != 0);
+        const PetscInt i_end = (x_per && (info.xs + info.xm == info.mx)) ? info.mx - 1 : info.xs + info.xm;
+        const PetscInt j_end = (y_per && (info.ys + info.ym == info.my)) ? info.my - 1 : info.ys + info.ym;
+        const PetscInt k_end = (z_per && (info.zs + info.zm == info.mz)) ? info.mz - 1 : info.zs + info.zm;
         PetscReal        ***pressure = NULL;
         PetscReal        ***pressure_ref = NULL;
         PetscReal        ***aj = NULL;
@@ -1253,9 +1271,9 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
         PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Aj, &aj));
         PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Nvert, &nvert));
 
-        for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
-            for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
-                for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+        for (PetscInt k = info.zs; k < k_end; ++k) {
+            for (PetscInt j = info.ys; j < j_end; ++j) {
+                for (PetscInt i = info.xs; i < i_end; ++i) {
                     PetscReal jac = aj[k][j][i];
                     PetscReal cell_volume = 0.0;
                     PetscReal current_pressure = 0.0;

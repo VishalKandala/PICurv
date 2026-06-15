@@ -590,6 +590,36 @@ static PetscErrorCode SetUniformScalarField(UserCtx *user, Vec field, PetscReal 
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Fills one Cartesian velocity field with u=0, v=v_amp*sin(2π*k/km), w=w_const.
+ *
+ * Sets the sinusoidal profile at ALL owned nodes (including the periodic duplicate endpoint),
+ * matching how the IC routines populate fields before any periodic-endpoint fix is applied.
+ */
+static PetscErrorCode SetSinusoidalVZField(UserCtx *user, Vec field, PetscReal v_amp, PetscReal w_const)
+{
+    Cmpnts   ***arr = NULL;
+    PetscInt   km = user->KM;
+
+    PetscFunctionBeginUser;
+    PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    PetscCheck(field != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Velocity field cannot be NULL.");
+
+    PetscCall(DMDAVecGetArray(user->fda, field, &arr));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
+        PetscReal z_phase = (2.0 * PETSC_PI * (PetscReal)k) / (PetscReal)km;
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+                arr[k][j][i].x = 0.0;
+                arr[k][j][i].y = v_amp * PetscSinReal(z_phase);
+                arr[k][j][i].z = w_const;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, field, &arr));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests string-conversion helpers for configured enums and unknown values.
  */
 
@@ -1458,6 +1488,60 @@ static PetscErrorCode TestSolutionConvergenceStatisticalLogging(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Regression test: volume-averaged mean KE of a sinusoidal field in a fully periodic domain.
+ *
+ * For u=0, v=0.1*sin(2πz), w=1 on a uniform [0,1]³ grid the exact continuous mean KE is 0.5025.
+ * With identity metrics (Aj=1) the discrete mean over the N unique cells also equals 0.5025
+ * for any even N, because Σ_{k=0}^{N-1} sin²(2πk/N) = N/2.
+ *
+ * Before the fix the statistics loops iterated over N+1 nodes (including the duplicated periodic
+ * endpoint at k=N), inflating the denominator and yielding mean_ke ≈ 0.5·(1 + 0.01·N/(2(N+1)³))
+ * instead of 0.5025. This test verifies the endpoint is excluded.
+ */
+static PetscErrorCode TestPeriodicSinusoidalMeanKE(void)
+{
+    const PetscInt km_values[] = {8, 16};
+    const PetscInt n_cases = (PetscInt)(sizeof(km_values) / sizeof(km_values[0]));
+
+    PetscFunctionBeginUser;
+    for (PetscInt t = 0; t < n_cases; ++t) {
+        const PetscInt km = km_values[t];
+        SimCtx   *simCtx = NULL;
+        UserCtx  *user = NULL;
+        char      tmpdir[PETSC_MAX_PATH_LEN];
+        char      log_path[PETSC_MAX_PATH_LEN];
+        char      header[4096];
+        char      row[4096];
+        PetscReal mean_ke = NAN;
+
+        PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, km, km, km,
+                                                            PETSC_TRUE, PETSC_TRUE, PETSC_TRUE));
+        PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+        PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+        PetscCall(PicurvPopulateIdentityMetrics(user));
+        PetscCall(SetSinusoidalVZField(user, user->Ucat, 0.1, 1.0));
+
+        simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STATISTICAL_STEADY;
+        simCtx->solutionConvergenceWindowSteps = 2;
+        PetscCall(InitializeSolutionConvergenceState(simCtx));
+
+        simCtx->step = 1;
+        simCtx->ti = 0.1;
+        PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
+
+        PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+        PetscCall(ReadLogHeaderAndRow(log_path, 1, header, sizeof(header), row, sizeof(row)));
+        PetscCall(LogGetColumnReal(header, row, "mean_ke", &mean_ke));
+        PetscCall(PicurvAssertRealNear(0.5025, mean_ke, 1.0e-10,
+                                       "periodic sinusoidal field mean KE must equal 0.5025 (no duplicate endpoint)"));
+
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+        PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-logging PETSc test binary.
  */
 
@@ -1483,6 +1567,7 @@ int main(int argc, char **argv)
         {"solution-convergence-steady-logging", TestSolutionConvergenceSteadyLogging},
         {"solution-convergence-periodic-logging", TestSolutionConvergencePeriodicLogging},
         {"solution-convergence-statistical-logging", TestSolutionConvergenceStatisticalLogging},
+        {"periodic-sinusoidal-mean-ke", TestPeriodicSinusoidalMeanKE},
     };
 
     (void)setenv("LOG_LEVEL", "INFO", 1);
