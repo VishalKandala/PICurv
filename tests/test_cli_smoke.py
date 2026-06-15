@@ -1272,7 +1272,8 @@ def create_summary_continue_append_run_dir(tmp_path: Path, include_continuity: b
                 "Step: 2422 | PseudoIter(k): 24 | Pseudo-cfl: 0.2400 | |dUk|: 2.400000e-01 | |dUk|/|dU0|: 2.400000e-01 | |Rk|: 2.400000e-01 | |Rk|/|R0|: 2.400000e-01 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.2400",
                 "# Continuation from step 2054",
                 "Step: 2055 | PseudoIter(k): 55 | Pseudo-cfl: 0.5500 | |dUk|: 5.500000e-05 | |dUk|/|dU0|: 5.500000e-05 | |Rk|: 5.500000e-05 | |Rk|/|R0|: 5.500000e-05 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.5500",
-                "Step: 2060 | PseudoIter(k): 60 | Pseudo-cfl: 0.6000 | |dUk|: 6.000000e-05 | |dUk|/|dU0|: 6.000000e-05 | |Rk|: 6.000000e-05 | |Rk|/|R0|: 6.000000e-05 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.6000",
+                "Step: 2060 | PseudoIter(k): 59 | Pseudo-cfl: 0.6000 | |dUk|: 7.000000e-04 | |dUk|/|dU0|: 8.000000e-01 | |Rk|: 7.000000e-04 | |Rk|/|R0|: 1.200000e+00 | trial_ratio: 1.200000e+00 | status: rejected | cfl_after: 0.3000",
+                "Step: 2060 | PseudoIter(k): 60 | Pseudo-cfl: 0.3000 | |dUk|: 6.000000e-05 | |dUk|/|dU0|: 6.000000e-05 | |Rk|: 6.000000e-05 | |Rk|/|R0|: 6.000000e-05 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.6000",
             ]
         )
         + "\n",
@@ -3752,6 +3753,11 @@ def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
     assert payload["continuity"]["available"] is True
     assert payload["continuity"]["max_abs_divergence"] == 2.5e-03
     assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 4
+    assert payload["momentum"]["blocks"][0]["status"] == "accepted"
+    assert payload["momentum"]["blocks"][0]["accepted_count"] == 1
+    assert payload["momentum"]["blocks"][0]["rejected_count"] == 0
+    assert payload["momentum"]["blocks"][0]["cfl_after"] == pytest.approx(2.5)
+    assert payload["momentum"]["blocks"][0]["trial_ratio"] == pytest.approx(1.0)
     assert payload["poisson"]["blocks"][0]["iterations"] == 7
     assert payload["particles"]["total_particles"] == 120
     assert payload["particles"]["lost_particles"] == 2
@@ -4065,6 +4071,8 @@ def test_summarize_list_plot_series_json_reports_available_histories(tmp_path):
     payload = json.loads(result.stdout)
     by_name = {item["series"]: item for item in payload["available_series"]}
     assert "momentum.residual_norm" in by_name
+    assert "momentum.trial_ratio" in by_name
+    assert "momentum.cfl_after" in by_name
     assert "poisson.true_norm" in by_name
     assert "profiling.step_time_s" in by_name
     assert by_name["momentum.residual_norm"]["lines"][0]["label"] == "block 0"
@@ -4141,8 +4149,9 @@ def test_summarize_plot_request_uses_latest_continuation_segment_and_last_window
     full_request = picurv._build_summary_plot_request(context, records, "momentum.residual_norm", None, False, None)
     last_request = picurv._build_summary_plot_request(context, records, "momentum.residual_norm", 2, False, None)
 
-    assert [point[0] for point in full_request["lines"][0]["points"]] == [2055, 2060]
-    assert [point[0] for point in last_request["lines"][0]["points"]] == [2055, 2060]
+    # step 2060 has a rejected then accepted pseudo-iteration, producing two plot points
+    assert [point[0] for point in full_request["lines"][0]["points"]] == [2055, 2060, 2060]
+    assert [point[0] for point in last_request["lines"][0]["points"]] == [2060, 2060]
     assert full_request["y_scale"] == "log"
 
     for series in (
@@ -4213,6 +4222,11 @@ def test_summarize_latest_uses_chronological_append_order_for_continue_run(tmp_p
     assert payload["continuity"]["blocks"][0]["max_divergence"] == 6.0e-05
     assert payload["particles"]["total_particles"] == 160
     assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 60
+    assert payload["momentum"]["blocks"][0]["status"] == "accepted"
+    assert payload["momentum"]["blocks"][0]["accepted_count"] == 1
+    assert payload["momentum"]["blocks"][0]["rejected_count"] == 1
+    assert payload["momentum"]["blocks"][0]["cfl_after"] == pytest.approx(0.6)
+    assert payload["momentum"]["blocks"][0]["trial_ratio"] == pytest.approx(1.0)
     assert payload["poisson"]["blocks"][0]["iterations"] == 60
     assert payload["profiling"]["total_logged_step_time_s"] == pytest.approx(0.6)
     assert payload["convergence"]["mean_speed"] == 6.0
@@ -4236,6 +4250,9 @@ def test_summarize_max_step_preserves_highest_timestep_lookup(tmp_path):
     assert payload["selected_via"] == "max_step"
     assert payload["particles"]["total_particles"] == 242
     assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 24
+    assert payload["momentum"]["blocks"][0]["status"] == "accepted"
+    assert payload["momentum"]["blocks"][0]["accepted_count"] == 1
+    assert payload["momentum"]["blocks"][0]["rejected_count"] == 0
 
 
 def test_summarize_explicit_step_uses_newest_duplicate_occurrence(tmp_path):
@@ -4259,6 +4276,9 @@ def test_summarize_explicit_step_uses_newest_duplicate_occurrence(tmp_path):
     assert payload["continuity"]["blocks"][1]["max_divergence"] == 6.5e-05
     assert payload["particles"]["total_particles"] == 155
     assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 55
+    assert payload["momentum"]["blocks"][0]["status"] == "accepted"
+    assert payload["momentum"]["blocks"][0]["accepted_count"] == 2  # step 2055 accepted in both pre- and post-continuation segments
+    assert payload["momentum"]["blocks"][0]["rejected_count"] == 0
     assert payload["poisson"]["blocks"][0]["iterations"] == 55
     assert payload["profiling"]["total_logged_step_time_s"] == pytest.approx(0.99)
     assert payload["convergence"]["mean_speed"] == 5.5
@@ -4282,6 +4302,9 @@ def test_summarize_latest_chronological_falls_back_without_continuity(tmp_path):
     assert payload["continuity"]["available"] is False
     assert payload["particles"]["total_particles"] == 160
     assert payload["momentum"]["blocks"][0]["pseudo_iterations"] == 60
+    assert payload["momentum"]["blocks"][0]["status"] == "accepted"
+    assert payload["momentum"]["blocks"][0]["accepted_count"] == 1
+    assert payload["momentum"]["blocks"][0]["rejected_count"] == 1
 
 
 def test_summarize_text_output_renders_human_readable_sections(tmp_path):

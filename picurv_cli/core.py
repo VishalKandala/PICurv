@@ -11714,7 +11714,11 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
         r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
         r"\s*\|dUk\|/\|dU0\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
         r"\s*\|Rk\|/\|R0\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
+        r"(?:\s*\|\s*trial_ratio:\s*(?P<trial_ratio>[-+0-9.eE]+)\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*cfl_after:\s*(?P<cfl_after>[-+0-9.eE]+))?"
     )
+
+    # Per (step, block): track accepted/rejected counts and last committed state.
+    _state = {}
 
     for path in sorted(glob.glob(pattern)):
         block_match = re.search(r"Block_(\d+)\.log$", path)
@@ -11729,15 +11733,39 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
                     continue
                 step = int(match.group("step"))
                 step_order.append(step)
-                rows_by_step.setdefault(step, {})[block] = {
+                key = (step, block)
+                if key not in _state:
+                    _state[key] = {"accepted_count": 0, "rejected_count": 0, "last_accepted": None, "last_rejected": None}
+                entry = _state[key]
+                status = match.group("status")
+                row = {
                     "block": block,
                     "pseudo_iterations": int(match.group("pseudo_iter")),
                     "pseudo_cfl": float(match.group("pseudo_cfl")),
+                    "cfl_after": _parse_float_loose(match.group("cfl_after")),
                     "delta_norm": float(match.group("delta")),
                     "delta_rel": float(match.group("delta_rel")),
                     "residual_norm": float(match.group("resid")),
                     "residual_rel": float(match.group("resid_rel")),
+                    "trial_ratio": _parse_float_loose(match.group("trial_ratio")),
+                    "status": status,
                 }
+                if status == "accepted":
+                    entry["accepted_count"] += 1
+                    entry["last_accepted"] = row
+                else:
+                    entry["rejected_count"] += 1
+                    entry["last_rejected"] = row
+
+    for (step, block), entry in _state.items():
+        display_row = entry["last_accepted"] or entry["last_rejected"]
+        if display_row:
+            rows_by_step.setdefault(step, {})[block] = {
+                **display_row,
+                "accepted_count": entry["accepted_count"],
+                "rejected_count": entry["rejected_count"],
+            }
+
     return rows_by_step, sources, step_order
 
 
@@ -12617,12 +12645,24 @@ def render_run_summary(payload: dict, output_format: str = "text"):
     print("\n  Momentum:")
     if momentum.get("available"):
         for row in momentum.get("blocks", []):
+            status = row.get("status") or "unknown"
+            accepted = row.get("accepted_count")
+            rejected = row.get("rejected_count")
+            counts_str = f" accepted={accepted} rejected={rejected}" if accepted is not None else ""
+            cfl_in = row.get("pseudo_cfl")
+            cfl_out = row.get("cfl_after")
+            if cfl_in is not None and cfl_out is not None:
+                cfl_str = f"cfl {cfl_in:.4f}->{cfl_out:.4f}"
+            elif cfl_in is not None:
+                cfl_str = f"cfl={_format_summary_float(cfl_in, '.4f')}"
+            else:
+                cfl_str = "cfl=n/a"
+            ratio = row.get("trial_ratio")
+            ratio_str = f"  ratio={_format_summary_float(ratio)}" if ratio is not None else ""
+            print(f"    block {row['block']} [{status}]:{counts_str}  {cfl_str}{ratio_str}")
             print(
-                "    "
-                f"block {row['block']}: pseudo_iter={row['pseudo_iterations']} "
-                f"cfl={_format_summary_float(row.get('pseudo_cfl'), '.4f')} "
-                f"resid={_format_summary_float(row.get('residual_norm'))} "
-                f"rel={_format_summary_float(row.get('residual_rel'))}"
+                f"      resid={_format_summary_float(row.get('residual_norm'))}"
+                f"  delta={_format_summary_float(row.get('delta_norm'))}"
             )
     else:
         print("    unavailable")
@@ -13191,6 +13231,7 @@ def _collect_summary_plot_records(context: dict) -> list:
         r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
         r"\s*\|dUk\|/\|dU0\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
         r"\s*\|Rk\|/\|R0\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
+        r"(?:\s*\|\s*trial_ratio:\s*(?P<trial_ratio>[-+0-9.eE]+)\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*cfl_after:\s*(?P<cfl_after>[-+0-9.eE]+))?"
     )
     for path in sorted(glob.glob(os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log"))):
         block_match = re.search(r"Block_(\d+)\.log$", path)
@@ -13213,6 +13254,8 @@ def _collect_summary_plot_records(context: dict) -> list:
                             "delta_rel": float(match.group("delta_rel")),
                             "residual_norm": float(match.group("resid")),
                             "residual_rel": float(match.group("resid_rel")),
+                            "trial_ratio": _parse_float_loose(match.group("trial_ratio")),
+                            "cfl_after": _parse_float_loose(match.group("cfl_after")),
                         },
                         path, segment,
                     )
