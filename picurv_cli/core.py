@@ -11710,10 +11710,10 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
     step_order = []
     pattern = os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log")
     regex = re.compile(
-        r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\|\s*\|"
-        r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
-        r"\s*\|dUk\|/\|dUprev\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
-        r"\s*\|Rk\|/\|Rprev\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
+        r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\s*\|"
+        r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
+        r"\s*\|dUk\|/\|dU0\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
+        r"\s*\|Rk\|/\|R0\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
     )
 
     for path in sorted(glob.glob(pattern)):
@@ -13187,10 +13187,10 @@ def _collect_summary_plot_records(context: dict) -> list:
                 )
 
     momentum_regex = re.compile(
-        r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\|\s*\|"
-        r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
-        r"\s*\|dUk\|/\|dUprev\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
-        r"\s*\|Rk\|/\|Rprev\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
+        r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\s*\|"
+        r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
+        r"\s*\|dUk\|/\|dU0\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
+        r"\s*\|Rk\|/\|R0\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
     )
     for path in sorted(glob.glob(os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log"))):
         block_match = re.search(r"Block_(\d+)\.log$", path)

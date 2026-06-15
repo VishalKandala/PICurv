@@ -1172,7 +1172,7 @@ def create_summary_run_dir(
             encoding="utf-8",
         )
         (logs_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
-            "Step: 10 | PseudoIter(k): 4| | Pseudo-cfl: 2.5000 |dUk|: 1.000000e-06 | |dUk|/|dUprev|: 1.500000e-01 | |Rk|: 2.000000e-05 | |Rk|/|Rprev|: 3.000000e-02\n",
+            "Step: 10 | PseudoIter(k): 4 | Pseudo-cfl: 2.5000 | |dUk|: 1.000000e-06 | |dUk|/|dU0|: 1.500000e-01 | |Rk|: 2.000000e-05 | |Rk|/|R0|: 3.000000e-02 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 2.5000\n",
             encoding="utf-8",
         )
         (logs_dir / "Poisson_Solver_Convergence_History_Block_0.log").write_text(
@@ -1268,11 +1268,11 @@ def create_summary_continue_append_run_dir(tmp_path: Path, include_continuity: b
     (logs_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
         "\n".join(
             [
-                "Step: 2055 | PseudoIter(k): 10| | Pseudo-cfl: 0.1000 |dUk|: 1.000000e-01 | |dUk|/|dUprev|: 1.000000e-01 | |Rk|: 1.000000e-01 | |Rk|/|Rprev|: 1.000000e-01",
-                "Step: 2422 | PseudoIter(k): 24| | Pseudo-cfl: 0.2400 |dUk|: 2.400000e-01 | |dUk|/|dUprev|: 2.400000e-01 | |Rk|: 2.400000e-01 | |Rk|/|Rprev|: 2.400000e-01",
+                "Step: 2055 | PseudoIter(k): 10 | Pseudo-cfl: 0.1000 | |dUk|: 1.000000e-01 | |dUk|/|dU0|: 1.000000e-01 | |Rk|: 1.000000e-01 | |Rk|/|R0|: 1.000000e-01 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.1000",
+                "Step: 2422 | PseudoIter(k): 24 | Pseudo-cfl: 0.2400 | |dUk|: 2.400000e-01 | |dUk|/|dU0|: 2.400000e-01 | |Rk|: 2.400000e-01 | |Rk|/|R0|: 2.400000e-01 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.2400",
                 "# Continuation from step 2054",
-                "Step: 2055 | PseudoIter(k): 55| | Pseudo-cfl: 0.5500 |dUk|: 5.500000e-05 | |dUk|/|dUprev|: 5.500000e-05 | |Rk|: 5.500000e-05 | |Rk|/|Rprev|: 5.500000e-05",
-                "Step: 2060 | PseudoIter(k): 60| | Pseudo-cfl: 0.6000 |dUk|: 6.000000e-05 | |dUk|/|dUprev|: 6.000000e-05 | |Rk|: 6.000000e-05 | |Rk|/|Rprev|: 6.000000e-05",
+                "Step: 2055 | PseudoIter(k): 55 | Pseudo-cfl: 0.5500 | |dUk|: 5.500000e-05 | |dUk|/|dU0|: 5.500000e-05 | |Rk|: 5.500000e-05 | |Rk|/|R0|: 5.500000e-05 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.5500",
+                "Step: 2060 | PseudoIter(k): 60 | Pseudo-cfl: 0.6000 | |dUk|: 6.000000e-05 | |dUk|/|dU0|: 6.000000e-05 | |Rk|: 6.000000e-05 | |Rk|/|R0|: 6.000000e-05 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.6000",
             ]
         )
         + "\n",
