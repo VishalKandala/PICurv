@@ -1172,7 +1172,7 @@ def create_summary_run_dir(
             encoding="utf-8",
         )
         (logs_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
-            "Step: 10 | PseudoIter(k): 4 | Pseudo-cfl: 2.5000 | |dUk|: 1.000000e-06 | |dUk|/|dU0|: 1.500000e-01 | |Rk|: 2.000000e-05 | |Rk|/|R0|: 3.000000e-02 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 2.5000\n",
+            "Step: 10 | PseudoIter(k): 4 | dtau: 1.000000e-02 | cfl_eff: 2.5000 | |dUk|: 1.000000e-06 | |dUk|/|dU0|: 1.500000e-01 | |Rk|: 2.000000e-05 | |Rk|/|R0|: 3.000000e-02 | trial_ratio: 1.000000e+00 | status: accepted | dtau_after: 1.000000e-02 | cfl_eff_after: 2.5000\n",
             encoding="utf-8",
         )
         (logs_dir / "Poisson_Solver_Convergence_History_Block_0.log").write_text(
@@ -1268,12 +1268,12 @@ def create_summary_continue_append_run_dir(tmp_path: Path, include_continuity: b
     (logs_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
         "\n".join(
             [
-                "Step: 2055 | PseudoIter(k): 10 | Pseudo-cfl: 0.1000 | |dUk|: 1.000000e-01 | |dUk|/|dU0|: 1.000000e-01 | |Rk|: 1.000000e-01 | |Rk|/|R0|: 1.000000e-01 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.1000",
-                "Step: 2422 | PseudoIter(k): 24 | Pseudo-cfl: 0.2400 | |dUk|: 2.400000e-01 | |dUk|/|dU0|: 2.400000e-01 | |Rk|: 2.400000e-01 | |Rk|/|R0|: 2.400000e-01 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.2400",
+                "Step: 2055 | PseudoIter(k): 10 | dtau: 1.000000e-01 | cfl_eff: 0.1000 | |dUk|: 1.000000e-01 | |dUk|/|dU0|: 1.000000e-01 | |Rk|: 1.000000e-01 | |Rk|/|R0|: 1.000000e-01 | trial_ratio: 1.000000e+00 | status: accepted | dtau_after: 1.000000e-01 | cfl_eff_after: 0.1000",
+                "Step: 2422 | PseudoIter(k): 24 | dtau: 2.400000e-01 | cfl_eff: 0.2400 | |dUk|: 2.400000e-01 | |dUk|/|dU0|: 2.400000e-01 | |Rk|: 2.400000e-01 | |Rk|/|R0|: 2.400000e-01 | trial_ratio: 1.000000e+00 | status: accepted | dtau_after: 2.400000e-01 | cfl_eff_after: 0.2400",
                 "# Continuation from step 2054",
-                "Step: 2055 | PseudoIter(k): 55 | Pseudo-cfl: 0.5500 | |dUk|: 5.500000e-05 | |dUk|/|dU0|: 5.500000e-05 | |Rk|: 5.500000e-05 | |Rk|/|R0|: 5.500000e-05 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.5500",
-                "Step: 2060 | PseudoIter(k): 59 | Pseudo-cfl: 0.6000 | |dUk|: 7.000000e-04 | |dUk|/|dU0|: 8.000000e-01 | |Rk|: 7.000000e-04 | |Rk|/|R0|: 1.200000e+00 | trial_ratio: 1.200000e+00 | status: rejected | cfl_after: 0.3000",
-                "Step: 2060 | PseudoIter(k): 60 | Pseudo-cfl: 0.3000 | |dUk|: 6.000000e-05 | |dUk|/|dU0|: 6.000000e-05 | |Rk|: 6.000000e-05 | |Rk|/|R0|: 6.000000e-05 | trial_ratio: 1.000000e+00 | status: accepted | cfl_after: 0.6000",
+                "Step: 2055 | PseudoIter(k): 55 | dtau: 5.500000e-01 | cfl_eff: 0.5500 | |dUk|: 5.500000e-05 | |dUk|/|dU0|: 5.500000e-05 | |Rk|: 5.500000e-05 | |Rk|/|R0|: 5.500000e-05 | trial_ratio: 1.000000e+00 | status: accepted | dtau_after: 5.500000e-01 | cfl_eff_after: 0.5500",
+                "Step: 2060 | PseudoIter(k): 59 | dtau: 6.000000e-01 | cfl_eff: 0.6000 | |dUk|: 7.000000e-04 | |dUk|/|dU0|: 8.000000e-01 | |Rk|: 7.000000e-04 | |Rk|/|R0|: 1.200000e+00 | trial_ratio: 1.200000e+00 | status: rejected | dtau_after: 3.000000e-01 | cfl_eff_after: 0.3000",
+                "Step: 2060 | PseudoIter(k): 60 | dtau: 3.000000e-01 | cfl_eff: 0.3000 | |dUk|: 6.000000e-05 | |dUk|/|dU0|: 6.000000e-05 | |Rk|: 6.000000e-05 | |Rk|/|R0|: 6.000000e-05 | trial_ratio: 1.000000e+00 | status: accepted | dtau_after: 6.000000e-01 | cfl_eff_after: 0.6000",
             ]
         )
         + "\n",
@@ -3756,7 +3756,7 @@ def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
     assert payload["momentum"]["blocks"][0]["status"] == "accepted"
     assert payload["momentum"]["blocks"][0]["accepted_count"] == 1
     assert payload["momentum"]["blocks"][0]["rejected_count"] == 0
-    assert payload["momentum"]["blocks"][0]["cfl_after"] == pytest.approx(2.5)
+    assert payload["momentum"]["blocks"][0]["cfl_eff_after"] == pytest.approx(2.5)
     assert payload["momentum"]["blocks"][0]["trial_ratio"] == pytest.approx(1.0)
     assert payload["poisson"]["blocks"][0]["iterations"] == 7
     assert payload["particles"]["total_particles"] == 120
@@ -4072,7 +4072,7 @@ def test_summarize_list_plot_series_json_reports_available_histories(tmp_path):
     by_name = {item["series"]: item for item in payload["available_series"]}
     assert "momentum.residual_norm" in by_name
     assert "momentum.trial_ratio" in by_name
-    assert "momentum.cfl_after" in by_name
+    assert "momentum.cfl_eff_after" in by_name
     assert "poisson.true_norm" in by_name
     assert "profiling.step_time_s" in by_name
     assert by_name["momentum.residual_norm"]["lines"][0]["label"] == "block 0"
@@ -4225,7 +4225,7 @@ def test_summarize_latest_uses_chronological_append_order_for_continue_run(tmp_p
     assert payload["momentum"]["blocks"][0]["status"] == "accepted"
     assert payload["momentum"]["blocks"][0]["accepted_count"] == 1
     assert payload["momentum"]["blocks"][0]["rejected_count"] == 1
-    assert payload["momentum"]["blocks"][0]["cfl_after"] == pytest.approx(0.6)
+    assert payload["momentum"]["blocks"][0]["cfl_eff_after"] == pytest.approx(0.6)
     assert payload["momentum"]["blocks"][0]["trial_ratio"] == pytest.approx(1.0)
     assert payload["poisson"]["blocks"][0]["iterations"] == 60
     assert payload["profiling"]["total_logged_step_time_s"] == pytest.approx(0.6)

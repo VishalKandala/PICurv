@@ -83,6 +83,34 @@ For each run, `picurv` generates:
 - Solver-specific block support currently includes `momentum_solver.dual_time_picard_jameson_rk`.
 - Deprecated `dual_time_picard_rk4` and `rk4_residual_noise_allowance_factor`
   spellings are accepted only as compatibility aliases and normalize to Jameson controls.
+- `momentum_solver.dual_time_picard_jameson_rk` controls and their C-side flags:
+  - `max_pseudo_steps` -> `-mom_max_pseudo_steps` (default 50): maximum accepted pseudo-time
+    iterations per physical step; rejected iterations are counted separately.
+  - `absolute_tol` -> `-mom_atol` (default 1e-7): stop when `||ΔU||_∞ < tol`.
+  - `relative_tol` -> `-mom_rtol` (default 1e-4): stop when `||ΔU||_∞ / ||ΔU₀||_∞ < tol`.
+  - `jameson_residual_noise_allowance_factor` -> `-mom_dt_jameson_residual_norm_noise_allowance_factor`
+    (default 1.1, must be ≥ 1): EMA-smoothed residual ratio threshold above which a
+    pseudo-time trial is rejected and the pseudo-CFL is reduced. Raise toward 1.2–1.5 for
+    convection-dominated or non-monotone convergence histories; lower toward 1.05 for strict
+    monotone enforcement.
+  - `ratio_ema_alpha` -> `-mom_ratio_ema_alpha` (default 0.3, range [0, 1]): exponential
+    moving-average coefficient applied to the step-to-step residual ratio before the rejection
+    decision. `smoothed = α × raw + (1−α) × prev`. Setting `α = 1.0` recovers the original
+    raw-ratio behavior; `α = 0.3` requires ~3–4 consecutive bad trials to trigger rejection.
+  - `pseudo_cfl.*` values are dimensionless Courant numbers (Phase 3+). The solver computes the
+    pseudo-time step as `dtau = pseudo_cfl / lambda_max`, where `lambda_max` is the global maximum
+    convective spectral radius of the current velocity field. This makes `pseudo_cfl` independent
+    of the physical timestep `dt`, grid size, and flow speed. Stable range for the 4-stage Jameson
+    RK smoother is ~0–2.83.
+  - `pseudo_cfl.initial` -> `-pseudo_cfl` (default 0.5): starting pseudo-CFL (Courant number).
+  - `pseudo_cfl.minimum` -> `-min_pseudo_cfl` (default 0.001): floor below which no further
+    CFL reduction is attempted; the solver breaks the retry loop at this point.
+  - `pseudo_cfl.maximum` -> `-max_pseudo_cfl` (default 2.0): ceiling on CFL growth (stability limit ~2.83).
+  - `pseudo_cfl.growth_factor` -> `-pseudo_cfl_growth_factor` (default 1.1, must be ≥ 1):
+    factor applied to the pseudo-CFL after a well-converging accepted trial. Set to 1.0 to
+    disable CFL growth entirely.
+  - `pseudo_cfl.reduction_factor` -> `-pseudo_cfl_reduction_factor` (default 0.75, must be
+    in (0,1)): factor applied to the pseudo-CFL after a rejected trial.
 - `solution_convergence.*` -> `-solution_convergence_*` for physical solution drift logging.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.

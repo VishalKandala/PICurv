@@ -733,6 +733,9 @@ typedef struct SimCtx {
     PetscReal max_pseudo_cfl, min_pseudo_cfl; // New addition for adaptive pseudo-CFL
     PetscReal mom_dt_jameson_residual_norm_noise_allowance_factor; // New addition for divergence detection
     PetscBool no_pseudo_cfl_backtrack; /* Diagnostic: commit all finite RK trials, skip ratio-based rollback */
+    PetscReal mom_ratio_ema_alpha;    /* EMA smoothing coefficient for trial-ratio rejection (0=no smooth, 1=raw) */
+    PetscBool mom_last_converged;     /* Set after each momentum solve: true if pseudo-time converged */
+    PetscReal mom_last_lambda_max;   /* Global spectral radius [1/s] from the last momentum solve; for diagnostics */
     PetscBool ps_ksp_pic_monitor_true_residual; // Parsed once from options for custom Poisson monitor logging.
     InitialConditionMode initialConditionMode;
     InitialConditionField initialConditionField;

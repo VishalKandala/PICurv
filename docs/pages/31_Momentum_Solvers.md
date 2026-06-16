@@ -40,20 +40,26 @@ Main controls consumed by implemented solvers:
 - `-pseudo_cfl`, `-min_pseudo_cfl`, `-max_pseudo_cfl`
 - `-pseudo_cfl_growth_factor`, `-pseudo_cfl_reduction_factor`
 - `-mom_dt_jameson_residual_norm_noise_allowance_factor`
+- `-mom_ratio_ema_alpha`
 
 Defaults and final option ingestion are in function @ref CreateSimulationContext during startup parsing.
 
-For the dual-time Jameson solver, `max_iterations` counts total attempted
-trials, including rejected trials. When both residual tolerances are disabled,
-legacy update-only `absolute AND relative` convergence is preserved. Enabling
-either residual tolerance selects update `absolute OR relative`, combined with
-the enabled residual criteria.
+For the dual-time Jameson solver, `max_iterations` bounds **accepted** pseudo-iterations. A separate
+hard cap of `3 × max_iterations` limits total attempts (accepted plus rejected) to prevent infinite
+rejection loops. Convergence requires both the update pass (`|ΔU| ≤ atol` **AND** `|ΔU|/|ΔU₀| ≤ rtol`)
+and, when either residual tolerance is positive, at least one enabled residual criterion to hold.
 
 The dual-time controller uses one global pseudo-CFL and globally accepts or
 rolls back a complete four-stage trial. The selected next pseudo-CFL is carried
 directly into the next physical timestep. `step_tol`/`-imp_stol` remains
 accepted only as a deprecated compatibility input and is unused by active
 momentum solvers.
+
+`pseudo_cfl.*` values are **dimensionless Courant numbers** (Phase 3+), not fractions of the physical
+timestep `dt`. The solver computes `dtau = pseudo_cfl / lambda_max` where `lambda_max` is the global
+maximum convective spectral radius of the current velocity field. This makes `pseudo_cfl` independent
+of `dt`, grid size, and flow speed. The stable range for the 4-stage Jameson RK smoother is
+`pseudo_cfl ≈ 0–2.83`; the shipped defaults are `initial: 0.5`, `maximum: 2.0`.
 
 @section p31_testing_sec 4. Current test status
 

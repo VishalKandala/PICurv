@@ -17,10 +17,10 @@ tolerances:
 momentum_solver:
   dual_time_picard_jameson_rk:
     pseudo_cfl:
-      initial: 0.1
+      initial: 0.5   # dimensionless Courant number: cfl_eff = dtau * lambda_max; stable range ~0-2.83
       minimum: 0.001
-      maximum: 1.0
-      growth_factor: 1.05
+      maximum: 2.0   # 4-stage Jameson RK stability limit is ~2.83; 2.0 gives a comfortable margin
+      growth_factor: 1.1
       reduction_factor: 0.75
 
 poisson_solver:

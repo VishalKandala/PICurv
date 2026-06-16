@@ -37,7 +37,10 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  * When dU/d(tau) -> 0, the physical time step is satisfied.
  * 2. ALGORITHM: Fixed-Point Iteration with Explicit Runge-Kutta
  * This is technically a Fixed-Point iteration on the operator:
- * U_new = U_old + pseudo_dt_scaling * dt_pseudo * Total_Residual(U_old)
+ * U_new = U_old + pseudo_dtau * alfa_stage * Total_Residual(U_old)
+ * where pseudo_dtau = pseudo_cfl / lambda_max is the spectral-radius-based pseudo-time step
+ * (lambda_max = global max convective spectral radius). This makes pseudo_cfl a true
+ * dimensionless Courant number, independent of the physical time step dt.
  * We use a 4-Stage Explicit RK scheme (Jameson-Schmidt-Turkel coeffs) to smooth errors.
  * 3. STABILITY: Adaptive Pseudo-CFL Trial Acceptance and Rollback
  * If a pseudo-time trial causes excessive residual growth, the solver restores the
@@ -52,7 +55,8 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  * alfa : Runge-Kutta stage coefficients {1/4, 1/3, 1/2, 1}.
  * -- Convergence & Solver Control (Renamed) --
  * pseudo_iter       : Counter for the inner dual-time loop.
- * pseudo_dt_scaling : Adaptive scalar for the pseudo-time step (formerly lambda).
+ * pseudo_dtau       : Adaptive pseudo-time step [physical time], = pseudo_cfl / lambda_max.
+ * lambda_max        : Global max convective spectral radius [1/s] from the current field.
  * delta_sol_norm    : The L_inf norm of the change in solution (dU).
  * resid_norm        : The L_inf norm of the Total Residual (RHS).
  * =================================================================================================

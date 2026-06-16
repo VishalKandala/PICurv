@@ -4442,6 +4442,7 @@ _SOLVER_SCHEMA = {
     ("momentum_solver", "dual_time_picard_jameson_rk"): {
         "max_pseudo_steps", "absolute_tol", "relative_tol", "step_tol", "pseudo_cfl",
         "jameson_residual_noise_allowance_factor", "rk4_residual_noise_allowance_factor",
+        "ratio_ema_alpha",
     },
     ("momentum_solver", "dual_time_picard_jameson_rk", "pseudo_cfl"): {
         "initial", "minimum", "maximum", "growth_factor", "reduction_factor",
@@ -4449,6 +4450,7 @@ _SOLVER_SCHEMA = {
     ("momentum_solver", "dual_time_picard_rk4"): {
         "max_pseudo_steps", "absolute_tol", "relative_tol", "step_tol", "pseudo_cfl",
         "jameson_residual_noise_allowance_factor", "rk4_residual_noise_allowance_factor",
+        "ratio_ema_alpha",
     },
     ("momentum_solver", "dual_time_picard_rk4", "pseudo_cfl"): {
         "initial", "minimum", "maximum", "growth_factor", "reduction_factor",
@@ -5137,7 +5139,7 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                     allowed_dt_keys = {
                         'max_pseudo_steps', 'absolute_tol', 'relative_tol', 'step_tol',
                         'pseudo_cfl', 'jameson_residual_noise_allowance_factor',
-                        'rk4_residual_noise_allowance_factor'
+                        'rk4_residual_noise_allowance_factor', 'ratio_ema_alpha'
                     }
                     unknown_dt_keys = sorted(set(dt_picard_cfg.keys()) - allowed_dt_keys)
                     if unknown_dt_keys:
@@ -5191,6 +5193,13 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                                 errors.append(f"  {solver_path}: {noise_key} must be at least 1.")
                         except (TypeError, ValueError):
                             errors.append(f"  {solver_path}: {noise_key} must be numeric.")
+                    if 'ratio_ema_alpha' in dt_picard_cfg:
+                        try:
+                            alpha_val = float(dt_picard_cfg['ratio_ema_alpha'])
+                            if not 0.0 <= alpha_val <= 1.0:
+                                errors.append(f"  {solver_path}: ratio_ema_alpha must be in [0, 1].")
+                        except (TypeError, ValueError):
+                            errors.append(f"  {solver_path}: ratio_ema_alpha must be numeric.")
 
         solution_convergence_cfg = solver_cfg.get('solution_convergence', {})
         if solution_convergence_cfg is not None and not isinstance(solution_convergence_cfg, dict):
@@ -7967,6 +7976,8 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             flags['-mom_dt_jameson_residual_norm_noise_allowance_factor'] = cfg['jameson_residual_noise_allowance_factor']
         elif 'rk4_residual_noise_allowance_factor' in cfg:
             flags['-mom_dt_jameson_residual_norm_noise_allowance_factor'] = cfg['rk4_residual_noise_allowance_factor']
+        if 'ratio_ema_alpha' in cfg:
+            flags['-mom_ratio_ema_alpha'] = cfg['ratio_ema_alpha']
 
     if isinstance(ms, dict):
         allowed_ms_keys = {'type', 'dual_time_picard_jameson_rk', 'dual_time_picard_rk4'}
@@ -11709,12 +11720,18 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
     sources = {}
     step_order = []
     pattern = os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log")
+    # Log format (Phase 3+): dtau [physical time] and cfl_eff [dimensionless Courant number].
+    # cfl_eff = dtau * lambda_max; this is the value controlled by pseudo_cfl.* YAML keys.
     regex = re.compile(
         r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\s*\|"
-        r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
+        r"\s*dtau:\s*(?P<dtau>[-+0-9.eE]+)\s*\|\s*cfl_eff:\s*(?P<cfl_eff>[-+0-9.eE]+)\s*\|"
+        r"\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
         r"\s*\|dUk\|/\|dU0\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
         r"\s*\|Rk\|/\|R0\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*trial_ratio:\s*(?P<trial_ratio>[-+0-9.eE]+)\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*cfl_after:\s*(?P<cfl_after>[-+0-9.eE]+))?"
+        r"(?:\s*\|\s*trial_ratio:\s*(?P<trial_ratio>[-+0-9.eE]+)"
+        r"(?:\s*\|\s*smoothed_ratio:\s*(?P<smoothed_ratio>[-+0-9.eE]+))?"
+        r"\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*dtau_after:\s*(?P<dtau_after>[-+0-9.eE]+)"
+        r"(?:\s*\|\s*cfl_eff_after:\s*(?P<cfl_eff_after>[-+0-9.eE]+))?)?"
     )
 
     # Per (step, block): track accepted/rejected counts and last committed state.
@@ -11741,13 +11758,16 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
                 row = {
                     "block": block,
                     "pseudo_iterations": int(match.group("pseudo_iter")),
-                    "pseudo_cfl": float(match.group("pseudo_cfl")),
-                    "cfl_after": _parse_float_loose(match.group("cfl_after")),
+                    "dtau": _parse_float_loose(match.group("dtau")),
+                    "cfl_eff": _parse_float_loose(match.group("cfl_eff")),
+                    "dtau_after": _parse_float_loose(match.group("dtau_after")),
+                    "cfl_eff_after": _parse_float_loose(match.group("cfl_eff_after")),
                     "delta_norm": float(match.group("delta")),
                     "delta_rel": float(match.group("delta_rel")),
                     "residual_norm": float(match.group("resid")),
                     "residual_rel": float(match.group("resid_rel")),
                     "trial_ratio": _parse_float_loose(match.group("trial_ratio")),
+                    "smoothed_ratio": _parse_float_loose(match.group("smoothed_ratio")),
                     "status": status,
                 }
                 if status == "accepted":
@@ -12649,16 +12669,25 @@ def render_run_summary(payload: dict, output_format: str = "text"):
             accepted = row.get("accepted_count")
             rejected = row.get("rejected_count")
             counts_str = f" accepted={accepted} rejected={rejected}" if accepted is not None else ""
-            cfl_in = row.get("pseudo_cfl")
-            cfl_out = row.get("cfl_after")
+            # Phase 3+: logged as dtau (physical time) + cfl_eff (dimensionless Courant number).
+            dtau_val = row.get("dtau")
+            cfl_in   = row.get("cfl_eff")
+            cfl_out  = row.get("cfl_eff_after")
+            dtau_out = row.get("dtau_after")
             if cfl_in is not None and cfl_out is not None:
-                cfl_str = f"cfl {cfl_in:.4f}->{cfl_out:.4f}"
+                cfl_str = f"cfl_eff {cfl_in:.4f}->{cfl_out:.4f}  dtau {_format_summary_float(dtau_val)}->{_format_summary_float(dtau_out)}"
             elif cfl_in is not None:
-                cfl_str = f"cfl={_format_summary_float(cfl_in, '.4f')}"
+                cfl_str = f"cfl_eff={_format_summary_float(cfl_in, '.4f')}  dtau={_format_summary_float(dtau_val)}"
             else:
-                cfl_str = "cfl=n/a"
+                cfl_str = "cfl_eff=n/a"
             ratio = row.get("trial_ratio")
-            ratio_str = f"  ratio={_format_summary_float(ratio)}" if ratio is not None else ""
+            smoothed = row.get("smoothed_ratio")
+            if ratio is not None and smoothed is not None:
+                ratio_str = f"  ratio={_format_summary_float(ratio)} (ema={_format_summary_float(smoothed)})"
+            elif ratio is not None:
+                ratio_str = f"  ratio={_format_summary_float(ratio)}"
+            else:
+                ratio_str = ""
             print(f"    block {row['block']} [{status}]:{counts_str}  {cfl_str}{ratio_str}")
             print(
                 f"      resid={_format_summary_float(row.get('residual_norm'))}"
@@ -13226,12 +13255,17 @@ def _collect_summary_plot_records(context: dict) -> list:
                     particle_path, segment,
                 )
 
+    # Phase 3+: dtau [physical time] + cfl_eff [dimensionless Courant number].
     momentum_regex = re.compile(
         r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\s*\|"
-        r"\s*Pseudo-cfl:\s*(?P<pseudo_cfl>[-+0-9.eE]+)\s*\|\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
+        r"\s*dtau:\s*(?P<dtau>[-+0-9.eE]+)\s*\|\s*cfl_eff:\s*(?P<cfl_eff>[-+0-9.eE]+)\s*\|"
+        r"\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
         r"\s*\|dUk\|/\|dU0\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
         r"\s*\|Rk\|/\|R0\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*trial_ratio:\s*(?P<trial_ratio>[-+0-9.eE]+)\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*cfl_after:\s*(?P<cfl_after>[-+0-9.eE]+))?"
+        r"(?:\s*\|\s*trial_ratio:\s*(?P<trial_ratio>[-+0-9.eE]+)"
+        r"(?:\s*\|\s*smoothed_ratio:\s*(?P<smoothed_ratio>[-+0-9.eE]+))?"
+        r"\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*dtau_after:\s*(?P<dtau_after>[-+0-9.eE]+)"
+        r"(?:\s*\|\s*cfl_eff_after:\s*(?P<cfl_eff_after>[-+0-9.eE]+))?)?"
     )
     for path in sorted(glob.glob(os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log"))):
         block_match = re.search(r"Block_(\d+)\.log$", path)
@@ -13249,13 +13283,16 @@ def _collect_summary_plot_records(context: dict) -> list:
                         records, "momentum", int(match.group("step")), f"block {block_match.group(1)}",
                         {
                             "pseudo_iterations": int(match.group("pseudo_iter")),
-                            "pseudo_cfl": float(match.group("pseudo_cfl")),
+                            "dtau": _parse_float_loose(match.group("dtau")),
+                            "cfl_eff": _parse_float_loose(match.group("cfl_eff")),
                             "delta_norm": float(match.group("delta")),
                             "delta_rel": float(match.group("delta_rel")),
                             "residual_norm": float(match.group("resid")),
                             "residual_rel": float(match.group("resid_rel")),
                             "trial_ratio": _parse_float_loose(match.group("trial_ratio")),
-                            "cfl_after": _parse_float_loose(match.group("cfl_after")),
+                            "smoothed_ratio": _parse_float_loose(match.group("smoothed_ratio")),
+                            "dtau_after": _parse_float_loose(match.group("dtau_after")),
+                            "cfl_eff_after": _parse_float_loose(match.group("cfl_eff_after")),
                         },
                         path, segment,
                     )

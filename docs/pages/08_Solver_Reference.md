@@ -78,13 +78,13 @@ momentum_solver:
     max_pseudo_steps: 50
     absolute_tol: 1.0e-8
     relative_tol: 1.0e-5
-    pseudo_cfl:
-      initial: 0.1
+    pseudo_cfl:           # dimensionless Courant number: dtau = pseudo_cfl / lambda_max
+      initial: 0.5
       minimum: 0.001
-      maximum: 1.0
-      growth_factor: 1.05
+      maximum: 2.0
+      growth_factor: 1.1
       reduction_factor: 0.75
-    jameson_residual_noise_allowance_factor: 1.05
+    jameson_residual_noise_allowance_factor: 1.1
 ```
 
 Mappings include:

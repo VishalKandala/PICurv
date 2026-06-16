@@ -6,6 +6,24 @@
 
 ## Unreleased
 
+- Picard-Jameson spectral-radius pseudo-time step (semantic change):
+  - changed the pseudo-time step from `dtau = pseudo_cfl × dt` to
+    `dtau = pseudo_cfl / lambda_max`, where `lambda_max` is the global maximum
+    convective spectral radius computed once per physical timestep. This makes
+    `pseudo_cfl.*` true dimensionless Courant numbers, independent of `dt`, grid
+    size, and flow speed.
+  - changed shipped defaults to `pseudo_cfl.initial: 0.5` and
+    `pseudo_cfl.maximum: 2.0` (stable 4-stage Jameson range ~0–2.83); existing
+    configs with `0.1`/`1.0` still run but now produce physically smaller, safer
+    `dtau` values.
+  - added a BDF2 lower bound `lambda_max >= COEF_TIME_ACCURACY/dt` so zero-flow
+    startup yields a finite `dtau`.
+  - added the diagnostic field `mom_last_lambda_max` to the simulation context.
+  - changed the per-trial momentum convergence log fields from `Pseudo-cfl`/
+    `cfl_after` to `dtau`/`cfl_eff` and `dtau_after`/`cfl_eff_after`; `picurv
+    summarize` parsing, JSON payload, console output, and plot series were
+    updated to match.
+
 - Initial-condition contract and workflow:
   - replaced user-facing legacy IC selectors with canonical `generated` and `file` modes.
   - added built-in zero, Cartesian constant, streamwise constant, and Poiseuille generators.

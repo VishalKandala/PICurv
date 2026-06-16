@@ -202,7 +202,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Group 5: Solver & Numerics Parameters ---
     simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK; simCtx->mom_max_pseudo_steps = 50;
-    simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor = 1.05; // New addition for divergence detection
+    simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor = 1.1; // raised from 1.05; less aggressive rejection
     simCtx->mom_atol = 1e-7; simCtx->mom_rtol = 1e-4;
     simCtx->mom_resid_atol = 0.0; simCtx->mom_resid_rtol = 0.0;
     simCtx->imp_stol = 1.e-8;
@@ -210,11 +210,17 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->mg_preItr = 1; simCtx->mg_poItr = 1;
     simCtx->poisson = 0; simCtx->poisson_tol = 5.e-9;
     simCtx->STRONG_COUPLING = 0;simCtx->central=0;
-    simCtx->ren = 100.0; simCtx->pseudo_cfl = 0.1;
-    simCtx->max_pseudo_cfl = 1.0; simCtx->min_pseudo_cfl = 0.001;
+    /* pseudo_cfl and its bounds are now dimensionless Courant numbers: CFL = dtau * lambda_max,
+       where lambda_max is the global spectral radius computed at each physical timestep.
+       Stable range for 4-stage Jameson RK: ~0–2.83. Initial 0.5 gives a comfortable margin. */
+    simCtx->ren = 100.0; simCtx->pseudo_cfl = 0.5;
+    simCtx->max_pseudo_cfl = 2.0; simCtx->min_pseudo_cfl = 0.001;
     simCtx->pseudo_cfl_reduction_factor = 0.75;
-    simCtx->pseudo_cfl_growth_factor = 1.0; //simCtx->vnn = 0.1;
+    simCtx->pseudo_cfl_growth_factor = 1.1; // raised from 1.0; controller can now increase CFL
     simCtx->no_pseudo_cfl_backtrack = PETSC_FALSE;
+    simCtx->mom_ratio_ema_alpha = 0.3;   /* moderate smoothing; set to 1.0 to recover original raw-ratio behavior */
+    simCtx->mom_last_converged  = PETSC_TRUE;
+    simCtx->mom_last_lambda_max = 0.0;   /* populated after first momentum solve */
     simCtx->ps_ksp_pic_monitor_true_residual = PETSC_FALSE;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
     simCtx->initialConditionMode = IC_MODE_ZERO;
@@ -633,6 +639,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_rk4_residual_norm_noise_allowance_factor",&simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL, "-mom_dt_jameson_residual_norm_noise_allowance_factor",&simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-no_pseudo_cfl_backtrack", &simCtx->no_pseudo_cfl_backtrack, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL, NULL, "-mom_ratio_ema_alpha", &simCtx->mom_ratio_ema_alpha, NULL); CHKERRQ(ierr);
     if (simCtx->min_pseudo_cfl <= 0.0 ||
         simCtx->pseudo_cfl < simCtx->min_pseudo_cfl ||
         simCtx->pseudo_cfl > simCtx->max_pseudo_cfl) {
@@ -645,6 +652,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
         simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor < 1.0) {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                 "Pseudo-CFL controls require growth_factor >= 1, 0 < reduction_factor < 1, and noise allowance >= 1.");
+    }
+    if (simCtx->mom_ratio_ema_alpha < 0.0 || simCtx->mom_ratio_ema_alpha > 1.0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+                "-mom_ratio_ema_alpha must be in [0, 1].");
     }
     ierr = PetscOptionsHasName(NULL, NULL, "-ps_ksp_pic_monitor_true_residual", &simCtx->ps_ksp_pic_monitor_true_residual); CHKERRQ(ierr);
     {

@@ -648,6 +648,40 @@ def test_parse_solver_config_maps_canonical_jameson_controls():
     assert flags["-mom_dt_jameson_residual_norm_noise_allowance_factor"] == 1.07
 
 
+def test_parse_solver_config_maps_ratio_ema_alpha():
+    """!
+    @brief Test ratio_ema_alpha translates to -mom_ratio_ema_alpha.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "strategy": {"momentum_solver": "Dual Time Picard Jameson RK"},
+        "momentum_solver": {
+            "dual_time_picard_jameson_rk": {
+                "ratio_ema_alpha": 0.5,
+            },
+        },
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-mom_ratio_ema_alpha"] == 0.5
+
+
+def test_parse_solver_config_ratio_ema_alpha_absent_emits_no_flag():
+    """!
+    @brief Test ratio_ema_alpha omitted from YAML produces no flag (C default applies).
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "strategy": {"momentum_solver": "Dual Time Picard Jameson RK"},
+        "momentum_solver": {"dual_time_picard_jameson_rk": {}},
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert "-mom_ratio_ema_alpha" not in flags
+
+
 def test_parse_solver_config_maps_optional_momentum_residual_tolerances():
     """!
     @brief Test optional residual tolerances map to the momentum runtime flags.
@@ -679,6 +713,44 @@ def test_parse_solver_config_keeps_deprecated_step_tolerance_compatible():
     flags = picurv.parse_solver_config(solver_cfg)
 
     assert flags["-imp_stol"] == 1.0e-8
+
+
+@pytest.mark.parametrize(
+    ("ema_alpha", "expected_error"),
+    [
+        (1.5, "ratio_ema_alpha must be in [0, 1]"),
+        (-0.1, "ratio_ema_alpha must be in [0, 1]"),
+        ("not_a_number", "ratio_ema_alpha must be numeric"),
+    ],
+)
+def test_validate_rejects_invalid_ratio_ema_alpha(tmp_path, ema_alpha, expected_error):
+    """!
+    @brief Test validation rejects out-of-range or non-numeric ratio_ema_alpha values.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] ema_alpha Invalid alpha value to inject.
+    @param[in] expected_error Expected validation diagnostic fragment.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["momentum_solver"]["dual_time_picard_jameson_rk"]["ratio_ema_alpha"] = ema_alpha
+    solver_path = tmp_path / "solver_invalid_ema_alpha.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode != 0
+    assert expected_error in result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(

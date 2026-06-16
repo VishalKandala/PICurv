@@ -96,13 +96,30 @@ momentum_solver:
     # Step-change tolerance (optional, mirrors tolerances.step_tol):
     # step_tol: 0.0              # -> -imp_stol
     pseudo_cfl:
-      initial: 0.1               # -> -pseudo_cfl
-      minimum: 0.001             # -> -min_pseudo_cfl
-      maximum: 1.0               # -> -max_pseudo_cfl
-      growth_factor: 1.05        # -> -pseudo_cfl_growth_factor
-      reduction_factor: 0.75     # -> -pseudo_cfl_reduction_factor
-    jameson_residual_noise_allowance_factor: 1.05 # -> -mom_dt_jameson_residual_norm_noise_allowance_factor
+      # Phase 3+: pseudo_cfl.* values are dimensionless Courant numbers, NOT fractions of dt.
+      # The solver computes dtau = pseudo_cfl / lambda_max, where lambda_max is the global
+      # maximum spectral radius of the convective operator (sum of |face fluxes| / cell volume,
+      # global MPI max). This makes pseudo_cfl flow- and grid-independent.
+      # Stability limit for 4-stage Jameson RK: ~2.83 (imaginary-axis CFL). Use 0.5-2.0 in practice.
+      initial: 0.5               # -> -pseudo_cfl          (default: 0.5; ~half the stability limit)
+      minimum: 0.001             # -> -min_pseudo_cfl      (default: 0.001)
+      maximum: 2.0               # -> -max_pseudo_cfl      (default: 2.0; stability limit ~2.83)
+      growth_factor: 1.1         # -> -pseudo_cfl_growth_factor   (default: 1.1; must be >= 1)
+      reduction_factor: 0.75     # -> -pseudo_cfl_reduction_factor (default: 0.75; must be in (0,1))
+    jameson_residual_noise_allowance_factor: 1.1  # -> -mom_dt_jameson_residual_norm_noise_allowance_factor
+    # Rejection threshold: a pseudo-time trial is rolled back if the EMA-smoothed step-to-step
+    # residual ratio exceeds this value. 1.1 allows 10% residual growth before reducing CFL.
+    # Raise toward 1.2-1.5 for flows with non-monotonic residual histories; lower toward 1.05
+    # for strict monotonic convergence. Must be >= 1.
     # rk4_residual_noise_allowance_factor is a deprecated alias for the above; use only one.
+    ratio_ema_alpha: 0.3          # -> -mom_ratio_ema_alpha (default: 0.3; range [0, 1])
+    # Exponential moving average coefficient for the step-to-step residual ratio used in the
+    # trial-rejection decision. The smoothed ratio is:
+    #   smoothed = alpha * raw_ratio + (1 - alpha) * smoothed_prev
+    # alpha = 1.0  : raw ratio (original behavior, most aggressive rejection)
+    # alpha = 0.3  : moderate smoothing; ~3-4 consecutive bad trials needed to trigger rejection
+    # alpha = 0.0  : ratio never updates (disables ratio-based rejection entirely)
+    # Increase alpha if the solver rejects too conservatively on noisy residual histories.
 
 # --- Physical Solution Convergence Logging ---
 # This layer is separate from the inner solver-health logs. It always records
@@ -212,8 +229,12 @@ petsc_passthrough_options:
   # when tuning sub-KSP/sub-PC options for your PETSc version.
 
   # --- Additional Momentum Controls (if you prefer passthrough style) ---
-  # -pseudo_cfl: 0.1
-  # -max_pseudo_cfl: 1.0
+  # Prefer the structured momentum_solver.dual_time_picard_jameson_rk block above.
+  # These passthrough flags override the structured block if both are present.
+  # -pseudo_cfl: 0.5          # dimensionless CFL = dtau * lambda_max (spectral-radius-based)
+  # -max_pseudo_cfl: 2.0
   # -min_pseudo_cfl: 0.001
-  # -pseudo_cfl_growth_factor: 1.0
+  # -pseudo_cfl_growth_factor: 1.1
   # -pseudo_cfl_reduction_factor: 0.75
+  # -mom_dt_jameson_residual_norm_noise_allowance_factor: 1.1
+  # -mom_ratio_ema_alpha: 0.3
