@@ -223,7 +223,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 	    up * (coef * (-ucat[k][j-1][i].z -2. * ucat[k][j  ][i].z +3. * ucat[k][j+1][i].z) +ucat[k][j  ][i].z);
 	  }
 	}
-	else  if ((les || central) && (j==0 || i==my-2) &&
+	else  if ((les || central) && (j==0 || j==my-2) &&
 		  (nvert[k][j+1][i] < 0.1 || nvert[k][j+1][i]>innerblank) &&
 		  (nvert[k][j  ][i] < 0.1 || nvert[k][j  ][i]>innerblank)) 
 	  {
