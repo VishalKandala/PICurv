@@ -1,4 +1,4 @@
-#ifndef MOMENTUNSOLVERS_H
+#ifndef MOMENTUMSOLVERS_H
 #define MOMENTUMSOLVERS_H
 
 #include "variables.h" // Provides definitions for UserCtx, SimCtx, IBMNodes, etc.
@@ -75,5 +75,105 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
 
 /** @deprecated Use MomentumSolver_DualTime_Picard_JamesonRK(). */
 #define MomentumSolver_DualTime_Picard_RK4 MomentumSolver_DualTime_Picard_JamesonRK
+
+/*================================================================================*
+ *               SHARED PHYSICAL-TIME (BDF) COEFFICIENT PLUMBING                  *
+ *================================================================================*/
+
+/**
+ * @brief Returns whether the current physical step uses the BDF2 discretization.
+ *
+ * Single source of truth for the BDF1/BDF2 selection. The predicate is identical
+ * to the one historically inlined in ComputeTotalResidual():
+ *   BDF2 when COEF_TIME_ACCURACY > 1.1 AND step != StartStep AND step != 1,
+ *   otherwise BDF1 (startup step and the first step after a restart).
+ *
+ * @param simCtx Master simulation context (reads step, StartStep).
+ * @return PETSC_TRUE for BDF2, PETSC_FALSE for BDF1.
+ */
+PetscBool MomentumUsesBDF2(SimCtx *simCtx);
+
+/**
+ * @brief Returns the BDF physical-time coefficient a0 for the current step.
+ *
+ * a0 = 1.5 (== COEF_TIME_ACCURACY) for BDF2, a0 = 1.0 for BDF1. Used both as the
+ * leading coefficient of the physical-time term in the residual and as the
+ * additive temporal contribution lambda_t = a0/dt in the momentum stability
+ * estimate, keeping the two numerically consistent.
+ *
+ * @param simCtx Master simulation context.
+ * @return a0 in {1.0, 1.5}.
+ */
+PetscReal MomentumBDFCoefficient(SimCtx *simCtx);
+
+/*================================================================================*
+ *                 MOMENTUM PSEUDO-TIME STABILITY ESTIMATE (SHADOW)               *
+ *================================================================================*/
+
+/**
+ * @brief Convective-estimate candidate selector. See ComputeMomentumStabilityEstimate().
+ *
+ * B: six-face transport scale (f_c * Aj * sum|U_f| / 2).
+ * C: B + frozen-advector discrete-divergence diagonal term.
+ * D: C + nonlinear velocity-gradient row-norm term (lambda_grad_u).
+ */
+typedef enum {
+    MOM_STAB_CAND_B = 0,
+    MOM_STAB_CAND_C = 1,
+    MOM_STAB_CAND_D = 2
+} MomStabCandidate;
+
+/**
+ * @brief Dominant stiffness contributor at the controlling cell.
+ */
+typedef enum {
+    MOM_STAB_LIMITER_TIME       = 0,
+    MOM_STAB_LIMITER_CONVECTION = 1,
+    MOM_STAB_LIMITER_VISCOSITY  = 2
+} MomStabLimiter;
+
+/**
+ * @brief Diagnostic report produced by ComputeMomentumStabilityEstimate().
+ *
+ * This is a PRACTICAL CONSERVATIVE STABILITY ESTIMATE (operator-scaled pseudo-time
+ * estimate), not a proven spectral radius. All lambda_* are global maxima in [1/s].
+ */
+typedef struct {
+    PetscReal lambda;        /* selected-candidate global max estimate [1/s] */
+    PetscReal lambda_t;      /* temporal term a0/dt (uniform across cells)   */
+    PetscReal lambda_c;      /* convective part at the controlling cell      */
+    PetscReal lambda_v;      /* viscous part at the controlling cell         */
+    PetscReal lambda_B;      /* global max of (lambda_t + lambda_c^B + lambda_v) */
+    PetscReal lambda_C;      /* global max with candidate C convective term  */
+    PetscReal lambda_D;      /* global max with candidate D convective term  */
+    PetscInt  ci, cj, ck;    /* controlling-cell global index (selected cand) */
+    PetscInt  cblock;        /* controlling-cell block                        */
+    PetscInt  cclass;        /* 0=interior, 1=physical-boundary, 2=IB-adjacent */
+    PetscInt  one_sided;     /* controlling cell used the one-sided viscous x2 */
+    PetscInt  active_cells;  /* global count of active (non-masked) cells       */
+    PetscBool estimate_incomplete; /* true if Clark/RANS/vel-dependent force is active (uncovered) */
+    MomStabLimiter limiter;  /* dominant contributor at the controlling cell  */
+} MomStabilityReport;
+
+/**
+ * @brief Compute the momentum pseudo-time stability estimate (shadow/diagnostic).
+ *
+ * Conservative, operator-scaled estimate: lambda = max_cell (a0/dt + f_c*lambda_c + lambda_nu),
+ * over active, non-solid cells, blocks, and MPI ranks. Read-only; performs no
+ * communication beyond a single global reduction. See the Workstream-A design.
+ *
+ * Call-site preconditions (NOT enforced internally): lUcont, lUcat, lNu_t, lNvert
+ * must be fresh; lAj, face Jacobians and face metrics are static after grid init.
+ *
+ * @param[in]  user         Array of UserCtx (one per block).
+ * @param[in]  block_number Number of blocks.
+ * @param[in]  dt           Physical time step.
+ * @param[in]  candidate    Convective candidate driving rep->lambda (B, C or D).
+ * @param[out] rep          Filled diagnostic report (global maxima + breakdown).
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_number,
+                                                PetscReal dt, MomStabCandidate candidate,
+                                                MomStabilityReport *rep);
 
 #endif // MOMENTUMSOLVERS_H

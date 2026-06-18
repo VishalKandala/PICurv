@@ -1,6 +1,39 @@
 #include "momentumsolvers.h"
 
 
+/*================================================================================*
+ *               SHARED PHYSICAL-TIME (BDF) COEFFICIENT PLUMBING                  *
+ *================================================================================*/
+
+#undef __FUNCT__
+#define __FUNCT__ "MomentumUsesBDF2"
+/**
+ * @brief Single source of truth for the BDF1/BDF2 selection. See header.
+ *
+ * This reproduces exactly the predicate historically inlined in
+ * ComputeTotalResidual(): BDF1 on the cold-start first step (ti == 1) and on the
+ * first step after a restart (ti == tistart); BDF2 thereafter (when the second-
+ * order time accuracy is enabled). Restart-history validity is a separate concern
+ * and is intentionally not addressed here.
+ */
+PetscBool MomentumUsesBDF2(SimCtx *simCtx)
+{
+    const PetscInt ti      = simCtx->step;
+    const PetscInt tistart = simCtx->StartStep;
+    return (PetscBool)(COEF_TIME_ACCURACY > 1.1 && ti != tistart && ti != 1);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "MomentumBDFCoefficient"
+/**
+ * @brief Returns a0 in {1.0, 1.5} for the current physical step. See header.
+ */
+PetscReal MomentumBDFCoefficient(SimCtx *simCtx)
+{
+    return MomentumUsesBDF2(simCtx) ? COEF_TIME_ACCURACY : 1.0;
+}
+
+
 #undef __FUNCT__
 #define __FUNCT__ "ComputeTotalResidual"
 /**
@@ -12,9 +45,8 @@ static PetscErrorCode ComputeTotalResidual(UserCtx *user)
     PetscErrorCode ierr;
     SimCtx *simCtx = user->simCtx;
     
-    // Extract Time Parameters from Context
-    const PetscInt  ti      = simCtx->step;
-    const PetscInt  tistart = simCtx->StartStep;
+    // Extract Time Parameters from Context.
+    // BDF step selection now lives in MomentumUsesBDF2() (shared with the stability estimate).
     const PetscReal dt      = simCtx->dt;
 
     PetscFunctionBeginUser;
@@ -26,7 +58,10 @@ static PetscErrorCode ComputeTotalResidual(UserCtx *user)
     // 2. Add Physical Time Derivative Terms (BDF Discretization)
     //    The equation solved is: dU/dtau = RHS_Spatial + RHS_Temporal
     
-    if (COEF_TIME_ACCURACY > 1.1 && ti != tistart && ti != 1) {
+    /* BDF order selected by the shared helper (single source of truth, shared with
+       the momentum stability estimate). Numerically identical to the previous
+       inlined predicate: a0 = 1.5 for BDF2, 1.0 for BDF1. */
+    if (MomentumUsesBDF2(simCtx)) {
         // --- BDF2 (Second Order Backward Difference) ---
         // Formula: (1.5*U^{n} - 2.0*U^{n-1} + 0.5*U^{n-2}) / dt  = RHS_Spatial(U^{n})
         // Moved to : -1.5/dt * U^{n} + 2.0/dt * U^{n-1} - 0.5/dt * U^{n-2} + RHS_Spatial(U^{n})
@@ -250,6 +285,417 @@ static PetscErrorCode ComputeGlobalSpectralRadiusEstimate(
 }
 
 
+/* Absolute metric-row sum for one face: |N.N| + |A.N| + |B.N|, where N is the
+   face's own normal-metric vector and A,B are the other two face-metric vectors.
+   Mirrors the g11/g21/g31 rows assembled per face in Viscous(). */
+static inline PetscReal MomFaceGabs(Cmpnts N, Cmpnts A, Cmpnts B)
+{
+    const PetscReal NN = N.x*N.x + N.y*N.y + N.z*N.z;
+    const PetscReal AN = A.x*N.x + A.y*N.y + A.z*N.z;
+    const PetscReal BN = B.x*N.x + B.y*N.y + B.z*N.z;
+    return PetscAbsReal(NN) + PetscAbsReal(AN) + PetscAbsReal(BN);
+}
+
+/* nvert bands matching the physical operator:
+ *   SKIP    : cell excluded from the estimate (solid/blanked), nvert > 0.1.
+ *   VISC1S  : Viscous() one-sided cross-derivative trigger band, (0.5, 7).
+ *   QUICKBLK: Convection() QUICK-modifier band, [0.1, 7] (mirrors NOT(<0.1 || >innerblank)). */
+#define MOM_SKIP_SOLID(v)    ((v) > 0.1)
+#define MOM_VISC_ONESIDED(v) ((v) > 0.5 && (v) < 7.0)
+#define MOM_QUICK_BLOCKS(v)  ((v) >= 0.1 && (v) <= 7.0)
+
+/* Read-only: does ANY of the six viscous faces entering cell (k,j,i) use an
+ * nvert-selected one-sided cross-derivative? Conservative solid-band check over
+ * the full 3x3x3 neighborhood that the per-face Viscous() predicates can reach.
+ * Indices i +/- 1, j +/- 1, k +/- 1 are always valid on the interior loop range. */
+static PetscBool MomCellUsesOneSidedViscousStencil(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt i)
+{
+    for (PetscInt dk = -1; dk <= 1; dk++)
+        for (PetscInt dj = -1; dj <= 1; dj++)
+            for (PetscInt di = -1; di <= 1; di++) {
+                if (!dk && !dj && !di) continue;
+                if (MOM_VISC_ONESIDED(nvert[k+dk][j+dj][i+di])) return PETSC_TRUE;
+            }
+    return PETSC_FALSE;
+}
+
+/* Read-only: is cell (k,j,i) IB-adjacent (any solid in its 3x3x3 neighborhood)?
+ * Uses the SKIP band so it is consistent with the one-sided viscous trigger. */
+static PetscBool MomCellHasSolidNeighbor(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt i)
+{
+    for (PetscInt dk = -1; dk <= 1; dk++)
+        for (PetscInt dj = -1; dj <= 1; dj++)
+            for (PetscInt di = -1; di <= 1; di++) {
+                if (!dk && !dj && !di) continue;
+                if (MOM_SKIP_SOLID(nvert[k+dk][j+dj][i+di])) return PETSC_TRUE;
+            }
+    return PETSC_FALSE;
+}
+
+/* Read-only: is the QUICK reconstruction in one computational direction modified for
+ * cell (k,j,i)? The cell uses BOTH faces in that direction (index f and f-1), whose
+ * QUICK branches are gated by a non-periodic domain edge or by nvert blockers within
+ * the stencil reach (including the second neighbor f-2). The +/-2 reads are guarded by
+ * the ghost range [g0, g1) so they are safe for both periodic and non-periodic DMs. */
+static PetscBool MomQuickDirModified(PetscReal ***nvert, PetscInt a, PetscInt b, PetscInt c,
+                                     PetscInt idx, PetscInt m, PetscBool np0, PetscBool np1,
+                                     PetscInt g0, PetscInt g1, char dir)
+{
+    /* (a,b,c) are the fixed indices; idx is the moving index in direction `dir`. */
+    if (np0 && idx <= 1)   return PETSC_TRUE;     /* faces idx,idx-1 reach the negative edge */
+    if (np1 && idx >= m-2) return PETSC_TRUE;     /* ... or the positive edge */
+    for (PetscInt d = -2; d <= 2; d++) {
+        if (d == 0) continue;
+        const PetscInt p = idx + d;
+        if (p < g0 || p >= g1) continue;          /* outside local ghost range: treat as fluid */
+        PetscReal v;
+        if      (dir == 'i') v = nvert[a][b][p];
+        else if (dir == 'j') v = nvert[a][p][c];
+        else                 v = nvert[p][b][c];
+        if (MOM_QUICK_BLOCKS(v)) return PETSC_TRUE;
+    }
+    return PETSC_FALSE;
+}
+
+/* Active-row mask (3 bits: xi=1, eta=2, zeta=4) mirroring the final RHS masking.
+ * A solid cell disables all rows; a positive solid neighbour or a positive non-periodic
+ * physical face disables the corresponding normal (staggered) row; TwoD disables the
+ * homogeneous direction. Returns 0 only when the location carries no active unknown. */
+static PetscInt MomCellActiveRows(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt i,
+                                  PetscInt mx, PetscInt my, PetscInt mz,
+                                  PetscBool np_x1, PetscBool np_y1, PetscBool np_z1, PetscInt twoD)
+{
+    if (MOM_SKIP_SOLID(nvert[k][j][i])) return 0;     /* solid cell: all rows inactive */
+    PetscInt bits = 0x7;
+    if (MOM_SKIP_SOLID(nvert[k][j][i+1])) bits &= ~0x1;  /* positive xi neighbour solid   */
+    if (MOM_SKIP_SOLID(nvert[k][j+1][i])) bits &= ~0x2;  /* positive eta neighbour solid  */
+    if (MOM_SKIP_SOLID(nvert[k+1][j][i])) bits &= ~0x4;  /* positive zeta neighbour solid */
+    if (np_x1 && i == mx-2) bits &= ~0x1;                /* positive non-periodic xi face  */
+    if (np_y1 && j == my-2) bits &= ~0x2;
+    if (np_z1 && k == mz-2) bits &= ~0x4;
+    if (twoD == 1) bits &= ~0x1;                         /* TwoD: homogeneous xi direction */
+    return bits;
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeMomentumStabilityEstimate"
+/**
+ * @brief Practical conservative momentum pseudo-time stability estimate (shadow). See header.
+ *
+ * Operator-scaled estimate lambda = max_cell (a0/dt + f_c*lambda_c + lambda_nu) over active,
+ * non-solid interior cells, blocks and MPI ranks. Read-only; one global reduction.
+ * NOT a proven spectral radius. Drives nothing in production while in shadow mode.
+ */
+PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_number,
+                                                PetscReal dt, MomStabCandidate candidate,
+                                                MomStabilityReport *rep)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt rank;
+    PetscFunctionBeginUser;
+
+    /* ---- input validation (no silent fallback) ---- */
+    PetscCheck(user != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "user is NULL");
+    PetscCheck(rep  != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "rep is NULL");
+    PetscCheck(block_number > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "block_number must be > 0");
+    PetscCheck(candidate >= MOM_STAB_CAND_B && candidate <= MOM_STAB_CAND_D,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "unsupported stability candidate enum");
+    PetscCheck(PetscIsNormalReal(dt) && dt > 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "dt must be finite and positive");
+
+    SimCtx         *simCtx   = user[0].simCtx;
+    PetscCheck(simCtx != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "user[0].simCtx is NULL");
+    const PetscReal a0       = MomentumBDFCoefficient(simCtx);
+    const PetscBool centered = (PetscBool)(simCtx->les || simCtx->central);
+    const PetscBool has_nut  = (PetscBool)(simCtx->les || simCtx->rans);
+    const PetscBool inviscid = (PetscBool)simCtx->invicid;
+    PetscCheck(inviscid || (PetscIsNormalReal(simCtx->ren) && simCtx->ren > 0.0),
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Reynolds number must be finite and positive when viscous");
+    const PetscReal lambda_t = a0 / dt;
+    const PetscReal nu_mol   = inviscid ? 0.0 : 1.0 / simCtx->ren;
+    const PetscInt  twoD     = simCtx->TwoD;
+
+    /* Shadow-mode completeness flag: the estimate does NOT cover Clark stress, RANS
+       eddy-viscosity sign assumptions, or velocity-dependent body forces. */
+    rep->estimate_incomplete = (PetscBool)(simCtx->clark || simCtx->rans);
+
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    /* Per-candidate local maxima; selected candidate also tracks the controlling cell. */
+    PetscReal locmaxB = 0.0, locmaxC = 0.0, locmaxD = 0.0, sel_max = 0.0;
+    PetscReal sel_lc = 0.0, sel_lv = 0.0;
+    PetscInt  sel_ci = -1, sel_cj = -1, sel_ck = -1, sel_blk = -1, sel_class = 0, sel_os = 0;
+    PetscInt  local_active = 0;
+
+    for (PetscInt bi = 0; bi < block_number; bi++) {
+        UserCtx *u = &user[bi];
+        DMDALocalInfo info = u->info;
+        const PetscInt mx = info.mx, my = info.my, mz = info.mz;
+        const PetscInt xs = info.xs, xe = xs + info.xm;
+        const PetscInt ys = info.ys, ye = ys + info.ym;
+        const PetscInt zs = info.zs, ze = zs + info.zm;
+        /* Interior range == where ComputeRHS evaluates the residual; boundary faces
+           (0 and m-1) are RHS-masked, so excluding them implements active-row masking
+           for the normal boundary rows. The last physical face (m-2) stays IN with the
+           full cell estimate (its tangential rows remain active). */
+        const PetscInt lxs = (xs==0)?xs+1:xs, lxe = (xe==mx)?xe-1:xe;
+        const PetscInt lys = (ys==0)?ys+1:ys, lye = (ye==my)?ye-1:ye;
+        const PetscInt lzs = (zs==0)?zs+1:zs, lze = (ze==mz)?ze-1:ze;
+
+        /* Non-periodic boundary flags (QUICK stencil is degraded near these). */
+        const PetscBool npx0 = (PetscBool)(u->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC);
+        const PetscBool npx1 = (PetscBool)(u->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC);
+        const PetscBool npy0 = (PetscBool)(u->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC);
+        const PetscBool npy1 = (PetscBool)(u->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC);
+        const PetscBool npz0 = (PetscBool)(u->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC);
+        const PetscBool npz1 = (PetscBool)(u->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC);
+        const PetscBool wxn = (PetscBool)(u->boundary_faces[BC_FACE_NEG_X].mathematical_type == WALL);
+        const PetscBool wxp = (PetscBool)(u->boundary_faces[BC_FACE_POS_X].mathematical_type == WALL);
+        const PetscBool wyn = (PetscBool)(u->boundary_faces[BC_FACE_NEG_Y].mathematical_type == WALL);
+        const PetscBool wyp = (PetscBool)(u->boundary_faces[BC_FACE_POS_Y].mathematical_type == WALL);
+        const PetscBool wzn = (PetscBool)(u->boundary_faces[BC_FACE_NEG_Z].mathematical_type == WALL);
+        const PetscBool wzp = (PetscBool)(u->boundary_faces[BC_FACE_POS_Z].mathematical_type == WALL);
+
+        Cmpnts ***ucont, ***ucat = NULL;
+        Cmpnts ***icsi, ***ieta, ***izet, ***jcsi, ***jeta, ***jzet, ***kcsi, ***keta, ***kzet;
+        Cmpnts ***csi = NULL, ***eta = NULL, ***zet = NULL;
+        PetscReal ***aj, ***iaj, ***jaj, ***kaj, ***nvert, ***nut = NULL;
+
+        ierr = DMDAVecGetArrayRead(u->fda, u->lUcont, &ucont); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->da,  u->lAj,   &aj);     CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->da,  u->lIAj,  &iaj);    CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->da,  u->lJAj,  &jaj);    CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->da,  u->lKAj,  &kaj);    CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lICsi, &icsi);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lIEta, &ieta);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lIZet, &izet);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lJCsi, &jcsi);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lJEta, &jeta);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lJZet, &jzet);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lKCsi, &kcsi);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lKEta, &keta);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lKZet, &kzet);   CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->da,  u->lNvert, &nvert); CHKERRQ(ierr);
+        if (has_nut) { ierr = DMDAVecGetArrayRead(u->da, u->lNu_t, &nut); CHKERRQ(ierr); }
+        /* Cartesian velocity + cell metrics: always read so candidate D's gradient term
+           (and hence rep->lambda_D) is meaningful regardless of the selected candidate.
+           Precondition: lUcat fresh (Contra2Cart has run in the preceding residual eval). */
+        ierr = DMDAVecGetArrayRead(u->fda, u->lUcat, &ucat); CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lCsi,  &csi);  CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lEta,  &eta);  CHKERRQ(ierr);
+        ierr = DMDAVecGetArrayRead(u->fda, u->lZet,  &zet);  CHKERRQ(ierr);
+
+        for (PetscInt k = lzs; k < lze; k++) {
+            for (PetscInt j = lys; j < lye; j++) {
+                for (PetscInt i = lxs; i < lxe; i++) {
+                    /* ---- active-row mask: skip only locations with no active unknown ---- */
+                    const PetscInt rows = MomCellActiveRows(nvert, k, j, i, mx, my, mz,
+                                                            npx1, npy1, npz1, twoD);
+                    if (rows == 0) continue;
+                    local_active++;
+                    const PetscReal Ajc = aj[k][j][i];
+                    PetscCheck(PetscIsNormalReal(Ajc) && Ajc > 0.0, PETSC_COMM_SELF, PETSC_ERR_FP,
+                               "non-finite or non-positive cell inverse-Jacobian at (%" PetscInt_FMT
+                               ",%" PetscInt_FMT ",%" PetscInt_FMT ")", i, j, k);
+
+                    /* ---- directional QUICK modification (per direction; both faces; 2nd neighbour) ---- */
+                    const PetscBool mod_x = MomQuickDirModified(nvert, k, j, i, i, mx, npx0, npx1,
+                                                               info.gxs, info.gxs+info.gxm, 'i');
+                    const PetscBool mod_y = MomQuickDirModified(nvert, k, j, i, j, my, npy0, npy1,
+                                                               info.gys, info.gys+info.gym, 'j');
+                    const PetscBool mod_z = MomQuickDirModified(nvert, k, j, i, k, mz, npz0, npz1,
+                                                               info.gzs, info.gzs+info.gzm, 'k');
+
+                    /* ---- classify cell: interior / physical-boundary / IB-adjacent ---- */
+                    const PetscBool bnd = (PetscBool)((npx0 && i<=1) || (npx1 && i>=mx-2) ||
+                                                      (npy0 && j<=1) || (npy1 && j>=my-2) ||
+                                                      (npz0 && k<=1) || (npz1 && k>=mz-2));
+                    const PetscBool ib  = MomCellHasSolidNeighbor(nvert, k, j, i);
+                    const PetscInt cls = ib ? 2 : (bnd ? 1 : 0);
+
+                    /* ---- convective: six contravariant face fluxes, DIRECTIONAL QUICK factors ---- */
+                    const PetscReal Uxp = ucont[k][j][i].x,   Uxm = ucont[k][j][i-1].x;
+                    const PetscReal Uyp = ucont[k][j][i].y,   Uym = ucont[k][j-1][i].y;
+                    const PetscReal Uzp = ucont[k][j][i].z,   Uzm = ucont[k-1][j][i].z;
+                    const PetscReal divU = PetscAbsReal((Uxp-Uxm)+(Uyp-Uym)+(Uzp-Uzm));
+                    const PetscReal fx = centered ? 1.0 : (mod_x ? 2.5 : (4.0/3.0));
+                    const PetscReal fy = centered ? 1.0 : (mod_y ? 2.5 : (4.0/3.0));
+                    const PetscReal fz = centered ? 1.0 : (mod_z ? 2.5 : (4.0/3.0));
+
+                    /* per-direction transport scale; C's divergence term stays unscaled by f_d. */
+                    const PetscReal lcB = 0.5 * Ajc * (
+                          fx * (PetscAbsReal(Uxp)+PetscAbsReal(Uxm))
+                        + fy * (PetscAbsReal(Uyp)+PetscAbsReal(Uym))
+                        + fz * (PetscAbsReal(Uzp)+PetscAbsReal(Uzm)) );
+                    const PetscReal lcC = lcB + 0.5 * Ajc * divU;
+                    /* lambda_grad_u = max_i sum_j |du_i/dx_j| from fresh Cartesian velocity
+                       (the nonlinear zero-order Jacobian term delta_u . grad u).
+                       Physical gradient: d/dx_dir = Ajc*(Csi.dir d/dxi + Eta.dir d/deta + Zet.dir d/dzeta). */
+                    const Cmpnts duc = { 0.5*(ucat[k][j][i+1].x-ucat[k][j][i-1].x),
+                                         0.5*(ucat[k][j][i+1].y-ucat[k][j][i-1].y),
+                                         0.5*(ucat[k][j][i+1].z-ucat[k][j][i-1].z) };
+                    const Cmpnts due = { 0.5*(ucat[k][j+1][i].x-ucat[k][j-1][i].x),
+                                         0.5*(ucat[k][j+1][i].y-ucat[k][j-1][i].y),
+                                         0.5*(ucat[k][j+1][i].z-ucat[k][j-1][i].z) };
+                    const Cmpnts duz = { 0.5*(ucat[k+1][j][i].x-ucat[k-1][j][i].x),
+                                         0.5*(ucat[k+1][j][i].y-ucat[k-1][j][i].y),
+                                         0.5*(ucat[k+1][j][i].z-ucat[k-1][j][i].z) };
+                    const Cmpnts C = csi[k][j][i], E = eta[k][j][i], Z = zet[k][j][i];
+                    #define MOM_ROW(cmp) ( \
+                        PetscAbsReal(Ajc*(C.x*duc.cmp + E.x*due.cmp + Z.x*duz.cmp)) + \
+                        PetscAbsReal(Ajc*(C.y*duc.cmp + E.y*due.cmp + Z.y*duz.cmp)) + \
+                        PetscAbsReal(Ajc*(C.z*duc.cmp + E.z*due.cmp + Z.z*duz.cmp)) )
+                    const PetscReal lgrad = PetscMax(MOM_ROW(x), PetscMax(MOM_ROW(y), MOM_ROW(z)));
+                    #undef MOM_ROW
+                    const PetscReal lcD = lcC + lgrad;
+
+                    /* ---- viscous: six faces, face Jacobians, full metric rows ---- */
+                    PetscReal lv = 0.0;
+                    if (!inviscid) {
+                        /* xi+ (i), xi- (i-1) */
+                        for (PetscInt s = 0; s < 2; s++) {
+                            const PetscInt fi = (s==0) ? i : i-1;
+                            PetscReal nuf = nu_mol;
+                            if (has_nut) {
+                                PetscReal nt = 0.5*(nut[k][j][fi] + nut[k][j][fi+1]);
+                                if ((wxn && fi==0) || (wxp && fi==mx-2)) nt = 0.0;
+                                nuf += nt;
+                            }
+                            lv += PetscAbsReal(nuf) * Ajc * iaj[k][j][fi]
+                                * MomFaceGabs(icsi[k][j][fi], ieta[k][j][fi], izet[k][j][fi]);
+                        }
+                        /* eta+ (j), eta- (j-1) */
+                        for (PetscInt s = 0; s < 2; s++) {
+                            const PetscInt fj = (s==0) ? j : j-1;
+                            PetscReal nuf = nu_mol;
+                            if (has_nut) {
+                                PetscReal nt = 0.5*(nut[k][fj][i] + nut[k][fj+1][i]);
+                                if ((wyn && fj==0) || (wyp && fj==my-2)) nt = 0.0;
+                                nuf += nt;
+                            }
+                            /* eta-face normal is the eta metric (jeta) -> pass as N. */
+                            lv += PetscAbsReal(nuf) * Ajc * jaj[k][fj][i]
+                                * MomFaceGabs(jeta[k][fj][i], jcsi[k][fj][i], jzet[k][fj][i]);
+                        }
+                        /* zeta+ (k), zeta- (k-1) */
+                        for (PetscInt s = 0; s < 2; s++) {
+                            const PetscInt fk = (s==0) ? k : k-1;
+                            PetscReal nuf = nu_mol;
+                            if (has_nut) {
+                                PetscReal nt = 0.5*(nut[fk][j][i] + nut[fk+1][j][i]);
+                                if ((wzn && fk==0) || (wzp && fk==mz-2)) nt = 0.0;
+                                nuf += nt;
+                            }
+                            /* zeta-face normal is the zeta metric (kzet) -> pass as N. */
+                            lv += PetscAbsReal(nuf) * Ajc * kaj[fk][j][i]
+                                * MomFaceGabs(kzet[fk][j][i], kcsi[fk][j][i], keta[fk][j][i]);
+                        }
+                        lv *= 4.0;   /* 2 (two-face row-sum) x 2 (longitudinal full-stress) */
+                    }
+
+                    /* one-sided viscous cross-derivative branch near a solid: conservative x2,
+                       applied ONCE per cell, after a complete 3x3x3 solid-band check. */
+                    PetscInt one_sided = 0;
+                    if (!inviscid && MomCellUsesOneSidedViscousStencil(nvert, k, j, i)) {
+                        one_sided = 1;
+                        lv *= 2.0;
+                    }
+
+                    /* ---- candidate totals and running maxima ---- */
+                    const PetscReal lB = lambda_t + lcB + lv;
+                    const PetscReal lC = lambda_t + lcC + lv;
+                    const PetscReal lD = lambda_t + lcD + lv;
+                    PetscCheck(!PetscIsInfOrNanReal(lD), PETSC_COMM_SELF, PETSC_ERR_FP,
+                               "non-finite stability estimate at (%" PetscInt_FMT ",%" PetscInt_FMT
+                               ",%" PetscInt_FMT ")", i, j, k);
+                    locmaxB = PetscMax(locmaxB, lB);
+                    locmaxC = PetscMax(locmaxC, lC);
+                    locmaxD = PetscMax(locmaxD, lD);
+
+                    const PetscReal lsel  = (candidate==MOM_STAB_CAND_B)?lB:(candidate==MOM_STAB_CAND_C)?lC:lD;
+                    const PetscReal lcsel = (candidate==MOM_STAB_CAND_B)?lcB:(candidate==MOM_STAB_CAND_C)?lcC:lcD;
+                    if (lsel > sel_max) {
+                        sel_max = lsel; sel_lc = lcsel; sel_lv = lv;
+                        sel_ci = i; sel_cj = j; sel_ck = k; sel_blk = bi;
+                        sel_class = cls; sel_os = one_sided;
+                    }
+                }
+            }
+        }
+
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lUcont, &ucont); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->da,  u->lAj,   &aj);     CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->da,  u->lIAj,  &iaj);    CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->da,  u->lJAj,  &jaj);    CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->da,  u->lKAj,  &kaj);    CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lICsi, &icsi);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lIEta, &ieta);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lIZet, &izet);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lJCsi, &jcsi);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lJEta, &jeta);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lJZet, &jzet);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lKCsi, &kcsi);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lKEta, &keta);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lKZet, &kzet);   CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->da,  u->lNvert, &nvert); CHKERRQ(ierr);
+        if (has_nut) { ierr = DMDAVecRestoreArrayRead(u->da, u->lNu_t, &nut); CHKERRQ(ierr); }
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lUcat, &ucat); CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lCsi,  &csi);  CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lEta,  &eta);  CHKERRQ(ierr);
+        ierr = DMDAVecRestoreArrayRead(u->fda, u->lZet,  &zet);  CHKERRQ(ierr);
+    }
+
+    /* ---- global reductions (no ghost/halo exchange; scalar collectives only) ----
+       4 collectives total: one 3-element MAX (B/C/D), one SUM (active-cell count),
+       one MIN (portable owner selection), one broadcast (controlling-cell breakdown). */
+    PetscReal loc3[3] = { locmaxB, locmaxC, locmaxD }, glo3[3];
+    ierr = MPI_Allreduce(loc3, glo3, 3, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    PetscInt global_active = 0;
+    ierr = MPI_Allreduce(&local_active, &global_active, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    /* The selected candidate's global max equals glo3[candidate] (no extra reduction).
+       Portable owner pick: lowest rank whose local sel_max equals the global max. */
+    const PetscReal sel_global = glo3[(int)candidate];
+    PetscMPIInt nproc, claim, owner;
+    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &nproc); CHKERRQ(ierr);
+    claim = (sel_max == sel_global) ? rank : nproc;
+    ierr = MPI_Allreduce(&claim, &owner, 1, MPI_INT, MPI_MIN, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    if (owner == nproc) owner = 0;   /* no active cell anywhere: deterministic fallback owner */
+
+    PetscReal dbuf[2] = { sel_lc, sel_lv };
+    PetscInt  ibuf[6] = { sel_ci, sel_cj, sel_ck, sel_blk, sel_class, sel_os };
+    ierr = MPI_Bcast(dbuf, 2, MPIU_REAL, owner, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    ierr = MPI_Bcast(ibuf, 6, MPIU_INT,  owner, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    rep->lambda_t = lambda_t;
+    rep->lambda_c = dbuf[0];
+    rep->lambda_v = dbuf[1];
+    rep->lambda   = sel_global;
+    rep->lambda_B = glo3[0]; rep->lambda_C = glo3[1]; rep->lambda_D = glo3[2];
+    rep->ci = ibuf[0]; rep->cj = ibuf[1]; rep->ck = ibuf[2];
+    rep->cblock = ibuf[3]; rep->cclass = ibuf[4]; rep->one_sided = ibuf[5];
+    rep->active_cells = global_active;
+
+    /* Only a genuinely empty active set (all cells masked) may fall back to the temporal
+       term alone. A non-finite or non-positive estimate with active cells is a hard error. */
+    if (global_active == 0) {
+        rep->lambda = lambda_t;
+    } else {
+        PetscCheck(PetscIsNormalReal(rep->lambda) && rep->lambda > 0.0, PETSC_COMM_WORLD, PETSC_ERR_FP,
+                   "momentum stability estimate is non-finite or non-positive with %" PetscInt_FMT
+                   " active cells", global_active);
+    }
+
+    /* Dominant limiter at the controlling cell. */
+    if (rep->lambda_t >= rep->lambda_c && rep->lambda_t >= rep->lambda_v) rep->limiter = MOM_STAB_LIMITER_TIME;
+    else if (rep->lambda_c >= rep->lambda_v)                              rep->limiter = MOM_STAB_LIMITER_CONVECTION;
+    else                                                                  rep->limiter = MOM_STAB_LIMITER_VISCOSITY;
+
+    PetscFunctionReturn(0);
+}
+
+
 #undef __FUNCT__
 #define __FUNCT__ "MomentumSolver_DualTime_Picard_JamesonRK"
 /**
@@ -381,6 +827,31 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     /* Initialise per-block pseudo-time step from the warm-start CFL (carried from last timestep). */
     for (PetscInt bi = 0; bi < block_number; bi++) {
         pseudo_dtau[bi] = cfl / lambda_max;   /* dtau [physical time], NOT a fraction of dt */
+    }
+
+    /* --- SHADOW MODE: new operator-scaled stability estimate (diagnostic only) ---
+     * Computes the Workstream-A estimate alongside the legacy one and logs a compact
+     * comparison. The legacy estimate above continues to drive production dtau; the
+     * shadow estimate changes nothing. Enable with -mom_stability_shadow. */
+    {
+        PetscBool shadow = PETSC_FALSE;
+        ierr = PetscOptionsGetBool(NULL, NULL, "-mom_stability_shadow", &shadow, NULL); CHKERRQ(ierr);
+        if (shadow) {
+            MomStabilityReport rep;
+            ierr = ComputeMomentumStabilityEstimate(user, block_number, dt, MOM_STAB_CAND_C, &rep); CHKERRQ(ierr);
+            const char *lim = (rep.limiter==MOM_STAB_LIMITER_TIME) ? "time"
+                            : (rep.limiter==MOM_STAB_LIMITER_CONVECTION) ? "convection" : "viscosity";
+            /* Detailed shadow comparison at DEBUG only (gated by level + function allowlist);
+               never printed unconditionally. Enable in tests via the logging controls. */
+            LOG_ALLOW(GLOBAL, LOG_DEBUG,
+                "Momentum scale [shadow]: legacy_dtau=%.4e new_dtau=%.4e ratio=%.4f limiter=%s | "
+                "lambda_legacy=%.4e lambda_new=%.4e (B=%.4e C=%.4e D=%.4e) | "
+                "lt=%.4e lc=%.4e lv=%.4e | cell=(%d,%d,%d) blk=%d class=%d onesided=%d\n",
+                cfl / lambda_max, cfl / rep.lambda, rep.lambda / lambda_max, lim,
+                lambda_max, rep.lambda, rep.lambda_B, rep.lambda_C, rep.lambda_D,
+                rep.lambda_t, rep.lambda_c, rep.lambda_v,
+                (int)rep.ci, (int)rep.cj, (int)rep.ck, (int)rep.cblock, (int)rep.cclass, (int)rep.one_sided);
+        }
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO,
