@@ -611,9 +611,13 @@ static PetscErrorCode MomFillLocalScalar(DM da, Vec lvec, PetscReal v)
 static PetscErrorCode MomSetLocalScalarCell(DM da, Vec lvec, PetscInt ci, PetscInt cj, PetscInt ck, PetscReal v)
 {
     PetscReal ***a;
+    PetscInt gxs, gys, gzs, gxm, gym, gzm;
     PetscFunctionBeginUser;
+    PetscCall(DMDAGetGhostCorners(da, &gxs, &gys, &gzs, &gxm, &gym, &gzm));
     PetscCall(DMDAVecGetArray(da, lvec, &a));
-    a[ck][cj][ci] = v;
+    /* MPI-safe: only write if (ci,cj,ck) is within this rank's ghost-inclusive range. */
+    if (ci >= gxs && ci < gxs+gxm && cj >= gys && cj < gys+gym && ck >= gzs && ck < gzs+gzm)
+        a[ck][cj][ci] = v;
     PetscCall(DMDAVecRestoreArray(da, lvec, &a));
     PetscFunctionReturn(0);
 }
@@ -636,15 +640,24 @@ static PetscErrorCode TestMomentumBDFCoefficient(void)
     PetscFunctionReturn(0);
 }
 
-/* Common setup: unit-Cartesian fixture with identity metrics; caller tweaks flags/fields. */
-static PetscErrorCode MomMakeUnitGrid(SimCtx **simCtx, UserCtx **user, PetscInt n, BCType bc)
+/* Common setup with explicit per-direction DMDA periodicity. Periodic directions get real
+   wrapped ghosts (so the conservative QUICK rule sees the full stencil) and PERIODIC BC;
+   non-periodic directions get `bc`. Identity metrics; caller tweaks flags/fields. */
+static PetscErrorCode MomMakeUnitGridP(SimCtx **simCtx, UserCtx **user, PetscInt n,
+                                       PetscBool px, PetscBool py, PetscBool pz, BCType bc)
 {
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(simCtx, user, n, n, n));
-    MomSetAllBC(*user, bc);
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(simCtx, user, n, n, n, px, py, pz));
+    (*user)->boundary_faces[BC_FACE_NEG_X].mathematical_type = px ? PERIODIC : bc;
+    (*user)->boundary_faces[BC_FACE_POS_X].mathematical_type = px ? PERIODIC : bc;
+    (*user)->boundary_faces[BC_FACE_NEG_Y].mathematical_type = py ? PERIODIC : bc;
+    (*user)->boundary_faces[BC_FACE_POS_Y].mathematical_type = py ? PERIODIC : bc;
+    (*user)->boundary_faces[BC_FACE_NEG_Z].mathematical_type = pz ? PERIODIC : bc;
+    (*user)->boundary_faces[BC_FACE_POS_Z].mathematical_type = pz ? PERIODIC : bc;
     (*simCtx)->dt = 0.1; (*simCtx)->step = 1; (*simCtx)->StartStep = 0;   /* a0=1 -> lambda_t=10 */
     (*simCtx)->ren = 1.0; (*simCtx)->les = 0; (*simCtx)->rans = 0;
     (*simCtx)->central = 0; (*simCtx)->invicid = 0; (*simCtx)->block_number = 1;
+    (*simCtx)->TwoD = 0; (*simCtx)->clark = 0;
     /* The minimal fixture does not allocate lNu_t (LES off by default); create a
        zeroed one so the estimator can read it when a test enables LES/RANS. */
     if (!(*user)->lNu_t) PetscCall(DMCreateLocalVector((*user)->da, &(*user)->lNu_t));
@@ -652,6 +665,15 @@ static PetscErrorCode MomMakeUnitGrid(SimCtx **simCtx, UserCtx **user, PetscInt 
     PetscCall(MomFillLocalCmpnts((*user)->fda, (*user)->lUcat,  0.0, 0.0, 0.0));
     PetscCall(MomFillLocalScalar((*user)->da, (*user)->lNvert, 0.0));
     PetscCall(MomFillLocalScalar((*user)->da, (*user)->lNu_t,  0.0));
+    PetscFunctionReturn(0);
+}
+
+/* Convenience: all-periodic (bc==PERIODIC) or all-non-periodic with the given BC. */
+static PetscErrorCode MomMakeUnitGrid(SimCtx **simCtx, UserCtx **user, PetscInt n, BCType bc)
+{
+    const PetscBool p = (PetscBool)(bc == PERIODIC);
+    PetscFunctionBeginUser;
+    PetscCall(MomMakeUnitGridP(simCtx, user, n, p, p, p, bc));
     PetscFunctionReturn(0);
 }
 
@@ -872,10 +894,8 @@ static PetscErrorCode TestMomentumStabilityDirectionalQuick(void)
 {
     SimCtx *simCtx = NULL; UserCtx *user = NULL; MomStabilityReport rep;
     PetscFunctionBeginUser;
-    PetscCall(MomMakeUnitGrid(&simCtx, &user, 8, PERIODIC));
+    PetscCall(MomMakeUnitGridP(&simCtx, &user, 8, PETSC_FALSE, PETSC_TRUE, PETSC_TRUE, INLET)); /* x non-periodic */
     simCtx->central = 0; simCtx->invicid = 1;
-    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = INLET;   /* x non-periodic only */
-    user->boundary_faces[BC_FACE_POS_X].mathematical_type = INLET;
     PetscCall(MomFillLocalCmpnts(user->fda, user->lUcont, 3.0, 3.0, 3.0));
     PetscCall(ComputeMomentumStabilityEstimate(user, 1, simCtx->dt, MOM_STAB_CAND_C, &rep));
     /* boundary cell: 0.5*(2.5*6 + (4/3)*6 + (4/3)*6) = 15.5 ; NOT 22.5 (all-2.5). */
@@ -1042,6 +1062,110 @@ static PetscErrorCode TestMomentumStabilityReadOnlyExact(void)
     PetscFunctionReturn(0);
 }
 
+/* A3.6-1. Active-row mask helper: TwoD 1/2/3 disable the right row; full mask otherwise;
+ *         skip (0) only when all three rows are inactive. Tested directly on a fixture nvert. */
+static PetscErrorCode TestMomentumActiveRowsHelper(void)
+{
+    SimCtx *simCtx = NULL; UserCtx *user = NULL;
+    PetscReal ***nvert;
+    const PetscInt mx = 9, my = 9, mz = 9;
+    PetscFunctionBeginUser;
+    PetscCall(MomMakeUnitGrid(&simCtx, &user, 8, PERIODIC));   /* mx=9; all fluid */
+    PetscCall(DMDAVecGetArray(user->da, user->lNvert, &nvert));
+    /* fully periodic interior cell (4,4,4): all rows active regardless of TwoD value below. */
+    PetscCall(PicurvAssertIntEqual(0x7, MomCellActiveRows(nvert,4,4,4,mx,my,mz,PETSC_FALSE,PETSC_FALSE,PETSC_FALSE,0), "all rows active (periodic interior)"));
+    PetscCall(PicurvAssertIntEqual(0x6, MomCellActiveRows(nvert,4,4,4,mx,my,mz,PETSC_FALSE,PETSC_FALSE,PETSC_FALSE,1), "TwoD=1 clears xi row"));
+    PetscCall(PicurvAssertIntEqual(0x5, MomCellActiveRows(nvert,4,4,4,mx,my,mz,PETSC_FALSE,PETSC_FALSE,PETSC_FALSE,2), "TwoD=2 clears eta row"));
+    PetscCall(PicurvAssertIntEqual(0x3, MomCellActiveRows(nvert,4,4,4,mx,my,mz,PETSC_FALSE,PETSC_FALSE,PETSC_FALSE,3), "TwoD=3 clears zeta row"));
+    /* positive non-periodic faces clear the corresponding normal rows. */
+    PetscCall(PicurvAssertIntEqual(0x6, MomCellActiveRows(nvert,4,4,mx-2,mx,my,mz,PETSC_TRUE,PETSC_FALSE,PETSC_FALSE,0), "pos non-periodic xi face clears xi row"));
+    /* a location is skipped only when all three rows are inactive (here: solid cell). */
+    PetscCall(MomSetLocalScalarCell(user->da, user->lNvert, 4, 4, 4, 1.0));
+    PetscCall(DMDAVecRestoreArray(user->da, user->lNvert, &nvert));
+    PetscCall(DMDAVecGetArray(user->da, user->lNvert, &nvert));
+    PetscCall(PicurvAssertIntEqual(0, MomCellActiveRows(nvert,4,4,4,mx,my,mz,PETSC_FALSE,PETSC_FALSE,PETSC_FALSE,0), "solid cell -> all rows inactive"));
+    PetscCall(DMDAVecRestoreArray(user->da, user->lNvert, &nvert));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/* A3.6-2. Error path restores arrays and the estimator is reusable after the metric is repaired. */
+static PetscErrorCode TestMomentumStabilityErrorReentry(void)
+{
+    SimCtx *simCtx = NULL; UserCtx *user = NULL; MomStabilityReport rep;
+    PetscErrorCode e_bad = 0; PetscBool eq;
+    Vec aj_good;
+    PetscFunctionBeginUser;
+    PetscCall(MomMakeUnitGrid(&simCtx, &user, 8, PERIODIC));
+    simCtx->invicid = 0; simCtx->ren = 1.0;
+    PetscCall(VecDuplicate(user->lAj, &aj_good)); PetscCall(VecCopy(user->lAj, aj_good));
+
+    PetscCall(MomSetLocalScalarCell(user->da, user->lAj, 4, 4, 4, PETSC_INFINITY));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    e_bad = ComputeMomentumStabilityEstimate(user, 1, simCtx->dt, MOM_STAB_CAND_C, &rep);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertBool((PetscBool)(e_bad != 0), "bad metric triggers error"));
+
+    /* Arrays must have been restored: lAj is still writable/usable -> repair it. */
+    PetscCall(VecCopy(aj_good, user->lAj));
+    PetscCall(VecEqual(user->lAj, aj_good, &eq));
+    PetscCall(PicurvAssertBool(eq, "lAj usable after error (arrays were restored)"));
+
+    /* Re-entry must now succeed on the repaired state. */
+    PetscCall(ComputeMomentumStabilityEstimate(user, 1, simCtx->dt, MOM_STAB_CAND_C, &rep));
+    PetscCall(PicurvAssertRealNear(24.0, rep.lambda_v, 1e-9, "estimator reusable after repair"));
+    PetscCall(VecDestroy(&aj_good));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/* A3.6-3. Residual-level BDF combination: the shared helpers produce the exact BDF1/BDF2
+ *         temporal vector combination used by ComputeTotalResidual (a0 from the helper). */
+static PetscErrorCode TestMomentumBDFResidualCombination(void)
+{
+    SimCtx *simCtx = NULL; UserCtx *user = NULL;
+    Vec Rhs, ref; PetscReal dt, nrm;
+    PetscFunctionBeginUser;
+    PetscCall(MomMakeUnitGrid(&simCtx, &user, 6, PERIODIC));
+    dt = simCtx->dt;
+    PetscCall(VecSet(user->Ucont,     2.0));   /* U^{n}    */
+    PetscCall(VecSet(user->Ucont_o,   1.0));   /* U^{n-1}  */
+    PetscCall(VecSet(user->Ucont_rm1, 0.5));   /* U^{n-2}  */
+    PetscCall(VecDuplicate(user->Ucont, &Rhs));
+    PetscCall(VecDuplicate(user->Ucont, &ref));
+
+    /* ---- BDF2 (step != 1, step != StartStep) ---- */
+    simCtx->StartStep = 0; simCtx->step = 5;
+    PetscCall(PicurvAssertBool(MomentumUsesBDF2(simCtx), "step5 uses BDF2"));
+    {
+        const PetscReal a0 = MomentumBDFCoefficient(simCtx);   /* == 1.5 */
+        PetscCall(VecSet(Rhs, 3.0));                            /* mock R_spatial */
+        PetscCall(VecAXPY(Rhs, -a0/dt,  user->Ucont));
+        PetscCall(VecAXPY(Rhs, +2.0/dt, user->Ucont_o));
+        PetscCall(VecAXPY(Rhs, -0.5/dt, user->Ucont_rm1));
+        /* independent reference: 3 + (-1.5*2 + 2*1 - 0.5*0.5)/dt = 3 + (-3+2-0.25)/0.1 = 3 - 12.5 = -9.5 */
+        PetscCall(VecSet(ref, -9.5));
+        PetscCall(VecAXPY(ref, -1.0, Rhs)); PetscCall(VecNorm(ref, NORM_INFINITY, &nrm));
+        PetscCall(PicurvAssertRealNear(0.0, nrm, 1e-9, "BDF2 temporal vector combination"));
+    }
+    /* ---- BDF1 (step == 1) ---- */
+    simCtx->StartStep = 0; simCtx->step = 1;
+    PetscCall(PicurvAssertBool((PetscBool)(!MomentumUsesBDF2(simCtx)), "step1 uses BDF1"));
+    {
+        const PetscReal a0 = MomentumBDFCoefficient(simCtx);   /* == 1.0 */
+        PetscCall(VecSet(Rhs, 3.0));
+        PetscCall(VecAXPY(Rhs, -a0/dt,  user->Ucont));
+        PetscCall(VecAXPY(Rhs, +1.0/dt, user->Ucont_o));
+        /* reference: 3 + (-1*2 + 1*1)/0.1 = 3 + (-1)/0.1 = 3 - 10 = -7.0 */
+        PetscCall(VecSet(ref, -7.0));
+        PetscCall(VecAXPY(ref, -1.0, Rhs)); PetscCall(VecNorm(ref, NORM_INFINITY, &nrm));
+        PetscCall(PicurvAssertRealNear(0.0, nrm, 1e-9, "BDF1 temporal vector combination"));
+    }
+    PetscCall(VecDestroy(&Rhs)); PetscCall(VecDestroy(&ref));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Runs the unit-solver PETSc test binary.
  */
@@ -1077,6 +1201,9 @@ int main(int argc, char **argv)
         {"momentum-stability-candidate-d-shear", TestMomentumStabilityCandidateDShear},
         {"momentum-stability-wall-suppression", TestMomentumStabilityWallSuppression},
         {"momentum-stability-read-only-exact", TestMomentumStabilityReadOnlyExact},
+        {"momentum-active-rows-helper", TestMomentumActiveRowsHelper},
+        {"momentum-stability-error-reentry", TestMomentumStabilityErrorReentry},
+        {"momentum-bdf-residual-combination", TestMomentumBDFResidualCombination},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv solver utility tests");

@@ -158,9 +158,11 @@ typedef struct {
 /**
  * @brief Compute the momentum pseudo-time stability estimate (shadow/diagnostic).
  *
- * Conservative, operator-scaled estimate: lambda = max_cell (a0/dt + f_c*lambda_c + lambda_nu),
- * over active, non-solid cells, blocks, and MPI ranks. Read-only; performs no
- * communication beyond a single global reduction. See the Workstream-A design.
+ * Conservative, operator-scaled estimate: lambda = max_cell (a0/dt + lambda_c + lambda_nu),
+ * over active, non-solid cells, blocks, and MPI ranks, where lambda_c already includes the
+ * per-direction QUICK scheme factors. Read-only; performs no halo exchange, but does perform
+ * global scalar collectives (see implementation). This is a PRACTICAL CONSERVATIVE estimate,
+ * not a proven spectral radius. See the Workstream-A design.
  *
  * Call-site preconditions (NOT enforced internally): lUcont, lUcat, lNu_t, lNvert
  * must be fresh; lAj, face Jacobians and face metrics are static after grid init.
@@ -175,5 +177,29 @@ typedef struct {
 PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_number,
                                                 PetscReal dt, MomStabCandidate candidate,
                                                 MomStabilityReport *rep);
+
+/**
+ * @brief Active staggered-momentum row mask for a cell (exposed for unit testing).
+ *
+ * Returns a 3-bit mask (xi=1, eta=2, zeta=4). A solid cell yields 0 (all inactive); a
+ * positive solid neighbour or a positive non-periodic physical face clears the corresponding
+ * normal row; TwoD (1/2/3) clears the homogeneous direction's row.
+ *
+ * @param nvert Local nvert array (ghosted).
+ * @param k Cell k index.
+ * @param j Cell j index.
+ * @param i Cell i index.
+ * @param mx Global x dimension.
+ * @param my Global y dimension.
+ * @param mz Global z dimension.
+ * @param np_x1 True if the positive-x face is non-periodic.
+ * @param np_y1 True if the positive-y face is non-periodic.
+ * @param np_z1 True if the positive-z face is non-periodic.
+ * @param twoD TwoD homogeneous-direction selector (0 none, 1 xi, 2 eta, 3 zeta).
+ * @return 3-bit active-row mask (0 when the location carries no active unknown).
+ */
+PetscInt MomCellActiveRows(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt i,
+                           PetscInt mx, PetscInt my, PetscInt mz,
+                           PetscBool np_x1, PetscBool np_y1, PetscBool np_z1, PetscInt twoD);
 
 #endif // MOMENTUMSOLVERS_H

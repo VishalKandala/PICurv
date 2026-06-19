@@ -58,22 +58,23 @@ static PetscErrorCode ComputeTotalResidual(UserCtx *user)
     // 2. Add Physical Time Derivative Terms (BDF Discretization)
     //    The equation solved is: dU/dtau = RHS_Spatial + RHS_Temporal
     
-    /* BDF order selected by the shared helper (single source of truth, shared with
-       the momentum stability estimate). Numerically identical to the previous
-       inlined predicate: a0 = 1.5 for BDF2, 1.0 for BDF1. */
-    if (MomentumUsesBDF2(simCtx)) {
+    /* BDF order + leading coefficient from the shared helpers (single source of truth,
+       shared with the momentum stability estimate). a0 = 1.5 (==COEF_TIME_ACCURACY) for
+       BDF2, 1.0 for BDF1; using a0 for the current-state term keeps the residual
+       numerically identical to the historical inlined coefficients. */
+    const PetscBool use_bdf2 = MomentumUsesBDF2(simCtx);
+    const PetscReal a0       = MomentumBDFCoefficient(simCtx);
+    if (use_bdf2) {
         // --- BDF2 (Second Order Backward Difference) ---
-        // Formula: (1.5*U^{n} - 2.0*U^{n-1} + 0.5*U^{n-2}) / dt  = RHS_Spatial(U^{n})
-        // Moved to : -1.5/dt * U^{n} + 2.0/dt * U^{n-1} - 0.5/dt * U^{n-2} + RHS_Spatial(U^{n})
-        ierr = VecAXPY(user->Rhs, -COEF_TIME_ACCURACY/dt, user->Ucont);
-        ierr = VecAXPY(user->Rhs, +2.0/dt, user->Ucont_o);
-        ierr = VecAXPY(user->Rhs, -0.5/dt, user->Ucont_rm1);
+        // (a0*U^{n} - 2.0*U^{n-1} + 0.5*U^{n-2}) / dt = RHS_Spatial(U^{n})
+        ierr = VecAXPY(user->Rhs, -a0/dt,  user->Ucont);     CHKERRQ(ierr);
+        ierr = VecAXPY(user->Rhs, +2.0/dt, user->Ucont_o);   CHKERRQ(ierr);
+        ierr = VecAXPY(user->Rhs, -0.5/dt, user->Ucont_rm1); CHKERRQ(ierr);
     } else {
         // --- BDF1 (First Order / Euler Implicit) ---
-        // Formula: (U^{n} - U^{n-1}) / dt = RHS_Spatial(U^{n})
-        // Moved to RHS: -1.0/dt * U^{n} + 1.0/dt * U^{n-1} + RHS_Spatial(U^{n})
-        ierr = VecAXPY(user->Rhs, -1.0/dt, user->Ucont);
-        ierr = VecAXPY(user->Rhs, +1.0/dt, user->Ucont_o);
+        // (a0*U^{n} - U^{n-1}) / dt = RHS_Spatial(U^{n}), with a0 = 1.0
+        ierr = VecAXPY(user->Rhs, -a0/dt,  user->Ucont);     CHKERRQ(ierr);
+        ierr = VecAXPY(user->Rhs, +1.0/dt, user->Ucont_o);   CHKERRQ(ierr);
     }
 
     // 3. Enforce Boundary Conditions on the Residual
@@ -203,7 +204,8 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
  *     dtau = pseudo_cfl / lambda_max
  *
  * making pseudo_cfl a true dimensionless Courant number independent of the physical
- * timestep dt. Stable range for 4-stage Jameson RK: pseudo_cfl in [0, ~2.83].
+ * timestep dt. Note: 2.83 is only the 4-stage RK *imaginary-axis* scalar limit; it is NOT
+ * a generally-stable bound for the actual nonlinear/non-normal operator (see A4 validation).
  *
  * Per owned cell (k,j,i) the convective spectral radius contribution is:
  *
@@ -341,13 +343,16 @@ static PetscBool MomQuickDirModified(PetscReal ***nvert, PetscInt a, PetscInt b,
                                      PetscInt idx, PetscInt m, PetscBool np0, PetscBool np1,
                                      PetscInt g0, PetscInt g1, char dir)
 {
-    /* (a,b,c) are the fixed indices; idx is the moving index in direction `dir`. */
+    /* (a,b,c) are the fixed indices; idx is the moving index in direction `dir`.
+       The two contributing faces (idx, idx-1) have QUICK stencils spanning idx-2..idx+2. */
     if (np0 && idx <= 1)   return PETSC_TRUE;     /* faces idx,idx-1 reach the negative edge */
     if (np1 && idx >= m-2) return PETSC_TRUE;     /* ... or the positive edge */
     for (PetscInt d = -2; d <= 2; d++) {
         if (d == 0) continue;
         const PetscInt p = idx + d;
-        if (p < g0 || p >= g1) continue;          /* outside local ghost range: treat as fluid */
+        /* Required stencil information unavailable in the local ghost range: do NOT assume
+           fluid -> conservatively classify the direction as modified (use 2.5). */
+        if (p < g0 || p >= g1) return PETSC_TRUE;
         PetscReal v;
         if      (dir == 'i') v = nvert[a][b][p];
         else if (dir == 'j') v = nvert[a][p][c];
@@ -361,9 +366,9 @@ static PetscBool MomQuickDirModified(PetscReal ***nvert, PetscInt a, PetscInt b,
  * A solid cell disables all rows; a positive solid neighbour or a positive non-periodic
  * physical face disables the corresponding normal (staggered) row; TwoD disables the
  * homogeneous direction. Returns 0 only when the location carries no active unknown. */
-static PetscInt MomCellActiveRows(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt i,
-                                  PetscInt mx, PetscInt my, PetscInt mz,
-                                  PetscBool np_x1, PetscBool np_y1, PetscBool np_z1, PetscInt twoD)
+PetscInt MomCellActiveRows(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt i,
+                           PetscInt mx, PetscInt my, PetscInt mz,
+                           PetscBool np_x1, PetscBool np_y1, PetscBool np_z1, PetscInt twoD)
 {
     if (MOM_SKIP_SOLID(nvert[k][j][i])) return 0;     /* solid cell: all rows inactive */
     PetscInt bits = 0x7;
@@ -373,7 +378,9 @@ static PetscInt MomCellActiveRows(PetscReal ***nvert, PetscInt k, PetscInt j, Pe
     if (np_x1 && i == mx-2) bits &= ~0x1;                /* positive non-periodic xi face  */
     if (np_y1 && j == my-2) bits &= ~0x2;
     if (np_z1 && k == mz-2) bits &= ~0x4;
-    if (twoD == 1) bits &= ~0x1;                         /* TwoD: homogeneous xi direction */
+    if      (twoD == 1) bits &= ~0x1;                    /* TwoD homogeneous direction: xi  */
+    else if (twoD == 2) bits &= ~0x2;                    /*                             eta  */
+    else if (twoD == 3) bits &= ~0x4;                    /*                             zeta */
     return bits;
 }
 
@@ -382,9 +389,10 @@ static PetscInt MomCellActiveRows(PetscReal ***nvert, PetscInt k, PetscInt j, Pe
 /**
  * @brief Practical conservative momentum pseudo-time stability estimate (shadow). See header.
  *
- * Operator-scaled estimate lambda = max_cell (a0/dt + f_c*lambda_c + lambda_nu) over active,
- * non-solid interior cells, blocks and MPI ranks. Read-only; one global reduction.
- * NOT a proven spectral radius. Drives nothing in production while in shadow mode.
+ * Operator-scaled estimate lambda = max_cell (a0/dt + lambda_c + lambda_nu) over active,
+ * non-solid interior cells, blocks and MPI ranks (lambda_c already carries the per-direction
+ * QUICK scheme factors -- it is NOT multiplied by f_c again here). Read-only; no halo exchange,
+ * 5 global scalar collectives. NOT a proven spectral radius. Drives nothing in shadow mode.
  */
 PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_number,
                                                 PetscReal dt, MomStabCandidate candidate,
@@ -415,8 +423,12 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
     const PetscReal nu_mol   = inviscid ? 0.0 : 1.0 / simCtx->ren;
     const PetscInt  twoD     = simCtx->TwoD;
 
-    /* Shadow-mode completeness flag: the estimate does NOT cover Clark stress, RANS
-       eddy-viscosity sign assumptions, or velocity-dependent body forces. */
+    /* Shadow-mode completeness flag. The estimate does NOT cover the Clark nonlinear stress
+       Jacobian, nor RANS eddy-viscosity sign behaviour (not verified sign-definite).
+       Body forces in the supported configs read a per-timestep-frozen scalar
+       (simCtx->bulkVelocityCorrection) inside ComputeRHS, so within a pseudo-solve they are a
+       constant forcing with ZERO velocity Jacobian (consistent with the frozen-pressure
+       treatment) -- they do not make the estimate incomplete. */
     rep->estimate_incomplete = (PetscBool)(simCtx->clark || simCtx->rans);
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
@@ -485,6 +497,12 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
         ierr = DMDAVecGetArrayRead(u->fda, u->lEta,  &eta);  CHKERRQ(ierr);
         ierr = DMDAVecGetArrayRead(u->fda, u->lZet,  &zet);  CHKERRQ(ierr);
 
+        /* Error flag for the cell loop: on a bad metric/estimate we record the location and
+           jump to block_cleanup so EVERY acquired array is restored before the error returns. */
+        PetscErrorCode cell_err = 0;
+        PetscInt       be_i = -1, be_j = -1, be_k = -1;
+        const char    *be_what = NULL;
+
         for (PetscInt k = lzs; k < lze; k++) {
             for (PetscInt j = lys; j < lye; j++) {
                 for (PetscInt i = lxs; i < lxe; i++) {
@@ -494,9 +512,11 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
                     if (rows == 0) continue;
                     local_active++;
                     const PetscReal Ajc = aj[k][j][i];
-                    PetscCheck(PetscIsNormalReal(Ajc) && Ajc > 0.0, PETSC_COMM_SELF, PETSC_ERR_FP,
-                               "non-finite or non-positive cell inverse-Jacobian at (%" PetscInt_FMT
-                               ",%" PetscInt_FMT ",%" PetscInt_FMT ")", i, j, k);
+                    if (!(PetscIsNormalReal(Ajc) && Ajc > 0.0)) {
+                        cell_err = PETSC_ERR_FP; be_i = i; be_j = j; be_k = k;
+                        be_what = "non-finite/non-positive cell inverse-Jacobian";
+                        goto block_cleanup;
+                    }
 
                     /* ---- directional QUICK modification (per direction; both faces; 2nd neighbour) ---- */
                     const PetscBool mod_x = MomQuickDirModified(nvert, k, j, i, i, mx, npx0, npx1,
@@ -555,6 +575,9 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
                         /* xi+ (i), xi- (i-1) */
                         for (PetscInt s = 0; s < 2; s++) {
                             const PetscInt fi = (s==0) ? i : i-1;
+                            if (!(PetscIsNormalReal(iaj[k][j][fi]) && iaj[k][j][fi] > 0.0)) {
+                                cell_err = PETSC_ERR_FP; be_i=i; be_j=j; be_k=k;
+                                be_what = "non-finite/non-positive xi-face inverse-Jacobian"; goto block_cleanup; }
                             PetscReal nuf = nu_mol;
                             if (has_nut) {
                                 PetscReal nt = 0.5*(nut[k][j][fi] + nut[k][j][fi+1]);
@@ -567,6 +590,9 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
                         /* eta+ (j), eta- (j-1) */
                         for (PetscInt s = 0; s < 2; s++) {
                             const PetscInt fj = (s==0) ? j : j-1;
+                            if (!(PetscIsNormalReal(jaj[k][fj][i]) && jaj[k][fj][i] > 0.0)) {
+                                cell_err = PETSC_ERR_FP; be_i=i; be_j=j; be_k=k;
+                                be_what = "non-finite/non-positive eta-face inverse-Jacobian"; goto block_cleanup; }
                             PetscReal nuf = nu_mol;
                             if (has_nut) {
                                 PetscReal nt = 0.5*(nut[k][fj][i] + nut[k][fj+1][i]);
@@ -580,6 +606,9 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
                         /* zeta+ (k), zeta- (k-1) */
                         for (PetscInt s = 0; s < 2; s++) {
                             const PetscInt fk = (s==0) ? k : k-1;
+                            if (!(PetscIsNormalReal(kaj[fk][j][i]) && kaj[fk][j][i] > 0.0)) {
+                                cell_err = PETSC_ERR_FP; be_i=i; be_j=j; be_k=k;
+                                be_what = "non-finite/non-positive zeta-face inverse-Jacobian"; goto block_cleanup; }
                             PetscReal nuf = nu_mol;
                             if (has_nut) {
                                 PetscReal nt = 0.5*(nut[fk][j][i] + nut[fk+1][j][i]);
@@ -605,9 +634,10 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
                     const PetscReal lB = lambda_t + lcB + lv;
                     const PetscReal lC = lambda_t + lcC + lv;
                     const PetscReal lD = lambda_t + lcD + lv;
-                    PetscCheck(!PetscIsInfOrNanReal(lD), PETSC_COMM_SELF, PETSC_ERR_FP,
-                               "non-finite stability estimate at (%" PetscInt_FMT ",%" PetscInt_FMT
-                               ",%" PetscInt_FMT ")", i, j, k);
+                    if (PetscIsInfOrNanReal(lD)) {
+                        cell_err = PETSC_ERR_FP; be_i=i; be_j=j; be_k=k;
+                        be_what = "non-finite stability estimate"; goto block_cleanup;
+                    }
                     locmaxB = PetscMax(locmaxB, lB);
                     locmaxC = PetscMax(locmaxC, lC);
                     locmaxD = PetscMax(locmaxD, lD);
@@ -623,6 +653,9 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
             }
         }
 
+        /* Single cleanup point: reached on normal completion AND on any cell-loop error.
+           Every successful GetArrayRead above has exactly one matching restore here. */
+        block_cleanup:
         ierr = DMDAVecRestoreArrayRead(u->fda, u->lUcont, &ucont); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArrayRead(u->da,  u->lAj,   &aj);     CHKERRQ(ierr);
         ierr = DMDAVecRestoreArrayRead(u->da,  u->lIAj,  &iaj);    CHKERRQ(ierr);
@@ -643,11 +676,16 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
         ierr = DMDAVecRestoreArrayRead(u->fda, u->lCsi,  &csi);  CHKERRQ(ierr);
         ierr = DMDAVecRestoreArrayRead(u->fda, u->lEta,  &eta);  CHKERRQ(ierr);
         ierr = DMDAVecRestoreArrayRead(u->fda, u->lZet,  &zet);  CHKERRQ(ierr);
+
+        /* Now that this block's arrays are restored, surface any cell-loop error. */
+        PetscCheck(cell_err == 0, PETSC_COMM_SELF, cell_err, "%s at (%" PetscInt_FMT
+                   ",%" PetscInt_FMT ",%" PetscInt_FMT ")", be_what ? be_what : "error", be_i, be_j, be_k);
     }
 
     /* ---- global reductions (no ghost/halo exchange; scalar collectives only) ----
-       4 collectives total: one 3-element MAX (B/C/D), one SUM (active-cell count),
-       one MIN (portable owner selection), one broadcast (controlling-cell breakdown). */
+       5 collectives total: one 3-element MAX (B/C/D), one SUM (active-cell count),
+       one MIN (portable owner selection), and two broadcasts (the controlling-cell
+       real breakdown and integer indices). */
     PetscReal loc3[3] = { locmaxB, locmaxC, locmaxD }, glo3[3];
     ierr = MPI_Allreduce(loc3, glo3, 3, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRQ(ierr);
 
@@ -745,7 +783,8 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     /* lambda_max: global maximum spectral radius [1/s], computed once per physical timestep.
      * pseudo_dtau[bi]: physical pseudo-time step dtau = pseudo_cfl / lambda_max [time].
      *   Unlike the old scheme (dtau = pseudo_cfl * dt), this is independent of dt and makes
-     *   pseudo_cfl a true Courant number. Stable range for 4-stage Jameson RK: ~0 to 2.83.
+     *   pseudo_cfl a true Courant number. (2.83 is only the scalar imaginary-axis RK limit,
+     *   not a generally-stable value for the actual operator -- to be characterized in A4.)
      * dtau_min / dtau_max: per-timestep bounds derived from simCtx->min/max_pseudo_cfl. */
     PetscReal  lambda_max = 0.0;
     PetscReal  dtau_min, dtau_max;

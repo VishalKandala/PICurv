@@ -182,6 +182,8 @@ DOCTOR_OBJ        := $(TESTOBJDIR)/test_install_check.o
 UNIT_GEOMETRY_OBJ := $(TESTOBJDIR)/test_geometry.o
 UNIT_SETUP_OBJ    := $(TESTOBJDIR)/test_setup_lifecycle.o
 UNIT_SOLVER_OBJ   := $(TESTOBJDIR)/test_solver_kernels.o
+UNIT_CANDIDATES_EXE := $(TESTBINDIR)/unit_momentum_candidates
+UNIT_CANDIDATES_OBJ := $(TESTOBJDIR)/test_momentum_convective_candidates.o
 UNIT_PARTICLES_OBJ := $(TESTOBJDIR)/test_particle_kernels.o
 UNIT_IO_OBJ       := $(TESTOBJDIR)/test_io.o
 UNIT_LOGGING_OBJ  := $(TESTOBJDIR)/test_logging.o
@@ -302,6 +304,10 @@ $(UNIT_SOLVER_EXE): $(UNIT_SOLVER_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) |
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_CANDIDATES_EXE): $(UNIT_CANDIDATES_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 $(UNIT_PARTICLES_EXE): $(UNIT_PARTICLES_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
@@ -366,7 +372,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -435,6 +441,19 @@ unit-setup: $(UNIT_SETUP_EXE)
 ## @brief Runs the solver utility C unit tests.
 unit-solver: $(UNIT_SOLVER_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
+## @target unit-momentum-candidates
+## @brief Runs the A4a convective-candidate study (FD Jacobian + RK; states A-C).
+unit-momentum-candidates: $(UNIT_CANDIDATES_EXE)
+	@ref=$$(mktemp /tmp/picurv_unit_momentum_candidates_ref.XXXXXX); \
+	token=$$(date +%s).$$$$; \
+	status=0; \
+	$(MPI_LAUNCHER) -n 1 $< -candidate_ref_path $$ref -candidate_ref_token $$token || status=$$?; \
+	if [ $$status -eq 0 ]; then \
+	  $(MPI_LAUNCHER) -n $(TEST_MPI_NPROCS) $< -candidate_ref_path $$ref -candidate_ref_token $$token || status=$$?; \
+	fi; \
+	rm -f $$ref; \
+	exit $$status
 
 ## @target unit-particles
 ## @brief Runs the particle kernel C unit tests.
