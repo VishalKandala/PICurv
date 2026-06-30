@@ -193,6 +193,10 @@ static PetscErrorCode LoadInitialUcont(UserCtx *user)
 
     if (simCtx->initialConditionField == IC_FIELD_UCAT) {
         ierr = ReadFieldData(user, "ufield", user->Ucat, 0, "dat"); CHKERRQ(ierr);
+        {
+            const char *cell_fields[] = {"Ucat"};
+            ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
+        }
         ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
         ierr = Cart2Contra(user); CHKERRQ(ierr);
     } else if (simCtx->initialConditionField == IC_FIELD_UCONT) {
@@ -251,7 +255,11 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
     ierr = Contra2Cart(user); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_TRACE," Converted Ucont to Ucat.\n");
 
-    // 4. Sync the new Cartesian velocity field.
+    // 4. Finalize periodic endpoint values, then refresh local Cartesian velocity.
+    {
+        const char *cell_fields[] = {"Ucat"};
+        ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
+    }
     ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_TRACE," Ucat field ghosts updated.\n"); 
 

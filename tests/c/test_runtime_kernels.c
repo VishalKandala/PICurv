@@ -421,6 +421,34 @@ static PetscErrorCode TestCart2ContraConvertsCartesianField(void)
     PetscFunctionReturn(0);
 }
 
+/** @brief Verifies periodic Ucat endpoints are repaired before Cart2Contra terminal faces. */
+static PetscErrorCode TestCart2ContraUsesFinalizedPeriodicUcat(void)
+{
+    SimCtx *simCtx=NULL; UserCtx *user=NULL; Cmpnts ***ucat=NULL,***ucont=NULL; PetscInt mx;
+    const char *cell_fields[]={"Ucat"}, *staggered_fields[]={"Ucont"};
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx,&user,4,4,4,PETSC_TRUE,PETSC_FALSE,PETSC_FALSE));
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type=PERIODIC;
+    user->boundary_faces[BC_FACE_POS_X].mathematical_type=PERIODIC;
+    mx=user->info.mx;
+    PetscCall(VecSet(user->Ucat,0.0));
+    PetscCall(DMDAVecGetArray(user->fda,user->Ucat,&ucat));
+    for(PetscInt k=1;k<user->info.mz-1;k++) for(PetscInt j=1;j<user->info.my-1;j++)
+        for(PetscInt i=1;i<mx-1;i++) ucat[k][j][i]=(Cmpnts){10.0+(PetscReal)i,2.0,3.0};
+    ucat[2][2][0]=(Cmpnts){-1000.0,-1000.0,-1000.0};
+    ucat[2][2][mx-1]=(Cmpnts){-2000.0,-2000.0,-2000.0};
+    PetscCall(DMDAVecRestoreArray(user->fda,user->Ucat,&ucat));
+    PetscCall(SynchronizePeriodicCellFields(user,1,cell_fields));
+    PetscCall(UpdateLocalGhosts(user,"Ucat"));
+    PetscCall(Cart2Contra(user));
+    PetscCall(SynchronizePeriodicStaggeredFields(user,1,staggered_fields));
+    PetscCall(DMDAVecGetArrayRead(user->fda,user->Ucont,&ucont));
+    PetscCall(PicurvAssertRealNear(0.5*((10.0+mx-2)+(10.0+1)),ucont[2][2][mx-2].x,1e-12,"terminal Xi face uses corrected periodic Ucat endpoint"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda,user->Ucont,&ucont));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx,&user));
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Tests loading a staged Ucat file IC and converting it to Ucont.
  */
@@ -1416,6 +1444,7 @@ int main(int argc, char **argv)
         {"set-initial-interior-field-zero-clears-interior", TestSetInitialInteriorFieldZeroClearsInterior},
         {"set-initial-interior-field-poiseuille-profile", TestSetInitialInteriorFieldPoiseuilleProfile},
         {"cart2contra-converts-cartesian-field", TestCart2ContraConvertsCartesianField},
+        {"cart2contra-uses-finalized-periodic-ucat", TestCart2ContraUsesFinalizedPeriodicUcat},
         {"populate-initial-ucont-loads-staged-ucat", TestPopulateInitialUcontLoadsStagedUcat},
         {"populate-initial-ucont-loads-staged-ucont", TestPopulateInitialUcontLoadsStagedUcont},
         {"interpolate-all-fields-to-swarm-constant-fields", TestInterpolateAllFieldsToSwarmConstantFields},

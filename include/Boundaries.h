@@ -286,7 +286,11 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
  * The fields are first communicated from global to local storage. Each periodic
  * direction is then transferred in i-j-k order, with an intermediate ghost
  * refresh after every active direction so periodic edges and corners inherit the
- * values established by earlier directions. Non-periodic directions are skipped.
+ * values established by earlier directions. Only global duplicate planes in active
+ * periodic directions are repaired; non-periodic directions are untouched. The
+ * routine is a no-op, including no local refresh, when every direction is
+ * nonperiodic. During active periodic synchronization it internally refreshes the
+ * local vectors, but it is not a general replacement for `UpdateLocalGhosts()`.
  *
  * Supported fields are `Ucat`, `P`, `Phi`, `Nvert`, `Nu_t`, `CS`, `Diffusivity`,
  * and `Aj` (`Eddy Viscosity` and `Cs` are accepted as compatibility

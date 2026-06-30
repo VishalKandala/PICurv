@@ -1161,7 +1161,11 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 
     // 1. Obtain Cartesian velocity from Contravariant velocity
     ierr = Contra2Cart(user); CHKERRQ(ierr);
-	ierr = UpdateLocalGhosts(user,"Ucat"); CHKERRQ(ierr);
+    {
+        const char *cell_fields[] = {"Ucat"};
+        ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
+    }
+    ierr = UpdateLocalGhosts(user,"Ucat"); CHKERRQ(ierr);
 
     // 2. Compute Convective term
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating convective terms...\n");

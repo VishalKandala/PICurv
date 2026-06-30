@@ -148,7 +148,9 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx);
  * @return PetscErrorCode 0 on success, non-zero on failure.
  *
  * @note This function assumes the global vector associated with fieldName has already
- *       been populated with the desired data (including any boundary conditions).
+ *       been populated with the desired data (including any boundary conditions and
+ *       periodic duplicate planes). It scatters that current global state into the
+ *       local vector; it does not repair stale global periodic duplicate planes.
  * @note Wider QUICK-style normal ghost layers require a separate dedicated
  *       exchange; this function repairs the adjacent layer used by central stencils.
  */
@@ -351,7 +353,8 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx);
  *     the transformation matrix.
  * 3.  It solves the linear system `[MetricTensor] * [ucat] = [ucont]` for the
  *     Cartesian velocity vector `ucat = (u,v,w)` using Cramer's rule.
- * 4.  The computed Cartesian velocity is stored in the global `user->Ucat` vector.
+ * 4.  The computed Cartesian velocity is stored only at independent owned cells in
+ *     the global `user->Ucat` vector.
  *
  * The function operates on local, ghosted versions of the input vectors (`user->lUcont`,
  * `user->lCsi`, etc.) to ensure stencils are valid across processor boundaries.
@@ -367,8 +370,12 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx);
  *    (`user->lCsi`, etc.) have been populated with up-to-date ghost values via `UpdateLocalGhosts`.
  *  - It only computes `Ucat` for interior cells (not on physical boundaries) and for
  *    cells not marked as solid/blanked by `user->lNvert`.
- *  - The caller is responsible for subsequently applying boundary conditions to `user->Ucat`
- *    and calling `UpdateLocalGhosts(user, "Ucat")` to populate `user->lUcat`.
+ *  - The function performs no communication, does not synchronize periodic duplicate
+ *    planes, and does not refresh `user->lUcat`.
+ *  - Before stencil consumption, the caller must synchronize periodic cell values with
+ *    `SynchronizePeriodicCellFields(user, 1, {"Ucat"})` and then call
+ *    `UpdateLocalGhosts(user, "Ucat")`. The latter remains necessary for the fully
+ *    nonperiodic case because periodic synchronization is then a no-op.
  */
 PetscErrorCode Contra2Cart(UserCtx *user);
 
@@ -377,7 +384,10 @@ PetscErrorCode Contra2Cart(UserCtx *user);
  * @ingroup InitialConditions
  *
  * Interpolates `user->lUcat` to each logical face and dots it with the
- * corresponding face-area metric vector. Writes `user->Ucont`.
+ * corresponding face-area metric vector. Writes independent entries of
+ * `user->Ucont`. Periodic and physical endpoint values in `user->lUcat` must be
+ * finalized and its MPI ghosts current before entry. The resulting `Ucont` is not
+ * synchronized; callers must use the staggered-field workflow before stencil use.
  *
  * @param[in,out] user  UserCtx for the block; Ucont is written in place.
  * @return PetscErrorCode 0 on success.

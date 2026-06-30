@@ -69,9 +69,13 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             // LES models require Cartesian velocity to compute strain rates
             const char *staggered_fields[] = {"Ucont"};
-            ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields);
+            ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
             ierr = Contra2Cart(&user[bi]); CHKERRQ(ierr);
-            ierr = UpdateLocalGhosts(&user[bi], "Ucat");
+            {
+                const char *cell_fields[] = {"Ucat"};
+                ierr = SynchronizePeriodicCellFields(&user[bi], 1, cell_fields); CHKERRQ(ierr);
+            }
+            ierr = UpdateLocalGhosts(&user[bi], "Ucat"); CHKERRQ(ierr);
             if(simCtx->les == CONSTANT_SMAGORINSKY) {
                 LOG_ALLOW(LOCAL, LOG_INFO, "  Using constant Smagorinsky model for block %d.\n", bi);
                 // Constant Smagorinsky does not require dynamic computation

@@ -653,6 +653,38 @@ static PetscErrorCode TestFinalizePostProjectionCellFieldsMixedBoundaries(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+
+/** @brief Verifies reconstructed Ucat periodic duplicates and local values are finalized. */
+static PetscErrorCode TestContra2CartPeriodicUcatFinalization(void)
+{
+    SimCtx *simCtx=NULL; UserCtx *user=NULL; Cmpnts ***ucont=NULL,***ucat=NULL,***lucat=NULL;
+    const char *staggered_fields[]={"Ucont"}, *cell_fields[]={"Ucat"};
+    PetscInt mx;
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx,&user,4,4,4,PETSC_TRUE,PETSC_FALSE,PETSC_FALSE));
+    MarkXPeriodic(user); mx=user->info.mx;
+    PetscCall(VecSet(user->Ucont,0.0));
+    PetscCall(DMDAVecGetArray(user->fda,user->Ucont,&ucont));
+    for(PetscInt k=1;k<user->info.mz-1;k++) for(PetscInt j=1;j<user->info.my-1;j++)
+        for(PetscInt i=1;i<mx-1;i++) ucont[k][j][i].x=(PetscReal)i;
+    PetscCall(DMDAVecRestoreArray(user->fda,user->Ucont,&ucont));
+    PetscCall(SynchronizePeriodicStaggeredFields(user,1,staggered_fields));
+    PetscCall(VecSet(user->Ucat,-99.0));
+    PetscCall(Contra2Cart(user));
+    PetscCall(SynchronizePeriodicCellFields(user,1,cell_fields));
+    PetscCall(UpdateLocalGhosts(user,"Ucat"));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda,user->Ucat,&ucat));
+    PetscCall(PicurvAssertRealNear(ucat[2][2][mx-2].x,ucat[2][2][0].x,1e-12,"negative Ucat duplicate follows opposite independent cell"));
+    PetscCall(PicurvAssertRealNear(ucat[2][2][1].x,ucat[2][2][mx-1].x,1e-12,"positive Ucat duplicate follows leading independent cell"));
+    PetscCall(DMDAVecGetArrayRead(user->fda,user->lUcat,&lucat));
+    PetscCall(PicurvAssertRealNear(ucat[2][2][0].x,lucat[2][2][0].x,1e-12,"local negative Ucat endpoint matches corrected global"));
+    PetscCall(PicurvAssertRealNear(ucat[2][2][mx-1].x,lucat[2][2][mx-1].x,1e-12,"local positive Ucat endpoint matches corrected global"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda,user->lUcat,&lucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda,user->Ucat,&ucat));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx,&user));
+    PetscFunctionReturn(0);
+}
 /**
  * @brief Runs the focused geometric-periodic PETSc test binary.
  */
@@ -673,6 +705,7 @@ int main(int argc, char **argv)
         {"synchronize-periodic-face-fields-copies-mixed-axes", TestSynchronizePeriodicFaceFieldsCopiesMixedAxes},
         {"synchronize-periodic-staggered-fields-copies-mixed-axes", TestSynchronizePeriodicStaggeredFieldsCopiesMixedAxes},
         {"finalize-post-projection-cell-fields-mixed-boundaries", TestFinalizePostProjectionCellFieldsMixedBoundaries},
+        {"contra2cart-periodic-ucat-finalization", TestContra2CartPeriodicUcatFinalization},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv geometric-periodic tests");

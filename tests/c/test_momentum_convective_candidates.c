@@ -41,6 +41,7 @@ static PetscBool g_ref_token_set = PETSC_FALSE;
 typedef enum {
     STABLE_CFL_NONE,
     STABLE_CFL_FINITE,
+
     STABLE_CFL_EXCEEDS_SCAN
 } StableCFLStatus;
 
@@ -175,7 +176,7 @@ static PetscErrorCode GetDof(UserCtx *user, Vec Ucont, const DofMap *map, PetscI
 /* ----------------------------------------------------------------------------------- *
  *  Base-state construction: physical Cartesian velocity -> production contravariant.   *
  * ----------------------------------------------------------------------------------- */
-typedef enum { STATE_A, STATE_B, STATE_C } CandState;
+typedef enum { STATE_A, STATE_A_X, STATE_A_Y, STATE_B, STATE_C } CandState;
 
 /**
  * @brief Returns the cell-centered periodic angle using duplicated endpoint planes.
@@ -211,6 +212,10 @@ static inline Cmpnts AnalyticVelocity(CandState st, PetscInt i, PetscInt j, Pets
     (void)k; (void)mz;
     if (st == STATE_A) {
         v.x = 0.7; v.y = -0.4; v.z = 0.0;
+    } else if (st == STATE_A_X) {
+        v.x = 0.7; v.y = 0.0; v.z = 0.0;
+    } else if (st == STATE_A_Y) {
+        v.x = 0.0; v.y = -0.4; v.z = 0.0;
     } else if (st == STATE_B) {
         (void)x; v.x = 0.0; v.y = 0.0; v.z = 0.0;
     } else {
@@ -616,6 +621,40 @@ static PetscErrorCode DenseSpectralRadius(const PetscReal *A, PetscInt n, PetscR
 }
 
 /**
+ * @brief Extracts the right eigenpair whose eigenvalue has largest real part.
+ *
+ * For a complex pair, LAPACK stores real and imaginary parts in adjacent columns of VR.
+ */
+static PetscErrorCode DenseMaxRealRightEigenpair(const PetscReal *A, PetscInt n,
+                                                 PetscReal *lamr, PetscReal *lami,
+                                                 PetscReal *vr_out, PetscReal *vi_out)
+{
+    PetscBLASInt N, lda, lwork, info;
+    PetscReal *Acopy, *wr, *wi, *vr, *work, dummy = 0.0;
+    PetscFunctionBeginUser;
+    PetscCall(PetscBLASIntCast(n, &N)); lda = N; lwork = 16*N;
+    PetscCall(PetscMalloc5(n*n, &Acopy, n, &wr, n, &wi, n*n, &vr, (size_t)lwork, &work));
+    for (PetscInt t = 0; t < n*n; t++) Acopy[t] = A[t];
+    {
+        char jobvl = 'N', jobvr = 'V';
+        LAPACKgeev_(&jobvl, &jobvr, &N, Acopy, &lda, wr, wi, &dummy, &lda, vr, &lda, work, &lwork, &info);
+    }
+    PetscCheck(info == 0, PETSC_COMM_SELF, PETSC_ERR_LIB, "LAPACK dgeev failed: info=%d", (int)info);
+    PetscInt best = 0;
+    for (PetscInt t = 1; t < n; t++) if (wr[t] > wr[best]) best = t;
+    *lamr = wr[best]; *lami = wi[best];
+    if (PetscAbsReal(wi[best]) < 1e-14) {
+        for (PetscInt r = 0; r < n; r++) { vr_out[r] = vr[r + best*n]; vi_out[r] = 0.0; }
+    } else if (wi[best] > 0.0) {
+        for (PetscInt r = 0; r < n; r++) { vr_out[r] = vr[r + best*n]; vi_out[r] = vr[r + (best+1)*n]; }
+    } else {
+        for (PetscInt r = 0; r < n; r++) { vr_out[r] = vr[r + (best-1)*n]; vi_out[r] = -vr[r + best*n]; }
+    }
+    PetscCall(PetscFree5(Acopy, wr, wi, vr, work));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Computes the spectral radius of the RK polynomial by applying it to eig(J).
  */
 static PetscErrorCode DenseRKPolynomialSpectralRadius(const PetscReal *J, PetscInt n,
@@ -694,6 +733,27 @@ static PetscReal DenseSkewnessDefect(const PetscReal *A, PetscInt n)
         }
     return PetscSqrtReal(sym2) / PetscMax(PetscSqrtReal(fro2), PETSC_MACHINE_EPSILON);
 }
+
+/**
+ * @brief Prints eigenvalue and norm summary for one dense operator.
+ */
+static PetscErrorCode PrintSpectrumSummary(const char *name, const PetscReal *J, PetscInt n)
+{
+    PetscReal rho, maxre, smax;
+    PetscFunctionBeginUser;
+    PetscCall(DenseSpectralRadius(J, n, &rho, &maxre));
+    PetscCall(DenseSigmaMax(J, n, &smax, NULL));
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "    %-7s rho=%.6e sigma=%.6e max_real=%.6e skew=%.3e nonnormality=%.3e\n",
+        name, (double)rho, (double)smax, (double)maxre,
+        (double)DenseSkewnessDefect(J, n), (double)DenseNonNormality(J, n)));
+    PetscFunctionReturn(0);
+}
+
+static void DenseMatVec(const PetscReal *J, const PetscReal *x, PetscReal *y, PetscInt n);
+static void FillAuditDirection(const DofMap *map, PetscInt kind, PetscReal *x);
+static PetscErrorCode AddActiveVector(UserCtx *user, Vec U, const DofMap *map,
+                                      const PetscReal *x, PetscReal scale);
 
 /**
  * @brief Copies a dense matrix and adds a scalar shift to its diagonal.
@@ -894,6 +954,310 @@ static PetscReal DenseFrobenius(const PetscReal *A, PetscInt n)
 }
 
 /**
+ * @brief True if an active representative lies on a plane adjacent to periodic duplicates.
+ */
+static PetscBool DofTouchesPeriodicRepresentative(const DofMap *map, PetscInt m, DMDALocalInfo info)
+{
+    return (PetscBool)(map->ci[m] == 1 || map->ci[m] == info.mx-2 ||
+                       map->cj[m] == 1 || map->cj[m] == info.my-2 ||
+                       map->ck[m] == 1 || map->ck[m] == info.mz-2);
+}
+
+/**
+ * @brief Prints the component-wise periodic storage count actually used by the active map.
+ */
+static PetscErrorCode PrintPeriodicSpaceAudit(UserCtx *user, const DofMap *map)
+{
+    PetscInt count[3] = {0,0,0};
+    PetscInt min_i[3] = {PETSC_MAX_INT,PETSC_MAX_INT,PETSC_MAX_INT};
+    PetscInt min_j[3] = {PETSC_MAX_INT,PETSC_MAX_INT,PETSC_MAX_INT};
+    PetscInt min_k[3] = {PETSC_MAX_INT,PETSC_MAX_INT,PETSC_MAX_INT};
+    PetscInt max_i[3] = {-PETSC_MAX_INT,-PETSC_MAX_INT,-PETSC_MAX_INT};
+    PetscInt max_j[3] = {-PETSC_MAX_INT,-PETSC_MAX_INT,-PETSC_MAX_INT};
+    PetscInt max_k[3] = {-PETSC_MAX_INT,-PETSC_MAX_INT,-PETSC_MAX_INT};
+    PetscFunctionBeginUser;
+    for (PetscInt m = 0; m < map->n; m++) {
+        const PetscInt c = map->comp[m];
+        count[c]++;
+        min_i[c] = PetscMin(min_i[c], map->ci[m]); max_i[c] = PetscMax(max_i[c], map->ci[m]);
+        min_j[c] = PetscMin(min_j[c], map->cj[m]); max_j[c] = PetscMax(max_j[c], map->cj[m]);
+        min_k[c] = PetscMin(min_k[c], map->ck[m]); max_k[c] = PetscMax(max_k[c], map->ck[m]);
+    }
+    const PetscInt per_comp = PeriodicRepCount(user->info.mx) *
+                              PeriodicRepCount(user->info.my) *
+                              PeriodicRepCount(user->info.mz);
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  --- periodic independent-space audit ---\n"
+        "    synchronization convention: duplicate planes 0<-m-2 and m-1<-1 in x/y/z for Ucont.\n"
+        "    active rows and columns both use the same representatives i,j,k=1..m-2.\n"
+        "    comp  expected  actual   i-range   j-range   k-range\n"));
+    for (PetscInt c = 0; c < 3; c++) {
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+            "      %d   %7d  %6d   [%d,%d]   [%d,%d]   [%d,%d]\n",
+            (int)c, (int)per_comp, (int)count[c],
+            (int)min_i[c], (int)max_i[c], (int)min_j[c], (int)max_j[c], (int)min_k[c], (int)max_k[c]));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Prints 3x3 component block norms and localized symmetric rows.
+ */
+static PetscErrorCode PrintBlockAndSymmetricLocalization(UserCtx *user, const DofMap *map,
+                                                        const PetscReal *J)
+{
+    PetscReal block2[3][3] = {{0.0}}, sym2[3][3] = {{0.0}};
+    PetscReal *row2;
+    PetscInt top[8];
+    PetscFunctionBeginUser;
+    PetscCall(PetscMalloc1(map->n, &row2));
+    for (PetscInt r = 0; r < map->n; r++) row2[r] = 0.0;
+    for (PetscInt c = 0; c < map->n; c++) {
+        for (PetscInt r = 0; r < map->n; r++) {
+            const PetscInt rb = map->comp[r], cb = map->comp[c];
+            const PetscReal a = J[r + c*map->n];
+            const PetscReal s = 0.5*(J[r + c*map->n] + J[c + r*map->n]);
+            block2[rb][cb] += a*a;
+            sym2[rb][cb] += s*s;
+            row2[r] += s*s;
+        }
+    }
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  --- component block norms J_ab = dR_a/dU_b ---\n"
+        "    row-comp col-comp   ||J_ab||F    ||0.5(J+J^T)_ab||F\n"));
+    for (PetscInt rb = 0; rb < 3; rb++)
+        for (PetscInt cb = 0; cb < 3; cb++)
+            PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+                "       %d        %d      %.6e      %.6e\n",
+                (int)rb, (int)cb, (double)PetscSqrtReal(block2[rb][cb]),
+                (double)PetscSqrtReal(sym2[rb][cb])));
+
+    for (PetscInt q = 0; q < 8; q++) {
+        top[q] = -1;
+        for (PetscInt r = 0; r < map->n; r++) {
+            PetscBool used = PETSC_FALSE;
+            for (PetscInt p = 0; p < q; p++) if (top[p] == r) used = PETSC_TRUE;
+            if (!used && (top[q] < 0 || row2[r] > row2[top[q]])) top[q] = r;
+        }
+    }
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  --- largest rows of S=0.5*(J+J^T) ---\n"
+        "    row comp (i,j,k) seam-adj  ||S_row||2   largest symmetric columns\n"));
+    for (PetscInt q = 0; q < 8; q++) {
+        const PetscInt r = top[q];
+        PetscInt best[3] = {-1,-1,-1};
+        for (PetscInt pass = 0; pass < 3; pass++) {
+            for (PetscInt c = 0; c < map->n; c++) {
+                PetscBool used = PETSC_FALSE;
+                for (PetscInt p = 0; p < pass; p++) if (best[p] == c) used = PETSC_TRUE;
+                const PetscReal mag = PetscAbsReal(0.5*(J[r + c*map->n] + J[c + r*map->n]));
+                if (!used && (best[pass] < 0 ||
+                    mag > PetscAbsReal(0.5*(J[r + best[pass]*map->n] + J[best[pass] + r*map->n])))) best[pass] = c;
+            }
+        }
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+            "    %3d  %d   (%d,%d,%d)    %s    %.6e",
+            (int)r, (int)map->comp[r], (int)map->ci[r], (int)map->cj[r], (int)map->ck[r],
+            DofTouchesPeriodicRepresentative(map, r, user->info) ? "yes" : "no ",
+            (double)PetscSqrtReal(row2[r])));
+        for (PetscInt p = 0; p < 3; p++) {
+            const PetscInt c = best[p];
+            const PetscReal s = 0.5*(J[r + c*map->n] + J[c + r*map->n]);
+            PetscCall(PetscPrintf(PETSC_COMM_WORLD, " | c%d:%d(%d,%d,%d)=%.3e",
+                (int)p, (int)map->comp[c], (int)map->ci[c], (int)map->cj[c],
+                (int)map->ck[c], (double)s));
+        }
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD, "\n"));
+    }
+    PetscCall(PetscFree(row2));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Fills the six real basis vectors for one staggered same-wavevector subspace.
+ */
+static void FillStaggeredFourierBasis(const DofMap *map, PetscInt wx, PetscInt wy, PetscInt wz,
+                                      PetscReal *Q)
+{
+    PetscInt nrep = 0;
+    for (PetscInt m = 0; m < map->n; m++) nrep = PetscMax(nrep, map->ci[m]);
+    for (PetscInt q = 0; q < 6*map->n; q++) Q[q] = 0.0;
+    for (PetscInt m = 0; m < map->n; m++) {
+        const PetscInt comp = map->comp[m];
+        const PetscReal x = (PetscReal)(map->ci[m]-1) - (comp == 0 ? 0.5 : 0.0);
+        const PetscReal y = (PetscReal)(map->cj[m]-1) - (comp == 1 ? 0.5 : 0.0);
+        const PetscReal z = (PetscReal)(map->ck[m]-1) - (comp == 2 ? 0.5 : 0.0);
+        const PetscReal phase = 2.0*PETSC_PI*((PetscReal)wx*x + (PetscReal)wy*y + (PetscReal)wz*z)/(PetscReal)nrep;
+        Q[m + (2*comp+0)*map->n] = PetscCosReal(phase);
+        Q[m + (2*comp+1)*map->n] = PetscSinReal(phase);
+    }
+    for (PetscInt q = 0; q < 6; q++) {
+        PetscReal n2 = 0.0;
+        for (PetscInt m = 0; m < map->n; m++) n2 += Q[m + q*map->n]*Q[m + q*map->n];
+        n2 = PetscSqrtReal(n2);
+        if (n2 > 0.0) for (PetscInt m = 0; m < map->n; m++) Q[m + q*map->n] /= n2;
+    }
+}
+
+/**
+ * @brief Builds the 6x6 projected real symbol and leakage for one wavevector.
+ */
+static PetscErrorCode StaggeredFourierSymbol(const DofMap *map, const PetscReal *J,
+                                             PetscInt wx, PetscInt wy, PetscInt wz,
+                                             PetscReal A6[36], PetscReal *leak)
+{
+    PetscReal *Q, *JQ;
+    PetscReal all2 = 0.0, leak2 = 0.0;
+    PetscFunctionBeginUser;
+    PetscCall(PetscMalloc2((size_t)6*map->n, &Q, (size_t)6*map->n, &JQ));
+    FillStaggeredFourierBasis(map, wx, wy, wz, Q);
+    for (PetscInt q = 0; q < 6; q++) DenseMatVec(J, &Q[q*map->n], &JQ[q*map->n], map->n);
+    for (PetscInt c = 0; c < 6; c++)
+        for (PetscInt r = 0; r < 6; r++) {
+            PetscReal s = 0.0;
+            for (PetscInt m = 0; m < map->n; m++) s += Q[m + r*map->n] * JQ[m + c*map->n];
+            A6[r + c*6] = s;
+        }
+    for (PetscInt c = 0; c < 6; c++) {
+        for (PetscInt m = 0; m < map->n; m++) {
+            PetscReal proj = 0.0;
+            for (PetscInt r = 0; r < 6; r++) proj += Q[m + r*map->n] * A6[r + c*6];
+            const PetscReal d = JQ[m + c*map->n] - proj;
+            leak2 += d*d;
+            all2 += JQ[m + c*map->n]*JQ[m + c*map->n];
+        }
+    }
+    *leak = PetscSqrtReal(leak2) / PetscMax(PETSC_MACHINE_EPSILON, PetscSqrtReal(all2));
+    PetscCall(PetscFree2(Q, JQ));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Eigenvalue summary for a 6x6 real symbol.
+ */
+static PetscErrorCode SymbolEigenSummary(const PetscReal A6[36], PetscReal *maxre,
+                                         PetscReal wr_out[6], PetscReal wi_out[6])
+{
+    PetscBLASInt N = 6, lda = 6, lwork = 128, info;
+    PetscReal Acopy[36], work[128], dummy = 0.0;
+    PetscFunctionBeginUser;
+    for (PetscInt t = 0; t < 36; t++) Acopy[t] = A6[t];
+    {
+        char nochar = 'N';
+        LAPACKgeev_(&nochar, &nochar, &N, Acopy, &lda, wr_out, wi_out, &dummy, &lda, &dummy, &lda, work, &lwork, &info);
+    }
+    PetscCheck(info == 0, PETSC_COMM_SELF, PETSC_ERR_LIB, "LAPACK dgeev failed for 6x6 symbol: info=%d", (int)info);
+    *maxre = -PETSC_MAX_REAL;
+    for (PetscInt q = 0; q < 6; q++) *maxre = PetscMax(*maxre, wr_out[q]);
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Projects production J on full staggered six-dimensional Fourier subspaces.
+ */
+static PetscErrorCode PrintFourierChecks(const DofMap *map, const PetscReal *J)
+{
+    typedef struct { const char *name; PetscInt wx, wy, wz; } Mode;
+    const Mode modes[4] = {{"x",1,0,0}, {"y",0,1,0}, {"xy",1,1,0}, {"x-y",1,2,0}};
+    PetscReal best_re = -PETSC_MAX_REAL, best_leak = 0.0;
+    PetscInt best_wx = 0, best_wy = 0, best_wz = 0, nrep = 0;
+    PetscFunctionBeginUser;
+    for (PetscInt m = 0; m < map->n; m++) nrep = PetscMax(nrep, map->ci[m]);
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  --- staggered 6x6 Fourier-symbol check ---\n"
+        "    mode      max_real    leakage    eigenvalues (real,imag)\n"));
+    for (PetscInt im = 0; im < 4; im++) {
+        PetscReal A6[36], wr[6], wi[6], maxre, leak;
+        PetscCall(StaggeredFourierSymbol(map, J, modes[im].wx, modes[im].wy, modes[im].wz, A6, &leak));
+        PetscCall(SymbolEigenSummary(A6, &maxre, wr, wi));
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+            "    %-5s(%d,%d,%d) %.6e  %.3e",
+            modes[im].name, (int)modes[im].wx, (int)modes[im].wy, (int)modes[im].wz,
+            (double)maxre, (double)leak));
+        for (PetscInt q = 0; q < 6; q++) PetscCall(PetscPrintf(PETSC_COMM_WORLD, "  %.3e%+.3ei", (double)wr[q], (double)wi[q]));
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD, "\n"));
+    }
+    for (PetscInt wz = 0; wz < nrep; wz++)
+        for (PetscInt wy = 0; wy < nrep; wy++)
+            for (PetscInt wx = 0; wx < nrep; wx++) {
+                if (wx == 0 && wy == 0 && wz == 0) continue;
+                PetscReal A6[36], wr[6], wi[6], maxre, leak;
+                PetscCall(StaggeredFourierSymbol(map, J, wx, wy, wz, A6, &leak));
+                PetscCall(SymbolEigenSummary(A6, &maxre, wr, wi));
+                if (maxre > best_re) {
+                    best_re = maxre; best_leak = leak; best_wx = wx; best_wy = wy; best_wz = wz;
+                }
+            }
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "    best scanned wavevector (%d,%d,%d): max_real=%.6e leakage=%.3e\n",
+        (int)best_wx, (int)best_wy, (int)best_wz, (double)best_re, (double)best_leak));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Trace observable production residual stages for one deterministic perturbation.
+ */
+static PetscErrorCode TraceStateAResidualStages(UserCtx *user, Vec Ubase, Vec Rhs,
+                                                const DofMap *map, const PetscReal *J)
+{
+    Vec Upert, Conv;
+    PetscReal *v, *ract;
+    PetscReal seam_ucont[3], seam_ucat[3], conv2, convinf, rhs2, rhsinf;
+    PetscInt active_rows[4] = {0,0,0,0};
+    PetscFunctionBeginUser;
+    PetscCall(VecDuplicate(Ubase, &Upert));
+    PetscCall(VecDuplicate(user->lUcont, &Conv));
+    PetscCall(PetscMalloc2(map->n, &v, map->n, &ract));
+    FillAuditDirection(map, 0, v);
+    PetscCall(VecCopy(Ubase, Upert));
+    PetscCall(AddActiveVector(user, Upert, map, v, 1e-6));
+    PetscCall(VecCopy(Upert, user->Ucont));
+    {
+        const char *fld[] = {"Ucont"};
+        PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fld));
+    }
+    PetscCall(ComputeLocalDuplicateMismatch(user, user->lUcont, seam_ucont));
+    PetscCall(Contra2Cart(user));
+    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(ComputeLocalDuplicateMismatch(user, user->lUcat, seam_ucat));
+    PetscCall(Convection(user, user->lUcont, user->lUcat, Conv));
+    PetscCall(VecNorm(Conv, NORM_2, &conv2));
+    PetscCall(VecNorm(Conv, NORM_INFINITY, &convinf));
+    PetscCall(EvalConvResidual(user, Upert, Rhs, map, ract));
+    rhs2 = VecNorm2Array(ract, map->n);
+    rhsinf = VecNormInfArray(ract, map->n);
+    {
+        PetscReal ***nvert;
+        PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, &nvert));
+        for (PetscInt m = 0; m < map->n; m++) {
+            const PetscInt rows = MomCellActiveRows(nvert, map->ck[m], map->cj[m], map->ci[m],
+                                                    user->info.mx, user->info.my, user->info.mz,
+                                                    PETSC_FALSE, PETSC_FALSE, PETSC_FALSE, 0);
+            if (rows & (1 << map->comp[m])) active_rows[map->comp[m]]++;
+            else active_rows[3]++;
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, &nvert));
+    }
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  --- observable State A residual trace (mixed perturbation, amp=1e-6) ---\n"
+        "    after Ucont periodic sync duplicate mismatch (x,y,z)=%.3e %.3e %.3e\n"
+        "    after Contra2Cart Ucat duplicate mismatch       (x,y,z)=%.3e %.3e %.3e\n"
+        "    direct Convection() Cartesian norm: ||Conv||2=%.6e ||Conv||inf=%.6e\n"
+        "    final active ComputeRHS() norm:     ||R||2=%.6e ||R||inf=%.6e\n"
+        "    active-row mask counts by component: u=%d v=%d w=%d discarded=%d\n"
+        "    final active-space skewness defect already reported from J: %.3e\n",
+        (double)seam_ucont[0], (double)seam_ucont[1], (double)seam_ucont[2],
+        (double)seam_ucat[0], (double)seam_ucat[1], (double)seam_ucat[2],
+        (double)conv2, (double)convinf, (double)rhs2, (double)rhsinf,
+        (int)active_rows[0], (int)active_rows[1], (int)active_rows[2], (int)active_rows[3],
+        (double)DenseSkewnessDefect(J, map->n)));
+    PetscCall(PetscFree2(v, ract));
+    PetscCall(VecDestroy(&Upert));
+    PetscCall(VecDestroy(&Conv));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Computes a normalized Frobenius difference between two dense matrices.
  */
 static PetscReal DenseRelativeDiff(const PetscReal *A, const PetscReal *B, PetscInt n, PetscReal denom_ref)
@@ -1067,6 +1431,399 @@ static PetscErrorCode BuildFDJacobian(UserCtx *user, Vec Ucenter, PetscReal epsr
         PetscCall(EvalConvResidual(user, Uwork, Rhs, map, Rm));
         for (PetscInt row = 0; row < map->n; row++) J[row + col*map->n] = (Rp[row]-Rm[row])/(2.0*eps);
     }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Applies a dense column-major matrix to an active-space vector.
+ */
+static void DenseMatVec(const PetscReal *J, const PetscReal *x, PetscReal *y, PetscInt n)
+{
+    for (PetscInt r = 0; r < n; r++) {
+        PetscReal s = 0.0;
+        for (PetscInt c = 0; c < n; c++) s += J[r + c*n]*x[c];
+        y[r] = s;
+    }
+}
+
+/**
+ * @brief Fills one deterministic active-space vector used by dense/matrix-free checks.
+ */
+static void FillAuditDirection(const DofMap *map, PetscInt kind, PetscReal *x)
+{
+    PetscReal n2 = 0.0;
+    for (PetscInt m = 0; m < map->n; m++) {
+        const PetscReal a = 0.31*(PetscReal)(map->ci[m]+1)
+                          + 0.47*(PetscReal)(map->cj[m]+1)
+                          + 0.59*(PetscReal)(map->ck[m]+1)
+                          + 0.23*(PetscReal)(map->comp[m]+1);
+        if (kind == 0) x[m] = PetscSinReal(a);
+        else if (kind == 1) x[m] = PetscCosReal(1.7*a) + 0.25*PetscSinReal(0.9*(PetscReal)(m+1));
+        else x[m] = (map->comp[m] == kind-2) ? PetscSinReal(a) : 0.0;
+        n2 += x[m]*x[m];
+    }
+    n2 = PetscSqrtReal(n2);
+    if (n2 > 0.0) for (PetscInt m = 0; m < map->n; m++) x[m] /= n2;
+}
+
+/**
+ * @brief Verifies that the assembled dense Jacobian has the same action as production FD Jv.
+ */
+static PetscErrorCode CheckDenseJacobianAction(UserCtx *user, Vec Ubase, Vec Rhs, Vec Uwork,
+                                               const DofMap *map, const PetscReal *J,
+                                               PetscReal epsrel)
+{
+    Vec Up, Um;
+    PetscReal *v, *jd, *Rp, *Rm, *jmf;
+    PetscFunctionBeginUser;
+    PetscCall(VecDuplicate(Ubase, &Up));
+    PetscCall(VecDuplicate(Ubase, &Um));
+    PetscCall(PetscMalloc5(map->n, &v, map->n, &jd, map->n, &Rp, map->n, &Rm, map->n, &jmf));
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  --- dense Jacobian action check against matrix-free production Jv ---\n"
+        "    direction        rel_L2       rel_Linf      ||Jv||2      ||Jv||inf\n"));
+    const char *names[5] = {"mixed-sin", "mixed-cos", "u-only", "v-only", "w-only"};
+    for (PetscInt kind = 0; kind < 5; kind++) {
+        FillAuditDirection(map, kind, v);
+        DenseMatVec(J, v, jd, map->n);
+        PetscCall(VecCopy(Ubase, Up));
+        PetscCall(VecCopy(Ubase, Um));
+        PetscCall(AddActiveVector(user, Up, map, v, +epsrel));
+        PetscCall(AddActiveVector(user, Um, map, v, -epsrel));
+        PetscCall(EvalConvResidual(user, Up, Rhs, map, Rp));
+        PetscCall(EvalConvResidual(user, Um, Rhs, map, Rm));
+        for (PetscInt m = 0; m < map->n; m++) jmf[m] = (Rp[m]-Rm[m])/(2.0*epsrel);
+        PetscReal e2 = 0.0, einf = 0.0;
+        for (PetscInt m = 0; m < map->n; m++) {
+            const PetscReal d = jd[m] - jmf[m];
+            e2 += d*d; einf = PetscMax(einf, PetscAbsReal(d));
+        }
+        const PetscReal n2 = VecNorm2Array(jmf, map->n);
+        const PetscReal ni = VecNormInfArray(jmf, map->n);
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+            "    %-13s %.3e    %.3e    %.6e  %.6e\n",
+            names[kind], (double)(PetscSqrtReal(e2)/PetscMax(PETSC_MACHINE_EPSILON,n2)),
+            (double)(einf/PetscMax(PETSC_MACHINE_EPSILON,ni)), (double)n2, (double)ni));
+    }
+    (void)Uwork;
+    PetscCall(PetscFree5(v, jd, Rp, Rm, jmf));
+    PetscCall(VecDestroy(&Up));
+    PetscCall(VecDestroy(&Um));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Matrix-free production Jacobian-vector product on the active space.
+ */
+static PetscErrorCode MatrixFreeJv(UserCtx *user, Vec Ubase, Vec Rhs, const DofMap *map,
+                                   const PetscReal *v, PetscReal eps, PetscReal *jv)
+{
+    Vec Up, Um;
+    PetscReal *Rp, *Rm;
+    PetscFunctionBeginUser;
+    PetscCall(VecDuplicate(Ubase, &Up));
+    PetscCall(VecDuplicate(Ubase, &Um));
+    PetscCall(PetscMalloc2(map->n, &Rp, map->n, &Rm));
+    PetscCall(VecCopy(Ubase, Up));
+    PetscCall(VecCopy(Ubase, Um));
+    PetscCall(AddActiveVector(user, Up, map, v, +eps));
+    PetscCall(AddActiveVector(user, Um, map, v, -eps));
+    PetscCall(EvalConvResidual(user, Up, Rhs, map, Rp));
+    PetscCall(EvalConvResidual(user, Um, Rhs, map, Rm));
+    for (PetscInt m = 0; m < map->n; m++) jv[m] = (Rp[m]-Rm[m])/(2.0*eps);
+    PetscCall(PetscFree2(Rp, Rm));
+    PetscCall(VecDestroy(&Up));
+    PetscCall(VecDestroy(&Um));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Normalized Frobenius norm of A - (B+C).
+ */
+static PetscReal DenseAdditivityError(const PetscReal *A, const PetscReal *B,
+                                      const PetscReal *C, PetscInt n)
+{
+    PetscReal num = 0.0, den = 0.0;
+    for (PetscInt t = 0; t < n*n; t++) {
+        const PetscReal d = A[t] - B[t] - C[t];
+        num += d*d; den += A[t]*A[t];
+    }
+    return PetscSqrtReal(num) / PetscMax(1.0, PetscSqrtReal(den));
+}
+
+/**
+ * @brief Computes C = A*B - B*A and returns its normalized Frobenius norm.
+ */
+static PetscReal DenseCommutatorNorm(const PetscReal *A, const PetscReal *B, PetscInt n)
+{
+    PetscReal num = 0.0;
+    for (PetscInt c = 0; c < n; c++) {
+        for (PetscInt r = 0; r < n; r++) {
+            PetscReal ab = 0.0, ba = 0.0;
+            for (PetscInt q = 0; q < n; q++) {
+                ab += A[r + q*n] * B[q + c*n];
+                ba += B[r + q*n] * A[q + c*n];
+            }
+            const PetscReal d = ab - ba;
+            num += d*d;
+        }
+    }
+    const PetscReal den = PetscMax(DenseFrobenius(A, n)*DenseFrobenius(B, n), PETSC_MACHINE_EPSILON);
+    return PetscSqrtReal(num) / den;
+}
+
+/**
+ * @brief Builds Jx, Jy, Jxy and prints additivity/commutator/eigenpair diagnostics.
+ */
+static PetscErrorCode RunStateADirectionalMechanismAudit(const PetscReal *Jxy, UserCtx *user_xy,
+                                                         Vec Ubase_xy, Vec Rhs_xy,
+                                                         const DofMap *map_xy, PetscReal epsrel)
+{
+    SimCtx *simCtx = NULL; UserCtx *user = NULL; DofMap map;
+    Vec Ux, Uy, Rhs, Uwork;
+    PetscReal *Rp, *Rm, *Jx, *Jy, *Jsum, *vr, *vi, *jdr, *jdi, *jmfr, *jmfi;
+    PetscReal repeat_err, maxdiv, lamr, lami;
+    SeamDiagnostics seam;
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_TRUE, PETSC_TRUE));
+    PetscCall(ConfigureCandidateFixture(simCtx, user));
+    PetscCall(DofMapBuild(user, &map));
+    PetscCheck(map.n == map_xy->n, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ, "directional audit map size mismatch");
+    PetscCall(VecDuplicate(user->Ucont, &Ux));
+    PetscCall(VecDuplicate(user->Ucont, &Uy));
+    PetscCall(VecDuplicate(user->Ucont, &Rhs));
+    PetscCall(VecDuplicate(user->Ucont, &Uwork));
+    PetscCall(PetscMalloc5(map.n, &Rp, map.n, &Rm, (size_t)map.n*map.n, &Jx,
+                           (size_t)map.n*map.n, &Jy, (size_t)map.n*map.n, &Jsum));
+    PetscCall(BuildBaseState(user, STATE_A_X, Ux, &repeat_err, &maxdiv, &seam));
+    PetscCall(BuildFDJacobian(user, Ux, epsrel, Rhs, &map, Rp, Rm, Uwork, Jx));
+    PetscCall(BuildBaseState(user, STATE_A_Y, Uy, &repeat_err, &maxdiv, &seam));
+    PetscCall(BuildFDJacobian(user, Uy, epsrel, Rhs, &map, Rp, Rm, Uwork, Jy));
+    for (PetscInt t = 0; t < map.n*map.n; t++) Jsum[t] = Jx[t] + Jy[t];
+
+    const PetscReal add_err = DenseAdditivityError(Jxy, Jx, Jy, map.n);
+    const PetscReal comm = DenseCommutatorNorm(Jx, Jy, map.n);
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  --- State A directional additivity / noncommutation audit ---\n"
+        "    ||Jxy-(Jx+Jy)||F/max(1,||Jxy||F) = %.3e\n"
+        "    ||Jx Jy - Jy Jx||F/(||Jx||F||Jy||F) = %.3e\n"
+        "    spectra:\n", (double)add_err, (double)comm));
+    PetscCall(PrintSpectrumSummary("Jx", Jx, map.n));
+    PetscCall(PrintSpectrumSummary("Jy", Jy, map.n));
+    PetscCall(PrintSpectrumSummary("Jx+Jy", Jsum, map.n));
+    PetscCall(PrintSpectrumSummary("Jxy", Jxy, map.n));
+
+    PetscCall(PetscMalloc6(map.n, &vr, map.n, &vi, map.n, &jdr, map.n, &jdi, map.n, &jmfr, map.n, &jmfi));
+    PetscCall(DenseMaxRealRightEigenpair(Jxy, map.n, &lamr, &lami, vr, vi));
+    DenseMatVec(Jxy, vr, jdr, map.n);
+    DenseMatVec(Jxy, vi, jdi, map.n);
+    PetscReal ed2 = 0.0, em2 = 0.0, v2 = 0.0;
+    for (PetscInt m = 0; m < map.n; m++) {
+        const PetscReal rr = jdr[m] - (lamr*vr[m] - lami*vi[m]);
+        const PetscReal ri = jdi[m] - (lami*vr[m] + lamr*vi[m]);
+        ed2 += rr*rr + ri*ri;
+        v2 += vr[m]*vr[m] + vi[m]*vi[m];
+    }
+    PetscCall(MatrixFreeJv(user_xy, Ubase_xy, Rhs_xy, map_xy, vr, epsrel, jmfr));
+    PetscCall(MatrixFreeJv(user_xy, Ubase_xy, Rhs_xy, map_xy, vi, epsrel, jmfi));
+    for (PetscInt m = 0; m < map.n; m++) {
+        const PetscReal rr = jmfr[m] - (lamr*vr[m] - lami*vi[m]);
+        const PetscReal ri = jmfi[m] - (lami*vr[m] + lamr*vi[m]);
+        em2 += rr*rr + ri*ri;
+    }
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  --- State A unstable eigenpair verification ---\n"
+        "    lambda_max_real = %.12e%+.12ei\n"
+        "    ||Jdense v-lambda v||2/||v||2 = %.3e\n"
+        "    ||Jmf    v-lambda v||2/||v||2 = %.3e\n",
+        (double)lamr, (double)lami, (double)(PetscSqrtReal(ed2)/PetscSqrtReal(v2)),
+        (double)(PetscSqrtReal(em2)/PetscSqrtReal(v2))));
+
+    PetscCall(PetscFree6(vr, vi, jdr, jdi, jmfr, jmfi));
+    PetscCall(PetscFree5(Rp, Rm, Jx, Jy, Jsum));
+    PetscCall(VecDestroy(&Ux)); PetscCall(VecDestroy(&Uy)); PetscCall(VecDestroy(&Rhs)); PetscCall(VecDestroy(&Uwork));
+    PetscCall(DofMapDestroy(&map));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+typedef enum {
+    STAGE_UCAT = 0,
+    STAGE_CART_RESID = 1,
+    STAGE_RCT = 2,
+    STAGE_FINAL = 3
+} ResidualStage;
+
+/**
+ * @brief Extract active-space entries from a local vector.
+ */
+static PetscErrorCode ExtractLocalActiveVector(UserCtx *user, Vec local, const DofMap *map, PetscReal *x)
+{
+    Cmpnts ***a;
+    PetscFunctionBeginUser;
+    PetscCall(DMDAVecGetArrayRead(user->fda, local, &a));
+    for (PetscInt m = 0; m < map->n; m++) {
+        const PetscReal *p = (const PetscReal*)&a[map->ck[m]][map->cj[m]][map->ci[m]];
+        x[m] = p[map->comp[m]];
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, local, &a));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Mirrors ComputeRHS's Cartesian residual -> contravariant local Rct mapping.
+ */
+static PetscErrorCode MapCartesianResidualToRct(UserCtx *user, Vec Rc, Vec Rct)
+{
+    DMDALocalInfo info = user->info;
+    const PetscInt xs = info.xs, xe = xs + info.xm, mx = info.mx;
+    const PetscInt ys = info.ys, ye = ys + info.ym, my = info.my;
+    const PetscInt zs = info.zs, ze = zs + info.zm, mz = info.mz;
+    const PetscInt lxs = (xs==0) ? xs+1 : xs, lxe = (xe==mx) ? xe-1 : xe;
+    const PetscInt lys = (ys==0) ? ys+1 : ys, lye = (ye==my) ? ye-1 : ye;
+    const PetscInt lzs = (zs==0) ? zs+1 : zs, lze = (ze==mz) ? ze-1 : ze;
+    Cmpnts ***csi, ***eta, ***zet, ***rc, ***rct;
+    PetscReal ***aj;
+    PetscFunctionBeginUser;
+    PetscCall(VecSet(Rct, 0.0));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecGetArrayRead(user->fda, Rc, &rc));
+    PetscCall(DMDAVecGetArray(user->fda, Rct, &rct));
+    for (PetscInt k = lzs; k < lze; k++)
+        for (PetscInt j = lys; j < lye; j++)
+            for (PetscInt i = lxs; i < lxe; i++) {
+                rct[k][j][i].x = aj[k][j][i] *
+                    (0.5 * (csi[k][j][i].x + csi[k][j][i-1].x) * rc[k][j][i].x +
+                     0.5 * (csi[k][j][i].y + csi[k][j][i-1].y) * rc[k][j][i].y +
+                     0.5 * (csi[k][j][i].z + csi[k][j][i-1].z) * rc[k][j][i].z);
+                rct[k][j][i].y = aj[k][j][i] *
+                    (0.5 * (eta[k][j][i].x + eta[k][j-1][i].x) * rc[k][j][i].x +
+                     0.5 * (eta[k][j][i].y + eta[k][j-1][i].y) * rc[k][j][i].y +
+                     0.5 * (eta[k][j][i].z + eta[k][j-1][i].z) * rc[k][j][i].z);
+                rct[k][j][i].z = aj[k][j][i] *
+                    (0.5 * (zet[k][j][i].x + zet[k-1][j][i].x) * rc[k][j][i].x +
+                     0.5 * (zet[k][j][i].y + zet[k-1][j][i].y) * rc[k][j][i].y +
+                     0.5 * (zet[k][j][i].z + zet[k-1][j][i].z) * rc[k][j][i].z);
+            }
+    PetscCall(DMDAVecRestoreArray(user->fda, Rct, &rct));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, Rc, &rc));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+    PetscCall(SynchronizePeriodicLocalStaggeredField(user, Rct));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Mirrors ComputeRHS's final Rct face averaging and active cleanup for P=0/no body force.
+ */
+static PetscErrorCode AverageRctToFinalActive(UserCtx *user, Vec Rct, const DofMap *map, PetscReal *out)
+{
+    Cmpnts ***rct;
+    PetscFunctionBeginUser;
+    PetscCall(DMDAVecGetArrayRead(user->fda, Rct, &rct));
+    for (PetscInt m = 0; m < map->n; m++) {
+        const PetscInt i = map->ci[m], j = map->cj[m], k = map->ck[m], c = map->comp[m];
+        if (c == 0) out[m] = 0.5*(rct[k][j][i].x + rct[k][j][i+1].x);
+        else if (c == 1) out[m] = 0.5*(rct[k][j][i].y + rct[k][j+1][i].y);
+        else out[m] = 0.5*(rct[k][j][i].z + rct[k+1][j][i].z);
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, Rct, &rct));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Evaluates one observable/mirrored residual-path stage for a Ucont input.
+ */
+static PetscErrorCode EvalResidualStage(UserCtx *user, Vec Ucont_in, Vec Rhs,
+                                        const DofMap *map, ResidualStage stage, PetscReal *out)
+{
+    Vec Conv, Rc, Rct;
+    PetscFunctionBeginUser;
+    if (stage == STAGE_FINAL) {
+        PetscCall(EvalConvResidual(user, Ucont_in, Rhs, map, out));
+        PetscFunctionReturn(0);
+    }
+    PetscCall(VecCopy(Ucont_in, user->Ucont));
+    {
+        const char *fld[] = {"Ucont"};
+        PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fld));
+    }
+    PetscCall(Contra2Cart(user));
+    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    if (stage == STAGE_UCAT) {
+        PetscCall(ExtractActiveVector(user, user->Ucat, map, out));
+        PetscFunctionReturn(0);
+    }
+    PetscCall(VecDuplicate(user->lUcont, &Conv));
+    PetscCall(VecDuplicate(user->lUcont, &Rc));
+    PetscCall(VecDuplicate(user->lUcont, &Rct));
+    PetscCall(Convection(user, user->lUcont, user->lUcat, Conv));
+    PetscCall(VecSet(Rc, 0.0));
+    PetscCall(VecAXPY(Rc, -1.0, Conv));
+    if (stage == STAGE_CART_RESID) PetscCall(ExtractLocalActiveVector(user, Rc, map, out));
+    else {
+        PetscCall(MapCartesianResidualToRct(user, Rc, Rct));
+        if (stage == STAGE_RCT) PetscCall(ExtractLocalActiveVector(user, Rct, map, out));
+        else PetscCall(AverageRctToFinalActive(user, Rct, map, out));
+    }
+    PetscCall(VecDestroy(&Conv));
+    PetscCall(VecDestroy(&Rc));
+    PetscCall(VecDestroy(&Rct));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Builds a finite-difference Jacobian for one residual-path stage.
+ */
+static PetscErrorCode BuildStageJacobian(UserCtx *user, Vec Ucenter, PetscReal epsrel, Vec Rhs,
+                                         const DofMap *map, ResidualStage stage,
+                                         PetscReal *Rp, PetscReal *Rm, Vec Uwork, PetscReal *J)
+{
+    PetscFunctionBeginUser;
+    for (PetscInt col = 0; col < map->n; col++) {
+        PetscReal u0;
+        PetscCall(GetDof(user, Ucenter, map, col, &u0));
+        const PetscReal eps = epsrel*PetscMax(1.0, PetscAbsReal(u0));
+        PetscCall(VecCopy(Ucenter, Uwork));
+        PetscCall(PerturbDof(user, Uwork, map, col, +eps));
+        PetscCall(EvalResidualStage(user, Uwork, Rhs, map, stage, Rp));
+        PetscCall(VecCopy(Ucenter, Uwork));
+        PetscCall(PerturbDof(user, Uwork, map, col, -eps));
+        PetscCall(EvalResidualStage(user, Uwork, Rhs, map, stage, Rm));
+        for (PetscInt row = 0; row < map->n; row++) J[row + col*map->n] = (Rp[row]-Rm[row])/(2.0*eps);
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Prints the stage where positive-real spectrum first appears.
+ */
+static PetscErrorCode RunStateAResidualPathIsolation(UserCtx *user, Vec Ubase, Vec Rhs,
+                                                     Vec Uwork, const DofMap *map, PetscReal epsrel)
+{
+    const char *names[4] = {"Contra2Cart Ucat", "Cartesian Rc=-Conv", "mapped local Rct", "final active RHS"};
+    PetscReal *Rp, *Rm, *J;
+    PetscFunctionBeginUser;
+    PetscCall(PetscMalloc3(map->n, &Rp, map->n, &Rm, (size_t)map->n*map->n, &J));
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  --- State A residual-path stage Jacobians ---\n"
+        "    stage                 rho          sigma        max_real     skew       nonnormal\n"));
+    for (PetscInt s = 0; s < 4; s++) {
+        PetscReal rho, maxre, smax;
+        PetscCall(BuildStageJacobian(user, Ubase, epsrel, Rhs, map, (ResidualStage)s, Rp, Rm, Uwork, J));
+        PetscCall(DenseSpectralRadius(J, map->n, &rho, &maxre));
+        PetscCall(DenseSigmaMax(J, map->n, &smax, NULL));
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+            "    %-20s %.6e  %.6e  %.6e  %.3e  %.3e\n",
+            names[s], (double)rho, (double)smax, (double)maxre,
+            (double)DenseSkewnessDefect(J, map->n), (double)DenseNonNormality(J, map->n)));
+    }
+    PetscCall(PetscFree3(Rp, Rm, J));
     PetscFunctionReturn(0);
 }
 
@@ -1312,6 +2069,7 @@ static PetscErrorCode RunState(CandState st, const char *name)
         (double)seam.ucont_global[0], (double)seam.ucont_global[1], (double)seam.ucont_global[2],
         (double)repeat_err, (double)maxdiv,
         (double)R0_2, (double)R0_inf, (double)det_err));
+    if (st == STATE_A) PetscCall(PrintPeriodicSpaceAudit(user, &map));
 
     /* ---- epsilon-convergence study: build J at several eps, compare to next-finer ---- */
     const PetscReal epsrel[5] = {1e-4, 1e-5, 1e-6, 1e-7, 1e-8};
@@ -1411,6 +2169,14 @@ static PetscErrorCode RunState(CandState st, const char *name)
         (double)gradmax,
         (double)(lcB/rho), (double)(lcC/rho), (double)(lcD/rho),
         (double)(lcB/smax), (double)(lcC/smax), (double)(lcD/smax)));
+    if (st == STATE_A) {
+        PetscCall(CheckDenseJacobianAction(user, Ubase, Rhs, Uwork, &map, Jbest, epsrel[best_e]));
+        PetscCall(RunStateADirectionalMechanismAudit(Jbest, user, Ubase, Rhs, &map, epsrel[best_e]));
+        PetscCall(PrintBlockAndSymmetricLocalization(user, &map, Jbest));
+        PetscCall(PrintFourierChecks(&map, Jbest));
+        PetscCall(TraceStateAResidualStages(user, Ubase, Rhs, &map, Jbest));
+        PetscCall(RunStateAResidualPathIsolation(user, Ubase, Rhs, Uwork, &map, epsrel[best_e]));
+    }
 
     /* ---- RK pseudo-CFL stability per candidate (convective Jacobian) ---- */
     const PetscReal lams[3] = {lcB, lcC, lcD}; const char *cn[3] = {"B","C","D"};
@@ -1529,6 +2295,59 @@ static PetscErrorCode RunStateAGridAuditOne(PetscInt N)
         "  State A grid audit: DMDA %d^3 independent=%d expected=%d max_real=%.6e rho=%.6e sigma=%.6e skew=%.3e nonnormality=%.3e repeat=%.3e\n",
         (int)(N+1), (int)map.n, (int)map.expected_n, (double)maxre, (double)rho, (double)smax,
         (double)DenseSkewnessDefect(J, map.n), (double)DenseNonNormality(J, map.n), (double)repeat_err));
+    if (N >= 5) {
+        PetscReal *vr, *vi;
+        PetscReal lamr, lami, v2 = 0.0, seam2 = 0.0, maxabs = 0.0;
+        PetscCall(PetscMalloc2(map.n, &vr, map.n, &vi));
+        PetscCall(DenseMaxRealRightEigenpair(J, map.n, &lamr, &lami, vr, vi));
+        for (PetscInt m = 0; m < map.n; m++) {
+            const PetscReal a2 = vr[m]*vr[m] + vi[m]*vi[m];
+            v2 += a2;
+            if (DofTouchesPeriodicRepresentative(&map, m, user->info)) seam2 += a2;
+            maxabs = PetscMax(maxabs, PetscSqrtReal(a2));
+        }
+        PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+            "    larger-grid eigenvector: lambda=%.6e%+.6ei seam_energy=%.3f max_entry/||v||=%.3e\n",
+            (double)lamr, (double)lami, (double)(seam2/PetscMax(v2, PETSC_MACHINE_EPSILON)),
+            (double)(maxabs/PetscSqrtReal(PetscMax(v2, PETSC_MACHINE_EPSILON)))));
+        PetscCall(PrintBlockAndSymmetricLocalization(user, &map, J));
+        PetscCall(PetscFree2(vr, vi));
+    }
+    PetscCall(PetscFree3(Rp, Rm, J));
+    PetscCall(VecDestroy(&Ubase)); PetscCall(VecDestroy(&Rhs)); PetscCall(VecDestroy(&Uwork));
+    PetscCall(DofMapDestroy(&map));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Runs one State A transport-direction split.
+ */
+static PetscErrorCode RunStateASplitOne(CandState st, const char *label)
+{
+    SimCtx *simCtx = NULL; UserCtx *user = NULL; DofMap map;
+    Vec Ubase, Rhs, Uwork;
+    PetscReal *Rp, *Rm, *J;
+    PetscReal repeat_err, maxdiv;
+    SeamDiagnostics seam;
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_TRUE, PETSC_TRUE));
+    PetscCall(ConfigureCandidateFixture(simCtx, user));
+    PetscCall(DofMapBuild(user, &map));
+    PetscCall(VecDuplicate(user->Ucont, &Ubase));
+    PetscCall(VecDuplicate(user->Ucont, &Rhs));
+    PetscCall(VecDuplicate(user->Ucont, &Uwork));
+    PetscCall(PetscMalloc3(map.n, &Rp, map.n, &Rm, (size_t)map.n*map.n, &J));
+    PetscCall(BuildBaseState(user, st, Ubase, &repeat_err, &maxdiv, &seam));
+    PetscCall(BuildFDJacobian(user, Ubase, 1e-5, Rhs, &map, Rp, Rm, Uwork, J));
+    PetscReal rho, maxre, smax;
+    PetscCall(DenseSpectralRadius(J, map.n, &rho, &maxre));
+    PetscCall(DenseSigmaMax(J, map.n, &smax, NULL));
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  %-4s rho=%.6e sigma=%.6e max_real=%.6e skew=%.3e nonnormality=%.3e div=%.3e repeat=%.3e\n",
+        label, (double)rho, (double)smax, (double)maxre,
+        (double)DenseSkewnessDefect(J, map.n), (double)DenseNonNormality(J, map.n),
+        (double)maxdiv, (double)repeat_err));
     PetscCall(PetscFree3(Rp, Rm, J));
     PetscCall(VecDestroy(&Ubase)); PetscCall(VecDestroy(&Rhs)); PetscCall(VecDestroy(&Uwork));
     PetscCall(DofMapDestroy(&map));
@@ -1549,6 +2368,11 @@ static PetscErrorCode TestStateAGridAudit(void)
         "  independent map: all three Ucont components use representatives i,j,k=1..m-2; count = 3*(m-2)^3.\n"));
     PetscCall(RunStateAGridAuditOne(4));
     PetscCall(RunStateAGridAuditOne(5));
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "  State A transport-direction split on DMDA 5^3:\n"));
+    PetscCall(RunStateASplitOne(STATE_A_X, "A-x"));
+    PetscCall(RunStateASplitOne(STATE_A_Y, "A-y"));
+    PetscCall(RunStateASplitOne(STATE_A,   "A-xy"));
     PetscFunctionReturn(0);
 }
 

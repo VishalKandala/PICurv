@@ -121,7 +121,8 @@ static PetscErrorCode TestPeriodicCellFieldSynchronizationMultiRank(void)
     PetscReal ***p = NULL;
     PetscReal ***cs = NULL;
     PetscReal ***diffusivity = NULL;
-    const char *fields[] = {"P", "CS", "Diffusivity"};
+    Cmpnts ***ucat = NULL;
+    const char *fields[] = {"P", "CS", "Diffusivity", "Ucat"};
     PetscInt xs, xe, ys, ye, zs, ze, mx;
 
     PetscFunctionBeginUser;
@@ -143,24 +144,28 @@ static PetscErrorCode TestPeriodicCellFieldSynchronizationMultiRank(void)
     PetscCall(DMDAVecGetArray(user->da, user->P, &p));
     PetscCall(DMDAVecGetArray(user->da, user->CS, &cs));
     PetscCall(DMDAVecGetArray(user->da, user->Diffusivity, &diffusivity));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
     for (PetscInt k = zs; k < ze; ++k) {
         for (PetscInt j = ys; j < ye; ++j) {
             for (PetscInt i = xs; i < xe; ++i) {
                 p[k][j][i] = PeriodicScalarValue(i, j, k, 0.0);
                 cs[k][j][i] = PeriodicScalarValue(i, j, k, 1000.0);
                 diffusivity[k][j][i] = PeriodicScalarValue(i, j, k, 2000.0);
+                ucat[k][j][i] = (Cmpnts){PeriodicScalarValue(i,j,k,3000.0),0.0,0.0};
             }
         }
     }
     PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
     PetscCall(DMDAVecRestoreArray(user->da, user->CS, &cs));
     PetscCall(DMDAVecRestoreArray(user->da, user->Diffusivity, &diffusivity));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
 
-    PetscCall(SynchronizePeriodicCellFields(user, 3, fields));
+    PetscCall(SynchronizePeriodicCellFields(user, 4, fields));
 
     PetscCall(DMDAVecGetArrayRead(user->da, user->P, &p));
     PetscCall(DMDAVecGetArrayRead(user->da, user->CS, &cs));
     PetscCall(DMDAVecGetArrayRead(user->da, user->Diffusivity, &diffusivity));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
     if (xs == 0) {
         for (PetscInt k = zs; k < ze; ++k) {
             for (PetscInt j = ys; j < ye; ++j) {
@@ -170,6 +175,8 @@ static PetscErrorCode TestPeriodicCellFieldSynchronizationMultiRank(void)
                                                "distributed CS negative endpoint should copy the opposite interior"));
                 PetscCall(PicurvAssertRealNear(PeriodicScalarValue(mx - 2, j, k, 2000.0), diffusivity[k][j][0], 1.0e-12,
                                                "distributed Diffusivity negative endpoint should copy the opposite interior"));
+                PetscCall(PicurvAssertRealNear(PeriodicScalarValue(mx-2,j,k,3000.0),ucat[k][j][0].x,1e-12,
+                                               "distributed Ucat negative endpoint should copy the opposite interior"));
             }
         }
     }
@@ -182,12 +189,21 @@ static PetscErrorCode TestPeriodicCellFieldSynchronizationMultiRank(void)
                                                "distributed CS positive endpoint should copy the opposite interior"));
                 PetscCall(PicurvAssertRealNear(PeriodicScalarValue(1, j, k, 2000.0), diffusivity[k][j][mx - 1], 1.0e-12,
                                                "distributed Diffusivity positive endpoint should copy the opposite interior"));
+                PetscCall(PicurvAssertRealNear(PeriodicScalarValue(1,j,k,3000.0),ucat[k][j][mx-1].x,1e-12,
+                                               "distributed Ucat positive endpoint should copy the leading interior"));
             }
         }
     }
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->P, &p));
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->CS, &cs));
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->Diffusivity, &diffusivity));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(DMDAVecGetArrayRead(user->fda,user->lUcat,&ucat));
+    if(xs==0) PetscCall(PicurvAssertRealNear(PeriodicScalarValue(1,2,2,3000.0),ucat[2][2][-1].x,1e-12,
+                                             "distributed local Ucat negative ghost follows corrected global endpoint"));
+    if(xe==mx) PetscCall(PicurvAssertRealNear(PeriodicScalarValue(mx-2,2,2,3000.0),ucat[2][2][mx].x,1e-12,
+                                              "distributed local Ucat positive ghost follows corrected global endpoint"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda,user->lUcat,&ucat));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
