@@ -19,9 +19,10 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     PROFILE_FUNCTION_BEGIN;
 
     if (simCtx->mom_solver_type != MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK &&
-        simCtx->mom_solver_type != MOMENTUM_SOLVER_EXPLICIT_RK) {
+        simCtx->mom_solver_type != MOMENTUM_SOLVER_EXPLICIT_RK &&
+        simCtx->mom_solver_type != MOMENTUM_SOLVER_NEWTON_KRYLOV) {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                "Unknown momentum solver type %d. Supported values are EXPLICIT_RK and DUALTIME_PICARD_JAMESON_RK.",
+                "Unknown momentum solver type %d. Supported values are EXPLICIT_RK, DUALTIME_PICARD_JAMESON_RK, and NEWTON_KRYLOV.",
                 simCtx->mom_solver_type);
     }
 
@@ -108,8 +109,10 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     if(simCtx->mom_solver_type == MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK) {
         ierr = MomentumSolver_DualTime_Picard_JamesonRK(user,NULL,NULL); CHKERRQ(ierr);
     } else if(simCtx->mom_solver_type == MOMENTUM_SOLVER_EXPLICIT_RK) {   
-    // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
-    ierr = MomentumSolver_Explicit_RungeKutta4(user, NULL, NULL); CHKERRQ(ierr);
+        // Since IBM is disabled, we pass NULL for ibm and fsi arguments.
+        ierr = MomentumSolver_Explicit_RungeKutta4(user, NULL, NULL); CHKERRQ(ierr);
+    } else if (simCtx->mom_solver_type == MOMENTUM_SOLVER_NEWTON_KRYLOV) {
+        ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL); CHKERRQ(ierr);
     }
 // ========================================================================
 //   SECTION: Pressure-Poisson Solver

@@ -37,10 +37,9 @@ PetscReal MomentumBDFCoefficient(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "ComputeTotalResidual"
 /**
- * @brief Internal helper implementation: `ComputeTotalResidual()`.
- * @details Local to this translation unit.
+ * @brief Shared implementation of `ComputeTotalResidual()`.
  */
-static PetscErrorCode ComputeTotalResidual(UserCtx *user)
+PetscErrorCode ComputeTotalResidual(UserCtx *user)
 {
     PetscErrorCode ierr;
     SimCtx *simCtx = user->simCtx;

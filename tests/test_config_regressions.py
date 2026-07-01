@@ -648,6 +648,38 @@ def test_parse_solver_config_maps_canonical_jameson_controls():
     assert flags["-mom_dt_jameson_residual_norm_noise_allowance_factor"] == 1.07
 
 
+def test_parse_solver_config_emits_newton_krylov_and_preserves_prefixed_petsc_options():
+    """! @brief Newton Krylov reuses selection and raw PETSc passthrough paths. """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "strategy": {"momentum_solver": "Newton Krylov"},
+        "petsc_passthrough_options": {
+            "-mom_nk_snes_rtol": 1.0e-8,
+            "-mom_nk_ksp_max_it": 100,
+            "-mom_nk_snes_monitor": True,
+        },
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-mom_solver_type"] == '"newton_krylov"'
+    assert flags["-mom_nk_snes_rtol"] == "1e-08"
+    assert flags["-mom_nk_ksp_max_it"] == "100"
+    assert flags["-mom_nk_snes_monitor"] == "1"
+
+
+def test_parse_solver_config_rejects_version_one_newton_specific_block():
+    """! @brief Version one has fixed operator/PC choices and no YAML solver block. """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "strategy": {"momentum_solver": "Newton Krylov"},
+        "momentum_solver": {"newton_krylov": {"preconditioner": "none"}},
+    }
+
+    with pytest.raises(ValueError, match="Unsupported momentum_solver"):
+        picurv.parse_solver_config(solver_cfg)
+
+
 def test_parse_solver_config_maps_ratio_ema_alpha():
     """!
     @brief Test ratio_ema_alpha translates to -mom_ratio_ema_alpha.

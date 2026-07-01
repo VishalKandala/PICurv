@@ -143,7 +143,7 @@ SIMULATOR_OBJS := $(addprefix $(OBJDIR)/, \
                  simulator.o setup.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
                  Boundaries.o BC_Handlers.o wallfunction.o runloop.o walkingsearch.o BodyForces.o\
                  ParticleSwarm.o ParticleMotion.o ParticlePhysics.o interpolation.o \
-                 initialcondition.o rhs.o solvers.o momentumsolvers.o poisson.o verification_sources.o\
+                 initialcondition.o rhs.o solvers.o momentumsolvers.o momentum_newton_krylov.o poisson.o verification_sources.o\
 				 les.o  Filter.o)
 
 POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
@@ -161,6 +161,7 @@ DOCTOR_EXE        := $(TESTBINDIR)/doctor
 UNIT_GEOMETRY_EXE := $(TESTBINDIR)/unit_geometry
 UNIT_SETUP_EXE    := $(TESTBINDIR)/unit_setup
 UNIT_SOLVER_EXE   := $(TESTBINDIR)/unit_solver
+UNIT_NEWTON_KRYLOV_EXE := $(TESTBINDIR)/unit_momentum_newton_krylov
 UNIT_PARTICLES_EXE := $(TESTBINDIR)/unit_particles
 UNIT_IO_EXE       := $(TESTBINDIR)/unit_io
 UNIT_LOGGING_EXE  := $(TESTBINDIR)/unit_logging
@@ -182,6 +183,7 @@ DOCTOR_OBJ        := $(TESTOBJDIR)/test_install_check.o
 UNIT_GEOMETRY_OBJ := $(TESTOBJDIR)/test_geometry.o
 UNIT_SETUP_OBJ    := $(TESTOBJDIR)/test_setup_lifecycle.o
 UNIT_SOLVER_OBJ   := $(TESTOBJDIR)/test_solver_kernels.o
+UNIT_NEWTON_KRYLOV_OBJ := $(TESTOBJDIR)/test_momentum_newton_krylov.o
 UNIT_CANDIDATES_EXE := $(TESTBINDIR)/unit_momentum_candidates
 UNIT_CANDIDATES_OBJ := $(TESTOBJDIR)/test_momentum_convective_candidates.o
 UNIT_PARTICLES_OBJ := $(TESTOBJDIR)/test_particle_kernels.o
@@ -304,6 +306,12 @@ $(UNIT_SOLVER_EXE): $(UNIT_SOLVER_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) |
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+# The focused test includes a renamed copy for private-callback checks and also
+# links the production object for public lifecycle/coverage checks.
+$(UNIT_NEWTON_KRYLOV_EXE): $(UNIT_NEWTON_KRYLOV_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 $(UNIT_CANDIDATES_EXE): $(UNIT_CANDIDATES_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
@@ -372,7 +380,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -441,6 +449,12 @@ unit-setup: $(UNIT_SETUP_EXE)
 ## @brief Runs the solver utility C unit tests.
 unit-solver: $(UNIT_SOLVER_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
+## @target unit-newton-krylov
+## @brief Runs focused matrix-free Newton--Krylov momentum tests on one and multiple ranks.
+unit-newton-krylov: $(UNIT_NEWTON_KRYLOV_EXE)
+	@$(MPI_LAUNCHER) -n 1 $< $(TEST_ARGS)
+	@$(MPI_LAUNCHER) -n $(TEST_MPI_NPROCS) $< $(TEST_ARGS)
 
 ## @target unit-momentum-candidates
 ## @brief Runs the A4a convective-candidate study (FD Jacobian + RK; states A-C).
@@ -519,11 +533,11 @@ unit-periodic-dev: unit-periodic
 
 ## @target unit-simulation
 ## @brief Runs the simulation-core debugging suites without the setup/post/IO layers.
-unit-simulation: unit-boundaries unit-solver unit-poisson-rhs unit-runtime unit-particles
+unit-simulation: unit-boundaries unit-solver unit-newton-krylov unit-poisson-rhs unit-runtime unit-particles
 
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
-unit: unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-periodic
+unit: unit-geometry unit-setup unit-solver unit-newton-krylov unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-periodic
 
 ## @target ctest
 ## @brief Compatibility alias for `unit`.

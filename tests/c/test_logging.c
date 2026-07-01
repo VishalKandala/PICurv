@@ -646,6 +646,8 @@ static PetscErrorCode TestStringConversionHelpers(void)
                                "LESModelToString should report the constant model"));
     PetscCall(PicurvAssertBool(strcmp(MomentumSolverTypeToString(MOMENTUM_SOLVER_EXPLICIT_RK), "Explicit 4 stage Runge-Kutta ") == 0,
                                "MomentumSolverTypeToString should report the explicit solver"));
+    PetscCall(PicurvAssertBool(strcmp(MomentumSolverTypeToString(MOMENTUM_SOLVER_NEWTON_KRYLOV), "Newton Krylov") == 0,
+                               "MomentumSolverTypeToString should report the Newton Krylov solver"));
     PetscCall(PicurvAssertBool(strcmp(BCTypeToString(PERIODIC), "PERIODIC") == 0,
                                "BCTypeToString should report periodic boundaries"));
     PetscCall(PicurvAssertBool(strcmp(BCHandlerTypeToString(BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX), "constant flux") == 0,

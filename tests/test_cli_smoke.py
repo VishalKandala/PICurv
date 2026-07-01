@@ -1501,6 +1501,13 @@ def test_momentum_solver_jameson_name_accepts_rk4_compatibility_alias():
     assert picurv.normalize_momentum_solver_type("Dual Time Picard RK4") == "DUALTIME_PICARD_JAMESON_RK"
 
 
+def test_momentum_solver_newton_krylov_uses_canonical_runtime_value():
+    """! @brief Newton Krylov normalizes to the version-one C parser value. """
+    picurv = load_picurv_module()
+
+    assert picurv.normalize_momentum_solver_type("Newton Krylov") == "newton_krylov"
+
+
 def test_normalize_analytical_type_accepts_uniform_flow():
     """!
     @brief Test that normalize_analytical_type accepts the UNIFORM_FLOW selector.

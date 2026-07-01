@@ -758,6 +758,7 @@ const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag)
     switch(SolverFlag){
         case MOMENTUM_SOLVER_EXPLICIT_RK: return "Explicit 4 stage Runge-Kutta ";
         case MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK: return "Dual Time Picard with 4-stage Jameson RK Smoothing";
+        case MOMENTUM_SOLVER_NEWTON_KRYLOV: return "Newton Krylov";
         default: return "Unknown Momentum Solver Type";
     }
 }

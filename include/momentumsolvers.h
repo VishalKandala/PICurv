@@ -25,6 +25,23 @@
 extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
 
 /**
+ * @brief Solves one physical momentum step with matrix-free Newton--Krylov.
+ *
+ * Version one uses a finite-difference matrix-free Jacobian, GMRES, and no
+ * preconditioner. All PETSc solver objects are local to this call. Rows removed
+ * by legacy boundary residual enforcement are made explicit: conditioned normal
+ * rows use X-Uconditioned, untouched dummy/tangential rows use X, and periodic
+ * duplicates use Xdup-Xrepresentative. Unsupported masked, interface, and
+ * component-disabled rows are rejected before setup.
+ *
+ * @param user Single-block momentum context.
+ * @param ibm  Must be NULL; immersed boundaries are not supported in version one.
+ * @param fsi  Must be NULL; moving-body coupling is not supported in version one.
+ * @return 0 on convergence, PETSC_ERR_CONV_FAILED after rollback on nonconvergence.
+ */
+PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
+
+/**
  * @brief Solves the momentum equations using dual-time Picard iteration with Jameson RK smoothing.
  *
  * =================================================================================================
@@ -105,6 +122,13 @@ PetscBool MomentumUsesBDF2(SimCtx *simCtx);
  * @return a0 in {1.0, 1.5}.
  */
 PetscReal MomentumBDFCoefficient(SimCtx *simCtx);
+
+/**
+ * @brief Computes the shared spatial-plus-BDF momentum residual in user->Rhs.
+ * @param user Block context with an allocated Rhs vector.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode ComputeTotalResidual(UserCtx *user);
 
 /*================================================================================*
  *                 MOMENTUM PSEUDO-TIME STABILITY ESTIMATE (SHADOW)               *

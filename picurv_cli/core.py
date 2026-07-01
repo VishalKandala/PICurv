@@ -6980,11 +6980,12 @@ def normalize_momentum_solver_type(value: str) -> str:
         "Explicit RK4": "EXPLICIT_RK",
         "Dual Time Picard Jameson RK": "DUALTIME_PICARD_JAMESON_RK",
         "Dual Time Picard RK4": "DUALTIME_PICARD_JAMESON_RK",
+        "Newton Krylov": "newton_krylov",
     }.get(raw)
     if mapped is None:
         raise ValueError(
             f"Unknown momentum solver '{value}'. Use one of: "
-            "'Explicit RK4', 'Dual Time Picard Jameson RK'."
+            "'Explicit RK4', 'Dual Time Picard Jameson RK', 'Newton Krylov'."
         )
     return mapped
 

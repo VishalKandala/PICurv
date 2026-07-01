@@ -586,8 +586,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
             simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK;
         } else if (strcmp(mom_solver_type_char, "EXPLICIT_RK") == 0) {
             simCtx->mom_solver_type = MOMENTUM_SOLVER_EXPLICIT_RK;
+        } else if (strcmp(mom_solver_type_char, "newton_krylov") == 0) {
+            simCtx->mom_solver_type = MOMENTUM_SOLVER_NEWTON_KRYLOV;
         } else {
-            LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_JAMESON_RK', 'EXPLICIT_RK'.\n", mom_solver_type_char);
+            LOG(GLOBAL, LOG_ERROR, "Invalid value for -mom_solver_type: '%s'. Valid options are: 'DUALTIME_PICARD_JAMESON_RK', 'EXPLICIT_RK', 'newton_krylov'.\n", mom_solver_type_char);
             SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -mom_solver_type: '%s'.", mom_solver_type_char);
         }
     }
