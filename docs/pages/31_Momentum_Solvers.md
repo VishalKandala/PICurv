@@ -15,6 +15,7 @@ Accepted YAML values:
 
 - `Explicit RK4` -> `EXPLICIT_RK`
 - `Dual Time Picard Jameson RK` -> `DUALTIME_PICARD_JAMESON_RK`
+- `Newton Krylov` -> `newton_krylov`
 
 Only implemented values are exposed in the enum, parser, and dispatcher. New
 solver values should be added only with a real implementation plus matching
@@ -24,10 +25,50 @@ For compatibility, the former `Dual Time Picard RK4` YAML display name and
 `DUALTIME_PICARD_RK4` C CLI value still select the Jameson solver. New
 configuration and code must use the Jameson names.
 
+@section p31_approaches_sec 1a. The Two Momentum-Solution Approaches
+
+Beyond the explicit RK4 verification path, PICurv provides **two distinct
+implicit-in-physical-time momentum-solution approaches**. They are genuinely
+different algorithms, not two names for the same method, and they have different
+numerical behavior, controls, and maturity. Choose one with
+`strategy.momentum_solver`.
+
+**Dual-time Picard--Jameson** (`Dual Time Picard Jameson RK`) — the established,
+comparatively robust default. It advances the implicit BDF2 update with a
+fixed-point / pseudo-time iteration using staged Jameson RK smoothing. It is
+controlled through pseudo-CFL and pseudo-iteration settings, may need
+conservative pseudo-CFL values, and can converge slowly in demanding
+high-Reynolds-number or near-inviscid regimes. It does **not** use SNES/GMRES
+matrix-free Newton linearizations. Full details: @ref 24_Dual_Time_Picard_Jameson_RK.
+
+**Newton--Krylov** (`Newton Krylov`) — a newer matrix-free nonlinear solver. It
+solves the momentum residual with PETSc `SNES`, using matrix-free
+Jacobian--vector products (finite-difference `Jv`), an inner GMRES Krylov solve,
+and a backtracking line search. It exposes nonlinear, line-search, GMRES, and
+preconditioner controls, currently supports the tested unpreconditioned path, and
+requires a deterministic residual (its Cartesian boundary state is reconstructed
+from the current trial vector before boundary conditions are applied). Its
+convergence diagnostics and failure modes (`SNES`/`KSP` reasons) differ from the
+Picard solver. It has a **narrower, explicitly validated scope** — see its
+dedicated page: @ref 55_Newton_Krylov_Momentum_Solver.
+
+Selection guidance (within the evidence available today):
+
+- Prefer **Dual-time Picard--Jameson** for general production runs, complex
+  geometries, and cases outside the Newton--Krylov version-one scope; it is the
+  broadly exercised path.
+- Consider **Newton--Krylov** on supported single-block cases when you want true
+  Newton convergence behavior and `SNES`/`KSP`-style diagnostics, keeping its
+  scope restrictions (Section 1 of @ref 55_Newton_Krylov_Momentum_Solver) in mind.
+- Use **Explicit RK4** for verification or when the explicit stability limit is
+  affordable.
+
 @section p31_status_sec 2. Implementation Status Matrix
 
 - `EXPLICIT_RK`: implemented by @ref MomentumSolver_Explicit_RungeKutta4
 - `DUALTIME_PICARD_JAMESON_RK`: implemented by @ref MomentumSolver_DualTime_Picard_JamesonRK
+- `newton_krylov`: implemented by @ref MomentumSolver_NewtonKrylov (matrix-free PETSc
+  SNES/GMRES; narrow validated version-one scope — see @ref 55_Newton_Krylov_Momentum_Solver)
 
 @section p31_controls_sec 3. Numerical Controls In Use
 

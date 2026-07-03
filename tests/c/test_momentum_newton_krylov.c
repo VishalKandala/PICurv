@@ -181,15 +181,27 @@ static PetscErrorCode CheckResidualRepeatabilityForBC(const char *bcs, const cha
     ctx.user = user;
 
     PetscCall(MomentumNewtonKrylov_FormResidual(NULL, x, f1, &ctx));
+    /* Poison every piece of hidden state a non-deterministic residual could lean
+     * on: the boundary flux/area diagnostics AND the persistent Cartesian fields
+     * (Ucat/lUcat). The conservation-outlet handler reads lUcat during its first
+     * boundary sweep, so a callback that does not reconstruct the Cartesian state
+     * from X before applying boundary conditions would produce a different F here.
+     * This assertion therefore fails if the deterministic pre-boundary seed in
+     * MomentumNewtonKrylov_FormResidual() is ever removed. */
     simCtx->FluxInSum = 1234.0;
     simCtx->FluxOutSum = -4321.0;
     simCtx->FarFluxInSum = 77.0;
     simCtx->FarFluxOutSum = -88.0;
+    PetscCall(VecSet(user->Ucat, 7.0));
+    PetscCall(VecSet(user->lUcat, 7.0));
     PetscCall(MomentumNewtonKrylov_FormResidual(NULL, x, f2, &ctx));
     PetscCall(VecWAXPY(delta, -1.0, f1, f2));
     PetscCall(VecNorm(delta, NORM_INFINITY, &norm));
+    PetscCheck(norm <= 1.0e-13, PETSC_COMM_WORLD, PETSC_ERR_PLIB,
+               "%s residual changed between identical evaluations (inf norm=%g).", label, (double)norm);
+    PetscCall(VecNorm(delta, NORM_2, &norm));
     PetscCheck(norm <= 1.0e-12, PETSC_COMM_WORLD, PETSC_ERR_PLIB,
-               "%s residual changed between identical evaluations (norm=%g).", label, (double)norm);
+               "%s residual changed between identical evaluations (L2 norm=%g).", label, (double)norm);
     PetscCall(VecWAXPY(delta, -1.0, x_copy, x));
     PetscCall(VecNorm(delta, NORM_INFINITY, &norm));
     PetscCheck(norm == 0.0, PETSC_COMM_WORLD, PETSC_ERR_PLIB,
@@ -279,16 +291,14 @@ static PetscErrorCode GetStoredValue(UserCtx *user, Vec vec, PetscInt i, PetscIn
  * @param col_j Perturbed unknown j index.
  * @param col_k Perturbed unknown k index.
  * @param col_component Perturbed unknown component.
- * @param expected Expected derivative.
- * @param tolerance Absolute derivative tolerance.
- * @param label Assertion label.
+ * @param derivative Returned finite-difference derivative of the row w.r.t. the unknown.
  * @return PetscErrorCode 0 on success.
  */
-static PetscErrorCode CheckStoredDerivative(UserCtx *user, Vec x,
-                                            PetscInt row_i, PetscInt row_j, PetscInt row_k,
-                                            PetscInt row_component, PetscInt col_i, PetscInt col_j,
-                                            PetscInt col_k, PetscInt col_component,
-                                            PetscReal expected, PetscReal tolerance, const char *label)
+static PetscErrorCode MeasureStoredDerivative(UserCtx *user, Vec x,
+                                              PetscInt row_i, PetscInt row_j, PetscInt row_k,
+                                              PetscInt row_component, PetscInt col_i, PetscInt col_j,
+                                              PetscInt col_k, PetscInt col_component,
+                                              PetscReal *derivative)
 {
     const PetscReal epsilon = 1.0e-6;
     Vec f0 = NULL, fp = NULL, xp = NULL;
@@ -306,11 +316,42 @@ static PetscErrorCode CheckStoredDerivative(UserCtx *user, Vec x,
     PetscCall(MomentumNewtonKrylov_FormResidual(NULL, xp, fp, &ctx));
     PetscCall(GetStoredValue(user, f0, row_i, row_j, row_k, row_component, &base_value));
     PetscCall(GetStoredValue(user, fp, row_i, row_j, row_k, row_component, &perturbed_value));
-    PetscCall(PicurvAssertRealNear(expected,
-        PetscRealPart((perturbed_value - base_value) / epsilon), tolerance, label));
+    *derivative = PetscRealPart((perturbed_value - base_value) / epsilon);
     PetscCall(VecDestroy(&xp));
     PetscCall(VecDestroy(&fp));
     PetscCall(VecDestroy(&f0));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/**
+ * @brief Asserts one finite-differenced callback row derivative equals an expected value.
+ * @param user Active block context with allocated Rhs.
+ * @param x Base trial vector.
+ * @param row_i Residual-row i index.
+ * @param row_j Residual-row j index.
+ * @param row_k Residual-row k index.
+ * @param row_component Residual-row component.
+ * @param col_i Perturbed unknown i index.
+ * @param col_j Perturbed unknown j index.
+ * @param col_k Perturbed unknown k index.
+ * @param col_component Perturbed unknown component.
+ * @param expected Expected derivative.
+ * @param tolerance Absolute derivative tolerance.
+ * @param label Assertion label.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode CheckStoredDerivative(UserCtx *user, Vec x,
+                                            PetscInt row_i, PetscInt row_j, PetscInt row_k,
+                                            PetscInt row_component, PetscInt col_i, PetscInt col_j,
+                                            PetscInt col_k, PetscInt col_component,
+                                            PetscReal expected, PetscReal tolerance, const char *label)
+{
+    PetscReal derivative = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(MeasureStoredDerivative(user, x, row_i, row_j, row_k, row_component,
+                                      col_i, col_j, col_k, col_component, &derivative));
+    PetscCall(PicurvAssertRealNear(expected, derivative, tolerance, label));
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -479,9 +520,31 @@ static PetscErrorCode TestInletOutletConstraintDerivatives(void)
     PetscCall(VecShift(x, 0.1));
     PetscCall(CheckStoredDerivative(user, x, 2, 2, 0, 2, 2, 2, 0, 2,
                                      1.0, 1.0e-8, "constant inlet fixed derivative"));
-    PetscCall(CheckStoredDerivative(user, x, 2, 2, user->info.mz - 2, 2,
-                                     2, 2, user->info.mz - 2, 2,
-                                     1.0, 5.0e-6, "conservation outlet fixed derivative"));
+    /* The constant-velocity inlet imposes a value independent of X, so its
+     * conditioned row F = X - cv has an exact unit self derivative.
+     *
+     * The conservation outlet is different: cv is the corrected outlet flux,
+     * which the deterministic residual now reconstructs from the current X
+     * (Ucat is seeded from X before the first outlet pass). Perturbing the
+     * outlet-normal DOF therefore changes cv, so the self derivative is
+     * 1 - dcv/dX and is strictly less than one. A self derivative of exactly
+     * 1.0 here was an artifact of the pre-fix residual reading a stale
+     * Cartesian state, i.e. an outlet correction decoupled from X. Assert the
+     * derivative is (a) deterministic across independent evaluations -- the
+     * residual-purity property -- and (b) reflects real conservation coupling
+     * (0 < d < 1), rather than asserting a fixture-specific magic number. */
+    {
+        PetscReal d0 = 0.0, d1 = 0.0;
+        PetscCall(MeasureStoredDerivative(user, x, 2, 2, user->info.mz - 2, 2,
+                                          2, 2, user->info.mz - 2, 2, &d0));
+        PetscCall(MeasureStoredDerivative(user, x, 2, 2, user->info.mz - 2, 2,
+                                          2, 2, user->info.mz - 2, 2, &d1));
+        PetscCall(PicurvAssertRealNear(d0, d1, 1.0e-9,
+            "conservation outlet self derivative must be deterministic"));
+        PetscCheck(d0 > 1.0e-3 && d0 < 1.0 - 1.0e-3, PETSC_COMM_WORLD, PETSC_ERR_PLIB,
+            "conservation outlet self derivative must reflect X-coupling (0<d<1), got %g.",
+            (double)d0);
+    }
     PetscCall(VecDestroy(&x));
     PetscCall(VecDestroy(&user->Rhs));
     PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));

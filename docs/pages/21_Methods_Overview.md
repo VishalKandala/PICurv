@@ -48,6 +48,7 @@ The method pages below document each major stage in detail.
 - **@subpage 31_Momentum_Solvers**: supported momentum-solver options and dispatch status.
 - **@subpage 32_Analytical_Solutions**: analytical Eulerian modes and geometry policies.
 - **@subpage 33_Initial_Conditions**: Eulerian and particle initialization modes.
+- **@subpage 55_Newton_Krylov_Momentum_Solver**: matrix-free PETSc SNES/GMRES momentum solver and its deterministic-residual invariant.
 - **@subpage 34_Particle_Model_Overview**: end-to-end particle model pipeline.
 - **@subpage 44_Boundary_Conditions_Guide**: boundary handler combinations and runtime enforcement path.
 - **@subpage 45_Particle_Initialization_and_Restart**: detailed particle seeding/restart/migration behavior.

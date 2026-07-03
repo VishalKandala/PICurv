@@ -37,6 +37,43 @@ Use `strategy.momentum_solver` with exact values:
 - `Dual Time Picard Jameson RK`
 - `Newton Krylov`
 
+These are two genuinely different implicit momentum approaches plus the explicit
+verification path. `Dual Time Picard Jameson RK` is the established pseudo-time
+fixed-point solver (tuned through pseudo-CFL and pseudo-iterations). `Newton
+Krylov` is the newer matrix-free PETSc SNES/GMRES solver with a narrower validated
+scope. See the momentum-solver overview and the dedicated Newton--Krylov page:
+- https://vishalkandala.me/picurv-docs/31_Momentum_Solvers.html
+- https://vishalkandala.me/picurv-docs/55_Newton_Krylov_Momentum_Solver.html
+
+When `strategy.momentum_solver` is `Newton Krylov`, tune it under the structured
+`momentum_solver.newton_krylov` block (`nonlinear_solver` and `linear_solver`
+sub-blocks). Omitted fields keep the C/PETSc defaults; only
+`preconditioner.type: none` is supported today:
+
+```yaml
+strategy:
+  momentum_solver: "Newton Krylov"
+momentum_solver:
+  newton_krylov:
+    nonlinear_solver:
+      method: "newtonls"
+      absolute_tolerance: 1.0e-10
+      relative_tolerance: 1.0e-8
+      step_tolerance: 1.0e-12
+      max_iterations: 25
+      line_search:
+        type: "bt"
+    linear_solver:
+      method: "gmres"
+      absolute_tolerance: 1.0e-10
+      relative_tolerance: 1.0e-6
+      max_iterations: 400
+      gmres:
+        restart: 80
+      preconditioner:
+        type: "none"
+```
+
 Any newly introduced selector should only be exposed after parser normalization, runtime dispatch, and docs/tests are updated in one cohesive change.
 
 Verification-only source overrides should stay under the structured `verification.*` namespace and be implemented in `verification_sources.*` rather than as one-off production flags.

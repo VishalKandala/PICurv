@@ -69,6 +69,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 53_Search_Robustness_Metrics_Reference**
 - **@subpage 28_IEM_and_Statistical_Averaging**
 - **@subpage 31_Momentum_Solvers**
+- **@ref 55_Newton_Krylov_Momentum_Solver** — matrix-free Newton--Krylov momentum solver.
 - **@subpage 32_Analytical_Solutions**
 
 @section p47_runtime_axis_sec 4. Runtime and Source Architecture

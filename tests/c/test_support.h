@@ -46,6 +46,13 @@ PetscErrorCode PicurvBuildTinyRuntimeContext(const char *bcs_contents,
                                              char *tmpdir,
                                              size_t tmpdir_len);
 
+/** @brief Builds the production-sized straight-duct fixture used by the opt-in residual-purity diagnostic. */
+PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
+                                                       SimCtx **simCtx_out,
+                                                       UserCtx **user_out,
+                                                       char *tmpdir,
+                                                       size_t tmpdir_len);
+
 /** @brief Finalizes and frees a runtime context built by `PicurvBuildTinyRuntimeContext`. */
 PetscErrorCode PicurvDestroyRuntimeContext(SimCtx **simCtx_ptr);
 

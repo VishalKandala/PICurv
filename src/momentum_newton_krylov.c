@@ -363,10 +363,26 @@ static PetscErrorCode MomentumNewtonKrylov_ApplyConstraints(MomentumNewtonKrylov
 /**
  * @brief Adapts a PETSc trial vector to the existing momentum residual path.
  *
- * Supported handlers may overwrite flux totals and other diagnostics on every
- * call, but repeatability tests require those values not to affect a later call
- * at the same X. No histories, pressure, viscosity, or controller state advance
- * is performed here.
+ * A matrix-free SNES residual must be a deterministic function of the trial
+ * vector X alone: F(X) may not depend on any state left by a previous residual
+ * or MFFD evaluation, or finite-difference Jacobian actions become inconsistent.
+ * To honor that contract this callback fully derives the Cartesian velocity
+ * state (Ucat/lUcat) from X before the first boundary sweep -- see the inline
+ * comment below for why ApplyBoundaryConditions()'s own internal reconstruction
+ * is not sufficient for the first outlet pass.
+ *
+ * State invariants:
+ *   - On entry, X is the only input that determines the result; user->Ucont,
+ *     user->Ucat and their local ghosts are treated as scratch and are fully
+ *     overwritten from X.
+ *   - Supported handlers may overwrite flux totals and other diagnostics on
+ *     every call, but those values must not affect a later call at the same X;
+ *     the deterministic seed guarantees this.
+ *   - No histories, pressure, viscosity, or controller state advance here.
+ *
+ * Side effects: overwrites user->Ucont/lUcont, user->Ucat/lUcat, user->Rhs, the
+ * boundary Ubcs targets, and boundary flux/area diagnostics; writes F.
+ *
  * @param snes Calling nonlinear solver.
  * @param X Trial solution (read-only).
  * @param F Residual output.
@@ -378,11 +394,51 @@ static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F,
     MomentumNewtonKrylovContext *ctx = (MomentumNewtonKrylovContext *)vctx;
     UserCtx *user = ctx->user;
     const char *staggered_fields[] = {"Ucont"};
+    const char *cell_fields[] = {"Ucat"};
 
     PetscFunctionBeginUser;
     (void)snes;
     PetscCall(VecCopy(X, user->Ucont));
     PetscCall(SynchronizePeriodicStaggeredFields(user, 1, staggered_fields));
+
+    /* Deterministic pre-boundary Cartesian seed. Establish the full Ucat/lUcat
+     * state from the current X before any boundary handler runs:
+     *
+     *     X -> Ucont/lUcont -> Ucat -> periodic Ucat -> lUcat -> boundaries
+     *
+     * Why this is required, and why it is NOT redundant with the reconstruction
+     * already performed inside ApplyBoundaryConditions():
+     *
+     *  1. A matrix-free SNES residual must be a deterministic function of X. If
+     *     the Cartesian state is left over from a previous residual/MFFD call,
+     *     F(X) becomes history dependent and the finite-difference Jacobian
+     *     action Jv = (F(X+hv)-F(X))/h is invalidated.
+     *  2. The conservation-outlet handler reads lUcat during the FIRST boundary
+     *     sweep (it measures the uncorrected outflow and builds the outlet
+     *     profile from the Cartesian field). Without this seed it would read the
+     *     stale lUcat from the preceding evaluation.
+     *  3. ApplyBoundaryConditions() does reconstruct Ucat/lUcat, but only AFTER
+     *     each handler sweep (Contra2Cart runs after BoundarySystem_ExecuteStep
+     *     within every pass). Those internal updates therefore prepare passes 2
+     *     and 3 -- they cannot prepare the very first outlet read of pass 1.
+     *  4. Contra2Cart() rebuilds the global Ucat interior from the current
+     *     lUcont, but it does not by itself refresh lUcat (nor lUcont; that was
+     *     done by the SynchronizePeriodicStaggeredFields call above).
+     *  5. SynchronizePeriodicCellFields("Ucat") must run before the ghost
+     *     scatter so periodic duplicate planes are finalized consistently (it is
+     *     a no-op when no direction is periodic, as on the straight duct).
+     *  6. UpdateLocalGhosts("Ucat") is required because the outlet handler reads
+     *     lUcat -- the local ghosted vector -- not merely the global Ucat.
+     *
+     * Do NOT "simplify" this to a bare Contra2Cart(user), and do NOT delete it
+     * as apparently redundant with ApplyBoundaryConditions(): the three internal
+     * boundary passes remain necessary (they refresh the Cartesian state after
+     * each boundary correction), but only this sequence makes pass 1's input a
+     * deterministic function of X. */
+    PetscCall(Contra2Cart(user));
+    PetscCall(SynchronizePeriodicCellFields(user, 1, cell_fields));
+    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+
     PetscCall(ApplyBoundaryConditions(user));
     PetscCall(ComputeTotalResidual(user));
     PetscCall(VecCopy(user->Rhs, F));

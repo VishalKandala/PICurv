@@ -770,6 +770,77 @@ PetscErrorCode PicurvBuildTinyRuntimeContext(const char *bcs_contents,
     }
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Builds the production-sized straight-duct fixture used only by the
+ *        opt-in Newton residual-purity diagnostic.
+ */
+PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
+                                                       SimCtx **simCtx_out,
+                                                       UserCtx **user_out,
+                                                       char *tmpdir,
+                                                       size_t tmpdir_len)
+{
+    char bcs_path[PETSC_MAX_PATH_LEN];
+    char post_path[PETSC_MAX_PATH_LEN];
+    char output_dir[PETSC_MAX_PATH_LEN];
+    char log_dir[PETSC_MAX_PATH_LEN];
+    char control_path[PETSC_MAX_PATH_LEN];
+    char control_buffer[8192];
+    SimCtx *simCtx = NULL;
+    const char *default_bcs =
+        "-Xi WALL noslip\n"
+        "+Xi WALL noslip\n"
+        "-Eta WALL noslip\n"
+        "+Eta WALL noslip\n"
+        "-Zeta INLET constant_velocity vx=0.0 vy=0.0 vz=0.1\n"
+        "+Zeta OUTLET conservation\n";
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "SimCtx output cannot be NULL.");
+    PetscCall(PetscOptionsClear(NULL));
+    PetscCall(PicurvMakeTempDir(tmpdir, tmpdir_len));
+    PetscCall(PetscSNPrintf(bcs_path, sizeof(bcs_path), "%s/bcs.run", tmpdir));
+    PetscCall(PetscSNPrintf(post_path, sizeof(post_path), "%s/post.run", tmpdir));
+    PetscCall(PetscSNPrintf(output_dir, sizeof(output_dir), "%s/results", tmpdir));
+    PetscCall(PetscSNPrintf(log_dir, sizeof(log_dir), "%s/logs", tmpdir));
+    PetscCall(PetscSNPrintf(control_path, sizeof(control_path), "%s/test.control", tmpdir));
+    PetscCall(WriteTextFileForTests(bcs_path, bcs_contents ? bcs_contents : default_bcs));
+    PetscCall(WriteTextFileForTests(post_path,
+        "startTime = 0\nendTime = 1\ntimeStep = 1\noutput_particles = false\n"));
+    PetscCall(PetscSNPrintf(control_buffer, sizeof(control_buffer),
+        "-start_step 0\n"
+        "-totalsteps 2\n"
+        "-ren 10.0\n"
+        "-dt 0.001\n"
+        "-finit 1\n"
+        "-ucont_x 0.0\n-ucont_y 0.0\n-ucont_z 0.1\n"
+        "-bcs_files %s\n"
+        "-profiling_timestep_mode off\n-profiling_final_summary true\n"
+        "-postprocessing_config_file %s\n"
+        /* PICurv's programmatic grid counts include the leading physical node;
+         * 17x17x65 therefore represents 16x16x64 Cartesian cells. */
+        "-grid\n-im 17\n-jm 17\n-km 65\n"
+        "-xMins 0.0\n-xMaxs 1.0\n-yMins 0.0\n-yMaxs 1.0\n-zMins 0.0\n-zMaxs 4.0\n"
+        "-rxs 1.0\n-rys 1.0\n-rzs 1.0\n-cgrids 0\n-nblk 1\n"
+        "-euler_field_source solve\n-mom_solver_type newton_krylov\n"
+        "-mg_level 1\n-poisson 0\n-tio 0\n-numParticles 0\n-pinit 2\n"
+        "-particle_console_output_freq 0\n-logfreq 1\n"
+        "-output_dir %s\n-restart_dir %s\n-log_dir %s\n",
+        bcs_path, post_path, output_dir, output_dir, log_dir));
+    PetscCall(WriteTextFileForTests(control_path, control_buffer));
+    PetscCall(PetscOptionsSetValue(NULL, "-control_file", control_path));
+    PetscCall(CreateSimulationContext(0, NULL, &simCtx));
+    simCtx->exec_mode = EXEC_MODE_SOLVER;
+    PetscCall(SetupSimulationEnvironment(simCtx));
+    PetscCall(SetupGridAndSolvers(simCtx));
+    PetscCall(SetupBoundaryConditions(simCtx));
+    PetscCall(SetupDomainRankInfo(simCtx));
+    *simCtx_out = simCtx;
+    if (user_out) *user_out = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    PetscFunctionReturn(0);
+}
 /**
  * @brief Finalizes and frees a runtime context built by `PicurvBuildTinyRuntimeContext`.
  */

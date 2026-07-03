@@ -38,7 +38,7 @@ strategy:
 ```
 
 Mappings:
-- `momentum_solver` -> `-mom_solver_type` (`picurv` accepts `Explicit RK4` or `Dual Time Picard Jameson RK`)
+- `momentum_solver` -> `-mom_solver_type` (`picurv` accepts `Explicit RK4`, `Dual Time Picard Jameson RK`, or `Newton Krylov`)
 - `central_diff` -> `-central`
 
 Older boolean toggles are not supported; use `strategy.momentum_solver`.
@@ -324,6 +324,7 @@ For mapping and extension workflows:
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 31_Momentum_Solvers**
 - **@subpage 24_Dual_Time_Picard_Jameson_RK**
+- **@ref 55_Newton_Krylov_Momentum_Solver** — matrix-free Newton--Krylov momentum solver.
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**
 - **@subpage 50_Modular_Selector_Extension_Guide**
 

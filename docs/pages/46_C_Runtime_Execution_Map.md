@@ -118,6 +118,28 @@ Useful entry points:
 - @ref ApplyBoundaryConditions
 - @ref DeterminePeriodicity
 
+@subsection p46_residual_purity_sec 6a. Residual-Purity Invariant (Matrix-Free Solvers)
+
+Any field read by the momentum residual or its boundary handlers must be
+reconstructed or synchronized from the current SNES trial vector **before** it can
+influence `F(X)`. A matrix-free residual (@ref MomentumNewtonKrylov_FormResidual)
+that reads stale state is not a deterministic function of `X`, which breaks the
+finite-difference Jacobian action and the line search.
+
+Concretely, the Cartesian velocity state must be seeded in dependency order at the
+top of each residual evaluation, before @ref ApplyBoundaryConditions runs (the
+conservation-outlet handler reads `lUcat` on its first pass):
+
+```
+X / Ucont -> lUcont -> Ucat -> periodic Ucat finalization -> lUcat -> boundary application
+```
+
+`Contra2Cart()` alone is insufficient (it does not refresh `lUcat`), and the
+reconstruction inside `ApplyBoundaryConditions()` runs after the first handler
+sweep, so it cannot prepare that sweep. When adding a new field read by the
+residual or a boundary handler, seed it from `X` here or expect residual-purity
+regressions. See @ref 55_Newton_Krylov_Momentum_Solver, Section 5.
+
 @section p46_extension_sec 7. Safe Extension Workflow (C Side)
 
 When adding or changing physics behavior:

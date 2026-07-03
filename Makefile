@@ -162,6 +162,7 @@ UNIT_GEOMETRY_EXE := $(TESTBINDIR)/unit_geometry
 UNIT_SETUP_EXE    := $(TESTBINDIR)/unit_setup
 UNIT_SOLVER_EXE   := $(TESTBINDIR)/unit_solver
 UNIT_NEWTON_KRYLOV_EXE := $(TESTBINDIR)/unit_momentum_newton_krylov
+UNIT_NEWTON_FIXEDPOINT_EXE := $(TESTBINDIR)/unit_momentum_newton_boundary_fixedpoint
 UNIT_PARTICLES_EXE := $(TESTBINDIR)/unit_particles
 UNIT_IO_EXE       := $(TESTBINDIR)/unit_io
 UNIT_LOGGING_EXE  := $(TESTBINDIR)/unit_logging
@@ -184,6 +185,7 @@ UNIT_GEOMETRY_OBJ := $(TESTOBJDIR)/test_geometry.o
 UNIT_SETUP_OBJ    := $(TESTOBJDIR)/test_setup_lifecycle.o
 UNIT_SOLVER_OBJ   := $(TESTOBJDIR)/test_solver_kernels.o
 UNIT_NEWTON_KRYLOV_OBJ := $(TESTOBJDIR)/test_momentum_newton_krylov.o
+UNIT_NEWTON_FIXEDPOINT_OBJ := $(TESTOBJDIR)/test_momentum_newton_boundary_fixedpoint.o
 UNIT_CANDIDATES_EXE := $(TESTBINDIR)/unit_momentum_candidates
 UNIT_CANDIDATES_OBJ := $(TESTOBJDIR)/test_momentum_convective_candidates.o
 UNIT_PARTICLES_OBJ := $(TESTOBJDIR)/test_particle_kernels.o
@@ -312,6 +314,10 @@ $(UNIT_NEWTON_KRYLOV_EXE): $(UNIT_NEWTON_KRYLOV_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_NEWTON_FIXEDPOINT_EXE): $(UNIT_NEWTON_FIXEDPOINT_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Regression Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 $(UNIT_CANDIDATES_EXE): $(UNIT_CANDIDATES_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
@@ -380,7 +386,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -455,6 +461,16 @@ unit-solver: $(UNIT_SOLVER_EXE)
 unit-newton-krylov: $(UNIT_NEWTON_KRYLOV_EXE)
 	@$(MPI_LAUNCHER) -n 1 $< $(TEST_ARGS)
 	@$(MPI_LAUNCHER) -n $(TEST_MPI_NPROCS) $< $(TEST_ARGS)
+
+## @target unit-momentum-newton-boundary-fixedpoint
+## @brief Runs the opt-in Newton--Krylov production integration regression on one and four ranks.
+## @details Heavy fixture (full step-1 solve + step-2 solve + projection); kept out of
+##          `unit`/`check`. The cheap seed-removal detector lives in unit-newton-krylov.
+unit-momentum-newton-boundary-fixedpoint: $(UNIT_NEWTON_FIXEDPOINT_EXE)
+	@status=0; \
+	$(MPI_LAUNCHER) -n 1 $< $(TEST_ARGS) || status=$$?; \
+	$(MPI_LAUNCHER) -n 4 $< $(TEST_ARGS) || status=$$?; \
+	exit $$status
 
 ## @target unit-momentum-candidates
 ## @brief Runs the A4a convective-candidate study (FD Jacobian + RK; states A-C).

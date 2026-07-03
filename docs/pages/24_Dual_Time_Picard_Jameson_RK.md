@@ -2,7 +2,11 @@
 
 @anchor _Dual_Time_Picard_Jameson_RK
 
-This page documents the currently active implicit-style momentum strategy in PICurv: dual-time Picard iteration with Jameson RK pseudo-time smoothing.
+This page documents one of PICurv's two implicit-in-physical-time momentum
+strategies: the **dual-time Picard fixed-point / pseudo-time** solver, using
+Jameson RK pseudo-time smoothing. It is the established, broadly exercised default.
+For the alternative matrix-free Newton solver and for selection guidance between
+the two, see @ref 55_Newton_Krylov_Momentum_Solver and @ref 31_Momentum_Solvers.
 
 @tableofcontents
 
