@@ -125,7 +125,7 @@ io:
     particle_subdir: "particles" # [string] -> -particle_subdir
 
 # ==============================================================================
-# 5. SOLVER MONITORING (PASSTHROUGH)
+# 5. SOLVER MONITORING
 # ==============================================================================
 #
 # This section exposes common solver-monitor controls with readable names.
@@ -140,6 +140,10 @@ solver_monitoring:
     # PICurv structured nonlinear history (does not enable PETSc stdout monitors).
     # The Newton summary log is unconditional, like the Jameson/Poisson logs.
     newton_krylov_history: false  # -> -mom_nk_pic_monitor
+    snes_monitor: false           # -> -mom_nk_snes_monitor
+    snes_converged_reason: false  # -> -mom_nk_snes_converged_reason
+    ksp_monitor: false            # -> -mom_nk_ksp_monitor
+    ksp_converged_reason: false   # -> -mom_nk_ksp_converged_reason
   poisson:
     # Custom PICurv pressure-correction residual monitor.
     pic_true_residual: true       # -> -ps_ksp_pic_monitor_true_residual

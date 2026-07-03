@@ -70,6 +70,7 @@ strategy:
   # Accepted values:
   #   "Dual Time Picard Jameson RK"  -> implicit dual-time pseudo-stepping (recommended)
   #   "Explicit RK4"                 -> explicit fourth-order Runge-Kutta
+  #   "Newton Krylov"                -> matrix-free PETSc SNES/KSP solve
   momentum_solver: "Dual Time Picard Jameson RK" # -> -mom_solver_type
   central_diff: false # [true/false] -> -central
 
@@ -120,6 +121,28 @@ momentum_solver:
     # alpha = 0.3  : moderate smoothing; ~3-4 consecutive bad trials needed to trigger rejection
     # alpha = 0.0  : ratio never updates (disables ratio-based rejection entirely)
     # Increase alpha if the solver rejects too conservatively on noisy residual histories.
+
+  # Solver-specific controls for Newton Krylov. Uncomment only when
+  # strategy.momentum_solver is "Newton Krylov". Omitted fields retain the
+  # defaults established by src/momentum_newton_krylov.c and PETSc.
+  # newton_krylov:
+  #   nonlinear_solver:
+  #     method: "newtonls"           # -> -mom_nk_snes_type
+  #     absolute_tolerance: 1.0e-10  # -> -mom_nk_snes_atol
+  #     relative_tolerance: 1.0e-8   # -> -mom_nk_snes_rtol
+  #     step_tolerance: 1.0e-12      # -> -mom_nk_snes_stol
+  #     max_iterations: 12           # -> -mom_nk_snes_max_it
+  #     line_search:
+  #       type: "bt"                 # -> -mom_nk_snes_linesearch_type
+  #   linear_solver:
+  #     method: "gmres"              # -> -mom_nk_ksp_type
+  #     absolute_tolerance: 1.0e-10  # -> -mom_nk_ksp_atol
+  #     relative_tolerance: 1.0e-6   # -> -mom_nk_ksp_rtol
+  #     max_iterations: 400          # -> -mom_nk_ksp_max_it
+  #     gmres:
+  #       restart: 80                # -> -mom_nk_ksp_gmres_restart
+  #     preconditioner:
+  #       type: "none"               # -> -mom_nk_pc_type; only none is supported
 
 # --- Physical Solution Convergence Logging ---
 # This layer is separate from the inner solver-health logs. It always records
@@ -229,7 +252,7 @@ petsc_passthrough_options:
   # when tuning sub-KSP/sub-PC options for your PETSc version.
 
   # --- Additional Momentum Controls (if you prefer passthrough style) ---
-  # Prefer the structured momentum_solver.dual_time_picard_jameson_rk block above.
+  # Prefer the structured momentum solver blocks above.
   # These passthrough flags override the structured block if both are present.
   # -pseudo_cfl: 0.5          # dimensionless CFL = dtau * lambda_max (spectral-radius-based)
   # -max_pseudo_cfl: 2.0

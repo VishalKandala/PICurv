@@ -56,7 +56,10 @@ Use structured `diagnostics.petsc` for PETSc options that must be visible at
 Use `solver_monitoring.momentum.newton_krylov_history` to enable PICurv's
 optional one-row-per-Newton-iteration nonlinear norm history. The compact
 one-row-per-timestep Newton summary is always written, independent of console
-verbosity and function allow-lists. Use `solver_monitoring.poisson` for readable
+verbosity and function allow-lists. The same `momentum` block exposes Boolean
+`snes_monitor`, `snes_converged_reason`, `ksp_monitor`, and
+`ksp_converged_reason` switches; `true` emits a bare PETSc flag and `false`
+emits nothing. Use `solver_monitoring.poisson` for readable
 solver-time Poisson monitor controls. PICurv maps keys such as
 `pic_true_residual`, `converged_reason`, and `view` to the prefixed PETSc/C flags
 consumed from the generated control file. Keep raw one-off PETSc flags under

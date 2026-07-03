@@ -4438,7 +4438,9 @@ _SOLVER_SCHEMA = {
         "max_iterations", "absolute_tol", "relative_tol", "step_tol",
         "residual_absolute_tol", "residual_relative_tol",
     },
-    ("momentum_solver",): {"type", "dual_time_picard_jameson_rk", "dual_time_picard_rk4"},
+    ("momentum_solver",): {
+        "type", "dual_time_picard_jameson_rk", "dual_time_picard_rk4", "newton_krylov",
+    },
     ("momentum_solver", "dual_time_picard_jameson_rk"): {
         "max_pseudo_steps", "absolute_tol", "relative_tol", "step_tol", "pseudo_cfl",
         "jameson_residual_noise_allowance_factor", "rk4_residual_noise_allowance_factor",
@@ -4455,6 +4457,18 @@ _SOLVER_SCHEMA = {
     ("momentum_solver", "dual_time_picard_rk4", "pseudo_cfl"): {
         "initial", "minimum", "maximum", "growth_factor", "reduction_factor",
     },
+    ("momentum_solver", "newton_krylov"): {"nonlinear_solver", "linear_solver"},
+    ("momentum_solver", "newton_krylov", "nonlinear_solver"): {
+        "method", "absolute_tolerance", "relative_tolerance", "step_tolerance",
+        "max_iterations", "line_search",
+    },
+    ("momentum_solver", "newton_krylov", "nonlinear_solver", "line_search"): {"type"},
+    ("momentum_solver", "newton_krylov", "linear_solver"): {
+        "method", "absolute_tolerance", "relative_tolerance", "max_iterations",
+        "gmres", "preconditioner",
+    },
+    ("momentum_solver", "newton_krylov", "linear_solver", "gmres"): {"restart"},
+    ("momentum_solver", "newton_krylov", "linear_solver", "preconditioner"): {"type"},
     ("poisson_solver",): {
         "method", "absolute_tolerance", "relative_tolerance", "max_iterations", "tolerance",
         "gmres", "preconditioner", "multigrid",
@@ -4515,7 +4529,10 @@ _MONITOR_SCHEMA = {
     },
     ("io", "directories"): {"output", "restart", "log", "eulerian_subdir", "particle_subdir"},
     ("solver_monitoring",): {"momentum", "poisson", "petsc_passthrough_options"},
-    ("solver_monitoring", "momentum"): {"newton_krylov_history"},
+    ("solver_monitoring", "momentum"): {
+        "newton_krylov_history", "snes_monitor", "snes_converged_reason",
+        "ksp_monitor", "ksp_converged_reason",
+    },
     ("solver_monitoring", "poisson"): {"pic_true_residual", "true_residual", "converged_reason", "view"},
     ("solver_monitoring", "petsc_passthrough_options"): None,
 }
@@ -5101,12 +5118,12 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                     "Use solver-specific sub-blocks (e.g., momentum_solver.dual_time_picard_jameson_rk)."
                 )
 
-            allowed_ms_keys = {'dual_time_picard_jameson_rk', 'dual_time_picard_rk4'}
+            allowed_ms_keys = {'dual_time_picard_jameson_rk', 'dual_time_picard_rk4', 'newton_krylov'}
             unknown_ms_keys = sorted(set(ms_cfg.keys()) - allowed_ms_keys)
             if unknown_ms_keys:
                 errors.append(
                     f"  {solver_path}: unsupported momentum_solver blocks/keys: {unknown_ms_keys}. "
-                    "Currently supported: 'dual_time_picard_jameson_rk'."
+                    "Currently supported: 'dual_time_picard_jameson_rk' and 'newton_krylov'."
                 )
             if 'dual_time_picard_jameson_rk' in ms_cfg and 'dual_time_picard_rk4' in ms_cfg:
                 errors.append(
@@ -5131,6 +5148,18 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                     f"  {solver_path}: momentum_solver.dual_time_picard_jameson_rk is set but selected solver is "
                     f"{selected_solver}. Solver-specific blocks must match the selected solver."
                 )
+
+            newton_cfg = ms_cfg.get('newton_krylov')
+            if newton_cfg is not None:
+                if selected_solver != "newton_krylov":
+                    errors.append(
+                        f"  {solver_path}: momentum_solver.newton_krylov is set but selected solver is "
+                        f"{selected_solver}. Solver-specific blocks must match the selected solver."
+                    )
+                try:
+                    validate_newton_krylov_config(newton_cfg)
+                except ValueError as exc:
+                    errors.append(f"  {solver_path}: {exc}")
 
             dt_picard_cfg = ms_cfg.get('dual_time_picard_jameson_rk', ms_cfg.get('dual_time_picard_rk4'))
             if dt_picard_cfg is not None:
@@ -6990,6 +7019,156 @@ def normalize_momentum_solver_type(value: str) -> str:
         )
     return mapped
 
+
+def validate_newton_krylov_config(cfg: dict) -> dict:
+    """!
+    @brief Validate and normalize the structured Newton--Krylov solver block.
+    @param[in] cfg Structured `momentum_solver.newton_krylov` mapping.
+    @return Normalized copy containing only supported structured fields.
+    """
+    root = "momentum_solver.newton_krylov"
+    if not isinstance(cfg, dict):
+        raise ValueError(f"{root} must be a mapping.")
+
+    unknown = sorted(set(cfg) - {"nonlinear_solver", "linear_solver"})
+    if unknown:
+        raise ValueError(f"{root} has unsupported key(s): {unknown}.")
+
+    normalized = {}
+
+    def _mapping(parent: dict, key: str, path: str) -> dict:
+        """!
+        @brief Read and validate one optional nested Newton mapping.
+        @param[in] parent Parent mapping.
+        @param[in] key Nested key to read.
+        @param[in] path User-facing YAML path for errors.
+        @return Nested mapping, or an empty mapping when omitted.
+        """
+        value = parent.get(key, {})
+        if value is None or not isinstance(value, dict):
+            raise ValueError(f"{path} must be a mapping when provided.")
+        return value
+
+    def _method(value, path: str) -> str:
+        """!
+        @brief Normalize one nonempty PETSc solver/type token.
+        @param[in] value YAML token value.
+        @param[in] path User-facing YAML path for errors.
+        @return Lowercase PETSc token.
+        """
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{path} must be a non-empty string.")
+        return value.strip().lower()
+
+    def _tolerance(value, path: str):
+        """!
+        @brief Validate one finite nonnegative tolerance.
+        @param[in] value YAML tolerance value.
+        @param[in] path User-facing YAML path for errors.
+        @return Original validated value.
+        """
+        if isinstance(value, bool):
+            raise ValueError(f"{path} must be numeric and nonnegative.")
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{path} must be numeric and nonnegative.") from exc
+        if not math.isfinite(numeric) or numeric < 0.0:
+            raise ValueError(f"{path} must be numeric and nonnegative.")
+        return value
+
+    def _positive_integer(value, path: str):
+        """!
+        @brief Validate one positive integer count.
+        @param[in] value YAML count value.
+        @param[in] path User-facing YAML path for errors.
+        @return Original validated integer.
+        """
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{path} must be a positive integer.")
+        return value
+
+    nonlinear = _mapping(cfg, "nonlinear_solver", f"{root}.nonlinear_solver")
+    nonlinear_path = f"{root}.nonlinear_solver"
+    unknown = sorted(set(nonlinear) - {
+        "method", "absolute_tolerance", "relative_tolerance", "step_tolerance",
+        "max_iterations", "line_search",
+    })
+    if unknown:
+        raise ValueError(f"{nonlinear_path} has unsupported key(s): {unknown}.")
+    nonlinear_out = {}
+    if "method" in nonlinear:
+        nonlinear_out["method"] = _method(nonlinear["method"], f"{nonlinear_path}.method")
+    for key in ("absolute_tolerance", "relative_tolerance", "step_tolerance"):
+        if key in nonlinear:
+            nonlinear_out[key] = _tolerance(nonlinear[key], f"{nonlinear_path}.{key}")
+    if "max_iterations" in nonlinear:
+        nonlinear_out["max_iterations"] = _positive_integer(
+            nonlinear["max_iterations"], f"{nonlinear_path}.max_iterations"
+        )
+    if "line_search" in nonlinear:
+        line_search = _mapping(nonlinear, "line_search", f"{nonlinear_path}.line_search")
+        unknown = sorted(set(line_search) - {"type"})
+        if unknown:
+            raise ValueError(f"{nonlinear_path}.line_search has unsupported key(s): {unknown}.")
+        nonlinear_out["line_search"] = {}
+        if "type" in line_search:
+            nonlinear_out["line_search"]["type"] = _method(
+                line_search["type"], f"{nonlinear_path}.line_search.type"
+            )
+    normalized["nonlinear_solver"] = nonlinear_out
+
+    linear = _mapping(cfg, "linear_solver", f"{root}.linear_solver")
+    linear_path = f"{root}.linear_solver"
+    unknown = sorted(set(linear) - {
+        "method", "absolute_tolerance", "relative_tolerance", "max_iterations",
+        "gmres", "preconditioner",
+    })
+    if unknown:
+        raise ValueError(f"{linear_path} has unsupported key(s): {unknown}.")
+    linear_out = {}
+    method = "gmres"
+    if "method" in linear:
+        method = _method(linear["method"], f"{linear_path}.method")
+        linear_out["method"] = method
+    for key in ("absolute_tolerance", "relative_tolerance"):
+        if key in linear:
+            linear_out[key] = _tolerance(linear[key], f"{linear_path}.{key}")
+    if "max_iterations" in linear:
+        linear_out["max_iterations"] = _positive_integer(
+            linear["max_iterations"], f"{linear_path}.max_iterations"
+        )
+    if "gmres" in linear:
+        gmres = _mapping(linear, "gmres", f"{linear_path}.gmres")
+        unknown = sorted(set(gmres) - {"restart"})
+        if unknown:
+            raise ValueError(f"{linear_path}.gmres has unsupported key(s): {unknown}.")
+        linear_out["gmres"] = {}
+        if "restart" in gmres:
+            if method not in {"gmres", "fgmres", "lgmres"}:
+                raise ValueError(
+                    f"{linear_path}.gmres.restart is valid only when {linear_path}.method "
+                    "is one of 'gmres', 'fgmres', or 'lgmres'."
+                )
+            linear_out["gmres"]["restart"] = _positive_integer(
+                gmres["restart"], f"{linear_path}.gmres.restart"
+            )
+    if "preconditioner" in linear:
+        preconditioner = _mapping(linear, "preconditioner", f"{linear_path}.preconditioner")
+        unknown = sorted(set(preconditioner) - {"type"})
+        if unknown:
+            raise ValueError(f"{linear_path}.preconditioner has unsupported key(s): {unknown}.")
+        linear_out["preconditioner"] = {}
+        if "type" in preconditioner:
+            pc_type = _method(preconditioner["type"], f"{linear_path}.preconditioner.type")
+            if pc_type != "none":
+                raise ValueError(
+                    f"{linear_path}.preconditioner.type currently supports only 'none'."
+                )
+            linear_out["preconditioner"]["type"] = pc_type
+    normalized["linear_solver"] = linear_out
+    return normalized
+
 def normalize_solution_convergence_mode(value: str) -> str:
     """!
     @brief Normalizes the solution-convergence mode selector to the C-side canonical string.
@@ -7704,6 +7883,10 @@ SOLVER_MONITORING_POISSON_FLAG_MAP = {
 
 SOLVER_MONITORING_MOMENTUM_FLAG_MAP = {
     "newton_krylov_history": "-mom_nk_pic_monitor",
+    "snes_monitor": "-mom_nk_snes_monitor",
+    "snes_converged_reason": "-mom_nk_snes_converged_reason",
+    "ksp_monitor": "-mom_nk_ksp_monitor",
+    "ksp_converged_reason": "-mom_nk_ksp_converged_reason",
 }
 
 
@@ -7721,7 +7904,9 @@ def resolve_solver_monitoring_flags(monitor_cfg: dict) -> dict:
 
     flags = {}
 
-    momentum_cfg = solver_mon_cfg.get("momentum", {}) or {}
+    momentum_cfg = solver_mon_cfg.get("momentum", {})
+    if momentum_cfg is None:
+        momentum_cfg = {}
     if not isinstance(momentum_cfg, dict):
         raise ValueError("monitor.solver_monitoring.momentum must be a mapping when provided.")
     unknown_momentum = sorted(set(momentum_cfg.keys()) - set(SOLVER_MONITORING_MOMENTUM_FLAG_MAP.keys()))
@@ -7734,7 +7919,9 @@ def resolve_solver_monitoring_flags(monitor_cfg: dict) -> dict:
                 raise ValueError(f"monitor.solver_monitoring.momentum.{key} must be boolean.")
             flags[flag] = value
 
-    poisson_cfg = solver_mon_cfg.get("poisson", {}) or {}
+    poisson_cfg = solver_mon_cfg.get("poisson", {})
+    if poisson_cfg is None:
+        poisson_cfg = {}
     if not isinstance(poisson_cfg, dict):
         raise ValueError("monitor.solver_monitoring.poisson must be a mapping when provided.")
     unknown_poisson = sorted(set(poisson_cfg.keys()) - set(SOLVER_MONITORING_POISSON_FLAG_MAP.keys()))
@@ -7747,7 +7934,9 @@ def resolve_solver_monitoring_flags(monitor_cfg: dict) -> dict:
                 raise ValueError(f"monitor.solver_monitoring.poisson.{key} must be boolean.")
             flags[flag] = value
 
-    passthrough = solver_mon_cfg.get("petsc_passthrough_options", {}) or {}
+    passthrough = solver_mon_cfg.get("petsc_passthrough_options", {})
+    if passthrough is None:
+        passthrough = {}
     if not isinstance(passthrough, dict):
         raise ValueError("monitor.solver_monitoring.petsc_passthrough_options must be a mapping when provided.")
     flags.update(passthrough)
@@ -7998,13 +8187,51 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         if 'ratio_ema_alpha' in cfg:
             flags['-mom_ratio_ema_alpha'] = cfg['ratio_ema_alpha']
 
+    def _append_newton_krylov_options(cfg: dict):
+        """!
+        @brief Append validated structured Newton--Krylov PETSc options.
+        @param[in] cfg Structured Newton--Krylov mapping.
+        """
+        cfg = validate_newton_krylov_config(cfg)
+        nonlinear = cfg["nonlinear_solver"]
+        nonlinear_map = {
+            "method": "-mom_nk_snes_type",
+            "absolute_tolerance": "-mom_nk_snes_atol",
+            "relative_tolerance": "-mom_nk_snes_rtol",
+            "step_tolerance": "-mom_nk_snes_stol",
+            "max_iterations": "-mom_nk_snes_max_it",
+        }
+        for key, flag in nonlinear_map.items():
+            if key in nonlinear:
+                flags[flag] = nonlinear[key]
+        line_search = nonlinear.get("line_search", {})
+        if "type" in line_search:
+            flags["-mom_nk_snes_linesearch_type"] = line_search["type"]
+
+        linear = cfg["linear_solver"]
+        linear_map = {
+            "method": "-mom_nk_ksp_type",
+            "absolute_tolerance": "-mom_nk_ksp_atol",
+            "relative_tolerance": "-mom_nk_ksp_rtol",
+            "max_iterations": "-mom_nk_ksp_max_it",
+        }
+        for key, flag in linear_map.items():
+            if key in linear:
+                flags[flag] = linear[key]
+        gmres = linear.get("gmres", {})
+        if "restart" in gmres:
+            flags["-mom_nk_ksp_gmres_restart"] = gmres["restart"]
+        preconditioner = linear.get("preconditioner", {})
+        if "type" in preconditioner:
+            flags["-mom_nk_pc_type"] = preconditioner["type"]
+
     if isinstance(ms, dict):
-        allowed_ms_keys = {'type', 'dual_time_picard_jameson_rk', 'dual_time_picard_rk4'}
+        allowed_ms_keys = {'type', 'dual_time_picard_jameson_rk', 'dual_time_picard_rk4', 'newton_krylov'}
         unknown_ms_keys = sorted(set(ms.keys()) - allowed_ms_keys)
         if unknown_ms_keys:
             raise ValueError(
                 f"Unsupported momentum_solver keys/blocks: {unknown_ms_keys}. "
-                "Currently supported block: 'dual_time_picard_jameson_rk'."
+                "Currently supported blocks: 'dual_time_picard_jameson_rk' and 'newton_krylov'."
             )
 
         if 'dual_time_picard_jameson_rk' in ms and 'dual_time_picard_rk4' in ms:
@@ -8027,6 +8254,13 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                     "do not also set its deprecated rk4_residual_noise_allowance_factor alias."
                 )
             _append_dualtime_options(dt_picard_cfg)
+        newton_cfg = ms.get('newton_krylov')
+        if newton_cfg is not None:
+            if selected_solver != "newton_krylov":
+                raise ValueError(
+                    f"momentum_solver.newton_krylov is set but selected solver is {selected_solver}."
+                )
+            _append_newton_krylov_options(newton_cfg)
     solution_convergence_cfg = solver_cfg.get('solution_convergence', {})
     if solution_convergence_cfg is not None:
         if not isinstance(solution_convergence_cfg, dict):
@@ -8183,9 +8417,13 @@ def parse_solver_config(solver_cfg: dict) -> dict:
 
     if 'petsc_passthrough_options' in solver_cfg:
         passthrough = solver_cfg['petsc_passthrough_options']
+        if passthrough is None:
+            passthrough = {}
+        if not isinstance(passthrough, dict):
+            raise ValueError("petsc_passthrough_options must be a mapping when provided.")
         if passthrough:
             for key, value in passthrough.items():
-                flags[key] = format_flag_value(value)
+                flags[key] = value if isinstance(value, bool) else format_flag_value(value)
     summary_bits = []
     if '-ps_ksp_type' in flags:
         summary_bits.append(f"method={flags['-ps_ksp_type']}")
@@ -8410,7 +8648,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     except ValueError as e:
         print(f"[FATAL] Invalid solver.yml settings: {e}", file=sys.stderr)
         sys.exit(1)
-    for flag, value in solver_flags.items(): control_lines.append(f"{flag} {value}")
+    append_passthrough_flags(control_lines, solver_flags)
 
     try:
         solver_monitoring_flags = resolve_solver_monitoring_flags(monitor_cfg)
@@ -11564,6 +11802,7 @@ def _build_solver_overview(context: dict) -> dict:
     selected = normalize_momentum_solver_type(strategy.get("momentum_solver", "Dual Time Picard Jameson RK"))
     momentum_cfg = cfg.get("momentum_solver", {}) or {}
     dualtime = momentum_cfg.get("dual_time_picard_jameson_rk", momentum_cfg.get("dual_time_picard_rk4", {})) or {}
+    newton_krylov = momentum_cfg.get("newton_krylov", {}) or {}
     poisson = cfg.get("poisson_solver", cfg.get("pressure_solver", {})) or {}
     convergence = cfg.get("solution_convergence", {}) or {}
     convergence_mode = normalize_solution_convergence_mode(convergence.get("mode", "steady_deterministic"))
@@ -11581,7 +11820,7 @@ def _build_solver_overview(context: dict) -> dict:
             "type": selected,
             "central_diff": bool(strategy.get("central_diff", False)),
             "tolerances": cfg.get("tolerances", {}),
-            "controls": dualtime,
+            "controls": newton_krylov if selected == "newton_krylov" else dualtime,
         },
         "poisson": poisson,
         "interpolation": cfg.get("interpolation", {"method": "Trilinear"}),

@@ -649,7 +649,7 @@ def test_parse_solver_config_maps_canonical_jameson_controls():
 
 
 def test_parse_solver_config_emits_newton_krylov_and_preserves_prefixed_petsc_options():
-    """! @brief Newton Krylov reuses selection and raw PETSc passthrough paths. """
+    """! @brief Newton Krylov preserves typed raw PETSc passthrough values. """
     picurv = load_picurv_module()
     solver_cfg = {
         "strategy": {"momentum_solver": "Newton Krylov"},
@@ -665,19 +665,252 @@ def test_parse_solver_config_emits_newton_krylov_and_preserves_prefixed_petsc_op
     assert flags["-mom_solver_type"] == '"newton_krylov"'
     assert flags["-mom_nk_snes_rtol"] == "1e-08"
     assert flags["-mom_nk_ksp_max_it"] == "100"
-    assert flags["-mom_nk_snes_monitor"] == "1"
+    assert flags["-mom_nk_snes_monitor"] is True
 
 
-def test_parse_solver_config_rejects_version_one_newton_specific_block():
-    """! @brief Version one has fixed operator/PC choices and no YAML solver block. """
+def _complete_newton_krylov_config():
+    """!
+    @brief Return the complete documented structured Newton--Krylov configuration.
+    @return Complete solver configuration mapping.
+    """
+    return {
+        "strategy": {"momentum_solver": "Newton Krylov"},
+        "momentum_solver": {
+            "newton_krylov": {
+                "nonlinear_solver": {
+                    "method": "newtonls",
+                    "absolute_tolerance": 1.0e-10,
+                    "relative_tolerance": 1.0e-8,
+                    "step_tolerance": 1.0e-12,
+                    "max_iterations": 12,
+                    "line_search": {"type": "bt"},
+                },
+                "linear_solver": {
+                    "method": "gmres",
+                    "absolute_tolerance": 1.0e-10,
+                    "relative_tolerance": 1.0e-6,
+                    "max_iterations": 400,
+                    "gmres": {"restart": 80},
+                    "preconditioner": {"type": "none"},
+                },
+            },
+        },
+    }
+
+
+def test_parse_solver_config_maps_complete_structured_newton_krylov_controls():
+    """! @brief Complete structured Newton YAML maps to the exact PETSc controls. """
+    picurv = load_picurv_module()
+    flags = picurv.parse_solver_config(_complete_newton_krylov_config())
+
+    generated = {key: value for key, value in flags.items() if key.startswith("-mom_nk_")}
+    assert generated == {
+        "-mom_nk_snes_type": "newtonls",
+        "-mom_nk_snes_atol": 1.0e-10,
+        "-mom_nk_snes_rtol": 1.0e-8,
+        "-mom_nk_snes_stol": 1.0e-12,
+        "-mom_nk_snes_max_it": 12,
+        "-mom_nk_snes_linesearch_type": "bt",
+        "-mom_nk_ksp_type": "gmres",
+        "-mom_nk_ksp_atol": 1.0e-10,
+        "-mom_nk_ksp_rtol": 1.0e-6,
+        "-mom_nk_ksp_max_it": 400,
+        "-mom_nk_ksp_gmres_restart": 80,
+        "-mom_nk_pc_type": "none",
+    }
+    control_lines = []
+    picurv.append_passthrough_flags(control_lines, generated)
+    assert control_lines == [
+        "-mom_nk_snes_type newtonls",
+        "-mom_nk_snes_atol 1e-10",
+        "-mom_nk_snes_rtol 1e-08",
+        "-mom_nk_snes_stol 1e-12",
+        "-mom_nk_snes_max_it 12",
+        "-mom_nk_snes_linesearch_type bt",
+        "-mom_nk_ksp_type gmres",
+        "-mom_nk_ksp_atol 1e-10",
+        "-mom_nk_ksp_rtol 1e-06",
+        "-mom_nk_ksp_max_it 400",
+        "-mom_nk_ksp_gmres_restart 80",
+        "-mom_nk_pc_type none",
+    ]
+
+
+@pytest.mark.parametrize(
+    "newton_block",
+    [
+        {},
+        {"nonlinear_solver": {}},
+        {"linear_solver": {}},
+        {"linear_solver": {"gmres": {"restart": 30}}},
+    ],
+)
+def test_parse_solver_config_allows_omitted_newton_subfields(newton_block):
+    """!
+    @brief Omitted Newton controls preserve the C/PETSc defaults.
+    @param[in] newton_block Parametrized partial Newton configuration.
+    """
     picurv = load_picurv_module()
     solver_cfg = {
         "strategy": {"momentum_solver": "Newton Krylov"},
-        "momentum_solver": {"newton_krylov": {"preconditioner": "none"}},
+        "momentum_solver": {"newton_krylov": newton_block},
     }
 
-    with pytest.raises(ValueError, match="Unsupported momentum_solver"):
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    expected = {}
+    if newton_block.get("linear_solver", {}).get("gmres"):
+        expected["-mom_nk_ksp_gmres_restart"] = 30
+    assert {key: value for key, value in flags.items() if key.startswith("-mom_nk_")} == expected
+
+
+def test_parse_solver_config_rejects_newton_block_for_other_solver():
+    """! @brief A Newton-specific block must match the selected solver. """
+    picurv = load_picurv_module()
+    solver_cfg = {
+        "strategy": {"momentum_solver": "Dual Time Picard Jameson RK"},
+        "momentum_solver": {"newton_krylov": {}},
+    }
+
+    with pytest.raises(ValueError, match="newton_krylov is set but selected solver"):
         picurv.parse_solver_config(solver_cfg)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        (("nonlinear_solver", "absolute_tolerance", -1.0), "must be numeric and nonnegative"),
+        (("nonlinear_solver", "relative_tolerance", "bad"), "must be numeric and nonnegative"),
+        (("nonlinear_solver", "method", ""), "method must be a non-empty string"),
+        (("nonlinear_solver", "max_iterations", 0), "must be a positive integer"),
+        (("linear_solver", "method", None), "method must be a non-empty string"),
+        (("linear_solver", "max_iterations", 1.5), "must be a positive integer"),
+        (("linear_solver", "preconditioner", {"type": "jacobi"}), "supports only 'none'"),
+    ],
+)
+def test_parse_solver_config_rejects_invalid_newton_values(mutation, error):
+    """!
+    @brief Structured Newton tolerances, methods, counts, and PC are validated.
+    @param[in] mutation Parametrized nested invalid value mutation.
+    @param[in] error Expected validation message fragment.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    section, key, value = mutation
+    solver_cfg["momentum_solver"]["newton_krylov"][section][key] = value
+
+    with pytest.raises(ValueError, match=error):
+        picurv.parse_solver_config(solver_cfg)
+
+
+def test_parse_solver_config_rejects_newton_restart_for_non_gmres_method():
+    """! @brief Newton GMRES restart is limited to the GMRES method family. """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    solver_cfg["momentum_solver"]["newton_krylov"]["linear_solver"]["method"] = "cg"
+
+    with pytest.raises(ValueError, match="gmres.restart is valid only"):
+        picurv.parse_solver_config(solver_cfg)
+
+
+@pytest.mark.parametrize(
+    ("path", "key"),
+    [
+        ((), "mystery"),
+        (("nonlinear_solver",), "mystery"),
+        (("nonlinear_solver", "line_search"), "mystery"),
+        (("linear_solver",), "mystery"),
+        (("linear_solver", "gmres"), "mystery"),
+        (("linear_solver", "preconditioner"), "mystery"),
+    ],
+)
+def test_parse_solver_config_rejects_unknown_newton_keys(path, key):
+    """!
+    @brief Unknown keys are rejected at every Newton solver level.
+    @param[in] path Nested path receiving the unknown key.
+    @param[in] key Unknown key name.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    newton = solver_cfg["momentum_solver"]["newton_krylov"]
+    target = newton
+    for segment in path:
+        target = target[segment]
+    target[key] = 1
+
+    with pytest.raises(ValueError, match="unsupported key"):
+        picurv.parse_solver_config(solver_cfg)
+
+
+def test_parse_solver_config_newton_passthrough_overrides_structured_values():
+    """! @brief Advanced passthrough remains the final Newton option override layer. """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    solver_cfg["petsc_passthrough_options"] = {
+        "-mom_nk_snes_rtol": 2.5e-5,
+        "-mom_nk_ksp_max_it": 17,
+    }
+
+    flags = picurv.parse_solver_config(solver_cfg)
+
+    assert flags["-mom_nk_snes_rtol"] == "2.5e-05"
+    assert flags["-mom_nk_ksp_max_it"] == "17"
+
+
+def test_solver_passthrough_boolean_uses_shared_bare_switch_serialization():
+    """! @brief Solver Boolean passthrough matches monitor bare-switch behavior. """
+    picurv = load_picurv_module()
+    flags = picurv.parse_solver_config({
+        "petsc_passthrough_options": {
+            "-example_true_switch": True,
+            "-example_false_switch": False,
+        },
+    })
+    control_lines = []
+
+    picurv.append_passthrough_flags(control_lines, flags)
+
+    assert "-example_true_switch" in control_lines
+    assert not any(line.startswith("-example_false_switch") for line in control_lines)
+    assert "-example_true_switch 1" not in control_lines
+
+
+def test_newton_pipeline_preserves_jameson_and_poisson_generated_controls():
+    """! @brief Newton schema additions leave existing Jameson and Poisson mappings unchanged. """
+    picurv = load_picurv_module()
+    flags = picurv.parse_solver_config({
+        "strategy": {"momentum_solver": "Dual Time Picard Jameson RK"},
+        "momentum_solver": {
+            "dual_time_picard_jameson_rk": {
+                "max_pseudo_steps": 21,
+                "pseudo_cfl": {"initial": 0.4},
+            },
+        },
+        "poisson_solver": {
+            "method": "fgmres",
+            "absolute_tolerance": 1.0e-5,
+            "gmres": {"restart": 20},
+            "preconditioner": {"type": "multigrid"},
+        },
+    })
+
+    assert {
+        key: flags[key]
+        for key in (
+            "-mom_solver_type", "-mom_max_pseudo_steps", "-pseudo_cfl",
+            "-ps_ksp_type", "-ps_ksp_atol", "-poisson_tol",
+            "-ps_ksp_gmres_restart", "-ps_pc_type",
+        )
+    } == {
+        "-mom_solver_type": '"DUALTIME_PICARD_JAMESON_RK"',
+        "-mom_max_pseudo_steps": 21,
+        "-pseudo_cfl": 0.4,
+        "-ps_ksp_type": "fgmres",
+        "-ps_ksp_atol": 1.0e-5,
+        "-poisson_tol": 1.0e-5,
+        "-ps_ksp_gmres_restart": 20,
+        "-ps_pc_type": "mg",
+    }
 
 
 def test_parse_solver_config_maps_ratio_ema_alpha():

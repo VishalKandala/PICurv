@@ -5432,6 +5432,10 @@ def test_structured_solver_monitoring_emits_prefixed_poisson_flags(tmp_path):
     monitor_cfg["solver_monitoring"] = {
         "momentum": {
             "newton_krylov_history": True,
+            "snes_monitor": True,
+            "snes_converged_reason": True,
+            "ksp_monitor": True,
+            "ksp_converged_reason": True,
         },
         "poisson": {
             "pic_true_residual": True,
@@ -5468,12 +5472,56 @@ def test_structured_solver_monitoring_emits_prefixed_poisson_flags(tmp_path):
     )
 
     content = Path(control_file).read_text(encoding="utf-8")
-    assert "-mom_nk_pic_monitor" in content
+    for flag in (
+        "-mom_nk_pic_monitor",
+        "-mom_nk_snes_monitor",
+        "-mom_nk_snes_converged_reason",
+        "-mom_nk_ksp_monitor",
+        "-mom_nk_ksp_converged_reason",
+    ):
+        assert f"\n{flag}\n" in f"\n{content}"
     assert "-ps_ksp_pic_monitor_true_residual" in content
     assert "-ps_ksp_monitor_true_residual" in content
     assert "-ps_ksp_converged_reason" in content
     assert "-ps_ksp_view" in content
     assert "-ps_pc_svd_monitor" in content
+    assert "-mom_nk_ksp_converged_reason 1" not in content
+
+
+def test_structured_solver_monitoring_false_emits_no_newton_switches():
+    """! @brief False structured Newton monitor values emit no control switches. """
+    picurv = load_picurv_module()
+    keys = (
+        "newton_krylov_history",
+        "snes_monitor",
+        "snes_converged_reason",
+        "ksp_monitor",
+        "ksp_converged_reason",
+    )
+    flags = picurv.resolve_solver_monitoring_flags(
+        {"solver_monitoring": {"momentum": {key: False for key in keys}}}
+    )
+    control_lines = []
+
+    picurv.append_passthrough_flags(control_lines, flags)
+
+    assert control_lines == []
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["snes_monitor", "snes_converged_reason", "ksp_monitor", "ksp_converged_reason"],
+)
+def test_structured_solver_monitoring_rejects_invalid_newton_boolean(key):
+    """!
+    @brief Every structured Newton PETSc monitor accepts booleans only.
+    @param[in] key Parametrized structured Newton monitor key.
+    """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match=f"{key} must be boolean"):
+        picurv.resolve_solver_monitoring_flags(
+            {"solver_monitoring": {"momentum": {key: 1}}}
+        )
 
 
 def test_structured_solver_monitoring_rejects_invalid_newton_history_value():

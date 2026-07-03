@@ -51,6 +51,10 @@ solver_monitoring:
     # Optional PICurv history: one existing SNES norm per Newton iteration.
     # The one-row-per-step Newton summary is always written.
     newton_krylov_history: false
+    snes_monitor: false
+    snes_converged_reason: false
+    ksp_monitor: false
+    ksp_converged_reason: false
   poisson:
     pic_true_residual: false
     converged_reason: false

@@ -160,6 +160,12 @@ C/PETSc flags written into the generated `.control` file:
 
 ```yaml
 solver_monitoring:
+  momentum:
+    newton_krylov_history: false
+    snes_monitor: true
+    snes_converged_reason: true
+    ksp_monitor: true
+    ksp_converged_reason: true
   poisson:
     pic_true_residual: true
     true_residual: false
@@ -170,13 +176,20 @@ solver_monitoring:
 ```
 
 Mappings:
+- `momentum.newton_krylov_history` -> `-mom_nk_pic_monitor`
+- `momentum.snes_monitor` -> `-mom_nk_snes_monitor`
+- `momentum.snes_converged_reason` -> `-mom_nk_snes_converged_reason`
+- `momentum.ksp_monitor` -> `-mom_nk_ksp_monitor`
+- `momentum.ksp_converged_reason` -> `-mom_nk_ksp_converged_reason`
 - `poisson.pic_true_residual` -> `-ps_ksp_pic_monitor_true_residual`
 - `poisson.true_residual` -> `-ps_ksp_monitor_true_residual`
 - `poisson.converged_reason` -> `-ps_ksp_converged_reason`
 - `poisson.view` -> `-ps_ksp_view`
 
 Rules:
-- The structured `poisson.*` keys are booleans.
+- The structured `momentum.*` and `poisson.*` keys are booleans. `true` emits
+  a bare switch and `false` emits nothing; no Boolean monitor is serialized as
+  a numeric viewer argument.
 - `petsc_passthrough_options` remains available for raw PETSc flags not yet
   exposed as structured YAML. In passthrough, `true` emits a switch-only flag,
   `false` omits the flag, and non-boolean values emit `flag value`.

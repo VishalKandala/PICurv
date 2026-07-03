@@ -95,6 +95,42 @@ Mappings include:
 Rule: solver-specific blocks must match selected momentum solver type.
 Do not set canonical Jameson keys and their deprecated RK4 aliases together.
 
+For `strategy.momentum_solver: "Newton Krylov"`, the structured PETSc controls are:
+
+```yaml
+momentum_solver:
+  newton_krylov:
+    nonlinear_solver:
+      method: newtonls
+      absolute_tolerance: 1.0e-10
+      relative_tolerance: 1.0e-8
+      step_tolerance: 1.0e-12
+      max_iterations: 12
+      line_search:
+        type: bt
+    linear_solver:
+      method: gmres
+      absolute_tolerance: 1.0e-10
+      relative_tolerance: 1.0e-6
+      max_iterations: 400
+      gmres:
+        restart: 80
+      preconditioner:
+        type: none
+```
+
+Mappings are `nonlinear_solver.method/absolute_tolerance/relative_tolerance/step_tolerance/max_iterations`
+to `-mom_nk_snes_type/-mom_nk_snes_atol/-mom_nk_snes_rtol/-mom_nk_snes_stol/-mom_nk_snes_max_it`,
+`line_search.type` to `-mom_nk_snes_linesearch_type`, and the corresponding
+`linear_solver` fields to `-mom_nk_ksp_type/-mom_nk_ksp_atol/-mom_nk_ksp_rtol/-mom_nk_ksp_max_it`.
+`gmres.restart` maps to `-mom_nk_ksp_gmres_restart`, and `preconditioner.type`
+maps to `-mom_nk_pc_type`.
+
+Newton tolerances are nonnegative, iteration/restart counts are positive integers,
+and GMRES restart is valid only for `gmres`, `fgmres`, or `lgmres`. Version one
+accepts only `preconditioner.type: none`. Omitted fields preserve C/PETSc defaults.
+Raw `petsc_passthrough_options` are applied last and may override structured values.
+
 @section p08_poisson_sec 5. poisson_solver
 
 ```yaml

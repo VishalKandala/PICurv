@@ -80,7 +80,8 @@ For each run, `picurv` generates:
 - `verification.sources.diffusivity.*` -> `-verification_diffusivity_*`
 - `verification.sources.scalar.*` -> `-verification_scalar_*`
 - `strategy.momentum_solver` -> `-mom_solver_type` via normalized names.
-- Solver-specific block support currently includes `momentum_solver.dual_time_picard_jameson_rk`.
+- Solver-specific block support includes `momentum_solver.dual_time_picard_jameson_rk`
+  and `momentum_solver.newton_krylov`.
 - Deprecated `dual_time_picard_rk4` and `rk4_residual_noise_allowance_factor`
   spellings are accepted only as compatibility aliases and normalize to Jameson controls.
 - `momentum_solver.dual_time_picard_jameson_rk` controls and their C-side flags:
@@ -112,6 +113,11 @@ For each run, `picurv` generates:
   - `pseudo_cfl.reduction_factor` -> `-pseudo_cfl_reduction_factor` (default 0.75, must be
     in (0,1)): factor applied to the pseudo-CFL after a rejected trial.
 - `solution_convergence.*` -> `-solution_convergence_*` for physical solution drift logging.
+- `momentum_solver.newton_krylov.nonlinear_solver.*` -> prefixed `-mom_nk_snes_*`
+  options, including `line_search.type` -> `-mom_nk_snes_linesearch_type`.
+- `momentum_solver.newton_krylov.linear_solver.*` -> prefixed `-mom_nk_ksp_*`
+  options and `preconditioner.type` -> `-mom_nk_pc_type`. Version one permits
+  only `preconditioner.type: none`; GMRES restart is GMRES-family-only.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.
 - `scalar_transport.schmidt_number` and `scalar_transport.turbulent_schmidt_number`
@@ -164,6 +170,8 @@ Solution-convergence rule:
 - `diagnostics.petsc` -> PETSc startup arguments on solver/postprocessor commands
 - `diagnostics.runtime_memory_log` -> `-runtime_memory_log_enabled/-runtime_memory_log_file`
 - `solver_monitoring.poisson.*` maps readable monitor keys into prefixed Poisson KSP flags.
+- `solver_monitoring.momentum.*` maps readable Newton history/SNES/KSP monitor
+  booleans into bare `-mom_nk_*` switches.
 - `solver_monitoring.petsc_passthrough_options` maps raw PETSc flags directly into control output.
 
 @section p14_post_sec 6. Post Contract Highlights
@@ -235,8 +243,11 @@ Optional shared runtime execution file:
   - `case.solver_parameters`
   - `solver.petsc_passthrough_options`
   - `monitor.solver_monitoring.petsc_passthrough_options`
-- Prefer structured keys first: use `solver.poisson_solver` for pressure-solver
-  KSP/MG setup and `monitor.diagnostics.petsc` for PETSc startup diagnostics.
+- Prefer structured keys first: use `solver.momentum_solver.newton_krylov` for
+  ordinary Newton SNES/KSP setup, `solver.poisson_solver` for pressure-solver
+  KSP/MG setup, and `monitor.diagnostics.petsc` for PETSc startup diagnostics.
+- In both solver and monitor PETSc passthrough maps, Boolean `true` emits a bare
+  switch, Boolean `false` emits nothing, and other values emit `flag value`.
 - Default post input/output extension is `dat` unless overridden.
 
 Launcher defaults vs C defaults:
