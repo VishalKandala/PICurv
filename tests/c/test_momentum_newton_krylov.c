@@ -61,6 +61,39 @@ static const char *periodic_xyz_bcs =
     "-Eta PERIODIC geometric\n+Eta PERIODIC geometric\n"
     "-Zeta PERIODIC geometric\n+Zeta PERIODIC geometric\n";
 
+/** @brief Checks a structured log's row count and required text after a collective solve. */
+static PetscErrorCode AssertNewtonLog(const char *path, PetscInt expected_rows,
+                                      const char *needle_a, const char *needle_b)
+{
+    FILE *file = NULL;
+    char line[4096];
+    PetscInt rows = 0;
+    PetscBool found_a = needle_a ? PETSC_FALSE : PETSC_TRUE;
+    PetscBool found_b = needle_b ? PETSC_FALSE : PETSC_TRUE;
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    file = fopen(path, "r");
+    PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
+               "Expected Newton log does not exist: %s", path);
+    while (fgets(line, sizeof(line), file)) {
+        if (strncmp(line, "step:", 5) == 0) rows++;
+        if (needle_a && strstr(line, needle_a)) found_a = PETSC_TRUE;
+        if (needle_b && strstr(line, needle_b)) found_b = PETSC_TRUE;
+    }
+    fclose(file);
+    if (expected_rows >= 0) {
+        PetscCall(PicurvAssertIntEqual(expected_rows, rows,
+                                       "Newton log must contain one nonduplicated row per solve"));
+    } else {
+        PetscCall(PicurvAssertBool((PetscBool)(rows >= -expected_rows),
+                                   "enabled Newton history must contain the expected iteration rows"));
+    }
+    PetscCall(PicurvAssertBool(found_a, "Newton log is missing required structured content"));
+    PetscCall(PicurvAssertBool(found_b, "Newton log is missing required structured content"));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 /**
  * @brief Builds and initializes a small runtime context for Newton tests.
  * @param bcs Optional boundary configuration text.
@@ -824,15 +857,24 @@ static PetscErrorCode TestSmallSolveAndRollback(void)
     PetscErrorCode solve_ierr;
     PetscReal norm = 0.0;
     const char *fields[] = {"Ucont"};
+    char summary_path[PETSC_MAX_PATH_LEN];
+    char history_path[PETSC_MAX_PATH_LEN];
 
     PetscFunctionBeginUser;
     PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
     PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_rtol", "1e-4"));
     PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_max_it", "20"));
     PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_ksp_rtol", "1e-6"));
+    simCtx->mom_nk_monitor_history = PETSC_TRUE;
     PetscCall(MomentumSolver_NewtonKrylov(user, NULL, NULL));
     PetscCall(PicurvAssertBool(simCtx->mom_last_converged, "small Newton solve must converge"));
     PetscCall(PicurvAssertBool((PetscBool)(user->Rhs == NULL), "successful solve must release Rhs"));
+    PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
+                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
+    PetscCall(PetscSNPrintf(history_path, sizeof(history_path),
+                            "%s/Momentum_Solver_Newton_Krylov_History_Block_0.log", simCtx->log_dir));
+    PetscCall(AssertNewtonLog(summary_path, 1, "solver: Newton Krylov", "state: committed"));
+    PetscCall(AssertNewtonLog(history_path, -2, "newton: 0", "nonlinear_norm:"));
 
     PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
     tmpdir[0] = '\0';
@@ -854,12 +896,40 @@ static PetscErrorCode TestSmallSolveAndRollback(void)
     PetscCall(PicurvAssertRealNear(0.0, norm, 1.0e-12,
                                    "failed Newton solve must restore the canonical entry state"));
     PetscCall(PicurvAssertBool((PetscBool)(user->Rhs == NULL), "failed solve must release Rhs"));
+    PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
+                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
+    PetscCall(AssertNewtonLog(summary_path, 1, "reason_code: -", "state: rolled_back"));
 
     PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_rtol"));
     PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_max_it"));
     PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_ksp_rtol"));
     PetscCall(VecDestroy(&delta));
     PetscCall(VecDestroy(&entry));
+    PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Verifies the six-wall zero-velocity case logs zero Newton/Krylov work. */
+static PetscErrorCode TestZeroIterationStructuredLogging(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN] = "";
+    char summary_path[PETSC_MAX_PATH_LEN];
+    const char *fields[] = {"Ucont"};
+
+    PetscFunctionBeginUser;
+    PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(VecZeroEntries(user->Ucont));
+    PetscCall(VecZeroEntries(user->Ucont_o));
+    PetscCall(VecZeroEntries(user->Ucont_rm1));
+    PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fields));
+    PetscCall(ApplyBoundaryConditions(user));
+    PetscCall(MomentumSolver_NewtonKrylov(user, NULL, NULL));
+    PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
+                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
+    PetscCall(AssertNewtonLog(summary_path, 1, "newton: 0 | evals: 1 | krylov: 0",
+                             "final: 0.0000000000000000e+00 | state: committed"));
     PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
     PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -984,6 +1054,7 @@ int main(int argc, char **argv)
         {"matrix-free-derivative", TestMatrixFreeDerivative},
         {"whole-operator-direct-jacobian", TestWholeOperatorDirectJacobian},
         {"periodic-operator-has-no-zero-rows", TestPeriodicOperatorHasNoZeroRows},
+        {"zero-iteration-structured-logging", TestZeroIterationStructuredLogging},
         {"small-solve-and-rollback", TestSmallSolveAndRollback},
         {"unsupported-configuration-fails-before-allocation", TestUnsupportedConfigurationFailsBeforeAllocation},
         {"post-allocation-failure-cleanup", TestPostAllocationFailureCleanup},

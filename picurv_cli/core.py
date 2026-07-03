@@ -4514,7 +4514,8 @@ _MONITOR_SCHEMA = {
         "directories",
     },
     ("io", "directories"): {"output", "restart", "log", "eulerian_subdir", "particle_subdir"},
-    ("solver_monitoring",): {"poisson", "petsc_passthrough_options"},
+    ("solver_monitoring",): {"momentum", "poisson", "petsc_passthrough_options"},
+    ("solver_monitoring", "momentum"): {"newton_krylov_history"},
     ("solver_monitoring", "poisson"): {"pic_true_residual", "true_residual", "converged_reason", "view"},
     ("solver_monitoring", "petsc_passthrough_options"): None,
 }
@@ -7701,6 +7702,10 @@ SOLVER_MONITORING_POISSON_FLAG_MAP = {
     "view": "-ps_ksp_view",
 }
 
+SOLVER_MONITORING_MOMENTUM_FLAG_MAP = {
+    "newton_krylov_history": "-mom_nk_pic_monitor",
+}
+
 
 def resolve_solver_monitoring_flags(monitor_cfg: dict) -> dict:
     """!
@@ -7715,6 +7720,19 @@ def resolve_solver_monitoring_flags(monitor_cfg: dict) -> dict:
         raise ValueError("monitor.solver_monitoring must be a mapping when provided.")
 
     flags = {}
+
+    momentum_cfg = solver_mon_cfg.get("momentum", {}) or {}
+    if not isinstance(momentum_cfg, dict):
+        raise ValueError("monitor.solver_monitoring.momentum must be a mapping when provided.")
+    unknown_momentum = sorted(set(momentum_cfg.keys()) - set(SOLVER_MONITORING_MOMENTUM_FLAG_MAP.keys()))
+    if unknown_momentum:
+        raise ValueError(f"monitor.solver_monitoring.momentum has unsupported key(s): {unknown_momentum}.")
+    for key, flag in SOLVER_MONITORING_MOMENTUM_FLAG_MAP.items():
+        if key in momentum_cfg:
+            value = momentum_cfg[key]
+            if not isinstance(value, bool):
+                raise ValueError(f"monitor.solver_monitoring.momentum.{key} must be boolean.")
+            flags[flag] = value
 
     poisson_cfg = solver_mon_cfg.get("poisson", {}) or {}
     if not isinstance(poisson_cfg, dict):
@@ -7744,12 +7762,12 @@ def resolve_solver_monitoring_flags(monitor_cfg: dict) -> dict:
     unknown_top = sorted(
         key
         for key in solver_mon_cfg.keys()
-        if key not in {"poisson", "petsc_passthrough_options"} and not (isinstance(key, str) and key.startswith("-"))
+        if key not in {"momentum", "poisson", "petsc_passthrough_options"} and not (isinstance(key, str) and key.startswith("-"))
     )
     if unknown_top:
         raise ValueError(
             "monitor.solver_monitoring has unsupported key(s): "
-            f"{unknown_top}. Use 'poisson' for structured monitors or "
+            f"{unknown_top}. Use 'momentum'/'poisson' for structured monitors or "
             "'petsc_passthrough_options' for raw PETSc flags."
         )
 
@@ -11720,7 +11738,10 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
     rows_by_step = {}
     sources = {}
     step_order = []
-    pattern = os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log")
+    patterns = [
+        os.path.join(log_dir, "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_*.log"),
+        os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log"),
+    ]
     # Log format (Phase 3+): dtau [physical time] and cfl_eff [dimensionless Courant number].
     # cfl_eff = dtau * lambda_max; this is the value controlled by pseudo_cfl.* YAML keys.
     regex = re.compile(
@@ -11738,7 +11759,7 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
     # Per (step, block): track accepted/rejected counts and last committed state.
     _state = {}
 
-    for path in sorted(glob.glob(pattern)):
+    for path in sorted(path for pattern in patterns for path in glob.glob(pattern)):
         block_match = re.search(r"Block_(\d+)\.log$", path)
         if not block_match:
             continue
@@ -11786,6 +11807,43 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
                 "accepted_count": entry["accepted_count"],
                 "rejected_count": entry["rejected_count"],
             }
+
+    newton_pattern = os.path.join(log_dir, "Momentum_Solver_Newton_Krylov_Summary_Block_*.log")
+    newton_regex = re.compile(
+        r"step:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|"
+        r"\s*solver:\s*(?P<solver>[^|]+?)\s*\|\s*reason:\s*(?P<reason>\S+)\s*\|"
+        r"\s*reason_code:\s*(?P<reason_code>-?\d+)\s*\|\s*newton:\s*(?P<newton>\d+)\s*\|"
+        r"\s*evals:\s*(?P<evals>\d+)\s*\|\s*krylov:\s*(?P<krylov>\d+)\s*\|"
+        r"\s*initial:\s*(?P<initial>[-+0-9.eE]+|unavailable)\s*\|"
+        r"\s*final:\s*(?P<final>[-+0-9.eE]+)\s*\|\s*state:\s*(?P<state>\w+)"
+    )
+    for path in sorted(glob.glob(newton_pattern)):
+        block_match = re.search(r"Block_(\d+)\.log$", path)
+        if not block_match:
+            continue
+        file_block = int(block_match.group(1))
+        sources[file_block] = path
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                match = newton_regex.search(raw_line)
+                if not match:
+                    continue
+                step = int(match.group("step"))
+                block = int(match.group("block"))
+                initial_text = match.group("initial")
+                step_order.append(step)
+                rows_by_step.setdefault(step, {})[block] = {
+                    "block": block,
+                    "solver": match.group("solver").strip(),
+                    "reason": match.group("reason"),
+                    "reason_code": int(match.group("reason_code")),
+                    "newton_iterations": int(match.group("newton")),
+                    "residual_evaluations": int(match.group("evals")),
+                    "krylov_iterations": int(match.group("krylov")),
+                    "initial_norm": None if initial_text == "unavailable" else float(initial_text),
+                    "final_norm": float(match.group("final")),
+                    "state": match.group("state"),
+                }
 
     return rows_by_step, sources, step_order
 
@@ -12666,6 +12724,18 @@ def render_run_summary(payload: dict, output_format: str = "text"):
     print("\n  Momentum:")
     if momentum.get("available"):
         for row in momentum.get("blocks", []):
+            if row.get("solver") == "Newton Krylov":
+                print(f"    block {row['block']}: solver=Newton Krylov")
+                print(
+                    f"      newton={row.get('newton_iterations')} "
+                    f"krylov={row.get('krylov_iterations')} "
+                    f"evals={row.get('residual_evaluations')}"
+                )
+                print(
+                    f"      final={_format_summary_float(row.get('final_norm'))} "
+                    f"reason={row.get('reason')} state={row.get('state')}"
+                )
+                continue
             status = row.get("status") or "unknown"
             accepted = row.get("accepted_count")
             rejected = row.get("rejected_count")
@@ -13268,7 +13338,11 @@ def _collect_summary_plot_records(context: dict) -> list:
         r"\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*dtau_after:\s*(?P<dtau_after>[-+0-9.eE]+)"
         r"(?:\s*\|\s*cfl_eff_after:\s*(?P<cfl_eff_after>[-+0-9.eE]+))?)?"
     )
-    for path in sorted(glob.glob(os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log"))):
+    jameson_patterns = [
+        os.path.join(log_dir, "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_*.log"),
+        os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log"),
+    ]
+    for path in sorted(path for pattern in jameson_patterns for path in glob.glob(pattern)):
         block_match = re.search(r"Block_(\d+)\.log$", path)
         if not block_match:
             continue
@@ -13294,6 +13368,28 @@ def _collect_summary_plot_records(context: dict) -> list:
                             "smoothed_ratio": _parse_float_loose(match.group("smoothed_ratio")),
                             "dtau_after": _parse_float_loose(match.group("dtau_after")),
                             "cfl_eff_after": _parse_float_loose(match.group("cfl_eff_after")),
+                        },
+                        path, segment,
+                    )
+
+    newton_history_regex = re.compile(
+        r"step:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|"
+        r"\s*newton:\s*(?P<newton>\d+)\s*\|\s*nonlinear_norm:\s*(?P<norm>[-+0-9.eE]+)"
+    )
+    for path in sorted(glob.glob(os.path.join(log_dir, "Momentum_Solver_Newton_Krylov_History_Block_*.log"))):
+        segment = 0
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                if _is_summary_plot_continuation_marker(raw_line):
+                    segment += 1
+                    continue
+                match = newton_history_regex.search(raw_line)
+                if match:
+                    _append_summary_plot_record(
+                        records, "momentum", int(match.group("step")), f"block {match.group('block')}",
+                        {
+                            "newton_iterations": int(match.group("newton")),
+                            "residual_norm": float(match.group("norm")),
                         },
                         path, segment,
                     )

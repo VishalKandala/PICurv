@@ -221,6 +221,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->mom_ratio_ema_alpha = 0.3;   /* moderate smoothing; set to 1.0 to recover original raw-ratio behavior */
     simCtx->mom_last_converged  = PETSC_TRUE;
     simCtx->mom_last_lambda_max = 0.0;   /* populated after first momentum solve */
+    simCtx->mom_nk_monitor_history = PETSC_FALSE;
     simCtx->ps_ksp_pic_monitor_true_residual = PETSC_FALSE;
     simCtx->cdisx = 0.0; simCtx->cdisy = 0.0; simCtx->cdisz = 0.0;
     simCtx->initialConditionMode = IC_MODE_ZERO;
@@ -660,6 +661,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
                 "-mom_ratio_ema_alpha must be in [0, 1].");
     }
     ierr = PetscOptionsHasName(NULL, NULL, "-ps_ksp_pic_monitor_true_residual", &simCtx->ps_ksp_pic_monitor_true_residual); CHKERRQ(ierr);
+    ierr = PetscOptionsGetBool(NULL, NULL, "-mom_nk_pic_monitor", &simCtx->mom_nk_monitor_history, NULL); CHKERRQ(ierr);
     {
         PetscInt ic_mode = (PetscInt)simCtx->initialConditionMode;
         PetscInt ic_field = (PetscInt)simCtx->initialConditionField;

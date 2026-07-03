@@ -1088,7 +1088,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                     FILE *f;
                     char filen[PETSC_MAX_PATH_LEN + 128];
                     ierr = PetscSNPrintf(filen, sizeof(filen),
-                        "%s/Momentum_Solver_Convergence_History_Block_%1d.log",
+                        "%s/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%1d.log",
                         simCtx->log_dir, bi); CHKERRQ(ierr);
                     if (simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode)
                         f = fopen(filen, "w");
@@ -1173,7 +1173,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                 FILE *f;
                 char filen[PETSC_MAX_PATH_LEN + 128];
                 ierr = PetscSNPrintf(filen, sizeof(filen),
-                    "%s/Momentum_Solver_Convergence_History_Block_%1d.log",
+                    "%s/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%1d.log",
                     simCtx->log_dir, bi); CHKERRQ(ierr);
                 if (simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode)
                     f = fopen(filen, "w");

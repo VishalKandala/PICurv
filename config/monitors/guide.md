@@ -53,10 +53,13 @@ Use structured `diagnostics.petsc` for PETSc options that must be visible at
 `log_trace`, `objects_dump`, and `options_left`. Use
 `diagnostics.runtime_memory_log` for PICurv's rank-reduced runtime memory log.
 
-Use `solver_monitoring.poisson` for readable solver-time Poisson monitor
-controls. PICurv maps keys such as `pic_true_residual`, `converged_reason`,
-and `view` to the prefixed PETSc/C flags consumed from the generated control
-file. Keep raw one-off PETSc flags under
+Use `solver_monitoring.momentum.newton_krylov_history` to enable PICurv's
+optional one-row-per-Newton-iteration nonlinear norm history. The compact
+one-row-per-timestep Newton summary is always written, independent of console
+verbosity and function allow-lists. Use `solver_monitoring.poisson` for readable
+solver-time Poisson monitor controls. PICurv maps keys such as
+`pic_true_residual`, `converged_reason`, and `view` to the prefixed PETSc/C flags
+consumed from the generated control file. Keep raw one-off PETSc flags under
 `solver_monitoring.petsc_passthrough_options`.
 
 ## 6. CFD-Oriented Monitoring Advice

@@ -737,6 +737,7 @@ typedef struct SimCtx {
     PetscReal mom_ratio_ema_alpha;    /* EMA smoothing coefficient for trial-ratio rejection (0=no smooth, 1=raw) */
     PetscBool mom_last_converged;     /* Set after each momentum solve: true if pseudo-time converged */
     PetscReal mom_last_lambda_max;   /* Global spectral radius [1/s] from the last momentum solve; for diagnostics */
+    PetscBool mom_nk_monitor_history; /* Write PICurv's structured per-Newton-iteration residual history. */
     PetscBool ps_ksp_pic_monitor_true_residual; // Parsed once from options for custom Poisson monitor logging.
     InitialConditionMode initialConditionMode;
     InitialConditionField initialConditionField;

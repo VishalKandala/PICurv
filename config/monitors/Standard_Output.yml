@@ -47,6 +47,10 @@ io:
 
 # Optional structured solver monitoring switches.
 solver_monitoring:
+  momentum:
+    # Optional PICurv history: one existing SNES norm per Newton iteration.
+    # The one-row-per-step Newton summary is always written.
+    newton_krylov_history: false
   poisson:
     pic_true_residual: false
     converged_reason: false

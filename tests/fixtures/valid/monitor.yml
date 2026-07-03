@@ -32,6 +32,8 @@ io:
   particle_log_interval: 2
 
 solver_monitoring:
+  momentum:
+    newton_krylov_history: false
   poisson:
     pic_true_residual: false
     converged_reason: false

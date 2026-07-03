@@ -112,6 +112,7 @@ static PetscErrorCode PrepareContextOnlyConfig(char *tmpdir,
         "-mom_dt_rk4_residual_norm_noise_allowance_factor 1.07\n"
         "-mom_resid_atol 1.0e-8\n"
         "-mom_resid_rtol 1.0e-3\n"
+        "-mom_nk_pic_monitor\n"
         "-mg_level 1\n"
         "-poisson 0\n"
         "-tio 0\n"
@@ -383,6 +384,8 @@ static PetscErrorCode TestSetupLifecycleCleanupAcrossInitializationStates(void)
                                    "momentum absolute residual tolerance should be parsed"));
     PetscCall(PicurvAssertRealNear(1.0e-3, context_only->mom_resid_rtol, 1.0e-12,
                                    "momentum relative residual tolerance should be parsed"));
+    PetscCall(PicurvAssertBool(context_only->mom_nk_monitor_history,
+                               "Newton structured history monitor should be parsed"));
     PetscCall(PetscOptionsClear(NULL));
     PetscCall(PicurvRemoveTempDir(context_tmpdir));
     PetscCall(FreeLifecycleContext(&context_only));

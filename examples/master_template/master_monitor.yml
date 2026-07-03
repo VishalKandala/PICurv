@@ -136,6 +136,10 @@ io:
 #
 # ==============================================================================
 solver_monitoring:
+  momentum:
+    # PICurv structured nonlinear history (does not enable PETSc stdout monitors).
+    # The Newton summary log is unconditional, like the Jameson/Poisson logs.
+    newton_krylov_history: false  # -> -mom_nk_pic_monitor
   poisson:
     # Custom PICurv pressure-correction residual monitor.
     pic_true_residual: true       # -> -ps_ksp_pic_monitor_true_residual

@@ -1171,7 +1171,7 @@ def create_summary_run_dir(
             + "\n",
             encoding="utf-8",
         )
-        (logs_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
+        (logs_dir / "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_0.log").write_text(
             "Step: 10 | PseudoIter(k): 4 | dtau: 1.000000e-02 | cfl_eff: 2.5000 | |dUk|: 1.000000e-06 | |dUk|/|dU0|: 1.500000e-01 | |Rk|: 2.000000e-05 | |Rk|/|R0|: 3.000000e-02 | trial_ratio: 1.000000e+00 | status: accepted | dtau_after: 1.000000e-02 | cfl_eff_after: 2.5000\n",
             encoding="utf-8",
         )
@@ -3791,6 +3791,73 @@ def test_summarize_latest_json_reads_existing_runtime_artifacts(tmp_path):
     assert payload["particle_snapshot"]["delta_from_previous_snapshot"]["gone_count"] == 0
 
 
+def test_summarize_newton_krylov_success_and_failure(tmp_path):
+    """!
+    @brief Newton summaries expose nonlinear counts and rollback without pseudo-iteration labels.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(
+        tmp_path, name="newton_run", include_summary_logs=False, include_particle_snapshot=False
+    )
+    summary_path = run_dir / "logs" / "Momentum_Solver_Newton_Krylov_Summary_Block_0.log"
+    summary_path.write_text(
+        "\n".join(
+            [
+                "# step | block | solver | SNES reason | reason code | Newton iterations | residual evaluations | Krylov iterations | initial nonlinear norm | final nonlinear norm | state",
+                "step: 10 | block: 0 | solver: Newton Krylov | reason: CONVERGED_FNORM_ABS | reason_code: 2 | newton: 0 | evals: 1 | krylov: 0 | initial: 0.0000000000000000e+00 | final: 0.0000000000000000e+00 | state: committed",
+                "step: 11 | block: 0 | solver: Newton Krylov | reason: DIVERGED_MAX_IT | reason_code: -5 | newton: 3 | evals: 8 | krylov: 12 | initial: 1.0000000000000000e+00 | final: 2.5000000000000000e-01 | state: rolled_back",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    success = run_picurv(
+        ["summarize", "--run-dir", str(run_dir), "--step", "10", "--format", "json"], cwd=tmp_path
+    )
+    assert success.returncode == 0, success.stderr
+    row = json.loads(success.stdout)["momentum"]["blocks"][0]
+    assert row == {
+        "block": 0,
+        "final_norm": 0.0,
+        "initial_norm": 0.0,
+        "krylov_iterations": 0,
+        "newton_iterations": 0,
+        "reason": "CONVERGED_FNORM_ABS",
+        "reason_code": 2,
+        "residual_evaluations": 1,
+        "solver": "Newton Krylov",
+        "state": "committed",
+    }
+
+    failure = run_picurv(["summarize", "--run-dir", str(run_dir), "--latest"], cwd=tmp_path)
+    assert failure.returncode == 0, failure.stderr
+    assert "solver=Newton Krylov" in failure.stdout
+    assert "newton=3 krylov=12 evals=8" in failure.stdout
+    assert "reason=DIVERGED_MAX_IT state=rolled_back" in failure.stdout
+    assert "PseudoIter" not in failure.stdout
+
+
+def test_summarize_preserves_old_jameson_rows_without_trial_metadata(tmp_path):
+    """!
+    @brief The Newton parser addition keeps the older Jameson row shape readable.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "Momentum_Solver_Convergence_History_Block_0.log").write_text(
+        "Step: 7 | PseudoIter(k): 2 | dtau: 1.000000e-02 | cfl_eff: 0.5000 | "
+        "|dUk|: 1.000000e-06 | |dUk|/|dU0|: 2.000000e-03 | "
+        "|Rk|: 3.000000e-05 | |Rk|/|R0|: 4.000000e-02\n",
+        encoding="utf-8",
+    )
+    rows, _, _ = picurv._parse_momentum_convergence_logs(str(log_dir))
+    assert rows[7][0]["pseudo_iterations"] == 2
+    assert rows[7][0]["status"] is None
+    assert rows[7][0]["residual_norm"] == pytest.approx(3.0e-5)
+
+
 def test_summarize_overview_json_succeeds_without_runtime_artifacts(tmp_path):
     """!
     @brief Test that config-only overview does not require timestep artifacts.
@@ -5363,6 +5430,9 @@ def test_structured_solver_monitoring_emits_prefixed_poisson_flags(tmp_path):
     solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
     monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
     monitor_cfg["solver_monitoring"] = {
+        "momentum": {
+            "newton_krylov_history": True,
+        },
         "poisson": {
             "pic_true_residual": True,
             "true_residual": True,
@@ -5398,11 +5468,21 @@ def test_structured_solver_monitoring_emits_prefixed_poisson_flags(tmp_path):
     )
 
     content = Path(control_file).read_text(encoding="utf-8")
+    assert "-mom_nk_pic_monitor" in content
     assert "-ps_ksp_pic_monitor_true_residual" in content
     assert "-ps_ksp_monitor_true_residual" in content
     assert "-ps_ksp_converged_reason" in content
     assert "-ps_ksp_view" in content
     assert "-ps_pc_svd_monitor" in content
+
+
+def test_structured_solver_monitoring_rejects_invalid_newton_history_value():
+    """! @brief Newton history monitoring accepts booleans only. """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match="newton_krylov_history must be boolean"):
+        picurv.resolve_solver_monitoring_flags(
+            {"solver_monitoring": {"momentum": {"newton_krylov_history": "yes"}}}
+        )
 
 
 def test_validate_rejects_bad_diagnostics_schema(tmp_path):

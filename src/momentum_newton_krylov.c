@@ -2,6 +2,9 @@
 
 typedef struct {
     UserCtx *user;
+    FILE *history_file;
+    PetscBool have_initial_norm;
+    PetscReal initial_norm;
 } MomentumNewtonKrylovContext;
 
 typedef enum {
@@ -13,11 +16,125 @@ typedef enum {
 
 static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user);
 static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F, void *ctx);
+static PetscErrorCode MomentumNewtonKrylov_Monitor(SNES snes, PetscInt iteration,
+                                                    PetscReal norm, void *ctx);
+static void MomentumNewtonKrylov_OpenHistory(MomentumNewtonKrylovContext *ctx);
+static void MomentumNewtonKrylov_WriteSummary(const MomentumNewtonKrylovContext *ctx,
+                                               SNESConvergedReason reason,
+                                               PetscInt nonlinear_its,
+                                               PetscInt function_evals,
+                                               PetscInt linear_its,
+                                               PetscReal final_norm,
+                                               PetscBool committed);
 static PetscErrorCode MomentumNewtonKrylov_ApplyConstraints(MomentumNewtonKrylovContext *ctx,
                                                             Vec X, Vec F);
 static MomentumNewtonKrylovRowType MomentumNewtonKrylov_ClassifyRow(
     UserCtx *user, PetscInt i, PetscInt j, PetscInt k, PetscInt component,
     PetscInt *ri, PetscInt *rj, PetscInt *rk);
+
+/**
+ * @brief Captures SNES iteration norms and optionally writes PICurv history rows.
+ * @details SNES supplies the already-computed norm, so this monitor never causes
+ * an additional nonlinear residual evaluation. PETSc monitors selected through
+ * `-mom_nk_snes_monitor` remain independent and may run alongside this callback.
+ */
+static PetscErrorCode MomentumNewtonKrylov_Monitor(SNES snes, PetscInt iteration,
+                                                    PetscReal norm, void *vctx)
+{
+    MomentumNewtonKrylovContext *ctx = (MomentumNewtonKrylovContext *)vctx;
+    SimCtx *simCtx = ctx->user->simCtx;
+
+    (void)snes;
+    PetscFunctionBeginUser;
+    if (iteration == 0 && !ctx->have_initial_norm) {
+        ctx->initial_norm = norm;
+        ctx->have_initial_norm = PETSC_TRUE;
+    }
+    if (ctx->history_file) {
+        (void)fprintf(ctx->history_file,
+                      "step: %d | block: %d | newton: %d | nonlinear_norm: %.16e\n",
+                      (int)simCtx->step, (int)ctx->user->_this, (int)iteration,
+                      (double)norm);
+        (void)fflush(ctx->history_file);
+    }
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Opens the optional rank-zero Newton iteration-history file. */
+static void MomentumNewtonKrylov_OpenHistory(MomentumNewtonKrylovContext *ctx)
+{
+    SimCtx *simCtx = ctx->user->simCtx;
+    char path[PETSC_MAX_PATH_LEN + 128];
+    const char *mode;
+
+    if (!simCtx->mom_nk_monitor_history || simCtx->rank != 0) return;
+    if (PetscSNPrintf(path, sizeof(path),
+                     "%s/Momentum_Solver_Newton_Krylov_History_Block_%d.log",
+                     simCtx->log_dir, (int)ctx->user->_this)) return;
+    mode = (simCtx->step == simCtx->StartStep + 1 && !simCtx->continueMode) ? "w" : "a";
+    ctx->history_file = fopen(path, mode);
+    if (!ctx->history_file) {
+        LOG(GLOBAL, LOG_WARNING, "Could not open Newton iteration-history log '%s'.\n", path);
+        return;
+    }
+    if (mode[0] == 'w') {
+        (void)fprintf(ctx->history_file,
+                      "# step | block | Newton iteration | nonlinear residual norm\n");
+    } else if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+        (void)fprintf(ctx->history_file, "# Continuation from step %d\n", (int)simCtx->StartStep);
+    }
+}
+
+/**
+ * @brief Appends one rank-zero structured Newton result for a physical step.
+ * @details File failures are deliberately diagnostic-only: rollback and PETSc
+ * cleanup must retain their original error behavior.
+ */
+static void MomentumNewtonKrylov_WriteSummary(const MomentumNewtonKrylovContext *ctx,
+                                               SNESConvergedReason reason,
+                                               PetscInt nonlinear_its,
+                                               PetscInt function_evals,
+                                               PetscInt linear_its,
+                                               PetscReal final_norm,
+                                               PetscBool committed)
+{
+    SimCtx *simCtx = ctx->user->simCtx;
+    char path[PETSC_MAX_PATH_LEN + 128];
+    const char *mode;
+    const char *reason_name;
+    FILE *file;
+
+    if (simCtx->rank != 0) return;
+    if (PetscSNPrintf(path, sizeof(path),
+                     "%s/Momentum_Solver_Newton_Krylov_Summary_Block_%d.log",
+                     simCtx->log_dir, (int)ctx->user->_this)) return;
+    mode = (simCtx->step == simCtx->StartStep + 1 && !simCtx->continueMode) ? "w" : "a";
+    file = fopen(path, mode);
+    if (!file) {
+        LOG(GLOBAL, LOG_WARNING, "Could not open Newton summary log '%s'.\n", path);
+        return;
+    }
+    if (mode[0] == 'w') {
+        (void)fprintf(file,
+                      "# step | block | solver | SNES reason | reason code | Newton iterations | "
+                      "residual evaluations | Krylov iterations | initial nonlinear norm | "
+                      "final nonlinear norm | state\n");
+    } else if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+        (void)fprintf(file, "# Continuation from step %d\n", (int)simCtx->StartStep);
+    }
+    reason_name = reason == SNES_CONVERGED_ITERATING
+                    ? "SNES_CONVERGED_ITERATING" : SNESConvergedReasons[reason];
+    (void)fprintf(file,
+                  "step: %d | block: %d | solver: Newton Krylov | reason: %s | reason_code: %d | "
+                  "newton: %d | evals: %d | krylov: %d | initial: ",
+                  (int)simCtx->step, (int)ctx->user->_this, reason_name, (int)reason,
+                  (int)nonlinear_its, (int)function_evals, (int)linear_its);
+    if (ctx->have_initial_norm) (void)fprintf(file, "%.16e", (double)ctx->initial_norm);
+    else                        (void)fprintf(file, "unavailable");
+    (void)fprintf(file, " | final: %.16e | state: %s\n", (double)final_norm,
+                  committed ? "committed" : "rolled_back");
+    (void)fclose(file);
+}
 
 #undef __FUNCT__
 #define __FUNCT__ "MomentumNewtonKrylov_Validate"
@@ -296,10 +413,12 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     PetscBool      pc_is_none = PETSC_FALSE;
     PetscBool      restore_entry = PETSC_FALSE;
     PetscBool      rhs_created = PETSC_FALSE;
+    PetscBool      solve_started = PETSC_FALSE;
+    PetscBool      committed = PETSC_FALSE;
     SNESConvergedReason reason = SNES_CONVERGED_ITERATING;
     PetscInt       nonlinear_its = 0, function_evals = 0, linear_its = 0;
     PetscReal      final_norm = PETSC_MAX_REAL;
-    MomentumNewtonKrylovContext ctx;
+    MomentumNewtonKrylovContext ctx = {0};
     const char *staggered_fields[] = {"Ucont"};
 
     PetscFunctionBeginUser;
@@ -334,6 +453,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     ierr = KSPGetPC(ksp, &pc); if (ierr) goto cleanup;
     ierr = PCSetType(pc, PCNONE); if (ierr) goto cleanup;
     ierr = SNESSetFromOptions(snes); if (ierr) goto cleanup;
+    ierr = SNESMonitorSet(snes, MomentumNewtonKrylov_Monitor, &ctx, NULL); if (ierr) goto cleanup;
     ierr = PCGetType(pc, &pc_type); if (ierr) goto cleanup;
     ierr = PetscStrcmp(pc_type, PCNONE, &pc_is_none); if (ierr) goto cleanup;
     if (!pc_is_none) {
@@ -344,6 +464,8 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
         goto cleanup;
     }
 
+    MomentumNewtonKrylov_OpenHistory(&ctx);
+    solve_started = PETSC_TRUE;
     ierr = SNESSolve(snes, NULL, solution);
     if (ierr) goto cleanup;
     ierr = SNESGetConvergedReason(snes, &reason); if (ierr) goto cleanup;
@@ -362,6 +484,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); if (ierr) goto cleanup;
     ierr = ApplyBoundaryConditions(user); if (ierr) goto cleanup;
     restore_entry = PETSC_FALSE;
+    committed = (PetscBool)(reason > 0);
 
     LOG_ALLOW(GLOBAL, LOG_INFO,
               "Newton Krylov momentum solve: reason=%s (%d), Newton iterations=%d, residual evaluations=%d, Krylov iterations=%d, final norm=%.6e, state=%s.\n",
@@ -370,6 +493,16 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     if (reason <= 0) ierr = PETSC_ERR_CONV_FAILED;
 
 cleanup:
+    /* A PETSc solve error can bypass the normal statistics path. Query whatever
+       SNES retained without replacing the primary error so a failed attempt is
+       still represented in the structured log. */
+    if (solve_started && snes) {
+        (void)SNESGetConvergedReason(snes, &reason);
+        (void)SNESGetIterationNumber(snes, &nonlinear_its);
+        (void)SNESGetNumberFunctionEvals(snes, &function_evals);
+        (void)SNESGetLinearSolveIterations(snes, &linear_its);
+        (void)SNESGetFunctionNorm(snes, &final_norm);
+    }
     if (restore_entry && entry_backup) {
         cleanup_ierr = VecCopy(entry_backup, user->Ucont);
         if (!ierr) ierr = cleanup_ierr;
@@ -378,6 +511,15 @@ cleanup:
         cleanup_ierr = ApplyBoundaryConditions(user);
         if (!ierr) ierr = cleanup_ierr;
         simCtx->mom_last_converged = PETSC_FALSE;
+        committed = PETSC_FALSE;
+    }
+    if (ctx.history_file) {
+        (void)fclose(ctx.history_file);
+        ctx.history_file = NULL;
+    }
+    if (solve_started) {
+        MomentumNewtonKrylov_WriteSummary(&ctx, reason, nonlinear_its, function_evals,
+                                          linear_its, final_norm, committed);
     }
     if (rhs_created) {
         cleanup_ierr = VecDestroy(&user->Rhs);
