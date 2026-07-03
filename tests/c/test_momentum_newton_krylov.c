@@ -1037,6 +1037,13 @@ static PetscErrorCode TestUnsupportedConfigurationFailsBeforeAllocation(void)
     PetscCall(PetscPopErrorHandler());
     PetscCall(PicurvAssertBool((PetscBool)(solve_ierr != PETSC_SUCCESS), "restart must fail"));
     simCtx->StartStep = 0;
+    simCtx->continueMode = PETSC_TRUE;
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    solve_ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertBool((PetscBool)(solve_ierr != PETSC_SUCCESS),
+                               "continue mode at step zero must not count as a fresh start"));
+    simCtx->continueMode = PETSC_FALSE;
     PetscCall(VecSet(user->Nvert, 1.0));
     PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
     solve_ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL);

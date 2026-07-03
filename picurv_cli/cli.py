@@ -56,7 +56,7 @@ def _add_run_parser(subparsers):
         action="store_true",
         dest="continue_run",
         help="Resume an existing run directory in-place. Requires --run-dir.\n"
-             "With --solve, appends to existing solver output/logs.\n"
+             "With --solve, requires start_step > 0 and appends to existing solver output/logs.\n"
              "With --post-process, resumes the same recipe from the first unfinished step\n"
              "and skips already-complete work inside the current live source frontier.",
     )

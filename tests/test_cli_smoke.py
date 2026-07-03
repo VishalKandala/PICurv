@@ -5892,6 +5892,28 @@ def test_continue_without_run_dir_fails(tmp_path):
         picurv.resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, str(tmp_path))
 
 
+def test_continue_with_zero_start_step_fails(tmp_path):
+    """!
+    @brief Test that solver --continue rejects a fresh-start timestep.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    run_dir = tmp_path / "my_run"
+    run_dir.mkdir()
+    case_cfg["run_control"]["start_step"] = 0
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
+
+    with pytest.raises(ValueError, match=r"start_step > 0.*fresh start"):
+        picurv.resolve_restart_source(
+            args, case_cfg, solver_cfg, monitor_cfg, str(run_dir)
+        )
+
+
 def test_needs_restart_source_analytical_init_no_source(tmp_path):
     """!
     @brief Test that analytical + init + start_step > 0 does not need restart source (F3).

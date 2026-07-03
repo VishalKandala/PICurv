@@ -2584,6 +2584,12 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
     if restart_from and continue_run:
         raise ValueError("--restart-from and --continue are mutually exclusive.")
 
+    if continue_run and start_step <= 0:
+        raise ValueError(
+            "--continue with --solve requires run_control.start_step > 0; "
+            "start_step=0 is a fresh start. Omit --continue to start a fresh run."
+        )
+
     if restart_from:
         # === MODE 1: New run, restart from another run ===
         source_run = os.path.abspath(restart_from)

@@ -159,6 +159,7 @@ picurv run --solve --continue --run-dir runs/my_run \
 
 Operational meaning:
 
+- `case.yml -> run_control.start_step` must be the saved checkpoint step and must be greater than zero; use a normal run without `--continue` for a fresh start at step zero,
 - PICurv copies the latest checkpoint from `output/` to `restart/` inside `runs/my_run/`,
 - the solver resumes from that checkpoint,
 - logs append to the existing log files,

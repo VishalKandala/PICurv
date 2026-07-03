@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Solver continuation now rejects `run_control.start_step: 0` instead of treating
+  a fresh start as an in-place continuation and appending misleading step-zero
+  separators to existing logs.
+
 - Picard-Jameson spectral-radius pseudo-time step (semantic change):
   - changed the pseudo-time step from `dtau = pseudo_cfl × dt` to
     `dtau = pseudo_cfl / lambda_max`, where `lambda_max` is the global maximum

@@ -173,6 +173,8 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
                "Newton Krylov version one does not support wall functions.");
     PetscCheck(simCtx->StartStep == 0, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one supports fresh starts only (StartStep must be zero)." );
+    PetscCheck(!simCtx->continueMode, PETSC_COMM_WORLD, PETSC_ERR_SUP,
+               "Newton Krylov version one supports fresh starts only (--continue is not supported)." );
 
     for (PetscInt face = 0; face < 6; ++face) {
         const BoundaryFaceConfig *cfg = &user->boundary_faces[face];
