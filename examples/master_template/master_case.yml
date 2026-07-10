@@ -95,7 +95,8 @@ properties:
     # source_file: initial_conditions/velocity.dat
 
     # --- External deterministic generator (ic_gen), materialized during run/precompute. ---
-    # Repository ic.gen requires grid.mode file or grid_gen so grid.run is available.
+    # Repository ic.gen supports file, grid_gen, and single-block programmatic_c grids.
+    # For programmatic_c, scalar programmatic_settings are materialized as config/grid.run first.
     # mode: generated
     # generator: ic_gen
     # params:

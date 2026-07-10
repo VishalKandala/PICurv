@@ -1,7 +1,8 @@
 # Initial-Condition Generation
 
 `generators/ic.gen` generates one complete PETSc binary `Ucat` or `Ucont` vector
-from expressions evaluated on a staged nondimensional `PICGRID`.
+from expressions evaluated on a staged nondimensional `PICGRID`. The staged grid
+may come from `file`, `grid_gen`, or single-block `programmatic_c` cases.
 
 ```ini
 [expression]

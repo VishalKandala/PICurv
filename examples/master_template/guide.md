@@ -54,7 +54,8 @@ Initial-condition note:
 - `initial_conditions.mode: file` accepts one PETSc `Ucat` or `Ucont` `.dat` vector.
 - `picurv precompute --case ...` also materializes configured `ic_gen` output.
 - `ic_gen` defaults to `generators/ic.gen`; `params.script` optionally selects a compatible override.
-- repository `ic.gen` uses `[expression]` configs and requires a file or `grid_gen` grid.
+- repository `ic.gen` uses `[expression]` configs with file, `grid_gen`, or single-block
+  `programmatic_c` grids; programmatic cases materialize `config/grid.run` first.
 - generated and field-sliced prescribed profiles default to `generators/profile.gen`; `source.script`
   optionally selects a compatible override.
 - file-backed initial conditions currently support single-block cases only.

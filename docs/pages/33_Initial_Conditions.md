@@ -115,9 +115,11 @@ dummy-cell centers. `Ucont` configs define `u_xi`, `u_eta`, and `u_zeta`,
 evaluated at their corresponding geometric face centers. Expressions may use
 `x/y/z`, normalized logical `xi/eta/zeta`, storage `i/j/k`, `pi`, and the
 documented numerical functions. The first implementation supports one block.
-The repository generator requires a staged PICGRID, so normal use selects
-`grid.mode: file` or `grid.mode: grid_gen`. A custom `params.script` may define
-its own behavior for `programmatic_c`.
+The repository generator requires a staged PICGRID. `grid.mode: file` and
+`grid.mode: grid_gen` provide that grid directly; for single-block
+`grid.mode: programmatic_c`, the launcher materializes a nondimensional
+`config/grid.run` bridge from scalar `programmatic_settings` before invoking
+`ic.gen`.
 
 @section p33_euler_modes_sec 3. C Runtime Modes and Entry Points
 

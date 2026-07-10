@@ -2552,6 +2552,51 @@ def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
     assert "programmatic_c" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (lambda settings: settings.pop("im"), "must include"),
+        (lambda settings: settings.__setitem__("im", [8]), "positive scalar integer"),
+    ],
+)
+def test_validate_programmatic_ic_gen_requires_materializable_scalar_grid(tmp_path, mutate, expected):
+    """!
+    @brief Test that programmatic_c + ic_gen validates scalar settings needed for grid.run.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] mutate Mutation applied to programmatic_settings.
+    @param[in] expected Expected validation error fragment.
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    config = tmp_path / "ic.cfg"
+    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
+    case_cfg["properties"]["initial_conditions"] = {
+        "mode": "generated",
+        "generator": "ic_gen",
+        "params": {"field": "Ucat", "config_file": str(config)},
+    }
+    mutate(case_cfg["grid"]["programmatic_settings"])
+    case_path = tmp_path / "case_programmatic_ic_gen_invalid.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "programmatic_c" in result.stderr
+    assert "ic_gen" in result.stderr
+    assert expected in result.stderr
+
+
 def test_validate_particle_restart_mode_omission_warns_on_restart(tmp_path):
     """!
     @brief Test that validate particle restart mode omission warns on restart.
@@ -2728,6 +2773,51 @@ def test_dry_run_grid_gen_lists_planned_grid_artifacts(tmp_path):
     assert run_dir / "config" / "grid.generated.picgrid" in artifacts
     assert run_dir / "config" / "grid.generated.info" in artifacts
     assert run_dir / "config" / "grid.generated.vts" in artifacts
+    assert not run_dir.exists()
+
+
+def test_dry_run_programmatic_ic_gen_lists_materialized_grid_artifact(tmp_path):
+    """!
+    @brief Test that programmatic_c + ic_gen dry-run previews the materialized grid.run bridge.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    config = tmp_path / "ic.cfg"
+    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
+    case_cfg["properties"]["initial_conditions"] = {
+        "mode": "generated",
+        "generator": "ic_gen",
+        "params": {"field": "Ucat", "config_file": str(config)},
+    }
+    case_path = tmp_path / "case_programmatic_ic_gen.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    result = run_picurv(
+        [
+            "run",
+            "--solve",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(valid / "monitor.yml"),
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    run_dir = Path(payload["run_dir_preview"])
+    artifacts = {Path(path) for path in payload["artifacts"]}
+
+    assert run_dir / "config" / "grid.run" in artifacts
+    assert run_dir / "config" / "initial_condition.generated.dat" in artifacts
+    assert run_dir / "config" / "initial_condition" / "ufield00000_0.dat" in artifacts
     assert not run_dir.exists()
 
 

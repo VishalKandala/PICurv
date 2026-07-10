@@ -4769,6 +4769,7 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
 
     # --- case.yml: initial_conditions mode-aware validation ---
     ic = props.get('initial_conditions', {})
+    resolved_ic = None
     if not ic:
         errors.append(f"  {case_path}: missing 'properties.initial_conditions' section.")
     elif not isinstance(ic, dict):
@@ -4780,9 +4781,14 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         )
     else:
         try:
-            resolve_initial_condition_config(ic, prepared_blocks, U_ref=1.0)
+            resolved_ic = resolve_initial_condition_config(ic, prepared_blocks, U_ref=1.0)
         except KeyError as e:
             errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
+        except ValueError as e:
+            errors.append(f"  {case_path}: {e}")
+    if grid_mode == 'programmatic_c' and resolved_ic and resolved_ic.get("kind") == "ic_gen":
+        try:
+            validate_programmatic_ic_gen_grid_settings(grid_cfg.get('programmatic_settings'))
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
 
@@ -6850,6 +6856,65 @@ def translate_programmatic_grid_settings(grid_settings: dict) -> dict:
     return translated
 
 
+PROGRAMMATIC_IC_GEN_GRID_KEYS = (
+    "im", "jm", "km",
+    "xMins", "xMaxs", "yMins", "yMaxs", "zMins", "zMaxs",
+    "rxs", "rys", "rzs",
+)
+
+
+def validate_programmatic_ic_gen_grid_settings(raw_settings: dict) -> None:
+    """!
+    @brief Validate scalar programmatic grid settings needed to materialize grid.run for ic_gen.
+    @param[in] raw_settings programmatic_settings dict from case.yml.
+    @throws ValueError when required scalar settings are missing or invalid.
+    """
+    if not isinstance(raw_settings, dict):
+        raise ValueError(
+            "grid.programmatic_settings must be a mapping for programmatic_c with generator 'ic_gen'."
+        )
+
+    missing = [key for key in PROGRAMMATIC_IC_GEN_GRID_KEYS if key not in raw_settings]
+    if missing:
+        raise ValueError(
+            "grid.programmatic_settings must include "
+            f"{missing} when grid.mode is 'programmatic_c' and initial_conditions.generator is 'ic_gen'."
+        )
+
+    for key in ("im", "jm", "km"):
+        value = raw_settings[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(
+                f"grid.programmatic_settings.{key} must be a positive scalar integer cell count "
+                "for programmatic_c with generator 'ic_gen'."
+            )
+
+    for key in ("xMins", "xMaxs", "yMins", "yMaxs", "zMins", "zMaxs", "rxs", "rys", "rzs"):
+        value = raw_settings[key]
+        if isinstance(value, (list, tuple, dict, bool)):
+            raise ValueError(
+                f"grid.programmatic_settings.{key} must be a scalar numeric value "
+                "for programmatic_c with generator 'ic_gen'."
+            )
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"grid.programmatic_settings.{key} must be a scalar numeric value "
+                "for programmatic_c with generator 'ic_gen'."
+            )
+        if not math.isfinite(numeric):
+            raise ValueError(
+                f"grid.programmatic_settings.{key} must be finite "
+                "for programmatic_c with generator 'ic_gen'."
+            )
+        if key in {"rxs", "rys", "rzs"} and numeric <= 0.0:
+            raise ValueError(
+                f"grid.programmatic_settings.{key} must be positive "
+                "for programmatic_c with generator 'ic_gen'."
+            )
+
+
 def generate_picgrid_from_programmatic_settings(raw_settings: dict, dest_path: str, L_ref: float) -> dict:
     """!
     @brief Generate a canonical PICGRID file from programmatic Cartesian grid settings.
@@ -6860,6 +6925,7 @@ def generate_picgrid_from_programmatic_settings(raw_settings: dict, dest_path: s
     @param[in] L_ref Reference length for nondimensionalization (must be non-zero).
     @return Summary dict: nblk, dims [(IM, JM, KM)], total_nodes.
     """
+    validate_programmatic_ic_gen_grid_settings(raw_settings)
     if L_ref == 0.0:
         raise ValueError("length_ref must be non-zero for programmatic grid generation.")
     IM = int(raw_settings.get("im", 0)) + 1
@@ -10162,6 +10228,8 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
         os.path.join(config_dir, "initial_condition", f"{resolved['field_name']}00000_0.dat")
     )
     if resolved["kind"] == "ic_gen":
+        if (case_cfg.get("grid", {}) or {}).get("mode") == "programmatic_c":
+            plan["artifacts"].append(os.path.join(config_dir, "grid.run"))
         plan["artifacts"].append(_resolve_run_artifact_path(
             run_dir, resolved.get("output_file"), os.path.join("config", "initial_condition.generated.dat"),
             default_to_config_dir=True,
