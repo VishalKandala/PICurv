@@ -47,8 +47,8 @@ and documentation tooling.
 `make build-docs` remains useful for rendered output verification, but the audit
 script is the primary completeness gate for function comments. For a
 commit-scoped claim that the documentation is current, use `make certify-docs`.
-It requires a clean worktree, runs link/API/ingress/configuration/Doxygen gates
-plus `make check-full`, and writes an ignored certificate named
+It requires a clean worktree, runs link/API/user-facing-reporting/starter-content/
+ingress/configuration/Doxygen gates plus `make check-full`, and writes an ignored certificate named
 `logs/documentation-certificate-<full-sha>.md`. The certificate is valid only
 through that exact Git commit.
 

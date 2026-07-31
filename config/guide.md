@@ -2,6 +2,19 @@
 
 This directory contains reusable YAML profiles and build/runtime configuration assets. It is best treated as a configuration library: stable, versioned building blocks that users compose into case-specific workflows.
 
+## Currency Guarantee
+
+Every tracked asset under `config/` is listed in the starter-content contract and checked during documentation certification. Reusable solver, monitor, postprocessor, scheduler, and study profiles are each exercised in at least one declared valid composition. If a configuration asset is added, removed, or no longer has a supported composition, the gate fails until the contract and its validation coverage are updated together.
+
+### Adding or Changing a Reusable Profile
+
+Update `tests/tooling/starter_content_contract.json` in the same change as the
+profile. Every file below `config/` must remain in that inventory, and every
+reusable role profile must be included in a declared valid composition. This
+keeps the library honest: a profile is not considered shipped merely because it
+parses in isolation. Run `python3 tests/tooling/audit_starter_content.py` before
+committing a `config/` change.
+
 For CFD users, the key idea is separation of concerns. Instead of creating one monolithic YAML file, PICurv uses role-oriented contracts (`case`, `solver`, `monitor`, `post`, and optional `cluster`/`study`) so you can change numerical strategy without rewriting geometry definitions, or change post outputs without touching solver controls.
 
 Two repo-wide patterns are especially important in the current codebase:

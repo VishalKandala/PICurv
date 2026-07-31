@@ -2,6 +2,24 @@
 
 This directory contains runnable case templates used by `./bin/picurv init` and reference configs for sweeps/clusters. The examples are designed as operational baselines, not just demos: each one exercises a different grid/physics pathway and can be used as a seed for production studies.
 
+## Currency Guarantee
+
+The documentation certification treats this directory as a starter-product surface, not incidental test data. The tracked starter-content contract inventories every top-level example directory and every example YAML. On each certification it verifies that every YAML belongs to a declared, valid composition, validates all declared case and study bundles, and runs `picurv init` for every example directory to confirm the copied files match their source template. `master_template/` and `periodic_test/` are reference collections: they are copied and their declared component bundles are validated, while runnable studies should start from a concrete case family.
+
+### Adding or Changing an Example
+
+Treat a new example as a supported user entry point. Add its directory to
+`tests/tooling/starter_content_contract.json`; classify reference collections
+there, list any non-role YAML as auxiliary, and declare every case/solver/
+monitor/post or cluster/study composition it supplies. The audit rejects an
+unlisted top-level directory or YAML file, so the documentation certification
+cannot pass until the example, its usage guidance, and its validation contract
+are updated together. Before committing, run:
+
+```bash
+python3 tests/tooling/audit_starter_content.py
+```
+
 ## Example Families
 
 - `flat_channel/`: baseline first-run case using programmatic grid generation.

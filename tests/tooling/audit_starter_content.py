@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Certify that shipped starter templates and reusable configuration profiles stay usable."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CONTRACT_PATH = REPO_ROOT / "tests" / "tooling" / "starter_content_contract.json"
+PICURV = REPO_ROOT / "bin" / "picurv"
+RUNTIME_EXECUTION_EXAMPLE = "execution.example.yml"
+
+
+def run_cli(args: list[str], cwd: Path = REPO_ROOT) -> subprocess.CompletedProcess[str]:
+    """!
+    @brief Run one CLI command used to validate a shipped starter artifact.
+    @param[in] args CLI argument list.
+    @param[in] cwd Working directory for the command.
+    @return Completed CLI process.
+    """
+    return subprocess.run(
+        [str(PICURV), *args], cwd=cwd, text=True, capture_output=True, timeout=90, check=False
+    )
+
+
+def fail(context: str, result: subprocess.CompletedProcess[str]) -> None:
+    """!
+    @brief Raise a compact error that preserves the relevant CLI output.
+    @param[in] context Human-readable operation description.
+    @param[in] result Completed failing CLI process.
+    @return None.
+    """
+    raise RuntimeError(f"{context} failed:\n{result.stdout}\n{result.stderr}")
+
+
+def validate_bundle(bundle: dict[str, str], label: str) -> None:
+    """!
+    @brief Validate one declared case/solver/monitor/post or cluster/study composition.
+    @param[in] bundle Declared role-to-path mapping.
+    @param[in] label Human-readable bundle description.
+    @return None.
+    """
+    args = ["validate"]
+    for role, path in bundle.items():
+        args.extend([f"--{role}", str(REPO_ROOT / path)])
+    result = run_cli(args)
+    if result.returncode:
+        fail(label, result)
+
+
+def audit_template_copy(template_name: str, temporary_root: Path) -> None:
+    """!
+    @brief Initialize one declared template and verify every managed file was copied faithfully.
+    @param[in] template_name Top-level example directory name.
+    @param[in] temporary_root Temporary parent directory for initialized cases.
+    @return None.
+    """
+    source = REPO_ROOT / "examples" / template_name
+    destination = temporary_root / template_name
+    result = run_cli(["init", template_name, "--dest", str(destination)])
+    if result.returncode:
+        fail(f"picurv init {template_name}", result)
+    for source_path in source.rglob("*"):
+        if not source_path.is_file():
+            continue
+        relative = source_path.relative_to(source)
+        if relative.as_posix() == RUNTIME_EXECUTION_EXAMPLE:
+            continue
+        copied_path = destination / relative
+        if not copied_path.is_file() or copied_path.read_bytes() != source_path.read_bytes():
+            raise RuntimeError(f"picurv init {template_name} did not faithfully copy {relative}")
+    if (destination / RUNTIME_EXECUTION_EXAMPLE).exists():
+        raise RuntimeError(f"picurv init {template_name} copied site-specific {RUNTIME_EXECUTION_EXAMPLE}")
+
+
+def main() -> int:
+    """!
+    @brief Run the starter-content inventory, composition, and initializer audit.
+    @return Process status code.
+    """
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    actual_templates = sorted(path.name for path in (REPO_ROOT / "examples").iterdir() if path.is_dir())
+    if actual_templates != sorted(contract["template_directories"]):
+        raise RuntimeError(f"Template inventory differs from contract: actual={actual_templates}")
+    unknown_reference_templates = set(contract["reference_only_templates"]) - set(actual_templates)
+    if unknown_reference_templates:
+        raise RuntimeError(f"Reference-only templates are not in the template inventory: {sorted(unknown_reference_templates)}")
+
+    actual_config_assets = sorted(str(path.relative_to(REPO_ROOT)) for path in (REPO_ROOT / "config").rglob("*") if path.is_file())
+    if actual_config_assets != sorted(contract["config_assets"]):
+        raise RuntimeError("Configuration asset inventory differs from the starter-content contract.")
+
+    declared_example_yamls = set(contract["auxiliary_example_yamls"])
+    for bundle in contract["case_bundles"] + contract["study_bundles"]:
+        declared_example_yamls.update(path for path in bundle.values() if path.startswith("examples/"))
+    actual_example_yamls = {str(path.relative_to(REPO_ROOT)) for path in (REPO_ROOT / "examples").rglob("*.yml")}
+    if actual_example_yamls != declared_example_yamls:
+        raise RuntimeError("Example YAML inventory differs from the declared runnable/reference compositions.")
+
+    for bundle in contract["case_bundles"]:
+        validate_bundle(bundle, f"case bundle {bundle['case']}")
+    for bundle in contract["config_role_bundles"]:
+        validate_bundle(bundle, f"config role bundle {bundle['solver']}")
+    for bundle in contract["study_bundles"]:
+        validate_bundle(bundle, f"study bundle {bundle['study']}")
+
+    with tempfile.TemporaryDirectory(prefix="picurv-starter-content-") as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        for template_name in contract["template_directories"]:
+            audit_template_copy(template_name, temporary_root)
+
+    print("Starter template, example, and configuration audit passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (RuntimeError, subprocess.TimeoutExpired) as error:
+        print(f"Starter-content audit failed: {error}", file=sys.stderr)
+        raise SystemExit(1)

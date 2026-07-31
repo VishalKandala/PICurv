@@ -65,6 +65,7 @@ Fast local checks:
 
 ```bash
 python3 tests/tooling/audit_function_docs.py
+python3 tests/tooling/audit_starter_content.py
 make test
 make coverage-python
 make audit-build
@@ -85,6 +86,7 @@ Guidance:
 - Use `python3 tests/tooling/audit_function_docs.py` when changing C/Python function signatures, docstrings, or test helpers. It scans production code, generators, tests, and tooling; it rejects missing documentation and name-only descriptions such as “helper function” or “internal helper implementation.”
 - Use `make test` when working on `picurv_cli/core.py`, schemas, or repository metadata.
 - Use `python3 tests/tooling/check_markdown_links.py` when changing docs/examples.
+- Use `python3 tests/tooling/audit_starter_content.py` when changing `examples/` or `config/`. It checks the complete top-level template and configuration inventories, validates every declared composition, and verifies that `picurv init` faithfully copies each template without carrying a site-specific execution sample into the new case.
 - Use `make audit-build` when you want a clean compilation audit with `logs/build.log` and `logs/build.warnings.log` captured under the repo `logs/` directory.
 - Use `make doctor` after provisioning PETSc on a new machine.
 - Use `make unit-setup` when changing setup, teardown, initialization, or rank-info lifecycle code.
@@ -126,6 +128,15 @@ The hook deliberately rejects a push that maps some other local commit directly
 to `main`, because it can only certify the exact checked-out `HEAD`. This is a
 local safeguard: Git permits bypassing hooks with `git push --no-verify`, so the
 post-push GitHub documentation gates remain a separate redundancy layer.
+
+`make certify-docs` includes Markdown-link, function-documentation,
+user-facing-reporting, starter-template/configuration, option-ingress,
+example/configuration regression, and zero-warning Doxygen gates before the
+PETSc/MPI `make check-full` tier. Therefore, with the tracked hook enabled, a
+normal push to `main` cannot publish the checked-out commit until all applicable
+local gates pass. The starter-content gate specifically rejects an unregistered
+example directory/YAML, an unregistered `config/` asset, a broken declared
+composition, or a template that `picurv init` does not copy faithfully.
 
 @section p40_python_sec 3. Python Suite (`test-python`)
 
@@ -185,6 +196,7 @@ Current Python files and primary responsibilities:
   - validates canonical example bundles with `picurv validate`
   - scans docs/examples/tests for forbidden stale contract terms
   - runs the repository-wide function documentation audit (`tests/tooling/audit_function_docs.py`)
+  - runs the starter-content inventory and composition audit (`tests/tooling/audit_starter_content.py`)
 
 These files are intentionally role-specific to keep failures actionable.
 

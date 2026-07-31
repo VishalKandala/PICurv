@@ -538,6 +538,18 @@ Detailed guide:
 - Common fatal errors: https://vishalkandala.me/picurv-docs/39_Common_Fatal_Errors.html
 - Repository navigation: https://vishalkandala.me/picurv-docs/30_Repository_Navigation.html
 
+## Main-Branch Certification
+
+Run `make install-git-hooks` once in each clone. With the tracked hook enabled,
+a normal push to `main` first certifies the exact checked-out commit: source,
+configuration, example, and test changes run the full documentation and
+PETSc/MPI gate; documentation-only changes may reuse a recent full runtime
+certificate and run the structural gate. Certification includes the starter
+content contract, so new `examples/` or `config/` assets must be registered with
+their valid compositions in `tests/tooling/starter_content_contract.json`.
+`git push --no-verify` bypasses local hooks; GitHub then supplies the independent
+lightweight structural documentation check.
+
 ## Repository Navigation
 
 Top-level guides:

@@ -144,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         run([sys.executable, "tests/tooling/check_markdown_links.py"], "Markdown links")
         run([sys.executable, "tests/tooling/audit_function_docs.py"], "function documentation")
         run([sys.executable, "tests/tooling/audit_user_facing_reporting.py"], "user-facing reporting")
+        run([sys.executable, "tests/tooling/audit_starter_content.py"], "starter templates and configuration")
         run([sys.executable, "tests/tooling/audit_ingress.py"], "option-ingress manifest")
         run(
             [sys.executable, "-m", "pytest", "-q", "tests/test_repo_consistency.py", "tests/test_config_regressions.py"],

@@ -1,0 +1,70 @@
+{
+  "template_directories": [
+    "bent_channel",
+    "brownian_motion",
+    "drift_diffusivity_gradient",
+    "drift_uniform_flow",
+    "flat_channel",
+    "interpolation_test",
+    "master_template",
+    "periodic_test",
+    "scatter_verification",
+    "search_robustness"
+  ],
+  "reference_only_templates": ["master_template", "periodic_test"],
+  "auxiliary_example_yamls": [
+    "examples/bent_channel/execution.example.yml",
+    "examples/brownian_motion/execution.example.yml",
+    "examples/drift_diffusivity_gradient/execution.example.yml",
+    "examples/drift_uniform_flow/execution.example.yml",
+    "examples/flat_channel/execution.example.yml",
+    "examples/interpolation_test/execution.example.yml",
+    "examples/master_template/execution.example.yml",
+    "examples/scatter_verification/execution.example.yml",
+    "examples/search_robustness/execution.example.yml"
+  ],
+  "case_bundles": [
+    {"case": "examples/flat_channel/flat_channel.yml", "solver": "examples/flat_channel/Imp-MG-Standard.yml", "monitor": "examples/flat_channel/Standard_Output.yml", "post": "examples/flat_channel/standard_analysis.yml"},
+    {"case": "examples/bent_channel/bent_channel.yml", "solver": "examples/bent_channel/Imp-MG-Standard.yml", "monitor": "examples/bent_channel/Standard_Output.yml", "post": "examples/bent_channel/standard_analysis.yml"},
+    {"case": "examples/brownian_motion/brownian_motion.yml", "solver": "examples/brownian_motion/Analytical-Zero.yml", "monitor": "examples/brownian_motion/Standard_Output.yml", "post": "examples/brownian_motion/brownian_analysis.yml"},
+    {"case": "examples/drift_uniform_flow/drift_uniform_flow.yml", "solver": "examples/drift_uniform_flow/Analytical-UniformFlow.yml", "monitor": "examples/drift_uniform_flow/Standard_Output.yml", "post": "examples/drift_uniform_flow/uniform_flow_analysis.yml"},
+    {"case": "examples/drift_diffusivity_gradient/drift_diffusivity_gradient.yml", "solver": "examples/drift_diffusivity_gradient/Analytical-Zero-Verification-LinearDiffusivity.yml", "monitor": "examples/drift_diffusivity_gradient/Standard_Output.yml", "post": "examples/drift_diffusivity_gradient/drift_diffusivity_gradient_analysis.yml"},
+    {"case": "examples/interpolation_test/interpolation_test.yml", "solver": "examples/interpolation_test/Analytical-TGV.yml", "monitor": "examples/interpolation_test/Standard_Output.yml", "post": "examples/interpolation_test/interpolation_analysis.yml"},
+    {"case": "examples/scatter_verification/scatter_verification.yml", "solver": "examples/scatter_verification/Analytical-Zero-Verification-Scalar.yml", "monitor": "examples/scatter_verification/Standard_Output.yml", "post": "examples/scatter_verification/scatter_verification_analysis.yml"},
+    {"case": "examples/search_robustness/search_robustness_cartesian.yml", "solver": "examples/search_robustness/Analytical-Zero.yml", "monitor": "examples/search_robustness/Search_Robustness_Output.yml", "post": "examples/search_robustness/search_robustness_analysis.yml"},
+    {"case": "examples/search_robustness/search_robustness_curvilinear.yml", "solver": "examples/search_robustness/Imp-MG-Standard.yml", "monitor": "examples/search_robustness/Search_Robustness_Output.yml", "post": "examples/search_robustness/search_robustness_analysis.yml"},
+    {"case": "examples/search_robustness/search_robustness_cartesian_uniform.yml", "solver": "examples/search_robustness/Analytical-UniformFlow.yml", "monitor": "examples/search_robustness/Search_Robustness_Output.yml", "post": "examples/search_robustness/search_robustness_analysis.yml"},
+    {"case": "examples/search_robustness/search_robustness_curvilinear_uniform.yml", "solver": "examples/search_robustness/Analytical-UniformFlow.yml", "monitor": "examples/search_robustness/Search_Robustness_Output.yml", "post": "examples/search_robustness/search_robustness_analysis.yml"},
+    {"case": "examples/master_template/master_case.yml", "solver": "examples/master_template/master_solver.yml", "monitor": "examples/master_template/master_monitor.yml", "post": "examples/master_template/master_postprocessor.yml"},
+    {"case": "examples/periodic_test/constant_uniform_flow/case.yml", "solver": "examples/periodic_test/constant_uniform_flow/solver.yml", "monitor": "examples/periodic_test/constant_uniform_flow/monitor.yml", "post": "examples/periodic_test/constant_uniform_flow/post.yml"},
+    {"case": "examples/periodic_test/constant_streamwise_flow/case.yml", "solver": "examples/periodic_test/constant_streamwise_flow/solver.yml", "monitor": "examples/periodic_test/constant_streamwise_flow/monitor.yml", "post": "examples/periodic_test/constant_streamwise_flow/post.yml"}
+  ],
+  "study_bundles": [
+    {"cluster": "examples/flat_channel/slurm_cluster.yml", "study": "examples/flat_channel/grid_independence_study.yml"},
+    {"cluster": "examples/bent_channel/slurm_cluster.yml", "study": "examples/bent_channel/timestep_sensitivity_study.yml"},
+    {"cluster": "examples/bent_channel/slurm_cluster.yml", "study": "examples/interpolation_test/particle_count_study.yml"},
+    {"cluster": "config/schedulers/slurm_default.yml", "study": "examples/scatter_verification/fixed_ppc_grid_study.yml"},
+    {"cluster": "config/schedulers/slurm_default.yml", "study": "examples/scatter_verification/fixed_total_particles_grid_study.yml"},
+    {"cluster": "examples/search_robustness/slurm_cluster.yml", "study": "examples/search_robustness/search_velocity_study.yml"},
+    {"cluster": "examples/search_robustness/slurm_cluster.yml", "study": "examples/search_robustness/search_robustness_cartesian_dt_study.yml"},
+    {"cluster": "examples/search_robustness/slurm_cluster.yml", "study": "examples/search_robustness/search_robustness_curvilinear_dt_study.yml"},
+    {"cluster": "examples/master_template/master_cluster.yml", "study": "examples/master_template/master_study.yml"},
+    {"cluster": "config/schedulers/slurm_default.yml", "study": "config/studies/grid_independence_example.yml"}
+  ],
+  "config_role_bundles": [
+    {"case": "examples/flat_channel/flat_channel.yml", "solver": "config/solvers/Imp-MG-Standard.yml", "monitor": "config/monitors/Standard_Output.yml", "post": "config/postprocessors/standard_analysis.yml"},
+    {"case": "examples/drift_uniform_flow/drift_uniform_flow.yml", "solver": "config/solvers/Analytical-UniformFlow.yml", "monitor": "config/monitors/Standard_Output.yml", "post": "config/postprocessors/standard_analysis.yml"},
+    {"case": "examples/drift_diffusivity_gradient/drift_diffusivity_gradient.yml", "solver": "config/solvers/Analytical-Zero-Verification-LinearDiffusivity.yml", "monitor": "config/monitors/Standard_Output.yml", "post": "config/postprocessors/standard_analysis.yml"}
+  ],
+  "config_assets": [
+    "config/build/config.cluster.mk", "config/build/config.local.mk", "config/build/config.petsc.mk", "config/build/guide.md",
+    "config/grids/coarse_square_tube_curved.cfg", "config/grids/guide.md",
+    "config/initial_conditions/expression.cfg", "config/initial_conditions/guide.md",
+    "config/monitors/Standard_Output.yml", "config/monitors/guide.md",
+    "config/postprocessors/standard_analysis.yml", "config/postprocessors/guide.md",
+    "config/profiles/guide.md", "config/runtime/execution.example.yml", "config/runtime/guide.md", "config/runtime/local_execution.example.yml",
+    "config/schedulers/guide.md", "config/schedulers/slurm_default.yml",
+    "config/solvers/Analytical-UniformFlow.yml", "config/solvers/Analytical-Zero-Verification-LinearDiffusivity.yml", "config/solvers/Imp-MG-Standard.yml", "config/solvers/guide.md",
+    "config/studies/grid_independence_example.yml", "config/studies/guide.md", "config/guide.md"
+  ]
+}
