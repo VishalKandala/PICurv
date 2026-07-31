@@ -123,7 +123,7 @@ The repository generator requires a staged PICGRID. `grid.mode: file` and
 
 @section p33_euler_modes_sec 3. C Runtime Modes and Entry Points
 
-The launcher maps the contract to one @ref InitialConditionMode:
+The launcher maps the contract to one `InitialConditionMode` enum value:
 
 | Initial-condition selection | C mode |
 |-----------------------------|--------|

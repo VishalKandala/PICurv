@@ -74,6 +74,27 @@ Use each page with two goals:
 
 When behavior differs from classical textbook formulations, the implementation notes take precedence for this repository.
 
+@section p21_authority_sec 6. What Makes a Method Page Authoritative
+
+Each method page is a contract between users and maintainers, not a literature
+summary. Read it in this order:
+
+1. **Scope and assumptions** — supported grid, boundary, solver, and restart
+   conditions; unsupported combinations must be stated explicitly.
+2. **Discrete/runtime behavior** — equation or algorithm, field locations,
+   update order, and the C functions that implement it.
+3. **User controls** — the YAML fields, defaults, generated PETSc options, and
+   logs that show whether the method is behaving as configured.
+4. **Validation evidence** — the unit, smoke, or regression checks that protect
+   the stated behavior, including any limits on what has been exercised.
+5. **Extension boundary** — which parser, data structure, runtime dispatch, and
+   tests must change together when adding a model or selector.
+
+A numerical claim is authoritative only when it can be traced to the current
+runtime path and a named validation surface. When this page and an older
+example, paper, or legacy option disagree, use the current configuration
+reference and runtime-specific method page, then correct the stale material.
+
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 
 ## CFD Reader Guidance and Practical Use

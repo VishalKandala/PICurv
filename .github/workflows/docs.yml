@@ -3,6 +3,9 @@ name: Build & Mirror Doxygen
 on:
   push:
     branches: [ main ]
+  schedule:
+    # Re-run the documentation provenance and zero-warning gates every third day.
+    - cron: "17 4 */3 * *"
   workflow_dispatch:
 
 jobs:
@@ -10,12 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install documentation-gate dependencies
+        run: python -m pip install pytest pyyaml numpy
       - name: Install Doxygen & Graphviz
         run: |
           sudo apt-get update
           sudo apt-get install -y doxygen graphviz
-      - name: Generate Doxygen
-        run: doxygen docs/Doxyfile
+      - name: Run commit-scoped documentation gates
+        run: python3 tests/tooling/certify_documentation.py --no-certificate
       - name: Verify and patch key Doxygen index pages
         run: |
           test -f docs_build/html/index.html

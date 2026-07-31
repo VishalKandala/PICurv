@@ -558,8 +558,8 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
 PetscErrorCode DeterminePeriodicity(SimCtx *simCtx);
 
 /**
- * @brief Helper function to trim leading/trailing whitespace from a string.
- * @param str The string to trim in-place.
+ * @brief Removes leading and trailing ASCII whitespace from a mutable string.
+ * @param[in,out] str NUL-terminated string compacted in place.
  */
 void TrimWhitespace(char *str);
 

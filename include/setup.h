@@ -510,14 +510,14 @@ PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx);
  * using the chain rule.
  * Formula: dPhi/dx = J * ( dPhi/dCsi * dCsi/dx + dPhi/dEta * dEta/dx + ... )
  *
- * @param jacobian Parameter `jacobian` passed to `TransformScalarDerivativesToPhysical()`.
- * @param csi_metrics Parameter `csi_metrics` passed to `TransformScalarDerivativesToPhysical()`.
- * @param eta_metrics Parameter `eta_metrics` passed to `TransformScalarDerivativesToPhysical()`.
- * @param zet_metrics Parameter `zet_metrics` passed to `TransformScalarDerivativesToPhysical()`.
- * @param dPhi_dcsi Parameter `dPhi_dcsi` passed to `TransformScalarDerivativesToPhysical()`.
- * @param dPhi_deta Parameter `dPhi_deta` passed to `TransformScalarDerivativesToPhysical()`.
- * @param dPhi_dzet Parameter `dPhi_dzet` passed to `TransformScalarDerivativesToPhysical()`.
- * @param gradPhi Parameter `gradPhi` passed to `TransformScalarDerivativesToPhysical()`.
+ * @param jacobian Local mapping Jacobian determinant.
+ * @param csi_metrics Physical gradient of the xi coordinate.
+ * @param eta_metrics Physical gradient of the eta coordinate.
+ * @param zet_metrics Physical gradient of the zeta coordinate.
+ * @param dPhi_dcsi Scalar derivative in the xi direction.
+ * @param dPhi_deta Scalar derivative in the eta direction.
+ * @param dPhi_dzet Scalar derivative in the zeta direction.
+ * @param[out] gradPhi Physical Cartesian scalar gradient.
  */
  void TransformScalarDerivativesToPhysical(PetscReal jacobian, 
                                                  Cmpnts csi_metrics, 
@@ -531,13 +531,13 @@ PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx);
 /**
  * @brief Computes the gradient of a cell-centered SCALAR field at a specific grid point.
  *
- * @param user The
- * @param i Parameter `i` passed to `ComputeScalarFieldDerivatives()`.
- * @param j Parameter `j` passed to `ComputeScalarFieldDerivatives()`.
- * @param k Parameter `k` passed to `ComputeScalarFieldDerivatives()`.
- * @param field_data 3D
- * @param grad Output:
- * @return PetscErrorCode
+ * @param user Block metric context.
+ * @param i Cell index in the xi direction.
+ * @param j Cell index in the eta direction.
+ * @param k Cell index in the zeta direction.
+ * @param field_data Ghosted scalar values indexed as [k][j][i].
+ * @param[out] grad Physical Cartesian gradient at the requested cell.
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, 
                                              PetscReal ***field_data, Cmpnts *grad);
@@ -549,14 +549,14 @@ PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
  * the derivatives in computational space (d/dcsi, d/deta, d/dzet) using a central
  * difference scheme and then transforms them into physical space (d/dx, d/dy, d/dz).
  *
- * @param user The
- * @param i Parameter `i` passed to `ComputeVectorFieldDerivatives()`.
- * @param j Parameter `j` passed to `ComputeVectorFieldDerivatives()`.
- * @param k Parameter `k` passed to `ComputeVectorFieldDerivatives()`.
- * @param field_data A
- * @param dudx Output:
- * @param dvdx Output:
- * @param dwdx Output:
+ * @param user Block metric context.
+ * @param i Cell index in the xi direction.
+ * @param j Cell index in the eta direction.
+ * @param k Cell index in the zeta direction.
+ * @param field_data Ghosted Cartesian vector values indexed as [k][j][i].
+ * @param[out] dudx Gradient of the x velocity component.
+ * @param[out] dvdx Gradient of the y velocity component.
+ * @param[out] dwdx Gradient of the z velocity component.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, Cmpnts ***field_data,

@@ -10,4 +10,9 @@ the user-facing PICurv runtime.
 - `python_coverage_gate.py`: Python line-coverage gate.
 - `c_coverage_gate.py`: C gcov summary and threshold gate.
 - `check_markdown_links.py`: local Markdown-link checker.
+- `certify_documentation.py`: clean-commit documentation certification; use
+  `make certify-docs` for the full PETSc/MPI-backed certificate or
+  `make certify-docs-fast` when only the structural/configuration gates are available.
+- `stamp_docs_revision.py`: embeds the generated site's documented Git revision
+  and commit link on every HTML page.
 - `generate_doxygen_fallback_indexes.py`: Doxygen fallback index generator.

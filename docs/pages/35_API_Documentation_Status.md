@@ -16,9 +16,11 @@ Function-level documentation coverage is now enforced across:
 - Python product code in `picurv_cli/` and `generators/`,
 - Python tests in `tests/`.
 
-The current repository contract requires every executable function to have a
-Doxygen-compatible comment/docstring with a valid `@brief`, exact parameter
-coverage, and documented return values where applicable.
+The current repository contract requires every executable function to have an
+attached descriptive comment/docstring. Public C headers own the rendered
+Doxygen API contract, including `@brief`, exact parameter coverage, and
+documented return values where applicable; implementation comments preserve
+local intent without duplicating public parameter documentation.
 
 @section p35_warning_sec 2. Warning Log and Build Path
 
@@ -37,14 +39,25 @@ Repository consistency checks now also enforce function-level documentation via:
 GitHub Actions quality CI also runs the audit explicitly before `pytest -q` on pull requests and pushes to `main`.
 
 `make build-docs` remains useful for rendered output verification, but the audit
-script is the primary completeness gate for function comments.
+script is the primary completeness gate for function comments. For a
+commit-scoped claim that the documentation is current, use `make certify-docs`.
+It requires a clean worktree, runs link/API/ingress/configuration/Doxygen gates
+plus `make check-full`, and writes an ignored certificate named
+`logs/documentation-certificate-<full-sha>.md`. The certificate is valid only
+through that exact Git commit.
+
+Every rendered Doxygen page also carries a bottom banner linking to the commit
+whose source tree produced it. The banner identifies the documentation revision;
+the full certificate records whether the PETSc/MPI runtime gate was included.
 
 @section p35_expected_sec 3. Expected Standard For New APIs
 
 For newly added or modified functions and test helpers:
 
 1. each parameter must have exactly one matching `@param`,
-2. function summary should describe behavior and side effects,
+2. public-header summaries must describe the result, state change, or numerical
+   role; labels such as “helper function,” “public interface,” “implementation,”
+   and “internal helper” are rejected by the API audit,
 3. return/CHKERRQ semantics should be documented,
 4. cross-module dependencies should be explicit when non-obvious,
 5. Python functions must use Doxygen-compatible docstrings, not plain one-line docstrings.
@@ -55,6 +68,10 @@ remain tolerated in untouched legacy tests, but newly added or modified tests
 should use descriptive `@brief` text.
 
 Minimum acceptable quality is interface correctness and discoverability, even when deep theoretical derivation is documented elsewhere.
+
+For nontrivial numerical APIs, the header must also identify the coordinate or
+field convention, ownership/ghost-state preconditions, and output meaning when
+those facts determine correct use. A parameter name by itself is not a contract.
 
 @section p35_workflow_sec 4. Practical Cleanup Workflow
 

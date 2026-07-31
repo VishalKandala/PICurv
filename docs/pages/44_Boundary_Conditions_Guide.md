@@ -317,7 +317,7 @@ boundary_conditions:
 - **@subpage 13_Code_Architecture**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 50_Modular_Selector_Extension_Guide**
-- **@subpage 54_Geometric_Periodic_Boundaries**
+- **@ref p54_geometric_periodic "Geometric Periodic Boundaries"**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

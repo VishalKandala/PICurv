@@ -6,7 +6,9 @@ CI here is intentionally scoped to high-signal checks that fail fast when contra
 
 ## Workflow Files
 
-- `workflows/docs.yml`: builds Doxygen docs and mirrors published HTML artifacts.
+- `workflows/docs.yml`: runs the zero-warning structural documentation gates,
+  builds Doxygen HTML, and mirrors published artifacts. Full runtime-backed
+  certification remains reproducible locally through `make certify-docs`.
 - `workflows/quality.yml`: runs CLI smoke tests and markdown link checks.
 
 ## How To Evolve Workflows Safely

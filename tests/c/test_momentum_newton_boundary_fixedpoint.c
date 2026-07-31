@@ -267,8 +267,14 @@ typedef struct {
 
 /**
  * @brief Creates a test-owned matrix-free SNES driven by the *production* residual callback.
- * @param use_mgs When false (production default), leaves GMRES orthogonalization at
- *        PETSc's default classical Gram--Schmidt -- the path the production solver uses.
+ * @param[in] user Test context supplying the velocity DMDA.
+ * @param[in] pctx Production-compatible residual context borrowed by the SNES.
+ * @param[in] use_mgs When false (production default), leaves GMRES orthogonalization at
+ *                    PETSc's default classical Gram--Schmidt -- the path the production solver uses.
+ * @param[out] snes Created nonlinear solver.
+ * @param[out] J Created matrix-free Jacobian operator.
+ * @param[out] ksp Borrowed linear solver configured by the created SNES.
+ * @return PetscErrorCode 0 on success.
  */
 static PetscErrorCode CreateProductionSNES(UserCtx *user, MomentumNewtonKrylovContext *pctx,
                                            PetscBool use_mgs, SNES *snes, Mat *J, KSP *ksp)

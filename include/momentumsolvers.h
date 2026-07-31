@@ -30,9 +30,11 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  * The Jacobian operator is the finite-difference, matrix-free operator of the
  * complete deterministic residual.
  * With no mathematical preconditioner its matrix is also passed to PETSc's
- * preconditioning slot and PCNONE is derived. The optional frozen-momentum,
- * point-block model owns a separate matrix and derives a block-Jacobi PETSc
- * backend. All PETSc solver objects are local to this call. Rows removed
+ * preconditioning slot and PCNONE is derived. The optional provisional
+ * frozen-momentum, point-block model approximates same-cell frozen coupling,
+ * owns a separate matrix, and derives a block-Jacobi PETSc backend. It does
+ * not relax the version-one physics or boundary-condition restrictions. All
+ * PETSc solver objects are local to this call. Rows removed
  * by legacy boundary residual enforcement are made explicit: conditioned normal
  * rows use X-Uconditioned, untouched dummy/tangential rows use X, and periodic
  * duplicates use Xdup-Xrepresentative. Unsupported masked, interface, and
@@ -83,8 +85,8 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
  * =================================================================================================
  *
  * @param user Primary `UserCtx` input for the operation.
- * @param ibm Parameter `ibm` passed to `MomentumSolver_DualTime_Picard_JamesonRK()`.
- * @param fsi Parameter `fsi` passed to `MomentumSolver_DualTime_Picard_JamesonRK()`.
+ * @param ibm Optional immersed-boundary state; NULL when IBM is disabled.
+ * @param fsi Optional fluid-structure state; NULL when FSI is disabled.
  * @return PetscErrorCode 0 on success.
  *
  * @note Testing status:

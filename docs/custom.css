@@ -225,6 +225,17 @@ h2.groupheader {
   color: var(--pic-muted);
 }
 
+.picurv-docs-revision-banner {
+  clear: both;
+  margin: 0.8rem auto 0;
+  max-width: 72rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--pic-border);
+  color: var(--pic-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
 /* Main-page navigation cards */
 .main_page_buttons {
   display: grid;

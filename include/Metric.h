@@ -10,17 +10,20 @@
 #include "setup.h"    // For SetDMDAProcLayout
 
 /**
- * @brief Public interface for `MetricLogicalToPhysical()`.
+ * @brief Maps a logical point inside one hexahedral cell to physical space.
  *
- * @param user Primary `UserCtx` input for the operation.
- * @param X Parameter `X` passed to `MetricLogicalToPhysical()`.
- * @param i Parameter `i` passed to `MetricLogicalToPhysical()`.
- * @param j Parameter `j` passed to `MetricLogicalToPhysical()`.
- * @param k Parameter `k` passed to `MetricLogicalToPhysical()`.
- * @param xi Parameter `xi` passed to `MetricLogicalToPhysical()`.
- * @param eta Parameter `eta` passed to `MetricLogicalToPhysical()`.
- * @param zta Parameter `zta` passed to `MetricLogicalToPhysical()`.
- * @param Xp Parameter `Xp` passed to `MetricLogicalToPhysical()`.
+ * Uses trilinear interpolation of the eight cell vertices. Logical coordinates
+ * are measured from the cell's lower logical corner and normally lie in [0, 1].
+ *
+ * @param user Grid context used for cell indexing.
+ * @param X Ghosted node-coordinate array for the block.
+ * @param i Cell index in the xi direction.
+ * @param j Cell index in the eta direction.
+ * @param k Cell index in the zeta direction.
+ * @param xi Local xi coordinate within the cell.
+ * @param eta Local eta coordinate within the cell.
+ * @param zta Local zeta coordinate within the cell.
+ * @param[out] Xp Physical Cartesian position evaluated at the logical point.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode MetricLogicalToPhysical(UserCtx *user, const Cmpnts ***X,
@@ -29,14 +32,16 @@ PetscErrorCode MetricLogicalToPhysical(UserCtx *user, const Cmpnts ***X,
                                        Cmpnts *Xp);
 
 /**
- * @brief Public interface for `MetricGetCellVertices()`.
+ * @brief Collects the eight node coordinates of one logical hexahedral cell.
  *
- * @param user Primary `UserCtx` input for the operation.
- * @param X Parameter `X` passed to `MetricGetCellVertices()`.
- * @param i Parameter `i` passed to `MetricGetCellVertices()`.
- * @param j Parameter `j` passed to `MetricGetCellVertices()`.
- * @param k Parameter `k` passed to `MetricGetCellVertices()`.
- * @param V Parameter `V` passed to `MetricGetCellVertices()`.
+ * Vertex ordering matches the trilinear metric kernels in this module.
+ *
+ * @param user Grid context used for cell indexing.
+ * @param X Ghosted node-coordinate array for the block.
+ * @param i Cell index in the xi direction.
+ * @param j Cell index in the eta direction.
+ * @param k Cell index in the zeta direction.
+ * @param[out] V Eight physical vertex coordinates in metric-kernel order.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode MetricGetCellVertices(UserCtx *user,const Cmpnts ***X,
@@ -44,18 +49,21 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,const Cmpnts ***X,
                                      Cmpnts V[8]);
 
 /**
- * @brief Public interface for `MetricJacobian()`.
+ * @brief Evaluates the trilinear mapping Jacobian and its determinant in one cell.
  *
- * @param user Primary `UserCtx` input for the operation.
- * @param X Parameter `X` passed to `MetricJacobian()`.
- * @param i Parameter `i` passed to `MetricJacobian()`.
- * @param j Parameter `j` passed to `MetricJacobian()`.
- * @param k Parameter `k` passed to `MetricJacobian()`.
- * @param xi Parameter `xi` passed to `MetricJacobian()`.
- * @param eta Parameter `eta` passed to `MetricJacobian()`.
- * @param zta Parameter `zta` passed to `MetricJacobian()`.
- * @param J Parameter `J` passed to `MetricJacobian()`.
- * @param detJ Parameter `detJ` passed to `MetricJacobian()`.
+ * The returned matrix is \f$\partial(x,y,z)/\partial(\xi,\eta,\zeta)\f$;
+ * callers use its determinant to reject degenerate or inverted cells.
+ *
+ * @param user Grid context used for cell indexing.
+ * @param X Ghosted node-coordinate array for the block.
+ * @param i Cell index in the xi direction.
+ * @param j Cell index in the eta direction.
+ * @param k Cell index in the zeta direction.
+ * @param xi Local xi coordinate within the cell.
+ * @param eta Local eta coordinate within the cell.
+ * @param zta Local zeta coordinate within the cell.
+ * @param[out] J Mapping Jacobian in row-major Cartesian/logical form.
+ * @param[out] detJ Determinant of J.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode MetricJacobian(UserCtx *user,const Cmpnts ***X,
@@ -64,12 +72,15 @@ PetscErrorCode MetricJacobian(UserCtx *user,const Cmpnts ***X,
                               PetscReal J[3][3],PetscReal *detJ);
 
 /**
- * @brief Public interface for `MetricVelocityContravariant()`.
+ * @brief Converts a Cartesian velocity vector to contravariant logical components.
  *
- * @param J Parameter `J` passed to `MetricVelocityContravariant()`.
- * @param detJ Parameter `detJ` passed to `MetricVelocityContravariant()`.
- * @param u Parameter `u` passed to `MetricVelocityContravariant()`.
- * @param uc Parameter `uc` passed to `MetricVelocityContravariant()`.
+ * Uses the inverse of the physical-to-logical Jacobian; `detJ` must describe
+ * the same mapping as `J` and must be nonzero.
+ *
+ * @param J Mapping Jacobian at the evaluation point.
+ * @param detJ Determinant of J.
+ * @param u Cartesian velocity components.
+ * @param[out] uc Contravariant xi/eta/zeta velocity components.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3],
@@ -82,15 +93,15 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3],
  * Given the metric vectors (csi, eta, zet), this function calculates the geometric
  * properties of the cell faces aligned with the i, j, and k directions.
  *
- * @param csi Parameter `csi` passed to `CalculateFaceNormalAndArea()`.
- * @param eta Parameter `eta` passed to `CalculateFaceNormalAndArea()`.
- * @param zet Parameter `zet` passed to `CalculateFaceNormalAndArea()`.
- * @param ni Output:
- * @param nj Output:
- * @param nk Output:
- * @param Ai Output:
- * @param Aj Output:
- * @param Ak Output:
+ * @param csi Covariant xi metric vector.
+ * @param eta Covariant eta metric vector.
+ * @param zet Covariant zeta metric vector.
+ * @param[out] ni Unit normal of the xi-normal face.
+ * @param[out] nj Unit normal of the eta-normal face.
+ * @param[out] nk Unit normal of the zeta-normal face.
+ * @param[out] Ai Area of the xi-normal face.
+ * @param[out] Aj Area of the eta-normal face.
+ * @param[out] Ak Area of the zeta-normal face.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak);
@@ -104,7 +115,7 @@ PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, do
  * between coordinate systems.
  *
  * @param covariantTensor   Input: A 3x3 matrix representing the covariant metric tensor.
- * @param contravariantTensor Output: A 3x3 matrix where the inverted result is stored.
+ * @param[out] contravariantTensor Inverse metric tensor written in place.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double contravariantTensor[3][3]);
@@ -116,13 +127,13 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
  * computes an effective length scale in each Cartesian direction based on the cell
  * volume and the areas of its faces.
  *
- * @param ajc The
- * @param csi Parameter `csi` passed to `ComputeCellCharacteristicLengthScale()`.
- * @param eta Parameter `eta` passed to `ComputeCellCharacteristicLengthScale()`.
- * @param zet Parameter `zet` passed to `ComputeCellCharacteristicLengthScale()`.
- * @param dx Output:
- * @param dy Output:
- * @param dz Output:
+ * @param ajc Cell Jacobian/volume metric at the cell center.
+ * @param csi Covariant xi metric vector.
+ * @param eta Covariant eta metric vector.
+ * @param zet Covariant zeta metric vector.
+ * @param[out] dx Effective physical length associated with xi variation.
+ * @param[out] dy Effective physical length associated with eta variation.
+ * @param[out] dz Effective physical length associated with zeta variation.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz);

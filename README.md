@@ -23,6 +23,37 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Parameter sweep orchestration with Slurm arrays (`study.yml`), including cross-product `parameters` sweeps and explicit coupled `parameter_sets`
 - Solver and postprocessor executables from one build system
 
+## Momentum Solver Choices
+
+`solver.yml -> strategy.momentum_solver` selects one of three implemented
+strategies:
+
+- `Dual Time Picard Jameson RK` is the broadly exercised default for general
+  production cases.
+- `Newton Krylov` uses PETSc SNES/GMRES and a matrix-free finite-difference
+  Jacobian. It is currently validated for fresh, single-block, all-fluid cases
+  with its documented boundary/physics restrictions. Its supported
+  preconditioner choices are `none` and the provisional
+  `frozen_momentum_jacobian` with `structure.type: point_block`.
+- `Explicit RK4` is primarily a verification path and remains subject to its
+  explicit stability limit.
+
+Use the structured `momentum_solver.newton_krylov` block only when `Newton
+Krylov` is selected. The complete configuration, supported scope, solver logs,
+and failure diagnostics are in the [Newton--Krylov guide](docs/pages/55_Newton_Krylov_Momentum_Solver.md);
+the [solver reference](docs/pages/08_Solver_Reference.md) is the authoritative
+field-by-field YAML contract.
+
+## Documentation Certification
+
+Run `make certify-docs` from a clean worktree to certify the documentation for
+the current commit. It runs the documentation/API/configuration checks, builds
+Doxygen with zero warnings, executes the full PETSc/MPI validation suite, and
+writes `logs/documentation-certificate-<full-sha>.md`. The generated
+documentation site displays the same commit as a linked banner at the bottom of
+every page. Use `make certify-docs-fast` when PETSc/MPI runtime validation is
+not available; it is a structural/configuration check, not the full certificate.
+
 ## Requirements
 
 - PETSc build available via `PETSC_DIR` (and `PETSC_ARCH` when required by your install)

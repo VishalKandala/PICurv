@@ -89,7 +89,7 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
  *
  * @param user Primary `UserCtx` input for the operation.
  * @param pps Post-processing configuration for the operation.
- * @param ti Parameter `ti` passed to `WriteParticleFile()`.
+ * @param ti Source timestep written into the VTP filename and metadata.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt ti);

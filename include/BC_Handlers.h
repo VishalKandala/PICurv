@@ -40,7 +40,7 @@ PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user);
 /**
  * @brief Configures a BoundaryCondition object to behave as a no-slip, stationary wall.
  *
- * @param bc A
+ * @param[in,out] bc Boundary object whose callbacks and handler metadata are installed.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc);
@@ -48,7 +48,7 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc);
 /**
  * @brief Configures a BoundaryCondition object to behave as a constant velocity inlet.
  *
- * @param bc Parameter `bc` passed to `Create_InletConstantVelocity()`.
+ * @param[in,out] bc Boundary object configured with the constant-velocity inlet callbacks.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc);

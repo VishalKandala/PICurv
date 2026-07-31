@@ -77,9 +77,11 @@ momentum_solver:
         restart: 80
 ```
 
-The other supported mathematical preconditioner is
-`model: frozen_momentum_jacobian` with `structure.type: point_block`. PETSc's
-block-Jacobi implementation is selected internally, not in normal YAML.
+The other supported mathematical preconditioner is the provisional
+`model: frozen_momentum_jacobian` with `structure.type: point_block`. It
+approximates only same-cell frozen-momentum coupling; PETSc's block-Jacobi
+implementation is selected internally, not in normal YAML. It does not broaden
+the Newton--Krylov version-one physics or boundary-condition scope.
 
 Any newly introduced selector should only be exposed after parser normalization, runtime dispatch, and docs/tests are updated in one cohesive change.
 

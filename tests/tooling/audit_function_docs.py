@@ -42,6 +42,16 @@ C_DECL_START_RE = re.compile(
     r"([A-Za-z_][A-Za-z0-9_]*)\s*\("
 )
 C_PARAM_RE = re.compile(r"@param(?:\[[^\]]+\])?\s+([A-Za-z_][A-Za-z0-9_]*)")
+GENERIC_PUBLIC_BRIEF_RE = re.compile(
+    r"@brief\s+(?:public interface|helper function|implementation of|internal helper|routine)\b",
+    re.IGNORECASE,
+)
+GENERIC_PUBLIC_PARAM_RE = re.compile(
+    r"@param(?:\[[^\]]+\])?\s+[A-Za-z_][A-Za-z0-9_]*\s+"
+    r"(?:parameter|argument)\b.*\bpassed to\b|"
+    r"@param(?:\[[^\]]+\])?\s+[A-Za-z_][A-Za-z0-9_]*\s+(?:output:|the)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 @dataclass(frozen=True)
@@ -114,11 +124,14 @@ def _relative_path(path: Path) -> str:
     return path.relative_to(REPO_ROOT).as_posix()
 
 
-def _find_attached_doxygen_block(lines: list[str], start_line: int) -> tuple[int, int] | None:
+def _find_attached_comment_block(lines: list[str], start_line: int,
+                                 require_doxygen: bool) -> tuple[int, int] | None:
     """!
-    @brief Finds the Doxygen block immediately attached to a declaration or definition.
+    @brief Finds the documentation block immediately attached to a declaration or definition.
     @param[in] lines File content lines.
     @param[in] start_line 0-based line index where the symbol begins.
+    @param[in] require_doxygen Require a Doxygen `/**` block instead of allowing a
+                               regular `/*` implementation comment.
     @return `(start, end)` line indices for the attached block, or `None`.
     """
 
@@ -127,10 +140,16 @@ def _find_attached_doxygen_block(lines: list[str], start_line: int) -> tuple[int
         probe -= 1
 
     if probe < 0 or "*/" not in lines[probe]:
+        if probe >= 0 and not require_doxygen and lines[probe].lstrip().startswith("//"):
+            end = probe
+            while probe >= 0 and lines[probe].lstrip().startswith("//"):
+                probe -= 1
+            return probe + 1, end
         return None
 
     end = probe
-    while probe >= 0 and "/**" not in lines[probe]:
+    marker = "/**" if require_doxygen else "/*"
+    while probe >= 0 and marker not in lines[probe]:
         probe -= 1
 
     if probe < 0:
@@ -268,7 +287,7 @@ def _audit_c_header(path: Path) -> list[AuditFinding]:
     findings: list[AuditFinding] = []
     lines = _read_lines(path)
     for start_line, symbol, signature in _collect_c_signatures(path, ";"):
-        block_range = _find_attached_doxygen_block(lines, start_line)
+        block_range = _find_attached_comment_block(lines, start_line, require_doxygen=True)
         if block_range is None:
             findings.append(AuditFinding(_relative_path(path), start_line + 1, symbol, "missing attached Doxygen block"))
             continue
@@ -276,6 +295,20 @@ def _audit_c_header(path: Path) -> list[AuditFinding]:
         block = "\n".join(lines[block_range[0]:block_range[1] + 1])
         if "@brief" not in block:
             findings.append(AuditFinding(_relative_path(path), start_line + 1, symbol, "missing @brief tag"))
+        elif GENERIC_PUBLIC_BRIEF_RE.search(block):
+            findings.append(
+                AuditFinding(
+                    _relative_path(path), start_line + 1, symbol,
+                    "generic @brief; describe the function's result, state change, or numerical role",
+                )
+            )
+        if GENERIC_PUBLIC_PARAM_RE.search(block):
+            findings.append(
+                AuditFinding(
+                    _relative_path(path), start_line + 1, symbol,
+                    "generic @param; describe the input, output, ownership, or numerical meaning",
+                )
+            )
 
         declared_params = _split_c_parameters(signature)
         documented_params = set(C_PARAM_RE.findall(block))
@@ -305,14 +338,13 @@ def _audit_c_source(path: Path) -> list[AuditFinding]:
     findings: list[AuditFinding] = []
     lines = _read_lines(path)
     for start_line, symbol, _signature in _collect_c_signatures(path, "{"):
-        block_range = _find_attached_doxygen_block(lines, start_line)
+        # Public declarations own the rendered API contract. Allow regular
+        # implementation comments here so Doxygen does not merge a second,
+        # partial parameter list from the definition and emit false warnings.
+        block_range = _find_attached_comment_block(lines, start_line, require_doxygen=False)
         if block_range is None:
             findings.append(AuditFinding(_relative_path(path), start_line + 1, symbol, "missing attached Doxygen block"))
             continue
-
-        block = "\n".join(lines[block_range[0]:block_range[1] + 1])
-        if "@brief" not in block:
-            findings.append(AuditFinding(_relative_path(path), start_line + 1, symbol, "missing @brief tag"))
 
     return findings
 

@@ -250,7 +250,7 @@ nonmatching surface pairs are rejected at runtime.
 - **@subpage 14_Config_Contract**
 - **@subpage 17_Workflow_Extensibility**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
-- **@subpage 54_Geometric_Periodic_Boundaries**
+- **@ref p54_geometric_periodic "Geometric Periodic Boundaries"**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

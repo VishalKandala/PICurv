@@ -337,9 +337,9 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
 /**
  * @brief Logs the final outcome of the particle location search.
  *
- * @param particle Parameter `particle` passed to `ReportSearchOutcome()`.
- * @param status Parameter `status` passed to `ReportSearchOutcome()`.
- * @param traversal_steps Parameter `traversal_steps` passed to `ReportSearchOutcome()`.
+ * @param particle Particle whose location attempt has completed.
+ * @param status Final locate/migration status assigned to the particle.
+ * @param traversal_steps Number of cell-to-cell traversal steps attempted.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ReportSearchOutcome(const Particle *particle,

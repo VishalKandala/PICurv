@@ -696,10 +696,9 @@ const char* InitialConditionModeToString(InitialConditionMode mode)
     }
 }
 
-/**
- * @brief Convert a FlowDirection enum value to its token string.
- * @param[in] fd FlowDirection value.
- * @return Constant string token (e.g. "+Zeta") or "from INLET" when FLOW_DIR_UNSET.
+/*
+ * Converts a FlowDirection enum value to its token string. The public header
+ * owns the rendered API contract.
  */
 const char* FlowDirectionToString(FlowDirection fd)
 {

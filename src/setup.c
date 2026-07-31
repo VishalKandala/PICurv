@@ -2939,16 +2939,13 @@ PetscErrorCode Cart2Contra(UserCtx *user)
 
 #undef __FUNCT__
 #define __FUNCT__ "UniformCart2Contra"
-/**
- * @brief Convert a uniform Cartesian velocity (u,v,w) to contravariant fluxes in Ucont.
- * @details Computes the dot product of the physical velocity with each face-area vector:
+/*
+ * Converts a uniform Cartesian velocity (u,v,w) to contravariant fluxes in Ucont.
+ * Computes the dot product of the physical velocity with each face-area vector:
  *   U^xi  = csi · (u,v,w),  U^eta = eta · (u,v,w),  U^zeta = zet · (u,v,w).
  * Writes to all owned nodes (xs..xe, ys..ye, zs..ze); boundary ghosts are
  * overwritten later by ApplyBoundaryConditions.
- * @param user  UserCtx with fda, Ucont, lCsi, lEta, lZet populated.
- * @param u     Physical Cartesian x-velocity.
- * @param v     Physical Cartesian y-velocity.
- * @param w     Physical Cartesian z-velocity.
+ * The public header owns the rendered API contract.
  */
 PetscErrorCode UniformCart2Contra(UserCtx *user, PetscReal u, PetscReal v, PetscReal w)
 {

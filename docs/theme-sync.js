@@ -34,9 +34,33 @@
     });
   }
 
+  function addRevisionBanner() {
+    var revision = window.PICURV_DOCS_REVISION;
+    if (!revision || !revision.sha || document.getElementById("picurv-docs-revision-banner")) return;
+    var banner = document.createElement("div");
+    banner.id = "picurv-docs-revision-banner";
+    banner.className = "picurv-docs-revision-banner";
+    banner.appendChild(document.createTextNode(
+      revision.clean ? "Documentation is up to date through commit " :
+        "Documentation build includes uncommitted changes after commit "
+    ));
+    var link = document.createElement("a");
+    link.href = revision.commit_url;
+    link.textContent = revision.short_sha || revision.sha;
+    link.title = revision.sha;
+    banner.appendChild(link);
+    banner.appendChild(document.createTextNode(revision.clean ? "." : "; it is not commit-certified."));
+    var footer = document.querySelector("#nav-path ul") || document.querySelector("footer") || document.body;
+    footer.appendChild(banner);
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", wireProjectTitleHomeLink);
+    document.addEventListener("DOMContentLoaded", function () {
+      wireProjectTitleHomeLink();
+      addRevisionBanner();
+    });
   } else {
     wireProjectTitleHomeLink();
+    addRevisionBanner();
   }
 })();

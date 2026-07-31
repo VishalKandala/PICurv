@@ -969,12 +969,10 @@ static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F,
 
 #undef __FUNCT__
 #define __FUNCT__ "MomentumSolver_NewtonKrylov"
-/**
- * @brief Runs one per-call matrix-free Newton--Krylov momentum solve.
- * @param user Single-block momentum context.
- * @param ibm Must be NULL in version one.
- * @param fsi Must be NULL in version one.
- * @return 0 on convergence or an error after restoring the canonical entry state.
+/*
+ * Runs one per-call matrix-free Newton--Krylov momentum solve. The public
+ * header owns the rendered API contract; this definition retains the detailed
+ * lifecycle and rollback behavior below.
  */
 PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 {

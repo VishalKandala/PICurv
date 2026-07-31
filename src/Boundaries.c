@@ -1835,9 +1835,8 @@ static PetscErrorCode TranslatePeriodicFaceCenterGhosts(UserCtx *user, Vec local
 
 #undef __FUNCT__
 #define __FUNCT__ "TransferPeriodicFaceFieldByDirection"
-/**
- * @brief Implementation of \ref TransferPeriodicFaceFieldByDirection().
- */
+// Implements TransferPeriodicFaceFieldByDirection(); the public header owns
+// the rendered API contract.
 PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *field_name,
                                                     char face_direction, char periodic_direction)
 {
@@ -1910,9 +1909,8 @@ PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *f
 
 #undef __FUNCT__
 #define __FUNCT__ "SynchronizePeriodicFaceFields"
-/**
- * @brief Implementation of \ref SynchronizePeriodicFaceFields().
- */
+// Implements SynchronizePeriodicFaceFields(); the public header owns the
+// rendered API contract.
 PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
                                              PetscInt num_fields, const char *field_names[])
 {

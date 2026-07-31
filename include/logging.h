@@ -432,8 +432,8 @@ PetscErrorCode print_log_level(void);
  *
  * You can replace the entire list of allowed function names at runtime.
  *
- * @param functionList Parameter `functionList` passed to `set_allowed_functions()`.
- * @param count Parameter `count` passed to `set_allowed_functions()`.
+ * @param functionList Replacement array of permitted function names.
+ * @param count Number of entries in `functionList`.
  */
 void set_allowed_functions(const char** functionList, int count);
 
@@ -442,8 +442,8 @@ void set_allowed_functions(const char** functionList, int count);
  *
  * This helper is used internally by the LOG_ALLOW macro.
  *
- * @param functionName Parameter `functionName` passed to `is_function_allowed()`.
- * @return PetscBool indicating the result of `is_function_allowed()`.
+ * @param functionName Function name to query.
+ * @return PETSC_TRUE when the name is enabled by the allow-list.
  */
 PetscBool is_function_allowed(const char* functionName);
 
@@ -575,7 +575,7 @@ PetscErrorCode LoadAllowedFunctionsFromFile(const char   filename[],
 
 
 /**
- * @brief Helper function to convert BCFace enum to a string representation.
+ * @brief Returns the canonical log token for a boundary-face enum value.
  * @param[in] face The BCFace enum value.
  * @return Pointer to a constant string representing the face.
  */
@@ -596,28 +596,28 @@ const char* InitialConditionModeToString(InitialConditionMode mode);
 const char* FlowDirectionToString(FlowDirection fd);
 
 /**
- * @brief Helper function to convert ParticleInitialization to a string representation.
+ * @brief Returns the canonical log token for a particle-initialization mode.
  * @param[in] ParticleInitialization The ParticleInitialization enum value.
  * @return Pointer to a constant string representing the particle initialization type.
  */
 const char* ParticleInitializationToString(ParticleInitializationType ParticleInitialization);
 
 /**
- * @brief Helper function to convert LES Flag to a string representation.
+ * @brief Returns the canonical log token for an LES model selector.
  * @param[in] LESFlag The LES flag value.
  * @return Pointer to a constant string representing the LES Flag.
  */
 const char* LESModelToString(LESModelType LESFlag);
 
 /**
- * @brief Helper function to convert Momentum Solver flag to a string representation.
+ * @brief Returns the canonical log token for a momentum-solver selector.
  * @param[in] SolverFlag The Momentum Solver flag value.
  * @return Pointer to a constant string representing the MomentumSolverType.
  */
 const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag);
 
 /**
- * @brief Helper function to convert BCType enum to a string representation.
+ * @brief Returns the canonical log token for a boundary mathematical type.
  * @param[in] type The BCType enum value.
  * @return Pointer to a constant string representing the BC type.
  */

@@ -65,8 +65,8 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
 /**
  * @brief Initializes the entire boundary system.
  *
- * @param user The
- * @param bcs_filename The
+ * @param[in,out] user Finest-level block context receiving parsed face configuration.
+ * @param bcs_filename Path to the generated boundary-condition definition file.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename);
@@ -86,7 +86,7 @@ PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx);
 /**
  * @brief Executes one full boundary condition update cycle for a time step.
  *
- * @param user The
+ * @param[in,out] user Block context whose boundary handlers update target values and fluxes.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user);
@@ -115,7 +115,7 @@ PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user);
 /**
  * @brief Cleans up and destroys all boundary system resources.
  *
- * @param user The
+ * @param[in,out] user Block context whose boundary handlers and temporary state are released.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode BoundarySystem_Destroy(UserCtx *user);
@@ -180,23 +180,23 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
  * placement is geometrically impossible (e.g., in a 2D domain or if layers would overlap).
  * It also issues warnings for non-fatal but potentially unintended configurations.
  *
- * @param user Pointer
- * @param info Pointer
- * @param xs_gnode_rank Parameter `xs_gnode_rank` passed to `GetDeterministicFaceGridLocation()`.
- * @param ys_gnode_rank Parameter `ys_gnode_rank` passed to `GetDeterministicFaceGridLocation()`.
- * @param zs_gnode_rank Parameter `zs_gnode_rank` passed to `GetDeterministicFaceGridLocation()`.
- * @param IM_cells_global Parameter `IM_cells_global` passed to `GetDeterministicFaceGridLocation()`.
- * @param JM_cells_global Parameter `JM_cells_global` passed to `GetDeterministicFaceGridLocation()`.
- * @param KM_cells_global Parameter `KM_cells_global` passed to `GetDeterministicFaceGridLocation()`.
- * @param particle_global_id The
- * @param ci_metric_lnode_out Local
- * @param cj_metric_lnode_out Local
- * @param ck_metric_lnode_out Local
- * @param xi_metric_logic_out Logical
- * @param eta_metric_logic_out Logical
- * @param zta_metric_logic_out Logical
- * @param placement_successful_out PETSC_TRUE
- * @return PetscErrorCode
+ * @param user Inlet-boundary context that defines the target face and grid layers.
+ * @param info Local ownership and ghost-range information.
+ * @param xs_gnode_rank Global xi node index at this rank's owned lower corner.
+ * @param ys_gnode_rank Global eta node index at this rank's owned lower corner.
+ * @param zs_gnode_rank Global zeta node index at this rank's owned lower corner.
+ * @param IM_cells_global Global number of xi cells.
+ * @param JM_cells_global Global number of eta cells.
+ * @param KM_cells_global Global number of zeta cells.
+ * @param particle_global_id Global particle ordinal used for deterministic placement.
+ * @param[out] ci_metric_lnode_out Local xi metric-node index of the chosen cell.
+ * @param[out] cj_metric_lnode_out Local eta metric-node index of the chosen cell.
+ * @param[out] ck_metric_lnode_out Local zeta metric-node index of the chosen cell.
+ * @param[out] xi_metric_logic_out Logical xi coordinate within the chosen cell.
+ * @param[out] eta_metric_logic_out Logical eta coordinate within the chosen cell.
+ * @param[out] zta_metric_logic_out Logical zeta coordinate within the chosen cell.
+ * @param[out] placement_successful_out PETSC_TRUE when this rank owns a valid placement.
+ * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode GetDeterministicFaceGridLocation(
     UserCtx *user, const DMDALocalInfo *info,
@@ -314,11 +314,10 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
  * @param user The main UserCtx struct.
  * @param field_name Registered persistent I/J/K-face field name.
  * @param face_direction Face family containing the field (`'i'`, `'j'`, or `'k'`).
- * @param periodic_direction Periodic direction to transfer (`'i'`, `'j'`, or `'k'`).
+ * @param[in] periodic_direction Logical periodic axis for this transfer.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *field_name,
-                                                    char face_direction, char periodic_direction);
+PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *field_name, char face_direction, char periodic_direction);
 
 /**
  * @brief Synchronizes persistent fields belonging to one face family.
@@ -330,12 +329,11 @@ PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *f
  *
  * @param user The main UserCtx struct.
  * @param face_direction Face family shared by every field (`'i'`, `'j'`, or `'k'`).
- * @param num_fields Number of entries in `field_names`.
+ * @param[in] num_fields Count of registered face fields.
  * @param field_names Registered persistent face-field names.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
-                                             PetscInt num_fields, const char *field_names[]);
+PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction, PetscInt num_fields, const char *field_names[]);
 
 /**
  * @brief Transfers one persistent component-staggered field in one periodic direction.
