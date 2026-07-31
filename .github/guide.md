@@ -7,8 +7,10 @@ CI here is intentionally scoped to high-signal checks that fail fast when contra
 ## Workflow Files
 
 - `workflows/docs.yml`: runs the zero-warning structural documentation gates,
-  builds Doxygen HTML, and mirrors published artifacts. Full runtime-backed
-  certification remains reproducible locally through `make certify-docs`.
+  builds Doxygen HTML, and mirrors published artifacts. It is the post-push
+  structural backstop for the local `main` pre-push hook, which runs the full
+  runtime-backed `make certify-docs` gate after `make install-git-hooks` is
+  enabled in a clone.
 - `workflows/quality.yml`: runs CLI smoke tests and markdown link checks.
 
 ## How To Evolve Workflows Safely

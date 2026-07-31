@@ -109,7 +109,7 @@ BUILD_AUDIT_GOALS ?= cleanobj clean-unit all unit
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
 SYSTEM ?= local
-NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress build-docs open-docs tags certify-docs certify-docs-fast clean-project cleanobj clean-project-docs clean-project-tags clean-unit conductor
+NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress build-docs open-docs tags certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit conductor
 NEEDS_BUILD_CONFIG := 1
 
 ifneq ($(MAKECMDGOALS),)
@@ -386,7 +386,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress certify-docs certify-docs-fast clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -707,6 +707,12 @@ certify-docs-fast:
 ## @brief Runs the full commit-scoped documentation certification, including PETSc/MPI runtime validation.
 certify-docs:
 	@python3 tests/tooling/certify_documentation.py --runtime
+
+## @target install-git-hooks
+## @brief Configures this clone to use tracked Git hooks, including full certification before pushes to main.
+install-git-hooks:
+	@git config core.hooksPath .githooks
+	@echo "Git hooks enabled from .githooks/ (main pushes run make certify-docs)."
 
 ## @target open-docs
 ## @brief Opens the generated documentation in a web browser.

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Run the complete, commit-scoped documentation certification before updating
+# the protected main branch from this checkout.
+
+set -euo pipefail
+
+zero_oid='0000000000000000000000000000000000000000'
+main_update=false
+main_oid=''
+
+# Git provides one line per ref update on standard input:
+# <local ref> <local oid> <remote ref> <remote oid>
+while read -r local_ref local_oid remote_ref remote_oid; do
+  if [ "$remote_ref" = 'refs/heads/main' ] && [ "$local_oid" != "$zero_oid" ]; then
+    main_update=true
+    main_oid="$local_oid"
+  fi
+done
+
+if [ "$main_update" = false ]; then
+  exit 0
+fi
+
+head_oid="$(git rev-parse HEAD)"
+if [ "$main_oid" != "$head_oid" ]; then
+  echo "Refusing to push to main without validating its exact commit." >&2
+  echo "Check out ${main_oid} and run 'make certify-docs', then push again." >&2
+  exit 1
+fi
+
+echo "==> Pre-push: certifying documentation and full PETSc/MPI runtime for ${head_oid}"
+make --no-print-directory certify-docs

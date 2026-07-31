@@ -54,6 +54,22 @@ documentation site displays the same commit as a linked banner at the bottom of
 every page. Use `make certify-docs-fast` when PETSc/MPI runtime validation is
 not available; it is a structural/configuration check, not the full certificate.
 
+### Main-branch pre-push certification
+
+Enable the repository-managed Git hooks once in every clone:
+
+```bash
+make install-git-hooks
+```
+
+The tracked pre-push hook runs `make certify-docs` before any update to remote
+`main`, so a failed full PETSc/MPI, documentation, or configuration gate blocks
+the push. It only validates the checked-out `HEAD`; pushes that map another
+local commit directly to `main` are rejected so that commit can be checked out
+and certified first. Git hooks are a local safeguard and can be bypassed with
+`git push --no-verify`; the GitHub Actions documentation workflow remains the
+independent post-push structural backstop.
+
 ## Requirements
 
 - PETSc build available via `PETSC_DIR` (and `PETSC_ARCH` when required by your install)

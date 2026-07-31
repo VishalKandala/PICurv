@@ -51,6 +51,7 @@ Canonical commands:
 - `make check-mpi-matrix`
 - `make check-full`
 - `make check-stress`
+- `make install-git-hooks`
 
 Compatibility aliases remain available:
 
@@ -98,6 +99,27 @@ Guidance:
 - Use `make check-mpi` when multi-rank MPI behavior is in scope.
 - Use `make check-full` for comprehensive branch/CI/release validation that must cover all MPI layers.
 - Use `make check-stress` when you want the full default gate plus the stress tier in one pass.
+- Run `make install-git-hooks` once per clone to make `make certify-docs` an
+  automatic pre-push gate for updates to remote `main`. The hook validates only
+  the checked-out commit and blocks the push on failure; GitHub Actions then
+  repeats the lighter structural documentation checks after the push.
+
+@section p40_main_prepush_sec 2.1 Main-Branch Pre-Push Certification
+
+The tracked `.githooks/pre-push` hook enforces the full documentation
+certificate before a local Git client updates `refs/heads/main`. Enable it in
+each clone with:
+
+```bash
+make install-git-hooks
+```
+
+The hook runs `make certify-docs`, which requires a clean worktree and includes
+the PETSc/MPI runtime tier. It deliberately rejects a push that maps some other
+local commit directly to `main`, because the hook can only certify the exact
+checked-out `HEAD`. This is a local safeguard: Git permits bypassing hooks with
+`git push --no-verify`, so the post-push GitHub documentation gates remain a
+separate redundancy layer.
 
 @section p40_python_sec 3. Python Suite (`test-python`)
 
