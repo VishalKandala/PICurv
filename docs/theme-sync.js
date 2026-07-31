@@ -50,7 +50,9 @@
     link.title = revision.sha;
     banner.appendChild(link);
     banner.appendChild(document.createTextNode(revision.clean ? "." : "; it is not commit-certified."));
-    var footer = document.querySelector("#nav-path ul") || document.querySelector("footer") || document.body;
+    // Doxygen renders its badge in `address.footer`.  Keep the revision claim
+    // in that same footer so it reads as one coherent provenance row.
+    var footer = document.querySelector("address.footer") || document.querySelector("footer") || document.body;
     footer.appendChild(banner);
   }
 

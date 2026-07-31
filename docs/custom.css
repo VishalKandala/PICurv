@@ -226,14 +226,41 @@ h2.groupheader {
 }
 
 .picurv-docs-revision-banner {
-  clear: both;
-  margin: 0.8rem auto 0;
-  max-width: 72rem;
-  padding: 0.5rem 1rem;
-  border-top: 1px solid var(--pic-border);
+  margin: 0;
+  padding: 0.25rem 1rem;
   color: var(--pic-muted);
   font-size: 0.9rem;
   text-align: center;
+}
+
+/* Keep Doxygen attribution visible without making the provenance message a
+ * second, visually detached footer row. */
+address.footer {
+  box-sizing: border-box;
+  min-height: 2.5rem;
+  padding: 0.45rem 7rem 0.45rem 1rem;
+  position: relative;
+  text-align: center;
+}
+
+address.footer > small {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+@media (max-width: 560px) {
+  address.footer {
+    padding-right: 1rem;
+  }
+
+  address.footer > small {
+    display: block;
+    margin-top: 0.35rem;
+    position: static;
+    transform: none;
+  }
 }
 
 /* Main-page navigation cards */
