@@ -1,0 +1,14 @@
+source_data: {directory: "<solver_output_dir>"}
+run_control: {start_step: 0, end_step: 1000, step_interval: 50}
+global_operations: {dimensionalize: true}
+eulerian_pipeline:
+  - {task: q_criterion}
+  - {task: nodal_average, input_field: P, output_field: P_nodal}
+  - {task: nodal_average, input_field: Ucat, output_field: Ucat_nodal}
+io:
+  output_directory: visualization/dit
+  output_filename_prefix: dit
+  eulerian_fields: [Ucat_nodal, P_nodal, Qcrit]
+  eulerian_fields_averaged: []
+  output_particles: false
+  input_extensions: {eulerian: dat, particle: dat}

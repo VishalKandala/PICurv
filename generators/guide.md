@@ -6,7 +6,9 @@ configuration.
 
 - `grid.gen`: structured PICGRID generation and legacy-grid conversion.
 - `profile.gen`: dimensional PICSLICE generation and field slicing.
-- `ic.gen`: expression-driven PETSc initial-condition vector generation.
+- `ic.gen`: expression-driven and configurable spectral-random PETSc
+  initial-condition vector generation. Select the latter with
+  `generator: spectral_random_velocity`.
 - `plot.gen`: normalized time-history request rendering.
 - `convert_grid_from_legacy_to_picgrid.py`: legacy conversion command that
   delegates to `grid.gen legacy1d`.

@@ -24,6 +24,32 @@ static PetscInt* g_KMs_from_file = NULL;
 /** @brief A flag to ensure the grid file is read only once. */
 static PetscBool g_file_has_been_read = PETSC_FALSE;
 
+/**
+ * @brief Copies the owned entries of a ghosted scalar DMDA vector to its global vector.
+ *
+ * DMLocalToGlobal with INSERT_VALUES is unsupported for multidirection-periodic
+ * DMDAs in PETSc.  Explicitly copying only the uniquely owned region preserves
+ * INSERT semantics without reducing duplicate periodic ghost entries.
+ */
+static PetscErrorCode CopyOwnedLocalScalarToGlobal(DM dm, Vec local_vec, Vec global_vec)
+{
+    DMDALocalInfo info;
+    const PetscScalar ***local_array = NULL;
+    PetscScalar ***global_array = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(DMDAGetLocalInfo(dm, &info));
+    PetscCall(DMDAVecGetArrayRead(dm, local_vec, &local_array));
+    PetscCall(DMDAVecGetArray(dm, global_vec, &global_array));
+    for (PetscInt k = info.zs; k < info.zs + info.zm; ++k)
+        for (PetscInt j = info.ys; j < info.ys + info.ym; ++j)
+            for (PetscInt i = info.xs; i < info.xs + info.xm; ++i)
+                global_array[k][j][i] = local_array[k][j][i];
+    PetscCall(DMDAVecRestoreArray(dm, global_vec, &global_array));
+    PetscCall(DMDAVecRestoreArrayRead(dm, local_vec, &local_array));
+    PetscFunctionReturn(0);
+}
+
 
 // =============================================================================
 //                      PUBLIC FUNCTION IMPLEMENTATIONS
@@ -1647,11 +1673,8 @@ PetscErrorCode WriteLESFields(UserCtx *user)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write LES fields.\n");
 
 
-    DMLocalToGlobalBegin(user->da, user->lCs, INSERT_VALUES, user->CS);
-    DMLocalToGlobalEnd(user->da, user->lCs, INSERT_VALUES, user->CS);
-
-    DMLocalToGlobalBegin(user->da, user->lNu_t, INSERT_VALUES, user->Nu_t);
-    DMLocalToGlobalEnd(user->da, user->lNu_t, INSERT_VALUES, user->Nu_t);
+    PetscCall(CopyOwnedLocalScalarToGlobal(user->da, user->lCs, user->CS));
+    PetscCall(CopyOwnedLocalScalarToGlobal(user->da, user->lNu_t, user->Nu_t));
 
     ierr = WriteFieldData(user, "Nu_t", user->Nu_t, simCtx->step, "dat"); CHKERRQ(ierr);
     ierr = WriteFieldData(user, "cs", user->CS, simCtx->step, "dat"); CHKERRQ(ierr);

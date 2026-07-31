@@ -164,6 +164,11 @@ For prescribed-scalar deposition verification and scatter diagnostics, start fro
 picurv init scatter_verification --dest my_scatter_case
 ```
 
+For the triply periodic decaying-isotropic-turbulence LES benchmark:
+```bash
+picurv init decaying_isotropic_turbulence --dest dit_case
+```
+
 `init` creates the case directory with config files. Runtime binaries (`simulator`, `postprocessor`)
 are resolved from the project `bin/` directory via PATH — no copies are placed in the case.
 To pin specific binary versions (e.g. before submitting a Slurm job while continuing development):

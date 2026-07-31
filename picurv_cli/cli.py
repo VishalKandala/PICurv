@@ -373,7 +373,8 @@ def _add_init_parser(subparsers):
             "Create a study directory from examples/<template_name>.\n\n"
             "Examples:\n"
             "  picurv init flat_channel --dest my_case\n"
-            "  picurv init bent_channel --dest my_bent_case"
+            "  picurv init bent_channel --dest my_bent_case\n"
+            "  picurv init decaying_isotropic_turbulence --dest dit_case"
         ),
         epilog="Next: run `picurv validate --case ... --solver ... --monitor ...` before execution.",
     )

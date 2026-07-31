@@ -8,6 +8,7 @@
 
 import argparse
 import ast
+import csv
 import configparser
 import json
 import math
@@ -311,17 +312,331 @@ def write_petsc_vec_binary(path: str, field) -> None:
         fout.write(values.tobytes())
 
 
+def _finite_number(value, path, *, positive=False, nonnegative=False):
+    """!
+    @brief Parse one finite numerical configuration value.
+    @param[in] value Raw value.
+    @param[in] path Configuration path for errors.
+    @param[in] positive Whether zero and negative values are invalid.
+    @param[in] nonnegative Whether negative values are invalid.
+    @return Parsed float.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{path} must be numeric, not boolean.")
+    parsed = float(value)
+    valid = np.isfinite(parsed)
+    valid = valid and (not positive or parsed > 0.0)
+    valid = valid and (not nonnegative or parsed >= 0.0)
+    if not valid:
+        raise ValueError(f"{path} has an invalid numerical value.")
+    return parsed
+
+
+def validate_spectral_random_velocity_params(raw):
+    """!
+    @brief Validate the composable spectral random-velocity schema.
+    @param[in] raw Raw parameter mapping.
+    @return Normalized parameter mapping.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("spectral_random_velocity params must be a mapping.")
+    allowed = {"field", "seed", "random", "spectrum", "projection", "normalization", "remove_mean"}
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise ValueError(f"spectral_random_velocity has unsupported parameter(s): {unknown}.")
+    if str(raw.get("field", "Ucat")).lower() != "ucat":
+        raise ValueError("spectral_random_velocity supports only params.field: Ucat.")
+    seed = raw.get("seed", 12345)
+    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)):
+        raise ValueError("spectral_random_velocity params.seed must be an integer.")
+
+    random_cfg = raw.get("random", {})
+    if not isinstance(random_cfg, dict) or set(random_cfg) - {"distribution", "mean"}:
+        raise ValueError("params.random supports only distribution and mean.")
+    distribution = str(random_cfg.get("distribution", "gaussian")).lower()
+    if distribution != "gaussian":
+        raise ValueError("params.random.distribution currently supports only 'gaussian'.")
+    mean = random_cfg.get("mean", [0.0, 0.0, 0.0])
+    if not isinstance(mean, list) or len(mean) != 3:
+        raise ValueError("params.random.mean must be a three-component list.")
+    mean = [_finite_number(value, f"params.random.mean[{index}]") for index, value in enumerate(mean)]
+
+    spectrum = raw.get("spectrum", {})
+    if not isinstance(spectrum, dict):
+        raise ValueError("params.spectrum must be a mapping.")
+    spectrum_type = str(spectrum.get("type", "white")).lower()
+    if spectrum_type == "white":
+        if set(spectrum) - {"type"}:
+            raise ValueError("white spectrum supports only type.")
+        normalized_spectrum = {"type": "white"}
+    elif spectrum_type == "k4_exponential":
+        if set(spectrum) - {"type", "k0", "k_cut"} or "k0" not in spectrum or "k_cut" not in spectrum:
+            raise ValueError("k4_exponential spectrum requires only type, k0, and k_cut.")
+        normalized_spectrum = {
+            "type": "k4_exponential",
+            "k0": _finite_number(spectrum["k0"], "params.spectrum.k0", positive=True),
+            "k_cut": _finite_number(spectrum["k_cut"], "params.spectrum.k_cut", positive=True),
+        }
+    else:
+        raise ValueError("params.spectrum.type must be 'white' or 'k4_exponential'.")
+
+    projection = raw.get("projection", {"type": "none"})
+    if not isinstance(projection, dict) or set(projection) - {"type", "operator"}:
+        raise ValueError("params.projection supports only type and operator.")
+    projection_type = str(projection.get("type", "none")).lower()
+    if projection_type == "none":
+        if "operator" in projection:
+            raise ValueError("projection.operator is invalid when projection.type is 'none'.")
+        normalized_projection = {"type": "none"}
+    elif projection_type == "solenoidal":
+        operator = str(projection.get("operator", "")).lower()
+        if operator not in {"continuum", "picurv_discrete"}:
+            raise ValueError("solenoidal projection.operator must be 'continuum' or 'picurv_discrete'.")
+        normalized_projection = {"type": "solenoidal", "operator": operator}
+    else:
+        raise ValueError("params.projection.type must be 'none' or 'solenoidal'.")
+
+    normalization = raw.get("normalization", {"type": "none"})
+    if not isinstance(normalization, dict) or set(normalization) - {"type", "target"}:
+        raise ValueError("params.normalization supports only type and target.")
+    normalization_type = str(normalization.get("type", "none")).lower()
+    if normalization_type == "none":
+        if "target" in normalization:
+            raise ValueError("normalization.target is invalid when normalization.type is 'none'.")
+        normalized_normalization = {"type": "none"}
+    elif normalization_type == "component_rms":
+        if "target" not in normalization:
+            raise ValueError("component_rms normalization requires target.")
+        normalized_normalization = {"type": "component_rms",
+                                    "target": _finite_number(normalization["target"], "params.normalization.target", positive=True)}
+    else:
+        raise ValueError("params.normalization.type must be 'none' or 'component_rms'.")
+    remove_mean = raw.get("remove_mean", True)
+    if not isinstance(remove_mean, bool):
+        raise ValueError("params.remove_mean must be boolean.")
+    return {"field": "Ucat", "seed": int(seed), "random": {"distribution": distribution, "mean": mean},
+            "spectrum": normalized_spectrum, "projection": normalized_projection,
+            "normalization": normalized_normalization, "remove_mean": remove_mean}
+
+
+def validate_spectral_grid(nodes):
+    """!
+    @brief Validate the uniform Cartesian grid required by FFT generation.
+    @param[in] nodes PICGRID node-coordinate array.
+    @return Cell counts in storage order and physical lengths in Cartesian order.
+    """
+    km, jm, im, _ = nodes.shape
+    cells = (km - 1, jm - 1, im - 1)
+    if min(cells) < 4:
+        raise ValueError(f"spectral_random_velocity requires at least four cells per axis; found {cells}.")
+    axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
+    for physical_axis, values in zip("xyz", axes):
+        delta = np.diff(values)
+        if not np.all(delta > 0) or not np.allclose(delta, delta[0], rtol=1e-10, atol=1e-12):
+            raise ValueError(f"spectral_random_velocity requires uniform positive {physical_axis} spacing.")
+    if not (np.allclose(nodes[..., 0], axes[0][None, None, :]) and
+            np.allclose(nodes[..., 1], axes[1][None, :, None]) and
+            np.allclose(nodes[..., 2], axes[2][:, None, None])):
+        raise ValueError("spectral_random_velocity requires an axis-aligned Cartesian grid (x->i, y->j, z->k).")
+    return cells, tuple(float(values[-1] - values[0]) for values in axes)
+
+
+def spectral_symbols(cells_kji, lengths_xyz):
+    """!
+    @brief Build continuum and centered-discrete Fourier symbols.
+    @param[in] cells_kji Cell counts in storage order.
+    @param[in] lengths_xyz Physical box lengths in Cartesian order.
+    @return Continuum symbols, centered-discrete symbols, and Cartesian spacings.
+    """
+    nk, nj, ni = cells_kji
+    lx, ly, lz = lengths_xyz
+    dx, dy, dz = lx / ni, ly / nj, lz / nk
+    kz = 2*np.pi*np.fft.fftfreq(nk, d=dz)[:, None, None]
+    ky = 2*np.pi*np.fft.fftfreq(nj, d=dy)[None, :, None]
+    kx = 2*np.pi*np.fft.fftfreq(ni, d=dx)[None, None, :]
+    return (kx, ky, kz), (np.sin(kx*dx)/dx, np.sin(ky*dy)/dy, np.sin(kz*dz)/dz), (dx, dy, dz)
+
+
+def project_coefficients(coeff, symbols):
+    """!
+    @brief Apply one rank-two Fourier-space solenoidal projector.
+    @param[in] coeff Vector-valued Fourier coefficients.
+    @param[in] symbols Selected divergence-operator symbols.
+    @return Projected Fourier coefficients.
+    """
+    magnitude2 = sum(symbol*symbol for symbol in symbols)
+    dot = sum(symbols[c]*coeff[..., c] for c in range(3))
+    projected = coeff.copy()
+    denominator = np.where(magnitude2 > 0.0, magnitude2, 1.0)
+    for component, symbol in enumerate(symbols):
+        projected[..., component] -= symbol*dot/denominator
+    projected[magnitude2 == 0.0, :] = 0.0
+    return projected
+
+
+def spectral_envelope(kmag, spectrum, fundamental):
+    """!
+    @brief Compute a modal envelope from the requested finite-grid shell energy.
+    @param[in] kmag Physical wavevector magnitudes.
+    @param[in] spectrum Normalized spectrum selector.
+    @param[in] fundamental Shell width in physical wavenumber units.
+    @return Modal amplitude envelope.
+    """
+    if spectrum["type"] == "white":
+        return np.ones_like(kmag)
+    shell = np.floor(kmag/fundamental + 0.5).astype(int)
+    active = (kmag > 0.0) & (kmag <= spectrum["k_cut"])
+    mode_count = np.bincount(shell[active].reshape(-1), minlength=int(shell.max()) + 1)
+    shell_k = np.arange(mode_count.size, dtype=float)*fundamental
+    target_energy = shell_k**4*np.exp(-2.0*(shell_k/spectrum["k0"])**2)
+    shell_amplitude = np.zeros_like(target_energy)
+    populated = mode_count > 0
+    shell_amplitude[populated] = np.sqrt(target_energy[populated]/mode_count[populated])
+    return np.where(active, shell_amplitude[shell], 0.0)
+
+
+def compute_spectral_random_velocity_diagnostics(field, params, lengths_xyz, kinematic_viscosity):
+    """!
+    @brief Compute operator-aware, case-independent velocity diagnostics.
+    @param[in] field Physical-cell velocity field.
+    @param[in] params Normalized generator parameters.
+    @param[in] lengths_xyz Physical box lengths in Cartesian order.
+    @param[in] kinematic_viscosity Nondimensional kinematic viscosity.
+    @return Diagnostic summary mapping.
+    """
+    cells = field.shape[:3]
+    continuum, discrete, spacing = spectral_symbols(cells, lengths_xyz)
+    coeff = np.fft.fftn(field, axes=(0, 1, 2))
+    divergence = {}
+    for label, symbols in (("continuum", continuum), ("picurv_discrete", discrete)):
+        spectral_divergence = sum(symbols[c]*coeff[..., c] for c in range(3))
+        symbol_magnitude2 = sum(symbol*symbol for symbol in symbols)
+        velocity_magnitude2 = np.sum(np.abs(coeff)**2, axis=-1)
+        denominator = math.sqrt(float(np.sum(symbol_magnitude2*velocity_magnitude2)))
+        real_divergence = np.fft.ifftn(1j*spectral_divergence, axes=(0, 1, 2)).real
+        divergence[f"{label}_divergence_max"] = float(np.max(np.abs(real_divergence)))
+        divergence[f"{label}_divergence_rms"] = float(np.sqrt(np.mean(real_divergence**2)))
+        divergence[f"{label}_divergence_normalized"] = (
+            math.sqrt(float(np.sum(np.abs(spectral_divergence)**2)))/denominator if denominator else 0.0
+        )
+    means = field.mean(axis=(0, 1, 2))
+    fluctuations = field - means
+    fluctuation_rms = math.sqrt(float(np.mean(np.sum(fluctuations*fluctuations, axis=-1)))/3.0)
+    # Uniform-grid Ucat -> Cart2Contra -> Contra2Cart reconstruction applies
+    # cos^2(k_alpha*dx_alpha/2) to component alpha. Normalization remains
+    # defined on the staged Ucat field; report the reconstructed state too.
+    reconstructed_coeff = coeff.copy()
+    for component in range(3):
+        reconstructed_coeff[..., component] *= np.cos(
+            0.5*continuum[component]*spacing[component]
+        )**2
+    reconstructed = np.fft.ifftn(reconstructed_coeff, axes=(0, 1, 2)).real
+    gradient2 = sum(float(np.mean(np.fft.ifftn(1j*w*coeff[..., c], axes=(0,1,2)).real**2))
+                    for c in range(3) for w in continuum)
+    epsilon = kinematic_viscosity*gradient2
+    taylor = math.sqrt(15*kinematic_viscosity*fluctuation_rms**2/epsilon) if epsilon > 0 else math.inf
+    re_lambda = fluctuation_rms*taylor/kinematic_viscosity if kinematic_viscosity > 0 else math.inf
+    kmag = np.sqrt(sum(symbol*symbol for symbol in continuum))
+    fundamental = min(2*np.pi/length for length in lengths_xyz)
+    shell = np.floor(kmag/fundamental + 0.5).astype(int)
+    energy = 0.5*np.sum(np.abs(coeff/np.prod(cells))**2, axis=-1)
+    spectrum = [{"k": float(index*fundamental), "energy": float(np.sum(energy[shell == index]))}
+                for index in range(int(shell.max()) + 1)]
+    zero_mode_energy = float(energy[(0, 0, 0)])
+    peak = max(spectrum, key=lambda row: row["energy"])
+    cutoff = params["spectrum"].get("k_cut")
+    energy_above_cutoff = float(np.sum(energy[kmag > cutoff])) if cutoff is not None else 0.0
+    result = {"generator": "spectral_random_velocity", "field": "Ucat", "seed": params["seed"],
+              "random": params["random"], "spectrum": params["spectrum"], "projection": params["projection"],
+              "normalization": params["normalization"], "remove_mean": params["remove_mean"],
+              "component_means": [float(x) for x in means],
+              "component_rms": [float(x) for x in np.sqrt(np.mean(field*field, axis=(0,1,2)))],
+              "fluctuation_component_rms": fluctuation_rms,
+              "resolved_kinetic_energy": 0.5*float(np.mean(np.sum(field*field, axis=-1))),
+              "picurv_reconstructed_component_rms": [
+                  float(x) for x in np.sqrt(np.mean(reconstructed*reconstructed, axis=(0,1,2)))
+              ],
+              "picurv_reconstructed_kinetic_energy": 0.5*float(
+                  np.mean(np.sum(reconstructed*reconstructed, axis=-1))
+              ),
+              "kinematic_viscosity": kinematic_viscosity, "dissipation": epsilon,
+              "taylor_microscale": taylor, "re_lambda": re_lambda,
+              "realized_shell_spectrum": spectrum, "spectrum_peak_k": peak["k"],
+              "zero_mode_energy": zero_mode_energy, "energy_above_cutoff": energy_above_cutoff}
+    if params["normalization"]["type"] == "component_rms":
+        result["target_u_rms"] = params["normalization"]["target"]
+    result.update(divergence)
+    return result
+
+
+def generate_spectral_random_velocity(nodes, raw_params, context=None):
+    """!
+    @brief Generate a configurable spectral random Ucat field and diagnostics.
+    @param[in] nodes PICGRID node-coordinate array.
+    @param[in] raw_params Raw structured provider parameters.
+    @param[in] context Conductor-derived diagnostic context.
+    @return Full periodic-dummy field and diagnostic summary.
+    """
+    params = validate_spectral_random_velocity_params(raw_params)
+    cells, lengths_xyz = validate_spectral_grid(nodes)
+    continuum, discrete, spacing = spectral_symbols(cells, lengths_xyz)
+    kmag = np.sqrt(sum(symbol*symbol for symbol in continuum))
+    cutoff = params["spectrum"].get("k_cut")
+    limit = (2.0/3.0)*min(math.pi/value for value in spacing)
+    if cutoff is not None and cutoff > limit*(1.0+1.0e-12):
+        raise ValueError(f"params.spectrum.k_cut={cutoff} exceeds the two-thirds-resolution limit {limit:.12g}.")
+    coeff = np.fft.fftn(np.random.default_rng(params["seed"]).standard_normal((*cells, 3)), axes=(0,1,2))
+    fundamental = min(2*np.pi/length for length in lengths_xyz)
+    envelope = spectral_envelope(kmag, params["spectrum"], fundamental)
+    coeff *= envelope[..., None]
+    if params["projection"]["type"] == "solenoidal":
+        # Self-conjugate Nyquist planes do not have a distinct negative partner;
+        # removing them keeps a single-symbol projection exactly Hermitian.
+        nyquist = np.zeros(cells, dtype=bool)
+        for axis, count in enumerate(cells):
+            if count % 2 == 0:
+                shape = [1, 1, 1]
+                shape[axis] = count
+                nyquist |= (np.arange(count).reshape(shape) == count//2)
+        coeff[nyquist, :] = 0.0
+        symbols = continuum if params["projection"]["operator"] == "continuum" else discrete
+        coeff = project_coefficients(coeff, symbols)
+    physical = np.fft.ifftn(coeff, axes=(0,1,2)).real
+    if params["remove_mean"]:
+        physical -= physical.mean(axis=(0,1,2), keepdims=True)
+    if params["normalization"]["type"] == "component_rms":
+        rms = math.sqrt(float(np.mean(np.sum(physical*physical, axis=-1)))/3.0)
+        if rms == 0.0:
+            raise ValueError("the selected spectrum and projection contain no active modes on this grid.")
+        physical *= params["normalization"]["target"]/rms
+    physical += np.asarray(params["random"]["mean"])[None, None, None, :]
+    wrapped = tuple((np.arange(count + 2)-1) % count for count in cells)
+    full = physical[np.ix_(*wrapped)]
+    kinematic_viscosity = _finite_number((context or {}).get("kinematic_viscosity", 0.0),
+                                          "context.kinematic_viscosity", nonnegative=True)
+    summary = compute_spectral_random_velocity_diagnostics(physical, params, lengths_xyz, kinematic_viscosity)
+    summary.update({"grid_cells_storage_kji": list(cells), "box_lengths_xyz": list(lengths_xyz),
+                    "vector_shape": list(full.shape), "scalar_count": int(full.size),
+                    "petsc_shape": list(full.shape), "petsc_scalar_count": int(full.size)})
+    return full, summary
+
+
 def build_parser():
     """!
     @brief Build the command-line parser.
     @return Configured parser.
     """
     parser = argparse.ArgumentParser(description="Generate a PICurv initial-condition PETSc vector.")
-    parser.add_argument("-c", "--config", required=True, help="Expression-generator INI configuration.")
-    parser.add_argument("--field", required=True, choices=("Ucat", "Ucont"), help="Field representation to generate.")
+    parser.add_argument("--generator", choices=("expression", "spectral_random_velocity"),
+                        default="expression", help="Maintained IC generator implementation.")
+    parser.add_argument("-c", "--config", help="Expression-generator INI configuration.")
+    parser.add_argument("--params-json", help="JSON parameters for a built-in generator.")
+    parser.add_argument("--context-json", help="Conductor-derived diagnostic context.")
+    parser.add_argument("--field", choices=("Ucat", "Ucont"), help="Field representation to generate.")
     parser.add_argument("--output", required=True, help="Output PETSc binary vector.")
     parser.add_argument("--grid", help="Canonical nondimensional PICGRID; defaults to grid.run beside output.")
     parser.add_argument("--summary-json", help="Optional summary JSON path.")
+    parser.add_argument("--spectrum-csv", help="Optional realized spectrum CSV path.")
     return parser
 
 
@@ -335,25 +650,39 @@ def main(argv=None) -> int:
     try:
         grid_path = args.grid or os.path.join(os.path.dirname(os.path.abspath(args.output)), "grid.run")
         dims, nodes = read_picgrid(grid_path)
-        config = read_config(args.config)
-        field = generate_ucat(nodes, config) if args.field == "Ucat" else generate_ucont(nodes, config)
+        if args.generator == "spectral_random_velocity":
+            if not args.params_json:
+                raise ValueError("spectral_random_velocity generation requires --params-json.")
+            field, summary = generate_spectral_random_velocity(
+                nodes, json.loads(args.params_json), json.loads(args.context_json or "{}")
+            )
+        else:
+            if not args.config or not args.field:
+                raise ValueError("expression generation requires --config and --field.")
+            config = read_config(args.config)
+            field = generate_ucat(nodes, config) if args.field == "Ucat" else generate_ucont(nodes, config)
+            summary = {
+                "field": args.field, "generator": "expression", "grid": os.path.abspath(grid_path),
+                "output": os.path.abspath(args.output), "grid_dims": list(dims),
+                "vector_shape": list(field.shape), "scalar_count": int(field.size),
+                "min_components": [float(np.min(field[..., component])) for component in range(3)],
+                "max_components": [float(np.max(field[..., component])) for component in range(3)],
+            }
         write_petsc_vec_binary(args.output, field)
-        summary = {
-            "field": args.field,
-            "generator": "expression",
-            "grid": os.path.abspath(grid_path),
-            "output": os.path.abspath(args.output),
-            "grid_dims": list(dims),
-            "vector_shape": list(field.shape),
-            "scalar_count": int(field.size),
-            "min_components": [float(np.min(field[..., component])) for component in range(3)],
-            "max_components": [float(np.max(field[..., component])) for component in range(3)],
-        }
+        summary.update({"grid": os.path.abspath(grid_path), "output": os.path.abspath(args.output),
+                        "grid_dims": list(dims)})
         if args.summary_json:
             os.makedirs(os.path.dirname(os.path.abspath(args.summary_json)), exist_ok=True)
             with open(args.summary_json, "w", encoding="utf-8") as fout:
                 json.dump(summary, fout, indent=2, sort_keys=True)
                 fout.write("\n")
+        if args.spectrum_csv:
+            if "realized_shell_spectrum" not in summary:
+                raise ValueError("--spectrum-csv requires a generator that reports a realized spectrum.")
+            os.makedirs(os.path.dirname(os.path.abspath(args.spectrum_csv)), exist_ok=True)
+            with open(args.spectrum_csv, "w", newline="", encoding="utf-8") as fout:
+                writer = csv.DictWriter(fout, fieldnames=("k", "energy"))
+                writer.writeheader(); writer.writerows(summary["realized_shell_spectrum"])
         print(json.dumps(summary, sort_keys=True))
         return 0
     except Exception as exc:

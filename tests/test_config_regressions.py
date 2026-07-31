@@ -61,7 +61,8 @@ def test_maintained_examples_use_canonical_initial_condition_contract():
         assert initial_conditions.get("mode") in {"generated", "file"}, path
         if initial_conditions["mode"] == "generated":
             assert initial_conditions.get("generator") in {
-                "zero", "constant", "streamwise_constant", "poiseuille", "ic_gen"
+                "zero", "constant", "streamwise_constant", "poiseuille", "ic_gen",
+                "spectral_random_velocity"
             }, path
     assert checked
 
@@ -1440,8 +1441,8 @@ def test_parse_solver_config_maps_structured_poisson_solver_flags():
     assert flags["-mg_i_semi"] == "0"
     assert flags["-mg_j_semi"] == "0"
     assert flags["-mg_k_semi"] == "1"
-    assert flags["-ps_mg_levels_0_ksp_type"] == "fgmres"
-    assert flags["-ps_mg_levels_0_pc_type"] == "bjacobi"
+    assert flags["-ps_mg_coarse_ksp_type"] == "fgmres"
+    assert flags["-ps_mg_coarse_pc_type"] == "bjacobi"
     assert flags["-ps_mg_levels_1_ksp_type"] == "richardson"
     assert flags["-ps_mg_levels_1_pc_type"] == "sor"
 
@@ -1465,8 +1466,8 @@ def test_parse_solver_config_keeps_legacy_pressure_solver_alias():
     flags = picurv.parse_solver_config(solver_cfg)
 
     assert flags["-mg_level"] == 4
-    assert flags["-ps_mg_levels_0_ksp_type"] == "gmres"
-    assert flags["-ps_mg_levels_0_pc_type"] == "ilu"
+    assert flags["-ps_mg_coarse_ksp_type"] == "gmres"
+    assert flags["-ps_mg_coarse_pc_type"] == "ilu"
 
 
 def test_parse_solver_config_rejects_non_multigrid_outer_preconditioner():

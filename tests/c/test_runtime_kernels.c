@@ -486,6 +486,149 @@ static PetscErrorCode TestPopulateInitialUcontLoadsStagedUcat(void)
     PetscFunctionReturn(0);
 }
 
+/** @brief Tests LES output staging from local vectors on a multiply periodic DMDA. */
+static PetscErrorCode TestWriteLESFieldsCopiesOwnedPeriodicValues(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(
+        &simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_TRUE, PETSC_TRUE));
+    PetscCall(DMCreateGlobalVector(user->da, &user->CS));
+    PetscCall(DMCreateLocalVector(user->da, &user->lCs));
+    PetscCall(DMCreateGlobalVector(user->da, &user->Nu_t));
+    PetscCall(DMCreateLocalVector(user->da, &user->lNu_t));
+    PetscCall(VecSet(user->CS, 0.0));
+    PetscCall(VecSet(user->lCs, 2.5));
+    PetscCall(VecSet(user->Nu_t, 0.0));
+    PetscCall(VecSet(user->lNu_t, 7.5));
+
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->_io_context_buffer, tmpdir, sizeof(simCtx->_io_context_buffer)));
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
+    PetscCall(WriteLESFields(user));
+    simCtx->current_io_directory = NULL;
+
+    PetscCall(PicurvAssertVecConstant(user->CS, 2.5, 1.0e-12,
+                                      "WriteLESFields should copy owned periodic lCs values"));
+    PetscCall(PicurvAssertVecConstant(user->Nu_t, 7.5, 1.0e-12,
+                                      "WriteLESFields should copy owned periodic lNu_t values"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Stages a real Cartesian Fourier mode through the production file-IC path.
+ *
+ * The returned maximum is the native face-interpolation/backward-difference
+ * divergence.  On the uniform periodic fixture its symbol is
+ * (sin(theta_x), sin(theta_y), sin(theta_z)).
+ */
+static PetscErrorCode StagedFourierModeMaxDivergence(UserCtx *user,
+                                                     PetscInt mode_x,
+                                                     PetscInt mode_y,
+                                                     PetscInt mode_z,
+                                                     Cmpnts amplitude,
+                                                     const char *tmpdir,
+                                                     PetscReal *max_divergence)
+{
+    SimCtx *simCtx = user->simCtx;
+    Cmpnts ***ucat = NULL, ***ucont = NULL;
+    PetscInt n_x = user->info.mx - 2, n_y = user->info.my - 2, n_z = user->info.mz - 2;
+    const char *staggered_fields[] = {"Ucont"};
+
+    PetscFunctionBeginUser;
+    PetscCall(VecZeroEntries(user->Ucat));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    for (PetscInt k = 0; k < user->info.mz; ++k) {
+        for (PetscInt j = 0; j < user->info.my; ++j) {
+            for (PetscInt i = 0; i < user->info.mx; ++i) {
+                PetscReal phase = 2.0 * PETSC_PI * (
+                    (PetscReal)(mode_x * (i - 1)) / (PetscReal)n_x +
+                    (PetscReal)(mode_y * (j - 1)) / (PetscReal)n_y +
+                    (PetscReal)(mode_z * (k - 1)) / (PetscReal)n_z);
+                PetscReal wave = PetscCosReal(phase);
+                ucat[k][j][i] = (Cmpnts){amplitude.x * wave, amplitude.y * wave, amplitude.z * wave};
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+
+    PetscCall(PetscStrncpy(simCtx->_io_context_buffer, tmpdir, sizeof(simCtx->_io_context_buffer)));
+    simCtx->current_io_directory = simCtx->_io_context_buffer;
+    PetscCall(WriteFieldData(user, "ufield", user->Ucat, 0, "dat"));
+    simCtx->current_io_directory = NULL;
+    PetscCall(VecZeroEntries(user->Ucat));
+    PetscCall(VecZeroEntries(user->Ucont));
+    PetscCall(PopulateInitialUcont(user));
+    PetscCall(SynchronizePeriodicStaggeredFields(user, 1, staggered_fields));
+    PetscCall(UpdateLocalGhosts(user, "Ucont"));
+
+    *max_divergence = 0.0;
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &ucont));
+    for (PetscInt k = 1; k < user->info.mz - 1; ++k) {
+        for (PetscInt j = 1; j < user->info.my - 1; ++j) {
+            for (PetscInt i = 1; i < user->info.mx - 1; ++i) {
+                PetscReal divergence =
+                    ucont[k][j][i].x - ucont[k][j][i - 1].x +
+                    ucont[k][j][i].y - ucont[k][j - 1][i].y +
+                    ucont[k][j][i].z - ucont[k - 1][j][i].z;
+                *max_divergence = PetscMax(*max_divergence, PetscAbsReal(divergence));
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, &ucont));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Cross-checks selected exact Fourier modes against PICurv's native discrete symbol. */
+static PetscErrorCode TestStagedUcatFourierModesUsePicurvDiscreteSymbol(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    PetscReal max_divergence = 0.0, sx, sy, sz;
+    PetscInt n;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(
+        &simCtx, &user, 9, 9, 9, PETSC_TRUE, PETSC_TRUE, PETSC_TRUE));
+    for (PetscInt face = 0; face < NUM_FACES; ++face)
+        user->boundary_faces[face].mathematical_type = PERIODIC;
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    simCtx->initialConditionMode = IC_MODE_FILE;
+    simCtx->initialConditionField = IC_FIELD_UCAT;
+    PetscCall(PetscStrncpy(simCtx->initialConditionDirectory, tmpdir, sizeof(simCtx->initialConditionDirectory)));
+
+    PetscCall(StagedFourierModeMaxDivergence(
+        user, 1, 0, 0, (Cmpnts){0.0, 1.0, 0.0}, tmpdir, &max_divergence));
+    PetscCall(PicurvAssertRealNear(0.0, max_divergence, 1.0e-12,
+                                   "axis-aligned transverse staged mode"));
+
+    n = user->info.mx - 2;
+    sx = PetscSinReal(2.0 * PETSC_PI / (PetscReal)n);
+    sy = PetscSinReal(4.0 * PETSC_PI / (PetscReal)n);
+    sz = PetscSinReal(6.0 * PETSC_PI / (PetscReal)n);
+    PetscCall(StagedFourierModeMaxDivergence(
+        user, 1, 2, 0, (Cmpnts){sy, -sx, 0.0}, tmpdir, &max_divergence));
+    PetscCall(PicurvAssertRealNear(0.0, max_divergence, 1.0e-12,
+                                   "oblique first discrete transverse polarization"));
+    PetscCall(StagedFourierModeMaxDivergence(
+        user, 1, 2, 3,
+        (Cmpnts){sz * sx, sz * sy, -(sx * sx + sy * sy)},
+        tmpdir, &max_divergence));
+    PetscCall(PicurvAssertRealNear(0.0, max_divergence, 1.0e-12,
+                                   "oblique second discrete transverse polarization"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Tests loading a staged Ucont file IC without Cartesian conversion.
  */
@@ -1446,6 +1589,8 @@ int main(int argc, char **argv)
         {"cart2contra-converts-cartesian-field", TestCart2ContraConvertsCartesianField},
         {"cart2contra-uses-finalized-periodic-ucat", TestCart2ContraUsesFinalizedPeriodicUcat},
         {"populate-initial-ucont-loads-staged-ucat", TestPopulateInitialUcontLoadsStagedUcat},
+        {"write-les-fields-copies-owned-periodic-values", TestWriteLESFieldsCopiesOwnedPeriodicValues},
+        {"staged-ucat-fourier-modes-use-picurv-discrete-symbol", TestStagedUcatFourierModesUsePicurvDiscreteSymbol},
         {"populate-initial-ucont-loads-staged-ucont", TestPopulateInitialUcontLoadsStagedUcont},
         {"interpolate-all-fields-to-swarm-constant-fields", TestInterpolateAllFieldsToSwarmConstantFields},
         {"interpolate-all-fields-to-swarm-corner-averaged-constant-fields", TestInterpolateAllFieldsToSwarmCornerAveragedConstantFields},

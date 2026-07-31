@@ -2,6 +2,7 @@
   "template_directories": [
     "bent_channel",
     "brownian_motion",
+    "decaying_isotropic_turbulence",
     "drift_diffusivity_gradient",
     "drift_uniform_flow",
     "flat_channel",
@@ -24,6 +25,7 @@
     "examples/search_robustness/execution.example.yml"
   ],
   "case_bundles": [
+    {"case": "examples/decaying_isotropic_turbulence/case.yml", "solver": "examples/decaying_isotropic_turbulence/solver.yml", "monitor": "examples/decaying_isotropic_turbulence/monitor.yml", "post": "examples/decaying_isotropic_turbulence/post.yml"},
     {"case": "examples/flat_channel/flat_channel.yml", "solver": "examples/flat_channel/Imp-MG-Standard.yml", "monitor": "examples/flat_channel/Standard_Output.yml", "post": "examples/flat_channel/standard_analysis.yml"},
     {"case": "examples/bent_channel/bent_channel.yml", "solver": "examples/bent_channel/Imp-MG-Standard.yml", "monitor": "examples/bent_channel/Standard_Output.yml", "post": "examples/bent_channel/standard_analysis.yml"},
     {"case": "examples/brownian_motion/brownian_motion.yml", "solver": "examples/brownian_motion/Analytical-Zero.yml", "monitor": "examples/brownian_motion/Standard_Output.yml", "post": "examples/brownian_motion/brownian_analysis.yml"},

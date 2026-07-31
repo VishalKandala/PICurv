@@ -4762,8 +4762,12 @@ def test_grid_gen_legacy1d_conversion_writes_canonical_picgrid(tmp_path):
     assert lines[1] == "1"
     assert lines[2] == "3 2 2"
     assert len(lines[3:]) == 12
-    assert lines[3].split() == ["0.00000000e+00", "0.00000000e+00", "0.00000000e+00"]
-    assert lines[-1].split() == ["1.00000000e+00", "1.00000000e+00", "2.00000000e+00"]
+    assert lines[3].split() == ["0.00000000000000000e+00"] * 3
+    assert lines[-1].split() == [
+        "1.00000000000000000e+00",
+        "1.00000000000000000e+00",
+        "2.00000000000000000e+00",
+    ]
 
 
 def test_generate_solver_control_file_applies_top_level_da_processors_for_file_grid(tmp_path):

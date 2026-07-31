@@ -17,6 +17,27 @@ DEFAULT_TARGETS = [
 ]
 
 
+class PathAwareIgnore:
+    """Avoid stdlib trace's basename-only ignore cache for same-named modules."""
+
+    def __init__(self, ignoredirs: list[str]):
+        """! @brief Store normalized ignored directory roots. @param[in] ignoredirs Directory roots to ignore. """
+        self._ignoredirs = [os.path.normpath(path) for path in ignoredirs]
+
+    def names(self, filename, modulename: str) -> bool:
+        """!
+        @brief Decide by full path whether a module is ignored.
+        @param[in] filename Source filename reported by the tracer.
+        @param[in] modulename Source module name reported by the tracer.
+        @return True when ignored.
+        """
+        del modulename
+        if filename is None:
+            return True
+        normalized = os.path.normpath(filename)
+        return any(normalized.startswith(root + os.sep) for root in self._ignoredirs)
+
+
 def normalize_path(path: str | Path) -> str:
     """!
     @brief Resolve a filesystem path to the canonical string used as a coverage-map key.
@@ -153,6 +174,10 @@ def main() -> int:
     import pytest
 
     tracer = trace.Trace(count=True, trace=False, ignoredirs=ignoredirs)
+    # Python 3.8's trace._Ignore caches decisions by file basename, so seeing an
+    # ignored dependency named core.py can incorrectly hide this repository's
+    # picurv_cli/core.py for the rest of a full-suite run.
+    tracer.ignore = PathAwareIgnore(ignoredirs)
     exit_code = tracer.runfunc(pytest.main, pytest_args)
     results = tracer.results()
 

@@ -1,0 +1,69 @@
+run_control:
+  start_step: 0
+  total_steps: 1000
+  dt_physical: 0.002
+
+properties:
+  scaling: {length_ref: 1.0, velocity_ref: 1.0}
+  fluid: {density: 1.0, viscosity: 0.005}
+  initial_conditions:
+    mode: generated
+    generator: spectral_random_velocity
+    params:
+      field: Ucat
+      seed: 12345
+      random:
+        distribution: gaussian
+        mean: [0.0, 0.0, 0.0]
+      spectrum:
+        type: k4_exponential
+        k0: 4.0
+        k_cut: 20.0
+      projection:
+        type: solenoidal
+        operator: picurv_discrete
+      normalization:
+        type: component_rms
+        target: 1.0
+      remove_mean: true
+
+grid:
+  mode: programmatic_c
+  programmatic_settings:
+    im: 64
+    jm: 64
+    km: 64
+    xMins: 0.0
+    xMaxs: 6.283185307179586
+    yMins: 0.0
+    yMaxs: 6.283185307179586
+    zMins: 0.0
+    zMaxs: 6.283185307179586
+    rxs: 1.0
+    rys: 1.0
+    rzs: 1.0
+    cgrids: 0
+
+models:
+  domain: {blocks: 1}
+  physics:
+    dimensionality: 3D
+    fsi: {immersed: false, moving_fsi: false}
+    particles: {count: 0, restart_mode: init}
+    turbulence:
+      les:
+        enabled: true
+        model: dynamic_smagorinsky
+        max_cs: 0.5
+        dynamic_frequency: 1
+        test_filter: volume_weighted_box
+      rans: {enabled: false}
+      wall_function: {enabled: false}
+
+boundary_conditions:
+  - {face: "-Xi", type: PERIODIC, handler: geometric}
+  - {face: "+Xi", type: PERIODIC, handler: geometric}
+  - {face: "-Eta", type: PERIODIC, handler: geometric}
+  - {face: "+Eta", type: PERIODIC, handler: geometric}
+  - {face: "-Zeta", type: PERIODIC, handler: geometric}
+  - {face: "+Zeta", type: PERIODIC, handler: geometric}

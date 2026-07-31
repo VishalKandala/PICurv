@@ -2884,6 +2884,18 @@ def _iter_nonempty_noncomment_lines(file_obj):
             continue
         yield lineno, line
 
+PICGRID_FLOAT_FORMAT = ".17e"
+
+
+def format_picgrid_coordinate(value: float) -> str:
+    """!
+    @brief Format a coordinate with round-trip-safe binary64 precision.
+    @param[in] value Coordinate value.
+    @return Formatted coordinate.
+    """
+    return format(value, PICGRID_FLOAT_FORMAT)
+
+
 def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_ref: float, expected_nblk: int = None) -> dict:
     """!
     @brief Validates PICGRID payload and writes a non-dimensionalized copy.
@@ -2979,7 +2991,10 @@ def validate_and_nondimensionalize_picgrid(source_grid: str, dest_grid: str, L_r
                     raise ValueError(
                         f"Grid file '{source_grid}' has more coordinates ({total_nodes_seen}) than expected ({total_nodes_expected})."
                     )
-                fout.write(f"{x:.8e} {y:.8e} {z:.8e}\n")
+                fout.write(
+                    f"{format_picgrid_coordinate(x)} {format_picgrid_coordinate(y)} "
+                    f"{format_picgrid_coordinate(z)}\n"
+                )
 
         if total_nodes_seen != total_nodes_expected:
             raise ValueError(
@@ -4096,6 +4111,21 @@ def _to_float(value, field_name: str) -> float:
     except (TypeError, ValueError):
         raise ValueError(f"'{field_name}' must be numeric (got {value!r}).")
 
+
+def _to_finite_float(value, field_name: str) -> float:
+    """!
+    @brief Convert a non-boolean YAML scalar to a finite float.
+    @param[in] value Raw YAML scalar.
+    @param[in] field_name User-facing configuration path.
+    @return Finite floating-point value.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"'{field_name}' must be numeric, not boolean.")
+    parsed = _to_float(value, field_name)
+    if not math.isfinite(parsed):
+        raise ValueError(f"'{field_name}' must be finite (got {value!r}).")
+    return parsed
+
 def _to_bool(value, field_name: str) -> bool:
     """!
     @brief Convert a YAML scalar/string to bool with a clear error message.
@@ -4788,14 +4818,34 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         )
     else:
         try:
-            resolved_ic = resolve_initial_condition_config(ic, prepared_blocks, U_ref=1.0)
+            scaling_contract = resolve_fluid_scaling(case_cfg)
+            resolved_ic = resolve_initial_condition_config(
+                ic, prepared_blocks, U_ref=scaling_contract["velocity_ref"],
+                provider_context={"kinematic_viscosity": scaling_contract["nondimensional_kinematic_viscosity"]},
+            )
         except KeyError as e:
             errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
-    if grid_mode == 'programmatic_c' and resolved_ic and resolved_ic.get("kind") == "ic_gen":
+    if resolved_ic and GENERATED_IC_PROVIDERS.get(resolved_ic.get("kind"), {}).get("requires_fresh_3d"):
+        start_step = (case_cfg.get("run_control", {}) or {}).get("start_step", 0)
+        if start_step != 0:
+            errors.append(f"  {case_path}: {resolved_ic['label']} supports only fresh starts (start_step: 0).")
+        dimensionality = str((((case_cfg.get("models", {}) or {}).get("physics", {}) or {})
+                             .get("dimensionality", "3D"))).strip().upper()
+        if dimensionality != "3D":
+            errors.append(f"  {case_path}: {resolved_ic['label']} requires models.physics.dimensionality: 3D.")
+        if grid_mode == "programmatic_c":
+            settings = grid_cfg.get("programmatic_settings", {}) or {}
+            ratios = [settings.get(key, 1.0) for key in ("rxs", "rys", "rzs")]
+            try:
+                if any(abs(float(value) - 1.0) > 1.0e-12 for value in ratios):
+                    errors.append(f"  {case_path}: {resolved_ic['label']} requires uniform programmatic spacing (rxs/rys/rzs: 1.0).")
+            except (TypeError, ValueError):
+                pass
+    if grid_mode == 'programmatic_c' and resolved_ic and is_generated_ic_provider(resolved_ic):
         try:
-            validate_programmatic_ic_gen_grid_settings(grid_cfg.get('programmatic_settings'))
+            validate_programmatic_generated_ic_grid_settings(grid_cfg.get('programmatic_settings'))
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
 
@@ -6863,29 +6913,29 @@ def translate_programmatic_grid_settings(grid_settings: dict) -> dict:
     return translated
 
 
-PROGRAMMATIC_IC_GEN_GRID_KEYS = (
+PROGRAMMATIC_GENERATED_IC_GRID_KEYS = (
     "im", "jm", "km",
     "xMins", "xMaxs", "yMins", "yMaxs", "zMins", "zMaxs",
     "rxs", "rys", "rzs",
 )
 
 
-def validate_programmatic_ic_gen_grid_settings(raw_settings: dict) -> None:
+def validate_programmatic_generated_ic_grid_settings(raw_settings: dict) -> None:
     """!
-    @brief Validate scalar programmatic grid settings needed to materialize grid.run for ic_gen.
+    @brief Validate scalar programmatic grid settings needed by file-generating IC providers.
     @param[in] raw_settings programmatic_settings dict from case.yml.
     @throws ValueError when required scalar settings are missing or invalid.
     """
     if not isinstance(raw_settings, dict):
         raise ValueError(
-            "grid.programmatic_settings must be a mapping for programmatic_c with generator 'ic_gen'."
+            "grid.programmatic_settings must be a mapping for a generated initial condition."
         )
 
-    missing = [key for key in PROGRAMMATIC_IC_GEN_GRID_KEYS if key not in raw_settings]
+    missing = [key for key in PROGRAMMATIC_GENERATED_IC_GRID_KEYS if key not in raw_settings]
     if missing:
         raise ValueError(
             "grid.programmatic_settings must include "
-            f"{missing} when grid.mode is 'programmatic_c' and initial_conditions.generator is 'ic_gen'."
+            f"{missing} when grid.mode is 'programmatic_c' and the initial condition requires a grid file."
         )
 
     for key in ("im", "jm", "km"):
@@ -6893,7 +6943,7 @@ def validate_programmatic_ic_gen_grid_settings(raw_settings: dict) -> None:
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be a positive scalar integer cell count "
-                "for programmatic_c with generator 'ic_gen'."
+                "for programmatic_c with a generated initial condition."
             )
 
     for key in ("xMins", "xMaxs", "yMins", "yMaxs", "zMins", "zMaxs", "rxs", "rys", "rzs"):
@@ -6901,24 +6951,24 @@ def validate_programmatic_ic_gen_grid_settings(raw_settings: dict) -> None:
         if isinstance(value, (list, tuple, dict, bool)):
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be a scalar numeric value "
-                "for programmatic_c with generator 'ic_gen'."
+                "for a generated initial condition."
             )
         try:
             numeric = float(value)
         except (TypeError, ValueError):
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be a scalar numeric value "
-                "for programmatic_c with generator 'ic_gen'."
+                "for a generated initial condition."
             )
         if not math.isfinite(numeric):
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be finite "
-                "for programmatic_c with generator 'ic_gen'."
+                "for a generated initial condition."
             )
         if key in {"rxs", "rys", "rzs"} and numeric <= 0.0:
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be positive "
-                "for programmatic_c with generator 'ic_gen'."
+                "for a generated initial condition."
             )
 
 
@@ -6932,7 +6982,7 @@ def generate_picgrid_from_programmatic_settings(raw_settings: dict, dest_path: s
     @param[in] L_ref Reference length for nondimensionalization (must be non-zero).
     @return Summary dict: nblk, dims [(IM, JM, KM)], total_nodes.
     """
-    validate_programmatic_ic_gen_grid_settings(raw_settings)
+    validate_programmatic_generated_ic_grid_settings(raw_settings)
     if L_ref == 0.0:
         raise ValueError("length_ref must be non-zero for programmatic grid generation.")
     IM = int(raw_settings.get("im", 0)) + 1
@@ -6978,7 +7028,10 @@ def generate_picgrid_from_programmatic_settings(raw_settings: dict, dest_path: s
                 y = (y_min + _stretched(j, JM, Ly, ry)) / L_ref
                 for i in range(IM):
                     x = (x_min + _stretched(i, IM, Lx, rx)) / L_ref
-                    fout.write(f"{x:.8e} {y:.8e} {z:.8e}\n")
+                    fout.write(
+                        f"{format_picgrid_coordinate(x)} {format_picgrid_coordinate(y)} "
+                        f"{format_picgrid_coordinate(z)}\n"
+                    )
     total_nodes = IM * JM * KM
     return {"nblk": 1, "dims": [(IM, JM, KM)], "total_nodes": total_nodes}
 
@@ -7415,12 +7468,63 @@ def normalize_initial_condition_field(value: str) -> "tuple[str, int]":
         return "vfield", 1
     raise ValueError("initial_conditions.field must be 'Ucat' or 'Ucont'.")
 
-def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float) -> dict:
+GENERATED_IC_PROVIDERS = {
+    "ic_gen": {
+        "requires_grid": True,
+        "diagnostic_artifacts": (),
+    },
+    "spectral_random_velocity": {
+        "requires_grid": True,
+        "requires_periodic_geometric": True,
+        "requires_fresh_3d": True,
+        "diagnostic_artifacts": (
+            ("summary_json", os.path.join("diagnostics", "initial_condition_summary.json")),
+            ("spectrum_csv", os.path.join("diagnostics", "initial_condition_spectrum.csv")),
+        ),
+    },
+}
+
+
+def is_generated_ic_provider(resolved_ic: dict) -> bool:
+    """!
+    @brief Return whether a resolved IC is backed by a registered file generator.
+    @param[in] resolved_ic Resolved initial-condition contract.
+    @return True for a registered generated-file provider.
+    """
+    return resolved_ic.get("kind") in GENERATED_IC_PROVIDERS
+
+
+def resolve_fluid_scaling(case_cfg: dict) -> dict:
+    """!
+    @brief Resolve the shared physical and nondimensional fluid scaling contract.
+    @param[in] case_cfg Parsed case configuration.
+    @return Resolved scaling, viscosity, and Reynolds-number quantities.
+    """
+    properties = case_cfg["properties"]
+    scaling = properties["scaling"]
+    fluid = properties["fluid"]
+    length_ref = _to_finite_float(scaling["length_ref"], "properties.scaling.length_ref")
+    velocity_ref = _to_finite_float(scaling["velocity_ref"], "properties.scaling.velocity_ref")
+    density = _to_finite_float(fluid["density"], "properties.fluid.density")
+    dynamic_viscosity = _to_finite_float(fluid["viscosity"], "properties.fluid.viscosity")
+    if length_ref <= 0.0 or velocity_ref <= 0.0 or density <= 0.0 or dynamic_viscosity < 0.0:
+        raise ValueError("length_ref, velocity_ref, and density must be positive; viscosity must be non-negative.")
+    reynolds = density*velocity_ref*length_ref/dynamic_viscosity if dynamic_viscosity else float("inf")
+    return {
+        "length_ref": length_ref, "velocity_ref": velocity_ref, "density": density,
+        "dynamic_viscosity": dynamic_viscosity, "reynolds": reynolds,
+        "physical_kinematic_viscosity": dynamic_viscosity/density,
+        "nondimensional_kinematic_viscosity": dynamic_viscosity/(density*velocity_ref*length_ref),
+    }
+
+
+def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, provider_context=None) -> dict:
     """!
     @brief Resolve legacy and structured initial-condition YAML into one launcher contract.
     @param[in] ic Initial-condition YAML mapping.
     @param[in] prepared_blocks Normalized boundary-condition blocks.
     @param[in] U_ref Physical reference velocity.
+    @param[in] provider_context Optional conductor-derived provider context.
     @return Normalized launcher initial-condition contract.
     """
     if not isinstance(ic, dict):
@@ -7478,6 +7582,96 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float) ->
             "cli_args": cli_args,
         }
 
+    if generator == "spectral_random_velocity":
+        if prepared_blocks and len(prepared_blocks) != 1:
+            raise ValueError("spectral_random_velocity requires exactly one grid block.")
+        if not prepared_blocks or len(prepared_blocks[0]) != 6 or any(
+            bc.get("type") != "PERIODIC" or bc.get("handler") != "geometric"
+            for bc in prepared_blocks[0]
+        ):
+            raise ValueError("spectral_random_velocity requires PERIODIC/geometric boundaries on all six faces.")
+        allowed = {"field", "seed", "random", "spectrum", "projection", "normalization", "remove_mean",
+                   "output_file", "summary_json", "spectrum_csv"}
+        unknown = sorted(set(params) - allowed)
+        if unknown:
+            raise ValueError(f"spectral_random_velocity has unsupported params: {unknown}.")
+        for path_key in ("output_file", "summary_json", "spectrum_csv"):
+            value = params.get(path_key)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"spectral_random_velocity params.{path_key} must be a non-empty path when provided.")
+        field_name, field_code = normalize_initial_condition_field(params.get("field", "Ucat"))
+        if field_code != 0:
+            raise ValueError("spectral_random_velocity supports only params.field: Ucat.")
+        seed = params.get("seed", 12345)
+        if isinstance(seed, bool) or not isinstance(seed, int):
+            raise ValueError("spectral_random_velocity params.seed must be an integer.")
+        random_cfg = params.get("random", {})
+        if not isinstance(random_cfg, dict) or set(random_cfg) - {"distribution", "mean"}:
+            raise ValueError("spectral_random_velocity params.random supports only distribution and mean.")
+        distribution = str(random_cfg.get("distribution", "gaussian")).lower()
+        if distribution != "gaussian":
+            raise ValueError("spectral_random_velocity supports only random.distribution: gaussian.")
+        mean = random_cfg.get("mean", [0.0, 0.0, 0.0])
+        if not isinstance(mean, list) or len(mean) != 3:
+            raise ValueError("spectral_random_velocity random.mean must be a three-component list.")
+        mean = [_to_finite_float(value, f"initial_conditions.params.random.mean[{index}]")
+                for index, value in enumerate(mean)]
+        spectrum = params.get("spectrum", {})
+        if not isinstance(spectrum, dict):
+            raise ValueError("spectral_random_velocity params.spectrum must be a mapping.")
+        spectrum_type = str(spectrum.get("type", "white")).lower()
+        if spectrum_type == "white":
+            if set(spectrum) - {"type"}:
+                raise ValueError("white spectrum supports only type.")
+            normalized_spectrum = {"type": "white"}
+        elif spectrum_type == "k4_exponential":
+            if set(spectrum) - {"type", "k0", "k_cut"} or "k0" not in spectrum or "k_cut" not in spectrum:
+                raise ValueError("k4_exponential spectrum requires only type, k0, and k_cut.")
+            normalized_spectrum = {"type": "k4_exponential",
+                                   "k0": _to_finite_float(spectrum["k0"], "initial_conditions.params.spectrum.k0"),
+                                   "k_cut": _to_finite_float(spectrum["k_cut"], "initial_conditions.params.spectrum.k_cut")}
+        else:
+            raise ValueError("spectrum.type must be 'white' or 'k4_exponential'.")
+        if any(value <= 0 for key, value in normalized_spectrum.items() if key != "type"):
+            raise ValueError("spectrum k0 and k_cut values must be positive.")
+        projection = params.get("projection", {"type": "none"})
+        if not isinstance(projection, dict) or set(projection) - {"type", "operator"}:
+            raise ValueError("projection supports only type and operator.")
+        projection_type = str(projection.get("type", "none")).lower()
+        if projection_type == "none" and "operator" not in projection:
+            normalized_projection = {"type": "none"}
+        elif projection_type == "solenoidal" and str(projection.get("operator", "")).lower() in {"continuum", "picurv_discrete"}:
+            normalized_projection = {"type": "solenoidal", "operator": str(projection["operator"]).lower()}
+        else:
+            raise ValueError("projection must be none, or solenoidal with continuum/picurv_discrete operator.")
+        normalization = params.get("normalization", {"type": "none"})
+        if not isinstance(normalization, dict) or set(normalization) - {"type", "target"}:
+            raise ValueError("normalization supports only type and target.")
+        normalization_type = str(normalization.get("type", "none")).lower()
+        if normalization_type == "none" and "target" not in normalization:
+            normalized_normalization = {"type": "none"}
+        elif normalization_type == "component_rms" and "target" in normalization:
+            target = _to_finite_float(normalization["target"], "initial_conditions.params.normalization.target")
+            if target <= 0:
+                raise ValueError("component_rms normalization.target must be positive.")
+            normalized_normalization = {"type": "component_rms", "target": target}
+        else:
+            raise ValueError("normalization must be none or component_rms with target.")
+        remove_mean = params.get("remove_mean", True)
+        if not isinstance(remove_mean, bool):
+            raise ValueError("spectral_random_velocity remove_mean must be boolean.")
+        context = dict(provider_context or {})
+        return {
+            "finit": 4, "cli_params": {}, "kind": "spectral_random_velocity", "label": "spectral_random_velocity",
+            "field_name": field_name, "field_code": field_code, "provider_context": context,
+            "params": {"field": "Ucat", "seed": seed,
+                       "random": {"distribution": distribution, "mean": mean},
+                       "spectrum": normalized_spectrum, "projection": normalized_projection,
+                       "normalization": normalized_normalization, "remove_mean": remove_mean},
+            "output_file": params.get("output_file"), "summary_json": params.get("summary_json"),
+            "spectrum_csv": params.get("spectrum_csv"),
+        }
+
     generator_modes = {
         "zero": (0, "Zero"),
         "constant": (1, "Constant"),
@@ -7487,7 +7681,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float) ->
     if generator not in generator_modes:
         raise ValueError(
             "initial_conditions.generator must be one of: zero, constant, "
-            "streamwise_constant, poiseuille, ic_gen."
+            "streamwise_constant, poiseuille, ic_gen, spectral_random_velocity."
         )
     finit_code, legacy_mode = generator_modes[generator]
     legacy_ic = dict(params)
@@ -7531,6 +7725,33 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     @return Generated PETSc vector path.
     """
     case_dir = os.path.dirname(os.path.abspath(case_path))
+    if resolved_ic["kind"] == "spectral_random_velocity":
+        script = os.path.join(GENERATORS_PATH, "ic.gen")
+        output_path = _resolve_run_artifact_path(
+            run_dir, resolved_ic.get("output_file"), os.path.join("config", "initial_condition.generated.dat"),
+            default_to_config_dir=True,
+        )
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        staged_grid = os.path.join(run_dir, "config", "grid.run")
+        if not os.path.isfile(staged_grid):
+            raise ValueError("spectral_random_velocity requires a staged PICGRID at config/grid.run.")
+        summary_path = _resolve_run_artifact_path(
+            run_dir, resolved_ic.get("summary_json"), os.path.join("diagnostics", "initial_condition_summary.json")
+        )
+        spectrum_path = _resolve_run_artifact_path(
+            run_dir, resolved_ic.get("spectrum_csv"), os.path.join("diagnostics", "initial_condition_spectrum.csv")
+        )
+        cmd = [sys.executable, script, "--generator", "spectral_random_velocity",
+               "--grid", staged_grid, "--output", output_path,
+               "--params-json", json.dumps(resolved_ic["params"], sort_keys=True),
+               "--context-json", json.dumps(resolved_ic.get("provider_context", {}), sort_keys=True),
+               "--summary-json", summary_path, "--spectrum-csv", spectrum_path]
+        result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
+        if result.returncode != 0:
+            details = (result.stderr or result.stdout or "").strip()
+            raise ValueError(f"spectral_random_velocity failed with exit code {result.returncode}. Details:\n{details}")
+        validate_petsc_vec_binary(output_path)
+        return output_path
     script = _resolve_generator_script(resolved_ic.get("script"), case_path, "ic.gen")
     config_file = resolved_ic["config_file"]
     config_file = config_file if os.path.isabs(config_file) else os.path.abspath(os.path.join(case_dir, config_file))
@@ -7565,7 +7786,7 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
     @param[in] resolved_ic Normalized file-backed IC contract.
     @return Source, staged path, and staging-directory summary.
     """
-    if resolved_ic["kind"] == "ic_gen":
+    if is_generated_ic_provider(resolved_ic):
         source_path = run_initial_condition_generator(case_path, run_dir, resolved_ic)
     else:
         source_path = resolved_ic["source_file"]
@@ -7579,7 +7800,15 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
     staged_path = os.path.join(stage_dir, f"{resolved_ic['field_name']}00000_0.dat")
     if os.path.abspath(source_path) != os.path.abspath(staged_path):
         shutil.copy2(source_path, staged_path)
-    return {"source": os.path.abspath(source_path), "staged": os.path.abspath(staged_path), "directory": os.path.abspath(stage_dir)}
+    summary = {"source": os.path.abspath(source_path), "staged": os.path.abspath(staged_path),
+               "directory": os.path.abspath(stage_dir)}
+    diagnostic_specs = GENERATED_IC_PROVIDERS.get(resolved_ic["kind"], {}).get("diagnostic_artifacts", ())
+    if diagnostic_specs:
+        summary["diagnostics"] = [
+            _resolve_run_artifact_path(run_dir, resolved_ic.get(key), default)
+            for key, default in diagnostic_specs
+        ]
+    return summary
 
 def normalize_flow_direction_token(value: str) -> int:
     """!
@@ -8494,17 +8723,17 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             )
         return "mg"
 
-    def _poisson_level_number(level_name) -> str:
+    def _poisson_level_number(level_name) -> int:
         """!
         @brief Extract the numeric suffix from a `level_N` multigrid level key.
         @param[in] level_name YAML level key supplied by the user.
-        @return Numeric level suffix as a string.
+        @return Numeric level suffix.
         """
         text = str(level_name).strip()
         match = re.fullmatch(r"level_(\d+)", text)
         if not match:
             raise ValueError(f"Invalid Poisson multigrid level name '{level_name}'. Expected 'level_N'.")
-        return match.group(1)
+        return int(match.group(1))
 
     def _append_poisson_solver_flags(ps: dict, source_key: str):
         """!
@@ -8583,7 +8812,12 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                     level_num = _poisson_level_number(level_name)
                     for key, value in settings.items():
                         mapped_key = {'method': 'ksp_type', 'preconditioner': 'pc_type'}.get(key, key)
-                        flags[f"-ps_mg_levels_{level_num}_{mapped_key}"] = format_flag_value(value)
+                        # PETSc names the coarsest solver separately from positive levels.
+                        if level_num == 0:
+                            prefix = "-ps_mg_coarse_"
+                        else:
+                            prefix = f"-ps_mg_levels_{level_num}_"
+                        flags[f"{prefix}{mapped_key}"] = format_flag_value(value)
 
     if 'poisson_solver' in solver_cfg and 'pressure_solver' in solver_cfg:
         if solver_cfg['poisson_solver'] != solver_cfg['pressure_solver']:
@@ -8678,12 +8912,18 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         props, run_ctrl = case_cfg['properties'], case_cfg['run_control']
         scales, fluid, ic = props['scaling'], props['fluid'], props['initial_conditions']
         prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
-        L_ref, U_ref, rho, mu = float(scales['length_ref']), float(scales['velocity_ref']), float(fluid['density']), float(fluid['viscosity'])
-        reynolds = (rho * U_ref * L_ref) / mu if mu != 0 else float('inf')
+        fluid_scaling = resolve_fluid_scaling(case_cfg)
+        L_ref = fluid_scaling["length_ref"]
+        U_ref = fluid_scaling["velocity_ref"]
+        rho = fluid_scaling["density"]
+        reynolds = fluid_scaling["reynolds"]
         dt_phys = float(run_ctrl['dt_physical'])
         T_ref = L_ref / U_ref if U_ref != 0 else float('inf')
         dt_nondim = dt_phys / T_ref if T_ref != float('inf') else 0.0
-        resolved_ic = resolve_initial_condition_config(ic, prepared_blocks, U_ref)
+        resolved_ic = resolve_initial_condition_config(
+            ic, prepared_blocks, U_ref,
+            provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
+        )
         finit_mode_str = resolved_ic["label"]
         finit_code = resolved_ic["finit"]
         ic_params = resolved_ic["cli_params"]
@@ -8813,23 +9053,23 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         for p_key in GRID_DA_PROCESSOR_KEYS:
             grid_settings.pop(p_key, None)
         for key, value in grid_settings.items(): control_lines.append(f"-{key} {format_flag_value(value)}")
-        if resolved_ic["kind"] == "ic_gen" and ic_is_authoritative:
+        if is_generated_ic_provider(resolved_ic) and ic_is_authoritative:
             nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
             try:
                 summary = generate_picgrid_from_programmatic_settings(
                     grid_cfg.get('programmatic_settings', {}), nondim_grid_path, L_ref
                 )
                 print(
-                    f"[INFO] Materialized grid.run for ic_gen: {os.path.relpath(nondim_grid_path)} "
+                    f"[INFO] Materialized grid.run for generated IC: {os.path.relpath(nondim_grid_path)} "
                     f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
                 )
             except Exception as e:
-                print(f"[FATAL] Failed to generate grid.run for ic_gen: {e}", file=sys.stderr)
+                print(f"[FATAL] Failed to generate grid.run for generated IC: {e}", file=sys.stderr)
                 sys.exit(1)
     else:
         raise ValueError(f"Unknown or missing grid mode '{grid_mode}' in case.yml.")
 
-    if resolved_ic["kind"] in {"file", "ic_gen"}:
+    if resolved_ic["kind"] == "file" or is_generated_ic_provider(resolved_ic):
         if ic_is_authoritative:
             try:
                 staged_ic = stage_initial_condition_file(run_dir, configs["case_path"], resolved_ic)
@@ -10358,26 +10598,32 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
     if source != "solve" or start_step != 0:
         return
     try:
+        fluid_scaling = resolve_fluid_scaling(case_cfg)
         resolved = resolve_initial_condition_config(
             (case_cfg.get("properties", {}) or {}).get("initial_conditions", {}),
             validate_and_prepare_boundary_conditions(case_cfg),
-            U_ref=1.0,
+            U_ref=fluid_scaling["velocity_ref"],
+            provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
         )
     except (KeyError, ValueError):
         return
-    if resolved["kind"] not in {"file", "ic_gen"}:
+    if resolved["kind"] != "file" and not is_generated_ic_provider(resolved):
         return
     config_dir = os.path.join(run_dir, "config")
     plan["artifacts"].append(
         os.path.join(config_dir, "initial_condition", f"{resolved['field_name']}00000_0.dat")
     )
-    if resolved["kind"] == "ic_gen":
+    if is_generated_ic_provider(resolved):
         if (case_cfg.get("grid", {}) or {}).get("mode") == "programmatic_c":
             plan["artifacts"].append(os.path.join(config_dir, "grid.run"))
         plan["artifacts"].append(_resolve_run_artifact_path(
             run_dir, resolved.get("output_file"), os.path.join("config", "initial_condition.generated.dat"),
             default_to_config_dir=True,
         ))
+        plan["artifacts"].extend(
+            _resolve_run_artifact_path(run_dir, resolved.get(key), default)
+            for key, default in GENERATED_IC_PROVIDERS[resolved["kind"]].get("diagnostic_artifacts", ())
+        )
 
 
 def render_run_dry_plan(plan: dict, output_format: str = "text"):
@@ -10624,12 +10870,14 @@ def precompute_workflow(args):
         artifacts.append(os.path.join(config_dir, "profile.info"))
 
     initial_condition = None
+    fluid_scaling = resolve_fluid_scaling(case_cfg)
     resolved_ic = resolve_initial_condition_config(
         (case_cfg.get("properties", {}) or {}).get("initial_conditions", {}),
         validate_and_prepare_boundary_conditions(case_cfg),
-        U_ref=float((case_cfg.get("properties", {}).get("scaling", {}) or {}).get("velocity_ref", 1.0)),
+        U_ref=fluid_scaling["velocity_ref"],
+        provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
     )
-    if resolved_ic["kind"] == "ic_gen":
+    if is_generated_ic_provider(resolved_ic):
         if grid_mode == "programmatic_c":
             try:
                 summary = generate_picgrid_from_programmatic_settings(
@@ -10637,13 +10885,14 @@ def precompute_workflow(args):
                 )
                 artifacts.append(os.path.abspath(staged_grid))
                 print(
-                    f"[INFO] Materialized programmatic grid.run for ic_gen: {staged_grid} "
+                    f"[INFO] Materialized programmatic grid.run for generated IC: {staged_grid} "
                     f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
                 )
             except Exception as e:
-                raise RuntimeError(f"Failed to generate grid.run for ic_gen: {e}") from e
+                raise RuntimeError(f"Failed to generate grid.run for generated IC: {e}") from e
         initial_condition = stage_initial_condition_file(output_dir, case_path, resolved_ic)
         artifacts.extend([initial_condition["source"], initial_condition["staged"]])
+        artifacts.extend(initial_condition.get("diagnostics", []))
     elif resolved_ic["kind"] == "file":
         print("[INFO] File initial condition does not require generated precompute output.")
     else:

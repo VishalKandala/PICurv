@@ -208,16 +208,17 @@ poisson_solver:
     # PETSc/PICurv level numbering uses level_0 as the coarsest grid; larger
     # level numbers are progressively finer.
     # Friendly aliases: `method` -> ksp_type, `preconditioner` -> pc_type.
-    # Any other key is forwarded verbatim as -ps_mg_levels_N_<key>.
-    # Supported direct keys: ksp_type, pc_type, max_it, rtol, atol
+    # Other keys are forwarded verbatim under PETSc's level prefix: level_0
+    # uses -ps_mg_coarse_<key>; positive levels use -ps_mg_levels_N_<key>.
+    # Supported direct keys include ksp_type, pc_type, ksp_max_it, ksp_rtol, ksp_atol.
     level_solvers:
       level_0:
         # The coarsest level often uses a more robust solver.
-        method: "fgmres"          # -> -ps_mg_levels_0_ksp_type
-        preconditioner: "bjacobi" # -> -ps_mg_levels_0_pc_type
-        # max_it: 30              # -> -ps_mg_levels_0_max_it
-        # rtol: 1.0e-3            # -> -ps_mg_levels_0_rtol
-        # atol: 1.0e-8            # -> -ps_mg_levels_0_atol
+        method: "fgmres"          # -> -ps_mg_coarse_ksp_type
+        preconditioner: "bjacobi" # -> -ps_mg_coarse_pc_type
+        # ksp_max_it: 30           # -> -ps_mg_coarse_ksp_max_it
+        # ksp_rtol: 1.0e-3         # -> -ps_mg_coarse_ksp_rtol
+        # ksp_atol: 1.0e-8         # -> -ps_mg_coarse_ksp_atol
       level_1:
         method: "richardson"
         preconditioner: "bjacobi"
@@ -252,9 +253,9 @@ petsc_passthrough_options:
   # -ps_mg_levels_2_pc_sor_omega: 1.0      # PETSc SOR relaxation; positive real
 
   # ilu / lu: factor PCs; use PETSc factor controls when pivots are fragile.
-  # -ps_mg_levels_0_pc_type: "ilu"
-  # -ps_mg_levels_0_pc_factor_levels: 1    # nonnegative integer
-  # -ps_mg_levels_0_pc_factor_shift_amount: 1.0e-10 # nonnegative real
+  # -ps_mg_coarse_pc_type: "ilu"
+  # -ps_mg_coarse_pc_factor_levels: 1    # nonnegative integer
+  # -ps_mg_coarse_pc_factor_shift_amount: 1.0e-10 # nonnegative real
 
   # bjacobi: nested block solves. Inspect exact nested prefixes with -ps_ksp_view
   # when tuning sub-KSP/sub-PC options for your PETSc version.
