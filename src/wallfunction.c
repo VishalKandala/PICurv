@@ -468,7 +468,8 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
     }
     
     if (fabs(current_guess - new_guess) > 1.e-5 && iteration >= 29) {
-        printf("\n!!!!!!!! Cabot Iteration Failed !!!!!!!!\n");
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "Cabot wall-function iteration reached its limit without the requested tolerance.\n");
     }
     
     *friction_velocity = new_guess;
@@ -601,7 +602,8 @@ double find_utau_Werner(double kinematic_viscosity, double velocity,
     }
     
     if (fabs(current_guess - new_guess) > 1.e-5 && iteration >= 19) {
-        printf("\n!!!!!!!! Werner-Wengle Iteration Failed !!!!!!!!\n");
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "Werner-Wengle wall-function iteration reached its limit without the requested tolerance.\n");
     }
     
     return new_guess;

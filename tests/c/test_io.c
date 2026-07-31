@@ -314,6 +314,7 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
     simCtx->particleConsoleOutputFreq = 7;
     simCtx->LoggingFrequency = 4;
     simCtx->ParticleInitialization = PARTICLE_INIT_POINT_SOURCE;
+    simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK;
 
     PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
     PetscCall(AssertCapturedContains(captured, "Run Mode                   : Full Simulation",
@@ -338,6 +339,38 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
                                   "DisplayBanner should omit particle initialization mode when no particles are configured"));
     PetscCall(AssertCapturedOmits(captured, "Interpolation Method",
                                   "DisplayBanner should omit interpolation method when no particles are configured"));
+    PetscCall(AssertCapturedContains(captured, "Initial Pseudo-CFL (Courant)",
+                                     "DisplayBanner should report pseudo-CFL for the dual-time momentum solver"));
+    PetscCall(AssertCapturedContains(captured, "Pseudo-CFL Adaptation",
+                                     "DisplayBanner should report the active dual-time controller"));
+    PetscCall(AssertCapturedContains(captured, "Console Log Level",
+                                     "DisplayBanner should report the effective console log level"));
+    PetscCall(AssertCapturedContains(captured, "Profiling Timestep Output",
+                                     "DisplayBanner should report profiling mode"));
+    PetscCall(AssertCapturedContains(captured, "Runtime Memory Log",
+                                     "DisplayBanner should report runtime-memory logging state"));
+
+    simCtx->mom_solver_type = MOMENTUM_SOLVER_NEWTON_KRYLOV;
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Momentum Equation Solver    : Newton Krylov",
+                                     "DisplayBanner should identify the selected Newton-Krylov solver"));
+    PetscCall(AssertCapturedOmits(captured, "Initial Pseudo-CFL (Courant)",
+                                  "DisplayBanner must not report pseudo-CFL for Newton-Krylov"));
+    PetscCall(AssertCapturedContains(captured, "Newton-Krylov PETSc Controls",
+                                     "DisplayBanner should report the active Newton-Krylov control family"));
+    simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK;
+
+    simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC;
+    simCtx->solutionConvergencePeriodSteps = 11;
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Solution Convergence Mode   : PERIODIC_DETERMINISTIC",
+                                     "DisplayBanner should identify the active periodic convergence mode"));
+    PetscCall(AssertCapturedContains(captured, "Convergence Period          : 11 step(s)",
+                                     "DisplayBanner should report the active periodic convergence period"));
+    simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC;
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedOmits(captured, "Convergence Period",
+                                  "DisplayBanner should omit periodic-only convergence fields when inactive"));
 
     simCtx->StartStep = 3;
     simCtx->np = 8;

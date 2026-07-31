@@ -2017,8 +2017,10 @@ PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name, PetscI
 }
 
 /**
- * @brief Internal helper implementation: `DisplayBanner()`.
- * @details Local to this translation unit.
+ * @brief Emit the rank-zero startup summary from the effective simulation context.
+ * @details Reports only configuration that applies to the selected run mode. In
+ *          particular, pseudo-CFL is a Dual Time Picard--Jameson RK control and
+ *          is deliberately omitted for explicit and Newton--Krylov momentum solves.
  */
 PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
 {
@@ -2028,6 +2030,8 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
     PetscReal      StartTime;
     PetscInt       StartStep,StepsToRun,total_num_particles;
     PetscMPIInt    num_mpi_procs;
+    const char    *log_level_name;
+    const char    *convergence_mode_name;
 
     // SimCtx *simCtx = user->simCtx;
     UserCtx *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
@@ -2042,6 +2046,22 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
     PetscFunctionBeginUser;
 
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "DisplayBanner - UserCtx pointer is NULL.");
+    switch (get_log_level()) {
+        case LOG_ERROR:   log_level_name = "ERROR"; break;
+        case LOG_WARNING: log_level_name = "WARNING"; break;
+        case LOG_INFO:    log_level_name = "INFO"; break;
+        case LOG_DEBUG:   log_level_name = "DEBUG"; break;
+        case LOG_TRACE:   log_level_name = "TRACE"; break;
+        case LOG_VERBOSE: log_level_name = "VERBOSE"; break;
+        default:          log_level_name = "UNKNOWN"; break;
+    }
+    switch (simCtx->solutionConvergenceMode) {
+        case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC: convergence_mode_name = "STEADY_DETERMINISTIC"; break;
+        case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC: convergence_mode_name = "PERIODIC_DETERMINISTIC"; break;
+        case SOLUTION_CONVERGENCE_STATISTICAL_STEADY: convergence_mode_name = "STATISTICAL_STEADY"; break;
+        case SOLUTION_CONVERGENCE_TRANSIENT: convergence_mode_name = "TRANSIENT"; break;
+        default: convergence_mode_name = "UNKNOWN"; break;
+    }
     global_min_coords = user->bbox.min_coords;
     global_max_coords = user->bbox.max_coords;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
@@ -2171,6 +2191,14 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         } else {
             ierr = PetscPrintf(PETSC_COMM_SELF, " Runtime Walltime Guard     : DISABLED\n"); CHKERRQ(ierr);
         }
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Console Log Level           : %s\n", log_level_name); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Profiling Timestep Output   : %s\n", simCtx->profilingTimestepMode); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Profiling Final Summary     : %s\n", simCtx->profilingFinalSummary ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
+        if (simCtx->runtimeMemoryLogEnabled) {
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Runtime Memory Log          : ENABLED (%s)\n", simCtx->runtimeMemoryLogFile); CHKERRQ(ierr);
+        } else {
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Runtime Memory Log          : DISABLED\n"); CHKERRQ(ierr);
+        }
         ierr = PetscPrintf(PETSC_COMM_SELF, " Number of MPI Processes     : %d\n", num_mpi_procs); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %d\n", total_num_particles); CHKERRQ(ierr);
         if (simCtx->np > 0) {
@@ -2203,7 +2231,25 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             if(strcmp(simCtx->eulerianSource,"solve")==0){
                 //ierr = PetscPrintf(PETSC_COMM_WORLD," Stanton Number              : %le\n", simCtx->st); CHKERRQ(ierr);
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Momentum Equation Solver    : %s\n", MomentumSolverTypeToString(simCtx->mom_solver_type)); CHKERRQ(ierr);
-                ierr = PetscPrintf(PETSC_COMM_WORLD," Initial Pseudo-CFL (Courant): %le\n", simCtx->pseudo_cfl); CHKERRQ(ierr);
+                if (simCtx->mom_solver_type == MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK) {
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Initial Pseudo-CFL (Courant): %le\n", simCtx->pseudo_cfl); CHKERRQ(ierr);
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Pseudo-CFL Range            : [%le, %le]\n", simCtx->min_pseudo_cfl, simCtx->max_pseudo_cfl); CHKERRQ(ierr);
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Pseudo-CFL Adaptation       : growth=%le, reduction=%le, backtrack=%s\n",
+                                       simCtx->pseudo_cfl_growth_factor, simCtx->pseudo_cfl_reduction_factor,
+                                       simCtx->no_pseudo_cfl_backtrack ? "DISABLED" : "ENABLED"); CHKERRQ(ierr);
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Pseudo-Time Iteration Limit : %d\n", simCtx->mom_max_pseudo_steps); CHKERRQ(ierr);
+                } else if (simCtx->mom_solver_type == MOMENTUM_SOLVER_NEWTON_KRYLOV) {
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Newton-Krylov PETSc Controls: SNES/KSP options (mom_nk_*)\n"); CHKERRQ(ierr);
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Newton-Krylov History Log   : %s\n", simCtx->mom_nk_monitor_history ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
+                } else if (simCtx->mom_solver_type == MOMENTUM_SOLVER_EXPLICIT_RK) {
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Pseudo-Time Controller      : NOT APPLICABLE\n"); CHKERRQ(ierr);
+                }
+                ierr = PetscPrintf(PETSC_COMM_WORLD," Solution Convergence Mode   : %s\n", convergence_mode_name); CHKERRQ(ierr);
+                if (simCtx->solutionConvergenceMode == SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC) {
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Convergence Period          : %d step(s)\n", simCtx->solutionConvergencePeriodSteps); CHKERRQ(ierr);
+                } else if (simCtx->solutionConvergenceMode == SOLUTION_CONVERGENCE_STATISTICAL_STEADY) {
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Convergence Window          : %d step(s)\n", simCtx->solutionConvergenceWindowSteps); CHKERRQ(ierr);
+                }
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
             }
             if (strcmp(simCtx->eulerianSource, "load") == 0) {

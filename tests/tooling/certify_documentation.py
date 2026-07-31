@@ -75,7 +75,11 @@ def write_certificate(sha: str, runtime_checked: bool) -> Path:
 
     certificate = REPO_ROOT / "logs" / f"documentation-certificate-{sha}.md"
     timestamp = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
-    runtime_gate = "`make check-full`" if runtime_checked else "not run"
+    runtime_gate = (
+        "`make check-full` (including `unit-io` startup-banner and `unit-logging` contracts)"
+        if runtime_checked
+        else "not run"
+    )
     scope_statement = (
         "This full certification is authoritative only for the commit named above. "
         "Any source, configuration, example, or documentation change requires a new certification.\n"
@@ -90,6 +94,7 @@ def write_certificate(sha: str, runtime_checked: bool) -> Path:
         f"- Certified at (UTC): `{timestamp}`\n"
         "- Markdown links: passed\n"
         "- Public-header and implementation comment audit: passed\n"
+        "- User-facing C/Python reporting audit: passed\n"
         "- PETSc option-ingress manifest audit: passed\n"
         "- Example/template and configuration regression suite: passed\n"
         "- Doxygen HTML build: passed with zero warnings\n"
@@ -113,7 +118,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--runtime",
         action="store_true",
-        help="also run the PETSc/MPI `make check-full` runtime validation gate",
+        help=(
+            "also run the PETSc/MPI `make check-full` runtime validation gate "
+            "(including startup-banner and logging contracts)"
+        ),
     )
     parser.add_argument(
         "--no-certificate",
@@ -135,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         sha = require_clean_revision()
         run([sys.executable, "tests/tooling/check_markdown_links.py"], "Markdown links")
         run([sys.executable, "tests/tooling/audit_function_docs.py"], "function documentation")
+        run([sys.executable, "tests/tooling/audit_user_facing_reporting.py"], "user-facing reporting")
         run([sys.executable, "tests/tooling/audit_ingress.py"], "option-ingress manifest")
         run(
             [sys.executable, "-m", "pytest", "-q", "tests/test_repo_consistency.py", "tests/test_config_regressions.py"],
@@ -143,7 +152,10 @@ def main(argv: list[str] | None = None) -> int:
         run(["make", "--no-print-directory", "build-docs"], "Doxygen HTML build")
         ensure_empty_doxygen_warning_log()
         if args.runtime:
-            run(["make", "--no-print-directory", "check-full"], "PETSc/MPI runtime validation")
+            run(
+                ["make", "--no-print-directory", "check-full"],
+                "PETSc/MPI runtime validation (including startup-banner and logging contracts)",
+            )
         if not args.no_certificate:
             certificate = write_certificate(sha, args.runtime)
             certification_kind = "full" if args.runtime else "structural"

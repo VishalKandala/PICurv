@@ -702,12 +702,19 @@ def _complete_newton_krylov_config():
     }
 
 
-def test_parse_solver_config_maps_complete_structured_newton_krylov_controls():
-    """! @brief Complete structured Newton YAML maps to the exact PETSc controls. """
+def test_parse_solver_config_maps_complete_structured_newton_krylov_controls(capsys):
+    """!
+    @brief Complete Newton YAML emits only Newton--Krylov, never pseudo-CFL, controls.
+    @param[in] capsys Pytest output-capture fixture.
+    """
     picurv = load_picurv_module()
     flags = picurv.parse_solver_config(_complete_newton_krylov_config())
+    console_output = capsys.readouterr().out
 
     generated = {key: value for key, value in flags.items() if key.startswith("-mom_nk_")}
+    assert not any("pseudo_cfl" in key for key in flags)
+    assert "Momentum Solver: Newton Krylov" in console_output
+    assert "pseudo_cfl" not in console_output
     assert generated == {
         "-mom_nk_jacobian_type": "finite_difference",
         "-mom_nk_jacobian_fd_mode": "matrix_free",

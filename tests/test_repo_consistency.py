@@ -14,6 +14,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PICURV = REPO_ROOT / "picurv_cli" / "picurv"
 AUDIT_FUNCTION_DOCS = REPO_ROOT / "tests" / "tooling" / "audit_function_docs.py"
+AUDIT_USER_FACING_REPORTING = REPO_ROOT / "tests" / "tooling" / "audit_user_facing_reporting.py"
 
 EXAMPLE_BUNDLES = [
     {
@@ -278,6 +279,21 @@ def test_c_and_python_function_docs_pass_repository_audit():
     """
     result = subprocess.run(
         [sys.executable, str(AUDIT_FUNCTION_DOCS)],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+
+
+def test_user_facing_reporting_passes_repository_audit():
+    """!
+    @brief Test that C/Python reporting remains option-aware and policy-routed.
+    """
+    result = subprocess.run(
+        [sys.executable, str(AUDIT_USER_FACING_REPORTING)],
         cwd=str(REPO_ROOT),
         text=True,
         capture_output=True,

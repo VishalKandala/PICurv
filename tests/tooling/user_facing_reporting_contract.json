@@ -1,0 +1,32 @@
+{
+  "banner": {
+    "source": "src/io.c",
+    "required_fragments": [
+      "Eulerian State Source",
+      "Boundary Conditions",
+      "Momentum Equation Solver",
+      "Initial Pseudo-CFL (Courant)",
+      "Newton-Krylov PETSc Controls",
+      "Pseudo-Time Controller      : NOT APPLICABLE",
+      "Console Log Level",
+      "Profiling Timestep Output",
+      "Runtime Memory Log",
+      "Solution Convergence Mode"
+    ]
+  },
+  "cli_commands": {
+    "run": {"parser": "_add_run_parser", "handler": "run_workflow", "context": "--dry-run"},
+    "sweep": {"parser": "_add_sweep_parser", "handler": "sweep_workflow", "context": "parameter_sets"},
+    "validate": {"parser": "_add_validate_parser", "handler": "validate_workflow", "context": "Validate"},
+    "precompute": {"parser": "_add_precompute_parser", "handler": "precompute_workflow", "context": "Generate"},
+    "summarize": {"parser": "_add_summarize_parser", "handler": "summarize_workflow", "context": "plot"},
+    "submit": {"parser": "_add_submit_parser", "handler": "submit_staged_jobs", "context": "submission"},
+    "cancel": {"parser": "_add_cancel_parser", "handler": "cancel_run_jobs", "context": "graceful"},
+    "init": {"parser": "_add_init_parser", "handler": "init_case", "context": "template"},
+    "build": {"parser": "_add_build_parser", "handler": "build_project", "context": "make"},
+    "sync-binaries": {"parser": "_add_sync_binaries_parser", "handler": "sync_case_binaries_command", "context": "source"},
+    "sync-config": {"parser": "_add_sync_config_parser", "handler": "sync_case_config_command", "context": "template"},
+    "pull-source": {"parser": "_add_pull_source_parser", "handler": "pull_source_repo", "context": "branch"},
+    "status-source": {"parser": "_add_status_source_parser", "handler": "status_source_command", "context": "drift"}
+  }
+}

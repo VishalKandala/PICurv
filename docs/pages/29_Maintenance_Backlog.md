@@ -58,6 +58,9 @@ These categories should be fixed in small, reviewable batches.
 
 Potential low-priority observability improvements worth revisiting:
 
+- add golden-output fixtures for the option-aware `CASE SUMMARY` and command-status reports.  The fixture matrix should cover initial-condition and boundary-condition families, restart/load paths, particle modes, solver families, monitor/profiling choices, and each solution-convergence mode.
+- evolve `tests/tooling/user_facing_reporting_contract.json` from its current structural command/reporting checks into a runtime-backed reporting matrix for representative `submit`, `cancel`, `sweep`, plot, deferred, and continuation outcomes.
+- consider presentation-only normalization for longstanding diagnostic renderers (consistent severity prefixes and stable identifiers) while preserving the documented exceptions: bootstrap warnings emitted before logging is initialized, and dedicated banner/progress output sinks.
 - move the local wrapper stream log out of `runs/<run_id>/logs/` so it is not affected by solver-side log-directory recreation; `scheduler/` is the existing precedent for batch stdout/stderr.
 - add an optional compact per-step summary CSV that consolidates already-available signals such as momentum pseudo-iterations/final residual, Poisson iterations/final residual, continuity/divergence, and particle health counters.
 - add opt-in convergence-based runtime completion for `solution_convergence.mode: steady_deterministic`; keep `transient` diagnostic-only and require configured tolerances, minimum samples, dwell windows, and safe-checkpoint final writes before stopping.

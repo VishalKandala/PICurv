@@ -94,6 +94,9 @@ Mappings include:
 
 Rule: solver-specific blocks must match selected momentum solver type.
 Do not set canonical Jameson keys and their deprecated RK4 aliases together.
+Pseudo-CFL is exclusively a Dual Time Picard--Jameson RK control: it is neither
+accepted from the structured Newton--Krylov block nor shown in a Newton--Krylov
+startup banner.
 
 For `strategy.momentum_solver: "Newton Krylov"`, the structured PETSc controls are:
 

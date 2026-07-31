@@ -66,6 +66,42 @@ Supported verbosity strings:
 - `TRACE`
 - `VERBOSE`
 
+@section p09_startup_banner_sec Startup banner and solver-specific output
+
+The rank-zero `CASE SUMMARY` is an effective-configuration report, rather than
+a dump of every possible option. It is printed independently of `logging.verbosity`
+so a quiet production profile still records the run identity, I/O cadence,
+walltime-guard status, and active state source.
+
+- Particle cadence, row sampling, restart mode, initialization mode, and
+  interpolation are shown only when particles are configured.
+- Eulerian source details distinguish a fresh initial condition, a restart, and
+  `load` authority.
+- `Initial Pseudo-CFL (Courant)` appears only for `Dual Time Picard Jameson RK`.
+  It is intentionally absent for `Newton Krylov` and explicit RK, where that
+  controller is not active.
+- Newton--Krylov iteration detail is controlled by `solver_monitoring.momentum`
+  below and its structured solver controls are documented in
+  **@subpage 08_Solver_Reference** and **@subpage 55_Newton_Krylov_Momentum_Solver**.
+- The banner also records the effective console log level, profiling mode and
+  final-summary setting, runtime-memory-log state, and the selected solution
+  convergence mode. Periodic and statistical convergence modes additionally
+  show their active period or window; those fields are omitted otherwise.
+
+The C `unit-io` contract test verifies these conditional banner fields, while
+`unit-logging` verifies the logging behavior described on this page. Both are
+included in the runtime layer of `make certify-docs`; the GitHub documentation
+workflow runs the dependency-free structural documentation checks on every main
+push and every third day.
+
+The structural certification also runs a user-facing reporting audit. It rejects
+raw C console emissions outside the approved banner/logging/bootstrap/progress
+surfaces and verifies that the C banner plus CLI and `picurv summarize` retain
+their solver-specific reporting branches. The checked-in
+`tests/tooling/user_facing_reporting_contract.json` also declares every CLI
+command's parser, handler, and context marker, including submission and plot
+paths.
+
 @section p09_profiling_sec 3. profiling
 
 ```yaml

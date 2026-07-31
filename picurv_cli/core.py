@@ -8626,6 +8626,33 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         summary_bits.append(f"mg_levels={flags['-mg_level']}")
     if summary_bits:
         print(f"  - Poisson Solver: {', '.join(summary_bits)}")
+    if selected_solver == "DUALTIME_PICARD_JAMESON_RK":
+        dualtime_bits = []
+        for label, flag in (
+            ("initial_pseudo_cfl", "-pseudo_cfl"),
+            ("pseudo_cfl_range", None),
+            ("max_pseudo_steps", "-mom_max_pseudo_steps"),
+        ):
+            if flag and flag in flags:
+                dualtime_bits.append(f"{label}={flags[flag]}")
+            elif label == "pseudo_cfl_range" and "-min_pseudo_cfl" in flags and "-max_pseudo_cfl" in flags:
+                dualtime_bits.append(f"pseudo_cfl_range=[{flags['-min_pseudo_cfl']}, {flags['-max_pseudo_cfl']}]")
+        print("  - Momentum Solver: Dual Time Picard Jameson RK" +
+              (f" ({', '.join(dualtime_bits)})" if dualtime_bits else ""))
+    elif selected_solver == "newton_krylov":
+        newton_bits = []
+        for label, flag in (
+            ("jacobian", "-mom_nk_jacobian_type"),
+            ("nonlinear", "-mom_nk_snes_type"),
+            ("linear", "-mom_nk_ksp_type"),
+            ("preconditioner", "-mom_nk_preconditioner_model"),
+        ):
+            if flag in flags:
+                newton_bits.append(f"{label}={flags[flag]}")
+        print("  - Momentum Solver: Newton Krylov" +
+              (f" ({', '.join(newton_bits)})" if newton_bits else " (PETSc defaults)"))
+    else:
+        print("  - Momentum Solver: Explicit RK (no pseudo-time controller)")
     return flags
 
 def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_files, restart_source_dir=None, continue_mode=False):
@@ -13564,7 +13591,12 @@ def _render_solver_summary_text(summary: dict):
         ],
     )
     _print_config_group("Momentum Tolerances", _flatten_summary_mapping(momentum.get("tolerances", {})))
-    _print_config_group("Momentum Controls", _flatten_summary_mapping(momentum.get("controls", {})))
+    control_heading = (
+        "Newton--Krylov Controls" if momentum.get("type") == "newton_krylov"
+        else "Dual-Time Pseudo-Time Controls" if momentum.get("type") == "DUALTIME_PICARD_JAMESON_RK"
+        else "Momentum Controls"
+    )
+    _print_config_group(control_heading, _flatten_summary_mapping(momentum.get("controls", {})))
     _print_config_group("Poisson Configuration", _flatten_summary_mapping(poisson))
     _print_config_group("Solution Convergence", _flatten_summary_mapping(summary.get("solution_convergence", {})))
     _print_config_group("Scalar Transport", _flatten_summary_mapping(summary.get("scalar_transport", {})))

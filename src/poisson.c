@@ -958,7 +958,9 @@ PetscErrorCode PoissonNullSpaceFunction(MatNullSpace nullsp,Vec X, void *ctx)
   PetscReal lsum, sum;
   PetscReal  lnum, num;
 
-  if (user->multinullspace) PetscPrintf(PETSC_COMM_WORLD, "MultiNullSpace!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+  if (user->multinullspace) {
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Poisson solve is using the configured multi-nullspace.\n");
+  }
   if (!user->multinullspace) {
     lsum = 0;
     lnum = 0;
@@ -2212,7 +2214,7 @@ PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux,
 
  /*  PetscGlobalSum(&libm_Flux, ibm_Flux, PETSC_COMM_WORLD); */
 /*   PetscGlobalSum(&libm_area, ibm_Area, PETSC_COMM_WORLD); */
-  PetscPrintf(PETSC_COMM_WORLD, "IBMFlux REV %le %le\n", *ibm_Flux, *ibm_Area);
+  LOG_ALLOW(GLOBAL, LOG_DEBUG, "IBM flux correction: flux=%le, area=%le\n", *ibm_Flux, *ibm_Area);
 
   PetscReal correction;
 
@@ -2337,7 +2339,7 @@ PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux,
 
  /*  PetscGlobalSum(&libm_Flux, ibm_Flux, PETSC_COMM_WORLD); */
 /*   PetscGlobalSum(&libm_area, ibm_Area, PETSC_COMM_WORLD); */
-  PetscPrintf(PETSC_COMM_WORLD, "IBMFlux22 REV %le %le\n", *ibm_Flux, *ibm_Area);
+  LOG_ALLOW(GLOBAL, LOG_DEBUG, "IBM flux measurement: flux=%le, area=%le\n", *ibm_Flux, *ibm_Area);
 
   DMDAVecRestoreArray(da, user->lNvert, &nvert);
   DMDAVecRestoreArray(fda, user->lCsi, &csi);

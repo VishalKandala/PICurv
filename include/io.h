@@ -431,9 +431,14 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
 /**
  * @brief Displays a structured banner summarizing the simulation configuration.
  *
- * This function prints key simulation parameters to standard output.
- * It is intended to be called ONLY by MPI rank 0.
- * It retrieves global domain bounds and block metadata from `simCtx`.
+ * This function prints effective key simulation parameters to standard output
+ * on MPI rank 0. It retrieves global domain bounds and block metadata from
+ * `simCtx`, and suppresses settings that do not apply to the selected mode.
+ * For example, `Initial Pseudo-CFL (Courant)` appears only for the Dual Time
+ * Picard--Jameson RK momentum solver; it is not a Newton--Krylov control.
+ * The report also identifies active logging, profiling, runtime-memory, and
+ * solution-convergence modes so the startup log records the effective
+ * observability contract.
  *
  * @param[in] simCtx Pointer to the master simulation context.
  *

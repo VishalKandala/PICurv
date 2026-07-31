@@ -57,7 +57,7 @@ latest_full_certificate=''
 latest_full_certificate_epoch=0
 for certificate in logs/documentation-certificate-*.md; do
   [ -f "$certificate" ] || continue
-  if ! grep -Fqx -- '- PETSc/MPI runtime validation: `make check-full`' "$certificate"; then
+  if ! grep -Fq -- '- PETSc/MPI runtime validation: `make check-full`' "$certificate"; then
     continue
   fi
   certificate_oid="${certificate##*-}"

@@ -26,6 +26,9 @@ PROFILE_GEN = REPO_ROOT / "generators" / "profile.gen"
 IC_GEN = REPO_ROOT / "generators" / "ic.gen"
 PLOT_GEN = REPO_ROOT / "generators" / "plot.gen"
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
+REPORTING_CONTRACT = json.loads(
+    (REPO_ROOT / "tests" / "tooling" / "user_facing_reporting_contract.json").read_text(encoding="utf-8")
+)
 
 
 def run_picurv(args, cwd=REPO_ROOT, env=None):
@@ -41,6 +44,18 @@ def run_picurv(args, cwd=REPO_ROOT, env=None):
     if env:
         merged_env.update(env)
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False, env=merged_env)
+
+
+@pytest.mark.parametrize("command", sorted(REPORTING_CONTRACT["cli_commands"]))
+def test_every_declared_user_facing_command_has_contextual_help(command):
+    """!
+    @brief Every reporting-contract command exposes its contextual help surface.
+    @param[in] command CLI subcommand selected from the reporting contract.
+    """
+    result = run_picurv([command, "--help"])
+
+    assert result.returncode == 0, result.stderr
+    assert REPORTING_CONTRACT["cli_commands"][command]["context"] in result.stdout
 
 
 def create_fake_matplotlib(tmp_path: Path) -> Path:
@@ -4054,6 +4069,7 @@ def test_summarize_overview_text_renders_dedicated_sections(tmp_path):
     assert "3D | 1 block(s) | Re=200" in result.stdout
     assert "Boundary Conditions" in result.stdout
     assert "Momentum Tolerances" in result.stdout
+    assert "Dual-Time Pseudo-Time Controls" in result.stdout
     assert "Output Cadence" in result.stdout
     assert "strategy:" not in result.stdout
     assert "RUN STEP SUMMARY" not in result.stdout
