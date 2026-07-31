@@ -12,7 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = REPO_ROOT / "tests" / "tooling" / "starter_content_contract.json"
-PICURV = REPO_ROOT / "bin" / "picurv"
+PICURV = REPO_ROOT / "picurv_cli" / "picurv"
 RUNTIME_EXECUTION_EXAMPLE = "execution.example.yml"
 
 
@@ -24,7 +24,7 @@ def run_cli(args: list[str], cwd: Path = REPO_ROOT) -> subprocess.CompletedProce
     @return Completed CLI process.
     """
     return subprocess.run(
-        [str(PICURV), *args], cwd=cwd, text=True, capture_output=True, timeout=90, check=False
+        [sys.executable, str(PICURV), *args], cwd=cwd, text=True, capture_output=True, timeout=90, check=False
     )
 
 
