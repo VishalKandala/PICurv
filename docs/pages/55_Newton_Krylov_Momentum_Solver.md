@@ -348,15 +348,26 @@ zeroing and assembly, constraint and periodic rows, PETSc backend selection,
 alias/ownership tracking, and cleanup.
 
 The optional frozen-momentum/point-block matrix is a separate AIJ matrix. For physical rows
-it retains only the same-cell 3x3 block from the existing provisional approximation; for
+it reproduces the audited same-cell 3x3 block from the reachable legacy mode-2 approximation,
+with its sign reversed to match the modern residual convention; for
 constraint rows it inserts the exact modern derivative (+1 identity for fixed
 rows, or +1/-1 for periodic duplicates). It intentionally omits pressure,
 LES/RANS viscosity values and derivatives, nonorthogonal viscous cross-couplings,
 boundary-map and IBM derivatives, and body-force derivatives.
 
-The point-block coefficient formula is still undergoing an independent numerical
-reproduction audit. This iteration preserves its arithmetic and does not claim
-that it exactly reproduces a historical block or improves performance.
+The legacy face inverse Jacobians are arithmetic averages of neighboring cell
+inverse Jacobians, and its transverse metric terms average four squared metric-vector
+norms. The modern directional fields `IAj/JAj/KAj` directly invert separately
+constructed face determinants, while `ICsi/IEta/IZet`, `JCsi/JEta/JZet`, and
+`KCsi/KEta/KZet` come from directional face-center constructions. They are not
+algebraically equivalent to the legacy expressions on a general curvilinear grid:
+in particular, an average of squared norms is not the squared norm of an average.
+The explicit legacy formulas are therefore retained here. Directional fields remain
+potential inputs to a future, separately specified modern preconditioner model.
+
+The point-block coefficients have an independent test-only legacy transcription
+covering nonuniform metrics and velocities, every block entry, both BDF coefficients,
+constraint rows, and one- and multi-rank assembly. No performance claim is made.
 `PCPBJACOBI` is only the current internal backend mapping; it is not a
 user-facing numerical model and is not a historically proven legacy setting.
 

@@ -1214,26 +1214,229 @@ static PetscErrorCode TestLinearizationConfigParsing(void)
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-/** @brief Reads one DMDA-stencil matrix entry through a single-column MatMult. */
+enum {
+    ORACLE_CENTER_AJ = 1 << 0,
+    ORACLE_CENTER_TRANSVERSE_METRICS = 1 << 1,
+    ORACLE_CENTER_VELOCITY = 1 << 2,
+    ORACLE_OMIT_A5 = 1 << 3,
+    ORACLE_LEGACY_SIGN = 1 << 4
+};
+
+/** @brief Test-owned metric norm used by the independent legacy transcription. */
+static PetscReal LegacyOracleMetricNormSquared(Cmpnts metric)
+{
+    return metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
+}
+
+/**
+ * @brief Independent transcription of the audited legacy mode-2 point block.
+ *
+ * This intentionally shares no coefficient helper with production. Mutant flags
+ * represent the historical failure modes that the nonuniform oracle must reject.
+ */
+static void LegacyPointBlockOracle(const SimCtx *simCtx, const Cmpnts ***u,
+    const Cmpnts ***csi, const Cmpnts ***eta, const Cmpnts ***zet,
+    const PetscReal ***aj, PetscInt i, PetscInt j, PetscInt k, PetscInt flags,
+    PetscScalar block[9])
+{
+    PetscReal A[6][4] = {{0.0}};
+    const PetscReal dtc = ((simCtx->step != simCtx->StartStep) && simCtx->step != 1 ? 1.5 : 1.0) /
+                          simCtx->dt;
+    const PetscReal AJip = flags & ORACLE_CENTER_AJ ? aj[k][j][i] :
+                           0.5 * (aj[k][j][i] + aj[k][j][i + 1]);
+    const PetscReal AJjp = flags & ORACLE_CENTER_AJ ? aj[k][j][i] :
+                           0.5 * (aj[k][j][i] + aj[k][j + 1][i]);
+    const PetscReal AJkp = flags & ORACLE_CENTER_AJ ? aj[k][j][i] :
+                           0.5 * (aj[k][j][i] + aj[k + 1][j][i]);
+    const PetscReal g11ip = LegacyOracleMetricNormSquared(csi[k][j][i]);
+    const PetscReal g22ip = flags & ORACLE_CENTER_TRANSVERSE_METRICS ?
+        LegacyOracleMetricNormSquared(eta[k][j][i]) : 0.25 * (
+        LegacyOracleMetricNormSquared(eta[k][j][i]) + LegacyOracleMetricNormSquared(eta[k][j][i + 1]) +
+        LegacyOracleMetricNormSquared(eta[k][j - 1][i]) + LegacyOracleMetricNormSquared(eta[k][j - 1][i + 1]));
+    const PetscReal g33ip = flags & ORACLE_CENTER_TRANSVERSE_METRICS ?
+        LegacyOracleMetricNormSquared(zet[k][j][i]) : 0.25 * (
+        LegacyOracleMetricNormSquared(zet[k][j][i]) + LegacyOracleMetricNormSquared(zet[k][j][i + 1]) +
+        LegacyOracleMetricNormSquared(zet[k - 1][j][i]) + LegacyOracleMetricNormSquared(zet[k - 1][j][i + 1]));
+    const PetscReal g11jp = flags & ORACLE_CENTER_TRANSVERSE_METRICS ?
+        LegacyOracleMetricNormSquared(csi[k][j][i]) : 0.25 * (
+        LegacyOracleMetricNormSquared(csi[k][j][i]) + LegacyOracleMetricNormSquared(csi[k][j + 1][i]) +
+        LegacyOracleMetricNormSquared(csi[k][j][i - 1]) + LegacyOracleMetricNormSquared(csi[k][j + 1][i - 1]));
+    const PetscReal g22jp = LegacyOracleMetricNormSquared(eta[k][j][i]);
+    const PetscReal g33jp = flags & ORACLE_CENTER_TRANSVERSE_METRICS ?
+        LegacyOracleMetricNormSquared(zet[k][j][i]) : 0.25 * (
+        LegacyOracleMetricNormSquared(zet[k][j][i]) + LegacyOracleMetricNormSquared(zet[k][j + 1][i]) +
+        LegacyOracleMetricNormSquared(zet[k - 1][j][i]) + LegacyOracleMetricNormSquared(zet[k - 1][j + 1][i]));
+    const PetscReal g11kp = flags & ORACLE_CENTER_TRANSVERSE_METRICS ?
+        LegacyOracleMetricNormSquared(csi[k][j][i]) : 0.25 * (
+        LegacyOracleMetricNormSquared(csi[k][j][i]) + LegacyOracleMetricNormSquared(csi[k + 1][j][i]) +
+        LegacyOracleMetricNormSquared(csi[k][j][i - 1]) + LegacyOracleMetricNormSquared(csi[k + 1][j][i - 1]));
+    const PetscReal g22kp = flags & ORACLE_CENTER_TRANSVERSE_METRICS ?
+        LegacyOracleMetricNormSquared(eta[k][j][i]) : 0.25 * (
+        LegacyOracleMetricNormSquared(eta[k][j][i]) + LegacyOracleMetricNormSquared(eta[k + 1][j][i]) +
+        LegacyOracleMetricNormSquared(eta[k][j - 1][i]) + LegacyOracleMetricNormSquared(eta[k + 1][j - 1][i]));
+    const PetscReal g33kp = LegacyOracleMetricNormSquared(zet[k][j][i]);
+    const PetscReal U0jp = flags & ORACLE_CENTER_VELOCITY ? u[k][j][i].x : 0.25 *
+        (u[k][j][i].x + u[k][j][i - 1].x + u[k][j + 1][i].x + u[k][j + 1][i - 1].x);
+    const PetscReal U0kp = flags & ORACLE_CENTER_VELOCITY ? u[k][j][i].x : 0.25 *
+        (u[k][j][i].x + u[k][j][i - 1].x + u[k + 1][j][i].x + u[k + 1][j][i - 1].x);
+    const PetscReal U1ip = flags & ORACLE_CENTER_VELOCITY ? u[k][j][i].y : 0.25 *
+        (u[k][j][i].y + u[k][j - 1][i].y + u[k][j][i + 1].y + u[k][j - 1][i + 1].y);
+    const PetscReal U1kp = flags & ORACLE_CENTER_VELOCITY ? u[k][j][i].y : 0.25 *
+        (u[k][j][i].y + u[k][j - 1][i].y + u[k + 1][j][i].y + u[k + 1][j - 1][i].y);
+    const PetscReal U2ip = flags & ORACLE_CENTER_VELOCITY ? u[k][j][i].z : 0.25 *
+        (u[k][j][i].z + u[k - 1][j][i].z + u[k][j][i + 1].z + u[k - 1][j][i + 1].z);
+    const PetscReal U2jp = flags & ORACLE_CENTER_VELOCITY ? u[k][j][i].z : 0.25 *
+        (u[k][j][i].z + u[k - 1][j][i].z + u[k][j + 1][i].z + u[k - 1][j + 1][i].z);
+    PetscReal Su, Sv, Sw, sign = flags & ORACLE_LEGACY_SIGN ? -1.0 : 1.0;
+
+    A[0][0] =  .125 * aj[k][j][i] * u[k][j][i].y;
+    A[0][1] = -.125 * aj[k][j - 1][i] * u[k][j - 1][i].y;
+    A[0][2] =  .125 * aj[k][j][i + 1] * u[k][j][i + 1].y;
+    A[0][3] = -.125 * aj[k][j - 1][i + 1] * u[k][j - 1][i + 1].y;
+    A[1][0] =  .125 * aj[k][j][i] * u[k][j][i].z;
+    A[1][1] = -.125 * aj[k - 1][j][i] * u[k - 1][j][i].z;
+    A[1][2] =  .125 * aj[k][j][i + 1] * u[k][j][i + 1].z;
+    A[1][3] = -.125 * aj[k - 1][j][i + 1] * u[k - 1][j][i + 1].z;
+    A[2][0] = -.125 * aj[k][j + 1][i - 1] * u[k][j + 1][i - 1].x;
+    A[2][1] = -.125 * aj[k][j][i - 1] * u[k][j][i - 1].x;
+    A[2][2] =  .125 * aj[k][j + 1][i] * u[k][j + 1][i].x;
+    A[2][3] =  .125 * aj[k][j][i] * u[k][j][i].x;
+    A[3][0] =  .125 * aj[k][j][i] * u[k][j][i].z;
+    A[3][1] = -.125 * aj[k - 1][j][i] * u[k - 1][j][i].z;
+    A[3][2] =  .125 * aj[k][j + 1][i] * u[k][j + 1][i].z;
+    A[3][3] = -.125 * aj[k - 1][j + 1][i] * u[k - 1][j + 1][i].z;
+    A[4][0] = -.125 * aj[k + 1][j][i - 1] * u[k + 1][j][i - 1].x;
+    A[4][1] = -.125 * aj[k][j][i - 1] * u[k][j][i - 1].x;
+    A[4][2] =  .125 * aj[k + 1][j][i] * u[k + 1][j][i].x;
+    A[4][3] =  .125 * aj[k][j][i] * u[k][j][i].x;
+    A[5][0] = -.125 * aj[k + 1][j - 1][i] * u[k + 1][j - 1][i].y;
+    A[5][1] = -.125 * aj[k][j - 1][i] * u[k][j - 1][i].y;
+    A[5][2] =  .125 * aj[k + 1][j][i] * u[k + 1][j][i].y;
+    A[5][3] =  .125 * aj[k][j][i] * u[k][j][i].y;
+    Su = A[0][0] + A[0][1] + A[0][2] + A[0][3] + A[1][0] + A[1][1] + A[1][2] + A[1][3];
+    Sv = A[2][0] + A[2][1] + A[2][2] + A[2][3] + A[3][0] + A[3][1] + A[3][2] + A[3][3];
+    Sw = A[4][0] + A[4][1] + A[4][2] + A[4][3];
+    if (!(flags & ORACLE_OMIT_A5)) Sw += A[5][0] + A[5][1] + A[5][2] + A[5][3];
+
+    block[0] = sign * (dtc + AJip * AJip * (g11ip + g22ip + g33ip) / simCtx->ren + Su);
+    block[1] = sign * 0.5 * AJip * U1ip; block[2] = sign * 0.5 * AJip * U2ip;
+    block[3] = sign * 0.5 * AJjp * U0jp;
+    block[4] = sign * (dtc + AJjp * AJjp * (g11jp + g22jp + g33jp) / simCtx->ren + Sv);
+    block[5] = sign * 0.5 * AJjp * U2jp;
+    block[6] = sign * 0.5 * AJkp * U0kp; block[7] = sign * 0.5 * AJkp * U1kp;
+    block[8] = sign * (dtc + AJkp * AJkp * (g11kp + g22kp + g33kp) / simCtx->ren + Sw);
+}
+
+/** @brief Seeds nonuniform, index-distinguishing coefficient fields. */
+static PetscErrorCode SeedPointBlockOracleFields(UserCtx *user)
+{
+    Cmpnts ***u = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
+    PetscReal ***aj = NULL;
+    DMDALocalInfo info = user->info;
+
+    PetscFunctionBeginUser;
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &u));
+    PetscCall(DMDAVecGetArray(user->fda, user->Csi, &csi));
+    PetscCall(DMDAVecGetArray(user->fda, user->Eta, &eta));
+    PetscCall(DMDAVecGetArray(user->fda, user->Zet, &zet));
+    PetscCall(DMDAVecGetArray(user->da, user->Aj, &aj));
+    for (PetscInt k = info.zs; k < info.zs + info.zm; ++k)
+        for (PetscInt j = info.ys; j < info.ys + info.ym; ++j)
+            for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+                aj[k][j][i] = 0.7 + .019 * i + .043 * j + .071 * k + .003 * i * j + .002 * j * k;
+                u[k][j][i] = (Cmpnts){.x = .2 + .031 * i - .017 * j + .013 * k + .004 * i * k,
+                                      .y = -.3 + .011 * i + .037 * j - .019 * k + .003 * j * k,
+                                      .z = .4 - .023 * i + .007 * j + .041 * k + .002 * i * j};
+                csi[k][j][i] = (Cmpnts){.x = 1.1 + .029 * i + .007 * j * k,
+                                        .y = .13 + .017 * j + .003 * i * k,
+                                        .z = -.09 + .011 * k + .002 * i * j};
+                eta[k][j][i] = (Cmpnts){.x = -.12 + .013 * i + .004 * j * k,
+                                        .y = .9 + .031 * j + .003 * i * k,
+                                        .z = .16 + .019 * k + .002 * i * j};
+                zet[k][j][i] = (Cmpnts){.x = .08 + .023 * i + .002 * j * k,
+                                        .y = -.14 + .011 * j + .005 * i * k,
+                                        .z = 1.2 + .037 * k + .003 * i * j};
+            }
+    PetscCall(DMDAVecRestoreArray(user->da, user->Aj, &aj));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Zet, &zet));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Eta, &eta));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Csi, &csi));
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &u));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Csi, INSERT_VALUES, user->lCsi));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Csi, INSERT_VALUES, user->lCsi));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Eta, INSERT_VALUES, user->lEta));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Eta, INSERT_VALUES, user->lEta));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Zet, INSERT_VALUES, user->lZet));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Zet, INSERT_VALUES, user->lZet));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Aj, INSERT_VALUES, user->lAj));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Aj, INSERT_VALUES, user->lAj));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Evaluates the independent oracle on the unique owner and broadcasts it. */
+static PetscErrorCode CollectiveLegacyPointBlockOracle(UserCtx *user, PetscInt i, PetscInt j,
+    PetscInt k, PetscInt flags, PetscScalar block[9])
+{
+    Cmpnts ***u = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
+    PetscReal ***aj = NULL;
+    PetscInt owns = i >= user->info.xs && i < user->info.xs + user->info.xm &&
+                    j >= user->info.ys && j < user->info.ys + user->info.ym &&
+                    k >= user->info.zs && k < user->info.zs + user->info.zm;
+    PetscInt owners = 0;
+    PetscScalar local[9] = {0.0};
+
+    PetscFunctionBeginUser;
+    if (owns) {
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &u));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+        PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+        LegacyPointBlockOracle(user->simCtx, (const Cmpnts ***)u, (const Cmpnts ***)csi,
+            (const Cmpnts ***)eta, (const Cmpnts ***)zet, (const PetscReal ***)aj,
+            i, j, k, flags, local);
+        PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, &u));
+    }
+    PetscCallMPI(MPI_Allreduce(&owns, &owners, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCall(PicurvAssertIntEqual(1, owners, "oracle point must have exactly one owner"));
+    PetscCallMPI(MPI_Allreduce(local, block, 9, MPIU_SCALAR, MPI_SUM, PETSC_COMM_WORLD));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Reads one DMDA-stencil matrix entry through collective basis vectors. */
 static PetscErrorCode PreconditionerMatrixStencilEntry(UserCtx *user,
                                        Mat preconditioning_matrix, MatStencil row,
                                        MatStencil col, PetscScalar *value)
 {
-    Vec basis = NULL, product = NULL;
-    Cmpnts ***array = NULL;
-    const PetscScalar one = 1.0;
+    Vec column_basis = NULL, row_basis = NULL, product = NULL;
+    AO ao = NULL;
+    PetscInt mx, my, row_index, col_index;
     PetscFunctionBeginUser;
-    PetscCall(DMCreateGlobalVector(user->fda, &basis));
+    PetscCall(DMDAGetInfo(user->fda, NULL, &mx, &my, NULL, NULL, NULL, NULL,
+                          NULL, NULL, NULL, NULL, NULL, NULL));
+    row_index = row.c + 3 * (row.i + mx * (row.j + my * row.k));
+    col_index = col.c + 3 * (col.i + mx * (col.j + my * col.k));
+    PetscCall(DMDAGetAO(user->fda, &ao));
+    PetscCall(AOApplicationToPetsc(ao, 1, &row_index));
+    PetscCall(AOApplicationToPetsc(ao, 1, &col_index));
+    PetscCall(DMCreateGlobalVector(user->fda, &column_basis));
+    PetscCall(DMCreateGlobalVector(user->fda, &row_basis));
     PetscCall(DMCreateGlobalVector(user->fda, &product));
-    PetscCall(VecSet(basis, 0.0));
-    PetscCall(DMDAVecGetArray(user->fda, basis, &array));
-    (&array[col.k][col.j][col.i].x)[col.c] = one;
-    PetscCall(DMDAVecRestoreArray(user->fda, basis, &array));
-    PetscCall(MatMult(preconditioning_matrix, basis, product));
-    PetscCall(DMDAVecGetArrayRead(user->fda, product, &array));
-    *value = (&array[row.k][row.j][row.i].x)[row.c];
-    PetscCall(DMDAVecRestoreArrayRead(user->fda, product, &array));
-    PetscCall(VecDestroy(&product)); PetscCall(VecDestroy(&basis));
+    PetscCall(VecSet(column_basis, 0.0)); PetscCall(VecSet(row_basis, 0.0));
+    PetscCall(VecSetValue(column_basis, col_index, 1.0, INSERT_VALUES));
+    PetscCall(VecSetValue(row_basis, row_index, 1.0, INSERT_VALUES));
+    PetscCall(VecAssemblyBegin(column_basis)); PetscCall(VecAssemblyEnd(column_basis));
+    PetscCall(VecAssemblyBegin(row_basis)); PetscCall(VecAssemblyEnd(row_basis));
+    PetscCall(MatMult(preconditioning_matrix, column_basis, product));
+    PetscCall(VecDot(row_basis, product, value));
+    PetscCall(VecDestroy(&product)); PetscCall(VecDestroy(&row_basis));
+    PetscCall(VecDestroy(&column_basis));
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -1256,12 +1459,22 @@ static PetscErrorCode TestPointBlockPreconditionerEngine(void)
     MomentumPreconditionerEngine engine = {0};
     Mat preconditioning_matrix = NULL;
     Vec x = NULL, f = NULL;
-    PetscInt block_size = 0;
-    PetscInt velocity_dof = 0;
-    PetscBool checked_physical = PETSC_FALSE, checked_fixed = PETSC_FALSE;
-    MatStencil fixed_sample = {0};
-    PetscMPIInt comm_size = 1;
-    PetscReal matrix_norm = 0.0, reassembled_norm = 0.0;
+    PetscInt block_size = 0, velocity_dof = 0;
+    PetscReal matrix_norm = 0.0, reassembled_norm = 0.0, difference_norm = 0.0;
+    PetscScalar reference[9], values[9], mutant[9], legacy[9];
+    const PetscInt target_i = 1, target_j = 2, target_k = 3;
+    MatStencil target[3] = {
+        {.i = 1, .j = 2, .k = 3, .c = 0},
+        {.i = 1, .j = 2, .k = 3, .c = 1},
+        {.i = 1, .j = 2, .k = 3, .c = 2}
+    };
+    MatStencil conditioned = {.i = 0, .j = 2, .k = 3, .c = 0};
+    MatStencil homogeneous = {.i = 0, .j = 2, .k = 3, .c = 1};
+    Mat saved_matrix = NULL, mffd = NULL;
+    SNES snes = NULL;
+    Vec direction = NULL, product = NULL, px = NULL;
+    PetscScalar px_sum = 0.0;
+    PetscReal px_norm = 0.0;
     KSP ksp = NULL;
     PC pc = NULL;
     Vec pc_rhs = NULL, pc_solution = NULL;
@@ -1283,82 +1496,161 @@ static PetscErrorCode TestPointBlockPreconditionerEngine(void)
     PetscCall(PicurvAssertBool((PetscBool)!engine.aliases_jacobian_operator,
                                "point-block matrix must not alias the Jacobian operator"));
     PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
-    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &comm_size));
     PetscCall(MatNorm(preconditioning_matrix, NORM_FROBENIUS, &matrix_norm));
     PetscCall(PicurvAssertBool((PetscBool)(matrix_norm > 0.0),
                                "model callback and common rows must insert matrix entries"));
-    checked_physical = checked_fixed = (PetscBool)(comm_size > 1);
     PetscCall(MatGetBlockSize(preconditioning_matrix, &block_size));
     PetscCall(PicurvAssertIntEqual(3, block_size, "point-block matrix block size"));
     PetscCall(DMDAGetInfo(user->fda, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                            &velocity_dof, NULL, NULL, NULL, NULL, NULL));
     PetscCall(PicurvAssertIntEqual(3, velocity_dof, "Newton velocity DMDA dof"));
 
-    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
-        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
-            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
-                for (PetscInt c = 0; c < 3; ++c) {
-                    PetscInt ri, rj, rk;
-                    MomentumNewtonKrylovRowType row = MomentumNewtonKrylov_ClassifyRow(
-                        user, i, j, k, c, &ri, &rj, &rk);
-                    if ((row == MOM_NK_ROW_FIXED_CONDITIONED ||
-                         row == MOM_NK_ROW_FIXED_HOMOGENEOUS) && comm_size == 1) {
-                        MatStencil fixed_row = {.i = i, .j = j, .k = k, .c = c};
-                        PetscScalar value = 0.0;
-                        PetscCall(PreconditionerMatrixStencilEntry(
-                            user, preconditioning_matrix, fixed_row, fixed_row, &value));
-                        PetscCall(PicurvAssertRealNear(1.0, PetscRealPart(value), 1e-14,
-                                                       "fixed preconditioning row must be identity"));
-                        if (!checked_fixed) fixed_sample = fixed_row;
-                        checked_fixed = PETSC_TRUE;
-                    } else if (row == MOM_NK_ROW_PHYSICAL && !checked_physical) {
-                        Cmpnts ***ucont = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
-                        PetscReal ***aj = NULL;
-                        PetscScalar reference[9], values[9];
-                        MatStencil cols[3] = {{i, j, k, 0}, {i, j, k, 1}, {i, j, k, 2}};
-                        PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &ucont));
-                        PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
-                        PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
-                        PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
-                        PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
-                        FrozenMomentumJacobian_PointBlock(simCtx, (const Cmpnts ***)ucont,
-                            (const Cmpnts ***)csi, (const Cmpnts ***)eta, (const Cmpnts ***)zet,
-                            (const PetscReal ***)aj, i, j, k, reference);
-                        PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
-                        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
-                        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
-                        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
-                        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, &ucont));
-                        for (PetscInt rr = 0; rr < 3; ++rr)
-                            for (PetscInt cc = 0; cc < 3; ++cc)
-                                PetscCall(PreconditionerMatrixStencilEntry(
-                                    user, preconditioning_matrix, cols[rr], cols[cc],
-                                    &values[3 * rr + cc]));
-                        for (PetscInt n = 0; n < 9; ++n) {
-                            PetscCall(PicurvAssertRealNear(PetscRealPart(reference[n]), PetscRealPart(values[n]),
-                                                           1e-13, "point block must match preserved reference"));
-                        }
-                        checked_physical = PETSC_TRUE;
-                    }
-                }
-            }
+    /* Cartesian limit: independently evaluate and compare every entry. */
+    PetscCall(CollectiveLegacyPointBlockOracle(user, target_i, target_j, target_k, 0, reference));
+    for (PetscInt rr = 0; rr < 3; ++rr)
+        for (PetscInt cc = 0; cc < 3; ++cc) {
+            PetscCall(PreconditionerMatrixStencilEntry(user, preconditioning_matrix,
+                target[rr], target[cc], &values[3 * rr + cc]));
+            PetscCall(PicurvAssertRealNear(PetscRealPart(reference[3 * rr + cc]),
+                PetscRealPart(values[3 * rr + cc]), 1e-13,
+                "Cartesian point block entry must match independent oracle"));
         }
+
+    /* Both fixed categories are exact identity rows, with no same-cell coupling. */
+    for (PetscInt cc = 0; cc < 3; ++cc) {
+        MatStencil col = conditioned; col.c = cc;
+        PetscScalar conditioned_value = 0.0, homogeneous_value = 0.0;
+        PetscCall(PreconditionerMatrixStencilEntry(user, preconditioning_matrix,
+            conditioned, col, &conditioned_value));
+        col = homogeneous; col.c = cc;
+        PetscCall(PreconditionerMatrixStencilEntry(user, preconditioning_matrix,
+            homogeneous, col, &homogeneous_value));
+        PetscCall(PicurvAssertRealNear(cc == conditioned.c ? 1.0 : 0.0,
+            PetscRealPart(conditioned_value), 1e-14, "conditioned row must be exact identity"));
+        PetscCall(PicurvAssertRealNear(cc == homogeneous.c ? 1.0 : 0.0,
+            PetscRealPart(homogeneous_value), 1e-14, "homogeneous row must be exact identity"));
     }
-    PetscCall(PicurvAssertBool(checked_physical, "fixture must contain a physical row"));
-    PetscCall(PicurvAssertBool(checked_fixed, "fixture must contain a fixed row"));
-    PetscCall(MatAssembled(preconditioning_matrix, &checked_fixed));
-    PetscCall(PicurvAssertBool(checked_fixed, "engine must perform final matrix assembly"));
+
+    /* A real residual and MFFD product cannot change subsequent assembly. */
+    PetscCall(MatDuplicate(preconditioning_matrix, MAT_COPY_VALUES, &saved_matrix));
+    PetscCall(SNESCreate(PETSC_COMM_WORLD, &snes));
+    PetscCall(SNESSetDM(snes, user->fda));
+    PetscCall(SNESSetFunction(snes, f, MomentumNewtonKrylov_FormResidual, &ctx));
+    PetscCall(MatCreateSNESMF(snes, &mffd));
+    PetscCall(VecDuplicate(x, &direction)); PetscCall(VecDuplicate(x, &product));
+    PetscCall(VecSet(direction, 0.375));
+    PetscCall(MomentumNewtonKrylov_FormResidual(snes, x, f, &ctx));
+    PetscCall(MatMFFDSetBase(mffd, x, f));
+    PetscCall(MatMult(mffd, direction, product));
+    PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
+    PetscCall(MatAXPY(saved_matrix, -1.0, preconditioning_matrix, SAME_NONZERO_PATTERN));
+    PetscCall(MatNorm(saved_matrix, NORM_FROBENIUS, &difference_norm));
+    PetscCall(PicurvAssertRealNear(0.0, difference_norm, 1e-12,
+        "assembly must be unchanged after residual and MFFD products"));
+    PetscCall(VecDestroy(&product)); PetscCall(VecDestroy(&direction));
+    PetscCall(MatDestroy(&mffd)); PetscCall(SNESDestroy(&snes)); PetscCall(MatDestroy(&saved_matrix));
+
+    /* Nonuniform oracle: i/j/k, every component, and all samples are distinct. */
+    PetscCall(SeedPointBlockOracleFields(user));
+    PetscCall(VecCopy(user->Ucont, x));
+    simCtx->step = 1;
+    PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
+    PetscCall(CollectiveLegacyPointBlockOracle(user, target_i, target_j, target_k, 0, reference));
+    for (PetscInt rr = 0; rr < 3; ++rr)
+        for (PetscInt cc = 0; cc < 3; ++cc) {
+            PetscCall(PreconditionerMatrixStencilEntry(user, preconditioning_matrix,
+                target[rr], target[cc], &values[3 * rr + cc]));
+            PetscCall(PicurvAssertRealNear(PetscRealPart(reference[3 * rr + cc]),
+                PetscRealPart(values[3 * rr + cc]), 1e-13,
+                "nonuniform point block entry must match independent oracle"));
+        }
+    PetscCall(PicurvAssertBool((PetscBool)(PetscAbsScalar(reference[1] - reference[3]) > 1e-6 &&
+                                           PetscAbsScalar(reference[2] - reference[6]) > 1e-6 &&
+                                           PetscAbsScalar(reference[5] - reference[7]) > 1e-6),
+        "oracle must preserve nonsymmetric component ordering"));
+    for (PetscInt mutant_flag = ORACLE_CENTER_AJ; mutant_flag <= ORACLE_LEGACY_SIGN;
+         mutant_flag <<= 1) {
+        PetscBool differs = PETSC_FALSE;
+        PetscCall(CollectiveLegacyPointBlockOracle(user, target_i, target_j, target_k,
+            mutant_flag, mutant));
+        for (PetscInt n = 0; n < 9; ++n)
+            if (PetscAbsScalar(reference[n] - mutant[n]) > 1e-8) differs = PETSC_TRUE;
+        PetscCall(PicurvAssertBool(differs, "independent oracle must reject audited mutant"));
+    }
+    PetscCall(CollectiveLegacyPointBlockOracle(user, target_i, target_j, target_k,
+        ORACLE_OMIT_A5, mutant));
+    PetscCall(PicurvAssertBool((PetscBool)(PetscAbsScalar(reference[8] - mutant[8]) > 1e-8),
+        "A[5] must contribute to the zeta diagonal"));
+    PetscCall(CollectiveLegacyPointBlockOracle(user, target_i, target_j, target_k,
+        ORACLE_LEGACY_SIGN, legacy));
+    for (PetscInt n = 0; n < 9; ++n)
+        PetscCall(PicurvAssertRealNear(PetscRealPart(reference[n]), -PetscRealPart(legacy[n]),
+            1e-13, "modern block must be the negative legacy block"));
+
+    /* A coordinate permutation cannot accidentally address the intended block. */
+    PetscCall(CollectiveLegacyPointBlockOracle(user, target_k, target_j, target_i, 0, mutant));
+    {
+        PetscBool differs = PETSC_FALSE;
+        for (PetscInt n = 0; n < 9; ++n)
+            if (PetscAbsScalar(reference[n] - mutant[n]) > 1e-8) differs = PETSC_TRUE;
+        PetscCall(PicurvAssertBool(differs, "permuted MatStencil coordinates must be detectable"));
+    }
+    {
+        MatStencil neighbor = target[0];
+        PetscScalar neighbor_value = 0.0;
+        neighbor.i++;
+        PetscCall(PreconditionerMatrixStencilEntry(user, preconditioning_matrix,
+            target[0], neighbor, &neighbor_value));
+        PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(neighbor_value), 1e-14,
+            "point block must not insert unintended neighbor entries"));
+    }
+
+    /* The shared time coefficient supplies BDF1 and BDF2 diagonals only. */
+    simCtx->step = 2;
+    PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
+    PetscCall(CollectiveLegacyPointBlockOracle(user, target_i, target_j, target_k, 0, mutant));
+    for (PetscInt n = 0; n < 9; ++n) {
+        PetscCall(PreconditionerMatrixStencilEntry(user, preconditioning_matrix,
+            target[n / 3], target[n % 3], &values[n]));
+        PetscCall(PicurvAssertRealNear(PetscRealPart(mutant[n]), PetscRealPart(values[n]),
+            1e-13, "BDF2 point block must match independent oracle"));
+        if (n == 0 || n == 4 || n == 8)
+            PetscCall(PicurvAssertRealNear(0.5 / simCtx->dt,
+                PetscRealPart(mutant[n] - reference[n]), 1e-10, "BDF2 diagonal increment"));
+        else
+            PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(mutant[n] - reference[n]),
+                1e-13, "BDF order must not change off-diagonal entries"));
+    }
+
+    PetscCall(VecDuplicate(x, &px));
+    PetscCall(MatMult(preconditioning_matrix, x, px));
+    PetscCall(VecSum(px, &px_sum)); PetscCall(VecNorm(px, NORM_2, &px_norm));
+    PetscCall(PicurvAssertRealNear(8.40570474622236e4, PetscRealPart(px_sum), 5e-9,
+        "P*x global sum must be decomposition independent"));
+    PetscCall(PicurvAssertRealNear(9.05678688399519e3, px_norm, 5e-10,
+        "P*x norm must be decomposition independent"));
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD,
+        "POINT_BLOCK_MPI_SIGNATURE sum=%.16e norm2=%.16e\n",
+        (double)PetscRealPart(px_sum), (double)px_norm));
+    PetscCall(VecDestroy(&px));
+
+    {
+        PetscBool assembled = PETSC_FALSE;
+        PetscCall(MatAssembled(preconditioning_matrix, &assembled));
+        PetscCall(PicurvAssertBool(assembled, "engine must perform final matrix assembly"));
+    }
+    PetscCall(MatNorm(preconditioning_matrix, NORM_FROBENIUS, &matrix_norm));
     PetscCall(MatShift(preconditioning_matrix, 7.0));
     PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
     PetscCall(MatNorm(preconditioning_matrix, NORM_FROBENIUS, &reassembled_norm));
     PetscCall(PicurvAssertRealNear(matrix_norm, reassembled_norm, 1e-12,
                                    "repeated engine assembly must clear old entries"));
-    if (comm_size == 1) {
+    {
         PetscScalar value = 0.0;
-        PetscCall(PreconditionerMatrixStencilEntry(
-            user, preconditioning_matrix, fixed_sample, fixed_sample, &value));
+        PetscCall(PreconditionerMatrixStencilEntry(user, preconditioning_matrix,
+            conditioned, conditioned, &value));
         PetscCall(PicurvAssertRealNear(1.0, PetscRealPart(value), 1e-14,
-                                       "repeated engine assembly must clear old entries"));
+            "repeated engine assembly must clear old entries"));
     }
     PetscCall(KSPCreate(PETSC_COMM_WORLD, &ksp));
     PetscCall(KSPSetOperators(ksp, preconditioning_matrix, preconditioning_matrix));
@@ -1377,6 +1669,57 @@ static PetscErrorCode TestPointBlockPreconditionerEngine(void)
                                "engine destroy must clear its owned matrix"));
     PetscCall(VecDestroy(&f)); PetscCall(VecDestroy(&x)); PetscCall(VecDestroy(&user->Rhs));
     PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Proves that one periodic matrix row has only its exact +1/-1 pair. */
+static PetscErrorCode AssertPeriodicPreconditionerRow(UserCtx *user, Mat matrix,
+    MatStencil row, const char *message)
+{
+    AO ao = NULL;
+    PetscInt ri, rj, rk, global_row, global_rep, lo, hi, local_checked = 0, checked = 0;
+    PetscInt ncols = 0;
+    const PetscInt *cols = NULL;
+    const PetscScalar *values = NULL;
+    MomentumNewtonKrylovRowType type;
+
+    PetscFunctionBeginUser;
+    type = MomentumNewtonKrylov_ClassifyRow(user, row.i, row.j, row.k, row.c, &ri, &rj, &rk);
+    PetscCall(PicurvAssertIntEqual(MOM_NK_ROW_PERIODIC_DUPLICATE, type, message));
+    global_row = row.c + 3 * (row.i + user->info.mx * (row.j + user->info.my * row.k));
+    global_rep = row.c + 3 * (ri + user->info.mx * (rj + user->info.my * rk));
+    PetscCall(DMDAGetAO(user->fda, &ao));
+    PetscCall(AOApplicationToPetsc(ao, 1, &global_row));
+    PetscCall(AOApplicationToPetsc(ao, 1, &global_rep));
+    PetscCall(MatGetOwnershipRange(matrix, &lo, &hi));
+    if (global_row >= lo && global_row < hi) {
+        PetscBool found_self = PETSC_FALSE, found_rep = PETSC_FALSE;
+        PetscInt nonzero_entries = 0;
+        PetscCall(MatGetRow(matrix, global_row, &ncols, &cols, &values));
+        for (PetscInt n = 0; n < ncols; ++n) {
+            if (PetscAbsScalar(values[n]) <= 1e-14) continue;
+            nonzero_entries++;
+            if (cols[n] == global_row) {
+                found_self = PETSC_TRUE;
+                PetscCall(PicurvAssertRealNear(1.0, PetscRealPart(values[n]), 1e-14,
+                    "periodic row self entry"));
+            } else if (cols[n] == global_rep) {
+                found_rep = PETSC_TRUE;
+                PetscCall(PicurvAssertRealNear(-1.0, PetscRealPart(values[n]), 1e-14,
+                    "periodic row representative entry"));
+            } else {
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_PLIB,
+                        "Periodic row contains an unintended nonzero column.");
+            }
+        }
+        PetscCall(PicurvAssertIntEqual(2, nonzero_entries,
+            "periodic row must contain exactly two numerical entries"));
+        PetscCall(PicurvAssertBool((PetscBool)(found_self && found_rep), message));
+        PetscCall(MatRestoreRow(matrix, global_row, &ncols, &cols, &values));
+        local_checked = 1;
+    }
+    PetscCallMPI(MPI_Allreduce(&local_checked, &checked, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCall(PicurvAssertIntEqual(1, checked, "periodic row must have exactly one matrix owner"));
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -1466,7 +1809,7 @@ static PetscErrorCode TestPointBlockPeriodicAssembly(void)
     PetscReal matrix_norm = 0.0;
 
     PetscFunctionBeginUser;
-    PetscCall(BuildNewtonFixture(periodic_x_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(BuildNewtonFixture(periodic_xy_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
     PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
     PetscCall(VecDuplicate(user->Ucont, &x));
     PetscCall(VecDuplicate(user->Ucont, &f));
@@ -1480,6 +1823,14 @@ static PetscErrorCode TestPointBlockPeriodicAssembly(void)
                       NORM_FROBENIUS, &matrix_norm));
     PetscCall(PicurvAssertBool((PetscBool)(matrix_norm > 0.0),
                                "periodic point-block assembly must produce a nonzero matrix"));
+    PetscCall(AssertPeriodicPreconditionerRow(user,
+        ctx.preconditioning_engine.preconditioning_matrix,
+        (MatStencil){.i = 0, .j = 2, .k = 3, .c = 0},
+        "single-axis periodic row must contain exact +1/-1 entries"));
+    PetscCall(AssertPeriodicPreconditionerRow(user,
+        ctx.preconditioning_engine.preconditioning_matrix,
+        (MatStencil){.i = 0, .j = 0, .k = 3, .c = 1},
+        "periodic intersection must contain exact +1/-1 entries"));
     PetscCall(MomentumPreconditionerEngine_Destroy(&ctx.preconditioning_engine));
     PetscCall(VecDestroy(&f));
     PetscCall(VecDestroy(&x));

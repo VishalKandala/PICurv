@@ -354,52 +354,112 @@ static PetscErrorCode MomentumNewtonKrylov_ReadLinearizationConfig(
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-/**
- * @brief Returns the preserved provisional frozen-momentum point block.
- *
- * The arithmetic in this function is carried forward unchanged for a separate
- * numerical audit. `A` retains its six existing directional face groups.
- */
+/** @brief Returns the squared Euclidean norm of one metric vector. */
+static PetscReal FrozenMomentumJacobian_MetricNormSquared(Cmpnts metric)
+{
+    return metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
+}
+
+/** @brief Returns the audited frozen-momentum point block in modern residual sign. */
 static void FrozenMomentumJacobian_PointBlock(const SimCtx *simCtx,
     const Cmpnts ***ucont, const Cmpnts ***csi, const Cmpnts ***eta,
     const Cmpnts ***zet, const PetscReal ***aj, PetscInt i, PetscInt j,
     PetscInt k, PetscScalar block[9])
 {
     const PetscReal dtc = MomentumBDFCoefficient((SimCtx *)simCtx) / simCtx->dt;
-    const PetscReal nu = simCtx->ren > 0.0 ? 1.0 / simCtx->ren : 0.0;
-    const PetscReal AJip = aj[k][j][i];
-    const PetscReal AJjp = aj[k][j][i];
-    const PetscReal AJkp = aj[k][j][i];
+    const PetscReal inverse_reynolds = simCtx->ren > 0.0 ? 1.0 / simCtx->ren : 0.0;
+    const PetscReal AJip = 0.5 * (aj[k][j][i] + aj[k][j][i + 1]);
+    const PetscReal AJjp = 0.5 * (aj[k][j][i] + aj[k][j + 1][i]);
+    const PetscReal AJkp = 0.5 * (aj[k][j][i] + aj[k + 1][j][i]);
     const PetscReal g11ip = csi[k][j][i].x * csi[k][j][i].x +
                              csi[k][j][i].y * csi[k][j][i].y +
                              csi[k][j][i].z * csi[k][j][i].z;
+    const PetscReal g22ip = 0.25 * (
+        FrozenMomentumJacobian_MetricNormSquared(eta[k][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(eta[k][j][i + 1]) +
+        FrozenMomentumJacobian_MetricNormSquared(eta[k][j - 1][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(eta[k][j - 1][i + 1]));
+    const PetscReal g33ip = 0.25 * (
+        FrozenMomentumJacobian_MetricNormSquared(zet[k][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(zet[k][j][i + 1]) +
+        FrozenMomentumJacobian_MetricNormSquared(zet[k - 1][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(zet[k - 1][j][i + 1]));
+    const PetscReal g11jp = 0.25 * (
+        FrozenMomentumJacobian_MetricNormSquared(csi[k][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(csi[k][j + 1][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(csi[k][j][i - 1]) +
+        FrozenMomentumJacobian_MetricNormSquared(csi[k][j + 1][i - 1]));
     const PetscReal g22jp = eta[k][j][i].x * eta[k][j][i].x +
                              eta[k][j][i].y * eta[k][j][i].y +
                              eta[k][j][i].z * eta[k][j][i].z;
+    const PetscReal g33jp = 0.25 * (
+        FrozenMomentumJacobian_MetricNormSquared(zet[k][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(zet[k][j + 1][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(zet[k - 1][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(zet[k - 1][j + 1][i]));
+    const PetscReal g11kp = 0.25 * (
+        FrozenMomentumJacobian_MetricNormSquared(csi[k][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(csi[k + 1][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(csi[k][j][i - 1]) +
+        FrozenMomentumJacobian_MetricNormSquared(csi[k + 1][j][i - 1]));
+    const PetscReal g22kp = 0.25 * (
+        FrozenMomentumJacobian_MetricNormSquared(eta[k][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(eta[k + 1][j][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(eta[k][j - 1][i]) +
+        FrozenMomentumJacobian_MetricNormSquared(eta[k + 1][j - 1][i]));
     const PetscReal g33kp = zet[k][j][i].x * zet[k][j][i].x +
                              zet[k][j][i].y * zet[k][j][i].y +
                              zet[k][j][i].z * zet[k][j][i].z;
-    const PetscReal U1ip = ucont[k][j][i].y, U2ip = ucont[k][j][i].z;
-    const PetscReal U0jp = ucont[k][j][i].x, U2jp = ucont[k][j][i].z;
-    const PetscReal U0kp = ucont[k][j][i].x, U1kp = ucont[k][j][i].y;
+    const PetscReal U0jp = 0.25 * (ucont[k][j][i].x + ucont[k][j][i - 1].x +
+                                   ucont[k][j + 1][i].x + ucont[k][j + 1][i - 1].x);
+    const PetscReal U0kp = 0.25 * (ucont[k][j][i].x + ucont[k][j][i - 1].x +
+                                   ucont[k + 1][j][i].x + ucont[k + 1][j][i - 1].x);
+    const PetscReal U1ip = 0.25 * (ucont[k][j][i].y + ucont[k][j - 1][i].y +
+                                   ucont[k][j][i + 1].y + ucont[k][j - 1][i + 1].y);
+    const PetscReal U1kp = 0.25 * (ucont[k][j][i].y + ucont[k][j - 1][i].y +
+                                   ucont[k + 1][j][i].y + ucont[k + 1][j - 1][i].y);
+    const PetscReal U2ip = 0.25 * (ucont[k][j][i].z + ucont[k - 1][j][i].z +
+                                   ucont[k][j][i + 1].z + ucont[k - 1][j][i + 1].z);
+    const PetscReal U2jp = 0.25 * (ucont[k][j][i].z + ucont[k - 1][j][i].z +
+                                   ucont[k][j + 1][i].z + ucont[k - 1][j + 1][i].z);
     PetscReal A[6][4] = {{0.0}};
     PetscReal Su, Sv, Sw, nui, nuj, nuk;
 
-    /* Preserved center-only bookkeeping: six directional face groups. */
-    A[0][0] = 0.5 * AJip * ucont[k][j][i].x;
-    A[1][0] = 0.5 * AJip * ucont[k][j][i - 1].x;
-    A[2][1] = 0.5 * AJjp * ucont[k][j][i].y;
-    A[3][1] = 0.5 * AJjp * ucont[k][j - 1][i].y;
-    A[4][2] = 0.5 * AJkp * ucont[k][j][i].z;
-    A[5][2] = 0.5 * AJkp * ucont[k - 1][j][i].z;
-    Su = A[0][0] - A[1][0];
-    Sv = A[2][1] - A[3][1];
-    Sw = A[4][2] - A[5][2];
-    nui = 2.0 * nu * AJip * g11ip;
-    nuj = 2.0 * nu * AJjp * g22jp;
-    nuk = 2.0 * nu * AJkp * g33kp;
+    A[0][0] =  0.125 * aj[k][j][i]         * ucont[k][j][i].y;
+    A[0][1] = -0.125 * aj[k][j - 1][i]     * ucont[k][j - 1][i].y;
+    A[0][2] =  0.125 * aj[k][j][i + 1]     * ucont[k][j][i + 1].y;
+    A[0][3] = -0.125 * aj[k][j - 1][i + 1] * ucont[k][j - 1][i + 1].y;
+    A[1][0] =  0.125 * aj[k][j][i]         * ucont[k][j][i].z;
+    A[1][1] = -0.125 * aj[k - 1][j][i]     * ucont[k - 1][j][i].z;
+    A[1][2] =  0.125 * aj[k][j][i + 1]     * ucont[k][j][i + 1].z;
+    A[1][3] = -0.125 * aj[k - 1][j][i + 1] * ucont[k - 1][j][i + 1].z;
+    A[2][0] = -0.125 * aj[k][j + 1][i - 1] * ucont[k][j + 1][i - 1].x;
+    A[2][1] = -0.125 * aj[k][j][i - 1]     * ucont[k][j][i - 1].x;
+    A[2][2] =  0.125 * aj[k][j + 1][i]     * ucont[k][j + 1][i].x;
+    A[2][3] =  0.125 * aj[k][j][i]         * ucont[k][j][i].x;
+    A[3][0] =  0.125 * aj[k][j][i]         * ucont[k][j][i].z;
+    A[3][1] = -0.125 * aj[k - 1][j][i]     * ucont[k - 1][j][i].z;
+    A[3][2] =  0.125 * aj[k][j + 1][i]     * ucont[k][j + 1][i].z;
+    A[3][3] = -0.125 * aj[k - 1][j + 1][i] * ucont[k - 1][j + 1][i].z;
+    A[4][0] = -0.125 * aj[k + 1][j][i - 1] * ucont[k + 1][j][i - 1].x;
+    A[4][1] = -0.125 * aj[k][j][i - 1]     * ucont[k][j][i - 1].x;
+    A[4][2] =  0.125 * aj[k + 1][j][i]     * ucont[k + 1][j][i].x;
+    A[4][3] =  0.125 * aj[k][j][i]         * ucont[k][j][i].x;
+    A[5][0] = -0.125 * aj[k + 1][j - 1][i] * ucont[k + 1][j - 1][i].y;
+    A[5][1] = -0.125 * aj[k][j - 1][i]     * ucont[k][j - 1][i].y;
+    A[5][2] =  0.125 * aj[k + 1][j][i]     * ucont[k + 1][j][i].y;
+    A[5][3] =  0.125 * aj[k][j][i]         * ucont[k][j][i].y;
+    Su = A[0][0] + A[0][1] + A[0][2] + A[0][3] +
+         A[1][0] + A[1][1] + A[1][2] + A[1][3];
+    Sv = A[2][0] + A[2][1] + A[2][2] + A[2][3] +
+         A[3][0] + A[3][1] + A[3][2] + A[3][3];
+    Sw = A[4][0] + A[4][1] + A[4][2] + A[4][3] +
+         A[5][0] + A[5][1] + A[5][2] + A[5][3];
+    nui = AJip * AJip * (g11ip + g22ip + g33ip) * inverse_reynolds;
+    nuj = AJjp * AJjp * (g11jp + g22jp + g33jp) * inverse_reynolds;
+    nuk = AJkp * AJkp * (g11kp + g22kp + g33kp) * inverse_reynolds;
 
-    /* Preserve all existing signs and coefficient formulas verbatim. */
+    /* The modern residual is the negative of the legacy residual. */
     block[0] = dtc + nui + Su; block[1] = 0.5 * AJip * U1ip; block[2] = 0.5 * AJip * U2ip;
     block[3] = 0.5 * AJjp * U0jp; block[4] = dtc + nuj + Sv; block[5] = 0.5 * AJjp * U2jp;
     block[6] = 0.5 * AJkp * U0kp; block[7] = 0.5 * AJkp * U1kp; block[8] = dtc + nuk + Sw;
@@ -407,7 +467,7 @@ static void FrozenMomentumJacobian_PointBlock(const SimCtx *simCtx,
 
 #undef __FUNCT__
 #define __FUNCT__ "FrozenMomentumJacobian_DescribePointBlock"
-/** @brief Describes the provisional frozen-coefficient point-block model. */
+/** @brief Describes the audited frozen-coefficient point-block model. */
 static PetscErrorCode FrozenMomentumJacobian_DescribePointBlock(
     UserCtx *user, MomentumPreconditionerDescription *description)
 {
@@ -424,7 +484,7 @@ static PetscErrorCode FrozenMomentumJacobian_DescribePointBlock(
 
 #undef __FUNCT__
 #define __FUNCT__ "FrozenMomentumJacobian_AssemblePointBlocks"
-/** @brief Inserts only the existing interior frozen-momentum point blocks. */
+/** @brief Inserts only the audited interior frozen-momentum point blocks. */
 static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
     UserCtx *user, Vec current_solution, Mat preconditioning_matrix)
 {
@@ -434,7 +494,10 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
     PetscErrorCode ierr = PETSC_SUCCESS, cleanup_ierr;
 
     PetscFunctionBeginUser;
-    (void)current_solution;
+    ierr = DMGlobalToLocalBegin(user->fda, current_solution, INSERT_VALUES, user->lUcont);
+    if (ierr) goto cleanup;
+    ierr = DMGlobalToLocalEnd(user->fda, current_solution, INSERT_VALUES, user->lUcont);
+    if (ierr) goto cleanup;
     ierr = DMDAVecGetArrayRead(user->fda, user->lUcont, &ucont); if (ierr) goto cleanup;
     ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi); if (ierr) goto cleanup;
     ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta); if (ierr) goto cleanup;
@@ -444,13 +507,17 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
         for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
             for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
                 for (PetscInt component = 0; component < 3; ++component) {
-                    MatStencil row = {i, j, k, component};
+                    MatStencil row = {.i = i, .j = j, .k = k, .c = component};
                     PetscInt ri, rj, rk;
                     MomentumNewtonKrylovRowType type = MomentumNewtonKrylov_ClassifyRow(
                         user, i, j, k, component, &ri, &rj, &rk);
                     if (type == MOM_NK_ROW_PHYSICAL) {
                         PetscScalar block[9];
-                        MatStencil cols[3] = {{i, j, k, 0}, {i, j, k, 1}, {i, j, k, 2}};
+                        MatStencil cols[3] = {
+                            {.i = i, .j = j, .k = k, .c = 0},
+                            {.i = i, .j = j, .k = k, .c = 1},
+                            {.i = i, .j = j, .k = k, .c = 2}
+                        };
                         FrozenMomentumJacobian_PointBlock(user->simCtx, (const Cmpnts ***)ucont,
                             (const Cmpnts ***)csi, (const Cmpnts ***)eta, (const Cmpnts ***)zet,
                             (const PetscReal ***)aj, i, j, k, block);
