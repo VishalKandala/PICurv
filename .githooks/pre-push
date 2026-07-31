@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Run the complete, commit-scoped documentation certification before updating
-# the protected main branch from this checkout.
+# Select a commit-scoped certification gate before updating main from this
+# checkout. Runtime-relevant changes always run the complete PETSc/MPI gate;
+# documentation-only changes can use a recent full-certificate ancestor plus
+# a fresh structural certification for the pushed commit.
 
 set -euo pipefail
 
 zero_oid='0000000000000000000000000000000000000000'
 main_update=false
 main_oid=''
+main_remote_oid=''
+max_full_age_days="${PICURV_FULL_CERT_MAX_AGE_DAYS:-3}"
 
 # Git provides one line per ref update on standard input:
 # <local ref> <local oid> <remote ref> <remote oid>
@@ -14,6 +18,7 @@ while read -r local_ref local_oid remote_ref remote_oid; do
   if [ "$remote_ref" = 'refs/heads/main' ] && [ "$local_oid" != "$zero_oid" ]; then
     main_update=true
     main_oid="$local_oid"
+    main_remote_oid="$remote_oid"
   fi
 done
 
@@ -28,5 +33,60 @@ if [ "$main_oid" != "$head_oid" ]; then
   exit 1
 fi
 
-echo "==> Pre-push: certifying documentation and full PETSc/MPI runtime for ${head_oid}"
-make --no-print-directory certify-docs
+if ! [[ "$max_full_age_days" =~ ^[0-9]+$ ]]; then
+  echo "PICURV_FULL_CERT_MAX_AGE_DAYS must be a non-negative integer." >&2
+  exit 1
+fi
+
+requires_full_certification=false
+if [ "$main_remote_oid" = "$zero_oid" ]; then
+  requires_full_certification=true
+else
+  while IFS= read -r -d '' changed_path; do
+    # These paths cannot alter the solver/runtime contract. Everything else,
+    # including code, headers, configs, examples, tests, and build tooling,
+    # requires a new full PETSc/MPI certificate.
+    case "$changed_path" in
+      *.md|docs/*|.github/guide.md|.github/workflows/*|.githooks/*) ;;
+      *) requires_full_certification=true ;;
+    esac
+  done < <(git diff --name-only -z "$main_remote_oid" "$main_oid")
+fi
+
+latest_full_certificate=''
+latest_full_certificate_epoch=0
+for certificate in logs/documentation-certificate-*.md; do
+  [ -f "$certificate" ] || continue
+  if ! grep -Fqx -- '- PETSc/MPI runtime validation: `make check-full`' "$certificate"; then
+    continue
+  fi
+  certificate_oid="${certificate##*-}"
+  certificate_oid="${certificate_oid%.md}"
+  if ! git cat-file -e "${certificate_oid}^{commit}" 2>/dev/null; then
+    continue
+  fi
+  if ! git merge-base --is-ancestor "$certificate_oid" "$main_oid"; then
+    continue
+  fi
+  certificate_epoch="$(stat -c %Y "$certificate")"
+  if [ "$certificate_epoch" -gt "$latest_full_certificate_epoch" ]; then
+    latest_full_certificate="$certificate"
+    latest_full_certificate_epoch="$certificate_epoch"
+  fi
+done
+
+now_epoch="$(date +%s)"
+max_full_age_seconds=$((max_full_age_days * 24 * 60 * 60))
+if [ -z "$latest_full_certificate" ] || \
+   [ $((now_epoch - latest_full_certificate_epoch)) -gt "$max_full_age_seconds" ]; then
+  requires_full_certification=true
+fi
+
+if [ "$requires_full_certification" = true ]; then
+  echo "==> Pre-push: running full documentation and PETSc/MPI certification for ${head_oid}"
+  make --no-print-directory certify-docs
+else
+  echo "==> Pre-push: runtime-relevant files are unchanged; running structural certification for ${head_oid}"
+  echo "    Reusing recent full runtime certificate: ${latest_full_certificate}"
+  make --no-print-directory certify-docs-fast
+fi

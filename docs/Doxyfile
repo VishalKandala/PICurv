@@ -39,14 +39,12 @@ WARN_LOGFILE           = logs/doxygen.warnings
 #------------------------- Diagrams ------------------------
 HAVE_DOT               = YES
 DOT_NUM_THREADS        = 4
-CLASS_DIAGRAMS         = YES
 CALL_GRAPH             = YES
 CALLER_GRAPH           = YES
 DOT_IMAGE_FORMAT       = svg
 INTERACTIVE_SVG        = YES
 DOT_MULTI_TARGETS      = YES
 GENERATE_LEGEND        = YES
-DOT_TRANSPARENT        = YES
 
 #------------------------- HTML ----------------------------
 GENERATE_HTML          = YES
@@ -77,7 +75,6 @@ FULL_PATH_NAMES        = NO
 
 #------------------------- Tag/Graphs Cache ----------------
 DOT_GRAPH_MAX_NODES    = 256
-DOT_TRANSPARENT        = YES
 
 #------------------------- Layout File -------------------
 LAYOUT_FILE            = docs/DoxygenLayout.xml

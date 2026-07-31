@@ -405,9 +405,9 @@ def fail_cli_usage(message: str, hint: str = None):
 
 def _split_error_file_and_message(raw_error: str):
     """!
-    @brief Split '<file>: <message>' style validation strings when possible.
-    @param[in] raw_error Argument passed to `_split_error_file_and_message()`.
-    @return Value returned by `_split_error_file_and_message()`.
+    @brief Separate a validation error into its source-file and message fields when possible.
+    @param[in] raw_error Validation error text, optionally beginning with a file path and colon.
+    @return A pair containing the detected file path (or ``-``) and the message text.
     """
     text = str(raw_error).strip()
     match = re.match(r"^(?P<file>[^:]+):\s*(?P<msg>.+)$", text)
@@ -1846,10 +1846,10 @@ def prepare_effective_post_config(post_cfg: dict, resolved_source_dir: str, star
 
 def _scan_post_vtk_steps(prefix_path: str, extension: str) -> "set[int]":
     """!
-    @brief Scan VTK output files matching '<prefix>_<step>.<extension>'.
-    @param[in] prefix_path Argument passed to `_scan_post_vtk_steps()`.
-    @param[in] extension Argument passed to `_scan_post_vtk_steps()`.
-    @return Value returned by `_scan_post_vtk_steps()`.
+    @brief Collect step numbers from VTK files named with a prefix, step suffix, and extension.
+    @param[in] prefix_path Output path prefix before the numeric step suffix.
+    @param[in] extension VTK file extension to match without its leading dot.
+    @return Set of step numbers represented by matching files in the prefix directory.
     """
     directory = os.path.dirname(prefix_path)
     if not os.path.isdir(directory):

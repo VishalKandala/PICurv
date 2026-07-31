@@ -76,6 +76,14 @@ def write_certificate(sha: str, runtime_checked: bool) -> Path:
     certificate = REPO_ROOT / "logs" / f"documentation-certificate-{sha}.md"
     timestamp = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
     runtime_gate = "`make check-full`" if runtime_checked else "not run"
+    scope_statement = (
+        "This full certification is authoritative only for the commit named above. "
+        "Any source, configuration, example, or documentation change requires a new certification.\n"
+        if runtime_checked
+        else "This structural certification is authoritative only for the commit named above and "
+        "does not certify PETSc/MPI runtime behavior. A pre-push policy may reuse a recent full "
+        "certificate only when it establishes that runtime-relevant files are unchanged.\n"
+    )
     certificate.write_text(
         "# PICurv Documentation Certification\n\n"
         f"- Certified commit: `{sha}`\n"
@@ -86,8 +94,7 @@ def write_certificate(sha: str, runtime_checked: bool) -> Path:
         "- Example/template and configuration regression suite: passed\n"
         "- Doxygen HTML build: passed with zero warnings\n"
         f"- PETSc/MPI runtime validation: {runtime_gate}\n\n"
-        "This certification is authoritative only for the commit named above. "
-        "Any source, configuration, example, or documentation change requires a new certification.\n",
+        + scope_statement,
         encoding="utf-8",
     )
     return certificate
@@ -139,7 +146,8 @@ def main(argv: list[str] | None = None) -> int:
             run(["make", "--no-print-directory", "check-full"], "PETSc/MPI runtime validation")
         if not args.no_certificate:
             certificate = write_certificate(sha, args.runtime)
-            print(f"Documentation certified through commit {sha}: {certificate}")
+            certification_kind = "full" if args.runtime else "structural"
+            print(f"{certification_kind.capitalize()} documentation certification through commit {sha}: {certificate}")
         return 0
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(f"Documentation certification failed: {error}", file=sys.stderr)

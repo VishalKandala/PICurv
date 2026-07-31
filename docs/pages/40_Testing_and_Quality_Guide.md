@@ -106,7 +106,7 @@ Guidance:
 
 @section p40_main_prepush_sec 2.1 Main-Branch Pre-Push Certification
 
-The tracked `.githooks/pre-push` hook enforces the full documentation
+The tracked `.githooks/pre-push` hook enforces a commit-scoped documentation
 certificate before a local Git client updates `refs/heads/main`. Enable it in
 each clone with:
 
@@ -115,11 +115,17 @@ make install-git-hooks
 ```
 
 The hook runs `make certify-docs`, which requires a clean worktree and includes
-the PETSc/MPI runtime tier. It deliberately rejects a push that maps some other
-local commit directly to `main`, because the hook can only certify the exact
-checked-out `HEAD`. This is a local safeguard: Git permits bypassing hooks with
-`git push --no-verify`, so the post-push GitHub documentation gates remain a
-separate redundancy layer.
+the PETSc/MPI runtime tier, whenever runtime-relevant files changed. For
+Markdown, documentation-site, hook, and workflow-only changes it instead runs
+`make certify-docs-fast` only if a full certificate for an ancestor of the
+target commit exists in local `logs/` and is no more than three days old. Missing
+or stale certificates always cause a full run. Override the interval for a
+single push with `PICURV_FULL_CERT_MAX_AGE_DAYS=<days>`.
+
+The hook deliberately rejects a push that maps some other local commit directly
+to `main`, because it can only certify the exact checked-out `HEAD`. This is a
+local safeguard: Git permits bypassing hooks with `git push --no-verify`, so the
+post-push GitHub documentation gates remain a separate redundancy layer.
 
 @section p40_python_sec 3. Python Suite (`test-python`)
 

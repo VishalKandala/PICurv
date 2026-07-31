@@ -62,12 +62,18 @@ Enable the repository-managed Git hooks once in every clone:
 make install-git-hooks
 ```
 
-The tracked pre-push hook runs `make certify-docs` before any update to remote
-`main`, so a failed full PETSc/MPI, documentation, or configuration gate blocks
-the push. It only validates the checked-out `HEAD`; pushes that map another
-local commit directly to `main` are rejected so that commit can be checked out
-and certified first. Git hooks are a local safeguard and can be bypassed with
-`git push --no-verify`; the GitHub Actions documentation workflow remains the
+The tracked pre-push hook always runs a clean-commit certification before any
+update to remote `main`. It runs the full `make certify-docs` gate when source,
+configuration, example, test, build, API, or certification-tooling files have
+changed. For documentation/site/workflow-only changes, it runs
+`make certify-docs-fast` only when a full certificate for an ancestor is present
+locally and no older than three days; otherwise it falls back to the full gate.
+Set `PICURV_FULL_CERT_MAX_AGE_DAYS` to change that local freshness limit.
+
+The hook only validates the checked-out `HEAD`; pushes that map another local
+commit directly to `main` are rejected so that commit can be checked out and
+certified first. Git hooks are a local safeguard and can be bypassed with `git
+push --no-verify`; the GitHub Actions documentation workflow remains the
 independent post-push structural backstop.
 
 ## Requirements
