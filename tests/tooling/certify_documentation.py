@@ -95,6 +95,7 @@ def write_certificate(sha: str, runtime_checked: bool) -> Path:
         "- Markdown links: passed\n"
         "- Public-header and implementation comment audit: passed\n"
         "- User-facing C/Python reporting audit: passed\n"
+        "- Starter template, example, and configuration audit: passed\n"
         "- PETSc option-ingress manifest audit: passed\n"
         "- Example/template and configuration regression suite: passed\n"
         "- Doxygen HTML build: passed with zero warnings\n"
