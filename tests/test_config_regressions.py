@@ -677,6 +677,11 @@ def _complete_newton_krylov_config():
         "strategy": {"momentum_solver": "Newton Krylov"},
         "momentum_solver": {
             "newton_krylov": {
+                "jacobian": {
+                    "type": "finite_difference",
+                    "finite_difference": {"mode": "matrix_free"},
+                },
+                "preconditioner": {"model": "none"},
                 "nonlinear_solver": {
                     "method": "newtonls",
                     "absolute_tolerance": 1.0e-10,
@@ -691,7 +696,6 @@ def _complete_newton_krylov_config():
                     "relative_tolerance": 1.0e-6,
                     "max_iterations": 400,
                     "gmres": {"restart": 80},
-                    "preconditioner": {"type": "none"},
                 },
             },
         },
@@ -705,6 +709,10 @@ def test_parse_solver_config_maps_complete_structured_newton_krylov_controls():
 
     generated = {key: value for key, value in flags.items() if key.startswith("-mom_nk_")}
     assert generated == {
+        "-mom_nk_jacobian_type": "finite_difference",
+        "-mom_nk_jacobian_fd_mode": "matrix_free",
+        "-mom_nk_preconditioner_model": "none",
+        "-mom_nk_preconditioner_structure": "none",
         "-mom_nk_snes_type": "newtonls",
         "-mom_nk_snes_atol": 1.0e-10,
         "-mom_nk_snes_rtol": 1.0e-8,
@@ -716,11 +724,14 @@ def test_parse_solver_config_maps_complete_structured_newton_krylov_controls():
         "-mom_nk_ksp_rtol": 1.0e-6,
         "-mom_nk_ksp_max_it": 400,
         "-mom_nk_ksp_gmres_restart": 80,
-        "-mom_nk_pc_type": "none",
     }
     control_lines = []
     picurv.append_passthrough_flags(control_lines, generated)
     assert control_lines == [
+        "-mom_nk_jacobian_type finite_difference",
+        "-mom_nk_jacobian_fd_mode matrix_free",
+        "-mom_nk_preconditioner_model none",
+        "-mom_nk_preconditioner_structure none",
         "-mom_nk_snes_type newtonls",
         "-mom_nk_snes_atol 1e-10",
         "-mom_nk_snes_rtol 1e-08",
@@ -732,7 +743,6 @@ def test_parse_solver_config_maps_complete_structured_newton_krylov_controls():
         "-mom_nk_ksp_rtol 1e-06",
         "-mom_nk_ksp_max_it 400",
         "-mom_nk_ksp_gmres_restart 80",
-        "-mom_nk_pc_type none",
     ]
 
 
@@ -758,10 +768,190 @@ def test_parse_solver_config_allows_omitted_newton_subfields(newton_block):
 
     flags = picurv.parse_solver_config(solver_cfg)
 
-    expected = {}
+    expected = {
+        "-mom_nk_jacobian_type": "finite_difference",
+        "-mom_nk_jacobian_fd_mode": "matrix_free",
+        "-mom_nk_preconditioner_model": "none",
+        "-mom_nk_preconditioner_structure": "none",
+    }
     if newton_block.get("linear_solver", {}).get("gmres"):
         expected["-mom_nk_ksp_gmres_restart"] = 30
     assert {key: value for key, value in flags.items() if key.startswith("-mom_nk_")} == expected
+
+
+def test_parse_solver_config_maps_frozen_momentum_point_block_without_petsc_pc():
+    """! @brief The mathematical point-block selection omits a PETSc PC option. """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    nk = solver_cfg["momentum_solver"]["newton_krylov"]
+    nk["preconditioner"] = {
+        "model": "frozen_momentum_jacobian",
+        "structure": {"type": "point_block"},
+    }
+    flags = picurv.parse_solver_config(solver_cfg)
+    assert flags["-mom_nk_jacobian_type"] == "finite_difference"
+    assert flags["-mom_nk_jacobian_fd_mode"] == "matrix_free"
+    assert flags["-mom_nk_preconditioner_model"] == "frozen_momentum_jacobian"
+    assert flags["-mom_nk_preconditioner_structure"] == "point_block"
+    assert "-mom_nk_pc_type" not in flags
+
+
+def test_validate_newton_krylov_config_returns_final_discriminated_normalization():
+    """! @brief Normalization retains mathematical discriminators, not PETSc details. """
+    picurv = load_picurv_module()
+    normalized = picurv.validate_newton_krylov_config({})
+    assert normalized["jacobian"] == {
+        "type": "finite_difference",
+        "finite_difference": {"mode": "matrix_free"},
+    }
+    assert normalized["preconditioner"] == {
+        "model": "none",
+        "structure": {"type": "none"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("jacobian", "message"),
+    [
+        ({}, "type is required"),
+        ({"type": "finite_difference"}, "finite_difference is required"),
+        ({"type": "finite_difference", "finite_difference": {}}, "mode is required"),
+        (
+            {"type": "finite_difference", "finite_difference": {"mode": "colored_sparse"}},
+            "colored_sparse.*not implemented",
+        ),
+        (
+            {"type": "frozen_momentum_approximation"},
+            "frozen_momentum_approximation.*not implemented",
+        ),
+        (
+            {
+                "type": "finite_difference",
+                "finite_difference": {"mode": "matrix_free"},
+                "frozen_momentum_approximation": {"structure": "diagonal"},
+            },
+            "unsupported key",
+        ),
+        (
+            {"method": "residual_finite_difference", "representation": "matrix_free"},
+            "unsupported key",
+        ),
+    ],
+)
+def test_parse_solver_config_rejects_incomplete_future_and_patch_only_jacobians(
+        jacobian, message):
+    """!
+    @brief The Jacobian discriminator accepts only the implemented complete branch.
+    @param[in] jacobian Jacobian configuration under test.
+    @param[in] message Expected validation diagnostic.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    solver_cfg["momentum_solver"]["newton_krylov"]["jacobian"] = jacobian
+    with pytest.raises(ValueError, match=message):
+        picurv.parse_solver_config(solver_cfg)
+
+
+@pytest.mark.parametrize(
+    ("model", "structure", "message"),
+    [
+        ("frozen_momentum_jacobian", None, "requires momentum_solver.newton_krylov.preconditioner.structure.type 'point_block'"),
+        ("none", "point_block", "does not accept a matrix structure"),
+        ("none", "none", "does not accept a matrix structure"),
+    ],
+)
+def test_parse_solver_config_rejects_unsupported_preconditioner_combinations(
+        model, structure, message):
+    """!
+    @brief Coefficient model and matrix structure are a typed, coupled configuration.
+    @param[in] model Preconditioner coefficient model under test.
+    @param[in] structure Optional preconditioner matrix structure under test.
+    @param[in] message Expected validation diagnostic.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    nk = solver_cfg["momentum_solver"]["newton_krylov"]
+    nk["preconditioner"] = {"model": model}
+    if structure is not None:
+        nk["preconditioner"]["structure"] = {"type": structure}
+    with pytest.raises(ValueError, match=message):
+        picurv.parse_solver_config(solver_cfg)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (("jacobian", "type", "analytic"), "supports only 'finite_difference'"),
+        (("jacobian", "finite_difference", "mode", "assembled"), "supports only 'matrix_free'"),
+        (("preconditioner", "model", "diagonal"), "supports only 'none' or 'frozen_momentum_jacobian'"),
+    ],
+)
+def test_parse_solver_config_rejects_unknown_linearization_selectors(
+        mutation, message):
+    """!
+    @brief Unknown mathematical Jacobian and preconditioner selectors fail early.
+    @param[in] mutation Configuration path and unknown selector value to apply.
+    @param[in] message Expected validation diagnostic.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    target = solver_cfg["momentum_solver"]["newton_krylov"]
+    for segment in mutation[:-2]:
+        target = target[segment]
+    target[mutation[-2]] = mutation[-1]
+    with pytest.raises(ValueError, match=message):
+        picurv.parse_solver_config(solver_cfg)
+
+
+def test_parse_solver_config_rejects_unknown_preconditioner_structure():
+    """! @brief Only the implemented point-block structure is accepted. """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    solver_cfg["momentum_solver"]["newton_krylov"]["preconditioner"] = {
+        "model": "frozen_momentum_jacobian",
+        "structure": {"type": "line"},
+    }
+    with pytest.raises(ValueError, match="supports only 'none' or 'point_block'"):
+        picurv.parse_solver_config(solver_cfg)
+
+
+def test_parse_solver_config_accepts_deprecated_none_alias_with_notice():
+    """! @brief Released PCNONE YAML remains a warning-producing compatibility alias. """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    nk = solver_cfg["momentum_solver"]["newton_krylov"]
+    nk.pop("preconditioner")
+    nk["linear_solver"]["preconditioner"] = {"type": "none"}
+    with pytest.warns(FutureWarning, match="is deprecated"):
+        flags = picurv.parse_solver_config(solver_cfg)
+    assert flags["-mom_nk_preconditioner_model"] == "none"
+    assert flags["-mom_nk_preconditioner_structure"] == "none"
+    assert "-mom_nk_pc_type" not in flags
+
+
+def test_parse_solver_config_rejects_conflicting_old_and_new_preconditioner_forms():
+    """! @brief A compatibility `none` cannot override a new non-none model. """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    nk = solver_cfg["momentum_solver"]["newton_krylov"]
+    nk["preconditioner"] = {
+        "model": "frozen_momentum_jacobian",
+        "structure": {"type": "point_block"},
+    }
+    nk["linear_solver"]["preconditioner"] = {"type": "none"}
+    with pytest.raises(ValueError, match="conflicts with"):
+        picurv.parse_solver_config(solver_cfg)
+
+
+def test_parse_solver_config_rejects_uncommitted_low_level_operator_yaml():
+    """! @brief The superseded uncommitted operator schema has no compatibility alias. """
+    picurv = load_picurv_module()
+    solver_cfg = _complete_newton_krylov_config()
+    solver_cfg["momentum_solver"]["newton_krylov"]["operator"] = {
+        "preconditioning_matrix": "center_block_3x3"
+    }
+    with pytest.raises(ValueError, match="unsupported key"):
+        picurv.parse_solver_config(solver_cfg)
 
 
 def test_parse_solver_config_rejects_newton_block_for_other_solver():
@@ -817,6 +1007,9 @@ def test_parse_solver_config_rejects_newton_restart_for_non_gmres_method():
     ("path", "key"),
     [
         ((), "mystery"),
+        (("jacobian",), "mystery"),
+        (("jacobian", "finite_difference"), "mystery"),
+        (("preconditioner",), "mystery"),
         (("nonlinear_solver",), "mystery"),
         (("nonlinear_solver", "line_search"), "mystery"),
         (("linear_solver",), "mystery"),
@@ -835,7 +1028,7 @@ def test_parse_solver_config_rejects_unknown_newton_keys(path, key):
     newton = solver_cfg["momentum_solver"]["newton_krylov"]
     target = newton
     for segment in path:
-        target = target[segment]
+        target = target.setdefault(segment, {})
     target[key] = 1
 
     with pytest.raises(ValueError, match="unsupported key"):

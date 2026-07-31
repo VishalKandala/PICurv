@@ -116,9 +116,12 @@ For each run, `picurv` generates:
 - `solution_convergence.*` -> `-solution_convergence_*` for physical solution drift logging.
 - `momentum_solver.newton_krylov.nonlinear_solver.*` -> prefixed `-mom_nk_snes_*`
   options, including `line_search.type` -> `-mom_nk_snes_linesearch_type`.
+- `momentum_solver.newton_krylov.jacobian.*` and `.preconditioner.*` ->
+  application-owned `-mom_nk_jacobian_*` and `-mom_nk_preconditioner_*`
+  mathematical selectors.
 - `momentum_solver.newton_krylov.linear_solver.*` -> prefixed `-mom_nk_ksp_*`
-  options and `preconditioner.type` -> `-mom_nk_pc_type`. Version one permits
-  only `preconditioner.type: none`; GMRES restart is GMRES-family-only.
+  options; GMRES restart is GMRES-family-only. The PETSc PC backend is derived
+  internally and is not a normal structured YAML choice.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.
 - `scalar_transport.schmidt_number` and `scalar_transport.turbulent_schmidt_number`

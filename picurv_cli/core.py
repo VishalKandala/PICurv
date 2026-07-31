@@ -30,6 +30,7 @@ import shlex
 import copy
 import math
 import difflib
+import warnings
 from datetime import datetime
 import time
 import filecmp
@@ -4463,7 +4464,13 @@ _SOLVER_SCHEMA = {
     ("momentum_solver", "dual_time_picard_rk4", "pseudo_cfl"): {
         "initial", "minimum", "maximum", "growth_factor", "reduction_factor",
     },
-    ("momentum_solver", "newton_krylov"): {"nonlinear_solver", "linear_solver"},
+    ("momentum_solver", "newton_krylov"): {
+        "jacobian", "preconditioner", "nonlinear_solver", "linear_solver",
+    },
+    ("momentum_solver", "newton_krylov", "jacobian"): {"type", "finite_difference"},
+    ("momentum_solver", "newton_krylov", "jacobian", "finite_difference"): {"mode"},
+    ("momentum_solver", "newton_krylov", "preconditioner"): {"model", "structure"},
+    ("momentum_solver", "newton_krylov", "preconditioner", "structure"): {"type"},
     ("momentum_solver", "newton_krylov", "nonlinear_solver"): {
         "method", "absolute_tolerance", "relative_tolerance", "step_tolerance",
         "max_iterations", "line_search",
@@ -7102,7 +7109,9 @@ def validate_newton_krylov_config(cfg: dict) -> dict:
     if not isinstance(cfg, dict):
         raise ValueError(f"{root} must be a mapping.")
 
-    unknown = sorted(set(cfg) - {"nonlinear_solver", "linear_solver"})
+    unknown = sorted(set(cfg) - {
+        "jacobian", "preconditioner", "nonlinear_solver", "linear_solver",
+    })
     if unknown:
         raise ValueError(f"{root} has unsupported key(s): {unknown}.")
 
@@ -7159,6 +7168,101 @@ def validate_newton_krylov_config(cfg: dict) -> dict:
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(f"{path} must be a positive integer.")
         return value
+
+    jacobian_path = f"{root}.jacobian"
+    if "jacobian" not in cfg:
+        normalized["jacobian"] = {
+            "type": "finite_difference",
+            "finite_difference": {"mode": "matrix_free"},
+        }
+    else:
+        jacobian = _mapping(cfg, "jacobian", jacobian_path)
+        unknown = sorted(set(jacobian) - {"type", "finite_difference"})
+        if unknown:
+            raise ValueError(f"{jacobian_path} has unsupported key(s): {unknown}.")
+        if "type" not in jacobian:
+            raise ValueError(f"{jacobian_path}.type is required when {jacobian_path} is provided.")
+        jacobian_type = _method(jacobian["type"], f"{jacobian_path}.type")
+        if jacobian_type == "frozen_momentum_approximation":
+            raise ValueError(
+                f"{jacobian_path}.type 'frozen_momentum_approximation' is not implemented."
+            )
+        if jacobian_type != "finite_difference":
+            raise ValueError(
+                f"{jacobian_path}.type currently supports only 'finite_difference' "
+                f"(got '{jacobian_type}')."
+            )
+        finite_difference_path = f"{jacobian_path}.finite_difference"
+        if "finite_difference" not in jacobian:
+            raise ValueError(
+                f"{finite_difference_path} is required when {jacobian_path}.type is "
+                "'finite_difference'."
+            )
+        finite_difference = _mapping(
+            jacobian, "finite_difference", finite_difference_path
+        )
+        unknown = sorted(set(finite_difference) - {"mode"})
+        if unknown:
+            raise ValueError(f"{finite_difference_path} has unsupported key(s): {unknown}.")
+        if "mode" not in finite_difference:
+            raise ValueError(f"{finite_difference_path}.mode is required.")
+        finite_difference_mode = _method(
+            finite_difference["mode"], f"{finite_difference_path}.mode"
+        )
+        if finite_difference_mode == "colored_sparse":
+            raise ValueError(
+                f"{finite_difference_path}.mode 'colored_sparse' is not implemented."
+            )
+        if finite_difference_mode != "matrix_free":
+            raise ValueError(
+                f"{finite_difference_path}.mode currently supports only 'matrix_free' "
+                f"(got '{finite_difference_mode}')."
+            )
+        normalized["jacobian"] = {
+            "type": jacobian_type,
+            "finite_difference": {"mode": finite_difference_mode},
+        }
+
+    preconditioner = _mapping(
+        cfg, "preconditioner", f"{root}.preconditioner"
+    ) if "preconditioner" in cfg else {}
+    preconditioner_path = f"{root}.preconditioner"
+    unknown = sorted(set(preconditioner) - {"model", "structure"})
+    if unknown:
+        raise ValueError(f"{preconditioner_path} has unsupported key(s): {unknown}.")
+    if "preconditioner" in cfg and "model" not in preconditioner:
+        raise ValueError(
+            f"{preconditioner_path}.model is required when {preconditioner_path} is provided."
+        )
+    model = _method(preconditioner.get("model", "none"), f"{preconditioner_path}.model")
+    if model not in {"none", "frozen_momentum_jacobian"}:
+        raise ValueError(
+            f"{preconditioner_path}.model supports only 'none' or 'frozen_momentum_jacobian'."
+        )
+    structure = _mapping(
+        preconditioner, "structure", f"{preconditioner_path}.structure"
+    ) if "structure" in preconditioner else {}
+    unknown = sorted(set(structure) - {"type"})
+    if unknown:
+        raise ValueError(f"{preconditioner_path}.structure has unsupported key(s): {unknown}.")
+    structure_type = _method(
+        structure.get("type", "none"), f"{preconditioner_path}.structure.type"
+    )
+    if structure_type not in {"none", "point_block"}:
+        raise ValueError(
+            f"{preconditioner_path}.structure.type supports only 'none' or 'point_block'."
+        )
+    if model == "none" and structure:
+        raise ValueError(f"{preconditioner_path}.model 'none' does not accept a matrix structure.")
+    if model == "frozen_momentum_jacobian" and structure_type != "point_block":
+        raise ValueError(
+            f"{preconditioner_path}.model 'frozen_momentum_jacobian' requires "
+            f"{preconditioner_path}.structure.type 'point_block'."
+        )
+    normalized["preconditioner"] = {
+        "model": model,
+        "structure": {"type": structure_type},
+    }
 
     nonlinear = _mapping(cfg, "nonlinear_solver", f"{root}.nonlinear_solver")
     nonlinear_path = f"{root}.nonlinear_solver"
@@ -7226,18 +7330,28 @@ def validate_newton_krylov_config(cfg: dict) -> dict:
                 gmres["restart"], f"{linear_path}.gmres.restart"
             )
     if "preconditioner" in linear:
-        preconditioner = _mapping(linear, "preconditioner", f"{linear_path}.preconditioner")
-        unknown = sorted(set(preconditioner) - {"type"})
+        compatibility_pc = _mapping(linear, "preconditioner", f"{linear_path}.preconditioner")
+        unknown = sorted(set(compatibility_pc) - {"type"})
         if unknown:
             raise ValueError(f"{linear_path}.preconditioner has unsupported key(s): {unknown}.")
-        linear_out["preconditioner"] = {}
-        if "type" in preconditioner:
-            pc_type = _method(preconditioner["type"], f"{linear_path}.preconditioner.type")
+        if "type" in compatibility_pc:
+            pc_type = _method(compatibility_pc["type"], f"{linear_path}.preconditioner.type")
             if pc_type != "none":
                 raise ValueError(
-                    f"{linear_path}.preconditioner.type currently supports only 'none'."
+                    f"{linear_path}.preconditioner.type is a deprecated compatibility alias "
+                    "and supports only 'none'."
                 )
-            linear_out["preconditioner"]["type"] = pc_type
+            if "preconditioner" in cfg and model != "none":
+                raise ValueError(
+                    f"{linear_path}.preconditioner.type 'none' conflicts with "
+                    f"{preconditioner_path}.model '{model}'."
+                )
+            warnings.warn(
+                f"{linear_path}.preconditioner.type is deprecated; use "
+                f"{preconditioner_path}.model: none.",
+                FutureWarning,
+                stacklevel=3,
+            )
     normalized["linear_solver"] = linear_out
     return normalized
 
@@ -8265,6 +8379,12 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         @param[in] cfg Structured Newton--Krylov mapping.
         """
         cfg = validate_newton_krylov_config(cfg)
+        jacobian = cfg["jacobian"]
+        flags["-mom_nk_jacobian_type"] = jacobian["type"]
+        flags["-mom_nk_jacobian_fd_mode"] = jacobian["finite_difference"]["mode"]
+        preconditioner = cfg["preconditioner"]
+        flags["-mom_nk_preconditioner_model"] = preconditioner["model"]
+        flags["-mom_nk_preconditioner_structure"] = preconditioner["structure"]["type"]
         nonlinear = cfg["nonlinear_solver"]
         nonlinear_map = {
             "method": "-mom_nk_snes_type",
@@ -8293,9 +8413,6 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         gmres = linear.get("gmres", {})
         if "restart" in gmres:
             flags["-mom_nk_ksp_gmres_restart"] = gmres["restart"]
-        preconditioner = linear.get("preconditioner", {})
-        if "type" in preconditioner:
-            flags["-mom_nk_pc_type"] = preconditioner["type"]
 
     if isinstance(ms, dict):
         allowed_ms_keys = {'type', 'dual_time_picard_jameson_rk', 'dual_time_picard_rk4', 'newton_krylov'}

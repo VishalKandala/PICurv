@@ -126,6 +126,16 @@ momentum_solver:
   # strategy.momentum_solver is "Newton Krylov". Omitted fields retain the
   # defaults established by src/momentum_newton_krylov.c and PETSc.
   # newton_krylov:
+  #   jacobian:
+  #     type: "finite_difference"
+  #     finite_difference:
+  #       mode: "matrix_free"
+  #   preconditioner:
+  #     model: "none"
+  #     # To enable the provisional point-block approximation, use:
+  #     # model: "frozen_momentum_jacobian"
+  #     # structure:
+  #     #   type: "point_block"
   #   nonlinear_solver:
   #     method: "newtonls"           # -> -mom_nk_snes_type
   #     absolute_tolerance: 1.0e-10  # -> -mom_nk_snes_atol
@@ -141,8 +151,6 @@ momentum_solver:
   #     max_iterations: 400          # -> -mom_nk_ksp_max_it
   #     gmres:
   #       restart: 80                # -> -mom_nk_ksp_gmres_restart
-  #     preconditioner:
-  #       type: "none"               # -> -mom_nk_pc_type; only none is supported
 
 # --- Physical Solution Convergence Logging ---
 # This layer is separate from the inner solver-health logs. It always records

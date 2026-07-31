@@ -31,7 +31,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `solver.verification.sources.diffusivity.*` | `-verification_diffusivity_mode/-profile/-gamma0/-slope_x` | `src/setup.c` | `src/verification_sources.c`, `src/rhs.c` |
 | `solver.verification.sources.scalar.*` | `-verification_scalar_mode/-profile/-value/-phi0/-slope_x/-amplitude/-kx/-ky/-kz` | `src/setup.c` | `src/verification_sources.c`, `src/AnalyticalSolutions.c`, `src/ParticlePhysics.c`, `src/logging.c` |
 | `solver.strategy/tolerances/momentum_solver.*` | solver flags (`-mom_*`, pseudo-CFL, etc.) | `src/setup.c` | `src/momentumsolvers.c` |
-| `solver.momentum_solver.newton_krylov.*` | prefixed `-mom_nk_snes_*`, `-mom_nk_ksp_*`, `-mom_nk_pc_type` | PETSc options db via `SNESSetFromOptions()` | `src/momentum_newton_krylov.c` |
+| `solver.momentum_solver.newton_krylov.*` | application selectors `-mom_nk_jacobian_*`, `-mom_nk_preconditioner_*`; prefixed `-mom_nk_snes_*`, `-mom_nk_ksp_*` | application parsing plus PETSc options db via `SNESSetFromOptions()` | `src/momentum_newton_krylov.c` |
 | `solver.solution_convergence.*` | `-solution_convergence_mode/-solution_convergence_period_steps/-solution_convergence_window_steps` | `src/setup.c` | `src/logging.c`, `src/runloop.c` |
 | `solver.scalar_transport.*` | `-schmidt_number`, `-turb_schmidt_number` | `src/setup.c` | `src/rhs.c`, `src/particle_statistics.c`, scalar/particle transport |
 | `solver.poisson_solver.*` / legacy `solver.pressure_solver.*` | `-poisson_tol`, `-ps_ksp_*`, `-ps_pc_type`, `-mg_*`, `-ps_mg_levels_*` | `src/setup.c` + PETSc options db | `src/poisson.c` |

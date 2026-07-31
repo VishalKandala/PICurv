@@ -27,8 +27,12 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
 /**
  * @brief Solves one physical momentum step with matrix-free Newton--Krylov.
  *
- * Version one uses a finite-difference matrix-free Jacobian, GMRES, and no
- * preconditioner. All PETSc solver objects are local to this call. Rows removed
+ * The Jacobian operator is the finite-difference, matrix-free operator of the
+ * complete deterministic residual.
+ * With no mathematical preconditioner its matrix is also passed to PETSc's
+ * preconditioning slot and PCNONE is derived. The optional frozen-momentum,
+ * point-block model owns a separate matrix and derives a block-Jacobi PETSc
+ * backend. All PETSc solver objects are local to this call. Rows removed
  * by legacy boundary residual enforcement are made explicit: conditioned normal
  * rows use X-Uconditioned, untouched dummy/tangential rows use X, and periodic
  * duplicates use Xdup-Xrepresentative. Unsupported masked, interface, and

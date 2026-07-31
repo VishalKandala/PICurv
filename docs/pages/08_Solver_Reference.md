@@ -100,6 +100,12 @@ For `strategy.momentum_solver: "Newton Krylov"`, the structured PETSc controls a
 ```yaml
 momentum_solver:
   newton_krylov:
+    jacobian:
+      type: finite_difference
+      finite_difference:
+        mode: matrix_free
+    preconditioner:
+      model: none
     nonlinear_solver:
       method: newtonls
       absolute_tolerance: 1.0e-10
@@ -115,21 +121,27 @@ momentum_solver:
       max_iterations: 400
       gmres:
         restart: 80
-      preconditioner:
-        type: none
 ```
 
 Mappings are `nonlinear_solver.method/absolute_tolerance/relative_tolerance/step_tolerance/max_iterations`
 to `-mom_nk_snes_type/-mom_nk_snes_atol/-mom_nk_snes_rtol/-mom_nk_snes_stol/-mom_nk_snes_max_it`,
 `line_search.type` to `-mom_nk_snes_linesearch_type`, and the corresponding
 `linear_solver` fields to `-mom_nk_ksp_type/-mom_nk_ksp_atol/-mom_nk_ksp_rtol/-mom_nk_ksp_max_it`.
-`gmres.restart` maps to `-mom_nk_ksp_gmres_restart`, and `preconditioner.type`
-maps to `-mom_nk_pc_type`.
+`gmres.restart` maps to `-mom_nk_ksp_gmres_restart`. The Jacobian fields map to
+`-mom_nk_jacobian_type/-mom_nk_jacobian_fd_mode`; the preconditioner
+fields map to `-mom_nk_preconditioner_model/-mom_nk_preconditioner_structure`.
 
 Newton tolerances are nonnegative, iteration/restart counts are positive integers,
-and GMRES restart is valid only for `gmres`, `fgmres`, or `lgmres`. Version one
-accepts only `preconditioner.type: none`. Omitted fields preserve C/PETSc defaults.
-Raw `petsc_passthrough_options` are applied last and may override structured values.
+and GMRES restart is valid only for `gmres`, `fgmres`, or `lgmres`. Supported
+combinations are finite difference/matrix free with either no
+preconditioner or frozen momentum Jacobian/point block. The released
+`linear_solver.preconditioner.type: none` remains a deprecated alias for the
+no-preconditioner model. Raw `petsc_passthrough_options` are applied last, but an
+incompatible raw `-mom_nk_pc_type` override is rejected by the runtime.
+The Jacobian block is a strict discriminated configuration: an explicit
+`type: finite_difference` requires `finite_difference.mode: matrix_free`.
+`colored_sparse`, `frozen_momentum_approximation`, and irrelevant sibling
+configuration are rejected because their implementations are not present.
 
 @section p08_poisson_sec 5. poisson_solver
 

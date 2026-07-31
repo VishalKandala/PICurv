@@ -46,15 +46,20 @@ scope. See the momentum-solver overview and the dedicated Newton--Krylov page:
 - https://vishalkandala.me/picurv-docs/55_Newton_Krylov_Momentum_Solver.html
 
 When `strategy.momentum_solver` is `Newton Krylov`, tune it under the structured
-`momentum_solver.newton_krylov` block (`nonlinear_solver` and `linear_solver`
-sub-blocks). Omitted fields keep the C/PETSc defaults; only
-`preconditioner.type: none` is supported today:
+`momentum_solver.newton_krylov` block. Omitted fields keep the C/PETSc defaults
+and select the matrix-free/no-preconditioner baseline:
 
 ```yaml
 strategy:
   momentum_solver: "Newton Krylov"
 momentum_solver:
   newton_krylov:
+    jacobian:
+      type: "finite_difference"
+      finite_difference:
+        mode: "matrix_free"
+    preconditioner:
+      model: "none"
     nonlinear_solver:
       method: "newtonls"
       absolute_tolerance: 1.0e-10
@@ -70,9 +75,11 @@ momentum_solver:
       max_iterations: 400
       gmres:
         restart: 80
-      preconditioner:
-        type: "none"
 ```
+
+The other supported mathematical preconditioner is
+`model: frozen_momentum_jacobian` with `structure.type: point_block`. PETSc's
+block-Jacobi implementation is selected internally, not in normal YAML.
 
 Any newly introduced selector should only be exposed after parser normalization, runtime dispatch, and docs/tests are updated in one cohesive change.
 

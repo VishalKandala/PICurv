@@ -1106,6 +1106,388 @@ static PetscErrorCode TestPostAllocationFailureCleanup(void)
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/** @brief Verifies finalized application-owned linearization option parsing. */
+static PetscErrorCode TestLinearizationConfigParsing(void)
+{
+    MomentumNewtonJacobian jacobian = {0};
+    MomentumPreconditionerDescription description = {0};
+    PetscErrorCode config_ierr;
+    const char *option_names[] = {
+        "-mom_nk_jacobian_type",
+        "-mom_nk_jacobian_fd_mode",
+        "-mom_nk_preconditioner_model",
+        "-mom_nk_preconditioner_structure"
+    };
+
+    PetscFunctionBeginUser;
+    for (size_t n = 0; n < sizeof(option_names) / sizeof(option_names[0]); ++n)
+        PetscCall(PetscOptionsClearValue(NULL, option_names[n]));
+
+    PetscCall(MomentumNewtonKrylov_ReadLinearizationConfig(&jacobian, &description));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_JACOBIAN_FINITE_DIFFERENCE, jacobian.type,
+                                   "default Jacobian type must be finite difference"));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_FD_MODE_MATRIX_FREE,
+                                   jacobian.finite_difference_mode,
+                                   "default finite-difference mode must be matrix free"));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_PC_MODEL_NONE, description.model,
+                                   "default preconditioner model must be none"));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_PC_STRUCTURE_NONE, description.structure,
+                                   "default preconditioner structure must be none"));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_jacobian_type", "finite_difference"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_jacobian_fd_mode", "matrix_free"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_model", "none"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure", "none"));
+    PetscCall(MomentumNewtonKrylov_ReadLinearizationConfig(&jacobian, &description));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_JACOBIAN_FINITE_DIFFERENCE, jacobian.type,
+                                   "explicit baseline Jacobian type must parse"));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_FD_MODE_MATRIX_FREE,
+                                   jacobian.finite_difference_mode,
+                                   "explicit baseline finite-difference mode must parse"));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_PC_MODEL_NONE, description.model,
+                                   "explicit baseline preconditioner model must parse"));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_PC_STRUCTURE_NONE, description.structure,
+                                   "explicit baseline preconditioner structure must parse"));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_model",
+                                  "frozen_momentum_jacobian"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure", "point_block"));
+    PetscCall(MomentumNewtonKrylov_ReadLinearizationConfig(&jacobian, &description));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_JACOBIAN_FINITE_DIFFERENCE, jacobian.type,
+                                   "explicit Jacobian type must parse"));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_FD_MODE_MATRIX_FREE,
+                                   jacobian.finite_difference_mode,
+                                   "explicit finite-difference mode must parse"));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_PC_MODEL_FROZEN_MOMENTUM_JACOBIAN,
+                                   description.model, "frozen model must parse"));
+    PetscCall(PicurvAssertIntEqual(MOM_NK_PC_STRUCTURE_POINT_BLOCK,
+                                   description.structure, "point-block structure must parse"));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_jacobian_type", "analytic"));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    config_ierr = MomentumNewtonKrylov_ReadLinearizationConfig(&jacobian, &description);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_WRONG, config_ierr,
+                                   "unsupported Jacobian type must fail"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_jacobian_type", "finite_difference"));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_jacobian_fd_mode", "colored_sparse"));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    config_ierr = MomentumNewtonKrylov_ReadLinearizationConfig(&jacobian, &description);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_WRONG, config_ierr,
+                                   "unsupported finite-difference mode must fail"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_jacobian_fd_mode", "matrix_free"));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure", "none"));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    config_ierr = MomentumNewtonKrylov_ReadLinearizationConfig(&jacobian, &description);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_SUP, config_ierr,
+                                   "frozen model without point block must fail"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_model", "none"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure", "point_block"));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    config_ierr = MomentumNewtonKrylov_ReadLinearizationConfig(&jacobian, &description);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_SUP, config_ierr,
+                                   "none model with point block must fail"));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_model", "diagonal"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure", "none"));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    config_ierr = MomentumNewtonKrylov_ReadLinearizationConfig(&jacobian, &description);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_WRONG, config_ierr,
+                                   "unsupported preconditioner model must fail"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_model",
+                                  "frozen_momentum_jacobian"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure", "line"));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    config_ierr = MomentumNewtonKrylov_ReadLinearizationConfig(&jacobian, &description);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_WRONG, config_ierr,
+                                   "unsupported preconditioner structure must fail"));
+
+    for (size_t n = 0; n < sizeof(option_names) / sizeof(option_names[0]); ++n)
+        PetscCall(PetscOptionsClearValue(NULL, option_names[n]));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Reads one DMDA-stencil matrix entry through a single-column MatMult. */
+static PetscErrorCode PreconditionerMatrixStencilEntry(UserCtx *user,
+                                       Mat preconditioning_matrix, MatStencil row,
+                                       MatStencil col, PetscScalar *value)
+{
+    Vec basis = NULL, product = NULL;
+    Cmpnts ***array = NULL;
+    const PetscScalar one = 1.0;
+    PetscFunctionBeginUser;
+    PetscCall(DMCreateGlobalVector(user->fda, &basis));
+    PetscCall(DMCreateGlobalVector(user->fda, &product));
+    PetscCall(VecSet(basis, 0.0));
+    PetscCall(DMDAVecGetArray(user->fda, basis, &array));
+    (&array[col.k][col.j][col.i].x)[col.c] = one;
+    PetscCall(DMDAVecRestoreArray(user->fda, basis, &array));
+    PetscCall(MatMult(preconditioning_matrix, basis, product));
+    PetscCall(DMDAVecGetArrayRead(user->fda, product, &array));
+    *value = (&array[row.k][row.j][row.i].x)[row.c];
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, product, &array));
+    PetscCall(VecDestroy(&product)); PetscCall(VecDestroy(&basis));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/**
+ * @brief Verifies the point-block model and common preconditioning-engine wiring.
+ * @return PETSc error code.
+ */
+static PetscErrorCode TestPointBlockPreconditionerEngine(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN] = "";
+    MomentumNewtonKrylovContext ctx = {0};
+    MomentumPreconditionerDescription description = {
+        MOM_NK_PC_MODEL_FROZEN_MOMENTUM_JACOBIAN,
+        MOM_NK_PC_STRUCTURE_POINT_BLOCK,
+        0,
+        0
+    };
+    MomentumPreconditionerEngine engine = {0};
+    Mat preconditioning_matrix = NULL;
+    Vec x = NULL, f = NULL;
+    PetscInt block_size = 0;
+    PetscInt velocity_dof = 0;
+    PetscBool checked_physical = PETSC_FALSE, checked_fixed = PETSC_FALSE;
+    MatStencil fixed_sample = {0};
+    PetscMPIInt comm_size = 1;
+    PetscReal matrix_norm = 0.0, reassembled_norm = 0.0;
+    KSP ksp = NULL;
+    PC pc = NULL;
+    Vec pc_rhs = NULL, pc_solution = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
+    PetscCall(VecDuplicate(user->Ucont, &x));
+    PetscCall(VecDuplicate(user->Ucont, &f));
+    PetscCall(VecCopy(user->Ucont, x));
+    ctx.user = user;
+    PetscCall(MomentumNewtonKrylov_FormResidual(NULL, x, f, &ctx));
+    PetscCall(MomentumPreconditionerEngine_Create(user, NULL, &description, &engine));
+    preconditioning_matrix = engine.preconditioning_matrix;
+    PetscCall(PicurvAssertBool((PetscBool)(engine.model_ops == &frozen_momentum_point_block_ops),
+                               "engine must select the frozen-momentum model callbacks"));
+    PetscCall(PicurvAssertBool(engine.owns_preconditioning_matrix,
+                               "point-block engine must own its separate matrix"));
+    PetscCall(PicurvAssertBool((PetscBool)!engine.aliases_jacobian_operator,
+                               "point-block matrix must not alias the Jacobian operator"));
+    PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &comm_size));
+    PetscCall(MatNorm(preconditioning_matrix, NORM_FROBENIUS, &matrix_norm));
+    PetscCall(PicurvAssertBool((PetscBool)(matrix_norm > 0.0),
+                               "model callback and common rows must insert matrix entries"));
+    checked_physical = checked_fixed = (PetscBool)(comm_size > 1);
+    PetscCall(MatGetBlockSize(preconditioning_matrix, &block_size));
+    PetscCall(PicurvAssertIntEqual(3, block_size, "point-block matrix block size"));
+    PetscCall(DMDAGetInfo(user->fda, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                           &velocity_dof, NULL, NULL, NULL, NULL, NULL));
+    PetscCall(PicurvAssertIntEqual(3, velocity_dof, "Newton velocity DMDA dof"));
+
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+                for (PetscInt c = 0; c < 3; ++c) {
+                    PetscInt ri, rj, rk;
+                    MomentumNewtonKrylovRowType row = MomentumNewtonKrylov_ClassifyRow(
+                        user, i, j, k, c, &ri, &rj, &rk);
+                    if ((row == MOM_NK_ROW_FIXED_CONDITIONED ||
+                         row == MOM_NK_ROW_FIXED_HOMOGENEOUS) && comm_size == 1) {
+                        MatStencil fixed_row = {.i = i, .j = j, .k = k, .c = c};
+                        PetscScalar value = 0.0;
+                        PetscCall(PreconditionerMatrixStencilEntry(
+                            user, preconditioning_matrix, fixed_row, fixed_row, &value));
+                        PetscCall(PicurvAssertRealNear(1.0, PetscRealPart(value), 1e-14,
+                                                       "fixed preconditioning row must be identity"));
+                        if (!checked_fixed) fixed_sample = fixed_row;
+                        checked_fixed = PETSC_TRUE;
+                    } else if (row == MOM_NK_ROW_PHYSICAL && !checked_physical) {
+                        Cmpnts ***ucont = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
+                        PetscReal ***aj = NULL;
+                        PetscScalar reference[9], values[9];
+                        MatStencil cols[3] = {{i, j, k, 0}, {i, j, k, 1}, {i, j, k, 2}};
+                        PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &ucont));
+                        PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, &csi));
+                        PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
+                        PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
+                        PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
+                        FrozenMomentumJacobian_PointBlock(simCtx, (const Cmpnts ***)ucont,
+                            (const Cmpnts ***)csi, (const Cmpnts ***)eta, (const Cmpnts ***)zet,
+                            (const PetscReal ***)aj, i, j, k, reference);
+                        PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
+                        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
+                        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
+                        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi));
+                        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, &ucont));
+                        for (PetscInt rr = 0; rr < 3; ++rr)
+                            for (PetscInt cc = 0; cc < 3; ++cc)
+                                PetscCall(PreconditionerMatrixStencilEntry(
+                                    user, preconditioning_matrix, cols[rr], cols[cc],
+                                    &values[3 * rr + cc]));
+                        for (PetscInt n = 0; n < 9; ++n) {
+                            PetscCall(PicurvAssertRealNear(PetscRealPart(reference[n]), PetscRealPart(values[n]),
+                                                           1e-13, "point block must match preserved reference"));
+                        }
+                        checked_physical = PETSC_TRUE;
+                    }
+                }
+            }
+        }
+    }
+    PetscCall(PicurvAssertBool(checked_physical, "fixture must contain a physical row"));
+    PetscCall(PicurvAssertBool(checked_fixed, "fixture must contain a fixed row"));
+    PetscCall(MatAssembled(preconditioning_matrix, &checked_fixed));
+    PetscCall(PicurvAssertBool(checked_fixed, "engine must perform final matrix assembly"));
+    PetscCall(MatShift(preconditioning_matrix, 7.0));
+    PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
+    PetscCall(MatNorm(preconditioning_matrix, NORM_FROBENIUS, &reassembled_norm));
+    PetscCall(PicurvAssertRealNear(matrix_norm, reassembled_norm, 1e-12,
+                                   "repeated engine assembly must clear old entries"));
+    if (comm_size == 1) {
+        PetscScalar value = 0.0;
+        PetscCall(PreconditionerMatrixStencilEntry(
+            user, preconditioning_matrix, fixed_sample, fixed_sample, &value));
+        PetscCall(PicurvAssertRealNear(1.0, PetscRealPart(value), 1e-14,
+                                       "repeated engine assembly must clear old entries"));
+    }
+    PetscCall(KSPCreate(PETSC_COMM_WORLD, &ksp));
+    PetscCall(KSPSetOperators(ksp, preconditioning_matrix, preconditioning_matrix));
+    PetscCall(KSPGetPC(ksp, &pc));
+    PetscCall(MomentumPreconditionerEngine_ConfigurePetscPC(&engine, pc));
+    PetscCall(MomentumPreconditionerEngine_ValidatePetscPC(&engine, pc));
+    PetscCall(KSPSetUp(ksp));
+    PetscCall(DMCreateGlobalVector(user->fda, &pc_rhs));
+    PetscCall(DMCreateGlobalVector(user->fda, &pc_solution));
+    PetscCall(VecSet(pc_rhs, 1.0));
+    PetscCall(PCApply(pc, pc_rhs, pc_solution));
+    PetscCall(VecDestroy(&pc_solution)); PetscCall(VecDestroy(&pc_rhs));
+    PetscCall(KSPDestroy(&ksp));
+    PetscCall(MomentumPreconditionerEngine_Destroy(&engine));
+    PetscCall(PicurvAssertBool((PetscBool)(engine.preconditioning_matrix == NULL),
+                               "engine destroy must clear its owned matrix"));
+    PetscCall(VecDestroy(&f)); PetscCall(VecDestroy(&x)); PetscCall(VecDestroy(&user->Rhs));
+    PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Verifies Jacobian creation/registration and baseline alias ownership. */
+static PetscErrorCode TestJacobianInterfaceAndBaselineAlias(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN] = "";
+    MomentumNewtonKrylovContext ctx = {0};
+    MomentumPreconditionerDescription description = {
+        MOM_NK_PC_MODEL_NONE, MOM_NK_PC_STRUCTURE_NONE, 0, 0
+    };
+    SNES snes = NULL;
+    Mat jacobian_operator = NULL, preconditioning_matrix = NULL;
+    KSP ksp = NULL;
+    PC pc = NULL;
+    PetscInt rows = 0, cols = 0;
+    const char *jacobian_prefix = NULL;
+    const char *pc_type = NULL;
+    PetscBool prefix_matches = PETSC_FALSE;
+    PetscBool pc_is_none = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
+    PetscCall(SNESCreate(PETSC_COMM_WORLD, &snes));
+    PetscCall(SNESSetDM(snes, user->fda));
+    ctx.user = user;
+    ctx.jacobian.type = MOM_NK_JACOBIAN_FINITE_DIFFERENCE;
+    ctx.jacobian.finite_difference_mode = MOM_NK_FD_MODE_MATRIX_FREE;
+    PetscCall(SNESSetFunction(snes, NULL, MomentumNewtonKrylov_FormResidual, &ctx));
+    PetscCall(MomentumNewtonJacobian_Create(snes, &ctx.jacobian));
+    PetscCall(MatGetOptionsPrefix(ctx.jacobian.jacobian_operator, &jacobian_prefix));
+    PetscCall(PetscStrcmp(jacobian_prefix, "mom_nk_", &prefix_matches));
+    PetscCall(PicurvAssertBool(prefix_matches,
+                               "Jacobian interface must apply the application prefix"));
+    PetscCall(MomentumPreconditionerEngine_Create(
+        user, ctx.jacobian.jacobian_operator, &description, &ctx.preconditioning_engine));
+    PetscCall(MomentumNewtonJacobian_Register(
+        snes, &ctx.jacobian, &ctx.preconditioning_engine, &ctx));
+    PetscCall(SNESGetKSP(snes, &ksp));
+    PetscCall(KSPGetPC(ksp, &pc));
+    PetscCall(MomentumPreconditionerEngine_ConfigurePetscPC(
+        &ctx.preconditioning_engine, pc));
+    PetscCall(MomentumPreconditionerEngine_ValidatePetscPC(
+        &ctx.preconditioning_engine, pc));
+    PetscCall(PCGetType(pc, &pc_type));
+    PetscCall(PetscStrcmp(pc_type, PCNONE, &pc_is_none));
+    PetscCall(PicurvAssertBool(pc_is_none,
+                               "baseline engine must derive PETSc PCNONE"));
+    PetscCall(SNESGetJacobian(snes, &jacobian_operator, &preconditioning_matrix, NULL, NULL));
+    PetscCall(PicurvAssertBool(
+        (PetscBool)(jacobian_operator == ctx.jacobian.jacobian_operator),
+        "SNES must receive the Jacobian-interface MFFD operator"));
+    PetscCall(PicurvAssertBool((PetscBool)(preconditioning_matrix == jacobian_operator),
+                               "baseline preconditioning matrix must alias the Jacobian"));
+    PetscCall(PicurvAssertBool(ctx.preconditioning_engine.aliases_jacobian_operator,
+                               "baseline engine must record matrix aliasing"));
+    PetscCall(PicurvAssertBool((PetscBool)!ctx.preconditioning_engine.owns_preconditioning_matrix,
+                               "baseline engine must not own the Jacobian alias"));
+    PetscCall(MomentumPreconditionerEngine_Destroy(&ctx.preconditioning_engine));
+    PetscCall(MatGetSize(ctx.jacobian.jacobian_operator, &rows, &cols));
+    PetscCall(PicurvAssertBool((PetscBool)(rows > 0 && cols > 0),
+                               "destroying an alias engine must preserve the Jacobian"));
+    PetscCall(MomentumNewtonJacobian_Destroy(&ctx.jacobian));
+    PetscCall(SNESDestroy(&snes));
+    PetscCall(VecDestroy(&user->Rhs));
+    PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Exercises engine-owned periodic duplicate rows on every MPI layout. */
+static PetscErrorCode TestPointBlockPeriodicAssembly(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN] = "";
+    MomentumNewtonKrylovContext ctx = {0};
+    MomentumPreconditionerDescription description = {
+        MOM_NK_PC_MODEL_FROZEN_MOMENTUM_JACOBIAN,
+        MOM_NK_PC_STRUCTURE_POINT_BLOCK,
+        0,
+        0
+    };
+    Vec x = NULL, f = NULL;
+    PetscReal matrix_norm = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(BuildNewtonFixture(periodic_x_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
+    PetscCall(VecDuplicate(user->Ucont, &x));
+    PetscCall(VecDuplicate(user->Ucont, &f));
+    PetscCall(VecCopy(user->Ucont, x));
+    ctx.user = user;
+    PetscCall(MomentumNewtonKrylov_FormResidual(NULL, x, f, &ctx));
+    PetscCall(MomentumPreconditionerEngine_Create(
+        user, NULL, &description, &ctx.preconditioning_engine));
+    PetscCall(MomentumPreconditionerEngine_Assemble(&ctx.preconditioning_engine, user, x));
+    PetscCall(MatNorm(ctx.preconditioning_engine.preconditioning_matrix,
+                      NORM_FROBENIUS, &matrix_norm));
+    PetscCall(PicurvAssertBool((PetscBool)(matrix_norm > 0.0),
+                               "periodic point-block assembly must produce a nonzero matrix"));
+    PetscCall(MomentumPreconditionerEngine_Destroy(&ctx.preconditioning_engine));
+    PetscCall(VecDestroy(&f));
+    PetscCall(VecDestroy(&x));
+    PetscCall(VecDestroy(&user->Rhs));
+    PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 /**
  * @brief Runs the focused Newton--Krylov unit suite.
  * @param argc Command-line argument count.
@@ -1128,6 +1510,10 @@ int main(int argc, char **argv)
         {"small-solve-and-rollback", TestSmallSolveAndRollback},
         {"unsupported-configuration-fails-before-allocation", TestUnsupportedConfigurationFailsBeforeAllocation},
         {"post-allocation-failure-cleanup", TestPostAllocationFailureCleanup},
+        {"linearization-config-parsing", TestLinearizationConfigParsing},
+        {"point-block-preconditioner-engine", TestPointBlockPreconditionerEngine},
+        {"jacobian-interface-and-baseline-alias", TestJacobianInterfaceAndBaselineAlias},
+        {"point-block-periodic-assembly", TestPointBlockPeriodicAssembly},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv Newton Krylov tests");

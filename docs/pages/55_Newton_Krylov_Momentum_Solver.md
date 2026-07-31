@@ -57,18 +57,27 @@ the residual arithmetic, BDF coefficients, conservation-outlet formulas, or the
 number of boundary passes; it only changes how the resulting nonlinear system is
 solved.
 
-@section p55_snes_sec 3. SNES, Matrix-Free Jacobian, and Krylov Solve
+@section p55_snes_sec 3. Residual, Jacobian, Preconditioning Matrix, and PC
+
+The four layers have distinct roles. \f$F(U)=0\f$ is the unchanged nonlinear
+equation. The Jacobian operator approximates \f$dF/dU\f$ and is the operator GMRES
+uses for the Newton correction. The preconditioning matrix is a cheaper
+mathematical approximation to that operator. Finally, the PETSc `PC` is an
+internal algorithm that approximately applies the inverse of the supplied
+preconditioning matrix.
 
 The solver builds a per-step `SNES` (@ref MomentumSolver_NewtonKrylov):
 
 - **`SNESNEWTONLS`** with a backtracking (`bt`) line search;
-- a **matrix-free operator** from `MatCreateSNESMF`, whose action is the
+- a **matrix-free Jacobian operator** from `MatCreateSNESMF`, whose action is the
   finite-difference directional derivative
   \f$J\mathbf{v} \approx [F(\mathbf{X}+h\mathbf{v}) - F(\mathbf{X})]/h\f$
-  (`MatMFFDComputeJacobian`). No Jacobian is assembled;
-- an inner **`KSPGMRES`** linear solve with `PCNONE` (unpreconditioned). `PCNONE`
-  is required in version one and is enforced: option processing that selects any
-  other preconditioner is rejected.
+  (`MatMFFDComputeJacobian`); this is always authoritative;
+- by default the preconditioning-matrix argument aliases the Jacobian operator
+  and the inner **`KSPGMRES`** uses `PCNONE`;
+- optionally, a separately assembled AIJ preconditioning matrix contains the
+  provisional frozen-momentum point blocks; its validated internal PETSc
+  backend is `PCPBJACOBI`.
 
 Because the Jacobian action is a finite difference of the residual, the residual
 **must be a deterministic function of the trial vector** `X` (see
@@ -163,6 +172,12 @@ strategy:
 
 momentum_solver:
   newton_krylov:
+    jacobian:
+      type: "finite_difference"
+      finite_difference:
+        mode: "matrix_free"
+    preconditioner:
+      model: "none"
     nonlinear_solver:
       method: "newtonls"             # -> -mom_nk_snes_type
       absolute_tolerance: 1.0e-10    # -> -mom_nk_snes_atol
@@ -178,21 +193,86 @@ momentum_solver:
       max_iterations: 400            # -> -mom_nk_ksp_max_it
       gmres:
         restart: 80                  # -> -mom_nk_ksp_gmres_restart
-      preconditioner:
-        type: "none"                 # -> -mom_nk_pc_type (only "none" is supported)
 ```
 
-Field-by-field mappings and validation rules (nonnegative tolerances, positive
-iteration/restart counts, `preconditioner.type: none` only) are the authoritative
+The point-block alternative replaces the `preconditioner` block with:
+
+```yaml
+    preconditioner:
+      model: "frozen_momentum_jacobian"
+      structure:
+        type: "point_block"
+```
+
+`jacobian.type: finite_difference` means that the complete deterministic
+nonlinear residual \f$F(U)\f$ is differentiated numerically.
+`jacobian.finite_difference.mode: matrix_free` means PETSc evaluates directional
+products on demand and does not assemble the Jacobian. Finite difference is the
+construction type; matrix free is one mode within that type.
+
+The planned second finite-difference mode is `colored_sparse`, which would
+assemble a sparse numerical Jacobian using coloring. It is future syntax and is
+rejected today:
+
+```yaml
+    jacobian:
+      type: finite_difference
+      finite_difference:
+        mode: colored_sparse
+```
+
+Planned frozen-momentum approximations are a different Jacobian type, not
+storage modes of finite difference. Their future forms are:
+
+```yaml
+    jacobian:
+      type: frozen_momentum_approximation
+      frozen_momentum_approximation:
+        structure: diagonal
+```
+
+or:
+
+```yaml
+    jacobian:
+      type: frozen_momentum_approximation
+      frozen_momentum_approximation:
+        structure: full_sparse
+```
+
+Those forms are also rejected today.
+
+The Jacobian fields map to `-mom_nk_jacobian_type finite_difference` and
+`-mom_nk_jacobian_fd_mode matrix_free`. The preconditioner fields map to
+application-owned `-mom_nk_preconditioner_*` selectors. They do not emit a
+user-selected PETSc PC type. The released
+`linear_solver.preconditioner.type: none` spelling is accepted as a deprecated
+compatibility alias; it conflicts with a non-none new model. Field-by-field
+mappings and validation rules (nonnegative tolerances and positive iteration/restart counts) are the authoritative
 configuration reference in @ref 08_Solver_Reference "Solver Reference", section 4.
 The complete annotated template is `examples/master_template/master_solver.yml`.
+
+The planned operator-intent correspondence with legacy selectors is:
+
+| Modern configuration | Legacy operator coverage |
+|---|---|
+| `finite_difference / matrix_free + none` | top-level `-imp 4` |
+| `finite_difference / matrix_free + frozen point block` | `-imp 5 -imp_type 2` |
+| `finite_difference / colored_sparse` | future `-imp 5 -imp_type 1` |
+| `frozen momentum / diagonal` | future `-imp 5 -imp_type 3` |
+| `frozen momentum / full_sparse` | future `-imp 5 -imp_type 4` |
+
+This table maps numerical operator intent only. It does not reproduce legacy
+defects, lifecycle, mutable-residual behavior, or historically unknown PETSc
+runtime options.
 
 Three configuration layers interact, in increasing precedence:
 
 1. **User-facing YAML** (`momentum_solver.newton_krylov.*`) — the supported surface.
 2. **C/PETSc defaults** — used for any field you omit.
-3. **`petsc_passthrough_options`** — raw PETSc options applied last; they can
-   override structured values and are an advanced escape hatch.
+3. **`petsc_passthrough_options`** — raw PETSc options applied last. A raw PC
+   type must match the backend derived by the preconditioning engine or setup
+   fails with an explicit incompatibility error.
 
 The tolerances above are a reasonable starting point. Interpretation:
 
@@ -221,8 +301,9 @@ Independently of PETSc monitors, the solver writes structured rank-zero logs int
 - `Momentum_Solver_Newton_Krylov_History_Block_<b>.log`: one row per Newton
   iteration (`step | block | newton | nonlinear_norm`);
 - `Momentum_Solver_Newton_Krylov_Summary_Block_<b>.log`: one row per physical step
-  (`SNES reason`, Newton iterations, residual evaluations, Krylov iterations,
-  initial/final norm, and whether the result was committed or rolled back).
+  (the mathematical Jacobian and preconditioner selections, `SNES reason`,
+  Newton iterations, residual evaluations, Krylov iterations, initial/final
+  norm, and whether the result was committed or rolled back).
 
 A healthy solve on the validated duct case shows the nonlinear norm dropping by
 several orders of magnitude in about two Newton iterations with accepted line
@@ -257,21 +338,43 @@ changing tolerances. If you observe `DIVERGED_LINE_SEARCH` or non-repeatable
 nonlinear norms, suspect residual determinism (Section 5) rather than the Krylov
 settings.
 
-@section p55_precond_sec 9. Preconditioning Status and Limitations
+@section p55_precond_sec 9. Preconditioning Architecture and Status
 
-Version one supports and validates **only the unpreconditioned path**
-(`preconditioner.type: none`, `PCNONE`), enforced at runtime. There is no
-assembled operator to precondition against, so a matrix-free preconditioner would
-be required; this is future work and is intentionally not exposed. Other current
-limitations are the version-one scope restrictions in Section 1.
+The Jacobian interface owns creation, registration, update, naming, and cleanup
+of the finite-difference/matrix-free operator. The preconditioner model
+interface only describes a matrix structure and inserts interior physical
+coefficients. The common engine owns matrix creation/preallocation, repeated
+zeroing and assembly, constraint and periodic rows, PETSc backend selection,
+alias/ownership tracking, and cleanup.
+
+The optional frozen-momentum/point-block matrix is a separate AIJ matrix. For physical rows
+it retains only the same-cell 3x3 block from the existing provisional approximation; for
+constraint rows it inserts the exact modern derivative (+1 identity for fixed
+rows, or +1/-1 for periodic duplicates). It intentionally omits pressure,
+LES/RANS viscosity values and derivatives, nonorthogonal viscous cross-couplings,
+boundary-map and IBM derivatives, and body-force derivatives.
+
+The point-block coefficient formula is still undergoing an independent numerical
+reproduction audit. This iteration preserves its arithmetic and does not claim
+that it exactly reproduces a historical block or improves performance.
+`PCPBJACOBI` is only the current internal backend mapping; it is not a
+user-facing numerical model and is not a historically proven legacy setting.
+
+Future additions are localized as follows: add a Jacobian type/mode
+beside `MomentumNewtonJacobian_Create/Update`; add a coefficient provider through
+`MomentumPreconditionerModelOps`; add matrix metadata through
+`MomentumPreconditionerDescription`; and add a validated structure-to-PETSc
+backend mapping in `MomentumPreconditionerEngine_Create`. No placeholder modes
+are exposed before their implementations exist.
 
 @section p55_validation_sec 10. Validation Coverage
 
 The Newton--Krylov path is covered at two levels:
 
 - **Default suite** (`unit-newton-krylov`, part of `make check`): constraint-row
-  Jacobian structure, matrix-free vs direct differencing, small solve/rollback,
-  and residual repeatability. The conservation-outlet conditioned-row derivative
+  Jacobian structure, matrix-free vs direct differencing, preconditioning-engine
+  model/backend/ownership wiring, small solve/rollback, and residual repeatability.
+  The conservation-outlet conditioned-row derivative
   test doubles as a **seed-removal detector**: removing the deterministic
   Cartesian seed makes that row's self-derivative revert to the decoupled
   artifact and the test fails.
