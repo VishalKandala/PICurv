@@ -5931,7 +5931,7 @@ def get_cluster_total_tasks(cluster_cfg: dict) -> int:
 
 def normalize_extension(ext: str) -> str:
     """!
-    @brief Normalize extension.
+    @brief Canonicalize a user-supplied filename extension by trimming whitespace and leading dots.
     @param[in] ext Argument passed to `normalize_extension()`.
     @return Value returned by `normalize_extension()`.
     """
@@ -9457,7 +9457,7 @@ def render_slurm_array_stage_script(
     # Keep shell variables unresolved inside sbatch script.
     def _token(tok: str) -> str:
         """!
-        @brief Perform token.
+        @brief Preserve shell-variable tokens while safely quoting literal command arguments for an sbatch script.
         @param[in] tok Argument passed to `_token()`.
         @return Value returned by `_token()`.
         """

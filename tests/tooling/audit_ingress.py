@@ -38,7 +38,7 @@ def scan_petsc_options(paths: Iterable[pathlib.Path]) -> Set[str]:
 
 def load_manifest(path: pathlib.Path) -> Set[str]:
     """!
-    @brief Load manifest.
+    @brief Read and validate the PETSc option names declared in the ingress manifest.
     @param[in] path Filesystem path argument passed to `load_manifest()`.
     @return Value returned by `load_manifest()`.
     """

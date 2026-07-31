@@ -233,8 +233,7 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "FinalizeBlockState"
 /**
- * @brief Internal helper implementation: `FinalizeBlockState()`.
- * @details Local to this translation unit.
+ * @brief Complete one initial-condition block after its interior values are assigned.
  */
 static PetscErrorCode FinalizeBlockState(UserCtx *user)
 {
@@ -272,8 +271,7 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "SetInitialFluidState_FreshStart"
 /**
- * @brief Internal helper implementation: `SetInitialFluidState_FreshStart()`.
- * @details Local to this translation unit.
+ * @brief Initialize Eulerian fields for a new simulation without restart data.
  */
 static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
 {
@@ -319,8 +317,7 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetInitialFluidState_Load"
 /**
- * @brief Internal helper implementation: `SetInitialFluidState_Load()`.
- * @details Local to this translation unit.
+ * @brief Restore Eulerian fields from checkpoint files for a restart simulation.
  */
 static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
 {

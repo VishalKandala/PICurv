@@ -968,8 +968,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "PetscMkdirRecursive"
 /**
- * @brief Internal helper implementation: `PetscMkdirRecursive()`.
- * @details Local to this translation unit.
+ * @brief Create a directory path recursively using PETSc-compatible error handling.
  */
 static PetscErrorCode PetscMkdirRecursive(const char *path)
 {
@@ -1209,8 +1208,7 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "AllocateContextHeirarchy"
 /**
- * @brief Internal helper implementation: `AllocateContextHierarchy()`.
- * @details Local to this translation unit.
+ * @brief Allocate the user-context objects required by every multigrid level.
  */
 static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
 {
@@ -1312,8 +1310,7 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetupSolverParameters"
 /**
- * @brief Internal helper implementation: `SetupSolverParameters()`.
- * @details Local to this translation unit.
+ * @brief Configure solver tolerances, operators, and time-integration controls from the context.
  */
 static PetscErrorCode SetupSolverParameters(SimCtx *simCtx){
   
@@ -3100,8 +3097,7 @@ PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 
 
 
 /**
- * @brief Internal helper implementation: `Gidx()`.
- * @details Local to this translation unit.
+ * @brief Convert logical indices into the flattened global index used by setup helpers.
  */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 {
@@ -3441,8 +3437,7 @@ PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx) {
 #undef __FUNCT__
 #define __FUNCT__ "TransformDerivativesToPhysical"
 /**
- * @brief Internal helper implementation: `TransformDerivativesToPhysical()`.
- * @details Local to this translation unit.
+ * @brief Transform contravariant vector derivatives into physical Cartesian derivatives.
  */
 static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metrics, Cmpnts eta_metrics, Cmpnts zet_metrics,
                                            Cmpnts deriv_csi, Cmpnts deriv_eta, Cmpnts deriv_zet,

@@ -510,8 +510,7 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
 #define __FUNCT "ComputeTrilinearWeights"
 
 /**
- * @brief Internal helper implementation: `ComputeTrilinearWeights()`.
- * @details Local to this translation unit.
+ * @brief Compute the eight trilinear interpolation weights for a particle's local coordinates.
  */
 static inline void ComputeTrilinearWeights(PetscReal a1, PetscReal a2, PetscReal a3, PetscReal *w) {
     LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Computing weights for a1=%f, a2=%f, a3=%f.\n", a1, a2, a3);
@@ -729,8 +728,7 @@ PetscErrorCode TrilinearInterpolation_Vector(
 #undef __FUNCT
 #define __FUNCT "InterpolateEulerFieldToSwarmForParticle"
 /**
- * @brief Internal helper implementation: `InterpolateEulerFieldToSwarmForParticle()`.
- * @details Local to this translation unit.
+ * @brief Interpolate one Eulerian field to a single located swarm particle.
  */
 static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
     const char  *fieldName,
@@ -1803,8 +1801,7 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
 #undef __FUNCT__
 #define __FUNCT__   "ScatterParticleFieldToEulerField_Internal"
 /**
- * @brief Internal helper implementation: `ScatterParticleFieldToEulerField_Internal()`.
- * @details Local to this translation unit.
+ * @brief Accumulate one particle field onto the Eulerian grid using the selected scatter stencil.
  */
 static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
                                                          const char *particleFieldName,

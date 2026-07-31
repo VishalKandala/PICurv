@@ -38,8 +38,7 @@
   else if (ia==1 && nvert_c[kc][jc][ic+1] > 0.1) ia = 0;
 
 /**
- * @brief Internal helper implementation: `Gidx()`.
- * @details Local to this translation unit.
+ * @brief Convert local logical indices to the corresponding flattened global cell identifier.
  */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 
@@ -62,8 +61,7 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 #define __FUNCT__ "GridRestriction"
 
 /**
- * @brief Internal helper implementation: `GridRestriction()`.
- * @details Local to this translation unit.
+ * @brief Restrict a fine-grid scalar value onto its associated coarse-grid location.
  */
 static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
 			       PetscInt *ih, PetscInt *jh, PetscInt *kh,
@@ -1230,8 +1228,7 @@ PetscErrorCode MyInterpolation(Mat A, Vec X, Vec F)
 }
 
 /**
- * @brief Internal helper implementation: `RestrictResidual_SolidAware()`.
- * @details Local to this translation unit.
+ * @brief Restrict residuals while accounting for solid-cell occupancy in the stencil.
  */
 static PetscErrorCode RestrictResidual_SolidAware(Mat A, Vec X, Vec F)
 {
@@ -2934,8 +2931,7 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
 }
 
 /**
- * @brief Internal helper implementation: `FullyBlocked()`.
- * @details Local to this translation unit.
+ * @brief Report whether a coarse-grid cell is completely blocked by solid fine-grid cells.
  */
 static PetscErrorCode FullyBlocked(UserCtx *user)
 {
@@ -3022,8 +3018,7 @@ static PetscErrorCode FullyBlocked(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `MyNvertRestriction()`.
- * @details Local to this translation unit.
+ * @brief Restrict solid-volume fractions from fine cells to one coarse cell.
  */
 static PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
 {

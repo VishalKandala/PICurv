@@ -39,6 +39,7 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
 
     PetscFunctionBeginUser;
 
+    // Leave the production diffusivity untouched unless this verification mode is selected.
     if (!VerificationDiffusivityOverrideActive(simCtx)) PetscFunctionReturn(0);
 
     ierr = DMDAVecGetArray(user->da, user->Diffusivity, &diff_arr); CHKERRQ(ierr);
@@ -47,6 +48,7 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
     for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
         for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
             for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+                // The manufactured profile is affine in the physical x coordinate.
                 const PetscReal gamma =
                   simCtx->verificationDiffusivity.gamma0 +
                   simCtx->verificationDiffusivity.slope_x * cent[k][j][i].x;
@@ -62,6 +64,7 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
     {
         PetscReal global_min_gamma = 0.0;
         ierr = MPI_Allreduce(&min_gamma, &global_min_gamma, 1, MPIU_REAL, MPI_MIN, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+        // Diffusivity must remain positive on every rank for the PDE operator to be valid.
         if (global_min_gamma <= 0.0) {
             SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                     "verification diffusivity override produced non-positive Gamma values (min=%g).",
@@ -71,6 +74,7 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
 
     {
         const char *periodic_fields[] = {"Diffusivity"};
+        // Make the analytic field coherent across periodic seams before ghost updates.
         ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, "Diffusivity"); CHKERRQ(ierr);
     }
@@ -91,6 +95,7 @@ PetscErrorCode ApplyVerificationScalarOverrideToParticles(UserCtx *user)
 {
     PetscFunctionBeginUser;
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    // The normal particle model owns Psi unless the verification override is enabled.
     if (!VerificationScalarOverrideActive(user->simCtx)) PetscFunctionReturn(0);
 
     PetscCall(SetAnalyticalScalarFieldOnParticles(user, "Psi"));

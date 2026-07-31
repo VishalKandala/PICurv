@@ -8,8 +8,7 @@
 #undef __FUNCT__
 #define __FUNCT__ "ParseAndSetGridInputs"
 /**
- * @brief Internal helper implementation: `ParseAndSetGridInputs()`.
- * @details Local to this translation unit.
+ * @brief Parse grid-generation options and store the resulting geometry settings in the context.
  */
 static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
 {
@@ -101,8 +100,7 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "InitializeSingleGridDM"
 /**
- * @brief Internal helper implementation: `InitializeSingleGridDM()`.
- * @details Local to this translation unit.
+ * @brief Create and configure one PETSc DMDA for a multigrid level.
  */
 static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user)
 {
@@ -510,8 +508,7 @@ PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "SetFinestLevelCoordinates"
 /**
- * @brief Internal helper implementation: `SetFinestLevelCoordinates()`.
- * @details Local to this translation unit.
+ * @brief Attach the generated physical coordinates to the finest-level DMDA.
  */
 static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
 {
@@ -565,8 +562,7 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Internal helper implementation: `ComputeStretchedCoord()`.
- * @details Local to this translation unit.
+ * @brief Map a uniform logical coordinate to its configured stretched physical coordinate.
  */
 static inline PetscReal ComputeStretchedCoord(PetscInt i, PetscInt N, PetscReal L, PetscReal r)
 {
@@ -582,8 +578,7 @@ static inline PetscReal ComputeStretchedCoord(PetscInt i, PetscInt N, PetscReal 
 #undef __FUNCT__
 #define __FUNCT__ "GenerateAndSetCoordinates"
 /**
- * @brief Internal helper implementation: `GenerateAndSetCoordinates()`.
- * @details Local to this translation unit.
+ * @brief Generate analytic grid coordinates and install them on the finest grid level.
  */
 static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 {
@@ -652,8 +647,7 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "ReadAndSetCoordinates"
 /**
- * @brief Internal helper implementation: `ReadAndSetCoordinates()`.
- * @details Local to this translation unit.
+ * @brief Load grid coordinates from the input file and install them on the finest level.
  */
 static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
 {
@@ -731,8 +725,7 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
 #undef __FUNCT__
 #define __FUNCT__ "RestrictCoordinates"
 /**
- * @brief Internal helper implementation: `RestrictCoordinates()`.
- * @details Local to this translation unit.
+ * @brief Restrict finest-grid coordinates onto each coarser multigrid level.
  */
 static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_user)
 {

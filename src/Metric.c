@@ -45,8 +45,7 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
 
 /* ------------------------------------------------------------------------- */
 /**
- * @brief Internal helper implementation: `TrilinearBlend()`.
- * @details Local to this translation unit.
+ * @brief Blend eight corner values at the supplied trilinear reference coordinates.
  */
 static inline void TrilinearBlend(const Cmpnts V[8],
                                   PetscReal xi,PetscReal eta,PetscReal zta,
@@ -1690,8 +1689,7 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `Gidx()`.
- * @details Local to this translation unit.
+ * @brief Convert logical cell indices into the flattened global cell identifier.
  */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 {

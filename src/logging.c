@@ -565,8 +565,7 @@ PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscI
 
 
 /**
- * @brief Internal helper implementation: `trim()`.
- * @details Local to this translation unit.
+ * @brief Remove leading and trailing whitespace from a mutable configuration string.
  */
 static void trim(char *s)
 {
@@ -1884,8 +1883,7 @@ static PetscInt g_profiler_capacity = 0;
 
 // Internal helper to find a function in the registry or create it
 /**
- * @brief Internal helper implementation: `_FindOrCreateEntry()`.
- * @details Local to this translation unit.
+ * @brief Find a profiling record by name or allocate and register a new record.
  */
 static PetscErrorCode _FindOrCreateEntry(const char *func_name, PetscInt *idx)
 {
@@ -2173,8 +2171,7 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
 
 // Comparison function for qsort to sort by total_time in descending order
 /**
- * @brief Internal helper implementation: `_CompareProfiledFunctions()`.
- * @details Local to this translation unit.
+ * @brief Order profiling records by their accumulated execution time.
  */
 static int _CompareProfiledFunctions(const void *a, const void *b)
 {

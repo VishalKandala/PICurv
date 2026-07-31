@@ -22,8 +22,10 @@ PetscErrorCode UpdateParticleField(const char *fieldName,
     PetscFunctionBeginUser;
 
     if (strcmp(fieldName, "Psi") == 0) {
+        // Guard the LES mixing time scale against degenerate or cut-cell volumes.
         if (cell_vol < 1.0e-14) cell_vol = 1.0e-14;
 
+        // The IEM model relaxes Psi exponentially toward the cell mean over dt.
         PetscReal delta2 = PetscPowReal(cell_vol, 0.6666667);
         PetscReal omega = C_model * diffusivity / delta2;
         PetscReal decay = PetscExpReal(-omega * dt);
@@ -73,6 +75,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName)
         ierr = DMSwarmGetField(swarm, "Diffusivity", NULL, NULL, (void**)&diff_arr); CHKERRQ(ierr);
         ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_arr); CHKERRQ(ierr);
 
+        // Psi relaxation requires ghosted Eulerian mean and Jacobian fields.
         if (!user->lPsi || !user->lAj) {
              SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "UserCtx lPsi or lAj not initialized.");
         }
@@ -95,6 +98,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName)
             p_diff = diff_arr[p];
             p_mean = grid_mean[k][j][i];
 
+            // Aj is the reciprocal cell volume in the curvilinear-grid representation.
             PetscReal jac = grid_aj[k][j][i];
             p_vol = (jac > 1.0e-14) ? (1.0 / jac) : 1.0e-14;
         }
@@ -138,6 +142,7 @@ PetscErrorCode UpdateAllParticleFields(UserCtx *user)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Updating all particle physical properties...\n");
 
     if (VerificationScalarOverrideActive(user->simCtx)) {
+        // Verification profiles define Psi exactly, so bypass the model-driven update.
         ierr = ApplyVerificationScalarOverrideToParticles(user); CHKERRQ(ierr);
         LOG_ALLOW(GLOBAL, LOG_INFO, "Verification scalar override active; skipped model-driven Psi update.\n");
         PROFILE_FUNCTION_END;

@@ -233,8 +233,7 @@ PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolution_TGV3D"
 /**
- * @brief Internal helper implementation: `SetAnalyticalSolution_TGV3D()`.
- * @details Local to this translation unit.
+ * @brief Populate the Eulerian field vectors with the Taylor--Green vortex at the current time.
  */
 static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
 {
@@ -374,8 +373,7 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolution_ZeroFlow"
 /**
- * @brief Internal helper implementation: `SetAnalyticalSolution_ZeroFlow()`.
- * @details Local to this translation unit.
+ * @brief Set every analytical Eulerian field to the quiescent zero-flow reference state.
  */
 static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
 {
@@ -406,8 +404,7 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolution_UniformFlow"
 /**
- * @brief Internal helper implementation: `SetAnalyticalSolution_UniformFlow()`.
- * @details Local to this translation unit.
+ * @brief Fill the analytical Eulerian fields with the configured spatially uniform flow state.
  */
 static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
 {
@@ -463,8 +460,7 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolutionForParticles_TGV3D"
 /**
- * @brief Internal helper implementation: `SetAnalyticalSolutionForParticles_TGV3D()`.
- * @details Local to this translation unit.
+ * @brief Evaluate Taylor--Green velocities at swarm particle positions and store them in `tempVec`.
  */
 static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCtx *simCtx)
 {
@@ -506,8 +502,7 @@ static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCt
 #undef __FUNCT__
 #define __FUNCT__ "SetAnalyticalSolutionForParticles_UniformFlow"
 /**
- * @brief Internal helper implementation: `SetAnalyticalSolutionForParticles_UniformFlow()`.
- * @details Local to this translation unit.
+ * @brief Fill the particle velocity vector with the configured uniform analytical flow.
  */
 static PetscErrorCode SetAnalyticalSolutionForParticles_UniformFlow(Vec tempVec, SimCtx *simCtx)
 {

@@ -82,7 +82,7 @@ make check-full
 
 Guidance:
 
-- Use `python3 tests/tooling/audit_function_docs.py` when changing C/Python function signatures, docstrings, or test helpers.
+- Use `python3 tests/tooling/audit_function_docs.py` when changing C/Python function signatures, docstrings, or test helpers. It scans production code, generators, tests, and tooling; it rejects missing documentation and name-only descriptions such as “helper function” or “internal helper implementation.”
 - Use `make test` when working on `picurv_cli/core.py`, schemas, or repository metadata.
 - Use `python3 tests/tooling/check_markdown_links.py` when changing docs/examples.
 - Use `make audit-build` when you want a clean compilation audit with `logs/build.log` and `logs/build.warnings.log` captured under the repo `logs/` directory.
@@ -373,25 +373,24 @@ Coverage artifacts:
 - Python summary: `coverage/python/summary.txt`
 - C summary: `coverage/c/summary.txt`
 
-@subsection p40_coverage_followup_ssec 8.1 Coverage Follow-Up Snapshot (2026-03-20)
+@subsection p40_coverage_followup_ssec 8.1 Coverage Follow-Up Snapshot (2026-07-31)
 
 This dated snapshot records non-periodic C sources that still look thinly exercised after the
-`2026-03-20` local audit. Treat these numbers as test-readiness guidance for future work, not as
+`2026-07-31` local audit. Treat these numbers as test-readiness guidance for future work, not as
 evidence of confirmed product defects.
 
-- `src/BodyForces.c`: `11.69%`
-- `src/AnalyticalSolutions.c`: `23.93%`
-- `src/les.c`: `22.58%`
-- `src/poisson.c`: `45.66%`
-- `src/rhs.c`: `61.95%`
-- `src/runloop.c`: `64.76%`
-- `src/Boundaries.c`: `68.10%`
+- `src/les.c`: `29.46%`. Add a direct dynamic-Smagorinsky fixture that executes the filtered-stress procedure, rather than only the constant-model and eddy-viscosity paths.
+- `src/poisson.c`: `47.61%`. Add multigrid-cycle, periodic/IBM, solid-aware restriction/interpolation, and driven-flux correction cases.
+- `src/momentum_newton_krylov.c`: `62.50%`. The focused residual/constraint/Jacobian/rollback suite is strong; extend it across less-common solver-option and nonlinear-error branches.
+- `src/runloop.c`: `66.46%`. Add controlled live-run coverage for signal receipt and automatic walltime-guard shutdown/restart output.
+- `src/postprocessor.c`: `69.42%`. Add malformed/empty/unknown pipeline-stage and optional-field combination coverage.
 
 Next test work priorities from this snapshot:
 
-- analytical/body-force/LES model paths need more direct unit coverage rather than relying mainly on indirect runtime exercise
-- Poisson/RHS/runtime orchestration paths need deeper nontrivial-branch coverage beyond the current helper-heavy surface
-- boundary coverage is close to the gate threshold but still thin outside the stable non-periodic path
+1. dynamic LES and Poisson multigrid/stencil cases,
+2. runtime signal and walltime-guard integration coverage,
+3. postprocessor pipeline error-path coverage,
+4. remaining Newton--Krylov option/error-path coverage.
 
 @section p40_troubleshooting_sec 9. Common Failure Modes
 
@@ -497,12 +496,7 @@ P1 (next):
 - deeper `PoissonSolver_MG` and periodic/IBM stencil behavior checks beyond the current helper-level `unit-poisson-rhs` surface
 - broader richer-runtime fixture variants so grid/setup/metric tests cover more than the tiny Cartesian baseline
 - broaden the MPI rank matrix to larger optional decompositions (for example `SMOKE_MPI_MATRIX_NPROCS="2 3 4 6"`) in CI/nightly profiles
-- coverage follow-up from the `2026-03-20` audit:
-  - add direct harnesses for `src/AnalyticalSolutions.c` (`23.93%`) and `src/BodyForces.c` (`11.69%`)
-  - broaden LES-model-path tests for `src/les.c` (`22.58%`)
-  - deepen direct Poisson/RHS coverage for `src/poisson.c` (`45.66%`) and `src/rhs.c` (`61.95%`)
-  - expand runtime orchestration branch coverage for `src/runloop.c` (`64.76%`)
-  - add more non-periodic boundary edge-case coverage for `src/Boundaries.c` (`68.10%`)
+- coverage follow-up from the `2026-07-31` audit: dynamic LES, Poisson multigrid/stencils, live walltime/signal shutdown, postprocessor pipeline errors, and remaining Newton--Krylov option/error paths (see section 8.1 for measured coverage and scope).
 
 P2 (deeper hardening):
 

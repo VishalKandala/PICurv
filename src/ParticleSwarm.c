@@ -98,8 +98,7 @@ PetscErrorCode RegisterParticleFields(DM swarm)
 #undef __FUNCT__
 #define __FUNCT__ "DetermineVolumetricInitializationParameters"
 /**
- * @brief Internal helper implementation: `DetermineVolumetricInitializationParameters()`.
- * @details Local to this translation unit.
+ * @brief Derive particle counts and spacing for volumetric swarm initialization.
  */
 static PetscErrorCode DetermineVolumetricInitializationParameters(
     UserCtx *user, DMDALocalInfo *info,
@@ -199,8 +198,7 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
 #define __FUNCT__ "InitializeParticleBasicProperties"
 
 /**
- * @brief Internal helper implementation: `InitializeParticleBasicProperties()`.
- * @details Local to this translation unit.
+ * @brief Initialize position-independent particle fields after a particle is created.
  */
 static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                                                 PetscInt particlesPerProcess,
@@ -407,8 +405,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
 #undef __FUNCT__
 #define __FUNCT__ "InitializeSwarmFieldValue"
 /**
- * @brief Internal helper implementation: `InitializeSwarmFieldValue()`.
- * @details Local to this translation unit.
+ * @brief Assign one configured initial value to a swarm field entry.
  */
 static PetscErrorCode InitializeSwarmFieldValue(const char *fieldName, PetscInt p, PetscInt fieldDim, PetscReal *fieldData)
 {
@@ -450,8 +447,7 @@ static PetscErrorCode InitializeSwarmFieldValue(const char *fieldName, PetscInt 
 #undef __FUNCT__
 #define __FUNCT__ "AssignInitialFieldToSwarm"
 /**
- * @brief Internal helper implementation: `AssignInitialFieldToSwarm()`.
- * @details Local to this translation unit.
+ * @brief Apply a configured initial field specification across the local swarm.
  */
 static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, const char *fieldName, PetscInt fieldDim)
 {

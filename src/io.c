@@ -779,8 +779,7 @@ PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool
 }
 
 /**
- * @brief Internal helper implementation: `CheckDataFile()`.
- * @details Local to this translation unit.
+ * @brief Validate that an input data file exists and can be opened for reading.
  */
 static PetscErrorCode CheckDataFile(UserCtx *user, PetscInt ti, const char *fieldName, const char *ext, PetscBool *fileExists)
 {
@@ -819,8 +818,7 @@ static PetscErrorCode CheckDataFile(UserCtx *user, PetscInt ti, const char *fiel
 }
 
 /**
- * @brief Internal helper implementation: `ReadOptionalField()`.
- * @details Local to this translation unit.
+ * @brief Load an optional Eulerian restart field when its file is present.
  */
 static PetscErrorCode ReadOptionalField(UserCtx *user, const char *field_name, const char *field_label, Vec field_vec, PetscInt ti, const char *ext)
 {
@@ -853,8 +851,7 @@ static PetscErrorCode ReadOptionalField(UserCtx *user, const char *field_name, c
 }
 
 /**
- * @brief Internal helper implementation: `ReadOptionalSwarmField()`.
- * @details Local to this translation unit.
+ * @brief Load an optional swarm restart field when its file is present.
  */
 static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_name, const char *field_label, PetscInt ti, const char *ext)
 {

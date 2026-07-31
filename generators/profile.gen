@@ -770,7 +770,7 @@ def build_parser():
 
 def main(argv=None) -> int:
     """!
-    @brief CLI entrypoint.
+    @brief Dispatch the selected profile-generation subcommand using its parsed command-line arguments.
     @param[in] argv Optional argv override for tests.
     @return Process exit code.
     """

@@ -16,8 +16,7 @@
  *================================================================================*/
 
 /**
- * @brief Internal helper implementation: `ApplySimpsonRuleHomogeneousFilter()`.
- * @details Local to this translation unit.
+ * @brief Apply the two-dimensional Simpson stencil on the central homogeneous-plane samples.
  */
 static double ApplySimpsonRuleHomogeneousFilter(double values[3][3][3])
 {
@@ -33,8 +32,7 @@ static double ApplySimpsonRuleHomogeneousFilter(double values[3][3][3])
 
 
 /**
- * @brief Internal helper implementation: `ApplyVolumeWeightedBoxFilter()`.
- * @details Local to this translation unit.
+ * @brief Average a 3x3x3 stencil with cell-volume weights while excluding solid cells.
  */
 static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weights[3][3][3])
 {

@@ -19,7 +19,7 @@ DEFAULT_TARGETS = [
 
 def normalize_path(path: str | Path) -> str:
     """!
-    @brief Normalize path.
+    @brief Resolve a filesystem path to the canonical string used as a coverage-map key.
     @param[in] path Filesystem path argument passed to `normalize_path()`.
     @return Value returned by `normalize_path()`.
     """
@@ -28,7 +28,7 @@ def normalize_path(path: str | Path) -> str:
 
 def parse_args() -> argparse.Namespace:
     """!
-    @brief Parse args.
+    @brief Parse coverage thresholds, targets, output location, and pytest arguments for this gate.
     @return Value returned by `parse_args()`.
     """
     parser = argparse.ArgumentParser(
@@ -94,7 +94,7 @@ def build_trace_ignoredirs() -> list[str]:
 
 def collect_counts(results: trace.CoverageResults) -> dict[str, dict[int, int]]:
     """!
-    @brief Collect counts.
+    @brief Transform Python trace results into a per-file, per-line execution-count mapping.
     @param[in] results Argument passed to `collect_counts()`.
     @return Value returned by `collect_counts()`.
     """

@@ -91,7 +91,7 @@ def should_skip_link(target: str) -> bool:
 
 def normalize_target(raw_target: str) -> str:
     """!
-    @brief Normalize target.
+    @brief Remove Markdown angle brackets, fragments, and query strings before resolving a link target.
     @param[in] raw_target Argument passed to `normalize_target()`.
     @return Value returned by `normalize_target()`.
     """

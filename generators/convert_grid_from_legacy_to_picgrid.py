@@ -53,7 +53,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     """!
-    @brief Entry point.
+    @brief Convert the selected legacy grid file into a validated canonical PICGRID file.
     @return Value returned by `main()`.
     """
     args = parse_args()

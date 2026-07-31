@@ -14,7 +14,7 @@ Function-level documentation coverage is now enforced across:
 - C implementations in `src/`,
 - C tests in `tests/c/`,
 - Python product code in `picurv_cli/` and `generators/`,
-- Python tests in `tests/`.
+- Python tests and documentation tooling in `tests/`.
 
 The current repository contract requires every executable function to have an
 attached descriptive comment/docstring. Public C headers own the rendered
@@ -37,6 +37,12 @@ Repository consistency checks now also enforce function-level documentation via:
 - `tests/tooling/audit_function_docs.py`
 
 GitHub Actions quality CI also runs the audit explicitly before `pytest -q` on pull requests and pushes to `main`.
+
+The audit requires a meaningful explanation, not merely a tag or symbol label:
+public C declarations must have a specific Doxygen brief, private C helpers
+must have a specific attached implementation comment, and Python functions must
+have a specific brief docstring. It scans production code, generators, tests,
+and documentation tooling.
 
 `make build-docs` remains useful for rendered output verification, but the audit
 script is the primary completeness gate for function comments. For a
@@ -62,16 +68,23 @@ For newly added or modified functions and test helpers:
 4. cross-module dependencies should be explicit when non-obvious,
 5. Python functions must use Doxygen-compatible docstrings, not plain one-line docstrings.
 
-For C test files, concise briefs are acceptable, but they should still say what
-the test/helper verifies or sets up. Placeholder summaries like `Test-local routine.`
-remain tolerated in untouched legacy tests, but newly added or modified tests
-should use descriptive `@brief` text.
+For C test files, concise briefs are acceptable, but they must still say what
+the test/helper verifies or sets up. Placeholder summaries like `Test-local
+routine.` are rejected.
 
 Minimum acceptable quality is interface correctness and discoverability, even when deep theoretical derivation is documented elsewhere.
 
 For nontrivial numerical APIs, the header must also identify the coordinate or
 field convention, ownership/ghost-state preconditions, and output meaning when
 those facts determine correct use. A parameter name by itself is not a contract.
+
+Inside a function, comment only the information that code cannot communicate
+reliably by itself: numerical rationale, invariant or unit convention,
+distributed-memory/ownership boundary, intentionally surprising early return,
+or error-handling constraint. Do not add line-by-line narration of obvious
+assignments or assertions. These in-body explanations are reviewed with the
+code change; the automated gate enforces the function-level baseline and
+rejects known stub language.
 
 @section p35_workflow_sec 4. Practical Cleanup Workflow
 

@@ -15,8 +15,7 @@ static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta);
 //================================================================================
 
 /**
- * @brief Internal helper implementation: `WriteVTKAppendedBlock()`.
- * @details Local to this translation unit.
+ * @brief Write one binary data block in VTK appended-data format.
  */
 static PetscErrorCode WriteVTKAppendedBlock(FILE *fp, const void *data, PetscInt num_elements, size_t element_size) {
     uint32_t block_size = num_elements * (uint32_t)element_size;
@@ -26,8 +25,7 @@ static PetscErrorCode WriteVTKAppendedBlock(FILE *fp, const void *data, PetscInt
 }
 
 /**
- * @brief Internal helper implementation: `WriteVTSXMLHeader()`.
- * @details Local to this translation unit.
+ * @brief Write the XML header for a VTK structured-grid (`.vts`) file.
  */
 static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
@@ -66,8 +64,7 @@ static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
 }
 
 /**
- * @brief Internal helper implementation: `WriteVTPXMLHeader()`.
- * @details Local to this translation unit.
+ * @brief Write the XML header for a VTK polydata (`.vtp`) file.
  */
 static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
@@ -116,8 +113,7 @@ static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
 }
 
 /**
- * @brief Internal helper implementation: `WriteVTKFileHeader()`.
- * @details Local to this translation unit.
+ * @brief Open a VTK XML document and write its file-level header.
  */
 static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
@@ -130,8 +126,7 @@ static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, Pets
 }
 
 /**
- * @brief Internal helper implementation: `WriteVTKFileFooter()`.
- * @details Local to this translation unit.
+ * @brief Close a VTK XML document after all appended data have been written.
  */
 static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta)
 {
@@ -497,9 +492,8 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
                 else if (strcasecmp(field_name, "Migration Status") == 0) internal_name = "DMSwarm_location_status";
             }
 
-            // B. Gather the full data for this field from its determined source.
-            // NOTE: This assumes a generic gather function exists.
-            // A simplified placeholder is used here; you may need to implement this.
+            // B. Gather the complete field on rank 0 before applying the output stride.
+            // SwarmFieldToArrayOnRank0 handles both scalar and vector field layouts.
             void* full_field_arr_void = NULL;
             PetscInt field_total_particles, field_num_components;
 

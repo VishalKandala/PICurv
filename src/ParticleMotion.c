@@ -207,8 +207,7 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
 
 
 /**
- * @brief Internal helper implementation: `IsParticleInBox()`.
- * @details Local to this translation unit.
+ * @brief Test whether a particle position lies within an axis-aligned bounding box.
  */
 static inline PetscBool IsParticleInBox(const BoundingBox *bbox, const Cmpnts *pos) {
     return (pos->x >= bbox->min_coords.x && pos->x <= bbox->max_coords.x &&
@@ -1377,8 +1376,7 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "GuessParticleOwnerWithBBox"
 /**
- * @brief Internal helper implementation: `GuessParticleOwnerWithBBox()`.
- * @details Local to this translation unit.
+ * @brief Select the rank whose gathered bounding box is the best owner candidate for a particle.
  * @note Testing status:
  *       The current direct surface reaches this helper through orchestrator
  *       tests, but direction-complete immediate-neighbor coverage and the

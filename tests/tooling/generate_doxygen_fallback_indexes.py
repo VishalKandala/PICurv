@@ -201,7 +201,7 @@ def extract_struct_names(text: str) -> set[str]:
 
 def categorize_struct(name: str) -> str:
     """!
-    @brief Categorize struct.
+    @brief Assign a parsed C struct name to the most relevant generated API-index category.
     @param[in] name Argument passed to `categorize_struct()`.
     @return Value returned by `categorize_struct()`.
     """
@@ -222,7 +222,7 @@ def categorize_struct(name: str) -> str:
 
 def render_link(label: str, href: str) -> str:
     """!
-    @brief Render link.
+    @brief Escape a label and URL and render them as one safe HTML anchor element.
     @param[in] label Argument passed to `render_link()`.
     @param[in] href Argument passed to `render_link()`.
     @return Value returned by `render_link()`.
@@ -236,7 +236,7 @@ def render_link(label: str, href: str) -> str:
 
 def render_rows(rows: list[tuple[str, str, str]], empty_msg: str) -> str:
     """!
-    @brief Render rows.
+    @brief Render API-index entries as HTML table rows, including an empty-state row when needed.
     @param[in] rows Argument passed to `render_rows()`.
     @param[in] empty_msg Argument passed to `render_rows()`.
     @return Value returned by `render_rows()`.
@@ -272,7 +272,7 @@ def section_table(title: str, rows_html: str) -> str:
 
 def render_page(title: str, intro: str, body_html: str) -> str:
     """!
-    @brief Render page.
+    @brief Wrap a generated index body in a complete standalone HTML document.
     @param[in] title Argument passed to `render_page()`.
     @param[in] intro Argument passed to `render_page()`.
     @param[in] body_html Argument passed to `render_page()`.

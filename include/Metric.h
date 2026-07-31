@@ -222,7 +222,7 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user);
 PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user);
 
 /**
- * @brief Ensure a **right-handed** metric basis (`Csi`, `Eta`, `Zet`) and a
+ * @brief Verify and, when consistently inverted, repair the **right-handed** metric basis (`Csi`, `Eta`, `Zet`) and a
  *        **positive Jacobian** (`Aj`) over the whole domain.
  *
  * The metric-generation kernels are completely algebraic, so they will happily

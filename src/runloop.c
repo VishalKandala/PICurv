@@ -13,8 +13,7 @@ static volatile sig_atomic_t g_runtime_shutdown_signal = 0;
 static PetscBool             g_runtime_shutdown_auto_requested = PETSC_FALSE;
 
 /**
- * @brief Internal helper implementation: `RuntimeShutdownSignalHandler()`.
- * @details Local to this translation unit.
+ * @brief Record receipt of a termination signal for safe handling by the run loop.
  */
 static void RuntimeShutdownSignalHandler(int signum)
 {
@@ -24,8 +23,7 @@ static void RuntimeShutdownSignalHandler(int signum)
 }
 
 /**
- * @brief Internal helper implementation: `RuntimeRequestAutoWalltimeGuard()`.
- * @details Local to this translation unit.
+ * @brief Request a controlled shutdown because the estimated walltime margin is exhausted.
  */
 static void RuntimeRequestAutoWalltimeGuard(void)
 {
@@ -35,8 +33,7 @@ static void RuntimeRequestAutoWalltimeGuard(void)
 }
 
 /**
- * @brief Internal helper implementation: `RuntimeShutdownRequested()`.
- * @details Local to this translation unit.
+ * @brief Report whether a signal or walltime guard has requested run-loop shutdown.
  */
 static PetscBool RuntimeShutdownRequested(void)
 {
@@ -57,8 +54,7 @@ static PetscErrorCode RefreshVerificationScalarScatterState(UserCtx *user)
 }
 
 /**
- * @brief Internal helper implementation: `RuntimeShutdownSignalName()`.
- * @details Local to this translation unit.
+ * @brief Translate a recorded termination signal into a user-facing signal name.
  */
 static const char *RuntimeShutdownSignalName(PetscInt signum)
 {
@@ -77,8 +73,7 @@ static const char *RuntimeShutdownSignalName(PetscInt signum)
 }
 
 /**
- * @brief Internal helper implementation: `RuntimeShutdownReasonName()`.
- * @details Local to this translation unit.
+ * @brief Translate the current shutdown reason into a user-facing diagnostic label.
  */
 static const char *RuntimeShutdownReasonName(void)
 {
@@ -92,8 +87,7 @@ static const char *RuntimeShutdownReasonName(void)
 }
 
 /**
- * @brief Internal helper implementation: `RegisterRuntimeSignalHandler()`.
- * @details Local to this translation unit.
+ * @brief Install the process signal handler used to request graceful simulation shutdown.
  */
 static PetscErrorCode RegisterRuntimeSignalHandler(int signum)
 {
@@ -196,8 +190,7 @@ PetscBool RuntimeWalltimeGuardShouldTrigger(PetscInt completed_steps, PetscInt w
 }
 
 /**
- * @brief Internal helper implementation: `RuntimeWalltimeGuardRemainingSeconds()`.
- * @details Local to this translation unit.
+ * @brief Estimate the remaining scheduler walltime after reserving the configured shutdown margin.
  */
 static PetscReal RuntimeWalltimeGuardRemainingSeconds(const SimCtx *simCtx)
 {
@@ -208,8 +201,7 @@ static PetscReal RuntimeWalltimeGuardRemainingSeconds(const SimCtx *simCtx)
 }
 
 /**
- * @brief Internal helper implementation: `UpdateRuntimeWalltimeGuardEstimator()`.
- * @details Local to this translation unit.
+ * @brief Update the timestep-duration estimate used by the automatic walltime guard.
  */
 static void UpdateRuntimeWalltimeGuardEstimator(SimCtx *simCtx, PetscReal completed_step_seconds)
 {
@@ -236,8 +228,7 @@ static void UpdateRuntimeWalltimeGuardEstimator(SimCtx *simCtx, PetscReal comple
 }
 
 /**
- * @brief Internal helper implementation: `MaybeRequestRuntimeWalltimeGuardShutdown()`.
- * @details Local to this translation unit.
+ * @brief Request graceful shutdown when another timestep would exceed the walltime budget.
  */
 static PetscErrorCode MaybeRequestRuntimeWalltimeGuardShutdown(SimCtx *simCtx, const char *checkpoint_name)
 {
@@ -281,8 +272,7 @@ static PetscErrorCode MaybeRequestRuntimeWalltimeGuardShutdown(SimCtx *simCtx, c
 }
 
 /**
- * @brief Internal helper implementation: `WriteForcedTerminationOutput()`.
- * @details Local to this translation unit.
+ * @brief Write restart-safe output when a controlled shutdown interrupts the run loop.
  */
 static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user, const char *phase)
 {

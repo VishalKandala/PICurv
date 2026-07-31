@@ -138,8 +138,7 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "Apply_WallNoSlip"
 /**
- * @brief Internal helper implementation: `Apply_WallNoSlip()`.
- * @details Local to this translation unit.
+ * @brief Apply no-slip velocity values to wall-adjacent cells for this boundary condition.
  */
 static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
 {
@@ -346,8 +345,7 @@ PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "Initialize_InletConstantVelocity"
 /**
- * @brief Internal helper implementation: `Initialize_InletConstantVelocity()`.
- * @details Local to this translation unit.
+ * @brief Initialize persistent state for a constant-velocity inlet boundary.
  */
 static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx)
 {
@@ -396,8 +394,7 @@ static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, 
 #undef __FUNCT__
 #define __FUNCT__ "PreStep_InletConstantVelocity"
 /**
- * @brief Internal helper implementation: `PreStep_InletConstantVelocity()`.
- * @details Local to this translation unit.
+ * @brief Update constant-inlet data required before the next solver step.
  */
 static PetscErrorCode PreStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx,
                                                      PetscReal *local_inflow_contribution,
@@ -419,8 +416,7 @@ static PetscErrorCode PreStep_InletConstantVelocity(BoundaryCondition *self, BCC
 #undef __FUNCT__
 #define __FUNCT__ "Apply_InletConstantVelocity"
 /**
- * @brief Internal helper implementation: `Apply_InletConstantVelocity()`.
- * @details Local to this translation unit.
+ * @brief Impose the configured constant velocity on inlet boundary cells.
  */
 static PetscErrorCode Apply_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx)
 {
@@ -555,8 +551,7 @@ static PetscErrorCode Apply_InletConstantVelocity(BoundaryCondition *self, BCCon
 #undef __FUNCT__
 #define __FUNCT__ "PostStep_InletConstantVelocity"
 /**
- * @brief Internal helper implementation: `PostStep_InletConstantVelocity()`.
- * @details Local to this translation unit.
+ * @brief Perform post-step bookkeeping for a constant-velocity inlet boundary.
  */
 static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx,
                                                       PetscReal *local_inflow_contribution,
@@ -650,8 +645,7 @@ static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BC
 #undef __FUNCT__
 #define __FUNCT__ "Destroy_InletConstantVelocity"
 /**
- * @brief Internal helper implementation: `Destroy_InletConstantVelocity()`.
- * @details Local to this translation unit.
+ * @brief Release resources owned by a constant-velocity inlet boundary.
  */
 static PetscErrorCode Destroy_InletConstantVelocity(BoundaryCondition *self)
 {
@@ -744,8 +738,7 @@ PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "Initialize_InletParabolicProfile"
 /**
- * @brief Internal helper implementation: `Initialize_InletParabolicProfile()`.
- * @details Local to this translation unit.
+ * @brief Initialize the geometric data used to evaluate a parabolic inlet profile.
  */
 static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx)
 {
@@ -810,8 +803,7 @@ static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, 
 #undef __FUNCT__
 #define __FUNCT__ "PreStep_InletParabolicProfile"
 /**
- * @brief Internal helper implementation: `PreStep_InletParabolicProfile()`.
- * @details Local to this translation unit.
+ * @brief Refresh parabolic-inlet values required before the solver step.
  */
 static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
                                                      PetscReal *local_inflow_contribution,
@@ -830,8 +822,7 @@ static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCC
 #undef __FUNCT__
 #define __FUNCT__ "Apply_InletParabolicProfile"
 /**
- * @brief Internal helper implementation: `Apply_InletParabolicProfile()`.
- * @details Local to this translation unit.
+ * @brief Impose the evaluated parabolic velocity profile on inlet cells.
  */
 static PetscErrorCode Apply_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx)
 {
@@ -988,8 +979,7 @@ static PetscErrorCode Apply_InletParabolicProfile(BoundaryCondition *self, BCCon
 #undef __FUNCT__
 #define __FUNCT__ "PostStep_InletParabolicProfile"
 /**
- * @brief Internal helper implementation: `PostStep_InletParabolicProfile()`.
- * @details Local to this translation unit.
+ * @brief Perform post-step bookkeeping for a parabolic inlet boundary.
  */
 static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
                                                       PetscReal *local_inflow_contribution,
@@ -1082,8 +1072,7 @@ static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BC
 #undef __FUNCT__
 #define __FUNCT__ "Destroy_InletParabolicProfile"
 /**
- * @brief Internal helper implementation: `Destroy_InletParabolicProfile()`.
- * @details Local to this translation unit.
+ * @brief Release resources owned by a parabolic inlet boundary.
  */
 static PetscErrorCode Destroy_InletParabolicProfile(BoundaryCondition *self)
 {
@@ -1678,8 +1667,7 @@ PetscErrorCode Create_OutletConservation(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "PreStep_OutletConservation"                                     
 /**
- * @brief Internal helper implementation: `PreStep_OutletConservation()`.
- * @details Local to this translation unit.
+ * @brief Prepare the outlet-conservation correction before advancing the solver.
  */
 static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCContext *ctx,
                                      PetscReal *local_inflow_contribution, PetscReal *local_outflow_contribution)
@@ -2027,8 +2015,7 @@ static PetscErrorCode Apply_OutletConservation(BoundaryCondition *self, BCContex
 #undef __FUNCT__
 #define __FUNCT__ "PostStep_OutletConservation"
 /**
- * @brief Internal helper implementation: `PostStep_OutletConservation()`.
- * @details Local to this translation unit.
+ * @brief Update outlet-conservation state after a completed solver step.
  */
 static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCContext *ctx,
                                                    PetscReal *local_inflow_contribution,
@@ -2261,8 +2248,7 @@ PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
 #undef __FUNCT__
 #define __FUNCT__ "Initialize_PeriodicDrivenConstant"
 /**
- * @brief Internal helper implementation: `Initialize_PeriodicDrivenConstant()`.
- * @details Local to this translation unit.
+ * @brief Initialize constant forcing data for a periodically driven boundary.
  */
 static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self, BCContext *ctx)
 {
@@ -2329,8 +2315,7 @@ static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self,
 #undef __FUNCT__
 #define __FUNCT__ "PreStep_PeriodicDrivenConstant"
 /**
- * @brief Internal helper implementation: `PreStep_PeriodicDrivenConstant()`.
- * @details Local to this translation unit.
+ * @brief Prepare constant periodic-driving data before the solver step.
  */
 static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BCContext *ctx,
                                                      PetscReal *local_inflow_contribution,
@@ -2512,8 +2497,7 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
 #undef __FUNCT__
 #define __FUNCT__ "Apply_PeriodicDrivenConstant"
 /**
- * @brief Internal helper implementation: `Apply_PeriodicDrivenConstant()`.
- * @details Local to this translation unit.
+ * @brief Apply the configured constant driving term to the periodic boundary.
  */
 static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCContext *ctx)
 {
@@ -2616,8 +2600,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
 #undef __FUNCT__
 #define __FUNCT__ "Destroy_PeriodicDrivenConstant"
 /**
- * @brief Internal helper implementation: `Destroy_PeriodicDrivenConstant()`.
- * @details Local to this translation unit.
+ * @brief Release resources owned by the constant periodic-driving boundary.
  */
 static PetscErrorCode Destroy_PeriodicDrivenConstant(BoundaryCondition *self)
 {

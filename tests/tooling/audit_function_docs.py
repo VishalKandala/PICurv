@@ -10,7 +10,9 @@ This script enforces the repository's function-level documentation contract for:
 - Python functions in `picurv_cli/`, `generators/`, and `tests/`.
 
 It is intentionally lightweight. The C side uses signature scanning instead of a
-full parser, while the Python side uses `ast`.
+full parser, while the Python side uses `ast`.  It checks both coverage and a
+minimum usefulness contract: a comment must say what the function does, rather
+than merely labelling it as a helper or implementation.
 """
 
 from __future__ import annotations
@@ -26,7 +28,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 C_HEADER_DIRS = (REPO_ROOT / "include",)
 C_SOURCE_DIRS = (REPO_ROOT / "src", REPO_ROOT / "tests" / "c")
-PYTHON_DIRS = (REPO_ROOT / "picurv_cli", REPO_ROOT / "tests")
+PYTHON_DIRS = (
+    REPO_ROOT / "picurv_cli",
+    REPO_ROOT / "generators",
+    REPO_ROOT / "tests",
+)
 PYTHON_EXTRA_FILES = (
     REPO_ROOT / "picurv_cli" / "picurv",
     REPO_ROOT / "generators" / "grid.gen",
@@ -42,9 +48,13 @@ C_DECL_START_RE = re.compile(
     r"([A-Za-z_][A-Za-z0-9_]*)\s*\("
 )
 C_PARAM_RE = re.compile(r"@param(?:\[[^\]]+\])?\s+([A-Za-z_][A-Za-z0-9_]*)")
-GENERIC_PUBLIC_BRIEF_RE = re.compile(
-    r"@brief\s+(?:public interface|helper function|implementation of|internal helper|routine)\b",
+GENERIC_DESCRIPTION_RE = re.compile(
+    r"(?:a |an |the )?(?:public interface|helper function|implementation of|internal helper|"
+    r"routine|function|test helper|utility function|helper routine)\.?$",
     re.IGNORECASE,
+)
+STUB_IMPLEMENTATION_RE = re.compile(
+    r"(?:internal )?helper implementation\s*:", re.IGNORECASE
 )
 GENERIC_PUBLIC_PARAM_RE = re.compile(
     r"@param(?:\[[^\]]+\])?\s+[A-Za-z_][A-Za-z0-9_]*\s+"
@@ -52,6 +62,32 @@ GENERIC_PUBLIC_PARAM_RE = re.compile(
     r"@param(?:\[[^\]]+\])?\s+[A-Za-z_][A-Za-z0-9_]*\s+(?:output:|the)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
+
+
+def _has_specific_description(comment: str) -> bool:
+    """!
+    @brief Report whether a function comment contains a non-stub description.
+    @param[in] comment Attached C comment or Python docstring to examine.
+    @return `True` when the description is not a known placeholder or label.
+
+    The audit deliberately uses conservative, transparent heuristics instead of
+    attempting to judge prose.  It rejects descriptions that only classify a
+    symbol (for example, "helper function") and comments with no prose beyond
+    Doxygen tags.  Reviewers remain responsible for domain correctness.
+    """
+
+    brief = re.search(r"@brief\s+([^\n*]+)", comment, re.IGNORECASE)
+    prose = brief.group(1) if brief else comment
+    prose = re.sub(r"@(?:param|return|file|details|note|warning)\b[^\n]*", "", prose)
+    prose = re.sub(r"[/!*`#]", " ", prose)
+    words = re.findall(r"[A-Za-z][A-Za-z0-9_-]*", prose)
+    if len(words) < 3:
+        return False
+    normalized = prose.strip()
+    return (
+        GENERIC_DESCRIPTION_RE.fullmatch(normalized) is None
+        and STUB_IMPLEMENTATION_RE.match(normalized) is None
+    )
 
 
 @dataclass(frozen=True)
@@ -295,11 +331,11 @@ def _audit_c_header(path: Path) -> list[AuditFinding]:
         block = "\n".join(lines[block_range[0]:block_range[1] + 1])
         if "@brief" not in block:
             findings.append(AuditFinding(_relative_path(path), start_line + 1, symbol, "missing @brief tag"))
-        elif GENERIC_PUBLIC_BRIEF_RE.search(block):
+        elif not _has_specific_description(block):
             findings.append(
                 AuditFinding(
                     _relative_path(path), start_line + 1, symbol,
-                    "generic @brief; describe the function's result, state change, or numerical role",
+                    "stub @brief; describe the function's result, state change, or numerical role",
                 )
             )
         if GENERIC_PUBLIC_PARAM_RE.search(block):
@@ -328,10 +364,11 @@ def _audit_c_header(path: Path) -> list[AuditFinding]:
     return findings
 
 
-def _audit_c_source(path: Path) -> list[AuditFinding]:
+def _audit_c_source(path: Path, public_symbols: set[str]) -> list[AuditFinding]:
     """!
     @brief Audits function definitions in one C source file.
     @param[in] path Source file to scan.
+    @param[in] public_symbols Symbols with canonical public-header documentation.
     @return Findings emitted for the source file.
     """
 
@@ -345,6 +382,18 @@ def _audit_c_source(path: Path) -> list[AuditFinding]:
         if block_range is None:
             findings.append(AuditFinding(_relative_path(path), start_line + 1, symbol, "missing attached Doxygen block"))
             continue
+
+        block = "\n".join(lines[block_range[0]:block_range[1] + 1])
+        # A public declaration's Doxygen block is the canonical user-facing
+        # description.  Definitions of private helpers have no such contract,
+        # so their attached implementation comment must stand on its own.
+        if symbol not in public_symbols and not _has_specific_description(block):
+            findings.append(
+                AuditFinding(
+                    _relative_path(path), start_line + 1, symbol,
+                    "stub implementation comment; explain the function's computation or state change",
+                )
+            )
 
     return findings
 
@@ -402,6 +451,13 @@ def _audit_python_file(path: Path) -> list[AuditFinding]:
 
         if "@brief" not in docstring:
             findings.append(AuditFinding(_relative_path(path), node.lineno, node.name, "missing @brief tag"))
+        elif not _has_specific_description(docstring):
+            findings.append(
+                AuditFinding(
+                    _relative_path(path), node.lineno, node.name,
+                    "stub @brief; explain the function's result, state change, or validation role",
+                )
+            )
 
         declared_params = _python_parameter_names(node)
         documented_params = set(re.findall(r"@param(?:\[[^\]]+\])?\s+([A-Za-z_][A-Za-z0-9_]*)", docstring))
@@ -428,11 +484,17 @@ def _collect_findings() -> list[AuditFinding]:
     """
 
     findings: list[AuditFinding] = []
-    for path in _iter_c_files(C_HEADER_DIRS):
+    header_files = _iter_c_files(C_HEADER_DIRS)
+    public_symbols = {
+        symbol
+        for path in header_files
+        for _line, symbol, _signature in _collect_c_signatures(path, ";")
+    }
+    for path in header_files:
         findings.extend(_audit_c_header(path))
     for path in _iter_c_files(C_SOURCE_DIRS):
         if path.suffix == ".c":
-            findings.extend(_audit_c_source(path))
+            findings.extend(_audit_c_source(path, public_symbols))
     for path in _iter_python_files():
         findings.extend(_audit_python_file(path))
 

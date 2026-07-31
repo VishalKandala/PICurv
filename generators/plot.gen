@@ -197,7 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     """!
-    @brief CLI entrypoint.
+    @brief Validate a plot request and render it to the requested output or display target.
     @param[in] argv Optional argv override for tests.
     @return Process exit code.
     """

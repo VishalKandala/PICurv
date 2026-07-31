@@ -512,7 +512,7 @@ Current next-gap backlog:
 
 Repository contract note:
 
-- `python3 tests/tooling/audit_function_docs.py` enforces Doxygen-style function documentation coverage for C and Python code, including tests.
+- `python3 tests/tooling/audit_function_docs.py` enforces a repository-wide function-documentation contract for production code, generators, tests, and tooling. Public C APIs require a specific Doxygen `@brief`; private C helpers require a specific attached implementation comment; Python functions require a specific `@brief` docstring. Name-only labels such as “helper function” and “internal helper implementation” fail the gate.
 - GitHub Actions now runs that audit explicitly before `pytest -q`, then runs markdown link checks on pull requests and pushes to `main`.
 
 Detailed guide:

@@ -15,7 +15,7 @@ LINE_RE = re.compile(r"^\s*([^:]+):\s*([0-9]+):(.*)$")
 
 def parse_args() -> argparse.Namespace:
     """!
-    @brief Parse args.
+    @brief Parse coverage thresholds and repository paths supplied to the C coverage gate.
     @return Value returned by `parse_args()`.
     """
     parser = argparse.ArgumentParser(
@@ -54,7 +54,7 @@ def parse_args() -> argparse.Namespace:
 
 def run_gcov(src_files: list[Path], obj_dir: Path, repo_root: Path, output_dir: Path) -> None:
     """!
-    @brief Run gcov.
+    @brief Run gcov for each C source file and collect its coverage output in the requested directory.
     @param[in] src_files Argument passed to `run_gcov()`.
     @param[in] obj_dir Argument passed to `run_gcov()`.
     @param[in] repo_root Argument passed to `run_gcov()`.

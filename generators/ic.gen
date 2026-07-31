@@ -327,7 +327,7 @@ def build_parser():
 
 def main(argv=None) -> int:
     """!
-    @brief Command-line entrypoint.
+    @brief Generate the requested initial-condition PETSc vector from configuration and PICGRID inputs.
     @param[in] argv Optional argument override.
     @return Process exit code.
     """
