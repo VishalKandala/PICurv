@@ -1409,6 +1409,32 @@ static PetscErrorCode CollectiveLegacyPointBlockOracle(UserCtx *user, PetscInt i
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/** @brief Converts an in-domain or periodic-ghost DMDA stencil to PETSc ordering. */
+static PetscErrorCode TestStencilToGlobal(UserCtx *user, MatStencil stencil,
+                                          PetscInt *global_index)
+{
+    ISLocalToGlobalMapping local_to_global = NULL;
+    PetscInt ghost_starts[3], ghost_sizes[3], local_index;
+
+    PetscFunctionBeginUser;
+    PetscCall(DMDAGetGhostCorners(user->fda,
+                                  &ghost_starts[0], &ghost_starts[1], &ghost_starts[2],
+                                  &ghost_sizes[0], &ghost_sizes[1], &ghost_sizes[2]));
+    PetscCall(PicurvAssertBool((PetscBool)(
+        stencil.i >= ghost_starts[0] && stencil.i < ghost_starts[0] + ghost_sizes[0] &&
+        stencil.j >= ghost_starts[1] && stencil.j < ghost_starts[1] + ghost_sizes[1] &&
+        stencil.k >= ghost_starts[2] && stencil.k < ghost_starts[2] + ghost_sizes[2]),
+        "test stencil must lie in the local DMDA ghost region"));
+    local_index = stencil.c + 3 * (
+        (stencil.i - ghost_starts[0]) + ghost_sizes[0] * (
+        (stencil.j - ghost_starts[1]) + ghost_sizes[1] *
+        (stencil.k - ghost_starts[2])));
+    PetscCall(DMGetLocalToGlobalMapping(user->fda, &local_to_global));
+    PetscCall(ISLocalToGlobalMappingApply(local_to_global, 1, &local_index,
+                                          global_index));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 /** @brief Reads one DMDA-stencil matrix entry through collective basis vectors. */
 static PetscErrorCode PreconditionerMatrixStencilEntry(UserCtx *user,
                                        Mat preconditioning_matrix, MatStencil row,
@@ -1437,6 +1463,85 @@ static PetscErrorCode PreconditionerMatrixStencilEntry(UserCtx *user,
     PetscCall(VecDot(row_basis, product, value));
     PetscCall(VecDestroy(&product)); PetscCall(VecDestroy(&row_basis));
     PetscCall(VecDestroy(&column_basis));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Verifies the exact AIJ layout and preallocation derived from row classes. */
+static PetscErrorCode AssertExactPointBlockMatrixAllocation(
+    UserCtx *user, Mat matrix, PetscBool require_offrank_periodic)
+{
+    DMDALocalInfo info;
+    MatInfo matrix_info;
+    PetscMPIInt comm_size = 1;
+    PetscInt matrix_rows, matrix_cols, local_rows, local_cols;
+    PetscInt vector_size, vector_local_size, block_size;
+    PetscInt ownership_start, ownership_end;
+    PetscInt expected_local = 0, expected_global = 0;
+    PetscInt offrank_periodic_local = 0, offrank_periodic_global = 0;
+    PetscBool is_seq_aij = PETSC_FALSE, is_mpi_aij = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCall(DMDAGetLocalInfo(user->fda, &info));
+    PetscCall(MatGetSize(matrix, &matrix_rows, &matrix_cols));
+    PetscCall(MatGetLocalSize(matrix, &local_rows, &local_cols));
+    PetscCall(VecGetSize(user->Ucont, &vector_size));
+    PetscCall(VecGetLocalSize(user->Ucont, &vector_local_size));
+    PetscCall(VecGetOwnershipRange(user->Ucont, &ownership_start, &ownership_end));
+    PetscCall(MatGetBlockSize(matrix, &block_size));
+    PetscCall(PicurvAssertIntEqual(vector_size, matrix_rows,
+                                   "point-block global row dimension"));
+    PetscCall(PicurvAssertIntEqual(vector_size, matrix_cols,
+                                   "point-block global column dimension"));
+    PetscCall(PicurvAssertIntEqual(vector_local_size, local_rows,
+                                   "point-block local row dimension"));
+    PetscCall(PicurvAssertIntEqual(vector_local_size, local_cols,
+                                   "point-block local column dimension"));
+    PetscCall(PicurvAssertIntEqual(3, block_size, "point-block logical block size"));
+    PetscCallMPI(MPI_Comm_size(PetscObjectComm((PetscObject)matrix), &comm_size));
+    PetscCall(PetscObjectTypeCompare((PetscObject)matrix, MATSEQAIJ, &is_seq_aij));
+    PetscCall(PetscObjectTypeCompare((PetscObject)matrix, MATMPIAIJ, &is_mpi_aij));
+    PetscCall(PicurvAssertBool(
+        comm_size == 1 ? is_seq_aij : is_mpi_aij,
+        "point-block matrix must use the expected AIJ implementation"));
+
+    for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
+        for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
+            for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+                for (PetscInt component = 0; component < 3; ++component) {
+                    PetscInt ri, rj, rk;
+                    MomentumNewtonKrylovRowType type = MomentumNewtonKrylov_ClassifyRow(
+                        user, i, j, k, component, &ri, &rj, &rk);
+                    expected_local += type == MOM_NK_ROW_PHYSICAL ? 3 :
+                                      type == MOM_NK_ROW_PERIODIC_DUPLICATE ? 2 : 1;
+                    if (type == MOM_NK_ROW_PERIODIC_DUPLICATE) {
+                        PetscInt representative;
+                        PetscCall(TestStencilToGlobal(user,
+                            (MatStencil){.i = ri, .j = rj, .k = rk, .c = component},
+                            &representative));
+                        if (representative < ownership_start || representative >= ownership_end)
+                            ++offrank_periodic_local;
+                    }
+                }
+            }
+        }
+    }
+    PetscCallMPI(MPI_Allreduce(&expected_local, &expected_global, 1, MPIU_INT,
+                               MPI_SUM, PetscObjectComm((PetscObject)matrix)));
+    PetscCallMPI(MPI_Allreduce(&offrank_periodic_local, &offrank_periodic_global,
+                               1, MPIU_INT, MPI_SUM,
+                               PetscObjectComm((PetscObject)matrix)));
+    PetscCall(MatGetInfo(matrix, MAT_GLOBAL_SUM, &matrix_info));
+    PetscCall(PicurvAssertRealNear((PetscReal)expected_global,
+        (PetscReal)matrix_info.nz_allocated, 0.0,
+        "point-block matrix must allocate exactly the classified scalar pattern"));
+    PetscCall(PicurvAssertRealNear((PetscReal)expected_global,
+        (PetscReal)matrix_info.nz_used, 0.0,
+        "point-block assembly must insert every classified structural entry"));
+    PetscCall(PicurvAssertRealNear(0.0, (PetscReal)matrix_info.mallocs, 0.0,
+        "point-block insertion must not reallocate matrix storage"));
+    if (require_offrank_periodic && comm_size > 1)
+        PetscCall(PicurvAssertBool((PetscBool)(offrank_periodic_global > 0),
+            "MPI periodic fixture must exercise off-rank preallocation"));
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -1478,6 +1583,7 @@ static PetscErrorCode TestPointBlockPreconditionerEngine(void)
     KSP ksp = NULL;
     PC pc = NULL;
     Vec pc_rhs = NULL, pc_solution = NULL;
+    MatInfo initial_allocation_info, repeated_allocation_info;
 
     PetscFunctionBeginUser;
     PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
@@ -1496,6 +1602,10 @@ static PetscErrorCode TestPointBlockPreconditionerEngine(void)
     PetscCall(PicurvAssertBool((PetscBool)!engine.aliases_jacobian_operator,
                                "point-block matrix must not alias the Jacobian operator"));
     PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
+    PetscCall(AssertExactPointBlockMatrixAllocation(
+        user, preconditioning_matrix, PETSC_FALSE));
+    PetscCall(MatGetInfo(preconditioning_matrix, MAT_GLOBAL_SUM,
+                         &initial_allocation_info));
     PetscCall(MatNorm(preconditioning_matrix, NORM_FROBENIUS, &matrix_norm));
     PetscCall(PicurvAssertBool((PetscBool)(matrix_norm > 0.0),
                                "model callback and common rows must insert matrix entries"));
@@ -1642,6 +1752,14 @@ static PetscErrorCode TestPointBlockPreconditionerEngine(void)
     PetscCall(MatNorm(preconditioning_matrix, NORM_FROBENIUS, &matrix_norm));
     PetscCall(MatShift(preconditioning_matrix, 7.0));
     PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
+    PetscCall(MatGetInfo(preconditioning_matrix, MAT_GLOBAL_SUM,
+                         &repeated_allocation_info));
+    PetscCall(PicurvAssertRealNear((PetscReal)initial_allocation_info.nz_allocated,
+        (PetscReal)repeated_allocation_info.nz_allocated, 0.0,
+        "repeated assembly must retain exact allocated storage"));
+    PetscCall(PicurvAssertRealNear((PetscReal)initial_allocation_info.mallocs,
+        (PetscReal)repeated_allocation_info.mallocs, 0.0,
+        "repeated assembly must not add insertion reallocations"));
     PetscCall(MatNorm(preconditioning_matrix, NORM_FROBENIUS, &reassembled_norm));
     PetscCall(PicurvAssertRealNear(matrix_norm, reassembled_norm, 1e-12,
                                    "repeated engine assembly must clear old entries"));
@@ -1687,14 +1805,14 @@ static PetscErrorCode AssertPeriodicPreconditionerRow(UserCtx *user, Mat matrix,
     type = MomentumNewtonKrylov_ClassifyRow(user, row.i, row.j, row.k, row.c, &ri, &rj, &rk);
     PetscCall(PicurvAssertIntEqual(MOM_NK_ROW_PERIODIC_DUPLICATE, type, message));
     global_row = row.c + 3 * (row.i + user->info.mx * (row.j + user->info.my * row.k));
-    global_rep = row.c + 3 * (ri + user->info.mx * (rj + user->info.my * rk));
     PetscCall(DMDAGetAO(user->fda, &ao));
     PetscCall(AOApplicationToPetsc(ao, 1, &global_row));
-    PetscCall(AOApplicationToPetsc(ao, 1, &global_rep));
     PetscCall(MatGetOwnershipRange(matrix, &lo, &hi));
     if (global_row >= lo && global_row < hi) {
         PetscBool found_self = PETSC_FALSE, found_rep = PETSC_FALSE;
         PetscInt nonzero_entries = 0;
+        PetscCall(TestStencilToGlobal(user,
+            (MatStencil){.i = ri, .j = rj, .k = rk, .c = row.c}, &global_rep));
         PetscCall(MatGetRow(matrix, global_row, &ncols, &cols, &values));
         for (PetscInt n = 0; n < ncols; ++n) {
             if (PetscAbsScalar(values[n]) <= 1e-14) continue;
@@ -1809,7 +1927,7 @@ static PetscErrorCode TestPointBlockPeriodicAssembly(void)
     PetscReal matrix_norm = 0.0;
 
     PetscFunctionBeginUser;
-    PetscCall(BuildNewtonFixture(periodic_xy_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(BuildNewtonFixture(periodic_xyz_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
     PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
     PetscCall(VecDuplicate(user->Ucont, &x));
     PetscCall(VecDuplicate(user->Ucont, &f));
@@ -1819,6 +1937,8 @@ static PetscErrorCode TestPointBlockPeriodicAssembly(void)
     PetscCall(MomentumPreconditionerEngine_Create(
         user, NULL, &description, &ctx.preconditioning_engine));
     PetscCall(MomentumPreconditionerEngine_Assemble(&ctx.preconditioning_engine, user, x));
+    PetscCall(AssertExactPointBlockMatrixAllocation(
+        user, ctx.preconditioning_engine.preconditioning_matrix, PETSC_TRUE));
     PetscCall(MatNorm(ctx.preconditioning_engine.preconditioning_matrix,
                       NORM_FROBENIUS, &matrix_norm));
     PetscCall(PicurvAssertBool((PetscBool)(matrix_norm > 0.0),
@@ -1831,6 +1951,10 @@ static PetscErrorCode TestPointBlockPeriodicAssembly(void)
         ctx.preconditioning_engine.preconditioning_matrix,
         (MatStencil){.i = 0, .j = 0, .k = 3, .c = 1},
         "periodic intersection must contain exact +1/-1 entries"));
+    PetscCall(AssertPeriodicPreconditionerRow(user,
+        ctx.preconditioning_engine.preconditioning_matrix,
+        (MatStencil){.i = 0, .j = 0, .k = 0, .c = 2},
+        "periodic origin intersection must contain exact +1/-1 entries"));
     PetscCall(MomentumPreconditionerEngine_Destroy(&ctx.preconditioning_engine));
     PetscCall(VecDestroy(&f));
     PetscCall(VecDestroy(&x));

@@ -86,6 +86,8 @@ static PetscErrorCode MomentumNewtonKrylov_FormJacobian(SNES snes, Vec current_s
     Mat jacobian_operator, Mat preconditioning_matrix, void *vctx);
 static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
     UserCtx *user, Vec current_solution, Mat preconditioning_matrix);
+static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
+    UserCtx *user, Mat *preconditioning_matrix);
 
 /**
  * @brief Captures SNES iteration norms and optionally writes PICurv history rows.
@@ -494,6 +496,18 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
     PetscErrorCode ierr = PETSC_SUCCESS, cleanup_ierr;
 
     PetscFunctionBeginUser;
+    /*
+     * current_solution is the current SNES trial Ucont Vec: it is layout-compatible
+     * with user->fda/user->Ucont, but is not necessarily the canonical user->Ucont
+     * selected by UpdateLocalGhosts("Ucont"). Scatter that trial Vec directly with
+     * user->fda so PETSc applies its MPI ownership, periodic topology, component
+     * ordering, and ghost mapping without canonical-field synchronization or mutation
+     * of current_solution. UpdateLocalGhosts additionally repairs the component-normal
+     * staggered buffers Uxi(i=-1,mx), Ueta(j=-1,my), and Uzeta(k=-1,mz); the audited
+     * point-block velocity stencil reads none of those planes, so the repair cannot
+     * change a coefficient. Revisit this choice and extend the periodic-localization
+     * tests if the model stencil is expanded to read any repaired normal buffer.
+     */
     ierr = DMGlobalToLocalBegin(user->fda, current_solution, INSERT_VALUES, user->lUcont);
     if (ierr) goto cleanup;
     ierr = DMGlobalToLocalEnd(user->fda, current_solution, INSERT_VALUES, user->lUcont);
@@ -555,19 +569,18 @@ static PetscErrorCode MomentumPreconditionerEngine_ApplyConstraintRows(
                     MomentumNewtonKrylovRowType type = MomentumNewtonKrylov_ClassifyRow(
                         user, i, j, k, component, &ri, &rj, &rk);
                     if (type != MOM_NK_ROW_PHYSICAL) {
-                        const PetscScalar one = 1.0, minus_one = -1.0;
-                        AO ao = NULL;
-                        PetscInt global_row = 3 * ((k * info.my + j) * info.mx + i) + component;
-                        PetscCall(DMDAGetAO(user->fda, &ao));
-                        PetscCall(AOApplicationToPetsc(ao, 1, &global_row));
-                        PetscCall(MatSetValue(preconditioning_matrix, global_row, global_row,
-                                              one, INSERT_VALUES));
+                        MatStencil row = {.i = i, .j = j, .k = k, .c = component};
+                        MatStencil columns[2] = {row, row};
+                        PetscScalar values[2] = {1.0, -1.0};
+                        PetscInt column_count = 1;
                         if (type == MOM_NK_ROW_PERIODIC_DUPLICATE) {
-                            PetscInt global_col = 3 * ((rk * info.my + rj) * info.mx + ri) + component;
-                            PetscCall(AOApplicationToPetsc(ao, 1, &global_col));
-                            PetscCall(MatSetValue(preconditioning_matrix, global_row, global_col,
-                                                  minus_one, INSERT_VALUES));
+                            columns[column_count++] = (MatStencil){
+                                .i = ri, .j = rj, .k = rk, .c = component
+                            };
                         }
+                        PetscCall(MatSetValuesStencil(preconditioning_matrix, 1, &row,
+                                                      column_count, columns, values,
+                                                      INSERT_VALUES));
                     }
                 }
             }
@@ -650,14 +663,9 @@ static PetscErrorCode MomentumPreconditionerEngine_Create(UserCtx *user,
                requested->structure == MOM_NK_PC_STRUCTURE_POINT_BLOCK) {
         engine->model_ops = &frozen_momentum_point_block_ops;
         PetscCall(engine->model_ops->Describe(user, &engine->description));
-        PetscCall(DMCreateMatrix(user->fda, &engine->preconditioning_matrix));
+        PetscCall(MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
+            user, &engine->preconditioning_matrix));
         engine->owns_preconditioning_matrix = PETSC_TRUE;
-        /* DMDA preallocates the point blocks; periodic duplicate equations may
-         * add one wraparound column outside the local DM stencil. */
-        PetscCall(MatSetOption(engine->preconditioning_matrix,
-                               MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
-        PetscCall(MatSetBlockSize(engine->preconditioning_matrix,
-                                  engine->description.block_size));
         PetscCall(PetscObjectSetName((PetscObject)engine->preconditioning_matrix,
                                      "momentum_preconditioner_frozen_point_block"));
         engine->aliases_jacobian_operator = PETSC_FALSE;
@@ -812,6 +820,157 @@ static MomentumNewtonKrylovRowType MomentumNewtonKrylov_ClassifyRow(
     if (periodic_duplicate) return MOM_NK_ROW_PERIODIC_DUPLICATE;
     if (residual_zeroed) return MOM_NK_ROW_FIXED_HOMOGENEOUS;
     return MOM_NK_ROW_PHYSICAL;
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "MomentumPreconditionerEngine_CreateExactPointBlockMatrix"
+/**
+ * @brief Creates the frozen point-block P matrix with its exact scalar pattern.
+ * @details Row and column ownership follows the velocity DMDA global vector.
+ * Physical rows reserve the three same-point components, fixed rows reserve
+ * only their diagonal, and periodic duplicate rows additionally reserve their
+ * wrapped representative. DMDA AO, local mapping, and stencil metadata are
+ * retained so the existing insertion paths keep their exact ordering.
+ */
+static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
+    UserCtx *user, Mat *preconditioning_matrix)
+{
+    DMDALocalInfo info;
+    ISLocalToGlobalMapping local_to_global = NULL;
+    Mat matrix = NULL;
+    MPI_Comm comm;
+    PetscInt local_size, global_size, ownership_start, ownership_end;
+    PetscInt *diagonal_nnz = NULL, *offdiagonal_nnz = NULL;
+    PetscInt ghost_starts[4] = {0, 0, 0, 0}, ghost_sizes[3] = {0, 0, 0};
+    PetscErrorCode ierr = PETSC_SUCCESS, cleanup_ierr;
+
+    PetscFunctionBeginUser;
+    PetscCheck(preconditioning_matrix != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Point-block matrix output is NULL.");
+    *preconditioning_matrix = NULL;
+    comm = PetscObjectComm((PetscObject)user->fda);
+    PetscCall(DMDAGetLocalInfo(user->fda, &info));
+    PetscCall(VecGetLocalSize(user->Ucont, &local_size));
+    PetscCall(VecGetSize(user->Ucont, &global_size));
+    PetscCall(VecGetOwnershipRange(user->Ucont, &ownership_start, &ownership_end));
+    PetscCheck(local_size == ownership_end - ownership_start, comm, PETSC_ERR_PLIB,
+               "Velocity ownership range does not match its local size.");
+    ierr = PetscCalloc2(local_size, &diagonal_nnz,
+                        local_size, &offdiagonal_nnz); if (ierr) goto cleanup;
+    ierr = DMGetLocalToGlobalMapping(user->fda, &local_to_global); if (ierr) goto cleanup;
+    ierr = DMDAGetGhostCorners(user->fda,
+                               &ghost_starts[0], &ghost_starts[1], &ghost_starts[2],
+                               &ghost_sizes[0], &ghost_sizes[1], &ghost_sizes[2]);
+    if (ierr) goto cleanup;
+
+    for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
+        for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
+            for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+                for (PetscInt component = 0; component < 3; ++component) {
+                    PetscInt ri, rj, rk, column_count;
+                    MatStencil row_stencil = {.i = i, .j = j, .k = k, .c = component};
+                    MatStencil column_stencils[3];
+                    PetscInt row_local, row, column_locals[3], columns[3];
+                    MomentumNewtonKrylovRowType type = MomentumNewtonKrylov_ClassifyRow(
+                        user, i, j, k, component, &ri, &rj, &rk);
+
+                    if (type == MOM_NK_ROW_PHYSICAL) {
+                        column_count = 3;
+                        for (PetscInt column_component = 0; column_component < 3;
+                             ++column_component) {
+                            column_stencils[column_component] = (MatStencil){
+                                .i = i, .j = j, .k = k, .c = column_component
+                            };
+                        }
+                    } else {
+                        column_count = 1;
+                        column_stencils[0] = row_stencil;
+                        if (type == MOM_NK_ROW_PERIODIC_DUPLICATE) {
+                            column_stencils[column_count++] = (MatStencil){
+                                .i = ri, .j = rj, .k = rk, .c = component
+                            };
+                        }
+                    }
+                    row_local = component + 3 * (
+                        (i - ghost_starts[0]) + ghost_sizes[0] * (
+                        (j - ghost_starts[1]) + ghost_sizes[1] *
+                        (k - ghost_starts[2])));
+                    for (PetscInt column_index = 0; column_index < column_count;
+                         ++column_index) {
+                        const MatStencil column = column_stencils[column_index];
+                        if (!(column.i >= ghost_starts[0] &&
+                              column.i < ghost_starts[0] + ghost_sizes[0] &&
+                              column.j >= ghost_starts[1] &&
+                              column.j < ghost_starts[1] + ghost_sizes[1] &&
+                              column.k >= ghost_starts[2] &&
+                              column.k < ghost_starts[2] + ghost_sizes[2])) {
+                            ierr = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__,
+                                              PETSC_ERR_ARG_OUTOFRANGE,
+                                              PETSC_ERROR_INITIAL,
+                                              "Point-block column lies outside the DMDA ghost stencil.");
+                            goto cleanup;
+                        }
+                        column_locals[column_index] = column.c + 3 * (
+                            (column.i - ghost_starts[0]) + ghost_sizes[0] * (
+                            (column.j - ghost_starts[1]) + ghost_sizes[1] *
+                            (column.k - ghost_starts[2])));
+                    }
+                    ierr = ISLocalToGlobalMappingApply(local_to_global, 1,
+                                                        &row_local, &row);
+                    if (ierr) goto cleanup;
+                    ierr = ISLocalToGlobalMappingApply(local_to_global, column_count,
+                                                        column_locals, columns);
+                    if (ierr) goto cleanup;
+                    if (!(row >= ownership_start && row < ownership_end)) {
+                        ierr = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__,
+                                          PETSC_ERR_PLIB, PETSC_ERROR_INITIAL,
+                                          "DMDA-mapped point-block row is not locally owned.");
+                        goto cleanup;
+                    }
+                    for (PetscInt column_index = 0; column_index < column_count;
+                         ++column_index) {
+                        PetscBool duplicate = PETSC_FALSE;
+                        for (PetscInt previous = 0; previous < column_index; ++previous)
+                            if (columns[previous] == columns[column_index]) duplicate = PETSC_TRUE;
+                        if (columns[column_index] < 0) {
+                            ierr = PetscError(comm, __LINE__, PETSC_FUNCTION_NAME, __FILE__,
+                                              PETSC_ERR_PLIB, PETSC_ERROR_INITIAL,
+                                              "DMDA-mapped point-block column is invalid.");
+                            goto cleanup;
+                        }
+                        if (duplicate) continue;
+                        if (columns[column_index] >= ownership_start &&
+                            columns[column_index] < ownership_end)
+                            ++diagonal_nnz[row - ownership_start];
+                        else
+                            ++offdiagonal_nnz[row - ownership_start];
+                    }
+                }
+            }
+        }
+    }
+
+    ierr = MatCreateAIJ(comm, local_size, local_size, global_size, global_size,
+                        0, diagonal_nnz, 0, offdiagonal_nnz, &matrix);
+    if (ierr) goto cleanup;
+    ierr = MatSetBlockSize(matrix, 3); if (ierr) goto cleanup;
+    ierr = MatSetLocalToGlobalMapping(matrix, local_to_global, local_to_global);
+    if (ierr) goto cleanup;
+    ierr = MatSetStencil(matrix, 3, ghost_sizes, ghost_starts, 3);
+    if (ierr) goto cleanup;
+    ierr = MatSetDM(matrix, user->fda); if (ierr) goto cleanup;
+    ierr = MatSetOption(matrix, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_TRUE);
+    if (ierr) goto cleanup;
+    ierr = PetscFree2(diagonal_nnz, offdiagonal_nnz); if (ierr) goto cleanup;
+
+    *preconditioning_matrix = matrix;
+    matrix = NULL;
+
+cleanup:
+    cleanup_ierr = MatDestroy(&matrix); if (!ierr) ierr = cleanup_ierr;
+    cleanup_ierr = PetscFree2(diagonal_nnz, offdiagonal_nnz);
+    if (!ierr) ierr = cleanup_ierr;
+    PetscFunctionReturn(ierr);
 }
 
 #undef __FUNCT__
