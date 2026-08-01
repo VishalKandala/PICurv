@@ -14,8 +14,13 @@ This directory stores reusable `solver.yml` profiles that define numerical strat
 ## 2. Included Profiles
 
 - `Imp-MG-Standard.yml`: baseline implicit multigrid-oriented setup for general use.
+- `Newton-Krylov-Standard.yml`: matrix-free Newton--Krylov setup for the validated periodic-flow scope.
+- `Newton-Krylov-Frozen-Momentum-Point-Block.yml`: Newton--Krylov setup with the provisional frozen-momentum point-block preconditioner.
+- `Analytical-Zero.yml`: zero-velocity carrier field for Brownian and stationary-particle checks.
 - `Analytical-UniformFlow.yml`: reusable constant-velocity analytical profile for deterministic particle advection checks.
+- `Analytical-TGV3D.yml`: three-dimensional Taylor--Green vortex for interpolation verification.
 - `Analytical-Zero-Verification-LinearDiffusivity.yml`: reusable verification-oriented zero-flow profile with linear diffusivity override for `grad(Gamma)` drift checks.
+- `Analytical-Zero-Verification-Scalar.yml`: zero-flow scalar-truth injection profile for scatter verification.
 
 For full schema coverage, see:
 - `examples/master_template/master_solver.yml`

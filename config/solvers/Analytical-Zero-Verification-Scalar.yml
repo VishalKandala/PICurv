@@ -1,0 +1,23 @@
+# Zero-flow carrier field with a prescribed scalar truth for scatter verification.
+operation_mode:
+  eulerian_field_source: "analytical"
+  analytical_type: "ZERO_FLOW"
+
+verification:
+  sources:
+    scalar:
+      mode: "analytical"
+      profile: "SIN_PRODUCT"
+      amplitude: 1.0
+      kx: 3.141592653589793
+      ky: 3.141592653589793
+      kz: 3.141592653589793
+
+scalar_transport:
+  schmidt_number: 1.0
+  turbulent_schmidt_number: 0.7
+
+interpolation:
+  method: "Trilinear"
+
+petsc_passthrough_options: {}

@@ -3908,9 +3908,9 @@ def test_summarize_newton_krylov_success_and_failure(tmp_path):
     summary_path.write_text(
         "\n".join(
             [
-                "# step | block | solver | SNES reason | reason code | Newton iterations | residual evaluations | Krylov iterations | initial nonlinear norm | final nonlinear norm | state",
-                "step: 10 | block: 0 | solver: Newton Krylov | reason: CONVERGED_FNORM_ABS | reason_code: 2 | newton: 0 | evals: 1 | krylov: 0 | initial: 0.0000000000000000e+00 | final: 0.0000000000000000e+00 | state: committed",
-                "step: 11 | block: 0 | solver: Newton Krylov | reason: DIVERGED_MAX_IT | reason_code: -5 | newton: 3 | evals: 8 | krylov: 12 | initial: 1.0000000000000000e+00 | final: 2.5000000000000000e-01 | state: rolled_back",
+                "# step | block | solver | Jacobian | preconditioner | SNES reason | reason code | Newton iterations | residual evaluations | Krylov iterations | initial nonlinear norm | final nonlinear norm | state",
+                "step: 10 | block: 0 | solver: Newton Krylov | Jacobian: finite_difference / matrix_free | Preconditioner: none | reason: CONVERGED_FNORM_ABS | reason_code: 2 | newton: 0 | evals: 1 | krylov: 0 | initial: 0.0000000000000000e+00 | final: 0.0000000000000000e+00 | state: committed",
+                "step: 11 | block: 0 | solver: Newton Krylov | Jacobian: finite_difference / matrix_free | Preconditioner: frozen_momentum_jacobian / point_block | reason: DIVERGED_MAX_IT | reason_code: -5 | newton: 3 | evals: 8 | krylov: 12 | initial: 1.0000000000000000e+00 | final: 2.5000000000000000e-01 | state: rolled_back",
             ]
         )
         + "\n",

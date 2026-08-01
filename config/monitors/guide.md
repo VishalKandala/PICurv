@@ -16,7 +16,7 @@ This directory stores reusable `monitor.yml` profiles for solver observability. 
 ## 2. Included Profiles
 
 - `Standard_Output.yml`: recommended default for most runs.
-- `examples/search_robustness/Search_Robustness_Output.yml`: search-focused monitor profile that keeps runtime quiet by default while preserving `search_metrics.csv`.
+- `Search-Robustness.yml`: search-focused monitor with 10-step output cadence; it keeps runtime quiet while preserving the particle-search metrics artifact.
 
 For exhaustive schema coverage, see:
 - `examples/master_template/master_monitor.yml`

@@ -1,0 +1,13 @@
+# Zero-flow analytical carrier field for Brownian-motion and stationary-particle checks.
+operation_mode:
+  eulerian_field_source: "analytical"
+  analytical_type: "ZERO_FLOW"
+
+scalar_transport:
+  schmidt_number: 1.0
+  turbulent_schmidt_number: 0.7
+
+interpolation:
+  method: "Trilinear"
+
+petsc_passthrough_options: {}

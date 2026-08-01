@@ -14,6 +14,9 @@ This directory stores reusable `post.yml` analysis recipes for `./bin/picurv run
 ## 2. Included Profiles
 
 - `standard_analysis.yml`: baseline Eulerian analysis (dimensionalization, nodal fields, Q-criterion).
+- `particle_msd.yml`: particle displacement/MSD analysis with particle visualization.
+- `interpolation_verification.yml`: particle velocity output for comparison against an analytical carrier field.
+- `scatter_verification.yml`: initial-snapshot scalar scatter visualization.
 
 For full schema coverage, use:
 - `examples/master_template/master_postprocessor.yml`
@@ -50,7 +53,7 @@ Solve and postprocess in one command:
 
 ## 4. Notes on Newer Options
 
-- `statistics_pipeline` is supported (canonical task: `msd`).
+- `statistics_pipeline` is supported (canonical task: `msd`); `particle_msd.yml` is the reusable starting point.
 - `io.input_extensions.eulerian/particle` map reader expectations to generated filenames.
 - `io.eulerian_fields_averaged` is accepted as reserved passthrough.
 - keep the full desired timestep window in `run_control` for a reusable post profile. With `--continue`, PICurv computes the effective restart step for the same recipe lineage instead of requiring you to edit `start_step` by hand.

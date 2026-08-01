@@ -1,0 +1,9 @@
+# Three-dimensional Taylor--Green vortex for interpolation and particle-advection verification.
+operation_mode:
+  eulerian_field_source: "analytical"
+  analytical_type: "TGV3D"
+
+interpolation:
+  method: "Trilinear"
+
+petsc_passthrough_options: {}

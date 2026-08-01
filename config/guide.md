@@ -6,6 +6,8 @@ This directory contains reusable YAML profiles and build/runtime configuration a
 
 Every tracked asset under `config/` is listed in the starter-content contract and checked during documentation certification. Reusable solver, monitor, postprocessor, scheduler, and study profiles are each exercised in at least one declared valid composition. If a configuration asset is added, removed, or no longer has a supported composition, the gate fails until the contract and its validation coverage are updated together.
 
+The solver library covers the maintained production strategies (dual-time Picard--Jameson and Newton--Krylov) and analytical verification fields (zero, uniform, and TGV3D), including scalar and diffusivity injections. Pair these with the standard or search-focused monitor and with an Eulerian, particle-MSD, interpolation, or scatter post recipe as appropriate.
+
 ### Adding or Changing a Reusable Profile
 
 Update `tests/tooling/starter_content_contract.json` in the same change as the

@@ -1,0 +1,29 @@
+# Scalar scatter verification at the initial/output snapshot.
+run_control:
+  start_step: 0
+  end_step: 0
+  step_interval: 1
+
+source_data:
+  directory: "<solver_output_dir>"
+
+global_operations:
+  dimensionalize: true
+
+eulerian_pipeline:
+  - task: nodal_average
+    input_field: "Psi"
+    output_field: "Psi_nodal"
+
+io:
+  output_directory: "viz"
+  output_filename_prefix: "Field"
+  particle_filename_prefix: "Particle"
+  eulerian_fields: ["Psi_nodal"]
+  eulerian_fields_averaged: []
+  output_particles: true
+  particle_fields: ["position", "Psi", "pid"]
+  particle_subsampling_frequency: 1
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"

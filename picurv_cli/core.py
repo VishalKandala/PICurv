@@ -12517,7 +12517,11 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
     newton_pattern = os.path.join(log_dir, "Momentum_Solver_Newton_Krylov_Summary_Block_*.log")
     newton_regex = re.compile(
         r"step:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|"
-        r"\s*solver:\s*(?P<solver>[^|]+?)\s*\|\s*reason:\s*(?P<reason>\S+)\s*\|"
+        r"\s*solver:\s*(?P<solver>[^|]+?)\s*\|"
+        # The runtime includes Jacobian and preconditioner descriptions here.
+        # Keep these optional so summaries can also read the original compact logs.
+        r"(?:\s*Jacobian:\s*[^|]+?\s*\|\s*Preconditioner:\s*[^|]+?\s*\|)?"
+        r"\s*reason:\s*(?P<reason>\S+)\s*\|"
         r"\s*reason_code:\s*(?P<reason_code>-?\d+)\s*\|\s*newton:\s*(?P<newton>\d+)\s*\|"
         r"\s*evals:\s*(?P<evals>\d+)\s*\|\s*krylov:\s*(?P<krylov>\d+)\s*\|"
         r"\s*initial:\s*(?P<initial>[-+0-9.eE]+|unavailable)\s*\|"

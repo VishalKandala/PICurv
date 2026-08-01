@@ -1,0 +1,34 @@
+# Reusable particle-displacement recipe; tune the timestep window to the run.
+run_control:
+  start_step: 0
+  end_step: -1
+  step_interval: 1
+
+source_data:
+  directory: "<solver_output_dir>"
+
+global_operations:
+  dimensionalize: true
+
+eulerian_pipeline:
+  - task: nodal_average
+    input_field: "Ucat"
+    output_field: "Ucat_nodal"
+
+statistics_pipeline:
+  output_prefix: "ParticleMSD"
+  tasks:
+    - task: "msd"
+
+io:
+  output_directory: "viz"
+  output_filename_prefix: "Field"
+  particle_filename_prefix: "Particle"
+  eulerian_fields: ["Ucat_nodal"]
+  eulerian_fields_averaged: []
+  output_particles: true
+  particle_fields: ["position", "pid"]
+  particle_subsampling_frequency: 1
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"
