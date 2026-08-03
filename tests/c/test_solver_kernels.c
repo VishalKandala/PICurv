@@ -622,7 +622,8 @@ static PetscErrorCode MomSetLocalScalarCell(DM da, Vec lvec, PetscInt ci, PetscI
     PetscFunctionReturn(0);
 }
 
-/* 1. Shared BDF coefficient: BDF1 on cold start (ti==1) and restart (ti==tistart), BDF2 otherwise. */
+/* 1. Shared BDF coefficient: BDF1 through the first restart solve, where the run
+ * loop has advanced ti to StartStep+1. */
 static PetscErrorCode TestMomentumBDFCoefficient(void)
 {
     SimCtx *simCtx = NULL; UserCtx *user = NULL;
@@ -635,7 +636,11 @@ static PetscErrorCode TestMomentumBDFCoefficient(void)
     PetscCall(PicurvAssertRealNear(1.5, MomentumBDFCoefficient(simCtx), 1e-12, "a0 BDF2 on interior step"));
     PetscCall(PicurvAssertBool(MomentumUsesBDF2(simCtx), "step 5 (StartStep 0) is BDF2"));
     simCtx->StartStep = 5; simCtx->step = 5;
-    PetscCall(PicurvAssertRealNear(1.0, MomentumBDFCoefficient(simCtx), 1e-12, "a0 BDF1 on restart step (ti==tistart)"));
+    PetscCall(PicurvAssertRealNear(1.0, MomentumBDFCoefficient(simCtx), 1e-12, "a0 BDF1 at restart setup step"));
+    simCtx->step = 6;
+    PetscCall(PicurvAssertRealNear(1.0, MomentumBDFCoefficient(simCtx), 1e-12, "a0 BDF1 on first restart solve (ti==StartStep+1)"));
+    simCtx->step = 7;
+    PetscCall(PicurvAssertRealNear(1.5, MomentumBDFCoefficient(simCtx), 1e-12, "a0 BDF2 after first restart solve"));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }

@@ -10,17 +10,18 @@
 /**
  * @brief Single source of truth for the BDF1/BDF2 selection. See header.
  *
- * This reproduces exactly the predicate historically inlined in
- * ComputeTotalResidual(): BDF1 on the cold-start first step (ti == 1) and on the
- * first step after a restart (ti == tistart); BDF2 thereafter (when the second-
- * order time accuracy is enabled). Restart-history validity is a separate concern
- * and is intentionally not addressed here.
+ * The run loop increments `step` before invoking the momentum solve.  Therefore,
+ * BDF1 applies through the first solved restart step (`ti <= tistart + 1`).
+ * This also preserves the direct-call/setup state at `ti == tistart`.  The
+ * latter is essential because a checkpoint contains the current state but not
+ * a second prior velocity state.
+ * BDF2 applies thereafter (when the second-order time accuracy is enabled).
  */
 PetscBool MomentumUsesBDF2(SimCtx *simCtx)
 {
     const PetscInt ti      = simCtx->step;
     const PetscInt tistart = simCtx->StartStep;
-    return (PetscBool)(COEF_TIME_ACCURACY > 1.1 && ti != tistart && ti != 1);
+    return (PetscBool)(COEF_TIME_ACCURACY > 1.1 && ti > tistart + 1 && ti != 1);
 }
 
 #undef __FUNCT__

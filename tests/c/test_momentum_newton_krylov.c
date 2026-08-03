@@ -997,6 +997,61 @@ static PetscErrorCode TestZeroIterationStructuredLogging(void)
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/** @brief Verifies restarted Newton solves with both supported preconditioners. */
+static PetscErrorCode TestRestartAndContinuationSolve(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN] = "";
+    const char *fields[] = {"Ucont"};
+
+    PetscFunctionBeginUser;
+    PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(VecSet(user->Ucont, 0.2));
+    PetscCall(VecZeroEntries(user->Ucont_o));
+    PetscCall(VecZeroEntries(user->Ucont_rm1));
+    PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fields));
+    PetscCall(ApplyBoundaryConditions(user));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_rtol", "1e-4"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_max_it", "20"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_ksp_rtol", "1e-6"));
+
+    /* AdvanceSimulation() solves StartStep+1 first.  Use a nonzero checkpoint
+     * state so that SNES takes a Newton/Krylov path rather than accepting a
+     * trivial residual. */
+    simCtx->StartStep = 7;
+    simCtx->step = simCtx->StartStep + 1;
+    PetscCall(MomentumSolver_NewtonKrylov(user, NULL, NULL));
+    PetscCall(PicurvAssertBool(simCtx->mom_last_converged,
+                               "PCNONE Newton Krylov checkpoint restart must converge"));
+
+    PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+    tmpdir[0] = '\0';
+    PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(VecSet(user->Ucont, 0.2));
+    PetscCall(VecZeroEntries(user->Ucont_o));
+    PetscCall(VecZeroEntries(user->Ucont_rm1));
+    PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fields));
+    PetscCall(ApplyBoundaryConditions(user));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_model",
+                                   "frozen_momentum_jacobian"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure", "point_block"));
+
+    simCtx->continueMode = PETSC_TRUE;
+    simCtx->StartStep = 8;
+    simCtx->step = simCtx->StartStep + 1;
+    PetscCall(MomentumSolver_NewtonKrylov(user, NULL, NULL));
+    PetscCall(PicurvAssertBool(simCtx->mom_last_converged,
+                               "frozen-momentum Newton Krylov --continue solve must converge"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_preconditioner_model"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_preconditioner_structure"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_rtol"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_max_it"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_ksp_rtol"));
+    PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 /** @brief Confirms unsupported features fail before workspace allocation. */
 static PetscErrorCode TestUnsupportedConfigurationFailsBeforeAllocation(void)
 {
@@ -1031,19 +1086,6 @@ static PetscErrorCode TestUnsupportedConfigurationFailsBeforeAllocation(void)
     PetscCall(PetscPopErrorHandler());
     PetscCall(PicurvAssertBool((PetscBool)(solve_ierr != PETSC_SUCCESS), "multiblock must fail"));
     simCtx->block_number = 1;
-    simCtx->StartStep = 1;
-    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
-    solve_ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL);
-    PetscCall(PetscPopErrorHandler());
-    PetscCall(PicurvAssertBool((PetscBool)(solve_ierr != PETSC_SUCCESS), "restart must fail"));
-    simCtx->StartStep = 0;
-    simCtx->continueMode = PETSC_TRUE;
-    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
-    solve_ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL);
-    PetscCall(PetscPopErrorHandler());
-    PetscCall(PicurvAssertBool((PetscBool)(solve_ierr != PETSC_SUCCESS),
-                               "continue mode at step zero must not count as a fresh start"));
-    simCtx->continueMode = PETSC_FALSE;
     PetscCall(VecSet(user->Nvert, 1.0));
     PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
     solve_ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL);
@@ -1982,6 +2024,7 @@ int main(int argc, char **argv)
         {"whole-operator-direct-jacobian", TestWholeOperatorDirectJacobian},
         {"periodic-operator-has-no-zero-rows", TestPeriodicOperatorHasNoZeroRows},
         {"zero-iteration-structured-logging", TestZeroIterationStructuredLogging},
+        {"restart-and-continuation-solve", TestRestartAndContinuationSolve},
         {"small-solve-and-rollback", TestSmallSolveAndRollback},
         {"unsupported-configuration-fails-before-allocation", TestUnsupportedConfigurationFailsBeforeAllocation},
         {"post-allocation-failure-cleanup", TestPostAllocationFailureCleanup},

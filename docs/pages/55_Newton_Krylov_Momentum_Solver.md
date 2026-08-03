@@ -24,7 +24,8 @@ Version one is deliberately narrow and validates its inputs up front
 - exactly **one block**, no immersed boundaries, no moving/rotating bodies, FSI,
   or reference frames;
 - **no RANS, Clark, TwoD masking, or wall functions**;
-- **fresh starts only** (`StartStep == 0`);
+- fresh starts and Eulerian field restarts (including `--continue`); the first
+  solved restart step uses BDF1 because only the checkpoint state is available;
 - no masked solid cells (`Nvert` must be fluid everywhere);
 - boundary handlers limited to no-slip walls, the constant/parabolic/file inlets,
   the conservation outlet, and geometric periodic faces (with paired periodic
