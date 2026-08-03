@@ -46,6 +46,17 @@ def run_picurv(args, cwd=REPO_ROOT, env=None):
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False, env=merged_env)
 
 
+def write_eulerian_checkpoint(directory: Path, step: int, content: str = "euler_data") -> None:
+    """!
+    @brief Write the complete Eulerian checkpoint set consumed by `ReadSimulationFields()`.
+    @param[in] directory Eulerian output or restart directory.
+    @param[in] step Checkpoint step to write.
+    @param[in] content Test payload stored in each field file.
+    """
+    for field in ("ufield", "vfield", "pfield", "nvfield"):
+        (directory / f"{field}{step:05d}_0.dat").write_text(content, encoding="utf-8")
+
+
 @pytest.mark.parametrize("command", sorted(REPORTING_CONTRACT["cli_commands"]))
 def test_every_declared_user_facing_command_has_contextual_help(command):
     """!
@@ -5719,8 +5730,7 @@ def test_restart_from_copies_checkpoint_and_sets_restart_dir(tmp_path):
     source_particles.mkdir(parents=True)
 
     # Create fake checkpoint files for step 5
-    (source_output / "ufield00005_0.dat").write_text("euler_data")
-    (source_output / "vfield00005_0.dat").write_text("euler_data")
+    write_eulerian_checkpoint(source_output, 5)
     (source_particles / "pfield00005_0.dat").write_text("particle_data")
 
     source_monitor_cfg = {
@@ -5780,6 +5790,38 @@ def test_restart_from_copies_checkpoint_and_sets_restart_dir(tmp_path):
     assert f"-restart_dir {resolved}" in content
 
 
+def test_restart_rejects_incomplete_eulerian_checkpoint_without_replacing_curated_data(tmp_path):
+    """!
+    @brief Reject incomplete restart data before replacing curated checkpoint content.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    case_cfg["run_control"]["start_step"] = 5
+
+    source_run_dir = tmp_path / "old_run"
+    source_eulerian = source_run_dir / "output" / "eulerian"
+    source_eulerian.mkdir(parents=True)
+    (source_eulerian / "ufield00005_0.dat").write_text("only one field", encoding="utf-8")
+    (source_run_dir / "config").mkdir()
+    picurv.write_yaml_file(
+        str(source_run_dir / "config" / "monitor.yml"),
+        {"io": {"directories": {"output": "output", "restart": "restart"}}},
+    )
+    new_run_dir = tmp_path / "new_run"
+    curated = new_run_dir / "restart" / "sentinel"
+    curated.mkdir(parents=True)
+    (curated / "keep.txt").write_text("preserve", encoding="utf-8")
+    args = SimpleNamespace(restart_from=str(source_run_dir), continue_run=False, run_dir=None)
+
+    with pytest.raises(ValueError, match="Incomplete Eulerian checkpoint.*vfield.*pfield.*nvfield"):
+        picurv.resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, str(new_run_dir))
+    assert (curated / "keep.txt").read_text(encoding="utf-8") == "preserve"
+
+
 def test_restart_from_load_mode_uses_direct_reference(tmp_path):
     """!
     @brief Test that --restart-from with eulerian "load" mode uses direct reference (no copy).
@@ -5804,7 +5846,7 @@ def test_restart_from_load_mode_uses_direct_reference(tmp_path):
 
     # Create step files 0-3
     for step in range(4):
-        (source_output / f"ufield{step:05d}_0.dat").write_text("data")
+        write_eulerian_checkpoint(source_output, step, "data")
 
     source_monitor_cfg = {"io": {"directories": {"output": "output"}}}
     picurv.write_yaml_file(str(source_run_dir / "config" / "monitor.yml"), source_monitor_cfg)
@@ -5844,8 +5886,8 @@ def test_restart_from_load_mode_missing_step_files_fails(tmp_path):
     solver_cfg["operation_mode"]["eulerian_field_source"] = "load"
 
     # Only create steps 0 and 1, missing 2-5
-    (source_output / "ufield00000_0.dat").write_text("data")
-    (source_output / "ufield00001_0.dat").write_text("data")
+    write_eulerian_checkpoint(source_output, 0, "data")
+    write_eulerian_checkpoint(source_output, 1, "data")
 
     source_monitor_cfg = {"io": {"directories": {"output": "output"}}}
     picurv.write_yaml_file(str(source_run_dir / "config" / "monitor.yml"), source_monitor_cfg)
@@ -5877,7 +5919,7 @@ def test_continue_mode_auto_populates_restart(tmp_path):
     case_cfg["run_control"]["start_step"] = 10
 
     # Create checkpoint at step 10
-    (output_dir / "ufield00010_0.dat").write_text("euler")
+    write_eulerian_checkpoint(output_dir, 10, "euler")
     (run_dir / "output" / "particles" / "pfield00010_0.dat").write_text("particle")
 
     args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
@@ -5907,9 +5949,9 @@ def test_continue_mode_prefers_curated_restart(tmp_path):
 
     # Both output/ and restart/ exist, restart/ has curated files
     (run_dir / "output" / "eulerian").mkdir(parents=True)
-    (run_dir / "output" / "eulerian" / "ufield00010_0.dat").write_text("output_version")
+    write_eulerian_checkpoint(run_dir / "output" / "eulerian", 10, "output_version")
     (run_dir / "restart" / "eulerian").mkdir(parents=True)
-    (run_dir / "restart" / "eulerian" / "ufield00010_0.dat").write_text("curated_version")
+    write_eulerian_checkpoint(run_dir / "restart" / "eulerian", 10, "curated_version")
 
     case_cfg["run_control"]["start_step"] = 10
 

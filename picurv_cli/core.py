@@ -2402,6 +2402,10 @@ def populate_restart_directory(source_output: str, target_restart: str, start_st
     @param[in] start_step The step number whose checkpoint files should be copied.
     @param[in] monitor_cfg Parsed monitor YAML dictionary (for subdirectory names).
     """
+    # Verify before replacing a curated restart directory.  The C runtime loads
+    # all four Eulerian fields, so a single matching file is not a checkpoint.
+    validate_eulerian_checkpoint(source_output, start_step, monitor_cfg)
+
     dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
     euler_sub = dirs.get("eulerian_subdir", "eulerian")
     particle_sub = dirs.get("particle_subdir", "particles")
@@ -2424,6 +2428,28 @@ def populate_restart_directory(source_output: str, target_restart: str, start_st
     if not copied:
         raise ValueError(f"No checkpoint files found for step {start_step} in {source_output}")
     print(f"[INFO] Populated restart directory with {len(copied)} file(s) for step {start_step}: {target_restart}")
+
+
+def validate_eulerian_checkpoint(source_dir: str, step: int, monitor_cfg: dict):
+    """!
+    @brief Validate the mandatory Eulerian field set required by `ReadSimulationFields()`.
+    @param[in] source_dir Root directory containing the Eulerian subdirectory.
+    @param[in] step Checkpoint step to validate.
+    @param[in] monitor_cfg Monitor configuration defining the Eulerian subdirectory.
+    @throws ValueError if any mandatory Eulerian field is absent.
+    """
+    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
+    euler_sub = dirs.get("eulerian_subdir", "eulerian")
+    euler_path = os.path.join(source_dir, euler_sub)
+    step_str = f"{step:05d}"
+    required_fields = ("ufield", "vfield", "pfield", "nvfield")
+    missing = [field for field in required_fields
+               if not glob.glob(os.path.join(euler_path, f"{field}{step_str}_0.*"))]
+    if missing:
+        raise ValueError(
+            f"Incomplete Eulerian checkpoint for step {step} in {euler_path}; "
+            f"missing required field(s): {', '.join(missing)}."
+        )
 
 
 def detect_last_checkpoint_step(output_dir: str, euler_subdir: str = "eulerian", particle_subdir: str = "particles"):
@@ -2499,8 +2525,9 @@ def validate_load_mode_step_range(source_output: str, start_step: int, total_ste
 
     missing = []
     for step in range(start_step, start_step + total_steps + 1):
-        expected = os.path.join(euler_path, f"ufield{step:05d}_0.dat")
-        if not os.path.isfile(expected):
+        try:
+            validate_eulerian_checkpoint(source_output, step, monitor_cfg)
+        except ValueError:
             missing.append(step)
 
     if missing:
@@ -2668,9 +2695,16 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
             restart_has = {}
             if os.path.isdir(target_restart):
                 for sub in needed_subs:
-                    restart_has[sub] = bool(
-                        glob.glob(os.path.join(target_restart, sub, f"*{step_str}_0.*"))
-                    )
+                    if sub == euler_sub:
+                        try:
+                            validate_eulerian_checkpoint(target_restart, start_step, monitor_cfg)
+                            restart_has[sub] = True
+                        except ValueError:
+                            restart_has[sub] = False
+                    else:
+                        restart_has[sub] = bool(
+                            glob.glob(os.path.join(target_restart, sub, f"*{step_str}_0.*"))
+                        )
 
             all_in_restart = needed_subs and all(restart_has.get(s, False) for s in needed_subs)
             some_in_restart = any(restart_has.get(s, False) for s in needed_subs)
@@ -2698,6 +2732,8 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
                         raise ValueError(
                             f"After merge, no checkpoint files found for step {start_step} in {target_restart}"
                         )
+                    if euler_needs:
+                        validate_eulerian_checkpoint(target_restart, start_step, monitor_cfg)
                     return target_restart, True
                 else:
                     # Nothing curated — full populate from output/
@@ -4807,6 +4843,19 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
     # --- case.yml: initial_conditions mode-aware validation ---
     ic = props.get('initial_conditions', {})
     resolved_ic = None
+    try:
+        ic_start_step = int((case_cfg.get("run_control", {}) or {}).get("start_step", 0) or 0)
+    except (TypeError, ValueError):
+        ic_start_step = 0
+    try:
+        ic_eulerian_source = normalize_eulerian_field_source(
+            (solver_cfg.get("operation_mode", {}) or {}).get("eulerian_field_source", "solve")
+        )
+    except ValueError:
+        # The solver-specific validation below reports an invalid source value.
+        # Keep IC validation independent of that diagnostic.
+        ic_eulerian_source = "solve"
+    ic_is_authoritative = ic_eulerian_source == "solve" and ic_start_step == 0
     if not ic:
         errors.append(f"  {case_path}: missing 'properties.initial_conditions' section.")
     elif not isinstance(ic, dict):
@@ -4816,7 +4865,7 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             f"  {case_path}: missing key 'properties.initial_conditions.mode'. "
             "Specify 'generated' or 'file' explicitly."
         )
-    else:
+    elif ic_is_authoritative:
         try:
             scaling_contract = resolve_fluid_scaling(case_cfg)
             resolved_ic = resolve_initial_condition_config(
@@ -4827,10 +4876,8 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
-    if resolved_ic and GENERATED_IC_PROVIDERS.get(resolved_ic.get("kind"), {}).get("requires_fresh_3d"):
-        start_step = (case_cfg.get("run_control", {}) or {}).get("start_step", 0)
-        if start_step != 0:
-            errors.append(f"  {case_path}: {resolved_ic['label']} supports only fresh starts (start_step: 0).")
+    if (ic_is_authoritative and resolved_ic and
+            GENERATED_IC_PROVIDERS.get(resolved_ic.get("kind"), {}).get("requires_fresh_3d")):
         dimensionality = str((((case_cfg.get("models", {}) or {}).get("physics", {}) or {})
                              .get("dimensionality", "3D"))).strip().upper()
         if dimensionality != "3D":
@@ -8920,13 +8967,6 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         dt_phys = float(run_ctrl['dt_physical'])
         T_ref = L_ref / U_ref if U_ref != 0 else float('inf')
         dt_nondim = dt_phys / T_ref if T_ref != float('inf') else 0.0
-        resolved_ic = resolve_initial_condition_config(
-            ic, prepared_blocks, U_ref,
-            provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
-        )
-        finit_mode_str = resolved_ic["label"]
-        finit_code = resolved_ic["finit"]
-        ic_params = resolved_ic["cli_params"]
         print(f"  - Reynolds Number (Re) = {reynolds:.4f}")
         print(f"  - Non-Dimensional dt*  = {dt_nondim:.6f}")
         eulerian_source = normalize_eulerian_field_source(
@@ -8936,6 +8976,13 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         ic_is_authoritative = eulerian_source == "solve" and start_step == 0
         ic_cli = []
         if ic_is_authoritative:
+            resolved_ic = resolve_initial_condition_config(
+                ic, prepared_blocks, U_ref,
+                provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
+            )
+            finit_mode_str = resolved_ic["label"]
+            finit_code = resolved_ic["finit"]
+            ic_params = resolved_ic["cli_params"]
             print(f"  - Initial Condition: {finit_mode_str} (Code: {finit_code})")
             if "ucont_x" in ic_params:
                 ic_cli.extend([
@@ -8949,11 +8996,12 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 ic_cli.append(f"-flow_direction {ic_params['flow_direction']}")
         else:
             print(
-                f"[WARN] Ignoring configured initial condition '{finit_mode_str}' because "
+                f"[WARN] Ignoring configured initial condition because "
                 f"eulerian_field_source={eulerian_source!r} and start_step={start_step} select another source.",
                 file=sys.stderr,
             )
             finit_code = 0
+            resolved_ic = None
         control_lines.extend([
             f"-start_step {run_ctrl['start_step']}", f"-totalsteps {run_ctrl['total_steps']}",
             f"-ren {reynolds}", f"-dt {dt_nondim}", f"-finit {finit_code}",
@@ -9053,7 +9101,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         for p_key in GRID_DA_PROCESSOR_KEYS:
             grid_settings.pop(p_key, None)
         for key, value in grid_settings.items(): control_lines.append(f"-{key} {format_flag_value(value)}")
-        if is_generated_ic_provider(resolved_ic) and ic_is_authoritative:
+        if resolved_ic and is_generated_ic_provider(resolved_ic) and ic_is_authoritative:
             nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
             try:
                 summary = generate_picgrid_from_programmatic_settings(
@@ -9069,18 +9117,17 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     else:
         raise ValueError(f"Unknown or missing grid mode '{grid_mode}' in case.yml.")
 
-    if resolved_ic["kind"] == "file" or is_generated_ic_provider(resolved_ic):
-        if ic_is_authoritative:
-            try:
-                staged_ic = stage_initial_condition_file(run_dir, configs["case_path"], resolved_ic)
-            except Exception as e:
-                print(f"[FATAL] Failed to stage initial condition: {e}", file=sys.stderr)
-                sys.exit(1)
-            control_lines.extend([
-                f"-ic_field {resolved_ic['field_code']}",
-                f"-ic_dir {staged_ic['directory']}",
-            ])
-            print(f"  - Staged initial condition: {os.path.relpath(staged_ic['staged'])}")
+    if resolved_ic and (resolved_ic["kind"] == "file" or is_generated_ic_provider(resolved_ic)):
+        try:
+            staged_ic = stage_initial_condition_file(run_dir, configs["case_path"], resolved_ic)
+        except Exception as e:
+            print(f"[FATAL] Failed to stage initial condition: {e}", file=sys.stderr)
+            sys.exit(1)
+        control_lines.extend([
+            f"-ic_field {resolved_ic['field_code']}",
+            f"-ic_dir {staged_ic['directory']}",
+        ])
+        print(f"  - Staged initial condition: {os.path.relpath(staged_ic['staged'])}")
 
     try:
         bcs_files = generate_multi_block_bcs(run_dir, run_id, case_cfg, source_files)

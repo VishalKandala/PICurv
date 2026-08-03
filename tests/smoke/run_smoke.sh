@@ -501,7 +501,9 @@ YAML
   # Create fake step files for load mode validation (steps 5-15)
   for step in $(seq 5 15); do
     printf -v stepfmt "%05d" "${step}"
-    touch "${prior_output_dir}/eulerian/ufield${stepfmt}_0.dat"
+    for field in ufield vfield pfield nvfield; do
+      touch "${prior_output_dir}/eulerian/${field}${stepfmt}_0.dat"
+    done
   done
 
   python3 - "${case_cfg}" "${solver_cfg}" <<'PY'
@@ -1322,6 +1324,156 @@ run_restart_equivalence_smoke() {
     "restart-equivalence continuity max divergence"
 }
 
+# Exercise the complete CLI restart path for both Newton--Krylov PC models:
+# output checkpoint -> --continue staging -> C field load/history seed -> SNES.
+run_newton_krylov_continue_smoke() {
+  local profile_name profile_source case_dir base_run continue_log summary_file saved_nprocs="${nprocs}"
+
+  # The NK runtime fixture must use its supported all-geometric-periodic scope.
+  nprocs=1
+
+  for profile_name in pcnone frozen_point_block; do
+    if [[ "${profile_name}" == "pcnone" ]]; then
+      profile_source="${repo_root}/config/solvers/Newton-Krylov-Standard.yml"
+    else
+      profile_source="${repo_root}/config/solvers/Newton-Krylov-Frozen-Momentum-Point-Block.yml"
+    fi
+
+    case_dir="${tmp_root}/newton-krylov-restart-${profile_name}"
+    cp -R "${repo_root}/examples/periodic_test/constant_uniform_flow" "${case_dir}"
+    cp "${profile_source}" "${case_dir}/solver.yml"
+    python3 - "${case_dir}/case.yml" "${case_dir}/solver.yml" <<'PY'
+import sys
+import yaml
+case_path, solver_path = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+case_cfg["run_control"]["start_step"] = 0
+case_cfg["run_control"]["total_steps"] = 2
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+# The 16-node periodic smoke grid supports the two-level hierarchy used by
+# the periodic fixture, not the four-level production default.
+mg = solver_cfg["poisson_solver"]["multigrid"]
+mg["levels"] = 2
+for level in ("level_2", "level_3"):
+    mg.get("level_solvers", {}).pop(level, None)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+PY
+    run_case_workflow \
+      "${case_dir}" \
+      "${case_dir}/case.yml" \
+      "${case_dir}/solver.yml" \
+      "${case_dir}/monitor.yml" \
+      "${case_dir}/post.yml" \
+      "newton_krylov_${profile_name}_base"
+    base_run="${LAST_RUN_DIR}"
+
+    python3 - "${case_dir}/case.yml" <<'PY'
+import sys
+import yaml
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+case_cfg["run_control"]["start_step"] = 2
+case_cfg["run_control"]["total_steps"] = 1
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+PY
+    continue_log="${tmp_root}/newton_krylov_${profile_name}_continue.log"
+    (
+      cd "${case_dir}"
+      "${picurv_exe}" run --solve --continue --run-dir "${base_run}" -n "${nprocs}" \
+        --case "${case_dir}/case.yml" \
+        --solver "${case_dir}/solver.yml" \
+        --monitor "${case_dir}/monitor.yml" >"${continue_log}" 2>&1
+    ) || {
+      echo "Smoke failure: Newton--Krylov ${profile_name} --continue workflow failed." >&2
+      sed -n '1,220p' "${continue_log}" >&2
+      exit 1
+    }
+
+    summary_file="${base_run}/logs/Momentum_Solver_Newton_Krylov_Summary_Block_0.log"
+    require_file "${summary_file}" "Newton--Krylov ${profile_name} summary"
+    require_file_contains "${continue_log}" "Continue mode: logs will be appended" "Newton--Krylov ${profile_name} CLI continuation"
+    require_file_contains "${continue_log}" "Restart source:" "Newton--Krylov ${profile_name} restart staging"
+    require_file_contains "${summary_file}" "step: 3 | block: 0 | solver: Newton Krylov" "Newton--Krylov ${profile_name} continued solve"
+    if [[ "${profile_name}" == "pcnone" ]]; then
+      require_file_contains "${summary_file}" "Preconditioner: none" "Newton--Krylov PCNONE summary"
+    else
+      require_file_contains "${summary_file}" "Preconditioner: frozen_momentum_jacobian / point_block" "Newton--Krylov frozen point-block summary"
+    fi
+  done
+  nprocs="${saved_nprocs}"
+}
+
+# Exercise the physical-wall/inlet/conservation-outlet startup path separately
+# from the all-periodic restart fixture.  In particular, this guards the first
+# BDF1 residual before any restart state exists.
+run_newton_krylov_flat_channel_startup_smoke() {
+  local profile_name profile_source case_dir summary_file
+
+  for profile_name in pcnone frozen_point_block; do
+    if [[ "${profile_name}" == "pcnone" ]]; then
+      profile_source="${repo_root}/config/solvers/Newton-Krylov-Standard.yml"
+    else
+      profile_source="${repo_root}/config/solvers/Newton-Krylov-Frozen-Momentum-Point-Block.yml"
+    fi
+    case_dir="${tmp_root}/newton-krylov-flat-channel-${profile_name}"
+    "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
+    cp "${profile_source}" "${case_dir}/solver.yml"
+    python3 - "${case_dir}/flat_channel.yml" "${case_dir}/solver.yml" <<'PY'
+import sys
+import yaml
+
+case_path, solver_path = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+case_cfg["run_control"]["start_step"] = 0
+case_cfg["run_control"]["total_steps"] = 1
+grid = case_cfg["grid"]["programmatic_settings"]
+grid["im"], grid["jm"], grid["km"] = 8, 8, 16
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+mg = solver_cfg["poisson_solver"]["multigrid"]
+mg["levels"] = 2
+for level in ("level_2", "level_3"):
+    mg.get("level_solvers", {}).pop(level, None)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+PY
+    run_case_workflow \
+      "${case_dir}" \
+      "${case_dir}/flat_channel.yml" \
+      "${case_dir}/solver.yml" \
+      "${case_dir}/Standard_Output.yml" \
+      "${case_dir}/standard_analysis.yml" \
+      "newton_krylov_flat_channel_${profile_name}"
+    summary_file="${LAST_RUN_DIR}/logs/Momentum_Solver_Newton_Krylov_Summary_Block_0.log"
+    require_file "${summary_file}" "Newton--Krylov ${profile_name} flat-channel summary"
+    python3 - "${summary_file}" "${profile_name}" <<'PY'
+import math
+import re
+import sys
+
+path, profile = sys.argv[1:]
+rows = [line.strip() for line in open(path, encoding="utf-8") if line.startswith("step:")]
+assert len(rows) == 1, f"{profile}: expected one BDF1 Newton summary row, got {len(rows)}"
+row = rows[0]
+match = re.search(r"\| initial: ([^|]+) \| final:", row)
+assert match, f"{profile}: missing initial residual in {row}"
+initial = float(match.group(1))
+assert math.isfinite(initial), f"{profile}: non-finite initial residual {initial}"
+assert "state: committed" in row, f"{profile}: first BDF1 Newton solve did not commit"
+PY
+  done
+}
+
 run_full_runtime_smoke() {
   local flat_les_case="${tmp_root}/flat-les"
   local bent_case="${tmp_root}/bent"
@@ -1462,6 +1614,7 @@ run_full_runtime_smoke() {
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : init" "restart init branch"
 
   run_restart_equivalence_smoke
+  run_newton_krylov_continue_smoke
 
   "${picurv_exe}" init brownian_motion --dest "${brownian_case}" >/dev/null
   prepare_brownian_case_analytical "${brownian_case}"
@@ -1821,6 +1974,8 @@ if [[ "${nprocs}" -gt 1 ]]; then
   echo "==> PICurv smoke: multi-rank runtime sequences (flat+bent)"
   run_multi_rank_runtime_smoke
 else
+  echo "==> PICurv smoke: Newton--Krylov flat-channel BDF1 startup"
+  run_newton_krylov_flat_channel_startup_smoke
   echo "==> PICurv smoke: full end-to-end runtime sequences"
   run_full_runtime_smoke
 fi

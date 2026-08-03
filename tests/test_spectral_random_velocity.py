@@ -3,6 +3,7 @@
 import importlib.machinery
 import importlib.util
 import struct
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -314,6 +315,63 @@ def test_provider_registry_periodicity_and_shared_fluid_scaling_contract():
         CORE.resolve_initial_condition_config(
             {"mode": "generated", "generator": "spectral_random_velocity", "params": params()},
             [nonperiodic], U_ref=4.0)
+
+
+def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
+    """!
+    @brief Verify restart authority suppresses validation and staging of every IC provider.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    example = ROOT / "examples" / "decaying_isotropic_turbulence"
+    case = CORE.read_yaml_file(str(example / "case.yml"))
+    solver = CORE.read_yaml_file(str(example / "solver.yml"))
+    monitor = CORE.read_yaml_file(str(example / "monitor.yml"))
+    restarted_case = deepcopy(case)
+    restarted_case["run_control"]["start_step"] = 100
+
+    # The C runtime loads the checkpoint when start_step > 0, and control-file
+    # generation suppresses IC staging in that state.  Validation must follow
+    # the same source-authority contract.
+    CORE.validate_solver_configs(
+        restarted_case, solver, monitor,
+        "restart-case.yml", "solver.yml", "monitor.yml",
+    )
+
+    case_path = tmp_path / "case.yml"
+    solver_path = example / "solver.yml"
+    monitor_path = example / "monitor.yml"
+    CORE.write_yaml_file(str(case_path), restarted_case)
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    monitor_files = CORE.prepare_monitor_files(
+        str(run_dir), "restart", monitor,
+        {"Case": str(case_path), "Solver": str(solver_path), "Monitor": str(monitor_path)},
+    )
+    control_path = CORE.generate_solver_control_file(
+        str(run_dir), "restart",
+        {
+            "case": restarted_case, "case_path": str(case_path),
+            "solver": solver, "solver_path": str(solver_path),
+            "monitor": monitor, "monitor_path": str(monitor_path),
+        },
+        1, monitor_files,
+        restart_source_dir=str(tmp_path / "restart"), continue_mode=True,
+    )
+    control = Path(control_path).read_text(encoding="utf-8")
+    assert "-finit 0" in control
+    assert "-ic_dir " not in control
+    assert not (run_dir / "config" / "initial_condition.generated.dat").exists()
+
+    for inactive_ic in (
+        {"mode": "file", "field": "Ucat", "source_file": "does-not-exist.dat"},
+        {"mode": "generated", "generator": "not-a-provider", "params": {}},
+    ):
+        inactive_case = deepcopy(restarted_case)
+        inactive_case["properties"]["initial_conditions"] = inactive_ic
+        CORE.validate_solver_configs(
+            inactive_case, solver, monitor,
+            "restart-case.yml", "solver.yml", "monitor.yml",
+        )
 
 
 def test_conductor_and_generator_defaults_and_finite_validation_agree():

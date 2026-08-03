@@ -997,6 +997,71 @@ static PetscErrorCode TestZeroIterationStructuredLogging(void)
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/**
+ * @brief Exercises the straight-duct BDF1 startup path used by flat_channel.
+ *
+ * The conservation outlet consumes lUcat during its first boundary pass.  This
+ * test deliberately evaluates the callback at the initialized state before
+ * installing SNES, then completes the first nonlinear solve with each shipped
+ * preconditioner.  It catches a missing Ucont -> Ucat -> lUcat seed as a
+ * non-finite initial residual rather than hiding it behind later MFFD work.
+ */
+static PetscErrorCode CheckFlatChannelStartup(PetscBool use_point_block)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN] = "";
+    Vec x = NULL, f = NULL;
+    PetscReal initial_norm = 0.0;
+    MomentumNewtonKrylovContext ctx = {0};
+
+    PetscFunctionBeginUser;
+    PetscCall(BuildNewtonFixture(NULL, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
+    PetscCall(VecDuplicate(user->Ucont, &x));
+    PetscCall(VecDuplicate(user->Ucont, &f));
+    PetscCall(VecCopy(user->Ucont, x));
+    ctx.user = user;
+    PetscCall(MomentumNewtonKrylov_FormResidual(NULL, x, f, &ctx));
+    PetscCall(VecNorm(f, NORM_2, &initial_norm));
+    PetscCheck(!PetscIsInfOrNanReal(initial_norm), PETSC_COMM_WORLD, PETSC_ERR_FP,
+               "flat-channel BDF1 initial residual is non-finite (%g) with %s.",
+               (double)initial_norm,
+               use_point_block ? "frozen-momentum point-block" : "PCNONE");
+    PetscCall(VecDestroy(&f));
+    PetscCall(VecDestroy(&x));
+    PetscCall(VecDestroy(&user->Rhs));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_rtol", "1e-4"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_max_it", "20"));
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_ksp_rtol", "1e-6"));
+    if (use_point_block) {
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_model",
+                                       "frozen_momentum_jacobian"));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure",
+                                       "point_block"));
+    }
+    PetscCall(MomentumSolver_NewtonKrylov(user, NULL, NULL));
+    PetscCall(PicurvAssertBool(simCtx->mom_last_converged,
+                               "flat-channel BDF1 Newton solve must converge"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_preconditioner_model"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_preconditioner_structure"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_rtol"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_max_it"));
+    PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_ksp_rtol"));
+    PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/** @brief Guards flat_channel's initial BDF1 residual and both shipped NK PCs. */
+static PetscErrorCode TestFlatChannelStartup(void)
+{
+    PetscFunctionBeginUser;
+    PetscCall(CheckFlatChannelStartup(PETSC_FALSE));
+    PetscCall(CheckFlatChannelStartup(PETSC_TRUE));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 /** @brief Verifies restarted Newton solves with both supported preconditioners. */
 static PetscErrorCode TestRestartAndContinuationSolve(void)
 {
@@ -2024,6 +2089,7 @@ int main(int argc, char **argv)
         {"whole-operator-direct-jacobian", TestWholeOperatorDirectJacobian},
         {"periodic-operator-has-no-zero-rows", TestPeriodicOperatorHasNoZeroRows},
         {"zero-iteration-structured-logging", TestZeroIterationStructuredLogging},
+        {"flat-channel-bdf1-startup", TestFlatChannelStartup},
         {"restart-and-continuation-solve", TestRestartAndContinuationSolve},
         {"small-solve-and-rollback", TestSmallSolveAndRollback},
         {"unsupported-configuration-fails-before-allocation", TestUnsupportedConfigurationFailsBeforeAllocation},
