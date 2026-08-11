@@ -7601,7 +7601,7 @@ def test_cancel_stage_solve_graceful_sends_runtime_shutdown_signal(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert log_path.read_text(encoding="utf-8").strip() == "--signal=USR1 915"
+    assert log_path.read_text(encoding="utf-8").strip() == "--signal=USR1 --full 915"
     assert "Requested graceful shutdown for Slurm job 915" in result.stdout
     assert "latest safe off-cadence step" in result.stdout
 
@@ -7667,7 +7667,7 @@ def test_cancel_stage_all_graceful_mixes_solver_signal_and_post_cancel(tmp_path)
     result = run_picurv(["cancel", "--run-dir", str(run_dir), "--graceful"], cwd=tmp_path, env=env)
 
     assert result.returncode == 0, result.stderr
-    assert log_path.read_text(encoding="utf-8").splitlines() == ["--signal=USR1 951", "952"]
+    assert log_path.read_text(encoding="utf-8").splitlines() == ["--signal=USR1 --full 951", "952"]
     assert "Requested graceful shutdown for Slurm job 951 for stage(s): solve" in result.stdout
     assert "Canceled Slurm job 952 for stage(s): post-process" in result.stdout
 
@@ -7686,7 +7686,7 @@ def test_cancel_graceful_dry_run_prints_exact_signal_command(tmp_path):
     result = run_picurv(["cancel", "--run-dir", str(run_dir), "--stage", "solve", "--graceful", "--dry-run"], cwd=tmp_path)
 
     assert result.returncode == 0, result.stderr
-    assert "Would run: scancel --signal=USR1 961  # stage(s): solve" in result.stdout
+    assert "Would run: scancel --signal=USR1 --full 961  # stage(s): solve" in result.stdout
     assert "Dry-run only. No jobs were canceled." in result.stdout
 
 

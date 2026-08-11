@@ -250,7 +250,7 @@ walltime gets too tight. If the cluster profile also requests an early signal, P
 `mpirun` batch launches.
 
 For manual cancellation, plain `picurv cancel` is a hard Slurm cancel. Add `--graceful`
-when you want the solver to receive `SIGUSR1`, stop at the next safe checkpoint, and write
+when you want the solver process tree to receive `SIGUSR1`, stop at the next safe checkpoint, and write
 the latest safe off-cadence output first. Fall back to plain cancel if the job is wedged or
 not reaching checkpoints.
 

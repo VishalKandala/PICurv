@@ -15036,7 +15036,11 @@ def cancel_run_jobs(args):
         use_graceful_signal = graceful and "solve" in stage_names
         scancel_cmd = ["scancel"]
         if use_graceful_signal:
-            scancel_cmd.append("--signal=USR1")
+            # A directly launched ``mpirun`` replaces the batch shell (via ``exec``)
+            # and is therefore not necessarily a Slurm job step.  ``--full`` also
+            # signals the batch process and its children, so the MPI launcher can
+            # forward SIGUSR1 to the solver ranks.
+            scancel_cmd.extend(["--signal=USR1", "--full"])
         scancel_cmd.append(job_id)
 
         if args.dry_run:

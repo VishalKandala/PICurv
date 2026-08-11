@@ -462,7 +462,7 @@ Behavior:
 - reads `scheduler/submission.json` from an existing run directory,
 - resolves the recorded Slurm job IDs for `solve` and/or `post-process`,
 - runs hard `scancel <job_id>` for the selected stage set by default,
-- with `--graceful`, sends `scancel --signal=USR1 <job_id>` for solver jobs so the runtime can write the latest safe off-cadence step at the next checkpoint,
+- with `--graceful`, sends `scancel --signal=USR1 --full <job_id>` for solver jobs, reaching the batch process and MPI children so the runtime can write the latest safe off-cadence step at the next checkpoint,
 - post-process jobs still use hard cancellation, even when `--graceful` is present,
 - avoids manual job-id lookup when the run directory is already known.
 

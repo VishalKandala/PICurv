@@ -287,7 +287,7 @@ def _add_cancel_parser(subparsers):
             "  picurv cancel --run-dir runs/my_run --stage solve --graceful\n"
             "  picurv cancel --run-dir runs/my_run --dry-run\n\n"
             "Default cancellation is a hard Slurm cancel (`scancel <job_id>`). With\n"
-            "`--graceful`, solver jobs receive SIGUSR1 so PICurv can write the latest\n"
+            "`--graceful`, Slurm sends SIGUSR1 to the solver process tree so PICurv can write the latest\n"
             "safe off-cadence step at the next runtime checkpoint before exiting.\n"
             "Post-process jobs still use ordinary hard cancellation."
         ),
@@ -309,7 +309,7 @@ def _add_cancel_parser(subparsers):
         "--graceful",
         action="store_true",
         help=(
-            "For solver jobs, request a clean runtime shutdown by sending SIGUSR1 instead of "
+            "For solver jobs, request a clean runtime shutdown by sending SIGUSR1 to the process tree instead of "
             "hard-canceling immediately. The solver writes the latest safe off-cadence step at "
             "the next checkpoint. Non-solver stages still use ordinary scancel."
         ),
