@@ -7162,7 +7162,15 @@ def append_grid_da_processor_layout(control_lines: list, grid_cfg: dict, num_pro
         for key in GRID_DA_PROCESSOR_KEYS:
             total_layout *= layout[key]
         if total_layout != num_procs:
-            raise ValueError(f"Processor layout mismatch: product ({total_layout}) != processes ({num_procs}).")
+            printable = " x ".join(str(layout[key]) for key in GRID_DA_PROCESSOR_KEYS)
+            raise ValueError(
+                "DMDA processor layout mismatch: "
+                f"grid.da_processors_x/y/z is {printable} (product {total_layout}), "
+                f"but this run requests {num_procs} MPI processes. "
+                "Set da_processors_x/y/z to values whose product equals the requested "
+                "MPI process count, or remove all three settings to let PETSc choose "
+                "the layout automatically."
+            )
         print(f"[INFO] Applying user-defined processor layout for {num_procs} processes.")
     else:
         printable = " x ".join(str(layout.get(key, "PETSC_DECIDE")) for key in GRID_DA_PROCESSOR_KEYS)

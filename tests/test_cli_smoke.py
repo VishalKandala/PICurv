@@ -4832,6 +4832,29 @@ def test_generate_solver_control_file_applies_top_level_da_processors_for_file_g
     assert "-da_processors_z 2" in content
 
 
+def test_da_processor_layout_mismatch_explains_how_to_fix_it():
+    """!
+    @brief Ensure an incompatible explicit DMDA layout gives an actionable error.
+    """
+    picurv = load_picurv_module()
+
+    with pytest.raises(ValueError) as error:
+        picurv.append_grid_da_processor_layout(
+            [],
+            {
+                "da_processors_x": 8,
+                "da_processors_y": 10,
+                "da_processors_z": 6,
+            },
+            768,
+        )
+
+    message = str(error.value)
+    assert "grid.da_processors_x/y/z is 8 x 10 x 6 (product 480)" in message
+    assert "requests 768 MPI processes" in message
+    assert "remove all three settings to let PETSc choose" in message
+
+
 def test_generate_solver_control_file_applies_top_level_da_processors_for_grid_gen(tmp_path):
     """!
     @brief Test that grid-gen mode accepts top-level DMDA processor layout hints.
