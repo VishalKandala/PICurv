@@ -331,7 +331,7 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
         ierr = SetFinestLevelCoordinates(fine_user); CHKERRQ(ierr);
         LOG_ALLOW(GLOBAL,LOG_TRACE,"The Finest level coordinates for block %d have been set.\n",bi);
         if(get_log_level()==LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
-            ierr = LOG_FIELD_MIN_MAX(fine_user,"Coordinates");
+            ierr = LOG_FIELD_MIN_MAX(fine_user, FIELD_ID_COORDINATES);
         }
     }
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finest level coordinates have been set for all blocks.\n");
@@ -346,7 +346,7 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
 
             LOG_ALLOW(GLOBAL,LOG_TRACE,"Coordinates restricted to block %d level %d.\n",bi,level);
             if(get_log_level()==LOG_VERBOSE && is_function_allowed(__FUNCT__)==true) {
-                ierr = LOG_FIELD_MIN_MAX(coarse_user,"Coordinates");
+                ierr = LOG_FIELD_MIN_MAX(coarse_user, FIELD_ID_COORDINATES);
             }
         }
     }
@@ -555,7 +555,7 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
     
     // Populate local ghost coordinates from the owned global coordinates.
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Scattering coordinates to update ghost nodes for block %d...\n", simCtx->rank, user->_this);
-    ierr = UpdateLocalGhosts(user, "Coordinates"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_COORDINATES); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
 
@@ -787,7 +787,7 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
     ierr = DMDAVecRestoreArrayRead(fine_user->fda, f_lCoor, &f_coor); CHKERRQ(ierr);
 
     // Populate the coarse-grid local ghost coordinates from the restricted global coordinates.
-    ierr = UpdateLocalGhosts(coarse_user, "Coordinates"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(coarse_user, FIELD_ID_COORDINATES); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
 

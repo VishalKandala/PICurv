@@ -15,6 +15,7 @@
 #include <petscsys.h>     // For PetscRealloc
 #include <math.h>
 #include "variables.h"       // Common type definitions
+#include "particle_field_catalog.h"
 #include "logging.h"      // Logging macros and definitions
 #include "walkingsearch.h"  // Walking search function for particle migration 
 
@@ -25,7 +26,7 @@
  * Physics: dPsi/dt = -Omega * (Psi - Psi_mean)
  * Solution: Psi_new = Psi_mean + (Psi_old - Psi_mean) * exp(-Omega * dt)
  *
- * @param fieldName Name
+ * @param field_id Typed particle-field identity.
  * @param dt Time
  * @param psi_io Pointer
  * @param diffusivity Particle
@@ -34,7 +35,7 @@
  * @param C_model Model
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode UpdateParticleField(const char *fieldName,
+PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
                                    PetscReal dt,
                                    PetscReal *psi_io,
                                    PetscReal diffusivity,
@@ -51,11 +52,11 @@ PetscErrorCode UpdateParticleField(const char *fieldName,
  * `UpdateParticleField` kernel for each particle.
  *
  * @param[in,out] user      Pointer to the UserCtx containing the swarm and simulation context.
- * @param[in]     fieldName The name of the field to update (e.g., "Psi").
+ * @param[in]     field_id Typed identity of the field to update.
  *
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName);
+PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_id);
 
 
 /**

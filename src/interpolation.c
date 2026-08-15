@@ -896,11 +896,11 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
 
     /* Retrieve swarm fields */
     ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pids); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pids); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut); CHKERRQ(ierr);
 
     /* Loop over each local particle */
@@ -1034,11 +1034,11 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
     ierr = DMDAVecRestoreArrayRead(dm_field, fieldLocal_cellCentered, &fieldPtr); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lCent, (void *)&cent); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pids); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pids); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished direct cell-center interpolation for field '%s'.\n", fieldName);
     PROFILE_FUNCTION_END;
@@ -1253,7 +1253,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     if (is_function_allowed(__func__) && (int)(LOG_VERBOSE) <= (int)get_log_level()) {
         // DEBUG: Inspect cornerLocal after ghost exchange
         
-        ierr = LOG_FIELD_ANATOMY(user,"CornerField", "After Corner Velocity Interpolated"); CHKERRQ(ierr);
+        ierr = LOG_CORNER_FIELD_ANATOMY(user, "After Corner Velocity Interpolated"); CHKERRQ(ierr);
 
         // DEBUG
         //ierr = DMView(user->fda, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
@@ -1294,11 +1294,11 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
 
     // (F) Retrieve swarm fields for the particle loop
     ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pids); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pids); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL,LOG_TRACE," Rank %d holds data upto & including %d,%d,%d.\n",rank,info.gxs + info.gxm,info.gys+info.gym,info.gzs+info.gzm);
@@ -1347,11 +1347,11 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     
     // (I) Restore swarm fields
     ierr = DMSwarmRestoreField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pids); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pids); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished for field '%s'.\n", fieldName);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -1368,19 +1368,40 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
  */
 PetscErrorCode InterpolateEulerFieldToSwarm(
     UserCtx    *user,
-    Vec         fieldLocal_cellCentered,
-    const char *fieldName,
-    const char *swarmOutFieldName)
+    FieldId      source_field_id,
+    ParticleFieldId target_field_id)
 {
     PetscErrorCode ierr;
+    FieldView source_view;
+    const ParticleFieldDescriptor *target_descriptor = NULL;
+
     PetscFunctionBegin;
 
+    ierr = FieldGetView(user, source_field_id, &source_view); CHKERRQ(ierr);
+    ierr = ParticleFieldGetDescriptor(target_field_id, &target_descriptor); CHKERRQ(ierr);
+    PetscCheck(source_view.descriptor->layout == FIELD_LAYOUT_CELL_CENTERED,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
+               "Eulerian-to-particle interpolation requires a cell-centered source; '%s' uses layout %s.",
+               source_view.descriptor->canonical_name,
+               FieldLayoutName(source_view.descriptor->layout));
+    PetscCheck(target_descriptor->data_type == PETSC_REAL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
+               "Eulerian interpolation destination '%s' must use PETSC_REAL storage.",
+               target_descriptor->canonical_name);
+    PetscCheck(source_view.descriptor->dof == target_descriptor->components,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
+               "Eulerian source '%s' has %d components but particle destination '%s' has %d.",
+               source_view.descriptor->canonical_name, source_view.descriptor->dof,
+               target_descriptor->canonical_name, target_descriptor->components);
+
     if (user->simCtx->interpolationMethod == INTERP_TRILINEAR) {
-        ierr = InterpolateEulerFieldFromCenterToSwarm(user, fieldLocal_cellCentered,
-                                                       fieldName, swarmOutFieldName); CHKERRQ(ierr);
+        ierr = InterpolateEulerFieldFromCenterToSwarm(user, source_view.local_vec,
+                                                       source_view.descriptor->canonical_name,
+                                                       target_descriptor->canonical_name); CHKERRQ(ierr);
     } else {
-        ierr = InterpolateEulerFieldFromCornerToSwarm(user, fieldLocal_cellCentered,
-                                                       fieldName, swarmOutFieldName); CHKERRQ(ierr);
+        ierr = InterpolateEulerFieldFromCornerToSwarm(user, source_view.local_vec,
+                                                       source_view.descriptor->canonical_name,
+                                                       target_descriptor->canonical_name); CHKERRQ(ierr);
     }
 
     PetscFunctionReturn(0);
@@ -1402,28 +1423,14 @@ PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
 
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
 
-  /* 
-     1) Interpolate the 'velocity' field (user->Ucat) into DMSwarm's "swarmVelocity".
-        - The function InterpolateOneFieldOverSwarm() loops over all local particles,
-          retrieves iCell, jCell, kCell, (a1,a2,a3) from the DMSwarm,
-          and calls the appropriate trilinear interpolation routine.
-
-        - "velocity" => just a label used in logging or debugging.
-        - "swarmVelocity" => the DMSwarm field name where we store the result
-          (assume dof=3 if user->Ucat has blockSize=3).
-  */
-
   LOG_ALLOW(LOCAL, LOG_DEBUG,
-		 " Interpolation of ucat to velocity begins on rank %d.\n",rank);
-  // Make sure to pass the *LOCAL* Vector to the function below! 
-  ierr = InterpolateEulerFieldToSwarm(user, user->lUcat, 
-                                      "Ucat", 
-                                      "velocity"); CHKERRQ(ierr);
-  ierr = InterpolateEulerFieldToSwarm(user,user->lDiffusivity,
-                                      "Diffusivity", "Diffusivity"); CHKERRQ(ierr);
-  
-  ierr = InterpolateEulerFieldToSwarm(user,user->lDiffusivityGradient,
-                                      "DiffusivityGradient", "DiffusivityGradient"); CHKERRQ(ierr);
+			 " Interpolation of ucat to velocity begins on rank %d.\n",rank);
+  ierr = InterpolateEulerFieldToSwarm(user, FIELD_ID_UCAT,
+                                      PARTICLE_FIELD_ID_VELOCITY); CHKERRQ(ierr);
+  ierr = InterpolateEulerFieldToSwarm(user, FIELD_ID_DIFFUSIVITY,
+                                      PARTICLE_FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
+  ierr = InterpolateEulerFieldToSwarm(user, FIELD_ID_DIFFUSIVITY_GRADIENT,
+                                      PARTICLE_FIELD_ID_DIFFUSIVITY_GRADIENT); CHKERRQ(ierr);
   /* Add fields as necessary here*/
                                       
   ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
@@ -1448,9 +1455,8 @@ PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
  * Key Features:
  * - Handles both scalar (DOF=1) and vector (DOF=3) particle fields.
  * - Uses a pre-calculated particle count vector (`ParticleCount`) for normalization.
- * - Implicitly determines the target Eulerian DM (typically `user->da` for scalars,
- *   `user->fda` for vectors) based on standard field names ("P", "Nvert", "Ucat", "Ucont","Psi").
- * - Modifies existing Eulerian field vectors (e.g., `user->P`, `user->Ucat`,user->Psi`) in place.
+ * - Uses particle-catalog metadata to resolve each supported Eulerian target.
+ * - Modifies an existing, explicitly provided Eulerian field vector in place.
  * - Provides a high-level wrapper function (`ScatterAllParticleFieldsToEulerFields`)
  *   to easily scatter a standard set of fields.
  * - Uses only the base `SETERRQ` macro for error reporting to maximize compiler compatibility.
@@ -1479,102 +1485,13 @@ PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
  */
 
 #undef __FUNCT__
-#define __FUNCT__ "GetScatterTargetInfo"
-/* Implementation for GetScatterTargetInfo declared in include/interpolation.h. */
-PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName,
-                                    DM *targetDM, PetscInt *expected_dof)
-{
-    char           msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
-    PetscFunctionBeginUser;
-
-    PROFILE_FUNCTION_BEGIN;
-
-    // --- Input Validation ---
-    // Check for NULL pointers in essential inputs
-    if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx pointer is NULL.");
-    if (!user->da) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx->da is NULL.");
-    if (!user->fda) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx->fda is NULL."); // Needed for vector fields
-    if (!particleFieldName) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "particleFieldName is NULL.");
-    if (!targetDM) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output targetDM pointer is NULL.");
-    if (!expected_dof) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output expected_dof pointer is NULL.");
-
-    // --- Determine Target DM and DOF based on Field Name ---
-    // Compare the input field name with known scalar fields targeting 'da'
-    if (strcmp(particleFieldName, "Psi") == 0 || strcmp(particleFieldName, "Nvert") == 0) {
-        *expected_dof = 1;      // Scalar fields have DOF 1
-        *targetDM = user->da;   // Target the primary scalar DMDA
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Field '%s' targets DM 'da' (DOF=1).\n", particleFieldName);
-    }
-    // Compare with known vector fields targeting 'fda'
-    else if (strcmp(particleFieldName, "Ucat") == 0 || strcmp(particleFieldName, "Ucont") == 0) {
-        *expected_dof = 3;      // Vector fields have DOF 3
-        *targetDM = user->fda;  // Target the vector DMDA (often node-based)
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Field '%s' targets DM 'fda' (DOF=3).\n", particleFieldName);
-    }
-    // --- Add rules for other fields here ---
-    // else if (strcmp(particleFieldName, "SomeOtherScalar") == 0) { *expected_dof = 1; *targetDM = user->da; }
-    // else if (strcmp(particleFieldName, "SomeOtherVector") == 0) { *expected_dof = 3; *targetDM = user->someOtherDM; }
-    else {
-        // The provided field name doesn't match any known rules
-        *targetDM = NULL; // Indicate failure
-        *expected_dof = 0;
-        // Format the error message manually
-        PetscSNPrintf(msg, sizeof(msg), "Field name '%s' is not recognized for automatic DM selection.", particleFieldName);
-        // Use SETERRQ with the formatted message and appropriate error code
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg); // Use WRONG argument error code
-    }
-
-    PROFILE_FUNCTION_END;
-
-    PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
-#define __FUNCT__ "GetPersistentLocalVector"
-/**
- * @brief Internal helper implementation: `GetPersistentLocalVector()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode GetPersistentLocalVector(UserCtx *user, const char *fieldName, Vec *localVec)
-{
-    PetscFunctionBeginUser;
-    
-    if (!user || !fieldName || !localVec) 
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null input in GetPersistentLocalVector");
-
-    if (strcmp(fieldName, "Psi") == 0) {
-        if (!user->lPsi) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->lPsi is not initialized");
-        *localVec = user->lPsi;
-    }
-    else if (strcmp(fieldName, "Ucat") == 0) {
-        if (!user->lUcat) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->lUcat is not initialized");
-        *localVec = user->lUcat;
-    }
-    else if (strcmp(fieldName, "Ucont") == 0) {
-        if (!user->lUcont) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->lUcont is not initialized");
-        *localVec = user->lUcont;
-    }
-    else if (strcmp(fieldName, "Nvert") == 0) {
-        if (!user->lNvert) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->lNvert is not initialized");
-        *localVec = user->lNvert;
-    }
-    else {
-        char msg[ERROR_MSG_BUFFER_SIZE];
-        PetscSNPrintf(msg, sizeof(msg), "Field '%s' does not have a mapped persistent local vector.", fieldName);
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg);
-    }
-
-    PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
 #define __FUNCT__ "AccumulateParticleField"
 /*
  * Internal implementation detail for public API `AccumulateParticleField`.
  * Documentation is maintained in include/interpolation.h to keep a single source
  * of truth for Doxygen output.
  */
-PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
+PetscErrorCode AccumulateParticleField(DM swarm, ParticleFieldId particle_field_id,
                                        DM gridSumDM, Vec localAccumulatorVec)
 {
     PetscErrorCode    ierr;
@@ -1591,11 +1508,19 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     PetscInt          gxs, gys, gzs, gxm, gym, gzm;
     PetscMPIInt       rank;
     char              msg[ERROR_MSG_BUFFER_SIZE];
+    const ParticleFieldDescriptor *descriptor = NULL;
+    const char        *particleFieldName = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+
+    ierr = ParticleFieldGetDescriptor(particle_field_id, &descriptor); CHKERRQ(ierr);
+    PetscCheck(descriptor->data_type == PETSC_REAL, PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
+               "Particle-to-grid accumulation requires PETSC_REAL data; field '%s' uses %s.",
+               descriptor->canonical_name, PetscDataTypes[descriptor->data_type]);
+    particleFieldName = descriptor->canonical_name;
 
     // --- 1. Validation & Setup ---
     if (!swarm || !gridSumDM || !localAccumulatorVec) 
@@ -1625,7 +1550,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
     // These calls will fail nicely if the field doesn't exist
     ierr = DMSwarmGetField(swarm, particleFieldName, NULL, NULL, (void **)&particle_arr); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_id_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell_id_arr); CHKERRQ(ierr);
 
     // --- 4. Acquire Grid Accessors ---
     // DMDAVecGetArray* handles the mapping from Global (i,j,k) to the underlying Local Array index
@@ -1678,7 +1603,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
     }
     
     ierr = DMSwarmRestoreField(swarm, particleFieldName, NULL, NULL, (void **)&particle_arr); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_id_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell_id_arr); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -1804,7 +1729,7 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
  * @brief Accumulate one particle field onto the Eulerian grid using the selected scatter stencil.
  */
 static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
-                                                         const char *particleFieldName,
+                                                         ParticleFieldId particle_field_id,
                                                          DM targetDM,
                                                          PetscInt expected_dof,
                                                          Vec eulerFieldAverageVec)
@@ -1814,12 +1739,13 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
     Vec            globalsumVec = NULL;
     Vec            localsumVec = NULL;
     char           msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
+    const char    *particleFieldName = ParticleFieldName(particle_field_id);
 
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
 
-    if (!user || !user->swarm || !user->ParticleCount || !particleFieldName || !targetDM || !eulerFieldAverageVec)
+    if (!user || !user->swarm || !user->ParticleCount || !targetDM || !eulerFieldAverageVec)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "NULL input provided to ScatterParticleFieldToEulerField_Internal.");
 
     ierr = DMDAGetInfo(targetDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &target_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
@@ -1863,7 +1789,7 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
     // unless the error was cleared somehow between the check and here (unlikely).
     // If the check above was skipped (Option 1), this is where the error for non-existent
     // field will be caught by CHKERRQ.
-    ierr = AccumulateParticleField(user->swarm, particleFieldName, targetDM, localsumVec); CHKERRQ(ierr);
+    ierr = AccumulateParticleField(user->swarm, particle_field_id, targetDM, localsumVec); CHKERRQ(ierr);
 
     // --- Local to Global Sum ---
     ierr = DMLocalToGlobalBegin(targetDM, localsumVec, ADD_VALUES, globalsumVec); CHKERRQ(ierr);
@@ -1890,13 +1816,17 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
 
 /* Implementation for ScatterParticleFieldToEulerField declared in include/interpolation.h. */
 PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
-                                                const char *particleFieldName,
+                                                ParticleFieldId particle_field_id,
                                                 Vec eulerFieldAverageVec)
 {
     PetscErrorCode ierr;
     DM             targetDM = NULL;       // Will point to user->da or user->fda
     PetscInt       expected_dof = 0;      // Will be 1 or 3
     char           msg[ERROR_MSG_BUFFER_SIZE]; // Buffer for formatted error messages
+    const ParticleFieldDescriptor *particle_descriptor = NULL;
+    const FieldDescriptor *eulerian_descriptor = NULL;
+    FieldView       target_view;
+    const char     *particleFieldName = NULL;
 
     PetscFunctionBeginUser;
 
@@ -1907,11 +1837,23 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     if (!user->swarm) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx->swarm is NULL.");
     if (!user->ParticleCount) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx->ParticleCount is NULL.");
     if (!eulerFieldAverageVec) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output eulerFieldAverageVec is NULL.");
-    // particleFieldName validity checked within GetScatterTargetInfo
-
-    // --- Determine Target DM & DOF using the helper function ---
-    ierr = GetScatterTargetInfo(user, particleFieldName, &targetDM, &expected_dof); CHKERRQ(ierr);
-    // If GetScatterTargetInfo failed (e.g., unknown name), CHKERRQ would have returned.
+    ierr = ParticleFieldGetDescriptor(particle_field_id, &particle_descriptor); CHKERRQ(ierr);
+    PetscCheck((particle_descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER) != 0,
+               PETSC_COMM_SELF, PETSC_ERR_SUP,
+               "Particle field '%s' has no registered Eulerian scatter target.",
+               particle_descriptor->canonical_name);
+    PetscCheck(particle_descriptor->eulerian_scatter_target != FIELD_ID_INVALID,
+               PETSC_COMM_SELF, PETSC_ERR_PLIB,
+               "Particle field '%s' advertises scatter support without an Eulerian target.",
+               particle_descriptor->canonical_name);
+    particleFieldName = particle_descriptor->canonical_name;
+    expected_dof = particle_descriptor->components;
+    ierr = FieldGetDescriptor(particle_descriptor->eulerian_scatter_target, &eulerian_descriptor); CHKERRQ(ierr);
+    PetscCheck(eulerian_descriptor->dof == expected_dof, PETSC_COMM_SELF, PETSC_ERR_PLIB,
+               "Particle field '%s' has %d components but Eulerian target '%s' has %d.",
+               particleFieldName, expected_dof, eulerian_descriptor->canonical_name, eulerian_descriptor->dof);
+    ierr = FieldGetView(user, particle_descriptor->eulerian_scatter_target, &target_view); CHKERRQ(ierr);
+    targetDM = target_view.dm;
 
     // --- Validate the provided Target Vec's Compatibility ---
     DM vec_dm;
@@ -1943,7 +1885,7 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     // Log intent before calling the core logic
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering field '%s' (DOF=%d).\n", particleFieldName, expected_dof);
     ierr = ScatterParticleFieldToEulerField_Internal(user, // Pass user context
-                                                     particleFieldName, // Name of particle field
+                                                     particle_field_id,
                                                      targetDM, // Determined target DM (da or fda)
                                                      expected_dof, // Determined DOF (1 or 3)
                                                      eulerFieldAverageVec); // The output vector
@@ -1986,18 +1928,18 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
 	ierr = VecMean(user->Psi,&Avg_Psi);
 	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) before scatter: %.4f.\n",Avg_Psi);
 	     
-	ierr = DMSwarmCreateGlobalVectorFromField(user->swarm,"Psi",&swarm_Psi);
+	ierr = DMSwarmCreateGlobalVectorFromField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), &swarm_Psi);
 	ierr = VecMean(swarm_Psi,&Avg_swarm_Psi);
 
 	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Particle Scalar(Psi): %.4f.\n",Avg_swarm_Psi);
 
-	ierr = DMSwarmDestroyGlobalVectorFromField(user->swarm,"Psi",&swarm_Psi);
+	ierr = DMSwarmDestroyGlobalVectorFromField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), &swarm_Psi);
 	// Debug----------------------------------------------------------------
 	  
 	//ierr = VecSet(user->P, 0.0); CHKERRQ(ierr);
         // Call the unified scatter function. It will handle DM determination and validation.
         // It will also error out if the *particle* field "Psi" doesn't exist in the swarm.
-        ierr = ScatterParticleFieldToEulerField(user, "Psi", user->Psi); CHKERRQ(ierr);
+        ierr = ScatterParticleFieldToEulerField(user, PARTICLE_FIELD_ID_PSI, user->Psi); CHKERRQ(ierr);
 	ierr = VecMean(user->Psi,&Avg_Psi);
 	
 	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) after  scatter: %.4f.\n",Avg_Psi);
@@ -2006,47 +1948,8 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
         LOG_ALLOW(GLOBAL, LOG_WARNING, "Skipping scatter for 'Psi': UserCtx->Psi is NULL.\n");
     }
 
-    // --- (Commented Out) Scatter Other Fields ---
-    // To enable scattering for other fields, uncomment the relevant block
-    // AND ensure:
-    // 1. The corresponding particle field (e.g., "Nvert", "Ucat") exists in user->swarm.
-    // 2. The corresponding target Eulerian Vec (e.g., user->Nvert, user->Ucat) exists in user->ctx.
-    // 3. The target Eulerian Vec is associated with the correct DM (da for Nvert, fda for Ucat).
-
-    /*
-    // Scatter Particle Field "Nvert" -> Eulerian Field user->Nvert (on da)
-    if (user->Nvert) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering particle field 'Nvert' to user->Nvert.\n");
-        ierr = VecSet(user->Nvert, 0.0); CHKERRQ(ierr);
-        ierr = ScatterParticleFieldToEulerField(user, "Nvert", user->Nvert); CHKERRQ(ierr);
-    } else {
-         LOG_ALLOW(GLOBAL, LOG_WARNING, "Skipping scatter for 'Nvert': UserCtx->Nvert is NULL.\n");
-    }
-    */
-
-    /*
-    // Scatter Particle Field "Ucat" -> Eulerian Field user->Ucat (on fda)
-    if (user->Ucat) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering particle field 'Ucat' to user->Ucat.\n");
-        ierr = VecSet(user->Ucat, 0.0); CHKERRQ(ierr);
-        ierr = ScatterParticleFieldToEulerField(user, "Ucat", user->Ucat); CHKERRQ(ierr);
-    } else {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "Skipping scatter for 'Ucat': UserCtx->Ucat is NULL.\n");
-    }
-    */
-
-    /*
-     // Scatter Particle Field "Ucont" -> Eulerian Field user->Ucont (on fda)
-    if (user->Ucont) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering particle field 'Ucont' to user->Ucont.\n");
-        ierr = VecSet(user->Ucont, 0.0); CHKERRQ(ierr);
-        ierr = ScatterParticleFieldToEulerField(user, "Ucont", user->Ucont); CHKERRQ(ierr);
-    } else {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "Skipping scatter for 'Ucont': UserCtx->Ucont is NULL.\n");
-    }
-    */
-
-    // Add more fields as needed following the pattern above...
+    // Additional scatterable particle fields require an explicit catalog entry
+    // with a compatible persistent Eulerian target.
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished scattering specified particle fields.\n");
     PROFILE_FUNCTION_END;

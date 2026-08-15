@@ -179,14 +179,14 @@ static PetscErrorCode DifferenceMaxRank(Vec a, Vec b, PetscMPIInt *max_rank)
  */
 static PetscErrorCode SeedCartesianFromX(UserCtx *user, Vec X)
 {
-    const char *staggered[] = {"Ucont"};
-    const char *cell[] = {"Ucat"};
+    const FieldId staggered[] = {FIELD_ID_UCONT};
+    const FieldId cell[] = {FIELD_ID_UCAT};
     PetscFunctionBeginUser;
     PetscCall(VecCopy(X, user->Ucont));
     PetscCall(SynchronizePeriodicStaggeredFields(user, 1, staggered));
     PetscCall(Contra2Cart(user));
     PetscCall(SynchronizePeriodicCellFields(user, 1, cell));
-    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -368,8 +368,8 @@ static PetscErrorCode TestNewtonKrylovProductionRegression(void)
     PetscReal imm_inf = 0.0, imm_2 = 0.0, mffd_inf = 0.0, mffd_2 = 0.0;
     PetscReal f3_2 = 0.0, f24_2 = 0.0, f24_inf = 0.0, f24m3_inf = 0.0, f24m3_2 = 0.0;
     PetscReal max_div = -1.0;
-    const char *fields[] = {"Ucont"};
-    const char *stag[] = {"Ucont"}; const char *cell[] = {"Ucat"};
+    const FieldId fields[] = {FIELD_ID_UCONT};
+    const FieldId stag[] = {FIELD_ID_UCONT}; const FieldId cell[] = {FIELD_ID_UCAT};
     const PetscReal purity_inf_tol = 1e-13, purity_2_tol = 1e-12;
     const PetscReal compat_tol = 1e-8, div_tol = 1e-6;
     PetscMPIInt world, mffd_rank = 0;
@@ -489,12 +489,12 @@ static PetscErrorCode TestNewtonKrylovProductionRegression(void)
     PetscCall(SynchronizePeriodicStaggeredFields(user, 1, stag));
     PetscCall(Contra2Cart(user));
     PetscCall(SynchronizePeriodicCellFields(user, 1, cell));
-    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     PetscCall(ApplyBoundaryConditions(user));
     PetscCall(PoissonSolver_MG(&simCtx->usermg));
     PetscCall(UpdatePressure(user));
     PetscCall(Projection(user));
-    PetscCall(UpdateLocalGhosts(user, "P"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_P));
     PetscCall(ComputeDivergence(user));
     max_div = simCtx->MaxDiv;
     PetscCall(PetscPrintf(PETSC_COMM_WORLD,

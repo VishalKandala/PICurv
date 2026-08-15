@@ -6,6 +6,29 @@
 
 ## Unreleased
 
+- Field identity infrastructure (phase 1):
+  - added a 38-entry typed `FieldId`/`FieldDescriptor` catalog with canonical
+    names, active aliases, DM family, degree of freedom, shifted/staggered
+    layout, synchronization class, availability, capabilities, and existing
+    `UserCtx` vector bindings;
+  - added non-owning runtime `FieldView` resolution without changing PETSc
+    vector allocation or teardown;
+  - replaced string dispatch in ghost updates, periodic field synchronization,
+    initial interior-field routing, and field-layout diagnostics with catalog
+    metadata while preserving their numerical loops;
+  - added a separate ten-entry `ParticleFieldId` catalog for DMSwarm component
+    count, PETSc data type, registration ownership, initialization, model-update,
+    and Eulerian-scatter metadata;
+  - converted particle registration, initialization, scalar physics, analytical
+    assignment, and Eulerian/particle interpolation/scatter orchestration to
+    typed identities;
+  - centralized fixed DMSwarm access names and made generic particle gather and
+    restart/output casting use PETSc's registered field datatype;
+  - retained runtime configuration, function logging/profiling, generic swarm
+    I/O, postprocessing recipe dispatch, and all file formats as textual
+    boundaries; and
+  - expanded setup, periodic, runtime, solver, and logging regression coverage.
+
 - Solver continuation now rejects `run_control.start_step: 0` instead of treating
   a fresh start as an in-place continuation and appending misleading step-zero
   separators to existing logs.

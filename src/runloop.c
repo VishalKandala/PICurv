@@ -344,15 +344,15 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user)
     // --- Synchronize Local Ghost Regions for the new history vectors ---
     // This is essential so that stencils in the next time step's calculations
     // have correct values from neighboring processes.
-    ierr = UpdateLocalGhosts(user, "Ucont_o"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Ucont_rm1"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_UCONT_O); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_UCONT_RM1); CHKERRQ(ierr);
     
     if (simCtx->immersed) {
-        ierr = UpdateLocalGhosts(user, "Nvert_o"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_NVERT_O); CHKERRQ(ierr);
     }
     
     if (simCtx->rans) {
-       ierr = UpdateLocalGhosts(user, "K_Omega_o"); CHKERRQ(ierr);
+       ierr = UpdateLocalGhosts(user, FIELD_ID_K_OMEGA_O); CHKERRQ(ierr);
     }
     
     PetscFunctionReturn(0);
@@ -613,15 +613,15 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         //     2. EULERIAN SOLVER STEP
         // =================================================================
         if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Coordinates","PreFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Csi","PreFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Eta","PreFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Zet","PreFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Center-Coordinates","PreFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"X-Face-Centers","PreFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Y-Face-Centers","PreFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Z-Face-Centers","PreFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Ucat","PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_COORDINATES, "PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CSI, "PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_ETA, "PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_ZET, "PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CENT, "PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CENTX, "PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CENTY, "PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CENTZ, "PreFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_UCAT, "PreFlowSolver"); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
         if(strcmp(simCtx->eulerianSource,"load")==0){
@@ -643,9 +643,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field Updated ...\n");
         if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
             LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post FlowSolver field states:\n");
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Ucat","PostFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"P","PostFlowSolver"); CHKERRQ(ierr);
-            ierr = LOG_FIELD_ANATOMY(&user[0],"Ucont","PostFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_UCAT, "PostFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_P, "PostFlowSolver"); CHKERRQ(ierr);
+            ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_UCONT, "PostFlowSolver"); CHKERRQ(ierr);
         }
 
 
@@ -670,10 +670,10 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             // a.1 (Optional) Log Eulerian Diffusivity min/max and anatomy for debugging.
             if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Updated Diffusivity Min/Max:\n");
-                ierr = LOG_FIELD_MIN_MAX(&user[0],"Diffusivity"); CHKERRQ(ierr);
-                ierr = LOG_FIELD_MIN_MAX(&user[0],"DiffusivityGradient"); CHKERRQ(ierr);
+                ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
+                ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_DIFFUSIVITY_GRADIENT); CHKERRQ(ierr);
                 //LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Updated Diffusivity Anatomy:\n");
-                ierr = LOG_FIELD_ANATOMY(&user[0],"Diffusivity","PostDiffusivityUpdate"); CHKERRQ(ierr);
+                ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_DIFFUSIVITY, "PostDiffusivityUpdate"); CHKERRQ(ierr);
             }
             // b. Advect particles using the velocity interpolated from the *previous* step.
             //    P(t_{n+1}) = P(t_n) + V_p(t_n) * dt
@@ -712,7 +712,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 
             if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post Lagrangian update field states:\n");
-                ierr = LOG_FIELD_MIN_MAX(&user[0],"Psi"); CHKERRQ(ierr);
+                ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_PSI); CHKERRQ(ierr);
             }
         }
 

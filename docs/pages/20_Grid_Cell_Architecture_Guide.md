@@ -135,6 +135,21 @@ This table provides a quick reference for the mapping.
 | `IM-1` | **Center of `Cell IM-2`** | **Last True Physical Value** |
 | `IM` | Ghost value for `Cell IM-2` | **Boundary Condition Tool** |
 
+---
+
+## 8. Machine-Readable Field Layout Metadata
+
+The field catalog in `include/field_catalog.h` represents these conventions as
+typed metadata. `FIELD_LAYOUT_CELL_CENTERED` identifies the shifted-cell rule,
+the three single-face layouts identify which axis is node-like, and
+`FIELD_LAYOUT_COMPONENT_STAGGERED` identifies packed fields such as `Ucont`
+whose components occupy different face families.
+
+The metadata does not change the index rules described above and does not make
+all entries of a PETSc vector physical. It gives shared infrastructure a single
+way to select the established DM, Vec pair, and ghost-repair class. See
+@ref 56_Field_Identity_and_Layout_Catalog for the complete contract.
+
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 
 ## CFD Reader Guidance and Practical Use
@@ -156,4 +171,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

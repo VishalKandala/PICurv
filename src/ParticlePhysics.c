@@ -11,7 +11,7 @@
  * @brief Internal helper implementation: `UpdateParticleField()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode UpdateParticleField(const char *fieldName,
+PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
                                    PetscReal dt,
                                    PetscReal *psi_io,
                                    PetscReal diffusivity,
@@ -21,7 +21,7 @@ PetscErrorCode UpdateParticleField(const char *fieldName,
 {
     PetscFunctionBeginUser;
 
-    if (strcmp(fieldName, "Psi") == 0) {
+    if (field_id == PARTICLE_FIELD_ID_PSI) {
         // Guard the LES mixing time scale against degenerate or cut-cell volumes.
         if (cell_vol < 1.0e-14) cell_vol = 1.0e-14;
 
@@ -43,7 +43,7 @@ PetscErrorCode UpdateParticleField(const char *fieldName,
  * @brief Internal helper implementation: `UpdateFieldForAllParticles()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName)
+PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_id)
 {
     PetscErrorCode ierr;
     DM             swarm = user->swarm;
@@ -60,9 +60,18 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName)
     PetscReal       ***grid_aj = NULL;
 
     PetscBool       accessed_eulerian = PETSC_FALSE;
+    const ParticleFieldDescriptor *descriptor = NULL;
+    const char      *fieldName = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+
+    ierr = ParticleFieldGetDescriptor(field_id, &descriptor); CHKERRQ(ierr);
+    PetscCheck((descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_MODEL_UPDATE) != 0,
+               PETSC_COMM_SELF, PETSC_ERR_SUP,
+               "Particle field '%s' has no registered model-update kernel.",
+               descriptor->canonical_name);
+    fieldName = descriptor->canonical_name;
 
     ierr = DMSwarmGetLocalSize(swarm, &n_local); CHKERRQ(ierr);
     if (n_local == 0) {
@@ -71,9 +80,9 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName)
 
     ierr = DMSwarmGetField(swarm, fieldName, NULL, NULL, (void**)&psi_arr); CHKERRQ(ierr);
 
-    if (strcmp(fieldName, "Psi") == 0) {
-        ierr = DMSwarmGetField(swarm, "Diffusivity", NULL, NULL, (void**)&diff_arr); CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_arr); CHKERRQ(ierr);
+    if (field_id == PARTICLE_FIELD_ID_PSI) {
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void**)&diff_arr); CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell_arr); CHKERRQ(ierr);
 
         // Psi relaxation requires ghosted Eulerian mean and Jacobian fields.
         if (!user->lPsi || !user->lAj) {
@@ -90,7 +99,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName)
         PetscReal p_mean = 0.0;
         PetscReal p_vol  = 1.0;
 
-        if (strcmp(fieldName, "Psi") == 0) {
+        if (field_id == PARTICLE_FIELD_ID_PSI) {
             PetscInt i = cell_arr[3*p + 0];
             PetscInt j = cell_arr[3*p + 1];
             PetscInt k = cell_arr[3*p + 2];
@@ -103,15 +112,15 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, const char *fieldName)
             p_vol = (jac > 1.0e-14) ? (1.0 / jac) : 1.0e-14;
         }
 
-        ierr = UpdateParticleField(fieldName, dt, &psi_arr[p], p_diff, p_mean, p_vol, C_IEM);
+        ierr = UpdateParticleField(field_id, dt, &psi_arr[p], p_diff, p_mean, p_vol, C_IEM);
         CHKERRQ(ierr);
     }
 
     ierr = DMSwarmRestoreField(swarm, fieldName, NULL, NULL, (void**)&psi_arr); CHKERRQ(ierr);
 
-    if (strcmp(fieldName, "Psi") == 0) {
-        ierr = DMSwarmRestoreField(swarm, "Diffusivity", NULL, NULL, (void**)&diff_arr); CHKERRQ(ierr);
-        ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_arr); CHKERRQ(ierr);
+    if (field_id == PARTICLE_FIELD_ID_PSI) {
+        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void**)&diff_arr); CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell_arr); CHKERRQ(ierr);
     }
 
     if (accessed_eulerian) {
@@ -149,7 +158,7 @@ PetscErrorCode UpdateAllParticleFields(UserCtx *user)
         PetscFunctionReturn(0);
     }
 
-    ierr = UpdateFieldForAllParticles(user, "Psi"); CHKERRQ(ierr);
+    ierr = UpdateFieldForAllParticles(user, PARTICLE_FIELD_ID_PSI); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "All particle physical properties updated.\n");
 

@@ -165,7 +165,7 @@ static PetscErrorCode TestPeriodicGeometryRejectsVaryingTranslation(void)
     PetscCall(DMDAVecGetArray(user->fda, gcoor, &coor));
     coor[1][1][user->info.mx - 2].y += 0.25;
     PetscCall(DMDAVecRestoreArray(user->fda, gcoor, &coor));
-    PetscCall(UpdateLocalGhosts(user, "Coordinates"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_COORDINATES));
 
     PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
     ierr_validate = ValidatePeriodicGeometry(user);
@@ -185,7 +185,7 @@ static PetscErrorCode TestPeriodicFaceCenterCoordinateSynchronization(void)
     UserCtx *user = NULL;
     Cmpnts ***centx = NULL;
     const Cmpnts ***lcentx = NULL;
-    const char *fields[] = {"Centx"};
+    const FieldId fields[] = {FIELD_ID_CENTX};
     PetscReal translation, spacing;
 
     PetscFunctionBeginUser;
@@ -247,8 +247,8 @@ static PetscErrorCode TestPeriodicQuickStencilPreparation(void)
     }
     PetscCall(DMDAVecRestoreArray(user->da, user->Nvert, &nvert));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
-    PetscCall(UpdateLocalGhosts(user, "Ucat"));
-    PetscCall(UpdateLocalGhosts(user, "Nvert"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_NVERT));
     PetscCall(PreparePeriodicQuickStencilFields(user, user->lUcat, user->lNvert));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcat, &ucat));
@@ -281,55 +281,6 @@ static PetscErrorCode TestPeriodicGeometricFactoryAssignment(void)
     PetscCall(PicurvAssertBool((PetscBool)(bc->Apply == NULL), "periodic geometric handler should not expose Apply"));
     PetscCall(PicurvAssertBool((PetscBool)(bc->Initialize == NULL), "periodic geometric handler should not expose Initialize"));
     PetscCall(DestroyBoundaryHandler(&bc));
-    PetscFunctionReturn(0);
-}
-/**
- * @brief Tests direct periodic face transfer on the staggered velocity field.
- */
-static PetscErrorCode TestTransferPeriodicFaceFieldCopiesXFaces(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    Cmpnts ***ucont = NULL;
-    PetscReal expected_neg_face = 0.0;
-    PetscReal expected_pos_face = 0.0;
-    PetscReal expected_neg_ghost = 0.0;
-    PetscReal expected_pos_ghost = 0.0;
-
-    PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
-    MarkXPeriodic(user);
-
-    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
-    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
-        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
-            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
-                ucont[k][j][i].x = (PetscReal)i;
-                ucont[k][j][i].y = 10.0 + (PetscReal)i;
-                ucont[k][j][i].z = 20.0 + (PetscReal)i;
-            }
-        }
-    }
-    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
-    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
-    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
-    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &ucont));
-    expected_neg_face = ucont[2][2][user->info.mx - 2].x;
-    expected_pos_face = ucont[2][2][1].x;
-    expected_neg_ghost = ucont[2][2][user->info.mx - 3].x;
-    expected_pos_ghost = ucont[2][2][2].x;
-    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, &ucont));
-
-    PetscCall(TransferPeriodicFaceField(user, "Ucont"));
-
-    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &ucont));
-    PetscCall(PicurvAssertRealNear(expected_neg_face, ucont[2][2][0].x, 1.0e-12, "NEG_X periodic face should copy from the opposite interior face"));
-    PetscCall(PicurvAssertRealNear(expected_pos_face, ucont[2][2][user->info.mx - 1].x, 1.0e-12, "POS_X periodic face should copy from the leading interior face"));
-    PetscCall(PicurvAssertRealNear(expected_neg_ghost, ucont[2][2][-1].x, 1.0e-12, "NEG_X ghost face should copy the second-to-last interior face"));
-    PetscCall(PicurvAssertRealNear(expected_pos_ghost, ucont[2][2][user->info.mx].x, 1.0e-12, "POS_X ghost face should copy the second interior face"));
-    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, &ucont));
-
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
 /**
@@ -392,7 +343,7 @@ static PetscErrorCode TestSynchronizePeriodicCellFieldsCopiesMixedAxes(void)
     PetscReal ***diffusivity = NULL;
     Cmpnts ***ucat = NULL;
     PetscInt mx, my;
-    const char *fields[] = {"Ucat", "P", "Phi", "Nvert", "Nu_t", "CS", "Diffusivity"};
+    const FieldId fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_PHI, FIELD_ID_NVERT, FIELD_ID_NU_T, FIELD_ID_CS, FIELD_ID_DIFFUSIVITY};
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_TRUE, PETSC_FALSE));
@@ -471,7 +422,7 @@ static PetscErrorCode TestSynchronizePeriodicFaceFieldsCopiesMixedAxes(void)
     UserCtx *user = NULL;
     PetscReal ***iaj = NULL;
     Cmpnts ***csi = NULL;
-    const char *fields[] = {"Csi", "IAj"};
+    const FieldId fields[] = {FIELD_ID_CSI, FIELD_ID_IAJ};
     PetscInt mx, my;
 
     PetscFunctionBeginUser;
@@ -533,7 +484,7 @@ static PetscErrorCode TestSynchronizePeriodicStaggeredFieldsCopiesMixedAxes(void
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     Cmpnts ***ucont = NULL;
-    const char *fields[] = {"Ucont"};
+    const FieldId fields[] = {FIELD_ID_UCONT};
     PetscInt mx, my;
 
     PetscFunctionBeginUser;
@@ -658,7 +609,7 @@ static PetscErrorCode TestFinalizePostProjectionCellFieldsMixedBoundaries(void)
 static PetscErrorCode TestContra2CartPeriodicUcatFinalization(void)
 {
     SimCtx *simCtx=NULL; UserCtx *user=NULL; Cmpnts ***ucont=NULL,***ucat=NULL,***lucat=NULL;
-    const char *staggered_fields[]={"Ucont"}, *cell_fields[]={"Ucat"};
+    const FieldId staggered_fields[] = {FIELD_ID_UCONT}, cell_fields[] = {FIELD_ID_UCAT};
     PetscInt mx;
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx,&user,4,4,4,PETSC_TRUE,PETSC_FALSE,PETSC_FALSE));
@@ -672,7 +623,7 @@ static PetscErrorCode TestContra2CartPeriodicUcatFinalization(void)
     PetscCall(VecSet(user->Ucat,-99.0));
     PetscCall(Contra2Cart(user));
     PetscCall(SynchronizePeriodicCellFields(user,1,cell_fields));
-    PetscCall(UpdateLocalGhosts(user,"Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
 
     PetscCall(DMDAVecGetArrayRead(user->fda,user->Ucat,&ucat));
     PetscCall(PicurvAssertRealNear(ucat[2][2][mx-2].x,ucat[2][2][0].x,1e-12,"negative Ucat duplicate follows opposite independent cell"));
@@ -699,7 +650,6 @@ int main(int argc, char **argv)
         {"periodic-geometry-rejects-varying-translation", TestPeriodicGeometryRejectsVaryingTranslation},
         {"periodic-face-center-coordinate-synchronization", TestPeriodicFaceCenterCoordinateSynchronization},
         {"periodic-quick-stencil-preparation", TestPeriodicQuickStencilPreparation},
-        {"transfer-periodic-face-field-copies-x-faces", TestTransferPeriodicFaceFieldCopiesXFaces},
         {"apply-metrics-periodic-bcs-synchronizes-aj", TestApplyMetricsPeriodicBCsSynchronizesAj},
         {"synchronize-periodic-cell-fields-copies-mixed-axes", TestSynchronizePeriodicCellFieldsCopiesMixedAxes},
         {"synchronize-periodic-face-fields-copies-mixed-axes", TestSynchronizePeriodicFaceFieldsCopiesMixedAxes},

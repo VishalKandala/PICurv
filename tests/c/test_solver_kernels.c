@@ -137,7 +137,7 @@ static PetscErrorCode TestAnalyticalScalarVerificationHelpers(void)
     positions[3] = 0.8; positions[4] = 0.6; positions[5] = 0.4;
     PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
 
-    PetscCall(SetAnalyticalScalarFieldOnParticles(user, "Psi"));
+    PetscCall(SetAnalyticalScalarFieldOnParticles(user, PARTICLE_FIELD_ID_PSI));
     PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
     PetscCall(PicurvAssertRealNear(2.5, psi[0], 1.0e-12,
                                    "SetAnalyticalScalarFieldOnParticles should overwrite the first particle scalar"));

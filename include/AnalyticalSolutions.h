@@ -118,10 +118,10 @@ PetscErrorCode EvaluateAnalyticalScalarProfile(const SimCtx *simCtx,
  * @brief Writes the configured verification scalar profile onto a particle swarm scalar field.
  *
  * @param[in,out] user             Block-local context providing particle positions.
- * @param[in]     swarm_field_name Name of the scalar swarm field to overwrite.
+ * @param[in]     particle_field_id Typed identity of the scalar swarm field to overwrite.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, const char *swarm_field_name);
+PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, ParticleFieldId particle_field_id);
 
 /**
  * @brief Writes the configured verification scalar profile at physical cell centers into a scalar Vec.

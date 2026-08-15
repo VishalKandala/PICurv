@@ -235,14 +235,14 @@ static PetscErrorCode TestUpdateParticleFieldIEMRelaxation(void)
     PetscReal unchanged = 7.0;
 
     PetscFunctionBeginUser;
-    PetscCall(UpdateParticleField("Psi", dt, &psi, diffusivity, mean_val, cell_vol, c_model));
+    PetscCall(UpdateParticleField(PARTICLE_FIELD_ID_PSI, dt, &psi, diffusivity, mean_val, cell_vol, c_model));
     PetscCall(PicurvAssertRealNear(
         mean_val + (1.0 - mean_val) * PetscExpReal(-(c_model * diffusivity / PetscPowReal(cell_vol, 0.6666667)) * dt),
         psi,
         1.0e-12,
         "IEM update should match analytical relaxation"));
 
-    PetscCall(UpdateParticleField("UnrelatedField", dt, &unchanged, diffusivity, mean_val, cell_vol, c_model));
+    PetscCall(UpdateParticleField(PARTICLE_FIELD_ID_VELOCITY, dt, &unchanged, diffusivity, mean_val, cell_vol, c_model));
     PetscCall(PicurvAssertRealNear(7.0, unchanged, 1.0e-12, "unknown field should remain unchanged"));
     PetscFunctionReturn(0);
 }
@@ -259,7 +259,7 @@ static PetscErrorCode TestSetInitialInteriorFieldIgnoresNonUcontRequest(void)
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     PetscCall(VecSet(user->Ucont, 7.0));
 
-    PetscCall(SetInitialInteriorField(user, "P"));
+    PetscCall(SetInitialInteriorField(user, FIELD_ID_P));
     PetscCall(PicurvAssertVecConstant(user->Ucont, 7.0, 1.0e-12, "non-Ucont request should not modify Ucont"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
@@ -285,7 +285,7 @@ static PetscErrorCode TestSetInitialInteriorFieldCartesianConstantSetsContravari
     simCtx->InitialConstantContra.z = 2.0;
     PetscCall(VecSet(user->Ucont, 0.0));
 
-    PetscCall(SetInitialInteriorField(user, "Ucont"));
+    PetscCall(SetInitialInteriorField(user, FIELD_ID_UCONT));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].x, 1.0e-10, "Xi flux is zero for pure-z velocity on Cartesian grid"));
     PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].y, 1.0e-10, "Eta flux is zero for pure-z velocity on Cartesian grid"));
@@ -321,7 +321,7 @@ static PetscErrorCode TestSetInitialInteriorFieldCurvilinearConstantViaFlowDirec
     simCtx->InitialConstantContra.z = 99.0;
     PetscCall(VecSet(user->Ucont, 0.0));
 
-    PetscCall(SetInitialInteriorField(user, "Ucont"));
+    PetscCall(SetInitialInteriorField(user, FIELD_ID_UCONT));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].x, 1.0e-10, "Xi flux is zero in curvilinear Zeta mode"));
     PetscCall(PicurvAssertRealNear(0.0,  ucont[1][1][1].y, 1.0e-10, "Eta flux is zero in curvilinear Zeta mode"));
@@ -346,7 +346,7 @@ static PetscErrorCode TestSetInitialInteriorFieldZeroClearsInterior(void)
     simCtx->initialConditionMode = IC_MODE_ZERO;
     PetscCall(VecSet(user->Ucont, 7.0));
 
-    PetscCall(SetInitialInteriorField(user, "Ucont"));
+    PetscCall(SetInitialInteriorField(user, FIELD_ID_UCONT));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].x, 1.0e-12, "zero IC clears interior Xi flux"));
     PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].y, 1.0e-12, "zero IC clears interior Eta flux"));
@@ -374,7 +374,7 @@ static PetscErrorCode TestSetInitialInteriorFieldPoiseuilleProfile(void)
     user->GridOrientation = 1;
     PetscCall(VecZeroEntries(user->Ucont));
 
-    PetscCall(SetInitialInteriorField(user, "Ucont"));
+    PetscCall(SetInitialInteriorField(user, FIELD_ID_UCONT));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(PicurvAssertRealNear(3.0 * 64.0 / 81.0, ucont[2][2][2].z, 1.0e-12,
                                    "Poiseuille IC follows the discrete center-adjacent profile value"));
@@ -405,7 +405,7 @@ static PetscErrorCode TestCart2ContraConvertsCartesianField(void)
             for (PetscInt i = 0; i < 6; i++)
                 ucat[k][j][i] = (Cmpnts){(PetscReal)i, 2.0, 3.0};
     PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
-    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     PetscCall(Cart2Contra(user));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
@@ -425,7 +425,7 @@ static PetscErrorCode TestCart2ContraConvertsCartesianField(void)
 static PetscErrorCode TestCart2ContraUsesFinalizedPeriodicUcat(void)
 {
     SimCtx *simCtx=NULL; UserCtx *user=NULL; Cmpnts ***ucat=NULL,***ucont=NULL; PetscInt mx;
-    const char *cell_fields[]={"Ucat"}, *staggered_fields[]={"Ucont"};
+    const FieldId cell_fields[] = {FIELD_ID_UCAT}, staggered_fields[] = {FIELD_ID_UCONT};
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx,&user,4,4,4,PETSC_TRUE,PETSC_FALSE,PETSC_FALSE));
     user->boundary_faces[BC_FACE_NEG_X].mathematical_type=PERIODIC;
@@ -439,7 +439,7 @@ static PetscErrorCode TestCart2ContraUsesFinalizedPeriodicUcat(void)
     ucat[2][2][mx-1]=(Cmpnts){-2000.0,-2000.0,-2000.0};
     PetscCall(DMDAVecRestoreArray(user->fda,user->Ucat,&ucat));
     PetscCall(SynchronizePeriodicCellFields(user,1,cell_fields));
-    PetscCall(UpdateLocalGhosts(user,"Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     PetscCall(Cart2Contra(user));
     PetscCall(SynchronizePeriodicStaggeredFields(user,1,staggered_fields));
     PetscCall(DMDAVecGetArrayRead(user->fda,user->Ucont,&ucont));
@@ -539,7 +539,7 @@ static PetscErrorCode StagedFourierModeMaxDivergence(UserCtx *user,
     SimCtx *simCtx = user->simCtx;
     Cmpnts ***ucat = NULL, ***ucont = NULL;
     PetscInt n_x = user->info.mx - 2, n_y = user->info.my - 2, n_z = user->info.mz - 2;
-    const char *staggered_fields[] = {"Ucont"};
+    const FieldId staggered_fields[] = {FIELD_ID_UCONT};
 
     PetscFunctionBeginUser;
     PetscCall(VecZeroEntries(user->Ucat));
@@ -566,7 +566,7 @@ static PetscErrorCode StagedFourierModeMaxDivergence(UserCtx *user,
     PetscCall(VecZeroEntries(user->Ucont));
     PetscCall(PopulateInitialUcont(user));
     PetscCall(SynchronizePeriodicStaggeredFields(user, 1, staggered_fields));
-    PetscCall(UpdateLocalGhosts(user, "Ucont"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
 
     *max_divergence = 0.0;
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &ucont));

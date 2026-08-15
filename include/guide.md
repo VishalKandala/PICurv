@@ -7,6 +7,10 @@ For maintainers, this directory is a stability boundary: changes here can impact
 ## How To Read This Directory
 
 - `variables.h`: shared core types (`SimCtx`, `UserCtx`, enums, BC structs).
+- `field_catalog.h`: typed identities, immutable layout/storage metadata, and
+  non-owning runtime views for persistent Eulerian fields.
+- `particle_field_catalog.h`: separate DMSwarm field identities, storage types,
+  registration ownership, initialization, and Eulerian-coupling metadata.
 - `setup.h`, `runloop.h`, `solvers.h`: top-level runtime orchestration APIs.
 - `grid.h`, `Metric.h`, `Boundaries.h`, `poisson.h`, `rhs.h`: Eulerian solver subsystem APIs.
 - `ParticleSwarm.h`, `ParticleMotion.h`, `interpolation.h`, `ParticlePhysics.h`: Lagrangian/coupling subsystem APIs.
@@ -16,7 +20,9 @@ For maintainers, this directory is a stability boundary: changes here can impact
 
 1. Keep function signatures synchronized with definitions in `src/*.c`.
 2. Keep Doxygen `@param` names exact to avoid warning noise and stale docs.
-3. Place cross-module shared enums/structs in `variables.h` unless module-local.
+3. Place broad simulation state in `variables.h`; extend `field_catalog.h` for
+   persistent Eulerian metadata and `particle_field_catalog.h` for persistent
+   solver-particle metadata.
 4. Document call-order assumptions and ownership semantics for every new public API.
 5. Keep `tests/tooling/audit_function_docs.py` passing when changing public headers or their matching C implementations.
 

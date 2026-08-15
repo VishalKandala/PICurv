@@ -615,7 +615,7 @@ static PetscErrorCode TestPeriodicConstraintDerivativesAndIntersections(void)
     PetscCall(PerturbStoredValue(user, x, 0, 0, 2, 0, 3.0));
     PetscCall(PerturbStoredValue(user, x, user->info.mx - 2, user->info.my - 2, 2, 0, 1.25));
     PetscCall(VecCopy(x, user->Ucont));
-    { const char *fields[] = {"Ucont"}; PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fields)); }
+    { const FieldId fields[] = {FIELD_ID_UCONT}; PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fields)); }
     PetscCall(GetStoredValue(user, x, 0, 0, 2, 0, &xdup));
     PetscCall(GetStoredValue(user, user->Ucont, 0, 0, 2, 0, &synced));
     ctx.user = user;
@@ -919,7 +919,7 @@ static PetscErrorCode TestSmallSolveAndRollback(void)
     Vec entry = NULL, delta = NULL;
     PetscErrorCode solve_ierr;
     PetscReal norm = 0.0;
-    const char *fields[] = {"Ucont"};
+    const FieldId fields[] = {FIELD_ID_UCONT};
     char summary_path[PETSC_MAX_PATH_LEN];
     char history_path[PETSC_MAX_PATH_LEN];
 
@@ -979,7 +979,7 @@ static PetscErrorCode TestZeroIterationStructuredLogging(void)
     UserCtx *user = NULL;
     char tmpdir[PETSC_MAX_PATH_LEN] = "";
     char summary_path[PETSC_MAX_PATH_LEN];
-    const char *fields[] = {"Ucont"};
+    const FieldId fields[] = {FIELD_ID_UCONT};
 
     PetscFunctionBeginUser;
     PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
@@ -1068,7 +1068,7 @@ static PetscErrorCode TestRestartAndContinuationSolve(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     char tmpdir[PETSC_MAX_PATH_LEN] = "";
-    const char *fields[] = {"Ucont"};
+    const FieldId fields[] = {FIELD_ID_UCONT};
 
     PetscFunctionBeginUser;
     PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
@@ -1186,7 +1186,7 @@ static PetscErrorCode TestPostAllocationFailureCleanup(void)
     Vec entry = NULL, delta = NULL;
     PetscErrorCode solve_ierr;
     PetscReal norm = 0.0;
-    const char *fields[] = {"Ucont"};
+    const FieldId fields[] = {FIELD_ID_UCONT};
 
     PetscFunctionBeginUser;
     PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));

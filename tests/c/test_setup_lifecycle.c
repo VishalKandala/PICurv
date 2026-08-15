@@ -401,6 +401,203 @@ static PetscErrorCode TestSetupLifecycleCleanupAcrossInitializationStates(void)
 }
 
 /**
+ * @brief Verifies catalog completeness, stable name resolution, and runtime view binding.
+ */
+static PetscErrorCode TestFieldCatalogMetadataAndViews(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    FieldId parsed_id = FIELD_ID_INVALID;
+    FieldView view;
+    const FieldDescriptor *descriptor = NULL;
+    Vec coordinates = NULL;
+    Vec local_coordinates = NULL;
+    PetscErrorCode unknown_name_ierr;
+    PetscErrorCode unavailable_view_ierr;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+
+    for (PetscInt raw_id = 0; raw_id < FIELD_ID_COUNT; ++raw_id) {
+        PetscCall(FieldGetDescriptor((FieldId)raw_id, &descriptor));
+        PetscCall(PicurvAssertIntEqual(raw_id, (PetscInt)descriptor->id,
+                                       "catalog entry should retain its declared FieldId"));
+        PetscCall(PicurvAssertBool((PetscBool)(descriptor->canonical_name != NULL &&
+                                               descriptor->canonical_name[0] != '\0'),
+                                   "every field descriptor should have a canonical name"));
+        PetscCall(PicurvAssertBool((PetscBool)(descriptor->dof == 1 ||
+                                               descriptor->dof == 2 ||
+                                               descriptor->dof == 3),
+                                   "every ghost-updatable catalog field should declare a supported dof"));
+        PetscCall(PicurvAssertBool((PetscBool)((descriptor->capabilities &
+                                               FIELD_CAPABILITY_GHOST_UPDATE) != 0u),
+                                   "every phase-one field should advertise ghost-update capability"));
+        PetscCall(FieldIdFromName(descriptor->canonical_name, &parsed_id));
+        PetscCall(PicurvAssertIntEqual(raw_id, (PetscInt)parsed_id,
+                                       "canonical field names should round-trip to their IDs"));
+        PetscCall(PicurvAssertBool((PetscBool)(strcmp(FieldCanonicalName((FieldId)raw_id),
+                                                     descriptor->canonical_name) == 0),
+                                   "FieldCanonicalName should return catalog-owned canonical text"));
+    }
+
+    PetscCall(FieldIdFromName("eddy viscosity", &parsed_id));
+    PetscCall(PicurvAssertIntEqual(FIELD_ID_NU_T, parsed_id,
+                                   "Nu_t compatibility alias should resolve case-insensitively"));
+    PetscCall(FieldIdFromName("cs", &parsed_id));
+    PetscCall(PicurvAssertIntEqual(FIELD_ID_CS, parsed_id,
+                                   "CS compatibility alias should resolve case-insensitively"));
+    PetscCall(FieldIdFromName("X-Face-Centers", &parsed_id));
+    PetscCall(PicurvAssertIntEqual(FIELD_ID_CENTX, parsed_id,
+                                   "diagnostic face-center name should resolve to the canonical field"));
+
+    PetscCall(FieldGetDescriptor(FIELD_ID_UCONT, &descriptor));
+    PetscCall(PicurvAssertIntEqual(FIELD_LAYOUT_COMPONENT_STAGGERED, descriptor->layout,
+                                   "Ucont should retain component-staggered topology metadata"));
+    PetscCall(PicurvAssertIntEqual(FIELD_SYNC_COMPONENT_STAGGERED, descriptor->sync_class,
+                                   "Ucont should retain component-staggered ghost repair metadata"));
+    PetscCall(FieldGetDescriptor(FIELD_ID_CSI, &descriptor));
+    PetscCall(PicurvAssertIntEqual(FIELD_LAYOUT_I_FACE, descriptor->layout,
+                                   "Csi should retain I-face topology metadata"));
+    PetscCall(PicurvAssertIntEqual(FIELD_SYNC_I_FACE, descriptor->sync_class,
+                                   "Csi should retain I-face ghost repair metadata"));
+    PetscCall(FieldGetDescriptor(FIELD_ID_IAJ, &descriptor));
+    PetscCall(PicurvAssertIntEqual(1, descriptor->dof,
+                                   "IAj should retain scalar face-field metadata"));
+
+    PetscCall(FieldGetView(user, FIELD_ID_P, &view));
+    PetscCall(PicurvAssertBool((PetscBool)(view.dm == user->da &&
+                                           view.global_vec == user->P &&
+                                           view.local_vec == user->lP),
+                               "P field view should bind the existing scalar DM and Vec pair"));
+    PetscCall(FieldGetView(user, FIELD_ID_UCAT, &view));
+    PetscCall(PicurvAssertBool((PetscBool)(view.dm == user->fda &&
+                                           view.global_vec == user->Ucat &&
+                                           view.local_vec == user->lUcat),
+                               "Ucat field view should bind the existing vector DM and Vec pair"));
+
+    PetscCall(DMGetCoordinates(user->da, &coordinates));
+    PetscCall(DMGetCoordinatesLocal(user->da, &local_coordinates));
+    PetscCall(FieldGetView(user, FIELD_ID_COORDINATES, &view));
+    PetscCall(PicurvAssertBool((PetscBool)(view.dm == user->fda &&
+                                           view.global_vec == coordinates &&
+                                           view.local_vec == local_coordinates),
+                               "coordinate field view should bind PETSc-owned coordinate vectors"));
+
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    unknown_name_ierr = FieldIdFromName("NotARegisteredEulerianField", &parsed_id);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_UNKNOWN_TYPE, unknown_name_ierr,
+                                   "unknown field names should fail at the name-ingress boundary"));
+    PetscCall(PicurvAssertIntEqual(FIELD_ID_INVALID, parsed_id,
+                                   "failed field-name resolution should return FIELD_ID_INVALID"));
+
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    unavailable_view_ierr = FieldGetView(user, FIELD_ID_K_OMEGA, &view);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_WRONGSTATE, unavailable_view_ierr,
+                                   "catalogued optional fields without storage should report unavailable state"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Verifies the separate DMSwarm field catalog and its Eulerian bridge metadata.
+ */
+static PetscErrorCode TestParticleFieldCatalogMetadata(void)
+{
+    ParticleFieldId parsed_id = PARTICLE_FIELD_ID_INVALID;
+    const ParticleFieldDescriptor *descriptor = NULL;
+    PetscErrorCode unknown_name_ierr;
+
+    PetscFunctionBeginUser;
+    for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
+        PetscCall(ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor));
+        PetscCall(PicurvAssertIntEqual(raw_id, (PetscInt)descriptor->id,
+                                       "particle catalog entry should retain its declared ID"));
+        PetscCall(PicurvAssertBool((PetscBool)(descriptor->canonical_name != NULL &&
+                                               descriptor->canonical_name[0] != '\0'),
+                                   "every particle field should have a canonical DMSwarm name"));
+        PetscCall(PicurvAssertBool((PetscBool)(descriptor->components == 1 ||
+                                               descriptor->components == 3),
+                                   "persistent particle fields should declare one or three components"));
+        PetscCall(ParticleFieldIdFromName(descriptor->canonical_name, &parsed_id));
+        PetscCall(PicurvAssertIntEqual(raw_id, (PetscInt)parsed_id,
+                                       "canonical particle field names should round-trip to their IDs"));
+        PetscCall(PicurvAssertBool((PetscBool)(strcmp(ParticleFieldName((ParticleFieldId)raw_id),
+                                                     descriptor->canonical_name) == 0),
+                                   "ParticleFieldName should return catalog-owned PETSc text"));
+    }
+
+    PetscCall(ParticleFieldIdFromName("particlevelocity", &parsed_id));
+    PetscCall(PicurvAssertIntEqual(PARTICLE_FIELD_ID_VELOCITY, parsed_id,
+                                   "particle velocity alias should resolve case-insensitively"));
+    PetscCall(ParticleFieldIdFromName("Migration Status", &parsed_id));
+    PetscCall(PicurvAssertIntEqual(PARTICLE_FIELD_ID_LOCATION_STATUS, parsed_id,
+                                   "migration-status output alias should resolve to the PETSc field"));
+
+    PetscCall(ParticleFieldGetDescriptor(PARTICLE_FIELD_ID_PSI, &descriptor));
+    PetscCall(PicurvAssertBool((PetscBool)((descriptor->capabilities &
+                                           PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER) != 0u),
+                               "Psi should advertise its active particle-to-Eulerian scatter"));
+    PetscCall(PicurvAssertIntEqual(FIELD_ID_PSI, descriptor->eulerian_scatter_target,
+                                   "particle Psi should target Eulerian Psi"));
+    PetscCall(ParticleFieldGetDescriptor(PARTICLE_FIELD_ID_PID, &descriptor));
+    PetscCall(PicurvAssertIntEqual(PARTICLE_FIELD_REGISTRATION_PETSC, descriptor->registration,
+                                   "particle IDs should be marked as PETSc-managed"));
+    PetscCall(PicurvAssertIntEqual(PETSC_INT64, descriptor->data_type,
+                                   "particle IDs should retain 64-bit storage metadata"));
+
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    unknown_name_ierr = ParticleFieldIdFromName("NotARegisteredParticleField", &parsed_id);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_UNKNOWN_TYPE, unknown_name_ierr,
+                                   "unknown particle names should fail at the text-ingress boundary"));
+    PetscCall(PicurvAssertIntEqual(PARTICLE_FIELD_ID_INVALID, parsed_id,
+                                   "failed particle name resolution should return the invalid ID"));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Verifies typed ghost updates preserve scalar, vector, face, and staggered behavior.
+ */
+static PetscErrorCode TestFieldCatalogTypedGhostUpdates(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+
+    PetscCall(VecSet(user->P, 4.25));
+    PetscCall(VecSet(user->lP, -1.0));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_P));
+    PetscCall(PicurvAssertVecConstant(user->lP, 4.25, 1.0e-12,
+                                      "typed scalar ghost update should scatter P"));
+
+    PetscCall(VecSet(user->Ucat, 7.5));
+    PetscCall(VecSet(user->lUcat, -1.0));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
+    PetscCall(PicurvAssertVecConstant(user->lUcat, 7.5, 1.0e-12,
+                                      "typed cell-vector ghost update should scatter Ucat"));
+
+    PetscCall(VecSet(user->IAj, 2.0));
+    PetscCall(VecSet(user->lIAj, -1.0));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_IAJ));
+    PetscCall(PicurvAssertVecConstant(user->lIAj, 2.0, 1.0e-12,
+                                      "typed scalar face-field ghost update should scatter IAj"));
+
+    PetscCall(VecSet(user->Ucont, 3.0));
+    PetscCall(VecSet(user->lUcont, -1.0));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
+    PetscCall(PicurvAssertVecConstant(user->lUcont, 3.0, 1.0e-12,
+                                      "typed component-staggered ghost update should scatter Ucont"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-setup PETSc test binary.
  */
 int main(int argc, char **argv)
@@ -413,6 +610,9 @@ int main(int argc, char **argv)
         {"setup-lifecycle-random-generators-and-cleanup", TestSetupLifecycleRandomGeneratorsAndCleanup},
         {"setup-lifecycle-cleanup-across-initialization-states", TestSetupLifecycleCleanupAcrossInitializationStates},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},
+        {"field-catalog-metadata-and-views", TestFieldCatalogMetadataAndViews},
+        {"particle-field-catalog-metadata", TestParticleFieldCatalogMetadata},
+        {"field-catalog-typed-ghost-updates", TestFieldCatalogTypedGhostUpdates},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv setup lifecycle tests");

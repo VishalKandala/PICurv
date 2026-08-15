@@ -90,6 +90,9 @@ Guidance:
 - Use `make audit-build` when you want a clean compilation audit with `logs/build.log` and `logs/build.warnings.log` captured under the repo `logs/` directory.
 - Use `make doctor` after provisioning PETSc on a new machine.
 - Use `make unit-setup` when changing setup, teardown, initialization, or rank-info lifecycle code.
+- Use `make unit-setup` when changing `FieldId`, `FieldDescriptor`, runtime field
+  views, or the typed ghost-update interface; it directly checks catalog
+  completeness, bindings, failure behavior, and representative layouts.
 - Use `make unit-simulation` for the normal simulation-core debugging loop (`unit-boundaries + unit-solver + unit-poisson-rhs + unit-runtime + unit-particles`).
 - Use `make unit-<area>` while changing a subsystem in isolation.
 - Use `make smoke` after building binaries to execute tiny real solve/post/restart workflows.
@@ -455,6 +458,7 @@ Runtime file coverage map (unit targets + runtime sequences):
 - `src/BodyForces.c`: `unit-solver`, `unit-poisson-rhs`, `S1`, `S2`
 - `src/Boundaries.c`: `unit-boundaries`, `unit-periodic`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`, `S7`, `S8`
 - `src/Filter.c`: `unit-solver`
+- `src/field_catalog.c`, `src/particle_field_catalog.c`: `unit-setup`, `unit-periodic`, `unit-runtime`, `unit-solver`, `unit-logging`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`, `S8`
 - `src/Metric.c`: `unit-metric`, `unit-grid`, `S1`, `S1b`, `S2`, `S5`, `S6`
 - `src/ParticleMotion.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
 - `src/ParticlePhysics.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`

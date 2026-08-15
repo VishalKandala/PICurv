@@ -42,10 +42,10 @@
  *       or the identified INLET face.
  *
  * @param user      The main UserCtx struct, containing all simulation data and configuration.
- * @param fieldName A string ("Ucont" or "P") identifying which field to initialize.
+ * @param field_id Typed identity of the field to initialize.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName);
+PetscErrorCode SetInitialInteriorField(UserCtx *user, FieldId field_id);
 
 /**
  * @brief Populate Ucont for one fresh-start block from the configured IC mode.

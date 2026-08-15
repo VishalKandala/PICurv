@@ -122,7 +122,7 @@ static PetscErrorCode TestPeriodicCellFieldSynchronizationMultiRank(void)
     PetscReal ***cs = NULL;
     PetscReal ***diffusivity = NULL;
     Cmpnts ***ucat = NULL;
-    const char *fields[] = {"P", "CS", "Diffusivity", "Ucat"};
+    const FieldId fields[] = {FIELD_ID_P, FIELD_ID_CS, FIELD_ID_DIFFUSIVITY, FIELD_ID_UCAT};
     PetscInt xs, xe, ys, ye, zs, ze, mx;
 
     PetscFunctionBeginUser;
@@ -248,7 +248,7 @@ static PetscErrorCode TestPeriodicFaceCenterCoordinatesMultiRank(void)
     UserCtx *user = NULL;
     Cmpnts ***centx = NULL;
     const Cmpnts ***lcentx = NULL;
-    const char *fields[] = {"Centx"};
+    const FieldId fields[] = {FIELD_ID_CENTX};
     PetscReal translation, spacing;
     PetscInt xs, xe, mx;
 
@@ -301,7 +301,7 @@ static PetscErrorCode TestPeriodicFaceFieldSynchronizationMultiRank(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     PetscReal ***iaj = NULL;
-    const char *fields[] = {"IAj"};
+    const FieldId fields[] = {FIELD_ID_IAJ};
     PetscInt xs, xe, ys, ye, zs, ze, mx;
 
     PetscFunctionBeginUser;
@@ -349,7 +349,7 @@ static PetscErrorCode TestPeriodicStaggeredFieldSynchronizationMultiRank(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     Cmpnts ***ucont = NULL;
-    const char *fields[] = {"Ucont"};
+    const FieldId fields[] = {FIELD_ID_UCONT};
     PetscInt xs, xe, ys, ye, zs, ze, mx;
 
     PetscFunctionBeginUser;

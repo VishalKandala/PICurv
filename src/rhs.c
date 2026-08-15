@@ -1162,10 +1162,10 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     // 1. Obtain Cartesian velocity from Contravariant velocity
     ierr = Contra2Cart(user); CHKERRQ(ierr);
     {
-        const char *cell_fields[] = {"Ucat"};
+        const FieldId cell_fields[] = {FIELD_ID_UCAT};
         ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
     }
-    ierr = UpdateLocalGhosts(user,"Ucat"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
 
     // 2. Compute Convective term
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating convective terms...\n");
@@ -1926,9 +1926,9 @@ PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
     // Update Ghost Points
     // This is required because downstream operations (Drift Gradient Calculation 
     // and Particle Interpolation) will need access to the halo regions of this field.
-    const char *periodic_fields[] = {"Diffusivity"};
+    const FieldId periodic_fields[] = {FIELD_ID_DIFFUSIVITY};
     ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);
-	ierr = UpdateLocalGhosts(user,"Diffusivity"); CHKERRQ(ierr);
+	ierr = UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -1982,7 +1982,7 @@ PetscErrorCode ComputeEulerianDiffusivityGradient(UserCtx *user)
     // 3. Update Ghosts for Diffusivity 
     //    Required so that Central Differences at i=2 can read i=1,
     //    and Central Differences at Periodic Boundaries work correctly.
-    ierr = UpdateLocalGhosts(user, "Diffusivity"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
 
     // 4. Get Arrays (Read Only)
     ierr = DMDAVecGetArrayRead(da,  user->lDiffusivity, &diff); CHKERRQ(ierr);
@@ -2078,7 +2078,7 @@ PetscErrorCode ComputeEulerianDiffusivityGradient(UserCtx *user)
     // 8. Update Ghosts for the Result
     //    Important: Particles near subdomain boundaries will need to interpolate
     //    this gradient vector, so the ghosts of the vector field must be filled.
-    ierr = UpdateLocalGhosts(user, "DiffusivityGradient"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY_GRADIENT); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

@@ -150,7 +150,7 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
                 ierr = VecWAXPY(user[bi].Ucont, alfa[istage] * dt, user[bi].Rhs, user[bi].Ucont_o); CHKERRQ(ierr);
  
                 // c. Synchronize periodic endpoints and local ghosts for the new intermediate Ucont.
-                const char *staggered_fields[] = {"Ucont"};
+                const FieldId staggered_fields[] = {FIELD_ID_UCONT};
                 ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
 
                 // d. Re-apply boundary conditions for the new intermediate velocity.
@@ -922,7 +922,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         for (PetscInt bi = 0; bi < block_number; bi++) {
             ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
             ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
-            const char *staggered_fields[] = {"Ucont"};
+            const FieldId staggered_fields[] = {FIELD_ID_UCONT};
             ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
             ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
         }
@@ -943,7 +943,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                                 user[bi].pUcont); CHKERRQ(ierr);
 
                 // Sync Ghosts & Re-apply BCs for intermediate stage
-                const char *staggered_fields[] = {"Ucont"};
+                const FieldId staggered_fields[] = {FIELD_ID_UCONT};
                 ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
                 
                 ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
@@ -1072,7 +1072,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
             for (PetscInt bi = 0; bi < block_number; bi++) {
                 ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
                 ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
-                const char *staggered_fields[] = {"Ucont"};
+                const FieldId staggered_fields[] = {FIELD_ID_UCONT};
                 ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
                 ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
                 pseudo_dtau[bi] = next_dtau;
@@ -1247,7 +1247,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         }
     }
     for (PetscInt bi = 0; bi < block_number; bi++) {
-        const char *staggered_fields[] = {"Ucont"};
+        const FieldId staggered_fields[] = {FIELD_ID_UCONT};
         ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
         ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
     }

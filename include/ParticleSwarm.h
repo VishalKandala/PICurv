@@ -15,6 +15,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include "variables.h"       // Common type definitions
+#include "particle_field_catalog.h"
 #include "logging.h"      // Logging macros and definitions
 #include "walkingsearch.h"
 #include "Metric.h"

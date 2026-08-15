@@ -1,4 +1,5 @@
 #include "vtk_io.h"
+#include "particle_field_catalog.h"
 
 //================================================================================
 //                 STATIC (PRIVATE) HELPER FUNCTION PROTOTYPES
@@ -428,10 +429,17 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
 
     // --- Step 1: Gather Full Coordinates from SOURCE Swarm (Collective) ---
     // This establishes the ground truth for particle positions and total count.
-    PetscScalar *full_coords_arr = NULL;
+    PetscReal *full_coords_arr = NULL;
+    PetscDataType coordinate_type;
     // NOTE: This assumes SwarmFieldToArrayOnRank0 exists and works for PetscScalar fields.
     // If not, it may need to be generalized like the logic below.
-    ierr = SwarmFieldToArrayOnRank0(user->swarm, "position", &n_total_particles, &n_components, (void**)&full_coords_arr); CHKERRQ(ierr);
+    ierr = SwarmFieldToArrayOnRank0(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),
+                                    &n_total_particles, &n_components, &coordinate_type,
+                                    (void**)&full_coords_arr); CHKERRQ(ierr);
+    PetscCheck(coordinate_type == PETSC_REAL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "Particle position field must use PETSC_REAL storage, not %s.",
+               PetscDataTypes[coordinate_type]);
 
     // --- Step 2: Prepare and Subsample Data (Rank 0 Only) ---
     if (user->simCtx->rank == 0) {
@@ -496,8 +504,11 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
             // SwarmFieldToArrayOnRank0 handles both scalar and vector field layouts.
             void* full_field_arr_void = NULL;
             PetscInt field_total_particles, field_num_components;
+            PetscDataType field_data_type;
 
-            ierr = SwarmFieldToArrayOnRank0(swarm_to_use, internal_name, &field_total_particles, &field_num_components, &full_field_arr_void); CHKERRQ(ierr);
+            ierr = SwarmFieldToArrayOnRank0(swarm_to_use, internal_name,
+                                            &field_total_particles, &field_num_components,
+                                            &field_data_type, &full_field_arr_void); CHKERRQ(ierr);
 
             if (field_total_particles != n_total_particles) {
                 LOG_ALLOW(LOCAL, LOG_WARNING, "Field '%s' has %" PetscInt_FMT " particles, but expected %" PetscInt_FMT ". Skipping.\n", field_name, field_total_particles, n_total_particles);
@@ -515,12 +526,12 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
             PetscScalar* final_data_arr = (PetscScalar*)current_field->data;
 
             // D. Perform the subsampling and potential casting
-            if (strcasecmp(internal_name, "DMSwarm_pid") == 0) {
+            if (field_data_type == PETSC_INT64) {
                 PetscInt64* source_arr = (PetscInt64*)full_field_arr_void;
                 for (PetscInt i = 0; i < meta->npoints; i++) {
                     final_data_arr[i] = (PetscScalar)source_arr[i * stride];
                 }
-            } else if (strcasecmp(internal_name, "DMSwarm_CellID") == 0 || strcasecmp(internal_name, "DMSwarm_location_status") == 0) {
+            } else if (field_data_type == PETSC_INT) {
                 PetscInt* source_arr = (PetscInt*)full_field_arr_void;
                 for (PetscInt i = 0; i < meta->npoints; i++) {
                     PetscInt source_idx = i * stride;
@@ -528,7 +539,16 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
                         final_data_arr[current_field->num_components * i + c] = (PetscScalar)source_arr[current_field->num_components * source_idx + c];
                     }
                 }
-            } else { // Default case: The field is already PetscScalar
+            } else if (field_data_type == PETSC_REAL) {
+                PetscReal* source_arr = (PetscReal*)full_field_arr_void;
+                for (PetscInt i = 0; i < meta->npoints; i++) {
+                    PetscInt source_idx = i * stride;
+                    for (PetscInt c = 0; c < current_field->num_components; c++) {
+                        final_data_arr[current_field->num_components * i + c] = source_arr[current_field->num_components * source_idx + c];
+                    }
+                }
+#if defined(PETSC_USE_COMPLEX)
+            } else if (field_data_type == PETSC_SCALAR) {
                 PetscScalar* source_arr = (PetscScalar*)full_field_arr_void;
                 for (PetscInt i = 0; i < meta->npoints; i++) {
                     PetscInt source_idx = i * stride;
@@ -536,7 +556,10 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
                         final_data_arr[current_field->num_components * i + c] = source_arr[current_field->num_components * source_idx + c];
                     }
                 }
-            }
+#endif
+            } else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP,
+                           "VTK particle output does not support field '%s' with PETSc type %s.",
+                           field_name, PetscDataTypes[field_data_type]);
 
             ierr = PetscFree(full_field_arr_void); // Free the temporary full array.
             meta->num_point_data_fields++;

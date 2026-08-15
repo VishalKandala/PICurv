@@ -138,7 +138,7 @@ static PetscErrorCode EvalConvResidual(UserCtx *user, Vec Ucont_in, Vec Rhs, con
     PetscFunctionBeginUser;
     PetscCall(VecCopy(Ucont_in, user->Ucont));
     {
-        const char *fld[] = {"Ucont"};
+        const FieldId fld[] = {FIELD_ID_UCONT};
         PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fld));   /* global->local + periodic */
     }
     PetscCall(ComputeRHS(user, Rhs));                                  /* Contra2Cart + Convection + mapping */
@@ -405,7 +405,7 @@ static PetscErrorCode ConfigureCandidateFixture(SimCtx *simCtx, UserCtx *user)
     simCtx->central = 1; simCtx->clark = 0; simCtx->TwoD = 0; simCtx->block_number = 1;
     simCtx->bulkVelocityCorrection = 0.0; simCtx->moveframe = 0; simCtx->rotateframe = 0;
     if (!user->lNu_t) PetscCall(DMCreateLocalVector(user->da, &user->lNu_t));
-    PetscCall(VecSet(user->P, 0.0)); PetscCall(UpdateLocalGhosts(user, "P"));
+    PetscCall(VecSet(user->P, 0.0)); PetscCall(UpdateLocalGhosts(user, FIELD_ID_P));
     PetscCall(VecSet(user->lNvert, 0.0)); PetscCall(VecSet(user->Nvert, 0.0));
     PetscFunctionReturn(0);
 }
@@ -457,7 +457,7 @@ static PetscErrorCode ComputeMaxDiscreteDivergence(UserCtx *user, PetscReal *max
     Cmpnts ***uc;
     PetscReal dv = 0.0, dv_global;
     PetscFunctionBeginUser;
-    PetscCall(UpdateLocalGhosts(user, "Ucont"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, &uc));
     for (PetscInt k = info.zs; k < info.zs+info.zm; k++)
         for (PetscInt j = info.ys; j < info.ys+info.ym; j++)
@@ -492,8 +492,8 @@ static PetscErrorCode BuildBaseState(UserCtx *user, CandState st, Vec Ubase,
     if (seam) PetscCall(ComputeDeclaredSeamMismatch(st, info, seam->declared));
 
     if (st == STATE_B) {
-        const char *ufld[] = {"Ucont"};
-        const char *cfld[] = {"Ucat"};
+        const FieldId ufld[] = {FIELD_ID_UCONT};
+        const FieldId cfld[] = {FIELD_ID_UCAT};
         PetscCall(SetDirectUcontField(user, st));
         PetscCall(SynchronizePeriodicStaggeredFields(user, 1, ufld));
         PetscCall(VecCopy(user->Ucont, Ubase));
@@ -504,8 +504,8 @@ static PetscErrorCode BuildBaseState(UserCtx *user, CandState st, Vec Ubase,
         PetscCall(Contra2Cart(user));
         PetscCall(SynchronizePeriodicCellFields(user, 1, cfld));
     } else {
-        const char *cfld[] = {"Ucat"};
-        const char *ufld[] = {"Ucont"};
+        const FieldId cfld[] = {FIELD_ID_UCAT};
+        const FieldId ufld[] = {FIELD_ID_UCONT};
         PetscCall(SetUcatField(user, st));
         PetscCall(SynchronizePeriodicCellFields(user, 1, cfld));
         PetscCall(VecCopy(user->Ucat, target));          /* saved declared Cartesian state */
@@ -518,7 +518,7 @@ static PetscErrorCode BuildBaseState(UserCtx *user, CandState st, Vec Ubase,
     }
 
     if (seam) {
-        PetscCall(UpdateLocalGhosts(user, "Ucat"));
+        PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
         PetscCall(ComputeLocalDuplicateMismatch(user, user->lUcat, seam->ucat_global));
         PetscCall(ComputeLocalOuterGhostMismatch(user, user->lUcat, seam->ucat_ghost));
     }
@@ -536,7 +536,7 @@ static PetscErrorCode BuildBaseState(UserCtx *user, CandState st, Vec Ubase,
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ur));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, target, &ut));
     PetscCall(VecDestroy(&target));
-    PetscCall(UpdateLocalGhosts(user, "Ucat"));         /* lUcat now consistent with base Ucont */
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));         /* lUcat now consistent with base Ucont */
 
     PetscCallMPI(MPI_Allreduce(&err, &err_global, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
     PetscCall(ComputeMaxDiscreteDivergence(user, maxdiv));
@@ -555,7 +555,7 @@ static PetscErrorCode ComputeMaxGradientContribution(UserCtx *user, PetscReal *g
     PetscReal loc = 0.0, glo;
     const PetscInt mx = info.mx, my = info.my, mz = info.mz;
     PetscFunctionBeginUser;
-    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcat, &ucat));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi,  &csi));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta,  &eta));
@@ -1213,12 +1213,12 @@ static PetscErrorCode TraceStateAResidualStages(UserCtx *user, Vec Ubase, Vec Rh
     PetscCall(AddActiveVector(user, Upert, map, v, 1e-6));
     PetscCall(VecCopy(Upert, user->Ucont));
     {
-        const char *fld[] = {"Ucont"};
+        const FieldId fld[] = {FIELD_ID_UCONT};
         PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fld));
     }
     PetscCall(ComputeLocalDuplicateMismatch(user, user->lUcont, seam_ucont));
     PetscCall(Contra2Cart(user));
-    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     PetscCall(ComputeLocalDuplicateMismatch(user, user->lUcat, seam_ucat));
     PetscCall(Convection(user, user->lUcont, user->lUcat, Conv));
     PetscCall(VecNorm(Conv, NORM_2, &conv2));
@@ -1750,11 +1750,11 @@ static PetscErrorCode EvalResidualStage(UserCtx *user, Vec Ucont_in, Vec Rhs,
     }
     PetscCall(VecCopy(Ucont_in, user->Ucont));
     {
-        const char *fld[] = {"Ucont"};
+        const FieldId fld[] = {FIELD_ID_UCONT};
         PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fld));
     }
     PetscCall(Contra2Cart(user));
-    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     if (stage == STAGE_UCAT) {
         PetscCall(ExtractActiveVector(user, user->Ucat, map, out));
         PetscFunctionReturn(0);
@@ -2130,7 +2130,7 @@ static PetscErrorCode RunState(CandState st, const char *name)
        restore the base state before every downstream diagnostic. */
     PetscCall(VecCopy(Ubase, user->Ucont));
     {
-        const char *fld[] = {"Ucont"};
+        const FieldId fld[] = {FIELD_ID_UCONT};
         PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fld));
     }
 
@@ -2148,8 +2148,8 @@ static PetscErrorCode RunState(CandState st, const char *name)
 
     /* ---- candidate estimates (convection-only: lambda_cX = lambda_X - lambda_t) ---- */
     PetscCall(EvalConvResidual(user, Ubase, Rhs, &map, Rref));   /* restore lUcat consistent w/ base */
-    PetscCall(UpdateLocalGhosts(user, "Ucont"));
-    PetscCall(Contra2Cart(user)); PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
+    PetscCall(Contra2Cart(user)); PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     PetscCall(ComputeMomentumStabilityEstimate(user, 1, simCtx->dt, MOM_STAB_CAND_C, &rep));
     const PetscReal lcB = rep.lambda_B - rep.lambda_t;
     const PetscReal lcC = rep.lambda_C - rep.lambda_t;

@@ -11,9 +11,10 @@
  * @brief Internal helper implementation: `SetInitialInteriorField()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
+PetscErrorCode SetInitialInteriorField(UserCtx *user, FieldId field_id)
 {
     PetscErrorCode ierr;
+    const char *fieldName = FieldCanonicalName(field_id);
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
@@ -23,7 +24,7 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, const char *fieldName)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Setting initial INTERIOR field for '%s' with mode %d.\n", fieldName, simCtx->initialConditionMode);
 
     // This function currently only implements logic for Ucont.
-    if (strcmp(fieldName, "Ucont") != 0) {
+    if (field_id != FIELD_ID_UCONT) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Skipping SetInitialInteriorField for non-Ucont field '%s'.\n", fieldName);
 
         PROFILE_FUNCTION_END;
@@ -194,10 +195,10 @@ static PetscErrorCode LoadInitialUcont(UserCtx *user)
     if (simCtx->initialConditionField == IC_FIELD_UCAT) {
         ierr = ReadFieldData(user, "ufield", user->Ucat, 0, "dat"); CHKERRQ(ierr);
         {
-            const char *cell_fields[] = {"Ucat"};
+            const FieldId cell_fields[] = {FIELD_ID_UCAT};
             ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
         }
-        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
         ierr = Cart2Contra(user); CHKERRQ(ierr);
     } else if (simCtx->initialConditionField == IC_FIELD_UCONT) {
         ierr = ReadFieldData(user, "vfield", user->Ucont, 0, "dat"); CHKERRQ(ierr);
@@ -225,7 +226,7 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
     if (simCtx->initialConditionMode == IC_MODE_FILE) {
         ierr = LoadInitialUcont(user); CHKERRQ(ierr);
     } else {
-        ierr = SetInitialInteriorField(user, "Ucont"); CHKERRQ(ierr);
+        ierr = SetInitialInteriorField(user, FIELD_ID_UCONT); CHKERRQ(ierr);
     }
     PetscFunctionReturn(0);
 }
@@ -246,7 +247,7 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
     ierr = ApplyBoundaryConditions(user); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_TRACE," Boundary condition applied.\n");
     // 2. Sync contravariant velocity field.
-    const char *staggered_fields[] = {"Ucont"};
+    const FieldId staggered_fields[] = {FIELD_ID_UCONT};
     ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_TRACE," Ucont field ghosts updated.\n");
     
@@ -256,10 +257,10 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
 
     // 4. Finalize periodic endpoint values, then refresh local Cartesian velocity.
     {
-        const char *cell_fields[] = {"Ucat"};
+        const FieldId cell_fields[] = {FIELD_ID_UCAT};
         ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
     }
-    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_TRACE," Ucat field ghosts updated.\n"); 
 
     PROFILE_FUNCTION_END;
@@ -303,9 +304,9 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
 	//	ierr = Block_Interface_U(user_finest); CHKERRQ(ierr);
         // After interface update, ghost regions might be stale. Refresh them.
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-             const char *staggered_fields[] = {"Ucont"};
+             const FieldId staggered_fields[] = {FIELD_ID_UCONT};
              ierr = SynchronizePeriodicStaggeredFields(&user_finest[bi], 1, staggered_fields); CHKERRQ(ierr);
-             ierr = UpdateLocalGhosts(&user_finest[bi], "Ucat"); CHKERRQ(ierr);
+             ierr = UpdateLocalGhosts(&user_finest[bi], FIELD_ID_UCAT); CHKERRQ(ierr);
         }
     }
 
@@ -338,8 +339,8 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
         ierr = ApplyBoundaryConditions(&user_finest[bi]); CHKERRQ(ierr);
         // After reading from a file, the local ghost regions MUST be updated
         // to ensure consistency across process boundaries for the first time step.
-        //ierr = UpdateLocalGhosts(&user_finest[bi], "Ucat"); CHKERRQ(ierr);
-        //ierr = UpdateLocalGhosts(&user_finest[bi], "P"); CHKERRQ(ierr);
+        //ierr = UpdateLocalGhosts(&user_finest[bi], FIELD_ID_UCAT); CHKERRQ(ierr);
+        //ierr = UpdateLocalGhosts(&user_finest[bi], FIELD_ID_P); CHKERRQ(ierr);
         // ... add ghost updates for any other fields read from file ...
     }
     

@@ -12,6 +12,10 @@ This page is the developer-oriented map of the current PICurv C codebase.
 - Postprocessor executable entry: `src/postprocessor.c`
 
 Both rely on shared setup/context infrastructure from `setup.c`, `io.c`, and `variables.h`.
+Persistent Eulerian field identity/runtime DM-Vec binding and separate
+solver-particle DMSwarm identity are shared through `field_catalog.c`,
+`particle_field_catalog.c`, and their headers; see
+@ref 56_Field_Identity_and_Layout_Catalog.
 
 @section p13_solver_flow_sec 2. Solver Runtime Flow (simulator.c)
 
@@ -55,6 +59,9 @@ High-level stages:
 - Setup/config ingestion:
   - `src/setup.c`
   - `src/io.c`
+- Field identity/storage binding:
+  - `src/field_catalog.c`
+  - `src/particle_field_catalog.c`
 - Grid and metrics:
   - `src/grid.c`
   - `src/Metric.c`
@@ -83,8 +90,8 @@ For contributor orientation, the table below lists high-value public entry point
 Function names come from `include/*.h` and represent the safest integration seams.
 
 - startup/context:
-  - files: `setup.c`, `simulator.c`
-  - APIs: @ref CreateSimulationContext, @ref SetupSimulationEnvironment, @ref SetupGridAndSolvers, @ref FinalizeSimulation
+  - files: `setup.c`, `field_catalog.c`, `particle_field_catalog.c`, `simulator.c`
+  - APIs: @ref CreateSimulationContext, @ref SetupSimulationEnvironment, @ref SetupGridAndSolvers, @ref FieldGetDescriptor, @ref FieldGetView, @ref FinalizeSimulation
 - runtime loop:
   - files: `runloop.c`, `solvers.c`
   - APIs: @ref AdvanceSimulation, @ref FlowSolver, @ref UpdateSolverHistoryVectors
@@ -160,6 +167,7 @@ Not all option consumption is explicit `PetscOptionsGet*`; PETSc dynamic ingesti
 - Initial-condition index: **@subpage 33_Initial_Conditions**
 - Particle-model index: **@subpage 34_Particle_Model_Overview**
 - API docs quality status: **@subpage 35_API_Documentation_Status**
+- Field identity/layout catalog: **@subpage 56_Field_Identity_and_Layout_Catalog**
 - Low-priority fix queue: **@subpage 29_Maintenance_Backlog**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->

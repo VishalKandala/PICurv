@@ -828,7 +828,7 @@ PetscErrorCode Projection(UserCtx *user)
  
   // --- Update ghost cells for the newly corrected velocity field ---
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Updating ghost cells for corrected velocity.\n");
-  const char *staggered_fields[] = {"Ucont"};
+  const FieldId staggered_fields[] = {FIELD_ID_UCONT};
   ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
 
   // --- Convert velocity to Cartesian and update ghost nodes ---
@@ -895,15 +895,15 @@ PetscErrorCode UpdatePressure(UserCtx *user)
   //================================================================================
   // Section 3: Handle Periodic Boundary Condition Synchronization
   //================================================================================
-  const char *periodic_fields[] = {"P", "Phi"};
+  const FieldId periodic_fields[] = {FIELD_ID_P, FIELD_ID_PHI};
   ierr = SynchronizePeriodicCellFields(user, 2, periodic_fields); CHKERRQ(ierr);
   
   //================================================================================
   // Section 4: Final Cleanup (pointers already restored)
   //================================================================================
 
-  ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
-  ierr = UpdateLocalGhosts(user, "Phi"); CHKERRQ(ierr);
+  ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
+  ierr = UpdateLocalGhosts(user, FIELD_ID_PHI); CHKERRQ(ierr);
   
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting UpdatePressure.\n");
   PROFILE_FUNCTION_END;
@@ -2347,7 +2347,7 @@ PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux,
   DMDAVecRestoreArray(fda, user->lZet, &zet);
   DMDAVecRestoreArray(fda, user->Ucont, &ucor);
 
-  const char *staggered_fields[] = {"Ucont"};
+  const FieldId staggered_fields[] = {FIELD_ID_UCONT};
   ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
   return 0;
 }
@@ -2916,7 +2916,7 @@ PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Are
   DMDAVecRestoreArray(fda, user->lZet, &zet);
   DMDAVecRestoreArray(fda, user->Ucont, &ucor);
 
-  const char *staggered_fields[] = {"Ucont"};
+  const FieldId staggered_fields[] = {FIELD_ID_UCONT};
   ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
 
   if (NumberOfBodies > 1) {
@@ -3107,7 +3107,7 @@ static PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
   DMDAVecRestoreArray(user_h->da, user_h->lNvert, &nvert_h);
   DMDAVecRestoreArray(user_c->da, user_c->Nvert, &nvert);
 
-  ierr = UpdateLocalGhosts(user_c, "Nvert"); CHKERRQ(ierr);
+  ierr = UpdateLocalGhosts(user_c, FIELD_ID_NVERT); CHKERRQ(ierr);
   //Mohsen Dec 2015
   DMDAVecGetArray(user_c->da, user_c->lNvert, &nvert);
   DMDAVecGetArray(user_c->da, user_c->Nvert, &nvert_h);
@@ -3128,7 +3128,7 @@ static PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
 
   DMDAVecRestoreArray(user_c->da, user_c->lNvert, &nvert);
   DMDAVecRestoreArray(user_c->da, user_c->Nvert, &nvert_h);
-  ierr = UpdateLocalGhosts(user_c, "Nvert"); CHKERRQ(ierr);
+  ierr = UpdateLocalGhosts(user_c, FIELD_ID_NVERT); CHKERRQ(ierr);
  /*  DMLocalToGlobalBegin(user_c->da, user_c->lNvert, INSERT_VALUES, user_c->Nvert); */
 /*   DMLocalToGlobalEnd(user_c->da, user_c->lNvert, INSERT_VALUES, user_c->Nvert); */
   return 0;

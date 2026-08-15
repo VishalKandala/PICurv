@@ -1746,240 +1746,61 @@ static PetscErrorCode RepairPeriodicNormalFaceGhosts(UserCtx *user, DM dm, Vec l
 #undef __FUNCT__
 #define __FUNCT__ "UpdateLocalGhosts"
 /**
- * @brief Internal helper implementation: `UpdateLocalGhosts()`.
- * @details Local to this translation unit.
+ * @brief Updates a catalogued field's local ghost representation.
+ * @details Resolves the typed field view, performs the existing PETSc scatter,
+ *          and applies the established periodic normal-face repair when needed.
  */
-PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
+PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank;
-    Vec            globalVec = NULL;
-    Vec            localVec = NULL;
-    DM             dm = NULL; // The DM associated with this field pair
-    PetscInt       dof = 0;
+    FieldView      field_view;
+    const char    *field_name;
+    Vec            globalVec;
+    Vec            localVec;
+    DM             dm;
+    PetscInt       dof;
     char           face_direction = '\0';
     PetscBool      component_staggered = PETSC_FALSE;
 
     PetscFunctionBeginUser; // Use User version for application code
     PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Starting ghost update for field '%s'.\n", rank, fieldName);
+    ierr = FieldGetView(user, field_id, &field_view); CHKERRQ(ierr);
+    PetscCheck((field_view.descriptor->capabilities & FIELD_CAPABILITY_GHOST_UPDATE) != 0u,
+               PETSC_COMM_SELF, PETSC_ERR_SUP,
+               "Field '%s' does not support ghost updates.",
+               field_view.descriptor->canonical_name);
+    field_name = field_view.descriptor->canonical_name;
+    globalVec = field_view.global_vec;
+    localVec = field_view.local_vec;
+    dm = field_view.dm;
+    dof = field_view.descriptor->dof;
 
-    // --- 1. Identify the correct Vectors and DM ---
-    if (strcmp(fieldName, "Coordinates") == 0) {
-        ierr = DMGetCoordinates(user->da, &globalVec); CHKERRQ(ierr);
-        ierr = DMGetCoordinatesLocal(user->da, &localVec); CHKERRQ(ierr);
-        dm = user->fda;
-        dof = 3;
-    } else if (strcmp(fieldName, "Ucat") == 0) {
-        globalVec = user->Ucat;
-        localVec  = user->lUcat;
-        dm        = user->fda;
-        dof       = 3;
-    } else if (strcmp(fieldName, "Ucont") == 0) {
-        globalVec = user->Ucont;
-        localVec  = user->lUcont;
-        dm        = user->fda;
-        dof       = 3;
-        component_staggered = PETSC_TRUE;
-    } else if (strcmp(fieldName, "Ucont_o") == 0) {
-        globalVec = user->Ucont_o;
-        localVec  = user->lUcont_o;
-        dm        = user->fda;
-        dof       = 3;
-        component_staggered = PETSC_TRUE;
-    } else if (strcmp(fieldName, "Ucont_rm1") == 0) {
-        globalVec = user->Ucont_rm1;
-        localVec  = user->lUcont_rm1;
-        dm        = user->fda;
-        dof       = 3;
-        component_staggered = PETSC_TRUE;
-    } else if (strcmp(fieldName, "P") == 0) {
-        globalVec = user->P;
-        localVec  = user->lP;
-        dm        = user->da;
-    } else if (strcmp(fieldName, "Nu_t") == 0 || strcmp(fieldName, "Eddy Viscosity") == 0) {
-        globalVec = user->Nu_t;
-        localVec  = user->lNu_t;
-        dm        = user->da;
-    } else if (strcmp(fieldName, "CS") == 0 || strcmp(fieldName, "Cs") == 0) {
-        globalVec = user->CS;
-        localVec  = user->lCs;
-        dm        = user->da;
-    } else if (strcmp(fieldName, "Diffusivity") == 0) {
-        globalVec = user->Diffusivity;
-        localVec  = user->lDiffusivity;
-        dm        = user->da;
-    } else if (strcmp(fieldName, "DiffusivityGradient") == 0) {
-        globalVec = user->DiffusivityGradient;
-        localVec  = user->lDiffusivityGradient;
-        dm        = user->fda;
-    } else if (strcmp(fieldName, "Csi") == 0) {
-        globalVec = user->Csi;
-        localVec  = user->lCsi;
-        dm        = user->fda;
-        dof       = 3;
-        face_direction = 'i';
-    } else if (strcmp(fieldName, "Eta") == 0) {
-        globalVec = user->Eta;
-        localVec  = user->lEta;
-        dm        = user->fda;
-        dof       = 3;
-        face_direction = 'j';
-    }  else if (strcmp(fieldName, "Zet") == 0) {
-        globalVec = user->Zet;
-        localVec  = user->lZet;
-        dm        = user->fda;
-        dof       = 3;
-        face_direction = 'k';
-    }else if (strcmp(fieldName, "Nvert") == 0) {
-        globalVec = user->Nvert;
-        localVec  = user->lNvert;
-        dm        = user->da;
-     // Add other fields as needed
-    } else if (strcmp(fieldName, "Aj") == 0) {
-        globalVec = user->Aj;
-        localVec  = user->lAj;
-        dm        = user->da;
-    } else if (strcmp(fieldName, "Cent") == 0) {
-        globalVec = user->Cent;
-        localVec  = user->lCent;
-        dm        = user->fda;
-    }else if (strcmp(fieldName, "GridSpace") == 0) {
-        globalVec = user->GridSpace;
-        localVec  = user->lGridSpace;
-        dm        = user->fda;
-    }else if (strcmp(fieldName, "Centx") == 0) {
-        globalVec = user->Centx;
-        localVec  = user->lCentx;
-        dm        = user->fda;
-        dof       = 3;
-        face_direction = 'i';
-    }else if (strcmp(fieldName, "Centy") == 0) {
-        globalVec = user->Centy;
-        localVec  = user->lCenty;
-        dm        = user->fda;
-        dof       = 3;
-        face_direction = 'j';
-    }else if (strcmp(fieldName, "Centz") == 0) {
-        globalVec = user->Centz;
-        localVec  = user->lCentz;
-        dm        = user->fda;
-        dof       = 3;
-        face_direction = 'k';
-    }else if (strcmp(fieldName,"ICsi") == 0){
-      globalVec = user->ICsi;
-      localVec  = user->lICsi;
-      dm        = user->fda;
-      dof       = 3;
-      face_direction = 'i';
-    }else if (strcmp(fieldName,"IEta") == 0){
-      globalVec = user->IEta;
-      localVec  = user->lIEta;
-      dm        = user->fda;
-      dof       = 3;
-      face_direction = 'i';
-    }else if (strcmp(fieldName,"IZet") == 0){
-      globalVec = user->IZet;
-      localVec  = user->lIZet;
-      dm        = user->fda;
-      dof       = 3;
-      face_direction = 'i';
-    }else if (strcmp(fieldName,"JCsi") == 0){
-      globalVec = user->JCsi;
-      localVec  = user->lJCsi;
-      dm        = user->fda;
-      dof       = 3;
-      face_direction = 'j';
-    }else if (strcmp(fieldName,"JEta") == 0){
-      globalVec = user->JEta;
-      localVec  = user->lJEta;
-      dm        = user->fda;
-      dof       = 3;
-      face_direction = 'j';
-    }else if (strcmp(fieldName,"JZet") == 0){
-      globalVec = user->JZet;
-      localVec  = user->lJZet;
-      dm        = user->fda;
-      dof       = 3;
-      face_direction = 'j';
-    }else if (strcmp(fieldName,"KCsi") == 0){
-      globalVec = user->KCsi;
-      localVec  = user->lKCsi;
-      dm        = user->fda;
-      dof       = 3;
-      face_direction = 'k';
-    }else if (strcmp(fieldName,"KEta") == 0){
-      globalVec = user->KEta;
-      localVec  = user->lKEta;
-      dm        = user->fda;
-      dof       = 3;
-      face_direction = 'k';
-    }else if (strcmp(fieldName,"KZet") == 0){
-      globalVec = user->KZet;
-      localVec  = user->lKZet;
-      dm        = user->fda;
-      dof       = 3;
-      face_direction = 'k';
-    }else if (strcmp(fieldName,"IAj") == 0){
-      globalVec = user->IAj;
-      localVec  = user->lIAj;
-      dm        = user->da;
-      dof       = 1;
-      face_direction = 'i';
-    }else if (strcmp(fieldName,"JAj") == 0){
-      globalVec = user->JAj;
-      localVec  = user->lJAj;
-      dm        = user->da;
-      dof       = 1;
-      face_direction = 'j';
-    }else if (strcmp(fieldName,"KAj") == 0){
-      globalVec = user->KAj;
-      localVec  = user->lKAj;
-      dm        = user->da;
-      dof       = 1;
-      face_direction = 'k';
-    }else if (strcmp(fieldName,"Phi") == 0){ // Pressure correction term.
-      globalVec = user->Phi;
-      localVec  = user->lPhi;
-      dm        = user->da;
-    }else if (strcmp(fieldName,"Psi") == 0){ // Particle scalar property.
-      globalVec = user->Psi;
-      localVec  = user->lPsi;
-      dm        = user->da;
-    }else if (strcmp(fieldName,"Nvert_o") == 0){
-      globalVec = user->Nvert_o;
-      localVec  = user->lNvert_o;
-      dm        = user->da;
-    }else if (strcmp(fieldName,"ParticleCount") == 0){
-      globalVec = user->ParticleCount;
-      localVec  = user->lParticleCount;
-      dm        = user->da;
-    }else if (strcmp(fieldName,"K_Omega") == 0){
-      globalVec = user->K_Omega;
-      localVec  = user->lK_Omega;
-      dm        = user->fda2;
-    }else if (strcmp(fieldName,"K_Omega_o") == 0){
-      globalVec = user->K_Omega_o;
-      localVec  = user->lK_Omega_o;
-      dm        = user->fda2;
-    }else {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Field '%s' not recognized for ghost update.", fieldName);
+    switch (field_view.descriptor->sync_class) {
+        case FIELD_SYNC_I_FACE:
+            face_direction = 'i';
+            break;
+        case FIELD_SYNC_J_FACE:
+            face_direction = 'j';
+            break;
+        case FIELD_SYNC_K_FACE:
+            face_direction = 'k';
+            break;
+        case FIELD_SYNC_COMPONENT_STAGGERED:
+            component_staggered = PETSC_TRUE;
+            break;
+        case FIELD_SYNC_STANDARD:
+            break;
+        default:
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_PLIB,
+                    "Field '%s' has an invalid ghost synchronization class.", field_name);
     }
 
-    // --- 2. Check if components were found ---
-    if (!globalVec) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Global vector for field '%s' is NULL.", fieldName);
-    }
-    if (!localVec) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Local vector for field '%s' is NULL.", fieldName);
-    }
-    if (!dm) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "DM for field '%s' is NULL.", fieldName);
-    }
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Starting ghost update for field '%s'.\n", rank, field_name);
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Identified components for '%s': DM=%p, GlobalVec=%p, LocalVec=%p.\n",
-              rank, fieldName, (void*)dm, (void*)globalVec, (void*)localVec);
+              rank, field_name, (void*)dm, (void*)globalVec, (void*)localVec);
 
     // --- 3. Optional Debugging: Norm Before Update ---
     // Use your logging convention check
@@ -1987,20 +1808,20 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
     if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)){
         PetscReal norm_global_before;
         ierr = VecNorm(globalVec, NORM_INFINITY, &norm_global_before); CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL, LOG_INFO,"Max norm '%s' (Global) BEFORE Ghost Update: %g\n", fieldName, norm_global_before);
+        LOG_ALLOW(GLOBAL, LOG_INFO,"Max norm '%s' (Global) BEFORE Ghost Update: %g\n", field_name, norm_global_before);
         // Optional: Norm of local vector before update (might contain old ghost values)
         // PetscReal norm_local_before;
         // ierr = VecNorm(localVec, NORM_INFINITY, &norm_local_before); CHKERRQ(ierr);
-        // LOG_ALLOW(GLOBAL, LOG_DEBUG,"Max norm '%s' (Local) BEFORE Ghost Update: %g\n", fieldName, norm_local_before);
+        // LOG_ALLOW(GLOBAL, LOG_DEBUG,"Max norm '%s' (Local) BEFORE Ghost Update: %g\n", field_name, norm_local_before);
     }
 
     // --- 4. Perform the Global-to-Local Transfer (Ghost Update) ---
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Calling DMGlobalToLocalBegin/End for '%s'.\n", rank, fieldName);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Calling DMGlobalToLocalBegin/End for '%s'.\n", rank, field_name);
     ierr = DMGlobalToLocalBegin(dm, globalVec, INSERT_VALUES, localVec); CHKERRQ(ierr);
     ierr = DMGlobalToLocalEnd(dm, globalVec, INSERT_VALUES, localVec); CHKERRQ(ierr);
     ierr = RepairPeriodicNormalFaceGhosts(user, dm, localVec, dof, face_direction,
                                           component_staggered); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Completed DMGlobalToLocalBegin/End for '%s'.\n", rank, fieldName);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Completed DMGlobalToLocalBegin/End for '%s'.\n", rank, field_name);
 
     // --- 5. Optional Debugging: Norm After Update ---
     // Use your logging convention check
@@ -2008,11 +1829,11 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
     if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)){ // Using your specific check
         PetscReal norm_local_after;
         ierr = VecNorm(localVec, NORM_INFINITY, &norm_local_after); CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL, LOG_INFO,"Max norm '%s' (Local) AFTER Ghost Update: %g\n", fieldName, norm_local_after);
+        LOG_ALLOW(GLOBAL, LOG_INFO,"Max norm '%s' (Local) AFTER Ghost Update: %g\n", field_name, norm_local_after);
 
         // --- 6. Optional Debugging: Specific Point Checks (Example for Ucat on Rank 0/1) ---
         //    (Keep this conditional if it's only for specific debug scenarios)
-        if (strcmp(fieldName, "Ucat") == 0) { // Only do detailed checks for Ucat for now
+        if (field_id == FIELD_ID_UCAT) { // Only do detailed checks for Ucat for now
            PetscMPIInt rank_test;
            MPI_Comm_rank(PETSC_COMM_WORLD, &rank_test);
 
@@ -2024,13 +1845,13 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
            Cmpnts ***lUcat_arr_test = NULL;
            PetscErrorCode ierr_test = 0;
 
-           LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Testing '%s' access immediately after ghost update...\n", rank_test, fieldName);
+           LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Testing '%s' access immediately after ghost update...\n", rank_test, field_name);
            ierr_test = DMDAVecGetArrayDOFRead(dm, localVec, &lUcat_arr_test); // Use correct dm and localVec
 
            if (ierr_test) {
-               LOG_ALLOW(LOCAL, LOG_ERROR, "Rank %d: ERROR %d getting '%s' array after ghost update!\n", rank_test, ierr_test, fieldName);
+               LOG_ALLOW(LOCAL, LOG_ERROR, "Rank %d: ERROR %d getting '%s' array after ghost update!\n", rank_test, ierr_test, field_name);
            } else if (!lUcat_arr_test) {
-                LOG_ALLOW(LOCAL, LOG_ERROR, "Rank %d: ERROR NULL pointer getting '%s' array after ghost update!\n", rank_test, fieldName);
+                LOG_ALLOW(LOCAL, LOG_ERROR, "Rank %d: ERROR NULL pointer getting '%s' array after ghost update!\n", rank_test, field_name);
            }
            else {
                // Check owned interior point (e.g., first interior point)
@@ -2101,13 +1922,13 @@ PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName)
 
                // Restore the array
                ierr_test = DMDAVecRestoreArrayDOFRead(dm, localVec, &lUcat_arr_test);
-               if(ierr_test){ LOG_ALLOW(LOCAL, LOG_ERROR, "Rank %d: ERROR %d restoring '%s' array after test read!\n", rank_test, ierr_test, fieldName); }
-               LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Finished testing '%s' access.\n", rank_test, fieldName);
+               if(ierr_test){ LOG_ALLOW(LOCAL, LOG_ERROR, "Rank %d: ERROR %d restoring '%s' array after test read!\n", rank_test, ierr_test, field_name); }
+               LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Finished testing '%s' access.\n", rank_test, field_name);
            }
         } // end if Ucat
     } // end debug logging check
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Completed ghost update for field '%s'.\n", rank, fieldName);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Completed ghost update for field '%s'.\n", rank, field_name);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

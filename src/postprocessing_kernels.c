@@ -1,4 +1,5 @@
 #include "postprocessing_kernels.h"
+#include "particle_field_catalog.h"
 
 // =========== Dimensionalization Kernels ========================
 #undef __FUNCT__
@@ -83,7 +84,7 @@ PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
     
     // --- 4. Post-scaling updates for special cases ---
     if (strcasecmp(field_name, "Coordinates") == 0) {
-        ierr = UpdateLocalGhosts(user, "Coordinates"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_COORDINATES); CHKERRQ(ierr);
     }
 
     PROFILE_FUNCTION_END;
@@ -139,6 +140,7 @@ PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user)
 PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, const char* out_field_name)
 {
     PetscErrorCode ierr;
+    FieldId        in_field_id;
     Vec            in_vec_local = NULL, out_vec_global = NULL;
     DM             dm_in = NULL, dm_out = NULL;
     PetscInt       dof = 0;
@@ -161,7 +163,8 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     else SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Unknown output field name for nodal averaging: %s", out_field_name);
 
     // --- 2. Ensure Input Data Ghosts are Up-to-Date ---
-    ierr = UpdateLocalGhosts(user, in_field_name); CHKERRQ(ierr);
+    ierr = FieldIdFromName(in_field_name, &in_field_id); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, in_field_id); CHKERRQ(ierr);
 
     // --- 3. Get DMDA info and array pointers ---
     DMDALocalInfo info;
@@ -243,12 +246,12 @@ PetscErrorCode ComputeQCriterion(UserCtx* user)
     LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running ComputeQCriterion.\n");
 
     // --- 1. Ensure all required ghost values are up-to-date ---
-    ierr = UpdateLocalGhosts(user, "Ucat");  CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Csi");   CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Eta");   CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Zet");   CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Aj");    CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Nvert"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);  CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_CSI);   CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_ETA);   CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_ZET);   CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_AJ);    CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_NVERT); CHKERRQ(ierr);
 
     // --- 2. Get DMDA info and array pointers ---
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
@@ -506,7 +509,7 @@ PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field)
     const PetscReal y0 = simCtx->psrc_y;
     const PetscReal z0 = simCtx->psrc_z;
 
-    ierr = DMSwarmGetField(user->swarm,      "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->swarm,      ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
     ierr = DMSwarmGetField(user->post_swarm, disp_field, NULL, NULL, (void**)&disp_out);       CHKERRQ(ierr);
 
     for (PetscInt p = 0; p < n_local; p++) {
@@ -516,7 +519,7 @@ PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field)
         disp_out[p] = PetscSqrtReal(dx*dx + dy*dy + dz*dz);
     }
 
-    ierr = DMSwarmRestoreField(user->swarm,      "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->swarm,      ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(user->post_swarm, disp_field, NULL, NULL, (void**)&disp_out);       CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;

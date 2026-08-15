@@ -16,6 +16,7 @@
  */
 
 #include "particle_statistics.h"
+#include "particle_field_catalog.h"
 #include <math.h>
 #include <mpi.h>
 #include <stdlib.h>
@@ -155,7 +156,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
     const PetscReal (*pos_arr)[3];
 
     ierr = DMSwarmGetLocalSize(user->swarm, &n_local); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(user->swarm, "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
     PetscReal local_sq_x = 0.0, local_sq_y = 0.0, local_sq_z = 0.0;
     PetscReal local_sx   = 0.0, local_sy   = 0.0, local_sz   = 0.0;
@@ -172,7 +173,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
         local_sz   += dz;
     }
 
-    ierr = DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
     /* ------------------------------------------------------------------ *
      * MPI reduction — 7 doubles + count                                   *
@@ -203,7 +204,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
     /* ------------------------------------------------------------------ *
      * Pass 2: fraction inside σ-shells                                    *
      * ------------------------------------------------------------------ */
-    ierr = DMSwarmGetField(user->swarm, "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
     PetscInt local_n1 = 0, local_n2 = 0, local_n3 = 0;
     const PetscReal r1 = r_theory;
@@ -220,7 +221,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
         if (r < r3) local_n3++;
     }
 
-    ierr = DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos_arr); CHKERRQ(ierr);
 
     PetscReal local_counts[3] = { (PetscReal)local_n1,
                                    (PetscReal)local_n2,

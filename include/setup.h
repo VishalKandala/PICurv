@@ -13,6 +13,7 @@
 
 // Include additional headers
 #include "variables.h"         // Shared type definitions
+#include "field_catalog.h"     // Typed identities for persistent Eulerian fields
 #include "ParticleSwarm.h"  // Particle swarm functions
 #include "walkingsearch.h"  // Particle location functions
 #include "grid.h"           // Grid functions
@@ -133,28 +134,28 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx);
 /**
  * @brief Updates the local vector (including ghost points) from its corresponding global vector.
  *
- * This function identifies the correct global vector, local vector, and DM based on the
- * provided fieldName and performs the standard PETSc DMGlobalToLocalBegin/End sequence.
+ * This function resolves the correct global vector, local vector, and DM from the
+ * authoritative field catalog and performs the standard PETSc
+ * DMGlobalToLocalBegin/End sequence.
  * For registered single-face-family and component-staggered fields, it then
  * repairs the adjacent periodic ghost in each normal direction so central
  * differences see the correct neighboring face. Cell-centered fields and
  * tangential face directions retain PETSc's native periodic wraparound.
  * Includes optional debugging output (max norms before/after).
  *
- * @param user       The UserCtx structure containing the vectors and DMs.
- * @param fieldName  The name of the field to update ("Coordinates", "Ucat", "Ucont",
- *                   "Ucont_o", "Ucont_rm1", "P", "Nvert", "Centx", etc.).
+ * @param user      The UserCtx structure containing the vectors and DMs.
+ * @param field_id  Typed identity of the catalogued field to update.
  *
  * @return PetscErrorCode 0 on success, non-zero on failure.
  *
- * @note This function assumes the global vector associated with fieldName has already
+ * @note This function assumes the global vector associated with field_id has already
  *       been populated with the desired data (including any boundary conditions and
  *       periodic duplicate planes). It scatters that current global state into the
  *       local vector; it does not repair stale global periodic duplicate planes.
  * @note Wider QUICK-style normal ghost layers require a separate dedicated
  *       exchange; this function repairs the adjacent layer used by central stencils.
  */
-PetscErrorCode UpdateLocalGhosts(UserCtx* user, const char *fieldName);
+PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id);
 
 /**
  * @brief (Orchestrator) Sets up all boundary conditions for the simulation.
@@ -373,8 +374,8 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx);
  *  - The function performs no communication, does not synchronize periodic duplicate
  *    planes, and does not refresh `user->lUcat`.
  *  - Before stencil consumption, the caller must synchronize periodic cell values with
- *    `SynchronizePeriodicCellFields(user, 1, {"Ucat"})` and then call
- *    `UpdateLocalGhosts(user, "Ucat")`. The latter remains necessary for the fully
+ *    `SynchronizePeriodicCellFields(user, 1, {FIELD_ID_UCAT})` and then call
+ *    `UpdateLocalGhosts(user, FIELD_ID_UCAT)`. The latter remains necessary for the fully
  *    nonperiodic case because periodic synchronization is then a no-op.
  */
 PetscErrorCode Contra2Cart(UserCtx *user);

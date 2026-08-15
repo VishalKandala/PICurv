@@ -1,6 +1,7 @@
 // ParticleMotion.c
 
 #include "ParticleMotion.h"
+#include "particle_field_catalog.h"
 
 // Define a buffer size for error messages if not already available
 #ifndef ERROR_MSG_BUFFER_SIZE
@@ -159,15 +160,15 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
     PetscFunctionReturn(0);   // nothing to do, no fields held 
   }
   // 2) Access the "position" and "velocity" fields
-  ierr = DMSwarmGetField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "velocity", NULL, NULL, (void**)&vel); CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "Diffusivity", NULL, NULL, (void**)&diffusivity); CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "DiffusivityGradient", NULL, NULL, (void**)&diffusivitygradient); CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "Psi", NULL, NULL, (void**)&psi); CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell); CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
-  ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pid); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), NULL, NULL, (void**)&vel); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void**)&diffusivity); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY_GRADIENT), NULL, NULL, (void**)&diffusivitygradient); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), NULL, NULL, (void**)&psi); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status); CHKERRQ(ierr);
+  ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pid); CHKERRQ(ierr);
 
   LOG_ALLOW(GLOBAL,LOG_DEBUG," [Rank %d] No.of Particles to update: %" PetscInt_FMT ".\n",rank,nLocal);
 
@@ -187,15 +188,15 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
   }
 
   // 4) Restore the fields
-  ierr = DMSwarmRestoreField(swarm, "position", NULL, NULL, (void**)&pos); CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "velocity", NULL, NULL, (void**)&vel); CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "Diffusivity", NULL, NULL, (void**)&diffusivity); CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "DiffusivityGradient", NULL, NULL, (void**)&diffusivitygradient); CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "Psi", NULL, NULL, (void**)&psi); CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell); CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status); CHKERRQ(ierr);
-  ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&pid); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&pos); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), NULL, NULL, (void**)&vel); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void**)&diffusivity); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY_GRADIENT), NULL, NULL, (void**)&diffusivitygradient); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), NULL, NULL, (void**)&psi); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status); CHKERRQ(ierr);
+  ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pid); CHKERRQ(ierr);
 
 
   LOG_ALLOW(LOCAL,LOG_DEBUG,"Particle moved/transported successfully on Rank %d.\n",rank);
@@ -252,8 +253,8 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
     // All ranks will still participate in the final collective MPI_Allreduce.
     if (nLocalInitial > 0) {
         // Get access to swarm fields once before the loop begins.
-        ierr = DMSwarmGetField(swarm, "position",    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
 
         // --- Iterate BACKWARDS to handle index changes safely during removal ---
         for (PetscInt p = nLocalInitial - 1; p >= 0; p--) {
@@ -277,8 +278,8 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
                 // within this block and then restored cleanly after the loop.
 
                 // 1. Restore all fields BEFORE modifying the swarm structure. This invalidates pos_p and pid_p.
-                ierr = DMSwarmRestoreField(swarm, "position",    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
-                ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
+                ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
+                ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
 
                 // 2. Remove the particle at the current local index 'p'.
                 ierr = DMSwarmRemovePointAtIndex(swarm, p); CHKERRQ(ierr);
@@ -289,8 +290,8 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
                 ierr = DMSwarmGetLocalSize(swarm, &nLocalCurrent); CHKERRQ(ierr);
 
                 if (nLocalCurrent > 0 && p > 0) { // Check if there are particles left AND iterations left
-                    ierr = DMSwarmGetField(swarm, "position",    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
-                    ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
+                    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr);
+                    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid_p); CHKERRQ(ierr);
                 } else {
                     // All remaining particles were removed OR this was the last particle (p=0).
                     // Invalidate pointers to prevent the final restore call and exit the loop.
@@ -305,8 +306,8 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
         // 1. No particles were removed: restores the original pointers.
         // 2. Particles were removed mid-loop: restores the pointers from the last re-acquisition.
         // 3. All particles were removed: pointers are NULL, so nothing is done.
-        if (pos_p) { ierr = DMSwarmRestoreField(swarm, "position",    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr); }
-        if (pid_p) { ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid_p); CHKERRQ(ierr); }
+        if (pos_p) { ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),    NULL, NULL, (void **)&pos_p); CHKERRQ(ierr); }
+        if (pid_p) { ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid_p); CHKERRQ(ierr); }
     } // End of if (nLocalInitial > 0)
 
     PetscInt nLocalFinal;
@@ -360,9 +361,9 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
     // All ranks will still participate in the final collective MPI_Allreduce.
     if (nLocalInitial > 0) {
         // Get access to all swarm fields once before the loop begins.
-        ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status_p); CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, "DMSwarm_pid",             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, "position",                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status_p); CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr);
 
         // --- Iterate BACKWARDS to handle index changes safely during removal ---
         for (PetscInt p = nLocalInitial - 1; p >= 0; p--) {
@@ -375,9 +376,9 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
                 // within this block and then restored cleanly after the loop.
 
                 // 1. Restore all fields BEFORE modifying the swarm structure. This invalidates all pointers.
-                ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status_p); CHKERRQ(ierr);
-                ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr);
-                ierr = DMSwarmRestoreField(swarm, "position",                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr);
+                ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status_p); CHKERRQ(ierr);
+                ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr);
+                ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr);
 
                 // 2. Remove the particle at the current local index 'p'.
                 ierr = DMSwarmRemovePointAtIndex(swarm, p); CHKERRQ(ierr);
@@ -388,9 +389,9 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
                 ierr = DMSwarmGetLocalSize(swarm, &nLocalCurrent); CHKERRQ(ierr);
 
                 if (nLocalCurrent > 0 && p > 0) { // Check if there are particles left AND iterations left
-                    ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status_p); CHKERRQ(ierr);
-                    ierr = DMSwarmGetField(swarm, "DMSwarm_pid",             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr);
-                    ierr = DMSwarmGetField(swarm, "position",                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr);
+                    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status_p); CHKERRQ(ierr);
+                    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr);
+                    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr);
                 } else {
                     // All remaining particles were removed OR this was the last particle (p=0).
                     // Invalidate pointers to prevent the final restore call and exit the loop.
@@ -406,9 +407,9 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
         // 1. No particles were removed: restores the original pointers.
         // 2. Particles were removed mid-loop: restores the pointers from the last re-acquisition.
         // 3. All particles were removed: pointers are NULL, so nothing is done.
-        if (status_p) { ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status_p); CHKERRQ(ierr); }
-        if (pid_p)    { ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr); }
-        if (pos_p)    { ierr = DMSwarmRestoreField(swarm, "position",                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr); }
+        if (status_p) { ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status_p); CHKERRQ(ierr); }
+        if (pid_p)    { ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void **)&pid_p);    CHKERRQ(ierr); }
+        if (pos_p)    { ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),                NULL, NULL, (void **)&pos_p);    CHKERRQ(ierr); }
     } // End of if (nLocalInitial > 0)
 
     PetscInt nLocalFinal;
@@ -446,14 +447,14 @@ PetscErrorCode SetMigrationRanks(UserCtx* user, const MigrationInfo *migrationLi
     PROFILE_FUNCTION_BEGIN;
 
     // Ensure the migration rank field exists
-    ierr = DMSwarmGetField(swarm, "DMSwarm_rank", NULL, NULL, (void **)&rankField); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_RANK), NULL, NULL, (void **)&rankField); CHKERRQ(ierr);
 
     // Set the target rank for migrating particles
     for(p_idx = 0; p_idx < migrationCount; ++p_idx) {
         rankField[migrationList[p_idx].local_index] = migrationList[p_idx].target_rank;
     }
 
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_rank", NULL, NULL, (void **)&rankField); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_RANK), NULL, NULL, (void **)&rankField); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -536,8 +537,8 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     // --- Get Particle Data ---
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Accessing particle data.\n");
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm,"DMSwarm_CellID", NULL, NULL, (void **)&global_cell_id_arr); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm,"DMSwarm_pid",NULL,NULL,(void **)&PID_arr);CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm,ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&global_cell_id_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm,ParticleFieldName(PARTICLE_FIELD_ID_PID),NULL,NULL,(void **)&PID_arr);CHKERRQ(ierr);
 
     // --- Get Grid Vector Array using DMDA accessor ---
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Accessing ParticleCount vector array (using DMDAVecGetArray).\n");
@@ -591,8 +592,8 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
 
     // --- Restore Access ---
     ierr = DMDAVecRestoreArray(da, localcountVec, &count_arr_3d); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm,"DMSwarm_CellID", NULL, NULL, (void **)&global_cell_id_arr); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm,"DMSwarm_pid",NULL,NULL,(void **)&PID_arr);CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm,ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&global_cell_id_arr); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm,ParticleFieldName(PARTICLE_FIELD_ID_PID),NULL,NULL,(void **)&PID_arr);CHKERRQ(ierr);
 
     // --- Assemble Global Vector ---
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Assembling global ParticleCount vector.\n");
@@ -605,7 +606,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
      * or gradient calculations), uncomment the following lines to update the ghost slots 
      * in user->lParticleCount with the final summed values.
      * 
-     ierr = UpdateLocalGhosts(user,"ParticleCount"); CHKERRQ(ierr);
+     ierr = UpdateLocalGhosts(user, FIELD_ID_PARTICLE_COUNT); CHKERRQ(ierr);
      */
 
     // --- Verification Logging ---
@@ -768,7 +769,7 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
     PetscInt       N_current = 0;
     MPI_Comm       comm;
     PetscMPIInt    rank;
-    const char    *refFieldName = "position";
+    const char    *refFieldName = ParticleFieldName(PARTICLE_FIELD_ID_POSITION);
     const PetscInt bs = 3;
     SimCtx        *simCtx = user->simCtx;
     char          *source_path;
@@ -936,9 +937,9 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     // Get coordinate array and swarm fields for modification
     ierr = DMGetCoordinatesLocal(user->da, &Coor_local); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr); // For logging
-    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr); // For logging
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
 
     if (!can_this_rank_service_inlet) {
         LOG_ALLOW(LOCAL, LOG_DEBUG, "[T=%.4f, Step=%d] Rank %d cannot service inlet face %s. Skipping re-initialization of %d particles.\n", currentTime, step, rank, BCFaceToString(user->identifiedInletBCFace), nlocal_current);
@@ -958,9 +959,9 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
         
         // Cleanup: restore swarm fields/coordinate array
         ierr = DMDAVecRestoreArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
-        ierr = DMSwarmRestoreField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
-        ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr); // For logging
-        ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr); // For logging
+        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
@@ -1077,9 +1078,9 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     ierr = PetscRandomDestroy(&rand_logic_reinit_j); CHKERRQ(ierr);
     ierr = PetscRandomDestroy(&rand_logic_reinit_k); CHKERRQ(ierr);
 
-    ierr = DMSwarmRestoreField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cell_ID_field);  CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
 
 
@@ -1248,9 +1249,9 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
     
     // --- 2. Access Swarm Data ---
     // Get read-only access to the PIDs and read-write access to the status field.
-    ierr = DMSwarmGetField(swarm, "DMSwarm_pid",             NULL, NULL, (void**)&pid_field_after); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_field_after); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_field_after); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_field_after); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_field_after); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_field_after); CHKERRQ(ierr);
     if (!pid_field_after || !status_field_after) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Failed to get required swarm fields in FlagNewcomersForLocation.");
     }
@@ -1280,9 +1281,9 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
 
     // --- 4. Restore Swarm Fields ---
     // Release the locks on the swarm data arrays.
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",             NULL, NULL, (void**)&pid_field_after); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_field_after); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_field_after); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_field_after); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_field_after); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_field_after); CHKERRQ(ierr);
 
     if (newcomer_count > 0) {
         LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d]: Identified and flagged %d newcomers.\n", rank, newcomer_count);
@@ -1321,8 +1322,8 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Checking %d restart particles for direct migration using CellIDs.\n", nlocal);
 
     if (nlocal > 0) {
-        ierr = DMSwarmGetField(swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_p);   CHKERRQ(ierr);
-        ierr = DMSwarmGetField(swarm, "DMSwarm_pid",             NULL, NULL, (void**)&pid_p);    CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_p);   CHKERRQ(ierr);
+        ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_p);    CHKERRQ(ierr);
         
         // Note: We do NOT need to modify the status field here. 
         // We trust the loaded status (ACTIVE_AND_LOCATED) is correct for the destination rank.
@@ -1350,8 +1351,8 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
             }
         }
 
-        ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_p);   CHKERRQ(ierr);
-        ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",             NULL, NULL, (void**)&pid_p);    CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_p);   CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_p);    CHKERRQ(ierr);
     }
 
     /* Check if any rank needs to migrate particles */
@@ -1544,12 +1545,12 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
             PetscReal  *pos_p, *weights_p, *vel_p;
             PetscInt   *cell_p, *status_p;
             PetscInt64 *pid_p;
-            ierr = DMSwarmGetField(user->swarm, "position",                NULL, NULL, (void**)&pos_p);    CHKERRQ(ierr);
-            ierr = DMSwarmGetField(user->swarm, "velocity",                NULL, NULL, (void**)&vel_p);    CHKERRQ(ierr);
-            ierr = DMSwarmGetField(user->swarm, "weight",                  NULL, NULL, (void**)&weights_p);  CHKERRQ(ierr);
-            ierr = DMSwarmGetField(user->swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_p);     CHKERRQ(ierr);
-            ierr = DMSwarmGetField(user->swarm, "DMSwarm_pid",             NULL, NULL, (void**)&pid_p);      CHKERRQ(ierr);
-            ierr = DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_p);   CHKERRQ(ierr);
+            ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),                NULL, NULL, (void**)&pos_p);    CHKERRQ(ierr);
+            ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY),                NULL, NULL, (void**)&vel_p);    CHKERRQ(ierr);
+            ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT),                  NULL, NULL, (void**)&weights_p);  CHKERRQ(ierr);
+            ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_p);     CHKERRQ(ierr);
+            ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_p);      CHKERRQ(ierr);
+            ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_p);   CHKERRQ(ierr);
 
             // Create a sorted snapshot of current PIDs to identify newcomers after migration.
             // This helper requires a raw pointer, which we just acquired.
@@ -1671,12 +1672,12 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
             } // End of main particle processing loop
 
             // Restore all the fields acquired for this pass.
-            ierr = DMSwarmRestoreField(user->swarm, "position",                NULL, NULL, (void**)&pos_p);    CHKERRQ(ierr);
-            ierr = DMSwarmRestoreField(user->swarm, "velocity",                NULL, NULL, (void**)&vel_p);    CHKERRQ(ierr);
-            ierr = DMSwarmRestoreField(user->swarm, "weight",                  NULL, NULL, (void**)&weights_p);  CHKERRQ(ierr);
-            ierr = DMSwarmRestoreField(user->swarm, "DMSwarm_CellID",          NULL, NULL, (void**)&cell_p);     CHKERRQ(ierr);
-            ierr = DMSwarmRestoreField(user->swarm, "DMSwarm_pid",             NULL, NULL, (void**)&pid_p);      CHKERRQ(ierr);
-            ierr = DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_p);   CHKERRQ(ierr);
+            ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),                NULL, NULL, (void**)&pos_p);    CHKERRQ(ierr);
+            ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY),                NULL, NULL, (void**)&vel_p);    CHKERRQ(ierr);
+            ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT),                  NULL, NULL, (void**)&weights_p);  CHKERRQ(ierr);
+            ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_p);     CHKERRQ(ierr);
+            ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_p);      CHKERRQ(ierr);
+            ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_p);   CHKERRQ(ierr);
         }
 
         // --- STAGE 3: ACTION & MPI COMMUNICATION ---
@@ -1749,7 +1750,7 @@ PetscErrorCode ResetAllParticleStatuses(UserCtx *user)
 
     if (n_local > 0) {
         // Get write access to the status field
-        ierr = DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_p); CHKERRQ(ierr);
+        ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_p); CHKERRQ(ierr);
         
         for (PetscInt p = 0; p < n_local; ++p) {
             // Only reset particles that are considered settled. This is a small optimization
@@ -1760,7 +1761,7 @@ PetscErrorCode ResetAllParticleStatuses(UserCtx *user)
         }
         
         // Restore the field
-        ierr = DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_p); CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_p); CHKERRQ(ierr);
     }
 
 

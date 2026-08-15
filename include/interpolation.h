@@ -253,17 +253,15 @@ PetscErrorCode TrilinearInterpolation_Vector(
  *   5.  Restore all PETSc objects to prevent memory leaks.
  *
  * @param[in]  user                     User context with DMDA, DMSwarm, etc.
- * @param[in]  fieldLocal_cellCentered Ghosted local Vec with cell-centered data (e.g., Ucat).
- * @param[in]  fieldName                Human-readable field name for logging (e.g., "Ucat").
- * @param[in]  swarmOutFieldName        Name of the DMSwarm field where interpolation results go.
+ * @param[in]  source_field_id Typed identity of the cell-centered Eulerian source.
+ * @param[in]  target_field_id Typed identity of the PETSC_REAL particle destination.
  *
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode InterpolateEulerFieldToSwarm(
     UserCtx    *user,
-    Vec         fieldLocal_cellCentered,
-    const char *fieldName,
-    const char *swarmOutFieldName);
+    FieldId      source_field_id,
+    ParticleFieldId target_field_id);
 
 
 /**
@@ -399,34 +397,6 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
     UserCtx *user);
 
 /**
- * @brief Determines the target Eulerian DM and expected DOF for scattering a given particle field.
- * @ingroup scatter_module
- *
- * Based on hardcoded rules mapping particle field names to user context DMs (da/fda).
- * This function encapsulates the policy of where different fields should be scattered.
- *
- * @param[in] user             Pointer to the UserCtx containing da and fda.
- * @param[in] particleFieldName Name of the particle field (e.g., "P", "Ucat").
- * @param[out] targetDM        Pointer to store the determined target DM (da or fda).
- * @param[out] expected_dof    Pointer to store the expected DOF (1 or 3) for this field.
- *
- * @return PetscErrorCode Returns 0 on success, PETSC_ERR_ARG_UNKNOWN if field name is not recognized,
- *         or PETSC_ERR_ARG_NULL for NULL inputs.
- */
-PetscErrorCode GetScatterTargetInfo(UserCtx *user, const char *particleFieldName,
-                                    DM *targetDM, PetscInt *expected_dof);
-
-/**
- * @brief Retrieves the persistent local vector (e.g., lPsi, lUcat) for a given field name.
- * 
- * @param user          User context containing the persistent vectors.
- * @param fieldName     Name of the field ("Psi", "Ucat", etc.).
- * @param localVec      Output pointer to the vector.
- * @return PetscErrorCode 
- */
-PetscErrorCode GetPersistentLocalVector(UserCtx *user, const char *fieldName, Vec *localVec);
-
-/**
  * @brief Accumulates a particle field (scalar or vector) into a target grid sum vector.
  * @ingroup scatter_module_internal
  *
@@ -439,14 +409,14 @@ PetscErrorCode GetPersistentLocalVector(UserCtx *user, const char *fieldName, Ve
  * function if a fresh sum calculation is desired.
  *
  * @param[in] swarm           The DMSwarm containing particles.
- * @param[in] particleFieldName Name of the field on the particles (must match DOF).
+ * @param[in] particle_field_id Typed identity of the particle field (must match DOF).
  * @param[in] gridSumDM       The DMDA associated with `gridSumVec`. Its DOF determines
  *                            how many components are accumulated.
  * @param[in,out] gridSumVec  The Vec (associated with `gridSumDM`) to accumulate sums into.
  *
  * @return PetscErrorCode 0 on success. Errors if fields don't exist or DMs are incompatible.
  */
-PetscErrorCode AccumulateParticleField(DM swarm, const char *particleFieldName,
+PetscErrorCode AccumulateParticleField(DM swarm, ParticleFieldId particle_field_id,
                                        DM gridSumDM, Vec gridSumVec);
 
 /**
@@ -474,13 +444,13 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
  * @ingroup scatter_module
  *
  * This is the main user-facing function. It determines the target Eulerian DM
- * based on the `particleFieldName`, validates the provided `eulerFieldAverageVec`
+ * from the particle catalog, validates the provided `eulerFieldAverageVec`
  * against the target DM, and then orchestrates the scatter operation by calling
  * the internal helper function `ScatterParticleFieldToEulerField_Internal`.
  * The final averaged result is stored IN-PLACE in `eulerFieldAverageVec`.
  *
  * @param[in] user                 Pointer to UserCtx containing da, fda, swarm, ParticleCount.
- * @param[in] particleFieldName    Name of the field in the DMSwarm (e.g., "P", "Ucat").
+ * @param[in] particle_field_id    Typed identity of the DMSwarm field.
  * @param[in,out] eulerFieldAverageVec Pre-created Vec associated with the correct target DM
  *                                 (implicitly da or fda). Result stored here.
  *
@@ -488,7 +458,7 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
  *         or incompatible target vector.
  */
 PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
-                                                const char *particleFieldName,
+                                                ParticleFieldId particle_field_id,
                                                 Vec eulerFieldAverageVec);
 
 /**

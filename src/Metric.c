@@ -353,10 +353,10 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
         ierr = VecScale(user->Aj , -1.0); CHKERRQ(ierr);
 
         /* Local ghost regions now stale – refresh                      */
-        ierr = UpdateLocalGhosts(user, "Csi"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Eta"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Zet"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Aj");  CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_CSI); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_ETA); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_ZET); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_AJ);  CHKERRQ(ierr);
 
         /* Sanity print: Aj must be > 0 now                             */
         ierr = VecMin(user->Aj, NULL, &aj_min); CHKERRQ(ierr);
@@ -420,8 +420,8 @@ PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user)
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Applying periodic corrections to Cent and GridSpace.\n");
 
     // Must update ghosts first before applying corrections
-    ierr = UpdateLocalGhosts(user, "Cent"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "GridSpace"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_CENT); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_GRID_SPACE); CHKERRQ(ierr);
 
     // --- X-direction periodic corrections ---
     if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || 
@@ -589,7 +589,7 @@ PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user)
  */
 PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
 {
-    const char *fields[] = {"Centx"};
+    const FieldId fields[] = {FIELD_ID_CENTX};
 
     PetscFunctionBeginUser;
     PetscCall(SynchronizePeriodicFaceFields(user, 'i', 1, fields));
@@ -605,7 +605,7 @@ PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
  */
 PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
 {
-    const char *fields[] = {"Centy"};
+    const FieldId fields[] = {FIELD_ID_CENTY};
 
     PetscFunctionBeginUser;
     PetscCall(SynchronizePeriodicFaceFields(user, 'j', 1, fields));
@@ -621,7 +621,7 @@ PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
  */
 PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
 {
-    const char *fields[] = {"Centz"};
+    const FieldId fields[] = {FIELD_ID_CENTZ};
 
     PetscFunctionBeginUser;
     PetscCall(SynchronizePeriodicFaceFields(user, 'k', 1, fields));
@@ -826,9 +826,9 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user)
 
     // --- 7. Update Local Ghosted Versions ---
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Updating local lCsi, lEta, lZet.\n");
-    ierr = UpdateLocalGhosts(user, "Csi"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Eta"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Zet"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_CSI); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_ETA); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_ZET); CHKERRQ(ierr);
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Completed calculation, extrapolation, and update for Csi, Eta, Zet.\n");
 
@@ -977,7 +977,7 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
 
     // --- 7. Update Local Ghosted Version ---
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Updating local lAj.\n");
-    ierr = UpdateLocalGhosts(user, "Aj"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_AJ); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Completed calculation, extrapolation, and update for Aj.\n");
     PetscFunctionReturn(0);
@@ -1072,15 +1072,15 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
     // Assemble and update ghost regions for the new data
     ierr = VecAssemblyBegin(user->Cent); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->Cent); CHKERRQ(ierr);
     ierr = VecAssemblyBegin(user->GridSpace); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->GridSpace); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Cent"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "GridSpace"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_CENT); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_GRID_SPACE); CHKERRQ(ierr);
 
     ierr = ApplyPeriodicCorrectionsToCellCentersAndSpacing(user); CHKERRQ(ierr);
 
     // Final assembly and ghost update after corrections
     ierr = VecAssemblyBegin(user->Cent); CHKERRQ(ierr); 
     ierr = VecAssemblyEnd(user->Cent); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Cent"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_CENT); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
 
@@ -1186,7 +1186,7 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     {
-        const char *face_centers[] = {"Centx"};
+        const FieldId face_centers[] = {FIELD_ID_CENTX};
         ierr = SynchronizePeriodicFaceFields(user, 'i', 1, face_centers); CHKERRQ(ierr);
     }
 
@@ -1288,10 +1288,10 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     ierr = VecAssemblyBegin(user->IZet); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->IZet); CHKERRQ(ierr);
     ierr = VecAssemblyBegin(user->IAj); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->IAj); CHKERRQ(ierr);
 
-    ierr = UpdateLocalGhosts(user, "ICsi"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "IEta"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "IZet"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "IAj"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_ICSI); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_IETA); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_IZET); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_IAJ); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
 
@@ -1381,7 +1381,7 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     {
-        const char *face_centers[] = {"Centy"};
+        const FieldId face_centers[] = {FIELD_ID_CENTY};
         ierr = SynchronizePeriodicFaceFields(user, 'j', 1, face_centers); CHKERRQ(ierr);
     }
 
@@ -1483,10 +1483,10 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     ierr = VecAssemblyBegin(user->JZet); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->JZet); CHKERRQ(ierr);
     ierr = VecAssemblyBegin(user->JAj); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->JAj); CHKERRQ(ierr);
 
-    ierr = UpdateLocalGhosts(user, "JCsi"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "JEta"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "JZet"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "JAj"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_JCSI); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_JETA); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_JZET); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_JAJ); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
 
@@ -1576,7 +1576,7 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     // ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
 
     {
-        const char *face_centers[] = {"Centz"};
+        const FieldId face_centers[] = {FIELD_ID_CENTZ};
         ierr = SynchronizePeriodicFaceFields(user, 'k', 1, face_centers); CHKERRQ(ierr);
     }
 
@@ -1678,10 +1678,10 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     ierr = VecAssemblyBegin(user->KZet); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->KZet); CHKERRQ(ierr);
     ierr = VecAssemblyBegin(user->KAj); CHKERRQ(ierr); ierr = VecAssemblyEnd(user->KAj); CHKERRQ(ierr);
 
-    ierr = UpdateLocalGhosts(user, "KCsi"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "KEta"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "KZet"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "KAj"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_KCSI); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_KETA); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_KZET); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_KAJ); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
 

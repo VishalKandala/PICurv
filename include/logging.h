@@ -841,12 +841,11 @@ void _ProfilingEnd(const char *func_name);
  *
  * @param[in] user      Pointer to the user-defined context. Used for grid information (IM, JM, KM)
  *                      and MPI rank.
- * @param[in] fieldName A string descriptor for the field being analyzed (e.g., "Velocity",
- *                      "Coordinates"). This is used for clear log output.
+ * @param[in] field_id Typed identity of the field being analyzed.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName);
+PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, FieldId field_id);
 
 /**
  * @brief Logs the anatomy of a specified field at key boundary locations,
@@ -869,11 +868,19 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName);
  * slice through the center of the domain to be concise.
  *
  * @param user       A pointer to the UserCtx structure containing the DMs and Vecs.
- * @param field_name A string identifier for the field to log (e.g., "Ucat", "P", "Ucont", "Coordinates").
+ * @param field_id   Typed identity of the persistent Eulerian field to log.
  * @param stage_name A string identifier for the current simulation stage (e.g., "After Advection").
  * @return           PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const char *stage_name);
+PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, FieldId field_id, const char *stage_name);
+
+/**
+ * @brief Logs the node-layout anatomy of the transient center-to-corner interpolation field.
+ * @param user       Context owning `CellFieldAtCorner` and `lCellFieldAtCorner`.
+ * @param stage_name Printable simulation stage.
+ * @return Zero on success.
+ */
+PetscErrorCode LOG_CORNER_FIELD_ANATOMY(UserCtx *user, const char *stage_name);
 
 /**
  * @brief Logs the interpolation error between the analytical and computed solutions.

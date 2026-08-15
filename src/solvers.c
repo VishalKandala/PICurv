@@ -69,14 +69,14 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating LES (Smagorinsky) model...\n");
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             // LES models require Cartesian velocity to compute strain rates
-            const char *staggered_fields[] = {"Ucont"};
+            const FieldId staggered_fields[] = {FIELD_ID_UCONT};
             ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
             ierr = Contra2Cart(&user[bi]); CHKERRQ(ierr);
             {
-                const char *cell_fields[] = {"Ucat"};
+                const FieldId cell_fields[] = {FIELD_ID_UCAT};
                 ierr = SynchronizePeriodicCellFields(&user[bi], 1, cell_fields); CHKERRQ(ierr);
             }
-            ierr = UpdateLocalGhosts(&user[bi], "Ucat"); CHKERRQ(ierr);
+            ierr = UpdateLocalGhosts(&user[bi], FIELD_ID_UCAT); CHKERRQ(ierr);
             if(simCtx->les == CONSTANT_SMAGORINSKY) {
                 LOG_ALLOW(LOCAL, LOG_INFO, "  Using constant Smagorinsky model for block %d.\n", bi);
                 // Constant Smagorinsky does not require dynamic computation
@@ -146,7 +146,7 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL,LOG_INFO," Velocity corrected for Block %d.\n",bi);
 
 	// Ensure local ghost cells for the final pressure field are correct
-	ierr = UpdateLocalGhosts(&user[bi],"P");
+	ierr = UpdateLocalGhosts(&user[bi], FIELD_ID_P);
     }
     
     // ========================================================================

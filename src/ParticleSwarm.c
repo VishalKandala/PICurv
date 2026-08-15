@@ -62,31 +62,16 @@ PetscErrorCode RegisterParticleFields(DM swarm)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
-    
-    // Register each field using the helper function
-    ierr = RegisterSwarmField(swarm, "position", 3 ,PETSC_REAL); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Registered field 'position'.\n");
-    
-    ierr = RegisterSwarmField(swarm, "velocity", 3, PETSC_REAL); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'velocity'.\n");
-    
-    ierr = RegisterSwarmField(swarm, "DMSwarm_CellID", 3, PETSC_INT); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'DMSwarm_CellID'.\n");
-    
-    ierr = RegisterSwarmField(swarm, "weight", 3,PETSC_REAL); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'weight'.\n");
 
-    ierr = RegisterSwarmField(swarm,"Diffusivity", 1,PETSC_REAL); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'Diffusivity' - Scalar.\n");
+    for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
+        const ParticleFieldDescriptor *descriptor = NULL;
 
-    ierr = RegisterSwarmField(swarm,"DiffusivityGradient", 3,PETSC_REAL); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'DiffusivityGradient' - Vector.\n");
+        ierr = ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor); CHKERRQ(ierr);
+        if (descriptor->registration == PARTICLE_FIELD_REGISTRATION_PETSC) continue;
 
-    ierr = RegisterSwarmField(swarm,"Psi", 1,PETSC_REAL); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'Psi' - Scalar.\n");
-
-    ierr =  RegisterSwarmField(swarm,"DMSwarm_location_status",1,PETSC_INT);CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field 'DMSwarm_location_status' - Status of Location of Particle(located,lost etc).\n");
+        ierr = RegisterSwarmField(swarm, descriptor->canonical_name,
+                                  descriptor->components, descriptor->data_type); CHKERRQ(ierr);
+    }
     
     // Finalize the field registration after all fields have been added
     ierr = DMSwarmFinalizeFieldRegister(swarm); CHKERRQ(ierr);
@@ -267,10 +252,10 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     }
 
     // --- 3. Get Access to Swarm Fields ---
-    ierr = DMSwarmGetField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs_petsc);  CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_location_status",NULL,NULL,(void**)&status_field); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs_petsc);  CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS),NULL,NULL,(void**)&status_field); CHKERRQ(ierr);
 
     // --- 4. Determine Starting Global PID for this Rank ---
     PetscInt particles_per_rank_ideal = simCtx->np / size; // Assumes user->size is PETSC_COMM_WORLD size
@@ -388,10 +373,10 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     } 
 
     // --- 6. Restore Pointers and Cleanup ---
-    ierr = DMSwarmRestoreField(swarm, "position",       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid",    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs_petsc);  CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_location_status", NULL, NULL, (void**)&status_field); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs_petsc);  CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_field); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Completed processing for %d particles.\n",
@@ -407,36 +392,27 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
 /**
  * @brief Assign one configured initial value to a swarm field entry.
  */
-static PetscErrorCode InitializeSwarmFieldValue(const char *fieldName, PetscInt p, PetscInt fieldDim, PetscReal *fieldData)
+static PetscErrorCode InitializeSwarmFieldValue(const ParticleFieldDescriptor *descriptor,
+                                                PetscInt p, PetscReal *fieldData)
 {
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
 
-    if (strcmp(fieldName, "velocity") == 0) {
-        // For velocity, initialize all components to zero
-        for (PetscInt d = 0; d < fieldDim; d++) {
-        fieldData[fieldDim * p + d] = 0.0;
-        }
-    } else if (strcmp(fieldName, "Diffusivity") == 0) {
-        // For Diffusivity,initialize to a default value (e.g., 1.0)
-        for (PetscInt d = 0; d < fieldDim; d++) {
-        fieldData[fieldDim * p + d] = 1.0;
-        }
-    } else if (strcmp(fieldName, "DiffusivityGradient") == 0) {
-        // For DiffusivityGradient,initialize to a default value (e.g., 1.0)
-        for (PetscInt d = 0; d < fieldDim; d++) {
-        fieldData[fieldDim * p + d] = 1.0;
-        }
-    } else if (strcmp(fieldName, "Psi") == 0) {
-        for (PetscInt d = 0; d < fieldDim; d++) {
-        fieldData[fieldDim * p + d] = 0.0;
-        }
-    } else {
-        // Default: initialize all components to zero
-        for (PetscInt d = 0; d < fieldDim; d++) {
-        fieldData[fieldDim * p + d] = 0.0;
-        }
+    PetscCheck(descriptor != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Particle field descriptor cannot be NULL during initialization.");
+    PetscCheck(fieldData != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Particle field data cannot be NULL during initialization.");
+    PetscCheck(descriptor->data_type == PETSC_REAL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "Default initialization currently supports only PETSC_REAL particle fields; '%s' uses %s.",
+               descriptor->canonical_name, PetscDataTypes[descriptor->data_type]);
+    PetscCheck((descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE) != 0,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "Particle field '%s' does not use catalog-default initialization.",
+               descriptor->canonical_name);
+
+    for (PetscInt d = 0; d < descriptor->components; ++d) {
+        fieldData[descriptor->components * p + d] = descriptor->default_real_value;
     }
 
     PROFILE_FUNCTION_END;
@@ -449,16 +425,21 @@ static PetscErrorCode InitializeSwarmFieldValue(const char *fieldName, PetscInt 
 /**
  * @brief Apply a configured initial field specification across the local swarm.
  */
-static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, const char *fieldName, PetscInt fieldDim)
+static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, ParticleFieldId field_id)
 {
     PetscErrorCode ierr;
     DM             swarm = user->swarm;
     PetscReal     *fieldData = NULL;
     PetscInt       nLocal;
+    const ParticleFieldDescriptor *descriptor = NULL;
+    const char     *fieldName = NULL;
 
     PetscFunctionBeginUser;
     
     PROFILE_FUNCTION_BEGIN;
+
+    ierr = ParticleFieldGetDescriptor(field_id, &descriptor); CHKERRQ(ierr);
+    fieldName = descriptor->canonical_name;
 
     // Get the number of local particles
     ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
@@ -470,13 +451,13 @@ static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, const char *field
 
     // Loop over all particles and update the field using the helper function
     for (PetscInt p = 0; p < nLocal; p++) {
-        ierr = InitializeSwarmFieldValue(fieldName, p, fieldDim, fieldData); CHKERRQ(ierr);
-    PetscReal disp_data[fieldDim];
+        ierr = InitializeSwarmFieldValue(descriptor, p, fieldData); CHKERRQ(ierr);
+    PetscReal disp_data[descriptor->components];
     
-        for (PetscInt d = 0; d < fieldDim; d++) {
-    disp_data[d] = fieldData[fieldDim* p + d];
+        for (PetscInt d = 0; d < descriptor->components; d++) {
+    disp_data[d] = fieldData[descriptor->components * p + d];
         }
-        LOG_LOOP_ALLOW(LOCAL,LOG_VERBOSE,p, 100," Particle %d: %s[%d] = [%.6f, ...,%.6f].\n", p,fieldName,fieldDim,disp_data[0],disp_data[fieldDim-1]);
+        LOG_LOOP_ALLOW(LOCAL,LOG_VERBOSE,p, 100," Particle %d: %s[%d] = [%.6f, ...,%.6f].\n", p,fieldName,descriptor->components,disp_data[0],disp_data[descriptor->components-1]);
     }
     
     // Restore the swarm field pointer
@@ -552,23 +533,23 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
 
     // --- 3. Initialize Other Swarm Fields (Velocity, Weight, Pressure, etc.) ---
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'velocity' field.\n");
-    ierr = AssignInitialFieldToSwarm(user, "velocity", 3); CHKERRQ(ierr);
+    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_VELOCITY); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL, LOG_INFO, "'velocity' field initialization complete.\n");
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'weight' field.\n");
-    ierr = AssignInitialFieldToSwarm(user, "weight", 3); CHKERRQ(ierr); // Assuming weight is vec3
+    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_WEIGHT); CHKERRQ(ierr); // Weight is a three-component field.
     LOG_ALLOW(LOCAL, LOG_INFO, "'weight' field initialization complete.\n");
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'Diffusivity' field.\n");
-    ierr = AssignInitialFieldToSwarm(user, "Diffusivity", 1); CHKERRQ(ierr);
+    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "'Diffusivity' field initialization complete.\n");
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'DiffusivityGradient' field.\n");
-    ierr = AssignInitialFieldToSwarm(user, "DiffusivityGradient", 3); CHKERRQ(ierr);
+    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_DIFFUSIVITY_GRADIENT); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "'DiffusivityGradient' field initialization complete.\n");
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'Psi' (Scalar) field.\n");
-    ierr = AssignInitialFieldToSwarm(user, "Psi", 1); CHKERRQ(ierr);
+    ierr = AssignInitialFieldToSwarm(user, PARTICLE_FIELD_ID_PSI); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "'P' field initialization complete.\n");
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully completed all swarm property initialization.\n");

@@ -13,6 +13,7 @@
 
 // Include additional headers
 #include "variables.h"         // Shared type definitions
+#include "field_catalog.h"     // Typed Eulerian field identities
 #include "ParticleSwarm.h"  // Particle swarm functions
 #include "walkingsearch.h"  // Particle location functions
 #include "grid.h"           // Grid functions
@@ -267,20 +268,6 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user); 
 
 /**
- * @brief (Private Worker) Copies periodic data for a SINGLE field in a SINGLE direction.
- *
- * This is a low-level helper that performs the memory copy from the local ghost
- * array to the global array for a specified field and direction ('i', 'j', or 'k').
- * It contains NO communication logic; that is handled by the orchestrator.
- *
- * @param user The main UserCtx struct.
- * @param field_name The string identifier for the field to transfer (e.g., "Ucat").
- * @param direction The character 'i', 'j', or 'k' specifying the direction.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field_name, char direction);
-
-/**
  * @brief Synchronizes periodic endpoint cells for a list of cell-centered fields.
  *
  * The fields are first communicated from global to local storage. Each periodic
@@ -292,32 +279,15 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
  * nonperiodic. During active periodic synchronization it internally refreshes the
  * local vectors, but it is not a general replacement for `UpdateLocalGhosts()`.
  *
- * Supported fields are `Ucat`, `P`, `Phi`, `Nvert`, `Nu_t`, `CS`, `Diffusivity`,
- * and `Aj` (`Eddy Viscosity` and `Cs` are accepted as compatibility
- * aliases for `Nu_t` and `CS`, respectively).
+ * Supported fields are selected by
+ * `FIELD_CAPABILITY_PERIODIC_CELL_SYNC` in the field catalog.
  *
  * @param user The main UserCtx struct.
- * @param num_fields The number of entries in field_names.
- * @param field_names The cell-centered fields to synchronize.
+ * @param num_fields The number of entries in `field_ids`.
+ * @param field_ids The cell-centered fields to synchronize.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields, const char *field_names[]);
-
-/**
- * @brief Transfers one persistent single-face-family field in one periodic direction.
- *
- * This lower-level helper updates owned global endpoint/dummy values from an
- * up-to-date local ghosted vector. `face_direction` identifies the field's
- * storage family (`'i'`, `'j'`, or `'k'`); `periodic_direction` selects the
- * direction transferred during this call.
- *
- * @param user The main UserCtx struct.
- * @param field_name Registered persistent I/J/K-face field name.
- * @param face_direction Face family containing the field (`'i'`, `'j'`, or `'k'`).
- * @param[in] periodic_direction Logical periodic axis for this transfer.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *field_name, char face_direction, char periodic_direction);
+PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields, const FieldId field_ids[]);
 
 /**
  * @brief Synchronizes persistent fields belonging to one face family.
@@ -330,26 +300,10 @@ PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *f
  * @param user The main UserCtx struct.
  * @param face_direction Face family shared by every field (`'i'`, `'j'`, or `'k'`).
  * @param[in] num_fields Count of registered face fields.
- * @param field_names Registered persistent face-field names.
+ * @param field_ids Registered persistent face-field identities.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction, PetscInt num_fields, const char *field_names[]);
-
-/**
- * @brief Transfers one persistent component-staggered field in one periodic direction.
- *
- * A component-staggered vector stores its x, y, and z components on I-, J-, and
- * K-faces, respectively. Persistent endpoint synchronization uses the same
- * endpoint copy for all components; component-specific behavior is required
- * later when repairing local stencil ghosts.
- *
- * @param user The main UserCtx struct.
- * @param field_name Registered component-staggered field name.
- * @param periodic_direction Periodic direction to transfer (`'i'`, `'j'`, or `'k'`).
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, const char *field_name,
-                                                         char periodic_direction);
+PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction, PetscInt num_fields, const FieldId field_ids[]);
 
 /**
  * @brief Synchronizes persistent component-staggered vector fields.
@@ -359,12 +313,12 @@ PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, const ch
  * `Ucont` is the only registered component-staggered field.
  *
  * @param user The main UserCtx struct.
- * @param num_fields Number of entries in `field_names`.
- * @param field_names Registered component-staggered field names.
+ * @param num_fields Number of entries in `field_ids`.
+ * @param field_ids Registered component-staggered field identities.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fields,
-                                                  const char *field_names[]);
+                                                  const FieldId field_ids[]);
 
 /**
  * @brief Repairs the outer adjacent periodic ghosts used by QUICK cell stencils.
@@ -392,36 +346,6 @@ PetscErrorCode PreparePeriodicQuickStencilFields(UserCtx *user, Vec local_vector
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode SynchronizePeriodicLocalStaggeredField(UserCtx *user, Vec local_field);
-
-/**
- * @brief Legacy monolithic periodic endpoint transfer for one cell-centered field.
- *
- * Retained for compatibility with older callers. New code should use
- * `SynchronizePeriodicCellFields`, which provides ordered directional transfers
- * with the required intermediate ghost communication.
- *
- * @param user The main UserCtx struct.
- * @param field_name The string identifier for the field to transfer.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name);
-
-/**
- * @brief (Primitive) Copies periodic data from the interior to the local ghost cell region for a single field.
- *
- * This primitive function performs a direct memory copy for a specified field, updating
- * all periodic ghost faces (i, j, and k). It reads data from just inside the periodic boundary
- * and writes it to the corresponding local ghost cells.
- *
- * The copy is "two-cells deep" to support wider computational stencils.
- *
- * This function does NOT involve any MPI communication; it operates entirely on local PETSc vectors.
- *
- * @param user The main UserCtx struct.
- * @param field_name The string identifier for the field to update (e.g., "Csi", "Ucont").
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode TransferPeriodicFaceField(UserCtx *user, const char *field_name);
 
 /**
  * @brief (Orchestrator) Updates all metric-related fields in the local ghost cell regions for periodic boundaries.
@@ -486,20 +410,6 @@ PetscErrorCode UpdateDummyCells(UserCtx *user);
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode UpdateCornerNodes(UserCtx *user);
-
-/**
- * @brief Legacy sequential periodic-corner update for a list of fields.
- *
- * Retained for compatibility with older callers. New code should use
- * `SynchronizePeriodicCellFields`, which additionally skips non-periodic
- * directions and performs the initial ghost refresh.
- *
- * @param user The main UserCtx struct.
- * @param num_fields The number of fields in the field_names array.
- * @param field_names An array of strings with the names of fields to update (e.g., ["Ucat", "P"]).
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode UpdatePeriodicCornerNodes(UserCtx *user, PetscInt num_fields, const char* field_names[]);
 
 /**
  * @brief Applies wall function modeling to near-wall velocities for all wall-type boundaries.

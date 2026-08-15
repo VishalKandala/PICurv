@@ -10,8 +10,8 @@ This directory contains the C implementation for the solver, postprocessor, and 
 ## Module Map (File -> Responsibility -> Key Public APIs)
 
 - startup/context:
-  - files: `setup.c`, `simulator.c`
-  - APIs: `CreateSimulationContext`, `SetupSimulationEnvironment`, `SetupGridAndSolvers`, `FinalizeSimulation`
+  - files: `setup.c`, `field_catalog.c`, `particle_field_catalog.c`, `simulator.c`
+  - APIs: `CreateSimulationContext`, `SetupSimulationEnvironment`, `SetupGridAndSolvers`, `FieldGetView`, `FinalizeSimulation`
 - runtime loop:
   - files: `runloop.c`, `solvers.c`
   - APIs: `AdvanceSimulation`, `FlowSolver`, `UpdateSolverHistoryVectors`
@@ -48,6 +48,10 @@ Practical tip:
 ## Development Notes
 
 - Shared state is centralized in `SimCtx`/`UserCtx` from `variables.h`.
+- Persistent Eulerian field identity and DM/Vec binding metadata is centralized
+  in `field_catalog.c`; storage allocation remains explicit in `setup.c`.
+- Persistent solver-particle identity and DMSwarm metadata is centralized in
+  `particle_field_catalog.c`; dynamic postprocessor fields remain recipe-owned.
 - Prefer extending existing module boundaries before creating new files.
 - Keep high-level orchestration logic in orchestrator modules; keep math kernels in subsystem files.
 - Avoid hidden behavior in utility helpers that bypass main execution flow assumptions.

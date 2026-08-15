@@ -73,10 +73,10 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
     }
 
     {
-        const char *periodic_fields[] = {"Diffusivity"};
+        const FieldId periodic_fields[] = {FIELD_ID_DIFFUSIVITY};
         // Make the analytic field coherent across periodic seams before ghost updates.
         ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Diffusivity"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
     }
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
               "Applied verification diffusivity override profile '%s' (gamma0=%g, slope_x=%g).\n",
@@ -98,7 +98,7 @@ PetscErrorCode ApplyVerificationScalarOverrideToParticles(UserCtx *user)
     // The normal particle model owns Psi unless the verification override is enabled.
     if (!VerificationScalarOverrideActive(user->simCtx)) PetscFunctionReturn(0);
 
-    PetscCall(SetAnalyticalScalarFieldOnParticles(user, "Psi"));
+    PetscCall(SetAnalyticalScalarFieldOnParticles(user, PARTICLE_FIELD_ID_PSI));
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
               "Applied verification scalar override profile '%s' to particle field 'Psi'.\n",
               user->simCtx->verificationScalar.profile);

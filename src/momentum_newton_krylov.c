@@ -494,7 +494,7 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
     /*
      * current_solution is the current SNES trial Ucont Vec: it is layout-compatible
      * with user->fda/user->Ucont, but is not necessarily the canonical user->Ucont
-     * selected by UpdateLocalGhosts("Ucont"). Scatter that trial Vec directly with
+     * selected by UpdateLocalGhosts(FIELD_ID_UCONT). Scatter that trial Vec directly with
      * user->fda so PETSc applies its MPI ownership, periodic topology, component
      * ordering, and ghost mapping without canonical-field synchronization or mutation
      * of current_solution. UpdateLocalGhosts additionally repairs the component-normal
@@ -1067,8 +1067,8 @@ static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F,
 {
     MomentumNewtonKrylovContext *ctx = (MomentumNewtonKrylovContext *)vctx;
     UserCtx *user = ctx->user;
-    const char *staggered_fields[] = {"Ucont"};
-    const char *cell_fields[] = {"Ucat"};
+    const FieldId staggered_fields[] = {FIELD_ID_UCONT};
+    const FieldId cell_fields[] = {FIELD_ID_UCAT};
 
     PetscFunctionBeginUser;
     (void)snes;
@@ -1098,10 +1098,10 @@ static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F,
      *  4. Contra2Cart() rebuilds the global Ucat interior from the current
      *     lUcont, but it does not by itself refresh lUcat (nor lUcont; that was
      *     done by the SynchronizePeriodicStaggeredFields call above).
-     *  5. SynchronizePeriodicCellFields("Ucat") must run before the ghost
+     *  5. SynchronizePeriodicCellFields(FIELD_ID_UCAT) must run before the ghost
      *     scatter so periodic duplicate planes are finalized consistently (it is
      *     a no-op when no direction is periodic, as on the straight duct).
-     *  6. UpdateLocalGhosts("Ucat") is required because the outlet handler reads
+     *  6. UpdateLocalGhosts(FIELD_ID_UCAT) is required because the outlet handler reads
      *     lUcat -- the local ghosted vector -- not merely the global Ucat.
      *
      * Do NOT "simplify" this to a bare Contra2Cart(user), and do NOT delete it
@@ -1111,7 +1111,7 @@ static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F,
      * deterministic function of X. */
     PetscCall(Contra2Cart(user));
     PetscCall(SynchronizePeriodicCellFields(user, 1, cell_fields));
-    PetscCall(UpdateLocalGhosts(user, "Ucat"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
 
     PetscCall(ApplyBoundaryConditions(user));
     PetscCall(ComputeTotalResidual(user));
@@ -1145,7 +1145,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     PetscInt       nonlinear_its = 0, function_evals = 0, linear_its = 0;
     PetscReal      final_norm = PETSC_MAX_REAL;
     MomentumNewtonKrylovContext ctx = {0};
-    const char *staggered_fields[] = {"Ucont"};
+    const FieldId staggered_fields[] = {FIELD_ID_UCONT};
 
     PetscFunctionBeginUser;
     PetscCall(MomentumNewtonKrylov_Validate(user));

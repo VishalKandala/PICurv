@@ -401,7 +401,7 @@ static PetscErrorCode LogGetColumnReal(const char *header, const char *row, cons
 typedef PetscErrorCode (*CapturedLoggingFn)(UserCtx *user, SimCtx *simCtx, void *ctx);
 
 typedef struct AnatomyCaptureCtx {
-    const char *field_name;
+    FieldId field_id;
     const char *stage_name;
 } AnatomyCaptureCtx;
 
@@ -490,7 +490,7 @@ static PetscErrorCode InvokeFieldAnatomyLog(UserCtx *user, SimCtx *simCtx, void 
 
     PetscFunctionBeginUser;
     (void)simCtx;
-    PetscCall(LOG_FIELD_ANATOMY(user, anatomy_ctx->field_name, anatomy_ctx->stage_name));
+    PetscCall(LOG_FIELD_ANATOMY(user, anatomy_ctx->field_id, anatomy_ctx->stage_name));
     PetscFunctionReturn(0);
 }
 
@@ -852,16 +852,16 @@ static PetscErrorCode TestLoggingContinuityAndFieldDiagnostics(void)
     PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
 
-    PetscCall(LOG_FIELD_MIN_MAX(user, "P"));
-    PetscCall(LOG_FIELD_MIN_MAX(user, "Ucat"));
-    PetscCall(LOG_FIELD_MIN_MAX(user, "Coordinates"));
-    PetscCall(LOG_FIELD_MIN_MAX(user, "Ucont"));
+    PetscCall(LOG_FIELD_MIN_MAX(user, FIELD_ID_P));
+    PetscCall(LOG_FIELD_MIN_MAX(user, FIELD_ID_UCAT));
+    PetscCall(LOG_FIELD_MIN_MAX(user, FIELD_ID_COORDINATES));
+    PetscCall(LOG_FIELD_MIN_MAX(user, FIELD_ID_UCONT));
 
     PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
-    ierr_minmax = LOG_FIELD_MIN_MAX(user, "NotARealField");
+    ierr_minmax = LOG_FIELD_MIN_MAX(user, FIELD_ID_INVALID);
     PetscCall(PetscPopErrorHandler());
     PetscCall(PicurvAssertBool((PetscBool)(ierr_minmax != 0),
-                               "LOG_FIELD_MIN_MAX should reject unknown field names"));
+                               "LOG_FIELD_MIN_MAX should reject invalid field IDs"));
 
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
@@ -1126,7 +1126,7 @@ static PetscErrorCode TestFieldAnatomyLogging(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     char captured[8192];
-    AnatomyCaptureCtx anatomy_ctx = {"P", "unit-test"};
+    AnatomyCaptureCtx anatomy_ctx = {FIELD_ID_P, "unit-test"};
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));

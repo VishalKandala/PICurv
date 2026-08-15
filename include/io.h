@@ -330,11 +330,14 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut);
  * @param[in]  field_name        The name of the field to gather.
  * @param[out] n_total_particles (Output on rank 0) Total number of particles in the global swarm.
  * @param[out] n_components      (Output on rank 0) Number of components for the field.
+ * @param[out] field_type_out     PETSc storage type for the field on all ranks.
  * @param[out] gathered_array    (Output on rank 0) A newly allocated array containing the full, gathered data.
  *                               The caller is responsible for freeing this memory and for casting it to the correct type.
  * @return PetscErrorCode
  */
-PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name, PetscInt *n_total_particles, PetscInt *n_components, void **gathered_array);
+PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name,
+                                        PetscInt *n_total_particles, PetscInt *n_components,
+                                        PetscDataType *field_type_out, void **gathered_array);
 
 /**
  * @brief Reads data from a file into a specified field of a PETSc DMSwarm.

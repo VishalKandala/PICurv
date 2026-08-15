@@ -39,6 +39,11 @@ handles periodic Eulerian data by layout:
 - component-staggered fields such as `Ucont`,
 - local-only staggered work fields.
 
+The immutable field catalog records the conceptual layout and ghost-repair
+class for each persistent field. The actual periodic axes still come from the
+runtime DMDA and validated boundary pairs; field identity does not replace or
+override that state. See @ref 56_Field_Identity_and_Layout_Catalog.
+
 Face-center and cell-center coordinate ghosts are wrapped and shifted by the
 validated translation. Higher-depth QUICK stencil preparation is handled
 separately from ordinary local ghost refresh.
@@ -72,4 +77,5 @@ Both are included in the standard `unit` and `check` gates.
 - @subpage 44_Boundary_Conditions_Guide
 - @subpage 07_Case_Reference
 - @subpage 40_Testing_and_Quality_Guide
+- @subpage 56_Field_Identity_and_Layout_Catalog
 */

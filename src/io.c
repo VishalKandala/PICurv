@@ -8,6 +8,7 @@
  */
 
 #include "io.h"
+#include "particle_field_catalog.h"
 
 // =============================================================================
 //          STATIC (PRIVATE) VARIABLES FOR ONE-TIME FILE READ
@@ -38,6 +39,7 @@ static PetscErrorCode CopyOwnedLocalScalarToGlobal(DM dm, Vec local_vec, Vec glo
     PetscScalar ***global_array = NULL;
 
     PetscFunctionBeginUser;
+
     PetscCall(DMDAGetLocalInfo(dm, &info));
     PetscCall(DMDAVecGetArrayRead(dm, local_vec, &local_array));
     PetscCall(DMDAVecGetArray(dm, global_vec, &global_array));
@@ -879,12 +881,18 @@ static PetscErrorCode ReadOptionalField(UserCtx *user, const char *field_name, c
 /**
  * @brief Load an optional swarm restart field when its file is present.
  */
-static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_name, const char *field_label, PetscInt ti, const char *ext)
+static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, ParticleFieldId field_id,
+                                             const char *field_label, PetscInt ti, const char *ext)
 {
   PetscErrorCode ierr;
   PetscBool      fileExists;
+  const ParticleFieldDescriptor *descriptor = NULL;
+  const char *field_name = NULL;
 
   PetscFunctionBeginUser;
+
+  ierr = ParticleFieldGetDescriptor(field_id, &descriptor); CHKERRQ(ierr);
+  field_name = descriptor->canonical_name;
 
   /* Check if the data file for this optional field exists. */
   ierr = CheckDataFile(user,ti, field_name, ext, &fileExists); CHKERRQ(ierr);
@@ -892,7 +900,7 @@ static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, const char *field_na
   if (fileExists) {
     /* File exists, so we MUST be able to read it. */
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "File for %s found, attempting to read...\n", field_label);
-    if(strcasecmp(field_name,"DMSwarm_CellID") == 0 || strcasecmp(field_name,"DMSwarm_pid")== 0 || strcasecmp(field_name,"DMSwarm_location_status")== 0 ) {
+    if (descriptor->data_type == PETSC_INT || descriptor->data_type == PETSC_INT64) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading integer swarm field '%s'.\n", field_name);
         ierr = ReadSwarmIntField(user,field_name,ti,ext);
     }
@@ -1265,8 +1273,8 @@ PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
     ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, eulerian_ext); CHKERRQ(ierr);
     ierr = ReadOptionalField(user, "cs", "Smagorinsky Constant (Cs)", user->CS, ti, eulerian_ext); CHKERRQ(ierr);
 
-    ierr = UpdateLocalGhosts(user, "CS"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Nu_t"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_CS); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_NU_T); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading LES fields.\n");
 
@@ -1292,9 +1300,9 @@ PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
 
     VecCopy(user->K_Omega, user->K_Omega_o);
 
-    ierr = UpdateLocalGhosts(user, "K_Omega"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Nu_t"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "K_Omega_o"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_K_OMEGA); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_NU_T); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_K_OMEGA_O); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading RANS fields.\n");
 
@@ -1342,6 +1350,7 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt
     DM             swarm = user->swarm;
     Vec            temp_vec;
     PetscInt       nlocal, nglobal, bs, i;
+    PetscDataType  field_type;
     const PetscScalar *scalar_array; // Read-only pointer from the temp Vec
     void           *field_array_void;
 
@@ -1354,8 +1363,12 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
     ierr = DMSwarmGetSize(swarm, &nglobal); CHKERRQ(ierr);
     // We get the block size but not the data pointer yet
-    ierr = DMSwarmGetField(swarm, field_name, &bs, NULL, NULL); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, &bs, &field_type, NULL); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, field_name, &bs, NULL, NULL); CHKERRQ(ierr);
+    PetscCheck(field_type == PETSC_INT || field_type == PETSC_INT64,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "Swarm field '%s' must use PETSC_INT or PETSC_INT64 for integer restart input, not %s.",
+               field_name, PetscDataTypes[field_type]);
 
     // Create a temporary Vec with the CORRECT layout to receive the data
     ierr = VecCreate(PETSC_COMM_WORLD, &temp_vec); CHKERRQ(ierr);
@@ -1372,7 +1385,7 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt
     ierr = DMSwarmGetField(swarm, field_name, NULL, NULL, &field_array_void); CHKERRQ(ierr);
     
     // Perform the cast back, using the correct loop size (nlocal * bs)
-    if (strcmp(field_name, "DMSwarm_pid") == 0) {
+    if (field_type == PETSC_INT64) {
         PetscInt64 *int64_array = (PetscInt64 *)field_array_void;
         for (i = 0; i < nlocal * bs; i++) {
             int64_array[i] = (PetscInt64)scalar_array[i];
@@ -1435,7 +1448,7 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 
   /* 1) Read positions (REQUIRED) */
   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading mandatory position field...\n");
-  ierr = ReadSwarmField(user, "position", ti, particle_ext);
+  ierr = ReadSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), ti, particle_ext);
   if (ierr) {
       SETERRQ(PETSC_COMM_WORLD, ierr, "Failed to read MANDATORY 'position' field for step %d. Cannot continue.", ti);
   }
@@ -1443,12 +1456,12 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 
   /* 2) Read all OPTIONAL fields using the helper function. */
   /* The helper will print a warning and continue if a file is not found. */
-  ierr = ReadOptionalSwarmField(user, "velocity",                "Velocity",                   ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "DMSwarm_pid",             "Particle ID",                ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "DMSwarm_CellID",          "Cell ID",                    ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "weight",                  "Particle Weight",            ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "Psi",                     "Scalar Psi",                 ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, "DMSwarm_location_status", "Migration Status",   ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_VELOCITY,        "Velocity",         ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_PID,             "Particle ID",      ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_CELL_ID,         "Cell ID",          ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_WEIGHT,          "Particle Weight",  ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_PSI,             "Scalar Psi",       ti, particle_ext); CHKERRQ(ierr);
+  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_LOCATION_STATUS, "Migration Status", ti, particle_ext); CHKERRQ(ierr);
 
   simCtx->current_io_directory = NULL; // Clear the I/O context after reading
 
@@ -1773,6 +1786,7 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscIn
     DM             swarm = user->swarm;
     Vec            temp_vec;       // Temporary Vec to hold casted data
     PetscInt       nlocal, nglobal,bs,i;
+    PetscDataType  field_type;
     void           *field_array_void;
     PetscScalar    *scalar_array;  // Pointer to the temporary Vec's scalar data
 
@@ -1783,7 +1797,11 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscIn
     // Get the swarm field properties
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
     ierr = DMSwarmGetSize(swarm, &nglobal); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, field_name, &bs, NULL, &field_array_void); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, &bs, &field_type, &field_array_void); CHKERRQ(ierr);
+    PetscCheck(field_type == PETSC_INT || field_type == PETSC_INT64,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "Swarm field '%s' must use PETSC_INT or PETSC_INT64 for integer output, not %s.",
+               field_name, PetscDataTypes[field_type]);
 
     // Create Temporary parallel Vec wit the CORRECT layout
     ierr = VecCreate(PETSC_COMM_WORLD, &temp_vec); CHKERRQ(ierr);
@@ -1792,11 +1810,11 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscIn
     ierr = VecSetUp(temp_vec); CHKERRQ(ierr);
 
     // Defining Vector field to mandatory field 'position'
-    DMSwarmVectorDefineField(swarm,"position");
+    DMSwarmVectorDefineField(swarm,ParticleFieldName(PARTICLE_FIELD_ID_POSITION));
               
     ierr = VecGetArray(temp_vec, &scalar_array); CHKERRQ(ierr);
 
-    if(strcasecmp(field_name,"DMSwarm_pid") == 0){
+    if (field_type == PETSC_INT64) {
         PetscInt64 *int64_array = (PetscInt64 *)field_array_void;
         // Perform the cast from PetscInt64 to PetscScalar
         for (i = 0; i < nlocal*bs; i++) {
@@ -1847,27 +1865,27 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user)
     simCtx->current_io_directory = simCtx->_io_context_buffer;
 
     // Write particle position field
-    ierr = WriteSwarmField(user, "position", simCtx->step, "dat"); CHKERRQ(ierr);
+    ierr = WriteSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), simCtx->step, "dat"); CHKERRQ(ierr);
 
     // Write particle velocity field
-    ierr = WriteSwarmField(user, "velocity", simCtx->step, "dat"); CHKERRQ(ierr);
+    ierr = WriteSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), simCtx->step, "dat"); CHKERRQ(ierr);
 
     // Write particle weight field
-    ierr = WriteSwarmField(user, "weight", simCtx->step, "dat"); CHKERRQ(ierr);
+    ierr = WriteSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), simCtx->step, "dat"); CHKERRQ(ierr);
     
     // Write custom particle field "Psi"
-    ierr = WriteSwarmField(user, "Psi", simCtx->step, "dat"); CHKERRQ(ierr);
+    ierr = WriteSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_PSI), simCtx->step, "dat"); CHKERRQ(ierr);
     
     // Integer fields require special handling
 
     // Write the background mesh cell ID for each particle
-    ierr = WriteSwarmIntField(user, "DMSwarm_CellID", simCtx->step, "dat"); CHKERRQ(ierr);
+    ierr = WriteSwarmIntField(user, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), simCtx->step, "dat"); CHKERRQ(ierr);
 
     // Write the particle location status (e.g., inside or outside the domain)
-    ierr = WriteSwarmIntField(user, "DMSwarm_location_status", simCtx->step, "dat"); CHKERRQ(ierr);
+    ierr = WriteSwarmIntField(user, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), simCtx->step, "dat"); CHKERRQ(ierr);
 
     // Write the unique particle ID
-    ierr = WriteSwarmIntField(user, "DMSwarm_pid", simCtx->step, "dat"); CHKERRQ(ierr);
+    ierr = WriteSwarmIntField(user, ParticleFieldName(PARTICLE_FIELD_ID_PID), simCtx->step, "dat"); CHKERRQ(ierr);
 
     simCtx->current_io_directory = NULL;
 
@@ -1965,15 +1983,24 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
  * @brief Internal helper implementation: `SwarmFieldToArrayOnRank0()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name, PetscInt *n_total_particles, PetscInt *n_components, void **gathered_array)
+PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name,
+                                        PetscInt *n_total_particles, PetscInt *n_components,
+                                        PetscDataType *field_type_out, void **gathered_array)
 {
     PetscErrorCode ierr;
     PetscMPIInt    rank, size;
     PetscInt       nlocal, nglobal, bs;
+    PetscDataType  field_type;
     void           *local_array_void;
     size_t         element_size = 0;
 
     PetscFunctionBeginUser;
+
+    PetscCheck(swarm != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "DMSwarm cannot be NULL.");
+    PetscCheck(field_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Swarm field name cannot be NULL.");
+    PetscCheck(n_total_particles != NULL && n_components != NULL && field_type_out != NULL && gathered_array != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Swarm gather output pointers cannot be NULL.");
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
@@ -1981,17 +2008,20 @@ PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name, PetscI
     // All ranks get swarm properties to determine send/receive counts
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
     ierr = DMSwarmGetSize(swarm, &nglobal); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, field_name, &bs, NULL, &local_array_void); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, field_name, &bs, &field_type, &local_array_void); CHKERRQ(ierr);
     
     // Determine the size of one element of the field's data type
-    if (strcasecmp(field_name, "DMSwarm_pid") == 0) {
-        element_size = sizeof(PetscInt64);
-    } else if (strcasecmp(field_name, "DMSwarm_CellID") == 0 || strcasecmp(field_name, "DMSwarm_location_status") == 0) {
-        element_size = sizeof(PetscInt);
-    } else {
-        element_size = sizeof(PetscScalar);
-    }
+    if (field_type == PETSC_INT64) element_size = sizeof(PetscInt64);
+    else if (field_type == PETSC_INT) element_size = sizeof(PetscInt);
+    else if (field_type == PETSC_REAL) element_size = sizeof(PetscReal);
+#if defined(PETSC_USE_COMPLEX)
+    else if (field_type == PETSC_SCALAR) element_size = sizeof(PetscScalar);
+#endif
+    else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP,
+                 "Swarm field '%s' uses unsupported gathered data type %s.",
+                 field_name, PetscDataTypes[field_type]);
 
+    *field_type_out = field_type;
     if (rank == 0) {
         *n_total_particles = nglobal;
         *n_components = bs;
@@ -2666,7 +2696,7 @@ PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
   ierr = VecSetFromOptions(coordsVec);CHKERRQ(ierr);
 
   // For example: "position" is the name of the coordinate data
-  ierr = ReadFieldData(user, "position", coordsVec, timeIndex, "dat");
+  ierr = ReadFieldData(user, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), coordsVec, timeIndex, "dat");
   if (ierr) {
     LOG_ALLOW(GLOBAL, LOG_ERROR,
               "Error reading position data (ti=%d).\n",

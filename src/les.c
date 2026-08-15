@@ -22,11 +22,11 @@ const double LES_EPSILON = 1.0e-12;
  */
 static PetscErrorCode FinalizeSmagorinskyConstantField(UserCtx *user)
 {
-    const char *fields[] = {"CS"};
+    const FieldId fields[] = {FIELD_ID_CS};
 
     PetscFunctionBeginUser;
     PetscCall(SynchronizePeriodicCellFields(user, 1, fields));
-    PetscCall(UpdateLocalGhosts(user, "CS"));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_CS));
     PetscFunctionReturn(0);
 }
 
@@ -405,9 +405,9 @@ PetscErrorCode ComputeEddyViscosityLES(UserCtx *user)
 	ierr = DMDAVecRestoreArrayRead(da, user->lAj, (PetscReal***)&aj); CHKERRQ(ierr);
 
     // Update ghost points for the newly computed eddy viscosity
-	ierr = UpdateLocalGhosts(user, "Nu_t"); CHKERRQ(ierr);
+	ierr = UpdateLocalGhosts(user, FIELD_ID_NU_T); CHKERRQ(ierr);
 
-    const char *periodic_fields[] = {"Nu_t"};
+    const FieldId periodic_fields[] = {FIELD_ID_NU_T};
     ierr = SynchronizePeriodicCellFields(user, 1, periodic_fields); CHKERRQ(ierr);
 
     PetscReal max_norm;

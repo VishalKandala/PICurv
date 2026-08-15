@@ -54,6 +54,9 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `setup-lifecycle-particle-initialization`
   - `setup-lifecycle-random-generators-and-cleanup`
   - `setup-lifecycle-cleanup-across-initialization-states`
+  - `field-catalog-metadata-and-views`
+  - `particle-field-catalog-metadata`
+  - `field-catalog-typed-ghost-updates`
 - `test_solver_kernels.c`:
   - `les-filter-paths`
   - `analytical-geometry-selection`
@@ -134,10 +137,11 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `outlet-conservation-handler-behavior`
 - `test_periodic_dev.c`:
   - `periodic-geometric-factory-assignment`
-  - `transfer-periodic-face-field-copies-x-faces`
-  - `apply-metrics-periodic-bcs-copies-aj-faces`
-  - `periodic-driven-constant-handler-behavior`
-  - `periodic-driven-constant-rejects-non-periodic-face`
+  - `periodic-face-center-coordinate-synchronization`
+  - `apply-metrics-periodic-bcs-synchronizes-aj`
+  - `synchronize-periodic-cell-fields-copies-mixed-axes`
+  - `synchronize-periodic-face-fields-copies-mixed-axes`
+  - `synchronize-periodic-staggered-fields-copies-mixed-axes`
 - `test_poisson_rhs.c`:
   - `update-pressure-adds-phi`
   - `poisson-rhs-zero-divergence`

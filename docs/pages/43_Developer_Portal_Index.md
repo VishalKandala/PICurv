@@ -16,6 +16,7 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 50_Modular_Selector_Extension_Guide**: selector-by-selector hook points for extending current user-facing options.
 - **@subpage 17_Workflow_Extensibility**: extending orchestration beyond current run/sweep modes.
 - **@subpage 46_C_Runtime_Execution_Map**: startup/timestep execution trace across C modules.
+- **@subpage 56_Field_Identity_and_Layout_Catalog**: typed Eulerian/particle field identities, runtime views, and coupling metadata.
 
 @section p43_methods_sec 2. Numerical Methods and Models
 
@@ -42,7 +43,8 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 4. **@subpage 16_Config_Extension_Playbook**
 5. **@subpage 50_Modular_Selector_Extension_Guide**
 6. **@subpage 46_C_Runtime_Execution_Map**
-7. **@subpage 21_Methods_Overview**
+7. **@subpage 56_Field_Identity_and_Layout_Catalog**
+8. **@subpage 21_Methods_Overview**
 
 @section p43_developer_outcomes_sec 5. Expected Outcomes
 
@@ -74,4 +76,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

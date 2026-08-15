@@ -140,14 +140,14 @@ endif
 # --- 3. Source & Object File Definitions ---
 # Explicitly list the object files required for each final executable.
 SIMULATOR_OBJS := $(addprefix $(OBJDIR)/, \
-                 simulator.o setup.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
+                 simulator.o setup.o field_catalog.o particle_field_catalog.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
                  Boundaries.o BC_Handlers.o wallfunction.o runloop.o walkingsearch.o BodyForces.o\
                  ParticleSwarm.o ParticleMotion.o ParticlePhysics.o interpolation.o \
                  initialcondition.o rhs.o solvers.o momentumsolvers.o momentum_newton_krylov.o poisson.o verification_sources.o\
 				 les.o  Filter.o)
 
 POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
-                     postprocessor.o setup.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
+                     postprocessor.o setup.o field_catalog.o particle_field_catalog.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
                      Boundaries.o BC_Handlers.o wallfunction.o postprocessing_kernels.o vtk_io.o \
 					 ParticleSwarm.o ParticleMotion.o interpolation.o walkingsearch.o \
 					 particle_statistics.o verification_sources.o)

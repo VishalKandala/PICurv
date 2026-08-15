@@ -1572,10 +1572,10 @@ PetscErrorCode BoundarySystem_Destroy(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "TransferPeriodicFieldByDirection"
 /**
- * @brief Internal helper implementation: `TransferPeriodicFieldByDirection()`.
- * @details Local to this translation unit.
+ * @brief Copies one cell field's wrapped local values onto the owned periodic duplicate plane.
+ * @details Handles scalar and three-component storage for one selected logical axis.
  */
-PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field_name, char direction)
+static PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, FieldId field_id, char direction)
 {
     PetscErrorCode ierr;
     DMDALocalInfo  info = user->info;
@@ -1584,33 +1584,22 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
     PetscInt       zs = info.zs, ze = info.zs + info.zm;
     PetscInt       mx = info.mx, my = info.my, mz = info.mz;
 
-    // --- Dispatcher to get DM, Vecs, and DoF for the specified field ---
+    FieldView field_view;
     DM        dm;
     Vec       global_vec;
     Vec       local_vec;
     PetscInt  dof;
-    // (This dispatcher is identical to your TransferPeriodicField function)
-    if (strcmp(field_name, "Ucat") == 0) {
-        dm = user->fda; global_vec = user->Ucat; local_vec = user->lUcat; dof = 3;
-    } else if (strcmp(field_name, "P") == 0) {
-        dm = user->da; global_vec = user->P; local_vec = user->lP; dof = 1;
-    } else if (strcmp(field_name, "Phi") == 0) {
-        dm = user->da; global_vec = user->Phi; local_vec = user->lPhi; dof = 1;
-    } else if (strcmp(field_name, "Nvert") == 0) {
-        dm = user->da; global_vec = user->Nvert; local_vec = user->lNvert; dof = 1;
-    } else if (strcmp(field_name, "Nu_t") == 0 || strcmp(field_name, "Eddy Viscosity") == 0) {
-        dm = user->da; global_vec = user->Nu_t; local_vec = user->lNu_t; dof = 1;
-    } else if (strcmp(field_name, "CS") == 0 || strcmp(field_name, "Cs") == 0) {
-        dm = user->da; global_vec = user->CS; local_vec = user->lCs; dof = 1;
-    } else if (strcmp(field_name, "Diffusivity") == 0) {
-        dm = user->da; global_vec = user->Diffusivity; local_vec = user->lDiffusivity; dof = 1;
-    } else if (strcmp(field_name, "Aj") == 0) {
-        dm = user->da; global_vec = user->Aj; local_vec = user->lAj; dof = 1;
-    } else {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s'", field_name);
-    }
 
     PetscFunctionBeginUser;
+    PetscCall(FieldGetView(user, field_id, &field_view));
+    PetscCheck((field_view.descriptor->capabilities & FIELD_CAPABILITY_PERIODIC_CELL_SYNC) != 0u,
+               PETSC_COMM_SELF, PETSC_ERR_SUP,
+               "Field '%s' is not registered for periodic cell synchronization.",
+               field_view.descriptor->canonical_name);
+    dm = field_view.dm;
+    global_vec = field_view.global_vec;
+    local_vec = field_view.local_vec;
+    dof = field_view.descriptor->dof;
 
     // --- Execute the copy logic based on DoF and Direction ---
     if (dof == 1) { // --- Handle SCALAR fields (PetscReal) ---
@@ -1670,7 +1659,7 @@ PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, const char *field
  * @details Full API contract is documented with the header declaration in
  *          `include/Boundaries.h`.
  */
-PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields, const char *field_names[])
+PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields, const FieldId field_ids[])
 {
     PetscErrorCode ierr;
     PetscBool      periodic_i;
@@ -1679,7 +1668,11 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
 
     PetscFunctionBeginUser;
 
+    PetscCheck(num_fields >= 0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+               "Number of cell fields cannot be negative.");
     if (num_fields == 0) PetscFunctionReturn(0);
+    PetscCheck(field_ids != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Cell field-ID array cannot be NULL.");
 
     periodic_i =
         user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC ||
@@ -1694,33 +1687,33 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
     if (!periodic_i && !periodic_j && !periodic_k) PetscFunctionReturn(0);
 
     for (PetscInt field = 0; field < num_fields; field++) {
-        ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
     }
 
     if (periodic_i) {
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = TransferPeriodicFieldByDirection(user, field_names[field], 'i'); CHKERRQ(ierr);
+            ierr = TransferPeriodicFieldByDirection(user, field_ids[field], 'i'); CHKERRQ(ierr);
         }
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+            ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
         }
     }
 
     if (periodic_j) {
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = TransferPeriodicFieldByDirection(user, field_names[field], 'j'); CHKERRQ(ierr);
+            ierr = TransferPeriodicFieldByDirection(user, field_ids[field], 'j'); CHKERRQ(ierr);
         }
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+            ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
         }
     }
 
     if (periodic_k) {
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = TransferPeriodicFieldByDirection(user, field_names[field], 'k'); CHKERRQ(ierr);
+            ierr = TransferPeriodicFieldByDirection(user, field_ids[field], 'k'); CHKERRQ(ierr);
         }
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+            ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
         }
     }
 
@@ -1732,58 +1725,48 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
 /**
  * @brief Resolves one registered persistent single-face-family field.
  */
-static PetscErrorCode GetPersistentFaceField(UserCtx *user, const char *field_name,
+static PetscErrorCode GetPersistentFaceField(UserCtx *user, FieldId field_id,
                                              char face_direction, DM *dm,
                                              Vec *global_vec, Vec *local_vec,
                                              PetscInt *dof)
 {
+    FieldView   field_view;
+    FieldLayout expected_layout;
+
     PetscFunctionBeginUser;
     PetscCheck(face_direction == 'i' || face_direction == 'j' || face_direction == 'k',
                PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                "Invalid face direction '%c'; expected 'i', 'j', or 'k'.", face_direction);
 
-    *dm = NULL;
-    *global_vec = NULL;
-    *local_vec = NULL;
-    *dof = 0;
+    expected_layout = face_direction == 'i' ? FIELD_LAYOUT_I_FACE :
+                      (face_direction == 'j' ? FIELD_LAYOUT_J_FACE : FIELD_LAYOUT_K_FACE);
+    PetscCall(FieldGetView(user, field_id, &field_view));
+    PetscCheck((field_view.descriptor->capabilities & FIELD_CAPABILITY_PERIODIC_FACE_SYNC) != 0u &&
+               field_view.descriptor->layout == expected_layout,
+               PETSC_COMM_SELF, PETSC_ERR_SUP,
+               "Field '%s' is not registered for %c-face periodic synchronization.",
+               field_view.descriptor->canonical_name, face_direction);
 
-    if (face_direction == 'i') {
-        if      (strcmp(field_name, "Centx") == 0) { *dm = user->fda; *global_vec = user->Centx; *local_vec = user->lCentx; *dof = 3; }
-        else if (strcmp(field_name, "Csi")  == 0) { *dm = user->fda; *global_vec = user->Csi;  *local_vec = user->lCsi;  *dof = 3; }
-        else if (strcmp(field_name, "ICsi") == 0) { *dm = user->fda; *global_vec = user->ICsi; *local_vec = user->lICsi; *dof = 3; }
-        else if (strcmp(field_name, "IEta") == 0) { *dm = user->fda; *global_vec = user->IEta; *local_vec = user->lIEta; *dof = 3; }
-        else if (strcmp(field_name, "IZet") == 0) { *dm = user->fda; *global_vec = user->IZet; *local_vec = user->lIZet; *dof = 3; }
-        else if (strcmp(field_name, "IAj")  == 0) { *dm = user->da;  *global_vec = user->IAj;  *local_vec = user->lIAj;  *dof = 1; }
-    } else if (face_direction == 'j') {
-        if      (strcmp(field_name, "Centy") == 0) { *dm = user->fda; *global_vec = user->Centy; *local_vec = user->lCenty; *dof = 3; }
-        else if (strcmp(field_name, "Eta")  == 0) { *dm = user->fda; *global_vec = user->Eta;  *local_vec = user->lEta;  *dof = 3; }
-        else if (strcmp(field_name, "JCsi") == 0) { *dm = user->fda; *global_vec = user->JCsi; *local_vec = user->lJCsi; *dof = 3; }
-        else if (strcmp(field_name, "JEta") == 0) { *dm = user->fda; *global_vec = user->JEta; *local_vec = user->lJEta; *dof = 3; }
-        else if (strcmp(field_name, "JZet") == 0) { *dm = user->fda; *global_vec = user->JZet; *local_vec = user->lJZet; *dof = 3; }
-        else if (strcmp(field_name, "JAj")  == 0) { *dm = user->da;  *global_vec = user->JAj;  *local_vec = user->lJAj;  *dof = 1; }
-    } else {
-        if      (strcmp(field_name, "Centz") == 0) { *dm = user->fda; *global_vec = user->Centz; *local_vec = user->lCentz; *dof = 3; }
-        else if (strcmp(field_name, "Zet")  == 0) { *dm = user->fda; *global_vec = user->Zet;  *local_vec = user->lZet;  *dof = 3; }
-        else if (strcmp(field_name, "KCsi") == 0) { *dm = user->fda; *global_vec = user->KCsi; *local_vec = user->lKCsi; *dof = 3; }
-        else if (strcmp(field_name, "KEta") == 0) { *dm = user->fda; *global_vec = user->KEta; *local_vec = user->lKEta; *dof = 3; }
-        else if (strcmp(field_name, "KZet") == 0) { *dm = user->fda; *global_vec = user->KZet; *local_vec = user->lKZet; *dof = 3; }
-        else if (strcmp(field_name, "KAj")  == 0) { *dm = user->da;  *global_vec = user->KAj;  *local_vec = user->lKAj;  *dof = 1; }
-    }
-
-    PetscCheck(*dm && *global_vec && *local_vec, PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
-               "Field '%s' is not a registered %c-face persistent field.",
-               field_name, face_direction);
+    *dm = field_view.dm;
+    *global_vec = field_view.global_vec;
+    *local_vec = field_view.local_vec;
+    *dof = field_view.descriptor->dof;
     PetscFunctionReturn(0);
 }
 
 /**
  * @brief Returns whether a registered face field stores physical coordinates.
  */
-static PetscBool IsFaceCenterCoordinateField(const char *field_name)
+static PetscErrorCode IsFaceCenterCoordinateField(FieldId field_id, PetscBool *is_coordinate)
 {
-    return (PetscBool)(strcmp(field_name, "Centx") == 0 ||
-                       strcmp(field_name, "Centy") == 0 ||
-                       strcmp(field_name, "Centz") == 0);
+    const FieldDescriptor *descriptor = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(is_coordinate != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Face-coordinate result cannot be NULL.");
+    PetscCall(FieldGetDescriptor(field_id, &descriptor));
+    *is_coordinate = (PetscBool)((descriptor->capabilities & FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT) != 0u);
+    PetscFunctionReturn(0);
 }
 
 /**
@@ -1835,10 +1818,9 @@ static PetscErrorCode TranslatePeriodicFaceCenterGhosts(UserCtx *user, Vec local
 
 #undef __FUNCT__
 #define __FUNCT__ "TransferPeriodicFaceFieldByDirection"
-// Implements TransferPeriodicFaceFieldByDirection(); the public header owns
-// the rendered API contract.
-PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *field_name,
-                                                    char face_direction, char periodic_direction)
+/** @brief Transfers one registered face-family field along one periodic axis. */
+static PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, FieldId field_id,
+                                                           char face_direction, char periodic_direction)
 {
     PetscErrorCode ierr;
     DMDALocalInfo info = user->info;
@@ -1854,7 +1836,7 @@ PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *f
     PetscCheck(periodic_direction == 'i' || periodic_direction == 'j' || periodic_direction == 'k',
                PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                "Invalid periodic direction '%c'; expected 'i', 'j', or 'k'.", periodic_direction);
-    PetscCall(GetPersistentFaceField(user, field_name, face_direction, &dm, &global_vec, &local_vec, &dof));
+    PetscCall(GetPersistentFaceField(user, field_id, face_direction, &dm, &global_vec, &local_vec, &dof));
 
     if (dof == 1) {
         PetscReal ***global_array, ***local_array;
@@ -1912,7 +1894,7 @@ PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, const char *f
 // Implements SynchronizePeriodicFaceFields(); the public header owns the
 // rendered API contract.
 PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
-                                             PetscInt num_fields, const char *field_names[])
+                                             PetscInt num_fields, const FieldId field_ids[])
 {
     PetscErrorCode ierr;
     const char periodic_directions[3] = {'i', 'j', 'k'};
@@ -1923,17 +1905,19 @@ PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
     PetscCheck(num_fields >= 0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Number of face fields cannot be negative.");
     if (num_fields == 0) PetscFunctionReturn(0);
-    PetscCheck(field_names != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "Face field-name array cannot be NULL.");
+    PetscCheck(field_ids != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Face field-ID array cannot be NULL.");
 
     for (PetscInt field = 0; field < num_fields; field++) {
         DM dm;
         Vec global_vec, local_vec;
         PetscInt dof;
-        PetscCall(GetPersistentFaceField(user, field_names[field], face_direction,
+        PetscBool is_coordinate;
+        PetscCall(GetPersistentFaceField(user, field_ids[field], face_direction,
                                          &dm, &global_vec, &local_vec, &dof));
-        ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
-        if (IsFaceCenterCoordinateField(field_names[field])) {
+        ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
+        ierr = IsFaceCenterCoordinateField(field_ids[field], &is_coordinate); CHKERRQ(ierr);
+        if (is_coordinate) {
             ierr = TranslatePeriodicFaceCenterGhosts(user, local_vec); CHKERRQ(ierr);
         }
     }
@@ -1945,16 +1929,18 @@ PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
         if (!active) continue;
 
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = TransferPeriodicFaceFieldByDirection(user, field_names[field], face_direction,
+            ierr = TransferPeriodicFaceFieldByDirection(user, field_ids[field], face_direction,
                                                         periodic_directions[direction]); CHKERRQ(ierr);
         }
         for (PetscInt field = 0; field < num_fields; field++) {
             DM dm;
             Vec global_vec, local_vec;
             PetscInt dof;
-            ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
-            if (IsFaceCenterCoordinateField(field_names[field])) {
-                PetscCall(GetPersistentFaceField(user, field_names[field], face_direction,
+            PetscBool is_coordinate;
+            ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
+            ierr = IsFaceCenterCoordinateField(field_ids[field], &is_coordinate); CHKERRQ(ierr);
+            if (is_coordinate) {
+                PetscCall(GetPersistentFaceField(user, field_ids[field], face_direction,
                                                  &dm, &global_vec, &local_vec, &dof));
                 ierr = TranslatePeriodicFaceCenterGhosts(user, local_vec); CHKERRQ(ierr);
             }
@@ -1969,33 +1955,31 @@ PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
 /**
  * @brief Resolves one registered persistent component-staggered field.
  */
-static PetscErrorCode GetPersistentStaggeredField(UserCtx *user, const char *field_name,
+static PetscErrorCode GetPersistentStaggeredField(UserCtx *user, FieldId field_id,
                                                   DM *dm, Vec *global_vec, Vec *local_vec)
 {
+    FieldView field_view;
+
     PetscFunctionBeginUser;
-    *dm = NULL;
-    *global_vec = NULL;
-    *local_vec = NULL;
-
-    if (strcmp(field_name, "Ucont") == 0) {
-        *dm = user->fda;
-        *global_vec = user->Ucont;
-        *local_vec = user->lUcont;
-    }
-
-    PetscCheck(*dm && *global_vec && *local_vec, PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
-               "Field '%s' is not a registered persistent component-staggered field.",
-               field_name);
+    PetscCall(FieldGetView(user, field_id, &field_view));
+    PetscCheck((field_view.descriptor->capabilities & FIELD_CAPABILITY_PERIODIC_STAGGERED_SYNC) != 0u &&
+               field_view.descriptor->layout == FIELD_LAYOUT_COMPONENT_STAGGERED,
+               PETSC_COMM_SELF, PETSC_ERR_SUP,
+               "Field '%s' is not registered for component-staggered periodic synchronization.",
+               field_view.descriptor->canonical_name);
+    *dm = field_view.dm;
+    *global_vec = field_view.global_vec;
+    *local_vec = field_view.local_vec;
     PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
 #define __FUNCT__ "TransferPeriodicStaggeredFieldByDirection"
 /**
- * @brief Implementation of \ref TransferPeriodicStaggeredFieldByDirection().
+ * @brief Transfers one component-staggered field along one periodic axis.
  */
-PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, const char *field_name,
-                                                         char periodic_direction)
+static PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, FieldId field_id,
+                                                                char periodic_direction)
 {
     PetscErrorCode ierr;
     DMDALocalInfo info = user->info;
@@ -2011,7 +1995,7 @@ PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, const ch
     PetscCheck(periodic_direction == 'i' || periodic_direction == 'j' || periodic_direction == 'k',
                PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                "Invalid periodic direction '%c'; expected 'i', 'j', or 'k'.", periodic_direction);
-    PetscCall(GetPersistentStaggeredField(user, field_name, &dm, &global_vec, &local_vec));
+    PetscCall(GetPersistentStaggeredField(user, field_id, &dm, &global_vec, &local_vec));
 
     ierr = DMDAVecGetArray(dm, global_vec, &global_array); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(dm, local_vec, &local_array); CHKERRQ(ierr);
@@ -2044,7 +2028,7 @@ PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, const ch
  * @brief Implementation of \ref SynchronizePeriodicStaggeredFields().
  */
 PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fields,
-                                                  const char *field_names[])
+                                                  const FieldId field_ids[])
 {
     PetscErrorCode ierr;
     const char periodic_directions[3] = {'i', 'j', 'k'};
@@ -2055,14 +2039,14 @@ PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fi
     PetscCheck(num_fields >= 0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Number of staggered fields cannot be negative.");
     if (num_fields == 0) PetscFunctionReturn(0);
-    PetscCheck(field_names != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "Staggered field-name array cannot be NULL.");
+    PetscCheck(field_ids != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Staggered field-ID array cannot be NULL.");
 
     for (PetscInt field = 0; field < num_fields; field++) {
         DM dm;
         Vec global_vec, local_vec;
-        PetscCall(GetPersistentStaggeredField(user, field_names[field], &dm, &global_vec, &local_vec));
-        ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+        PetscCall(GetPersistentStaggeredField(user, field_ids[field], &dm, &global_vec, &local_vec));
+        ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
     }
 
     for (PetscInt direction = 0; direction < 3; direction++) {
@@ -2072,11 +2056,11 @@ PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fi
         if (!active) continue;
 
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = TransferPeriodicStaggeredFieldByDirection(user, field_names[field],
+            ierr = TransferPeriodicStaggeredFieldByDirection(user, field_ids[field],
                                                              periodic_directions[direction]); CHKERRQ(ierr);
         }
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = UpdateLocalGhosts(user, field_names[field]); CHKERRQ(ierr);
+            ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
         }
     }
 
@@ -2189,246 +2173,6 @@ PetscErrorCode SynchronizePeriodicLocalStaggeredField(UserCtx *user, Vec local_f
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "TransferPeriodicField"
-/**
- * @brief Internal helper implementation: `TransferPeriodicField()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode TransferPeriodicField(UserCtx *user, const char *field_name)
-{
-    PetscErrorCode ierr;
-    DMDALocalInfo  info = user->info;
-    PetscInt       xs = info.xs, xe = info.xs + info.xm;
-    PetscInt       ys = info.ys, ye = info.ys + info.ym;
-    PetscInt       zs = info.zs, ze = info.zs + info.zm;
-    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
-
-    // --- Local variables to hold the specific details of the chosen field ---
-    DM        dm;
-    Vec       global_vec;
-    Vec       local_vec;
-    PetscInt  dof;
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    // --- STEP 1: Dispatcher - Set the specific DM, Vecs, and dof based on field_name ---
-    // Compatibility implementation retained for legacy callers. New periodic
-    // cell fields should be added to the directional dispatcher used by
-    // SynchronizePeriodicCellFields().
-    if (strcmp(field_name, "Ucat") == 0) {
-        dm         = user->fda;
-        global_vec = user->Ucat;
-        local_vec  = user->lUcat;
-        dof        = 3;
-    } else if (strcmp(field_name, "P") == 0) {
-        dm         = user->da;
-        global_vec = user->P;
-        local_vec  = user->lP;
-        dof        = 1;
-    } else if (strcmp(field_name, "Nvert") == 0) {
-        dm         = user->da;
-        global_vec = user->Nvert;
-        local_vec  = user->lNvert;
-        dof        = 1;
-    } else if (strcmp(field_name, "Eddy Viscosity") == 0) {
-        dm         = user->da;
-        global_vec = user->Nu_t;
-        local_vec  = user->lNu_t;
-        dof        = 1;
-    }
-    /*
-    // Example for future extension:
-    else if (strcmp(field_name, "Temperature") == 0) {
-        dm         = user->da; // Assuming Temperature is scalar
-        global_vec = user->T;
-        local_vec  = user->lT;
-        dof        = 1;
-    }
-    */
-    else {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s' in TransferPeriodicFieldByName.", field_name);
-    }
-
-    LOG_ALLOW(GLOBAL,LOG_TRACE,"Periodic Transform being performed for field: %s with %d DoF.\n",field_name,dof);
-    // --- STEP 2: Execute the copy logic using the dispatched variables ---
-    if (dof == 1) { // --- Handle SCALAR fields (PetscReal) ---
-        PetscReal ***g_array, ***l_array;
-        ierr = DMDAVecGetArray(dm, global_vec, &g_array); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(dm, local_vec, &l_array); CHKERRQ(ierr);
-
-        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xs] = l_array[k][j][xs-2];
-        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xe-1] = l_array[k][j][xe+1];
-        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ys][i] = l_array[k][ys-2][i];
-        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ye-1][i] = l_array[k][ye+1][i];
-        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[zs][j][i] = l_array[zs-2][j][i];
-        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[ze-1][j][i] = l_array[ze+1][j][i];
-        
-        ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(dm, local_vec, &l_array); CHKERRQ(ierr);
-
-    } else if (dof == 3) { // --- Handle VECTOR fields (Cmpnts) ---
-        Cmpnts ***g_array, ***l_array;
-        ierr = DMDAVecGetArray(dm, global_vec, &g_array); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(dm, local_vec, &l_array); CHKERRQ(ierr);
-
-        LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Array %s read successfully (Global and Local).\n",field_name);
-
-        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xs] = l_array[k][j][xs-2];
-        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) for (PetscInt k=zs; k<ze; k++) for (PetscInt j=ys; j<ye; j++) g_array[k][j][xe-1] = l_array[k][j][xe+1];
-        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ys][i] = l_array[k][ys-2][i];
-        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) for (PetscInt k=zs; k<ze; k++) for (PetscInt i=xs; i<xe; i++) g_array[k][ye-1][i] = l_array[k][ye+1][i];
-        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[zs][j][i] = l_array[zs-2][j][i];
-        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) for (PetscInt j=ys; j<ye; j++) for (PetscInt i=xs; i<xe; i++) g_array[ze-1][j][i] = l_array[ze+1][j][i];
-        
-        ierr = DMDAVecRestoreArray(dm, global_vec, &g_array); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(dm, local_vec, &l_array); CHKERRQ(ierr);
-    }
-    else{
-         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "This function only accepts Fields with 1 or 3 DoF.");
-    }
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
-#define __FUNCT__ "TransferPeriodicFaceField"
-/**
- * @brief Internal helper implementation: `TransferPeriodicFaceField()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode TransferPeriodicFaceField(UserCtx *user, const char *field_name)
-{
-    PetscErrorCode ierr;
-    DMDALocalInfo  info = user->info;
-    PetscInt       gxs = info.gxs, gxe = info.gxs + info.gxm;
-    PetscInt       gys = info.gys, gye = info.gys + info.gym;
-    PetscInt       gzs = info.gzs, gze = info.gzs + info.gzm;
-    PetscInt       mx = info.mx, my = info.my, mz = info.mz;
-
-    // --- Dispatcher to get the correct DM, Vec, and DoF for the specified field ---
-    // Field-extension note: add one case here when a new field needs periodic
-    // ghost-face transfer (typically for stencil-heavy operators).
-    DM          dm;
-    Vec         local_vec;
-    PetscInt    dof;
-    // (This dispatcher contains all 17 potential fields)
-    if      (strcmp(field_name, "Ucont") == 0) { dm = user->fda; local_vec = user->lUcont; dof = 3; }
-    else if (strcmp(field_name, "Csi")   == 0) { dm = user->fda; local_vec = user->lCsi;   dof = 3; }
-    else if (strcmp(field_name, "Eta")   == 0) { dm = user->fda; local_vec = user->lEta;   dof = 3; }
-    else if (strcmp(field_name, "Zet")   == 0) { dm = user->fda; local_vec = user->lZet;   dof = 3; }
-    else if (strcmp(field_name, "ICsi")   == 0) { dm = user->fda; local_vec = user->lICsi;   dof = 3; }
-    else if (strcmp(field_name, "IEta")   == 0) { dm = user->fda; local_vec = user->lIEta;   dof = 3; }
-    else if (strcmp(field_name, "IZet")   == 0) { dm = user->fda; local_vec = user->lIZet;   dof = 3; }
-    else if (strcmp(field_name, "JCsi")   == 0) { dm = user->fda; local_vec = user->lJCsi;   dof = 3; }
-    else if (strcmp(field_name, "JEta")   == 0) { dm = user->fda; local_vec = user->lJEta;   dof = 3; }
-    else if (strcmp(field_name, "JZet")   == 0) { dm = user->fda; local_vec = user->lJZet;   dof = 3; }
-    else if (strcmp(field_name, "KCsi")   == 0) { dm = user->fda; local_vec = user->lKCsi;   dof = 3; }
-    else if (strcmp(field_name, "KEta")   == 0) { dm = user->fda; local_vec = user->lKEta;   dof = 3; }
-    else if (strcmp(field_name, "KZet")   == 0) { dm = user->fda; local_vec = user->lKZet;   dof = 3; }
-    else if (strcmp(field_name, "Aj")     == 0) { dm = user->da;  local_vec = user->lAj;   dof = 1; }
-    else if (strcmp(field_name, "IAj")   == 0) { dm = user->da;  local_vec = user->lIAj;   dof = 1; }
-    else if (strcmp(field_name, "JAj")   == 0) { dm = user->da;  local_vec = user->lJAj;   dof = 1; }
-    else if (strcmp(field_name, "KAj")   == 0) { dm = user->da;  local_vec = user->lKAj;   dof = 1; }
-    else {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown field name '%s' in TransferPeriodicFaceField.", field_name);
-    }
-
-    PetscFunctionBeginUser;
-
-    void *l_array_ptr;
-    ierr = DMDAVecGetArray(dm, local_vec, &l_array_ptr); CHKERRQ(ierr);
-
-    // --- I-DIRECTION ---
-    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC) {
-        for (PetscInt k=gzs; k<gze; k++) for (PetscInt j=gys; j<gye; j++) {
-            if (dof == 1) {
-                PetscReal ***arr = (PetscReal***)l_array_ptr;
-                arr[k][j][0]   = arr[k][j][mx-2];
-                arr[k][j][-1]  = arr[k][j][mx-3];
-            } else {
-                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
-                arr[k][j][0]   = arr[k][j][mx-2];
-                arr[k][j][-1]  = arr[k][j][mx-3];
-            }
-        }
-    }
-    if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
-        for (PetscInt k=gzs; k<gze; k++) for (PetscInt j=gys; j<gye; j++) {
-             if (dof == 1) {
-                PetscReal ***arr = (PetscReal***)l_array_ptr;
-                arr[k][j][mx-1] = arr[k][j][1];
-                arr[k][j][mx]   = arr[k][j][2];
-            } else {
-                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
-                arr[k][j][mx-1] = arr[k][j][1];
-                arr[k][j][mx]   = arr[k][j][2];
-            }
-        }
-    }
-
-    // --- J-DIRECTION ---
-    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC) {
-        for (PetscInt k=gzs; k<gze; k++) for (PetscInt i=gxs; i<gxe; i++) {
-             if (dof == 1) {
-                PetscReal ***arr = (PetscReal***)l_array_ptr;
-                arr[k][0][i]   = arr[k][my-2][i];
-                arr[k][-1][i]  = arr[k][my-3][i];
-            } else {
-                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
-                arr[k][0][i]   = arr[k][my-2][i];
-                arr[k][-1][i]  = arr[k][my-3][i];
-            }
-        }
-    }
-    if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
-        for (PetscInt k=gzs; k<gze; k++) for (PetscInt i=gxs; i<gxe; i++) {
-             if (dof == 1) {
-                PetscReal ***arr = (PetscReal***)l_array_ptr;
-                arr[k][my-1][i] = arr[k][1][i];
-                arr[k][my][i]   = arr[k][2][i];
-            } else {
-                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
-                arr[k][my-1][i] = arr[k][1][i];
-                arr[k][my][i]   = arr[k][2][i];
-            }
-        }
-    }
-
-    // --- K-DIRECTION ---
-    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC) {
-        for (PetscInt j=gys; j<gye; j++) for (PetscInt i=gxs; i<gxe; i++) {
-             if (dof == 1) {
-                PetscReal ***arr = (PetscReal***)l_array_ptr;
-                arr[0][j][i]   = arr[mz-2][j][i];
-                arr[-1][j][i]  = arr[mz-3][j][i];
-            } else {
-                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
-                arr[0][j][i]   = arr[mz-2][j][i];
-                arr[-1][j][i]  = arr[mz-3][j][i];
-            }
-        }
-    }
-    if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
-        for (PetscInt j=gys; j<gye; j++) for (PetscInt i=gxs; i<gxe; i++) {
-             if (dof == 1) {
-                PetscReal ***arr = (PetscReal***)l_array_ptr;
-                arr[mz-1][j][i] = arr[1][j][i];
-                arr[mz][j][i]   = arr[2][j][i];
-            } else {
-                Cmpnts ***arr = (Cmpnts***)l_array_ptr;
-                arr[mz-1][j][i] = arr[1][j][i];
-                arr[mz][j][i]   = arr[2][j][i];
-            }
-        }
-    }
-
-    ierr = DMDAVecRestoreArray(dm, local_vec, &l_array_ptr); CHKERRQ(ierr);
-    PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
 #define __FUNCT__ "ApplyMetricsPeriodicBCs"
 /**
  * @brief Internal helper implementation: `ApplyMetricsPeriodicBCs()`.
@@ -2440,10 +2184,13 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    const char *cell_fields[] = {"Aj"};
-    const char *i_face_fields[] = {"Centx", "Csi", "ICsi", "IEta", "IZet", "IAj"};
-    const char *j_face_fields[] = {"Centy", "Eta", "JCsi", "JEta", "JZet", "JAj"};
-    const char *k_face_fields[] = {"Centz", "Zet", "KCsi", "KEta", "KZet", "KAj"};
+    const FieldId cell_fields[] = {FIELD_ID_AJ};
+    const FieldId i_face_fields[] = {FIELD_ID_CENTX, FIELD_ID_CSI, FIELD_ID_ICSI,
+                                     FIELD_ID_IETA, FIELD_ID_IZET, FIELD_ID_IAJ};
+    const FieldId j_face_fields[] = {FIELD_ID_CENTY, FIELD_ID_ETA, FIELD_ID_JCSI,
+                                     FIELD_ID_JETA, FIELD_ID_JZET, FIELD_ID_JAJ};
+    const FieldId k_face_fields[] = {FIELD_ID_CENTZ, FIELD_ID_ZET, FIELD_ID_KCSI,
+                                     FIELD_ID_KETA, FIELD_ID_KZET, FIELD_ID_KAJ};
 
     ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
     ierr = SynchronizePeriodicFaceFields(user, 'i', 6, i_face_fields); CHKERRQ(ierr);
@@ -2485,14 +2232,14 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
     LOG_ALLOW(GLOBAL, LOG_TRACE, "Applying periodic boundary conditions for all fields.\n");
 
     // STEP 1: Synchronize periodic cell-centered fields in deterministic direction order.
-    const char *cell_fields[] = {"Ucat", "P", "Nvert"};
+    const FieldId cell_fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_NVERT};
     ierr = SynchronizePeriodicCellFields(user, 3, cell_fields); CHKERRQ(ierr);
 
-    /* if (user->solve_temperature) { ierr = UpdateLocalGhosts(user, "Temperature"); CHKERRQ(ierr); } */
+    /* A future temperature field must be catalogued before requesting its typed ghost update. */
 
     // STEP 2: Synchronize persistent staggered endpoints and repair local
     // component-normal ghosts through UpdateLocalGhosts().
-    const char *staggered_fields[] = {"Ucont"};
+    const FieldId staggered_fields[] = {FIELD_ID_UCONT};
     ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
 
     // FUTURE EXTENSION: Add new cell fields through SynchronizePeriodicCellFields().
@@ -2739,49 +2486,6 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user)
 
     ierr = DMDAVecRestoreArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(da, user->P, &p); CHKERRQ(ierr);
-
-    PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
-#define __FUNCT__ "UpdatePeriodicCornerNodes"
-/**
- * @brief Internal helper implementation: `UpdatePeriodicCornerNodes()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode UpdatePeriodicCornerNodes(UserCtx *user, PetscInt num_fields, const char* field_names[])
-{
-    PetscErrorCode ierr;
-    PetscFunctionBeginUser;
-
-    if (num_fields == 0) PetscFunctionReturn(0);
-
-    // --- I-DIRECTION ---
-    for (PetscInt i = 0; i < num_fields; i++) {
-        ierr = TransferPeriodicFieldByDirection(user, field_names[i], 'i'); CHKERRQ(ierr);
-    }
-    // --- SYNC ---
-    for (PetscInt i = 0; i < num_fields; i++) {
-        ierr = UpdateLocalGhosts(user, field_names[i]); CHKERRQ(ierr);
-    }
-
-    // --- J-DIRECTION ---
-    for (PetscInt i = 0; i < num_fields; i++) {
-        ierr = TransferPeriodicFieldByDirection(user, field_names[i], 'j'); CHKERRQ(ierr);
-    }
-    // --- SYNC ---
-    for (PetscInt i = 0; i < num_fields; i++) {
-        ierr = UpdateLocalGhosts(user, field_names[i]); CHKERRQ(ierr);
-    }
-
-    // --- K-DIRECTION ---
-    for (PetscInt i = 0; i < num_fields; i++) {
-        ierr = TransferPeriodicFieldByDirection(user, field_names[i], 'k'); CHKERRQ(ierr);
-    }
-    // --- FINAL SYNC ---
-    for (PetscInt i = 0; i < num_fields; i++) {
-        ierr = UpdateLocalGhosts(user, field_names[i]); CHKERRQ(ierr);
-    }
 
     PetscFunctionReturn(0);
 }
@@ -3255,7 +2959,7 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
 PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
 {
     PetscErrorCode ierr;
-    const char    *cell_fields[] = {"Ucat", "P"};
+    const FieldId cell_fields[] = {FIELD_ID_UCAT, FIELD_ID_P};
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -3263,7 +2967,7 @@ PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finalizing post-projection cell-centered fields.\n");
 
     // Ensure flow-dependent Ubcs handlers see the newly reconstructed Ucat.
-    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
     ierr = BoundarySystem_RefreshUbcs(user); CHKERRQ(ierr);
 
     // Establish flat non-periodic faces and periodic endpoints before corners.
@@ -3276,8 +2980,8 @@ PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
 
     // Synchronize explicitly because the periodic helper is a no-op when every
     // direction is non-periodic.
-    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Post-projection cell-centered fields finalized.\n");
     PROFILE_FUNCTION_END;
@@ -3295,7 +2999,7 @@ PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
 PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 {
     PetscErrorCode ierr;
-    const char *staggered_fields[] = {"Ucont"};
+    const FieldId staggered_fields[] = {FIELD_ID_UCONT};
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
@@ -3321,7 +3025,7 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 
         // (d) Synchronize the updated Cartesian velocities across all processors
         //     to ensure all ucat values are current before updating the dummy cells.
-        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
 
         // (e) If Wall functions are enabled, apply them now to adjust near-wall velocities.
         if(user->simCtx->wallfunction){
@@ -3329,7 +3033,7 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
           ierr = ApplyWallFunction(user); CHKERRQ(ierr);
 
           // Synchronize the updated Cartesian velocities after wall function adjustments.
-          ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+          ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
 
           LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Wall Function Applied at Walls.\n");
         }
@@ -3352,13 +3056,13 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
         
         // (i) Synchronize the updated edge and corner cells across all processors to ensure
         //     consistency before the next iteration or finalization.
-        ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
         ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
 
         // (j) Ensure All the corners are synchronized with  a well defined protocol  in case of Periodic boundary conditions
         // To avoid race conditions.
-        const char* all_fields[] = {"Ucat", "P", "Nvert"};
+        const FieldId all_fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_NVERT};
         ierr = SynchronizePeriodicCellFields(user, 3, all_fields); CHKERRQ(ierr);
 
     }
@@ -3366,8 +3070,8 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
     // STEP 3: Final ghost node synchronization. This ensures all changes made
     // to the global vectors are reflected in the local ghost regions of all
     // processors, making the state fully consistent before the next solver stage.
-    ierr = UpdateLocalGhosts(user, "P"); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
     ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;

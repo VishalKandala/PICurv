@@ -354,16 +354,16 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
         ierr = DMDAVecRestoreArrayRead(user->fda, user->lCentz, &cent_z); CHKERRQ(ierr);
 
         // Pre-Dummy cell update synchronization.
-        ierr = UpdateLocalGhosts(user,"Ucat");
-        ierr = UpdateLocalGhosts(user,"P");
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_P);
 
         // --- Finalize all ghost cell values ---
         ierr = UpdateDummyCells(user); CHKERRQ(ierr);
         ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
 
         // Final Synchronization.
-        ierr = UpdateLocalGhosts(user,"Ucat");
-        ierr = UpdateLocalGhosts(user,"P");
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_P);
 
     }
 
@@ -390,12 +390,12 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
         ierr = VecZeroEntries(user->Bcs.Ubcs); CHKERRQ(ierr);
 
         // Ghost-cell finalization — identical sequence to TGV3D
-        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "P");    CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_P);    CHKERRQ(ierr);
         ierr = UpdateDummyCells(user);          CHKERRQ(ierr);
         ierr = UpdateCornerNodes(user);         CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Ucat"); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "P");    CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_P);    CHKERRQ(ierr);
     }
 
     PetscFunctionReturn(0);
@@ -443,15 +443,15 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
         ierr = VecZeroEntries(user->P); CHKERRQ(ierr);
 
         // --- Step 4: Finalize state — derive Ucat from Ucont via metric inversion ---
-        const char *staggered_fields[] = {"Ucont"};
+        const FieldId staggered_fields[] = {FIELD_ID_UCONT};
         ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
         ierr = Contra2Cart(user);                CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Ucat");  CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "P");     CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);  CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_P);     CHKERRQ(ierr);
         ierr = UpdateDummyCells(user);           CHKERRQ(ierr);
         ierr = UpdateCornerNodes(user);          CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "Ucat");  CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, "P");     CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);  CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_P);     CHKERRQ(ierr);
     }
 
     PetscFunctionReturn(0);
@@ -622,22 +622,30 @@ PetscErrorCode EvaluateAnalyticalScalarProfile(const SimCtx *simCtx,
  *          the header declaration in `include/AnalyticalSolutions.h`.
  * @see SetAnalyticalScalarFieldOnParticles()
  */
-PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, const char *swarm_field_name)
+PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, ParticleFieldId particle_field_id)
 {
     PetscErrorCode ierr;
     PetscInt       nlocal = 0;
     PetscReal     *positions = NULL;
     PetscReal     *scalar_values = NULL;
+    const ParticleFieldDescriptor *descriptor = NULL;
+    const char     *swarm_field_name = NULL;
 
     PetscFunctionBeginUser;
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
     if (!user->swarm) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "UserCtx->swarm is NULL.");
-    if (!swarm_field_name) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "swarm_field_name cannot be NULL.");
+
+    ierr = ParticleFieldGetDescriptor(particle_field_id, &descriptor); CHKERRQ(ierr);
+    PetscCheck(descriptor->components == 1 && descriptor->data_type == PETSC_REAL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
+               "Analytical scalar assignment requires a one-component PETSC_REAL particle field; '%s' has %d components and type %s.",
+               descriptor->canonical_name, descriptor->components, PetscDataTypes[descriptor->data_type]);
+    swarm_field_name = descriptor->canonical_name;
 
     ierr = DMSwarmGetLocalSize(user->swarm, &nlocal); CHKERRQ(ierr);
     if (nlocal == 0) PetscFunctionReturn(0);
 
-    ierr = DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions); CHKERRQ(ierr);
     ierr = DMSwarmGetField(user->swarm, swarm_field_name, NULL, NULL, (void **)&scalar_values); CHKERRQ(ierr);
 
     for (PetscInt p = 0; p < nlocal; ++p) {
@@ -652,7 +660,7 @@ PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, const char *sw
     }
 
     ierr = DMSwarmRestoreField(user->swarm, swarm_field_name, NULL, NULL, (void **)&scalar_values); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions); CHKERRQ(ierr);
     PetscFunctionReturn(0);
 }
 

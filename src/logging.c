@@ -1,6 +1,7 @@
 // logging.c
 #include "logging.h"
 #include "AnalyticalSolutions.h"
+#include "particle_field_catalog.h"
 #include "verification_sources.h"
 
 /* Maximum temporary buffer size for converting numbers to strings */
@@ -413,12 +414,12 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     ierr = DMSwarmGetLocalSize(swarm, &localNumParticles); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Rank %d has %d particles.\n", rank, localNumParticles);
 
-    ierr = DMSwarmGetField(swarm, "position", NULL, NULL, (void**)&positions); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&particleIDs); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_rank", NULL, NULL, (void**)&particleRanks); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, "velocity", NULL, NULL, (void**)&velocities); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&positions); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&particleIDs); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_RANK), NULL, NULL, (void**)&particleRanks); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), NULL, NULL, (void**)&velocities); CHKERRQ(ierr);
     
     /* Compute maximum column widths. */
     int wRank, wPID, wCell, wPos, wVel, wWt;
@@ -504,12 +505,12 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     LOG_ALLOW_SYNC(GLOBAL,LOG_DEBUG,"Completed printing on Rank %d.\n", rank);
 
     /* Restore fields */
-    ierr = DMSwarmRestoreField(swarm, "position", NULL, NULL, (void**)&positions); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_pid", NULL, NULL, (void**)&particleIDs); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_rank", NULL, NULL, (void**)&particleRanks); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "DMSwarm_CellID", NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "weight", NULL, NULL, (void**)&weights); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, "velocity", NULL, NULL, (void**)&velocities); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&positions); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&particleIDs); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_RANK), NULL, NULL, (void**)&particleRanks); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), NULL, NULL, (void**)&velocities); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL,LOG_DEBUG, "Restored all particle fields.\n");
     return 0;
@@ -2342,91 +2343,36 @@ void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, Pe
  * @details Full API contract is documented with the header declaration in `include/logging.h`.
  * @see LOG_FIELD_MIN_MAX()
  */
-PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
+PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, FieldId field_id)
 {
     PetscErrorCode ierr;
     PetscInt       i, j, k;
     DMDALocalInfo  info;
     
+    FieldView      view;
     Vec            fieldVec = NULL;
     DM             dm = NULL;
     PetscInt       dof;
-    char           data_layout[20];
+    FieldLayout    layout;
+    const char    *fieldName = NULL;
+    const char    *data_layout = NULL;
 
     PetscFunctionBeginUser;
 
-    // --- 1. Map string name to PETSc objects and determine data layout ---
-    if (strcasecmp(fieldName, "Ucat") == 0) {
-        fieldVec = user->Ucat; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(fieldName, "P") == 0) {
-        fieldVec = user->P; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(fieldName, "Diffusivity") == 0) {
-        fieldVec = user->Diffusivity; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(fieldName, "DiffusivityGradient") == 0) {
-        fieldVec = user->DiffusivityGradient; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(fieldName, "Phi") == 0) {
-        fieldVec = user->Phi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(fieldName, "Nvert") == 0) {
-        fieldVec = user->Nvert; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(fieldName, "Aj") == 0) {
-        fieldVec = user->Aj; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(fieldName, "Cent") == 0 || strcasecmp(fieldName, "Center-Coordinates") == 0) {
-        fieldVec = user->Cent; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(fieldName, "Ucont") == 0) {
-        fieldVec = user->lUcont; dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered");
-    } else if (strcasecmp(fieldName, "Centx") == 0 || strcasecmp(fieldName, "X-Face-Centers") == 0) {
-        fieldVec = user->Centx; dm = user->fda; dof = 3; strcpy(data_layout, "I-Face");
-    } else if (strcasecmp(fieldName, "Centy") == 0 || strcasecmp(fieldName, "Y-Face-Centers") == 0) {
-        fieldVec = user->Centy; dm = user->fda; dof = 3; strcpy(data_layout, "J-Face");
-    } else if (strcasecmp(fieldName, "Centz") == 0 || strcasecmp(fieldName, "Z-Face-Centers") == 0) {
-        fieldVec = user->Centz; dm = user->fda; dof = 3; strcpy(data_layout, "K-Face");
-    } else if (strcasecmp(fieldName, "Csi") == 0 || strcasecmp(fieldName, "ICsi") == 0 ||
-               strcasecmp(fieldName, "IEta") == 0 || strcasecmp(fieldName, "IZet") == 0) {
-        fieldVec = strcasecmp(fieldName, "Csi") == 0 ? user->Csi :
-                   (strcasecmp(fieldName, "ICsi") == 0 ? user->ICsi :
-                    (strcasecmp(fieldName, "IEta") == 0 ? user->IEta : user->IZet));
-        dm = user->fda; dof = 3; strcpy(data_layout, "I-Face");
-    } else if (strcasecmp(fieldName, "Eta") == 0 || strcasecmp(fieldName, "JCsi") == 0 ||
-               strcasecmp(fieldName, "JEta") == 0 || strcasecmp(fieldName, "JZet") == 0) {
-        fieldVec = strcasecmp(fieldName, "Eta") == 0 ? user->Eta :
-                   (strcasecmp(fieldName, "JCsi") == 0 ? user->JCsi :
-                    (strcasecmp(fieldName, "JEta") == 0 ? user->JEta : user->JZet));
-        dm = user->fda; dof = 3; strcpy(data_layout, "J-Face");
-    } else if (strcasecmp(fieldName, "Zet") == 0 || strcasecmp(fieldName, "KCsi") == 0 ||
-               strcasecmp(fieldName, "KEta") == 0 || strcasecmp(fieldName, "KZet") == 0) {
-        fieldVec = strcasecmp(fieldName, "Zet") == 0 ? user->Zet :
-                   (strcasecmp(fieldName, "KCsi") == 0 ? user->KCsi :
-                    (strcasecmp(fieldName, "KEta") == 0 ? user->KEta : user->KZet));
-        dm = user->fda; dof = 3; strcpy(data_layout, "K-Face");
-    } else if (strcasecmp(fieldName, "IAj") == 0 || strcasecmp(fieldName, "JAj") == 0 ||
-               strcasecmp(fieldName, "KAj") == 0) {
-        fieldVec = strcasecmp(fieldName, "IAj") == 0 ? user->IAj :
-                   (strcasecmp(fieldName, "JAj") == 0 ? user->JAj : user->KAj);
-        dm = user->da; dof = 1;
-        strcpy(data_layout, strcasecmp(fieldName, "IAj") == 0 ? "I-Face" :
-                            (strcasecmp(fieldName, "JAj") == 0 ? "J-Face" : "K-Face"));
-    } else if (strcasecmp(fieldName, "Coordinates") == 0) {
-        ierr = DMGetCoordinates(user->da, &fieldVec); CHKERRQ(ierr);
-        dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
-    } else if (strcasecmp(fieldName,"Psi") == 0) {
-        fieldVec = user->Psi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered"); // Assuming Psi is cell-centered
-    } else {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Field %s not recognized.", fieldName);
-    }
-
-    if (!fieldVec) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Vector for field '%s' is NULL.", fieldName);
-    }
-    if (!dm) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "DM for field '%s' is NULL.", fieldName);
-    }
+    ierr = FieldGetView(user, field_id, &view); CHKERRQ(ierr);
+    fieldName = view.descriptor->canonical_name;
+    dm = view.dm;
+    dof = view.descriptor->dof;
+    layout = view.descriptor->layout;
+    data_layout = FieldLayoutName(layout);
+    fieldVec = (layout == FIELD_LAYOUT_COMPONENT_STAGGERED) ? view.local_vec : view.global_vec;
 
     ierr = DMDAGetLocalInfo(dm, &info); CHKERRQ(ierr);
 
     // --- 2. Define Architecture-Aware Loop Bounds ---
     PetscInt i_start, i_end, j_start, j_end, k_start, k_end;
 
-    if (strcmp(data_layout, "Cell-Centered") == 0) {
+    if (layout == FIELD_LAYOUT_CELL_CENTERED) {
         // For cell-centered data, the physical values are stored from index 1 to N-1.
         // We find the intersection of the rank's owned range [xs, xe) with the
         // physical data range [1, IM-1).
@@ -2523,83 +2469,37 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, const char *fieldName)
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "LOG_FIELD_ANATOMY"
+#define __FUNCT__ "LogFieldAnatomyView"
 /**
- * @brief Implementation of \ref LOG_FIELD_ANATOMY().
- * @details Full API contract is documented with the header declaration in `include/logging.h`.
- * @see LOG_FIELD_ANATOMY()
+ * @brief Shared architecture-aware anatomy logger for catalog and transient fields.
  */
-PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const char *stage_name)
+static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
+                                          const char *stage_name, DM dm,
+                                          Vec vec_local, PetscInt dof,
+                                          FieldLayout layout)
 {
     PetscErrorCode ierr;
     DMDALocalInfo  info;
     PetscMPIInt    rank;
-
-    Vec            vec_local = NULL;
-    DM             dm = NULL;
-    PetscInt       dof = 0;
-    char           data_layout[20];
+    const char    *data_layout = FieldLayoutName(layout);
     char           dominant_dir = '\0'; // 'x', 'y', 'z' for face-centered, 'm' for mixed (Ucont)
 
     PetscFunctionBeginUser;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
-    // --- 1. Map string name to PETSc objects and determine data layout ---
-    if (strcasecmp(field_name, "Ucat") == 0) {
-        vec_local = user->lUcat; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(field_name, "P") == 0) {
-        vec_local = user->lP; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(field_name, "Diffusivity") == 0) {
-        vec_local = user->lDiffusivity; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(field_name, "DiffusivityGradient") == 0) {
-        vec_local = user->lDiffusivityGradient; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(field_name, "Psi") == 0) {
-        vec_local = user->lPsi; dm = user->da; dof = 1; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(field_name, "Center-Coordinates") == 0) {
-        vec_local = user->lCent; dm = user->fda; dof = 3; strcpy(data_layout, "Cell-Centered");
-    } else if (strcasecmp(field_name, "Ucont") == 0 ||
-               strcasecmp(field_name, "Ucont_o") == 0 ||
-               strcasecmp(field_name, "Ucont_rm1") == 0) {
-        vec_local = strcasecmp(field_name, "Ucont") == 0 ? user->lUcont :
-                    (strcasecmp(field_name, "Ucont_o") == 0 ? user->lUcont_o : user->lUcont_rm1);
-        dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'm'; // Mixed
-    } else if (strcasecmp(field_name, "Csi") == 0 || strcasecmp(field_name, "X-Face-Centers") == 0 ||
-               strcasecmp(field_name, "ICsi") == 0 || strcasecmp(field_name, "IEta") == 0 ||
-               strcasecmp(field_name, "IZet") == 0) {
-        vec_local = strcasecmp(field_name, "Csi") == 0 ? user->lCsi :
-                    (strcasecmp(field_name, "X-Face-Centers") == 0 ? user->lCentx :
-                     (strcasecmp(field_name, "ICsi") == 0 ? user->lICsi :
-                      (strcasecmp(field_name, "IEta") == 0 ? user->lIEta : user->lIZet)));
-        dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'x';
-    } else if (strcasecmp(field_name, "Eta") == 0 || strcasecmp(field_name, "Y-Face-Centers") == 0 ||
-               strcasecmp(field_name, "JCsi") == 0 || strcasecmp(field_name, "JEta") == 0 ||
-               strcasecmp(field_name, "JZet") == 0) {
-        vec_local = strcasecmp(field_name, "Eta") == 0 ? user->lEta :
-                    (strcasecmp(field_name, "Y-Face-Centers") == 0 ? user->lCenty :
-                     (strcasecmp(field_name, "JCsi") == 0 ? user->lJCsi :
-                      (strcasecmp(field_name, "JEta") == 0 ? user->lJEta : user->lJZet)));
-        dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'y';
-    } else if (strcasecmp(field_name, "Zet") == 0 || strcasecmp(field_name, "Z-Face-Centers") == 0 ||
-               strcasecmp(field_name, "KCsi") == 0 || strcasecmp(field_name, "KEta") == 0 ||
-               strcasecmp(field_name, "KZet") == 0) {
-        vec_local = strcasecmp(field_name, "Zet") == 0 ? user->lZet :
-                    (strcasecmp(field_name, "Z-Face-Centers") == 0 ? user->lCentz :
-                     (strcasecmp(field_name, "KCsi") == 0 ? user->lKCsi :
-                      (strcasecmp(field_name, "KEta") == 0 ? user->lKEta : user->lKZet)));
-        dm = user->fda; dof = 3; strcpy(data_layout, "Face-Centered"); dominant_dir = 'z';
-    } else if (strcasecmp(field_name, "Coordinates") == 0) {
-        ierr = DMGetCoordinatesLocal(user->da, &vec_local); CHKERRQ(ierr);
-        dm = user->fda; dof = 3; strcpy(data_layout, "Node-Centered");
-    } else if  (strcasecmp(field_name, "CornerField")== 0){
-        vec_local = user->lCellFieldAtCorner; strcpy(data_layout, "Node-Centered");
-        PetscInt bs = 1;
-        ierr = VecGetBlockSize(user->CellFieldAtCorner, &bs); CHKERRQ(ierr);
-        dof = bs;
-        if(dof == 1) dm = user->da;
-        else         dm = user->fda;
-    } else {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Unknown field name for LOG_FIELD_ANATOMY: %s", field_name);
-    }
+    PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    PetscCheck(field_name != NULL && stage_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Field and stage labels cannot be NULL.");
+    PetscCheck(dm != NULL && vec_local != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "Field '%s' has no available DM/local vector for anatomy logging.", field_name);
+    PetscCheck(dof == 1 || dof == 3, PETSC_COMM_SELF, PETSC_ERR_SUP,
+               "Field anatomy logging supports one- or three-component fields; '%s' has %d.",
+               field_name, dof);
+
+    if (layout == FIELD_LAYOUT_I_FACE) dominant_dir = 'x';
+    else if (layout == FIELD_LAYOUT_J_FACE) dominant_dir = 'y';
+    else if (layout == FIELD_LAYOUT_K_FACE) dominant_dir = 'z';
+    else if (layout == FIELD_LAYOUT_COMPONENT_STAGGERED) dominant_dir = 'm';
 
     // --- 2. Get Grid Info and Array Pointers ---
     ierr = DMDAGetLocalInfo(dm, &info); CHKERRQ(ierr);
@@ -2622,7 +2522,7 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
     // ======================================================================
     // === CASE 1: Cell-Centered Fields (Ucat, P) - USES SHIFTED INDEX    ===
     // ======================================================================
-    if (strcmp(data_layout, "Cell-Centered") == 0) {
+    if (layout == FIELD_LAYOUT_CELL_CENTERED) {
         const void *l_arr;
         ierr = DMDAVecGetArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
 
@@ -2690,7 +2590,10 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
     // ======================================================================
     // === CASE 2: Face-Centered Fields - NUANCED DIRECTIONAL LOGIC       ===
     // ======================================================================
-    else if (strcmp(data_layout, "Face-Centered") == 0) {
+    else if (layout == FIELD_LAYOUT_I_FACE ||
+             layout == FIELD_LAYOUT_J_FACE ||
+             layout == FIELD_LAYOUT_K_FACE ||
+             layout == FIELD_LAYOUT_COMPONENT_STAGGERED) {
         const Cmpnts ***l_arr;
         ierr = DMDAVecGetArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
 
@@ -2771,9 +2674,33 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
     // ======================================================================
     // === CASE 3: Node-Centered Fields - USES DIRECT INDEX               ===
     // ======================================================================
-    else if (strcmp(data_layout, "Node-Centered") == 0) {
-        const Cmpnts ***l_arr;
-        ierr = DMDAVecGetArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
+    else if (layout == FIELD_LAYOUT_NODE_CENTERED) {
+        if (dof == 1) {
+            const PetscReal ***l_arr;
+            ierr = DMDAVecGetArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
+
+            if (info.xs == 0)
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (First Phys. Node) = %.5f\n", rank, 0, l_arr[k_mid][j_mid][0]);
+            if (info.xs + info.xm == info.mx) {
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Last Phys. Node)  = %.5f\n", rank, im_phys - 1, l_arr[k_mid][j_mid][im_phys - 1]);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Unused/Ghost Loc) = %.5f\n", rank, im_phys, l_arr[k_mid][j_mid][im_phys]);
+            }
+            if (info.ys == 0)
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (First Phys. Node) = %.5f\n", rank, 0, l_arr[k_mid][0][i_mid]);
+            if (info.ys + info.ym == info.my) {
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Last Phys. Node)  = %.5f\n", rank, jm_phys - 1, l_arr[k_mid][jm_phys - 1][i_mid]);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Unused/Ghost Loc) = %.5f\n", rank, jm_phys, l_arr[k_mid][jm_phys][i_mid]);
+            }
+            if (info.zs == 0)
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (First Phys. Node) = %.5f\n", rank, 0, l_arr[0][j_mid][i_mid]);
+            if (info.zs + info.zm == info.mz) {
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Last Phys. Node)  = %.5f\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid]);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Unused/Ghost Loc) = %.5f\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid]);
+            }
+            ierr = DMDAVecRestoreArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
+        } else {
+            const Cmpnts ***l_arr;
+            ierr = DMDAVecGetArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
 
         // --- I-Direction Boundaries ---
         if (info.xs == 0) {
@@ -2799,14 +2726,59 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, const char *field_name, const ch
             PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Last Phys. Node)  = (%.5f, %.5f, %.5f)\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid].x, l_arr[km_phys - 1][j_mid][i_mid].y, l_arr[km_phys - 1][j_mid][i_mid].z);
             PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Unused/Ghost Loc) = (%.5f, %.5f, %.5f)\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid].x, l_arr[km_phys][j_mid][i_mid].y, l_arr[km_phys][j_mid][i_mid].z);
         }
-        ierr = DMDAVecRestoreArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
+            ierr = DMDAVecRestoreArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
+        }
     }
     else {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "LOG_FIELD_ANATOMY encountered an unknown data layout: %s", data_layout);
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                "LOG_FIELD_ANATOMY encountered unsupported layout %d for field '%s'.",
+                (int)layout, field_name);
     }
 
     ierr = PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); CHKERRQ(ierr);
     ierr = PetscBarrier(NULL);
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LOG_FIELD_ANATOMY"
+/**
+ * @brief Resolves a persistent field view and emits its layout-aware boundary anatomy.
+ * @see LOG_FIELD_ANATOMY()
+ */
+PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, FieldId field_id, const char *stage_name)
+{
+    FieldView view;
+
+    PetscFunctionBeginUser;
+    PetscCall(FieldGetView(user, field_id, &view));
+    PetscCall(LogFieldAnatomyView(user, view.descriptor->canonical_name, stage_name,
+                                  view.dm, view.local_vec, view.descriptor->dof,
+                                  view.descriptor->layout));
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LOG_CORNER_FIELD_ANATOMY"
+/**
+ * @brief Emits anatomy for the transient scalar or vector corner-staging field.
+ * @see LOG_CORNER_FIELD_ANATOMY()
+ */
+PetscErrorCode LOG_CORNER_FIELD_ANATOMY(UserCtx *user, const char *stage_name)
+{
+    PetscInt dof = 0;
+    DM dm = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
+    PetscCheck(user->CellFieldAtCorner != NULL && user->lCellFieldAtCorner != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "Transient corner field is unavailable for anatomy logging.");
+    PetscCall(VecGetBlockSize(user->CellFieldAtCorner, &dof));
+    dm = (dof == 1) ? user->da : user->fda;
+    PetscCall(LogFieldAnatomyView(user, "CornerField", stage_name, dm,
+                                  user->lCellFieldAtCorner, dof,
+                                  FIELD_LAYOUT_NODE_CENTERED));
     PetscFunctionReturn(0);
 }
 
@@ -2830,8 +2802,8 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
     PetscReal ErrorPercentage = 0.0;
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating global vectors.\n");
-    ierr = DMSwarmCreateGlobalVectorFromField(swarm, "position", &positionVec); CHKERRQ(ierr);
-    ierr = DMSwarmCreateGlobalVectorFromField(swarm, "velocity", &velocityVec); CHKERRQ(ierr);
+    ierr = DMSwarmCreateGlobalVectorFromField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), &positionVec); CHKERRQ(ierr);
+    ierr = DMSwarmCreateGlobalVectorFromField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), &velocityVec); CHKERRQ(ierr);
     
     ierr = VecDuplicate(positionVec, &analyticalvelocityVec); CHKERRQ(ierr);
     ierr = VecCopy(positionVec, analyticalvelocityVec); CHKERRQ(ierr);
@@ -2883,8 +2855,8 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
 
     ierr = VecDestroy(&analyticalvelocityVec); CHKERRQ(ierr);
     ierr = VecDestroy(&errorVec); CHKERRQ(ierr);
-    ierr = DMSwarmDestroyGlobalVectorFromField(swarm, "position", &positionVec); CHKERRQ(ierr);
-    ierr = DMSwarmDestroyGlobalVectorFromField(swarm, "velocity", &velocityVec); CHKERRQ(ierr);
+    ierr = DMSwarmDestroyGlobalVectorFromField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), &positionVec); CHKERRQ(ierr);
+    ierr = DMSwarmDestroyGlobalVectorFromField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), &velocityVec); CHKERRQ(ierr);
     
     return 0;
 }
@@ -2977,9 +2949,9 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
     ierr = DMSwarmGetLocalSize(user->swarm, &nlocal); CHKERRQ(ierr);
     local_particle_count = (PetscInt64)nlocal;
     if (nlocal > 0) {
-        ierr = DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&particle_psi); CHKERRQ(ierr);
+        ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), NULL, NULL, (void **)&particle_psi); CHKERRQ(ierr);
         for (PetscInt p = 0; p < nlocal; ++p) local_particle_sum += particle_psi[p];
-        ierr = DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&particle_psi); CHKERRQ(ierr);
+        ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), NULL, NULL, (void **)&particle_psi); CHKERRQ(ierr);
     }
 
     ierr = MPI_Allreduce(&local_l1, &global_l1, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
