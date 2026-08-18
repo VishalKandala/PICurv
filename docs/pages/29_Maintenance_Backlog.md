@@ -115,8 +115,8 @@ is structural. It cannot be tightened away through solver settings.
 
 **Consequences.**
 
-- @ref 58_Turbulence_Statistics_Pipeline_Specification section 12 is correct that
-  checkpointing `Ucont_rm1` avoids an artificial first-order restart step. It must
+- @ref p58_checkpoint_sec is correct that checkpointing `Ucont_rm1` avoids an
+  artificial first-order restart step. It must
   not be read as promising a bit-exact trajectory. One step after restart the BDF2
   history pair is asymmetric: the n-1 slot carries `BC(x_N)` where an uninterrupted
   run carries `x_N`.
@@ -135,6 +135,32 @@ projection relative to the last boundary application within a step. Changing the
 pass count in [src/Boundaries.c](../../src/Boundaries.c) and re-measuring the offset
 would distinguish them. Geometric scaling with pass count implicates the loop;
 no change implicates checkpoint placement within the step.
+
+@section p29_stats_validation_sec 9. Deferred: Field-Statistics Validation Gaps
+
+Field statistics carry a validated acceptance suite covering moment accuracy,
+window scheduling and clipping, masks, layouts and periodicity, restart
+continuation, console monitoring, and equivalence across a changed MPI rank
+count. Two items in that suite were deliberately left uncovered, and are recorded
+here so they are not mistaken for oversights.
+
+**Multiblock equivalence has no coverage.** No multiblock runtime harness exists
+at any level — not for statistics and not for the solver generally. Statistics
+payloads are block scoped and follow the same natural ordering Eulerian payloads
+do, so there is no reason to expect a multiblock-specific defect, but that is an
+argument from construction rather than a test. Building the harness is the
+prerequisite, and it is not specific to statistics; whoever builds it should
+extend it to statistics payloads at the same time.
+
+**Graceful-shutdown ordering is guaranteed by construction, not by a test.** The
+committed bundle at a given step carries that step's contribution, which the
+statistics smoke scenarios assert through the ordinary cadence, and the shutdown
+path writes through the same coordinator. What is untested is that the run loop
+offers the completed state to the windows *before* it reaches the shutdown
+writer. That ordering lives in [src/runloop.c](../../src/runloop.c). A test that
+drove the sequence itself would re-assert the checkpoint round trip rather than
+the ordering, which is why one was not written; catching a reordering needs a
+test that runs the loop, or a signal delivered at a controlled step.
 
 ## CFD Reader Guidance and Practical Use
 

@@ -3,8 +3,7 @@
  * @brief Per-window PETSc accumulator storage and pointwise application.
  *
  * Holds the independent state each named window owns, and applies one accepted
- * completed state to it, per
- * @ref 60_Field_Statistics_Phase2_Implementation_Specification sections 5 and 13.
+ * completed state to it, per @ref p58_state_sec.
  *
  * Storage is allocated once by the vector factory and released once at teardown.
  * Application is strictly pointwise: it reads a source field value at an owned

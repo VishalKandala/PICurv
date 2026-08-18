@@ -191,7 +191,7 @@ Additional fast diagnostics:
 - **@subpage 44_Boundary_Conditions_Guide**
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 56_Field_Identity_and_Layout_Catalog**
-- **@subpage 58_Turbulence_Statistics_Pipeline_Specification** (proposed runtime extension)
+- **@subpage 58_Field_Statistics** (per-step accumulation hook and checkpoint state)
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

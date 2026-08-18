@@ -108,8 +108,8 @@ PetscErrorCode ReadSimulationFields(UserCtx *user, PetscInt ti);
  * @brief Restores field-statistics window state and accumulators from a checkpoint.
  *
  * Resumes every configured window from the bundle at @p ti when continuation was
- * requested, per @ref 60_Field_Statistics_Phase2_Implementation_Specification
- * section 10. Window scalars come from the bundle manifest and accumulator payloads
+ * requested, per @ref p58_checkpoint_sec. Window scalars come from the bundle
+ * manifest and accumulator payloads
  * through the same natural-ordering vector reader Eulerian fields use, so a restart
  * on a different MPI rank count restores identical state.
  *

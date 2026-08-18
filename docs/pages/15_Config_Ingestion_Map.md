@@ -39,11 +39,13 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `monitor.io.data_output_frequency` | `-tio` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
 | `monitor.io.particle_console_output_frequency` | `-particle_console_output_freq` | `src/setup.c` | `src/io.c`, `src/setup.c`, particle console logging |
 | `monitor.io.particle_log_interval` | `-logfreq` | `src/setup.c` | particle console row subsampling |
+| `monitor.io.statistics_console_output_frequency` | `-statistics_console_output_freq` | `src/statistics_config.c` | `src/logging.c` statistics console snapshot, `src/runloop.c` |
 | `monitor.io.directories.*` | `-output_dir`, `-restart_dir`, `-log_dir` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
 | `monitor.logging.*` | `whitelist.run`, `LOG_LEVEL` env | `src/setup.c` + `src/logging.c` | logging macros/system |
 | `monitor.profiling.*` | `profile.run` (selected-mode only) + explicit profiling flags in `*.control` | `src/setup.c` + profiling init | profiler summaries |
 | `monitor.diagnostics.petsc.*` | solver/postprocessor executable arguments (`-malloc_*`, `-log_view`, `-objects_dump`, etc.) | PETSc initialization | PETSc memory/log/object diagnostics |
 | `monitor.diagnostics.runtime_memory_log.*` | `-runtime_memory_log_enabled`, `-runtime_memory_log_file` | `src/setup.c` | `src/logging.c`, `src/runloop.c`, `src/postprocessor.c`, `src/simulator.c` |
+| `monitor.field_statistics.*` | `-field_statistics_enabled`, `-field_statistics_window_count`, `-field_statistics_window_<i>_*` | `src/statistics_config.c` (`ParseFieldStatisticsConfig`) | `src/statistics_window.c`, `src/statistics_accumulator.c`, `src/runloop.c`, `src/io.c` checkpoint state |
 | `monitor.solution_monitoring.convergence.*` | `-solution_convergence_enabled/-solution_convergence_mode/-solution_convergence_period_steps/-solution_convergence_window_steps` in `*.control` | `src/setup.c` | existing `src/logging.c` and `src/runloop.c` convergence path; every completed timestep |
 | `cluster.execution.walltime_guard.*` | `-walltime_guard_*` in solver `*.control` | `src/setup.c` | `src/runloop.c` runtime walltime estimator and graceful final-write cutoff |
 | `monitor.solver_monitoring.poisson.*` | prefixed Poisson monitor flags in control (`-ps_ksp_*`) | PETSc options db | `src/poisson.c` KSP monitor setup |
@@ -52,6 +54,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `post.run_control.*` | `startTime/endTime/timeStep` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `src/postprocessor.c` main loop |
 | `post.io.input_extensions.*` | `eulerianExt`, `particleExt` in `post.run` | `src/io.c` | `ReadSimulationFields`, `ReadAllSwarmFields`, swarm precheck |
 | `post.statistics_pipeline.*` | `statistics_pipeline`, `statistics_output_prefix` | `src/io.c` | `GlobalStatisticsPipeline` dispatch |
+| `post.field_statistics.*` | `field_statistics_windows`, `field_statistics_outputs`, `field_statistics_formats`, `field_statistics_source_step` | `src/io.c` (`ParsePostProcessingSettings`) | `FieldStatisticsPipeline` in `src/postprocessor.c`, derivation in `src/statistics_accumulator.c` |
 
 @section p15_python_only_sec 3. Python-Only Orchestration Mapping (No C Ingestion)
 

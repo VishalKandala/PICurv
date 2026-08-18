@@ -17,8 +17,9 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 17_Workflow_Extensibility**: extending orchestration beyond current run/sweep modes.
 - **@subpage 46_C_Runtime_Execution_Map**: startup/timestep execution trace across C modules.
 - **@subpage 56_Field_Identity_and_Layout_Catalog**: typed Eulerian/particle field identities, runtime views, and coupling metadata.
+- **@subpage 58_Field_Statistics**: scientific field statistics — accumulation, monitoring, checkpoint state, derived output, and extension points.
 - **@subpage 57_Future_Architecture_Specifications**: status and sequencing of proposed future architecture.
-- **@subpage 58_Turbulence_Statistics_Pipeline_Specification**: proposed scientific statistics, monitoring, checkpoint, and postprocessing design.
+- **@subpage 60_Field_Statistics_Planned_Extensions**: spatial targets, further products, and histories, with their dependency order.
 - **@subpage 59_Function_Identity_and_Observability_Specification**: deferred, benchmark-gated logging/profiling identity design.
 
 @section p43_methods_sec 2. Numerical Methods and Models
@@ -47,7 +48,7 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 5. **@subpage 50_Modular_Selector_Extension_Guide**
 6. **@subpage 46_C_Runtime_Execution_Map**
 7. **@subpage 56_Field_Identity_and_Layout_Catalog**
-8. **@subpage 57_Future_Architecture_Specifications**
+8. **@subpage 58_Field_Statistics**
 9. **@subpage 21_Methods_Overview**
 
 @section p43_developer_outcomes_sec 5. Expected Outcomes

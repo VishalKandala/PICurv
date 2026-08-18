@@ -3,8 +3,8 @@
  * @brief Control ingress for the field-statistics pipeline.
  *
  * Resolves the generated master `control` into the window definitions the rest of
- * the pipeline consumes, per
- * @ref 60_Field_Statistics_Phase2_Implementation_Specification section 8.
+ * the pipeline consumes. The user-facing keys these options come from are
+ * documented in @ref p09_field_statistics_sec.
  *
  * A window list is variable arity, so its option names are constructed rather than
  * literal. Every constructed name belongs to a family declared in the ingress audit

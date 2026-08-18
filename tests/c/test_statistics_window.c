@@ -2,11 +2,10 @@
  * @file test_statistics_window.c
  * @brief C unit tests for window lifecycle, scheduling, and weighting.
  *
- * Covers the Stage 3 acceptance items in
- * @ref 60_Field_Statistics_Phase2_Implementation_Specification section 14:
- * cadence stride, start and end clipping, variable timestep weighting, duplicate
- * event rejection, off-schedule no-ops, and the property that sample and
- * physical-time weighting agree on a constant-timestep run.
+ * Covers the window acceptance items in @ref p58_validation_sec — cadence stride,
+ * start and end clipping, variable timestep weighting, duplicate event rejection,
+ * off-schedule no-ops, and the property that sample and physical-time weighting
+ * agree on a constant-timestep run.
  */
 
 #include "test_support.h"

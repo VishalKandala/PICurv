@@ -204,13 +204,17 @@ Rules:
 
 @section p08_solution_conv_sec 6. Physical-solution convergence monitoring
 
-Physical-solution convergence is observation policy rather than a numerical
-solver selection. Its user configuration therefore moved to
-`monitor.yml -> solution_monitoring.convergence`. The old
-top-level `solver.yml -> solution_convergence` key is rejected with a direct
-migration message. See **@subpage 09_Monitor_Reference** for modes, mappings,
-and defaults. The monitor records every completed timestep; cadence is not a
-user setting.
+Convergence monitoring is observation policy rather than a numerical solver
+selection, so it is configured in `monitor.yml -> solution_monitoring.convergence`
+rather than here. See **@subpage 09_Monitor_Reference** for modes, mappings, and
+defaults. The monitor records every completed timestep; cadence is not a user
+setting.
+
+`solver.yml` accepts no `solution_convergence` key. A file carrying one is
+rejected by validation with the location to move it to.
+
+Scientific field statistics are likewise a monitor concern, configured at
+`monitor.yml -> field_statistics`; see **@subpage 58_Field_Statistics**.
 
 @section p08_interp_sec 7. interpolation
 

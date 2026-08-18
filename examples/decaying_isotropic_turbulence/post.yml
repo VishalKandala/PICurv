@@ -5,6 +5,11 @@ eulerian_pipeline:
   - {task: q_criterion}
   - {task: nodal_average, input_field: P, output_field: P_nodal}
   - {task: nodal_average, input_field: Ucat, output_field: Ucat_nodal}
+field_statistics:
+  windows: [early_decay, late_decay]
+  outputs: [mean, reynolds_stress, rms, tke, flux]
+  formats: [vtk, csv]
+
 io:
   output_directory: visualization/dit
   output_filename_prefix: dit

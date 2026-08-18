@@ -42,7 +42,7 @@ This work does not:
 - replace boundary-condition enums/function pointers already resolved at
   ingress;
 - redesign runtime physical-solution monitoring or scientific statistics; or
-- block @ref 58_Turbulence_Statistics_Pipeline_Specification.
+- block @ref 58_Field_Statistics.
 
 One-time string comparisons at external ingress and presentation boundaries are
 correct and remain.

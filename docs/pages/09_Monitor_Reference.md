@@ -6,10 +6,8 @@ For the full commented template, see:
 
 @verbinclude master_template/master_monitor.yml
 
-`monitor.yml` controls runtime monitoring, diagnostics, profiling, and run I/O
-behavior. Scientific Eulerian field statistics are not exposed in the active
-configuration until their accumulation, checkpoint, and postprocessing path is
-complete end to end.
+`monitor.yml` controls runtime monitoring, diagnostics, profiling, run I/O
+behavior, and scientific Eulerian field statistics.
 
 @tableofcontents
 
@@ -46,13 +44,10 @@ There is no `observations.run` sidecar and no observation-plan schema/version
 at this boundary. `control` remains the single generated C-ingress artifact for
 these settings.
 
-The `field_statistics` contract is designed in
-**@subpage 58_Turbulence_Statistics_Pipeline_Specification** and specified in
-**@subpage 60_Field_Statistics_Phase2_Implementation_Specification**. The key is
-accepted and accumulates online, but its postprocessing stage and its shipped
-template are not finished, so it is not yet a released contract and is documented
-only on those pages. Saved instantaneous fields remain the supported input for
-offline Eulerian statistics until it is.
+Scientific field statistics are configured separately, under `field_statistics`;
+see @ref p09_field_statistics_sec. Solution monitoring answers whether the run has
+converged, field statistics answer what the converged flow is, and they share no
+state.
 
 The removed `case.yml -> models.statistics.time_averaging` and `-averaging`
 surface is not compatible input and is not translated into a replacement
@@ -64,6 +59,7 @@ workflow.
 io:
   data_output_frequency: 100
   particle_console_output_frequency: 100
+  statistics_console_output_frequency: 100
   particle_log_interval: 10
   directories:
     output: "output"
@@ -74,6 +70,7 @@ io:
 Mappings:
 - `data_output_frequency` -> `-tio`
 - `particle_console_output_frequency` -> `-particle_console_output_freq`
+- `statistics_console_output_frequency` -> `-statistics_console_output_freq`
 - `particle_log_interval` -> `-logfreq`
 - `directories.output` -> `-output_dir`
 - `directories.restart` -> `-restart_dir`
@@ -94,7 +91,108 @@ Semantics:
 - If `particle_console_output_frequency` is omitted, `picurv` defaults it to `data_output_frequency`.
 - If `particle_console_output_frequency` is `0`, periodic particle console snapshots are disabled.
 
-@section p09_logging_sec 3. logging
+@section p09_field_statistics_sec 3. field_statistics
+
+Accumulates weighted centered moments of Eulerian fields while the solver runs.
+Omit the block entirely to accumulate nothing: no storage is allocated and no
+statistics output is produced.
+
+```yaml
+field_statistics:
+  enabled: true
+  windows:
+    - name: production
+      start_time: 50.0
+      end_time: 250.0          # optional; open-ended when omitted
+      weighting: physical_time # or: sample
+      step_cadence: 10         # exactly one of step_cadence / time_cadence
+      fields:
+        - {field: Ucat, moments: [first, second]}
+        - {field: P, moments: [first]}
+      covariances:
+        - [Ucat, P]
+```
+
+Mappings:
+- `enabled` -> `-field_statistics_enabled`
+- window count -> `-field_statistics_window_count`
+- per window `<i>` -> `-field_statistics_window_<i>_name`, `_start_time`,
+  `_end_time`, `_weighting`, `_step_cadence` or `_time_cadence`, `_field_count`,
+  `_field_<j>_name`, `_field_<j>_moments`, `_covariance_count`, `_covariance_<k>`
+
+`end_time` is omitted from the control file rather than given a sentinel, because
+its absence is what makes a window open-ended.
+
+@subsection p09_fs_windows_sub 3.1 Windows
+
+Each window is an independent average. Windows may overlap; each owns its state.
+The name identifies a window's saved state across a restart, so it must be unique
+within the file and stable across runs.
+
+- `start_time` is when the window begins. The first state at or after it anchors
+  the window without being sampled; see @ref p58_bounds_sub.
+- `end_time` is optional. A bounded window completes when it passes it and stops
+  changing; an open window accumulates until the run ends.
+- `weighting` is `sample` (every accepted state counts equally) or
+  `physical_time` (a state is weighted by the interval it represents). Use
+  `physical_time` whenever the timestep can vary. On a constant timestep the two
+  agree exactly.
+- Exactly one of `step_cadence` (positive integer) and `time_cadence` (positive
+  number) must be set.
+
+@subsection p09_fs_fields_sub 3.2 Fields and covariances
+
+`fields` lists what to accumulate. The first moment is always kept, because every
+centered product is measured against it; adding `second` keeps the centered second
+moment that Reynolds stresses, RMS, and TKE are derived from.
+
+| Field | Components | Requires |
+| --- | --- | --- |
+| `Ucat` | 3 | — |
+| `P` | 1 | — |
+| `Nvert` | 1 | — |
+| `Phi` | 1 | — |
+| `Psi` | 1 | particles |
+| `ParticleCount` | 1 | particles |
+| `Nu_t` | 1 | a turbulence model |
+| `CS` | 1 | LES |
+
+`covariances` lists cross-field co-moments, such as `[Ucat, P]` for a
+pressure-velocity flux. A vector's own Reynolds stresses are **not** a covariance;
+they come from `moments: [second]` on that field.
+
+@subsection p09_fs_validation_sub 3.3 Validation
+
+`picurv validate` rejects, naming the offending window:
+
+- a duplicate window name;
+- `start_time` greater than or equal to `end_time`;
+- neither or both of `step_cadence` and `time_cadence`, or a non-positive value;
+- `weighting` outside `{sample, physical_time}`;
+- an empty `fields` list, a repeated field, or an empty or unknown `moments` entry;
+- a field name that is not accumulable, or whose subsystem is inactive for the run;
+- a covariance whose members are not both listed in `fields`, that names one field
+  twice, that pairs two vector fields, or that is requested twice.
+
+Combining `--restart-from` with enabled statistics is also rejected: a branch may
+follow a different trajectory than the samples already collected, so the windows
+would silently restart from zero. Use `--continue` to resume in place, or disable
+statistics to branch without them.
+
+@subsection p09_fs_reading_sub 3.4 What a run produces
+
+Accumulated state is written into each committed checkpoint under
+`statistics/window_<n>/block_<n>/`, and is restored on `--continue`. Nothing is
+derived at solve time; @ref 10_Post_Processing_Reference turns saved state into
+Reynolds stresses, RMS, TKE, and fluxes.
+
+While the run is live, `io.statistics_console_output_frequency` prints one line
+per window with its state, sample count, accumulated weight, represented time,
+progress, and mask coverage. @ref 58_Field_Statistics explains the semantics
+behind each of those numbers, and
+@ref 60_Field_Statistics_Planned_Extensions records what is not built yet.
+
+@section p09_logging_sec 4. logging
 
 ```yaml
 logging:
@@ -139,6 +237,10 @@ walltime-guard status, and active state source.
   final-summary setting, runtime-memory-log state, and the selected solution
   convergence mode. Periodic and statistical convergence modes additionally
   show their active period or window; those fields are omitted otherwise.
+- `Statistics Console Cadence` is always present. It reports the configured
+  cadence, or `DISABLED` distinguishing a silenced console over accumulating
+  windows from a run that configured none, so a log is never ambiguous about
+  whether statistics were being collected.
 
 The C `unit-io` contract test verifies these conditional banner fields, while
 `unit-logging` verifies the logging behavior described on this page. Both are
@@ -154,7 +256,7 @@ their solver-specific reporting branches. The checked-in
 command's parser, handler, and context marker, including submission and plot
 paths.
 
-@section p09_profiling_sec 4. profiling
+@section p09_profiling_sec 5. profiling
 
 ```yaml
 profiling:
@@ -177,7 +279,7 @@ Rules:
 - `timestep_output.file` sets the filename written under the run `logs/` directory
 - `final_summary.enabled` controls the end-of-run `ProfilingSummary_*.log` file
 
-@section p09_diagnostics_sec 5. diagnostics
+@section p09_diagnostics_sec 6. diagnostics
 
 Structured diagnostics for PETSc memory/object/function debugging plus a compact
 PICurv runtime memory log:
@@ -241,7 +343,7 @@ for the solver stage, with analogous `PostProcessor` log names for post runs.
   and `--plot <qualified-series>` renders full or last-N append-order histories
   through standalone `generators/plot.gen`.
 
-@section p09_solver_monitoring_sec 6. solver_monitoring
+@section p09_solver_monitoring_sec 7. solver_monitoring
 
 Human-readable solver monitor controls. PICurv maps these keys to the raw
 C/PETSc flags written into the generated `.control` file:
@@ -287,7 +389,7 @@ Rules:
 - Legacy direct flag entries under `solver_monitoring` are still accepted for
   compatibility, but new profiles should prefer the structured form above.
 
-@section p09_next_steps_sec 7. Next Steps
+@section p09_next_steps_sec 8. Next Steps
 
 Proceed to **@subpage 10_Post_Processing_Reference**.
 
@@ -295,7 +397,7 @@ Also see:
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 50_Modular_Selector_Extension_Guide**
-- **@subpage 58_Turbulence_Statistics_Pipeline_Specification**
+- **@subpage 58_Field_Statistics**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

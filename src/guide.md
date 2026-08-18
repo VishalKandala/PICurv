@@ -30,6 +30,9 @@ This directory contains the C implementation for the solver, postprocessor, and 
 - I/O and post:
   - files: `io.c`, `postprocessor.c`, `postprocessing_kernels.c`, `particle_statistics.c`, `vtk_io.c`
   - APIs: `ReadSimulationFields`, `WriteSimulationFields`, `ParsePostProcessingSettings`, `EulerianDataProcessingPipeline`, `GlobalStatisticsPipeline`
+- field statistics:
+  - files: `statistics_moments.c`, `statistics_window.c`, `statistics_accumulator.c`, `statistics_target.c`, `statistics_config.c`
+  - APIs: `ParseFieldStatisticsConfig`, `FieldStatisticsIsActive`, `FieldStatisticsUpdateWindows`, `PicurvWindowOfferState`, `PicurvWindowAccumulate`, `FieldStatisticsPipeline`
 - analytical/initialization:
   - files: `AnalyticalSolutions.c`, `initialcondition.c`
   - APIs: `AnalyticalSolutionEngine`, `InitializeEulerianState`, `SetInitialInteriorField`

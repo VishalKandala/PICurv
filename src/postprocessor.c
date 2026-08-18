@@ -1,9 +1,10 @@
 /**
  * @file postprocessor.c
- * @brief Phase 2 implementation of the post-processing tool.
+ * @brief Offline post-processing tool driving the derived-output pipelines.
  *
- * This phase introduces a dedicated configuration system and performs a
- * single-step data load to verify the I/O and data structures.
+ * Reads committed checkpoint bundles over a step range and dispatches the
+ * Eulerian, Lagrangian, particle-statistics, and field-statistics pipelines that
+ * a recipe selected, writing one output family per enabled pipeline.
  */
 
 #include "postprocessor.h" // Use our new header

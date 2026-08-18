@@ -115,6 +115,42 @@ statistics_pipeline:
 # specify the statistics CSV prefix. Use statistics_pipeline.output_prefix instead.
 # statistics_output_prefix: "Stats"
 
+# --- Eulerian Field Statistics Recipe ---
+# Derives saved accumulator state into scientific turbulence quantities. This is
+# a separate contract from statistics_pipeline above: that one reduces particle
+# trajectories, this one reads the field windows the solver accumulated through
+# monitor.yml -> field_statistics.
+#
+# The recipe names windows rather than redescribing them, because the window
+# definitions already reach the post-processor through the run's solver control.
+# Omit this block to derive nothing.
+# field_statistics:
+#   # Window names, matching monitor.yml. Each window writes its own files, so a
+#   # name may not be repeated.
+#   windows: ["production"]
+#
+#   # Read every window's state from this step instead of from the step being
+#   # processed. Omit to follow the processed step, which is what makes the CSV
+#   # a convergence history rather than one row repeated.
+#   # source_step: 4000
+#
+#   # Which derived quantities to write. Each resolves against what the window
+#   # actually accumulated: a window keeping only first moments has no stresses,
+#   # RMS, or TKE to give, and a recipe that would produce an empty file is
+#   # rejected before the run rather than after it.
+#   #   mean            -> the window mean of every accumulated field
+#   #   reynolds_stress -> centered second moments; six components for a vector
+#   #   rms             -> per-component root mean square of the fluctuation
+#   #   tke             -> turbulent kinetic energy, for vector fields
+#   #   flux            -> the cross-field co-moments listed under covariances
+#   outputs: ["mean", "reynolds_stress", "rms", "tke", "flux"]
+#
+#   # vtk writes the derived fields as one .vts per window per processed step.
+#   # csv appends one row per processed step to a per-window convergence history,
+#   # recording sample count, weight, represented time, mask coverage, and the
+#   # domain-mean TKE when the window has one.
+#   formats: ["vtk", "csv"]
+
 # ==============================================================================
 # SECTION 4: OUTPUT CONFIGURATION
 # ------------------------------------------------------------------------------

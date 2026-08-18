@@ -21,7 +21,38 @@ io:
   data_output_frequency: 50
   particle_console_output_frequency: 0
   particle_log_interval: 1
+  statistics_console_output_frequency: 50
   directories: {output: output, restart: restart, log: logs}
+
+# Two windows over disjoint stretches of the decay. Isotropy makes the result
+# checkable: the three normal Reynolds stresses should agree and the shear
+# components should vanish, and the later window should carry the lower TKE.
+# Physical-time weighting keeps that true if the timestep ever varies.
+field_statistics:
+  enabled: true
+  windows:
+    - name: early_decay
+      start_time: 0.2
+      end_time: 0.8
+      weighting: physical_time
+      step_cadence: 5
+      fields:
+        - {field: Ucat, moments: [first, second]}
+        - {field: P, moments: [first]}
+        - {field: Nu_t, moments: [first]}
+      covariances:
+        - [Ucat, P]
+    - name: late_decay
+      start_time: 1.2
+      end_time: 2.0
+      weighting: physical_time
+      step_cadence: 5
+      fields:
+        - {field: Ucat, moments: [first, second]}
+        - {field: P, moments: [first]}
+        - {field: Nu_t, moments: [first]}
+      covariances:
+        - [Ucat, P]
 solver_monitoring:
   momentum:
     newton_krylov_history: true

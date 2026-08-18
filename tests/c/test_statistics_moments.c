@@ -2,11 +2,10 @@
  * @file test_statistics_moments.c
  * @brief C unit tests for the weighted centered-moment kernels.
  *
- * Covers the Stage 1 acceptance items in
- * @ref 60_Field_Statistics_Phase2_Implementation_Specification section 13:
- * constant fields yielding exactly zero covariance, known two- and three-sample
- * moments across all six symmetric velocity components, high-mean/low-fluctuation
- * precision, and merge-equals-sequential.
+ * Covers the moment acceptance items in @ref p58_validation_sec — constant fields
+ * yielding exactly zero covariance, known two- and three-sample moments across all
+ * six symmetric velocity components, high-mean/low-fluctuation precision, and
+ * merge-equals-sequential.
  */
 
 #include "test_support.h"

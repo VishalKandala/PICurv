@@ -109,7 +109,74 @@ solution_monitoring:
     #   window_steps: 500
 
 # ==============================================================================
-# 5. I/O AND DATA MANAGEMENT
+# 5. SCIENTIFIC FIELD STATISTICS
+#    Accumulates weighted centered moments of Eulerian fields while the solver
+#    runs, so turbulence statistics do not depend on how many instantaneous
+#    states happened to be saved. Windows are independent, are carried across a
+#    restart, and are derived into Reynolds stresses, RMS, TKE, and fluxes by
+#    post.yml -> field_statistics.
+#
+#    Omit this block entirely to accumulate nothing: no storage is allocated and
+#    no statistics output is produced.
+# ==============================================================================
+field_statistics:
+  # Master switch. When false the windows below are ignored.
+  # [Boolean] -> -field_statistics_enabled
+  enabled: false
+
+  # One independent accumulator per named window. A name identifies the window's
+  # saved state across a restart, so it must be unique and stable.
+  # [List] -> -field_statistics_window_count
+  windows:
+    - # [String] -> -field_statistics_window_<i>_name
+      name: "production"
+
+      # Physical time at which the window starts accumulating. The first accepted
+      # state anchors the window; it contributes no interval of its own.
+      # [Number] -> -field_statistics_window_<i>_start_time
+      start_time: 1.0
+
+      # Physical time at which the window stops. Omit for an open-ended window
+      # that keeps accumulating until the run ends.
+      # [Number] -> -field_statistics_window_<i>_end_time
+      # end_time: 10.0
+
+      # How an accepted state is weighted.
+      #   sample        -> every accepted state counts equally
+      #   physical_time -> a state is weighted by the interval it represents,
+      #                    which is what a variable timestep requires
+      # [Enum] -> -field_statistics_window_<i>_weighting
+      weighting: "physical_time"
+
+      # Exactly one of step_cadence and time_cadence. step_cadence samples every
+      # N completed steps from activation; time_cadence takes the first state at
+      # or past each multiple of the interval.
+      # [Positive Integer] -> -field_statistics_window_<i>_step_cadence
+      step_cadence: 10
+      # [Positive Number] -> -field_statistics_window_<i>_time_cadence
+      # time_cadence: 0.05
+
+      # Fields to accumulate. The first moment is always kept, because every
+      # centered product is measured against it; list "second" as well to keep
+      # the centered second moment that Reynolds stresses, RMS, and TKE need.
+      # Available fields: Ucat, P, Nvert, Phi, Psi, ParticleCount, Nu_t, CS.
+      # Psi and ParticleCount require particles; Nu_t requires a turbulence
+      # model; CS requires LES. A field whose subsystem is inactive is rejected
+      # at validation rather than accumulated as zeros.
+      # [List] -> -field_statistics_window_<i>_field_<j>_name / _moments
+      fields:
+        - {field: "Ucat", moments: ["first", "second"]}
+        - {field: "P", moments: ["first"]}
+
+      # Cross-field co-moments, for fluxes such as <u'p'>. Both members must also
+      # appear in fields above, because a co-moment is centered against their
+      # means. Pairing a field with itself belongs in moments: ["second"].
+      # [List of pairs] -> -field_statistics_window_<i>_covariance_<k>
+      covariances:
+        - ["Ucat", "P"]
+
+# ==============================================================================
+# 6. I/O AND DATA MANAGEMENT
 #    Controls data file generation and locations for the SOLVER.
 # ==============================================================================
 io:
@@ -126,6 +193,13 @@ io:
   # [Non-negative Integer] -> -particle_console_output_freq
   particle_console_output_frequency: 100
 
+  # Frequency for printing a one-line-per-window field-statistics snapshot into
+  # the main solver log. Reports window progress only; it never dumps field data.
+  # Snapshots also require logging.verbosity of INFO or finer. Set to 0, or omit,
+  # to disable them without affecting what is accumulated.
+  # [Non-negative Integer] -> -statistics_console_output_freq
+  statistics_console_output_frequency: 100
+
   # --- Particle Tracking Row Subsampling ---
   # Within each particle console snapshot, print only every Nth particle row.
   # [Integer] -> -logfreq
@@ -140,7 +214,7 @@ io:
     log: "logs"         # [string] -> -log_dir
 
 # ==============================================================================
-# 6. SOLVER MONITORING
+# 7. SOLVER MONITORING
 # ==============================================================================
 #
 # This section exposes common solver-monitor controls with readable names.

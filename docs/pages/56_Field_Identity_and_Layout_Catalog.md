@@ -13,7 +13,7 @@ checkpoint formats, runtime configuration, or postprocessing recipe syntax.
 
 @section p56_scope_sec 1. Implemented Scope
 
-Phase 1 adds:
+The catalog provides:
 
 - `FieldId`, a compile-time identity for each field formerly recognized by
   @ref UpdateLocalGhosts;
@@ -198,9 +198,9 @@ Generic gather/restart/output helpers also remain name-based for dynamic
 postprocessor fields, but query the registered `PetscDataType` from DMSwarm
 instead of inferring integer width from a field-name comparison.
 
-@section p56_nongoals_sec 8. Explicit Non-Goals of Phase 1
+@section p56_nongoals_sec 8. Explicit Non-Goals
 
-This phase does not:
+The catalog deliberately does not:
 
 - alter `CreateAndInitializeAllVectors`, setup ordering, or teardown ordering;
 - infer or create fields from their IDs;
@@ -209,7 +209,8 @@ This phase does not:
 - change function log filtering, runtime monitoring cadence/output, or profiling;
 - change solver/postprocessor input or output formats;
 - add statistics accumulation, moments, profiles, bins, or derived turbulence
-  calculations;
+  calculations, which are built on the catalog rather than in it (see
+  @ref 58_Field_Statistics);
 - assign IDs to functions; or
 - serialize raw enum values into checkpoint files.
 
@@ -246,4 +247,4 @@ behavioral regressions for the unchanged numerical paths.
 - **@subpage 13_Code_Architecture**
 - **@subpage 51_C_Test_Suite_Developer_Guide**
 - **@subpage 57_Future_Architecture_Specifications**
-- **@subpage 58_Turbulence_Statistics_Pipeline_Specification**
+- **@subpage 58_Field_Statistics**

@@ -325,8 +325,8 @@ PetscErrorCode PicurvWindowComputeHash(const PicurvWindowDefinition *definition,
             }
             break;
         case 6:
-            /* Phase 2 resolves exactly one mask, so this group hashes a constant.
-             * It exists now so a Phase 3 mask key extends this group instead of
+            /* Exactly one mask is resolved, so this group hashes a constant. It
+             * exists so that a future mask key extends this group instead of
              * renumbering every group after it and invalidating saved state. */
             PetscCall(PetscSNPrintf(text, sizeof(text), "mask=fluid\n"));
             break;

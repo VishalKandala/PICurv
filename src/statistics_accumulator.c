@@ -82,8 +82,8 @@ PetscErrorCode PicurvCovarianceComponentCount(PetscInt dof_a, PetscInt dof_b, Pe
 {
     PetscFunctionBeginUser;
     PetscCheck(count != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Count output is required.");
-    /* Phase 2 accepts scalar-scalar and vector-scalar pairs; vector-vector cross
-     * products are an explicit non-goal. */
+    /* Scalar-scalar and vector-scalar pairs only; a vector-vector cross product
+     * would need a nine-component carrier that nothing allocates. */
     PetscCheck((dof_a == 1 && dof_b == 1) || (dof_a == 3 && dof_b == 1) || (dof_a == 1 && dof_b == 3),
                PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Covariance is supported for scalar-scalar and vector-scalar pairs, got dof %" PetscInt_FMT
@@ -829,8 +829,8 @@ PetscErrorCode PicurvWindowAccumulate(UserCtx *user, const PicurvWindowDefinitio
                "Accepted states carry a positive weight, got %g.", (double)weight);
     if (definition->field_count == 0) PetscFunctionReturn(0);
 
-    /* Every requested field shares the pointwise cell-centered domain in Phase 2,
-     * so the plan is resolved once rather than per field. */
+    /* Every requested field shares the pointwise cell-centered domain, so the plan
+     * is resolved once rather than per field. */
     PetscCall(SpatialTargetPlanCreate(user, (FieldId)definition->fields[0].field_id,
                                       PICURV_STATISTICS_MASK_FLUID, &plan));
 

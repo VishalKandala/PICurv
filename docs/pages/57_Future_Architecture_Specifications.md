@@ -2,11 +2,13 @@
 
 @anchor _Future_Architecture_Specifications
 
-This page records phased architectural direction and is retained for explicit
-review and approval.
-It prevents design decisions from being lost between independently reviewed
-branches. A specification on this page is not a statement that its YAML or file
-format is currently accepted by PICurv.
+This page indexes architectural work that is proposed rather than built, and
+records the dependency order between the pieces. It prevents design decisions
+from being lost between independently reviewed branches.
+
+Being listed here is not a statement that a YAML or file format is accepted. The
+status column is authoritative: a specification is proposed until its own page
+says otherwise.
 
 @tableofcontents
 
@@ -14,15 +16,20 @@ format is currently accepted by PICurv.
 
 | Specification | Status | Dependency |
 | --- | --- | --- |
-| @ref 56_Field_Identity_and_Layout_Catalog | implemented on `main` | none |
-| @ref 58_Turbulence_Statistics_Pipeline_Specification | Phase 1 implemented, awaiting review and merge; Phase 2 specified but not implemented | field catalog |
-| @ref 60_Field_Statistics_Phase2_Implementation_Specification | specification complete, awaiting implementation | statistics pipeline |
-| @ref 59_Function_Identity_and_Observability_Specification | deferred, independently benchmarked | none |
+| @ref 56_Field_Identity_and_Layout_Catalog | implemented | none |
+| @ref 58_Field_Statistics | implemented | field catalog |
+| @ref 60_Field_Statistics_Planned_Extensions | proposed | field statistics |
+| @ref 59_Function_Identity_and_Observability_Specification | deferred, benchmark-gated | none |
 
-The field-catalog phase established typed Eulerian and particle identities,
-layout metadata, and existing-vector views without changing vector ownership.
-That is the required correctness foundation for statistics on shifted,
-face-centered, and component-staggered fields.
+The typed field catalog established Eulerian and particle identities, layout
+metadata, and non-owning views over existing vectors without changing vector
+ownership. That is the correctness foundation statistics rely on for shifted,
+face-centered, and component-staggered fields, which is why it had to land first.
+
+Field statistics build directly on it and are implemented; what remains proposed
+for that subsystem is indexed at
+**@subpage 60_Field_Statistics_Planned_Extensions**, which carries its own
+dependency order.
 
 @section p57_rules_sec 2. Rules Shared by Future Work
 
@@ -48,26 +55,19 @@ handlers, and postprocessing operations.
 
 @section p57_stats_summary_sec 3. Statistics Direction
 
-The statistics work will add reusable completed-state scheduling and
-field-layout-aware reducers shared where useful by scientific statistics and
-rolling physical-solution monitoring. It will preserve existing logger formats
-and PETSc monitors, accumulate numerically stable centered primitive moments
-online, and derive Reynolds stresses, RMS, TKE, turbulent fluxes, and normalized
-outputs in postprocessing.
+Field statistics are implemented. Windows accumulate numerically stable centered
+moments online, ride in the committed checkpoint bundle, resume on continuation,
+and are derived into Reynolds stresses, RMS, turbulent kinetic energy, and fluxes
+in post-processing. The contract is at **@subpage 58_Field_Statistics**.
 
-The current Phase 1 foundation keeps `control` as the single generated C-ingress
-artifact, moves convergence policy to
-`monitor.yml -> solution_monitoring.convergence`, and removes rather than wraps
-the legacy `-averaging`/`su*` system. It deliberately exposes no scientific
-window YAML before the accumulator, checkpoint, and postprocessor path is
-usable. The committed-checkpoint contract and its coordinator, validator, and
-restart discovery are implemented, which completes Phase 1.
+The direction the remaining work follows is a shared, field-layout-aware reducer:
+the same traversal serving spatial targets, reduced statistics, and eventually the
+rolling physical-solution monitor, instead of one implementation per consumer.
+That replacement is permitted only where tests demonstrate identical results.
+Existing logger formats and PETSc monitors are preserved throughout.
 
-The authoritative design, YAML placement, checkpoint naming, restart rules, and
-implementation phases are in
-**@subpage 58_Turbulence_Statistics_Pipeline_Specification**. The Phase 2 implementation
-contracts, settled quadrature rule, ingress scheme, and staged plan are in
-**@subpage 60_Field_Statistics_Phase2_Implementation_Specification**.
+The proposed extensions and their dependency order are at
+**@subpage 60_Field_Statistics_Planned_Extensions**.
 
 @section p57_functions_summary_sec 4. Function Identity Direction
 

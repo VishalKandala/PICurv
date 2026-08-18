@@ -28,8 +28,8 @@ Then use the structural map and reference pages:
 - **@subpage 21_Methods_Overview**: governing methods and model map.
 - **@subpage 46_C_Runtime_Execution_Map**: solver execution order and C runtime touchpoints.
 - **@subpage 56_Field_Identity_and_Layout_Catalog**: typed Eulerian/particle identities and layout-aware storage and coupling metadata.
+- **@subpage 58_Field_Statistics**: online turbulence statistics — window semantics, checkpoint state, and derived quantities.
 - **@subpage 57_Future_Architecture_Specifications**: status and dependency map for proposed, not-yet-implemented architecture.
-- **@subpage 58_Turbulence_Statistics_Pipeline_Specification**: proposed unified observation, raw statistics, checkpoint, and postprocessing contract.
 - **@subpage 53_Search_Robustness_Metrics_Reference**: authoritative definitions for runtime search observability and paper-grade search signals.
 - **Data Structures (`annotated_structured.html`)** and **File List (`files_structured.html`)**:
   organized code-reference views by module and file type.

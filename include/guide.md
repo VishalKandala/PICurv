@@ -15,6 +15,9 @@ For maintainers, this directory is a stability boundary: changes here can impact
 - `grid.h`, `Metric.h`, `Boundaries.h`, `poisson.h`, `rhs.h`: Eulerian solver subsystem APIs.
 - `ParticleSwarm.h`, `ParticleMotion.h`, `interpolation.h`, `ParticlePhysics.h`: Lagrangian/coupling subsystem APIs.
 - `postprocessor.h`, `postprocessing_kernels.h`, `particle_statistics.h`: post/statistics interfaces.
+- `statistics_moments.h`, `statistics_window.h`, `statistics_accumulator.h`,
+  `statistics_target.h`, `statistics_config.h`: Eulerian field-statistics kernels,
+  window lifecycle, per-window storage, spatial targeting, and control ingress.
 
 ## Maintenance Rules
 

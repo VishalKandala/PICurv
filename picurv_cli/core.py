@@ -4883,7 +4883,7 @@ _MONITOR_SCHEMA = {
 }
 
 
-#: Eulerian fields a Phase 2 window may accumulate, with the subsystem each needs.
+#: Eulerian fields a statistics window may accumulate, with the subsystem each needs.
 #:
 #: This is a curated subset of the typed catalog rather than a mirror of it. Averaging
 #: a grid metric is meaningless, and a face-staggered field has no single pointwise
@@ -4902,8 +4902,8 @@ STATISTICS_ELIGIBLE_FIELDS = {
 }
 
 #: Moment names one field may request. Higher moments cannot be recovered from
-#: centered state after the fact, so they are a Phase 3 addition rather than an
-#: extension of this list.
+#: centered state after the fact, so they need their own accumulation rather than
+#: an extension of this list.
 STATISTICS_MOMENT_NAMES = ("first", "second")
 
 #: Weighting modes a window may select.
@@ -7088,7 +7088,7 @@ def normalize_field_statistics_config(monitor_cfg: dict, case_cfg: dict = None) 
     """!
     @brief Validate and canonicalize the field-statistics block of monitor.yml.
 
-    @details Rejects every condition listed in the Phase 2 specification, naming the
+    @details Rejects every condition the field-statistics contract forbids, naming the
              offending window so a message points at one entry rather than the block.
              Returns a canonical form the flag resolver serializes without further
              interpretation, so validation and emission cannot disagree.
@@ -7241,12 +7241,12 @@ def normalize_field_statistics_config(monitor_cfg: dict, case_cfg: dict = None) 
                     f"{missing} in 'fields' as well, because a co-moment is centered against their means."
                 )
             # Two three-component fields would need a full nine-component tensor,
-            # which Phase 2 does not carry.
+            # which nothing allocates.
             if (STATISTICS_ELIGIBLE_FIELDS[first]["components"] == 3
                     and STATISTICS_ELIGIBLE_FIELDS[second]["components"] == 3):
                 raise ValueError(
                     f"field statistics window '{name}': covariance ['{first}', '{second}'] pairs two "
-                    "vector fields, which is not supported in Phase 2."
+                    "vector fields, which is not supported."
                 )
             if sorted((first, second)) in [sorted(existing) for existing in covariances]:
                 raise ValueError(

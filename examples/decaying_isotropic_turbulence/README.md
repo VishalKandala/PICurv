@@ -39,3 +39,51 @@ Preparation writes `diagnostics/initial_condition_summary.json` and
 directory. For a quick smoke run, copy the case, set `im/jm/km` to 16,
 `k_cut` to 5, multigrid levels to 2, and `total_steps` to 1 before running the
 full 64-cubed case.
+
+## Turbulence statistics
+
+`monitor.yml` accumulates two field-statistics windows while the solver runs, so
+the turbulence statistics do not depend on how many instantaneous states you
+happened to save. Each window keeps its own weighted centered moments of `Ucat`,
+`P`, and the LES eddy viscosity `Nu_t`, plus the `Ucat`-`P` co-moment:
+
+- `early_decay` covers `t` in `[0.2, 0.8]`,
+- `late_decay` covers `t` in `[1.2, 2.0]`.
+
+Both start after the synthetic initial field has adjusted to the discrete
+operators, and both weight each accepted state by the physical time it
+represents, so the averages stay correct if the timestep ever varies.
+
+`post.yml` derives them into Reynolds stresses, RMS, turbulent kinetic energy,
+and the pressure-velocity flux:
+
+```bash
+picurv run --post-process --run-dir runs/<run_id> --post dit_case/post.yml
+```
+
+That writes, per window, a `.vts` per processed step under
+`visualization/dit/` and one convergence-history `.csv` recording sample count,
+accumulated weight, represented time, mask coverage, and the domain-mean TKE.
+
+### What to check
+
+Isotropy makes this case self-checking. Within a converged window:
+
+- the three normal Reynolds stresses `<u'u'>`, `<v'v'>`, `<w'w'>` should agree to
+  within the sampling error of the window, and
+- the shear components `<u'v'>`, `<u'w'>`, `<v'w'>` should be small compared with
+  the normal components.
+
+A window that has not yet gathered enough states shows this as a spread in the
+normal stresses rather than as an obvious error, so read the sample count in the
+CSV before drawing a conclusion from a short run. Across windows, `late_decay`
+should carry the lower TKE; the ratio between the two window means is the decay
+measured over the interval separating them.
+
+Because the box is triply periodic, no plane is counted twice and every cell is
+sampled, so the mask coverage column stays at `1.00`. A coverage below one here
+would indicate a masking or target-plan problem rather than a physical one.
+
+Both windows are bounded, so they complete before the run ends and their saved
+state stops changing. Resuming the run with `--continue` carries completed
+windows forward untouched and keeps accumulating any window still open.

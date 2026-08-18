@@ -8,6 +8,7 @@ This directory stores reusable `monitor.yml` profiles for solver observability. 
 - timestep progress reporting and end-of-run summaries,
 - file output cadence and output directory behavior,
 - particle console reporting cadence,
+- scientific field-statistics windows and their console reporting cadence,
 - structured diagnostics under `diagnostics`:
   - PETSc initialization diagnostics such as malloc/log/object reporting,
   - PICurv's compact `Runtime_Memory.log`,
@@ -20,6 +21,10 @@ This directory stores reusable `monitor.yml` profiles for solver observability. 
 
 For exhaustive schema coverage, see:
 - `examples/master_template/master_monitor.yml`
+
+Field statistics are opt-in and absent from the shipped profiles: a run
+accumulates nothing unless `monitor.yml` carries a `field_statistics` block.
+`examples/decaying_isotropic_turbulence/monitor.yml` is a worked configuration.
 
 ## 3. Typical Usage
 

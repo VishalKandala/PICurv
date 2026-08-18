@@ -2,10 +2,9 @@
  * @file test_statistics_target.c
  * @brief C unit tests for pointwise spatial target resolution.
  *
- * Covers the Stage 2 acceptance items in
- * @ref 60_Field_Statistics_Phase2_Implementation_Specification section 13: cell,
- * node, and I/J/K-face layouts, and nonperiodic, mixed, and fully periodic
- * domains with no duplicate planes.
+ * Covers the layout acceptance items in @ref p58_validation_sec — cell, node, and
+ * I/J/K-face layouts, and nonperiodic, mixed, and fully periodic domains with no
+ * duplicate planes.
  *
  * The fixture builds a DMDA of size `n + 1` per dimension, so with `n = 6` each
  * dimension has seven slots: one extra non-physical high-side slot, and under the

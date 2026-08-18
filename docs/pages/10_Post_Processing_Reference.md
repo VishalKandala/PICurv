@@ -8,12 +8,10 @@ For the full commented template, see:
 
 `post.yml` defines postprocessing input range, processing pipelines, statistics tasks, and VTK output selection.
 
-The current `statistics_pipeline` is the particle-reduction path. The proposed
-online Eulerian field-statistics system will use a separate `field_statistics`
-recipe so particle MSD and resolved turbulence statistics are not conflated.
-That future contract is specified in
-**@subpage 58_Turbulence_Statistics_Pipeline_Specification** and is not yet
-implemented.
+It carries two separate statistics contracts, which are deliberately not
+combined. `statistics_pipeline` reduces particle trajectories; `field_statistics`
+derives the Eulerian field windows the solver accumulated. Particle MSD and
+resolved turbulence statistics answer different questions and share no state.
 
 @tableofcontents
 
@@ -46,6 +44,11 @@ statistics_pipeline:
   output_prefix: "Stats"
   tasks:
     - task: msd
+
+field_statistics:
+  windows: [production]
+  outputs: [mean, reynolds_stress, rms, tke, flux]
+  formats: [vtk, csv]
 
 io:
   output_directory: "viz"
@@ -91,7 +94,10 @@ Global operation:
 Lagrangian tasks (`lagrangian_pipeline`):
 - `specific_ke` -> `ComputeSpecificKE:<in>><out>`
 
-@section p10_stats_sec 5. Statistics Pipeline
+@section p10_stats_sec 5. Particle Statistics Pipeline
+
+This is the particle-reduction path. For Eulerian turbulence statistics see
+@ref p10_field_stats_sec.
 
 `statistics_pipeline` supports either:
 - list form, or
@@ -105,7 +111,62 @@ Mappings:
 - tasks -> `statistics_pipeline`
 - `output_prefix` -> `statistics_output_prefix`
 
-@section p10_io_sec 6. io
+@section p10_field_stats_sec 6. field_statistics
+
+Derives the accumulated field windows configured at
+`monitor.yml -> field_statistics` into scientific turbulence quantities. Omit the
+block to derive nothing.
+
+```yaml
+field_statistics:
+  windows: [production]
+  source_step: 4000        # optional; defaults to the step being processed
+  outputs: [mean, reynolds_stress, rms, tke, flux]
+  formats: [vtk, csv]
+```
+
+Mappings:
+- `windows` -> `field_statistics_windows`
+- `outputs` -> `field_statistics_outputs`
+- `formats` -> `field_statistics_formats`
+- `source_step` -> `field_statistics_source_step`
+
+The recipe **names** windows rather than redescribing them. The post-processor is
+launched with the run's own control file and resolves the window definitions
+through the same parser the solver used, so there is no second description to fall
+out of step with the first.
+
+Available outputs, each resolved against what the window actually accumulated:
+
+| Output | Produces | Requires |
+| --- | --- | --- |
+| `mean` | the window mean of every accumulated field | — |
+| `reynolds_stress` | centered second moments; six components for a vector | `moments: [second]` |
+| `rms` | per-component root mean square of the fluctuation | `moments: [second]` |
+| `tke` | turbulent kinetic energy | `moments: [second]` on a vector |
+| `flux` | the cross-field co-moments | a `covariances` entry |
+
+A recipe that would produce an empty file — asking for `rms` from a window that
+kept only first moments, for instance — is rejected before the run rather than
+after it.
+
+`vtk` writes one `.vts` per window per processed step. `csv` appends one row per
+processed step to a per-window convergence history recording sample count,
+accumulated weight, represented time, mask coverage, and the domain-mean TKE. The
+CSV is what answers whether a window has run long enough; no single snapshot can.
+
+Because the pipeline runs once per processed step, a recipe spanning a range
+produces a history. Pinning `source_step` reads every processed step's output from
+that one bundle instead, collapsing the history to a single answer.
+
+Each window writes its own files, so a window name may not be listed twice.
+
+**Derived statistics are not dimensionalized**, even under
+`global_operations.dimensionalize`. A Reynolds stress scales as velocity squared
+and a co-moment as the product of two different scales, and the per-field scaling
+table expresses neither. See @ref p58_derived_sec.
+
+@section p10_io_sec 7. io
 
 Mappings:
 - `output_directory` + `output_filename_prefix` -> `output_prefix`
@@ -123,7 +184,7 @@ committed checkpoint; input extensions are not runtime-selectable.
 default under `<monitor output>/statistics/`, while explicit relative or absolute paths are preserved.
 When the same timestep is post-processed again, PICurv now rewrites same-step VTK/VTP outputs and rewrites same-step statistics rows so the final CSV still contains one row per step.
 
-@section p10_next_steps_sec 7. Next Steps
+@section p10_next_steps_sec 8. Next Steps
 
 Proceed to **@subpage 11_User_How_To_Guides** for goal-oriented recipes.
 
@@ -131,7 +192,7 @@ For mapping and extension details:
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 50_Modular_Selector_Extension_Guide**
-- **@subpage 58_Turbulence_Statistics_Pipeline_Specification** (proposed future contract)
+- **@subpage 58_Field_Statistics** (window semantics and derived-quantity definitions)
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

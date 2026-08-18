@@ -8,7 +8,8 @@ This directory stores reusable `post.yml` analysis recipes for `./bin/picurv run
 - input-source location and extension mapping (`source_data`, `io.input_extensions`),
 - Eulerian field operations,
 - Lagrangian particle operations,
-- statistics pipeline tasks,
+- particle statistics pipeline tasks,
+- derived Eulerian field statistics from accumulated solver windows,
 - output naming and directory policy.
 
 ## 2. Included Profiles
@@ -54,6 +55,7 @@ Solve and postprocess in one command:
 ## 4. Notes on Newer Options
 
 - `statistics_pipeline` is supported (canonical task: `msd`); `particle_msd.yml` is the reusable starting point.
+- `field_statistics` is a separate recipe that derives Reynolds stresses, RMS, turbulent kinetic energy, and fluxes from windows the solver accumulated. It names windows configured in `monitor.yml` rather than redescribing them, so it only applies to runs that had field statistics enabled.
 - `io.input_extensions.eulerian/particle`, when present, must remain `dat`;
   committed checkpoint payload filenames are fixed.
 - keep the full desired timestep window in `run_control` for a reusable post profile. With `--continue`, PICurv computes the effective restart step for the same recipe lineage instead of requiring you to edit `start_step` by hand.

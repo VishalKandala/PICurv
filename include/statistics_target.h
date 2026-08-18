@@ -2,10 +2,10 @@
  * @file statistics_target.h
  * @brief Spatial target resolution for the field-statistics pipeline.
  *
- * Implements the pointwise identity mapping required by
- * @ref 60_Field_Statistics_Phase2_Implementation_Specification section 6. The
- * abstraction exists now with only that one mapping so later spatial bins,
- * profiles, regions, and surfaces extend it rather than retrofit it.
+ * Implements the pointwise identity mapping described in @ref p58_target_sec. The
+ * abstraction exists with only that one mapping so later spatial bins, profiles,
+ * regions, and surfaces extend it rather than retrofit it; see
+ * @ref 60_Field_Statistics_Planned_Extensions.
  *
  * The central responsibility is producing an iteration domain that excludes two
  * distinct categories which @ref 56_Field_Identity_and_Layout_Catalog section 4
@@ -28,12 +28,12 @@
 /** @brief Threshold below which a cell counts as fluid for the default mask. */
 #define PICURV_STATISTICS_FLUID_THRESHOLD 0.1
 
-/** @brief Spatial mapping kind. Phase 2 implements only the pointwise identity. */
+/** @brief Spatial mapping kind. Only the pointwise identity is implemented. */
 typedef enum {
     PICURV_TARGET_POINTWISE = 0
 } PicurvTargetKind;
 
-/** @brief Point-eligibility mask. Phase 2 implements only the fluid mask. */
+/** @brief Point-eligibility mask. Only the fluid mask is implemented. */
 typedef enum {
     PICURV_STATISTICS_MASK_FLUID = 0
 } PicurvStatisticsMask;
@@ -47,7 +47,7 @@ typedef enum {
  * An empty domain on a rank is represented by `end[d] <= start[d]`.
  */
 typedef struct {
-    PicurvTargetKind        kind;        /**< Spatial mapping; always pointwise in Phase 2. */
+    PicurvTargetKind        kind;        /**< Spatial mapping; always pointwise. */
     PicurvStatisticsMask    mask;        /**< Point-eligibility mask. */
     const FieldDescriptor  *descriptor;  /**< Catalog metadata for the targeted field. */
     PetscInt                start[3];    /**< Inclusive start per dimension (i, j, k). */
@@ -76,7 +76,7 @@ PetscErrorCode PicurvLayoutDimensionIsNodeLike(FieldLayout layout, PetscInt dim,
  *
  * Rejects component-staggered fields, whose x, y, and z components live on
  * different face families and therefore cannot share a single pointwise domain.
- * Phase 2 statistics request only cell-centered fields, but the plan resolves
+ * Configured statistics request only cell-centered fields, but the plan resolves
  * node and face layouts correctly so later phases inherit a verified contract.
  *
  * @param[in]  user     Block context supplying the DMDA layout and periodicity.

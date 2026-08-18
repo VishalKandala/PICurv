@@ -8,6 +8,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 
 - Incompressible flow solve (fractional-step projection) on curvilinear grids
 - Particle tracking with PETSc `DMSwarm`
+- Online Eulerian field statistics: named windows accumulating weighted centered moments during the solve, checkpointed with the flow state, and derived into Reynolds stresses, RMS, turbulent kinetic energy, and fluxes
 - Grid-particle interpolation and particle-grid projection
 - Runtime search/migration observability via `logs/search_metrics.csv` for particle-enabled runs
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)

@@ -283,7 +283,7 @@ not reaching checkpoints.
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
-- **@subpage 58_Turbulence_Statistics_Pipeline_Specification** (committed-checkpoint and future field-statistics contract)
+- **@subpage 58_Field_Statistics** (statistics state inside the committed checkpoint bundle)
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

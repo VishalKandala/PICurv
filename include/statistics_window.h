@@ -2,10 +2,9 @@
  * @file statistics_window.h
  * @brief Window lifecycle, scheduling, and weighting for the field-statistics pipeline.
  *
- * Implements the window semantics fixed in
- * @ref 60_Field_Statistics_Phase2_Implementation_Specification sections 2 and 4:
- * right-rectangle weighting, final-interval clipping, and the rule that a state
- * representing a zero-length interval is not a sample.
+ * Implements the window semantics described in @ref p58_window_sec and
+ * @ref p58_weighting_sec — right-rectangle weighting, final-interval clipping, and
+ * the rule that a state representing a zero-length interval is not a sample.
  *
  * This module decides **whether** a completed state is accepted and **what weight**
  * it carries. It holds no PETSc objects and performs no field accumulation; the
@@ -131,8 +130,7 @@ PetscErrorCode PicurvWindowOfferState(PicurvWindow *window, PetscInt step, Petsc
 /**
  * @brief Computes the resolved identity hash of one window definition.
  *
- * Hashes the canonical serialization defined in
- * @ref 60_Field_Statistics_Phase2_Implementation_Specification section 7, in that
+ * Hashes the canonical serialization defined in @ref p58_identity_sec, in that
  * fixed order, so a saved window can be matched against a resolved one without
  * storing the definition itself.
  *

@@ -4,9 +4,7 @@
  *
  * These are pure numerical kernels: no configuration, no PETSc vectors, and no
  * knowledge of windows, fields, or scheduling. They implement the accumulator
- * contract fixed in
- * @ref 60_Field_Statistics_Phase2_Implementation_Specification section 5, which
- * in turn follows @ref 58_Turbulence_Statistics_Pipeline_Specification section 7.
+ * contract described in @ref p58_update_sub.
  *
  * Centered state is used rather than raw sums because it retains everything the
  * first and second moments need while staying numerically stable for

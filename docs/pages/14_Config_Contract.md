@@ -162,9 +162,17 @@ Verification-pathway rule:
   timestep and has no exposed cadence option.
 - `control` remains the single generated C-ingress artifact for physical
   solution monitoring; there is no observation-plan sidecar.
-- scientific Eulerian field-statistics YAML is intentionally not accepted
-  until accumulation, checkpoint continuation, and postprocessing are complete
-  end to end.
+- `field_statistics.enabled` -> `-field_statistics_enabled`, and each window is
+  serialized under the `-field_statistics_window_<i>_*` family: name, start time,
+  optional end time, weighting, exactly one cadence, and its resolved field and
+  covariance entries. An omitted `end_time` is absent from the control file rather
+  than given a sentinel, because absence is what makes a window open-ended.
+- `io.statistics_console_output_frequency` -> `-statistics_console_output_freq`.
+  It governs reporting only and is excluded from the window identity hash, so
+  changing it cannot change an accumulated result.
+- window definitions are resolved and hashed in C, and the post-processor reads
+  the same generated control file, so a derived-statistics recipe names windows
+  rather than redescribing them.
 - the old `case.models.statistics.time_averaging`, `-averaging`, and
   `solver.solution_convergence` ingress locations are rejected rather than
   translated.
@@ -180,6 +188,10 @@ Verification-pathway rule:
 - `io.particle_fields` -> `particle_fields_instantaneous`
 - `io.input_extensions.eulerian/particle` -> `eulerianExt/particleExt` for post input readers
 - `source_data.directory` -> `source_directory`
+- `field_statistics.windows/outputs/formats/source_step` ->
+  `field_statistics_windows`, `field_statistics_outputs`,
+  `field_statistics_formats`, `field_statistics_source_step`. This is a distinct
+  contract from `statistics_pipeline`, which reduces particle trajectories.
 
 @section p14_cluster_sec 7. Cluster Contract Highlights (cluster.yml)
 

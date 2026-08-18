@@ -118,7 +118,7 @@ static PetscErrorCode ParseStatisticsFields(PetscInt window, PicurvWindowDefinit
             }
             SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                     "Statistics window '%s' field '%s' requests unknown moment '%s'; "
-                    "only 'first' and 'second' exist in Phase 2.",
+                    "the accumulable moments are 'first' and 'second'.",
                     definition->name, field_name, tokens[t]);
         }
     }

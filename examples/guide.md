@@ -30,6 +30,8 @@ python3 tests/tooling/audit_starter_content.py
 - `drift_diffusivity_gradient/`: analytical zero-flow plus verification-source diffusivity-gradient drift verification.
 - `interpolation_test/`: TGV3D analytical flow interpolation accuracy test with 10k particles.
 - `scatter_verification/`: verification-path prescribed scalar truth injection plus runtime particle-to-grid scatter metrics and grid-size sweeps.
+- `decaying_isotropic_turbulence/`: triply periodic LES decay benchmark, and the worked example for online field statistics; isotropy makes the accumulated Reynolds stresses self-checking.
+- `periodic_test/`: reference collection of periodic-boundary configurations.
 - `master_template/`: exhaustive reference templates for all config roles.
 
 ## How To Start A New Study

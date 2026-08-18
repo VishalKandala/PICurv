@@ -86,7 +86,12 @@ is a test-local routine.
 - `test_postprocessing.c`: post-processing kernel contracts (specific-KE, displacement, nodal average, normalization, dimensionalization, Q-criterion)
 - `test_vtk_io.c`: VTK writer and data-preparation contracts (coordinates, field gather/subsampling, particle prep)
 - `test_postprocessor.c`: postprocessing orchestration contracts (swarm setup, pipeline dispatch, eulerian/particle output, statistics dispatch)
-- `test_statistics.c`: statistics kernel contracts (MSD CSV output and empty-swarm behavior)
+- `test_statistics.c`: particle statistics kernel contracts (MSD CSV output and empty-swarm behavior)
+- `test_statistics_moments.c`: weighted centered moment, co-moment, and parallel-merge kernels
+- `test_statistics_window.c`: window scheduling, weighting, clipping, and identity hashing
+- `test_statistics_accumulator.c`: per-window storage, accumulation, masks, and derived quantities
+- `test_statistics_target.c`: spatial target plan across cell, node, face, and periodic layouts
+- `test_statistics_config.c`: field-statistics control resolution from the generated control file
 - `test_grid.c`: local/global bounding-box helpers
 - `test_metric.c`: metric inversion, contravariant velocity, face geometry helpers
 - `test_boundaries.c`: boundary factory plus direct handler-behavior checks

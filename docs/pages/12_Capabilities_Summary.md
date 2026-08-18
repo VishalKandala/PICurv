@@ -65,7 +65,9 @@ Runtime controls include:
 - output/restart/log directory selection,
 - function-level logging allowlists,
 - profiling critical function lists,
-- monitor verbosity and cadence controls.
+- monitor verbosity and cadence controls,
+- online field-statistics windows accumulated during the solve, checkpointed with
+  the flow state and resumed on continuation.
 
 @section p12_post_sec 5. Post-Processing and Statistics
 
@@ -73,7 +75,9 @@ Pipeline capabilities include:
 
 - Eulerian transforms (dimensionalization, nodal averaging, Q-criterion, normalization),
 - Lagrangian particle tasks,
-- statistics reduction pipeline (currently MSD family),
+- particle statistics reduction pipeline (currently MSD family),
+- derived Eulerian field statistics: Reynolds stresses, RMS, turbulent kinetic
+  energy, and turbulent fluxes from windows the solver accumulated online,
 - configurable input extensions and output field selection.
 
 @section p12_orchestration_sec 6. Cluster and Study Orchestration

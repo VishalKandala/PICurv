@@ -3,8 +3,8 @@
 @anchor _IEM_and_Statistical_Averaging
 
 PICurv couples a particle scalar micromixing model (IEM-style) with particle
-statistics postprocessing. The planned Eulerian field-statistics pipeline is a
-separate system.
+statistics postprocessing. Eulerian field statistics are a separate system with
+its own configuration and state; see @ref 58_Field_Statistics.
 
 @tableofcontents
 
@@ -58,28 +58,28 @@ r_{theory} = \sqrt{6Dt},
 
 with global MPI reductions and CSV output per statistics call.
 
-@section p28_field_observations_sec 4. Eulerian Field Statistics Status
+@section p28_field_observations_sec 4. Relationship To Eulerian Field Statistics
 
-Eulerian scientific statistics are not currently exposed in active YAML. The
-old `models.statistics.time_averaging`, raw `su0`/`su1`/`su2`/`sp` state, and
-reserved averaged-field post output were removed rather than retained as a
-second workflow. Until the replacement is complete, users can compute offline
-statistics only from the instantaneous states they elected to save.
+Eulerian field statistics are configured at `monitor.yml -> field_statistics`,
+accumulate weighted centered moments while the solver runs, and are derived into
+Reynolds stresses, RMS, turbulent kinetic energy, and fluxes by
+`post.yml -> field_statistics`. @ref 58_Field_Statistics is the full contract.
 
-The replacement design uses field-catalog-aware pointwise weighted centered
-first and second moments with independent state per named window. Reynolds
-stress, RMS, and TKE remain postprocessor-derived quantities. See the
-authoritative future specification for the full contract and staged status.
+Particle MSD stays under the postprocessor `statistics_pipeline` described above.
+It is not an Eulerian field window, shares no accumulator state, and is
+configured separately. The two are kept apart deliberately so a particle
+reduction and a resolved-turbulence average are never conflated.
 
-Particle MSD remains under the existing postprocessor `statistics_pipeline`.
-It is not an Eulerian field window and does not share accumulator state.
+`Psi` is the field where the two subsystems meet: it is a particle-carried scalar
+projected onto the grid, and the projected field can itself be accumulated as a
+statistics window when particles are active.
 
 @section p28_terminology_sec 5. Averaging Terminology In PICurv
 
 "Averaging" appears in multiple contexts:
 
-- particle->grid count-normalized scatter,
-- future Eulerian field-statistics windows,
+- particle-to-grid count-normalized scatter,
+- Eulerian field-statistics windows,
 - postprocessing global statistical reductions.
 
 Treat these as distinct workflows with different configuration points.
@@ -89,7 +89,7 @@ Treat these as distinct workflows with different configuration points.
 - **@subpage 27_Trilinear_Interpolation_and_Projection**
 - **@subpage 34_Particle_Model_Overview**
 - **@subpage 10_Post_Processing_Reference**
-- **@subpage 58_Turbulence_Statistics_Pipeline_Specification**
+- **@subpage 58_Field_Statistics**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 
