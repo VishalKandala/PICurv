@@ -140,14 +140,14 @@ endif
 # --- 3. Source & Object File Definitions ---
 # Explicitly list the object files required for each final executable.
 SIMULATOR_OBJS := $(addprefix $(OBJDIR)/, \
-                 simulator.o setup.o checksum.o field_catalog.o particle_field_catalog.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
+                 simulator.o setup.o checksum.o statistics_moments.o field_catalog.o particle_field_catalog.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
                  Boundaries.o BC_Handlers.o wallfunction.o runloop.o walkingsearch.o BodyForces.o\
                  ParticleSwarm.o ParticleMotion.o ParticlePhysics.o interpolation.o \
                  initialcondition.o rhs.o solvers.o momentumsolvers.o momentum_newton_krylov.o poisson.o verification_sources.o\
 				 les.o  Filter.o)
 
 POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
-                     postprocessor.o setup.o checksum.o field_catalog.o particle_field_catalog.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
+                     postprocessor.o setup.o checksum.o statistics_moments.o field_catalog.o particle_field_catalog.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
                      Boundaries.o BC_Handlers.o wallfunction.o postprocessing_kernels.o vtk_io.o \
 					 ParticleSwarm.o ParticleMotion.o interpolation.o walkingsearch.o \
 					 particle_statistics.o verification_sources.o)
@@ -164,6 +164,7 @@ UNIT_SOLVER_EXE   := $(TESTBINDIR)/unit_solver
 UNIT_NEWTON_KRYLOV_EXE := $(TESTBINDIR)/unit_momentum_newton_krylov
 UNIT_NEWTON_FIXEDPOINT_EXE := $(TESTBINDIR)/unit_momentum_newton_boundary_fixedpoint
 UNIT_PARTICLES_EXE := $(TESTBINDIR)/unit_particles
+UNIT_STATISTICS_EXE := $(TESTBINDIR)/unit_statistics
 UNIT_IO_EXE       := $(TESTBINDIR)/unit_io
 UNIT_LOGGING_EXE  := $(TESTBINDIR)/unit_logging
 UNIT_POST_EXE     := $(TESTBINDIR)/unit_post
@@ -189,6 +190,7 @@ UNIT_NEWTON_FIXEDPOINT_OBJ := $(TESTOBJDIR)/test_momentum_newton_boundary_fixedp
 UNIT_CANDIDATES_EXE := $(TESTBINDIR)/unit_momentum_candidates
 UNIT_CANDIDATES_OBJ := $(TESTOBJDIR)/test_momentum_convective_candidates.o
 UNIT_PARTICLES_OBJ := $(TESTOBJDIR)/test_particle_kernels.o
+UNIT_STATISTICS_OBJ := $(TESTOBJDIR)/test_statistics_moments.o
 UNIT_IO_OBJ       := $(TESTOBJDIR)/test_io.o
 UNIT_LOGGING_OBJ  := $(TESTOBJDIR)/test_logging.o
 UNIT_POST_OBJ     := $(TESTOBJDIR)/test_postprocessing.o
@@ -326,6 +328,10 @@ $(UNIT_PARTICLES_EXE): $(UNIT_PARTICLES_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_O
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_STATISTICS_EXE): $(UNIT_STATISTICS_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 $(UNIT_IO_EXE): $(UNIT_IO_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
@@ -386,7 +392,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -490,6 +496,11 @@ unit-momentum-candidates: $(UNIT_CANDIDATES_EXE)
 unit-particles: $(UNIT_PARTICLES_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
 
+## @target unit-statistics
+## @brief Runs the centered-moment kernel C unit tests.
+unit-statistics: $(UNIT_STATISTICS_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
 ## @target unit-io
 ## @brief Runs the I/O infrastructure C unit tests.
 unit-io: $(UNIT_IO_EXE)
@@ -553,7 +564,7 @@ unit-simulation: unit-boundaries unit-solver unit-newton-krylov unit-poisson-rhs
 
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
-unit: unit-geometry unit-setup unit-solver unit-newton-krylov unit-particles unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-periodic
+unit: unit-geometry unit-setup unit-solver unit-newton-krylov unit-particles unit-statistics unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-periodic
 
 ## @target ctest
 ## @brief Compatibility alias for `unit`.

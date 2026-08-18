@@ -37,6 +37,21 @@
   - updated Python/C regression coverage and ingress/runtime/reference
     documentation. Scientific statistics accumulation remains Phase 2 work.
 
+- Added the weighted centered-moment kernels backing the field-statistics
+  accumulator contract: `include/statistics_moments.h` and
+  `src/statistics_moments.c` implement the stable weighted Welford update, the
+  compatible co-moment update, and the weighted parallel-merge formula, plus
+  weighted variance, covariance, and Kish effective sample size. The module is
+  pure: no configuration, no PETSc vectors, and no window or scheduling
+  knowledge. Non-positive sample weights are rejected rather than silently
+  corrupting an accumulator. Covered by a new `unit-statistics` suite asserting
+  bitwise-zero variance for constant signals, known scalar and two-sample
+  results under equal and unequal weights, all six symmetric velocity
+  components of a three-sample self-product, exact agreement between a
+  self-paired co-moment and the scalar second moment, high-mean/low-fluctuation
+  precision where a raw sum-of-squares would cancel, and merge-equals-sequential
+  including empty-partition no-ops.
+
 - Added the field-statistics Phase 2 implementation specification, settling the
   contracts page 58 deferred: right-rectangle endpoint quadrature for
   physical-time weighting (chosen because the difference from trapezoidal is an
