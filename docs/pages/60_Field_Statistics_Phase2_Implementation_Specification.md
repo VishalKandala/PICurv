@@ -471,6 +471,18 @@ Two structural changes are required in [postprocessor.c](../../src/postprocessor
    timesteps, but a statistics recipe loads **one** committed bundle's window state.
    It therefore runs as its own stage rather than inside that loop.
 
+**Known constraint on nodal output.** `UpdateLocalGhosts` resolves its vectors
+through `FieldGetView`, which reads compile-time `UserCtx` offsets stored in the
+catalog, and `ComputeNodalAverage`
+([postprocessing_kernels.c](../../src/postprocessing_kernels.c)) maps field names
+onto fixed nodal members. Per-window accumulators are config-counted and therefore
+have no compile-time offset, so neither routine accepts them as they stand. This
+must be resolved before nodal statistics output, and the resolution must extend
+the existing mechanism rather than duplicate it: the preferred route is a
+`FieldView` that can be bound to an explicitly supplied vector pair, after which
+the whole ghost path applies unchanged. Emitting cell-centred statistics only is
+the fallback if that extension is judged out of scope.
+
 Derived quantities are normalized in one place from centered state:
 
 \f[
@@ -499,16 +511,26 @@ Each stage is independently testable. No user-facing YAML is accepted until Stag
    [runloop.c](../../src/runloop.c) immediately before `LOG_SOLUTION_CONVERGENCE`,
    after the Lagrangian block and before history rotation and checkpoint output.
 
-   Accumulator vectors are created in the existing factory,
-   `CreateAndInitializeAllVectors` ([setup.c](../../src/setup.c)), as a further
-   conditional group beside the turbulence-model and particle groups already there,
-   and released in `DestroyUserVectors`. They are **not** allocated on the fly: the
-   runloop hook only updates state that already exists. Window configuration is
-   resolved before that factory runs, so the per-window count is known at creation
-   time. Non-vector window bookkeeping (schedule position, counts, weights,
-   last-event identity, definition hash) is initialized beside
-   `InitializeSolutionConvergenceState`, which runs immediately after the factory
-   and is the established home for config-derived monitoring state.
+   Accumulator storage follows the established pattern for **config-counted**
+   vectors, which is `InitializeSolutionConvergenceState` /
+   `DestroySolutionConvergenceState` ([setup.c](../../src/setup.c)), not the fixed
+   members of `CreateAndInitializeAllVectors`. That existing pair already allocates
+   a `Vec *` array whose length comes from configuration, via `PetscCalloc1`
+   followed by `VecDuplicate` off a factory-created vector, and releases it by the
+   mirrored loop. Statistics windows have the same shape: a count known only after
+   configuration is resolved.
+
+   Duplicating from `user->Ucat` or `user->P` means each accumulator inherits the
+   DM, layout, and decomposition of a vector the factory already built, so no new
+   DM or layout decision is introduced. Allocation happens once at setup and
+   release once at teardown; the runloop hook only updates state that already
+   exists and allocates nothing.
+
+   Accumulation requires **no ghost exchange**. Each update reads a field value at
+   an owned point and writes the accumulator at that same point, with no neighbour
+   access, so there is nothing to halo-exchange. No `DMGlobalToLocal` call belongs
+   anywhere in this stage; where a later stage does need ghosts, it must go through
+   `UpdateLocalGhosts` rather than a hand-rolled exchange.
 4. **Checkpoint continuation.** Extend the existing coordinator, manifest writer, and
    validator as specified in @ref p60_checkpoint_sec.
 5. **Ingress.** Python schema, normalize/resolve pair, control emission, C resolution
