@@ -497,7 +497,80 @@ when taking a square root and only within a documented tolerance. Stored state i
 never mutated. Existing dimensionalization, nodal-conversion, VTK, and CSV kernels are
 reused.
 
-@section p60_stages_sec 12. Implementation Stages
+@section p60_logging_sec 12. Runtime Logging and Console Monitoring
+
+The pipeline reports through the existing logging infrastructure rather than
+printing directly, and follows the conventions already established for particle
+monitoring. Every stage carries its logging obligation; it is not deferred to a
+cleanup pass.
+
+@subsection p60_console_sub 12.1 Console Monitoring
+
+Field statistics gains an optional periodic console snapshot, modelled on the
+particle console snapshot so that operators reading a running job see a familiar
+shape. Each element mirrors an existing one:
+
+| Concern | Particle (existing) | Statistics (new) |
+| --- | --- | --- |
+| YAML key | `io.particle_console_output_frequency` | `io.statistics_console_output_frequency` |
+| Control flag | `-particle_console_output_freq` | `-statistics_console_output_freq` |
+| `SimCtx` field | `particleConsoleOutputFreq` | `statisticsConsoleOutputFreq` |
+| Enabled predicate | `IsParticleConsoleSnapshotEnabled` | `IsStatisticsConsoleSnapshotEnabled` |
+| Cadence predicate | `ShouldEmitPeriodicParticleConsoleSnapshot` | `ShouldEmitPeriodicStatisticsConsoleSnapshot` |
+| Emitter | `EmitParticleConsoleSnapshot` | `EmitStatisticsConsoleSnapshot` |
+
+The key sits under `io` rather than inside `field_statistics` because that is
+where the existing output cadences live, and because it controls reporting rather
+than science: changing it must not alter any accumulated result, and it is
+therefore excluded from the window definition hash.
+
+The enabled predicate uses the same three-part gate as the particle one: the
+subsystem is active, the configured cadence is positive, and the effective log
+level is at least `LOG_INFO`. A zero cadence disables the snapshot without
+disabling accumulation, exactly as a zero particle cadence does.
+
+Each snapshot reports, per active window: name, state, accumulated sample count,
+total weight, represented physical time, progress toward a bounded end, and the
+range of per-point valid fraction as a mask-health indicator. These are all
+window-level scalars. **The console snapshot never dumps field data**; that is
+what the debug-level field loggers are for.
+
+The startup banner gains a matching line beside the existing particle console
+entries, printing the configured cadence or `DISABLED`, so a run's log records
+whether monitoring was active.
+
+@subsection p60_levels_sub 12.2 Log Levels
+
+Statistics code uses `LOG_ALLOW` at the levels the rest of the codebase uses:
+
+- `LOG_INFO` for once-per-run and once-per-window lifecycle events: resolved
+  window definitions at startup, a window becoming active, a window completing
+  with its final sample count and represented time, and checkpoint save or
+  restore of window state.
+- `LOG_DEBUG` for per-event bookkeeping: a state accepted or skipped and why, the
+  weight assigned, schedule position advancing, and clipped first or final
+  intervals.
+- `LOG_WARNING` reserved for conditions an operator must act on, such as a window
+  completing with points whose valid fraction is zero. Expected behaviour is never
+  logged as a warning.
+- `LOG_TRACE` for per-point or per-block detail that would otherwise flood a run.
+
+Accumulation is on the timestep path, so `LOG_DEBUG` and below must not perform
+collective reductions unless the level is already active.
+
+@subsection p60_fieldid_sub 12.3 Field Identity in Logging
+
+`LOG_FIELD_MIN_MAX` and `LOG_FIELD_ANATOMY` are `FieldId`-routed, resolving the
+DM, degree of freedom, and layout through `FieldGetView`. **Source fields being
+accumulated are catalogued, so they use these directly.** Accumulator vectors are
+config-counted, have no compile-time `UserCtx` offset, and therefore cannot be
+addressed by them, which is the same constraint recorded against nodal output in
+@ref p60_post_sec. Until a `FieldView` bindable to an explicitly supplied vector
+pair exists, accumulator diagnostics report window-level scalars rather than field
+anatomy. That extension would make both surfaces work at once, which is a further
+argument for it over a statistics-specific logging path.
+
+@section p60_stages_sec 13. Implementation Stages
 
 Each stage is independently testable. No user-facing YAML is accepted until Stage 7.
 
@@ -526,6 +599,9 @@ Each stage is independently testable. No user-facing YAML is accepted until Stag
    Allocation happens once at setup and release once at teardown. The runloop hook
    only updates state that already exists and allocates nothing.
 
+   Window lifecycle logging lands here: resolved definitions at startup, activation,
+   and completion, at the levels in @ref p60_levels_sub.
+
    Accumulation requires **no ghost exchange**. Each update reads a field value at
    an owned point and writes the accumulator at that same point, with no neighbour
    access, so there is nothing to halo-exchange. No `DMGlobalToLocal` call belongs
@@ -534,14 +610,17 @@ Each stage is independently testable. No user-facing YAML is accepted until Stag
 4. **Checkpoint continuation.** Extend the existing coordinator, manifest writer, and
    validator as specified in @ref p60_checkpoint_sec.
 5. **Ingress.** Python schema, normalize/resolve pair, control emission, C resolution
-   and hashing in `src/statistics_config.c`, and the audit extension.
+   and hashing in `src/statistics_config.c`, and the audit extension. This stage also
+   carries `io.statistics_console_output_frequency` through the same chain, and adds
+   the console snapshot predicates and emitter in `logging.c` plus the startup banner
+   line, per @ref p60_console_sub.
 6. **Postprocessing.** Capability dispatch, the out-of-loop stage, and derived
    normalization.
 7. **Release the contract.** Expose the YAML in templates, add a worked example, and
    update the reference documentation. Each gate document currently carries an
    explicit "not yet active" statement that must be **replaced**, not merely deleted.
 
-@section p60_acceptance_sec 13. Validation and Acceptance
+@section p60_acceptance_sec 14. Validation and Acceptance
 
 Page 58 §16 applies in full. The items with no current coverage at all are:
 
@@ -558,6 +637,16 @@ Page 58 §16 applies in full. The items with no current coverage at all are:
 - unchanged flow, monitoring, logging, profiling, particle, and model behavior when
   field statistics are disabled.
 
+Logging and monitoring carry their own acceptance items:
+
+- the console snapshot is emitted at the configured cadence and **not at all** when
+  the cadence is zero or the log level is below `LOG_INFO`, mirroring the existing
+  particle-console tests;
+- the startup banner reports the configured cadence, or `DISABLED`, in both cases;
+- changing the console cadence does not change any accumulated result, which is the
+  observable form of its exclusion from the definition hash; and
+- a run with statistics disabled emits no statistics logging on any path.
+
 Two acceptance constraints are specific to this design:
 
 - **Quadrature tests assert exact weights.** The analytic variable-step tests
@@ -572,7 +661,7 @@ Two acceptance constraints are specific to this design:
   turbulent runs, trajectories separate exponentially and equivalence must be tested
   on converged window means rather than field by field.
 
-@section p60_amendments_sec 14. Required Amendments to Page 58
+@section p60_amendments_sec 15. Required Amendments to Page 58
 
 1. §4's illustrative YAML shows `include_initial: false` and lists "initial-state
    inclusion is explicit and defaults to false" among settled semantics. Both are
@@ -581,7 +670,7 @@ Two acceptance constraints are specific to this design:
 2. §4's illustrative YAML shows a `target:` block with `kind` and `mask`. Both are
    deferred to Phase 3 as optional keys; see @ref p60_yaml_sec.
 
-@section p60_nongoals_sec 15. Non-Goals
+@section p60_nongoals_sec 16. Non-Goals
 
 Deferred to Phase 3 and beyond, each opt-in and built on the same target and product
 abstractions: spatial bins, profile layers, named regions, grid and immersed
@@ -593,7 +682,7 @@ reducer, which is permitted only after tests prove identical results.
 Explicitly not planned at any phase: a legacy `su0`/`su1`/`su2`/`sp` importer, a
 dual-write period, or any compatibility workflow.
 
-@section p60_related_sec 16. Related Pages
+@section p60_related_sec 17. Related Pages
 
 - @ref 58_Turbulence_Statistics_Pipeline_Specification — authoritative design
 - @ref 56_Field_Identity_and_Layout_Catalog — typed field identity and layout
