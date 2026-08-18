@@ -80,6 +80,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 56_Field_Identity_and_Layout_Catalog** — typed Eulerian and persistent particle field contracts
 - **@subpage 57_Future_Architecture_Specifications** — proposed-architecture status and dependency index
 - **@subpage 58_Turbulence_Statistics_Pipeline_Specification** — proposed field statistics, monitoring, checkpoint, and postprocessing contract
+- **@subpage 60_Field_Statistics_Phase2_Implementation_Specification** — settled Phase 2 contracts: quadrature, YAML, ingress, checkpoint namespace, and staged plan
 - **@subpage 59_Function_Identity_and_Observability_Specification** — deferred logging/profiling identity optimization
 - **@subpage 35_API_Documentation_Status**
 

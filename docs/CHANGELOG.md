@@ -37,6 +37,20 @@
   - updated Python/C regression coverage and ingress/runtime/reference
     documentation. Scientific statistics accumulation remains Phase 2 work.
 
+- Added the field-statistics Phase 2 implementation specification, settling the
+  contracts page 58 deferred: right-rectangle endpoint quadrature for
+  physical-time weighting (chosen because the difference from trapezoidal is an
+  endpoint artifact decaying as 1/N, far below the statistical sampling floor,
+  while trapezoidal would force a checkpointed field snapshot per accumulated
+  field); final-interval clipping at a bounded window's end; and an interval
+  convention under which a zero-length interval is not a sample, making
+  initial-state handling identical under both weightings and removing the
+  `include_initial` control. Also fixes the user contract, cross-field
+  covariance spelling, window identity hash inputs, the indexed control-option
+  scheme with its ingress-audit extension, the `statistics/` checkpoint
+  namespace, the postprocessing contract, and the seven implementation stages.
+  Amended page 58 accordingly.
+
 - Field-statistics Phase 1 closeout:
   - added the same-step checkpoint acceptance test, covering both the idempotent
     no-op rewrite of an already-committed step and the rejection of a same-step

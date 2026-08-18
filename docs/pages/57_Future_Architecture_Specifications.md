@@ -16,6 +16,7 @@ format is currently accepted by PICurv.
 | --- | --- | --- |
 | @ref 56_Field_Identity_and_Layout_Catalog | implemented on `main` | none |
 | @ref 58_Turbulence_Statistics_Pipeline_Specification | Phase 1 implemented, awaiting review and merge; Phase 2 specified but not implemented | field catalog |
+| @ref 60_Field_Statistics_Phase2_Implementation_Specification | specification complete, awaiting implementation | statistics pipeline |
 | @ref 59_Function_Identity_and_Observability_Specification | deferred, independently benchmarked | none |
 
 The field-catalog phase established typed Eulerian and particle identities,
@@ -64,7 +65,9 @@ restart discovery are implemented, which completes Phase 1.
 
 The authoritative design, YAML placement, checkpoint naming, restart rules, and
 implementation phases are in
-**@subpage 58_Turbulence_Statistics_Pipeline_Specification**.
+**@subpage 58_Turbulence_Statistics_Pipeline_Specification**. The Phase 2 implementation
+contracts, settled quadrature rule, ingress scheme, and staged plan are in
+**@subpage 60_Field_Statistics_Phase2_Implementation_Specification**.
 
 @section p57_functions_summary_sec 4. Function Identity Direction
 

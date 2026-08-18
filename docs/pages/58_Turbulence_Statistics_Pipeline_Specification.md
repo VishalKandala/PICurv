@@ -112,13 +112,8 @@ field_statistics:
     - name: production
       start_time: 50.0
       end_time: 250.0
-      include_initial: false
-      schedule:
-        every_steps: 1
       weighting: physical_time
-      target:
-        kind: pointwise
-        mask: fluid
+      step_cadence: 1
       fields:
         - field: Ucat
           moments: [first, second]
@@ -133,7 +128,6 @@ semantics are settled:
 - `start_time` is required and `end_time` may be open;
 - one positive step- or physical-time schedule is selected;
 - weighting is `sample` or `physical_time`;
-- initial-state inclusion is explicit and defaults to false;
 - fields resolve once through the typed field catalog;
 - requested products must be scientifically compatible with field locations;
 - changing products, layouts, masks, weighting, or schedule starts a new named
@@ -204,9 +198,13 @@ weighting uses the represented interval between accepted states, including
 variable `dt` and a clipped final interval. `sample_count` and represented time
 are never inferred from the global timestep number.
 
-The precise endpoint quadrature rule and closing-event behavior must be fixed
-in the Phase 2 implementation spec and validated with analytic variable-step
-signals before the YAML is released.
+The precise endpoint quadrature rule and closing-event behavior are fixed in
+@ref 60_Field_Statistics_Phase2_Implementation_Specification: physical-time
+weighting uses the right-rectangle rule, so an accepted state carries the
+interval ending at it, and a bounded window clips its final interval to the
+requested end. A state representing a zero-length interval is not a sample,
+which makes initial-state handling identical under both weightings and removes
+the need for a user control.
 
 @section p58_centered_sec 7. Centered Accumulator Contract
 
