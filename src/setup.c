@@ -101,7 +101,13 @@ PetscErrorCode DestroySolutionConvergenceState(SimCtx *simCtx)
     UserCtx *user = NULL;
 
     PetscFunctionBeginUser;
-    if (!simCtx || !simCtx->usermg.mgctx) PetscFunctionReturn(0);
+    if (!simCtx) PetscFunctionReturn(0);
+    if (simCtx->fieldStatisticsWindows) {
+        PetscCall(PetscFree(simCtx->fieldStatisticsWindows));
+        simCtx->fieldStatisticsWindows = NULL;
+        simCtx->fieldStatisticsWindowCount = 0;
+    }
+    if (!simCtx->usermg.mgctx) PetscFunctionReturn(0);
 
     user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
     if (user) {
@@ -237,6 +243,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->AnalyticalUniformVelocity.x = 0.0;
     simCtx->AnalyticalUniformVelocity.y = 0.0;
     simCtx->AnalyticalUniformVelocity.z = 0.0;
+    simCtx->fieldStatisticsEnabled = PETSC_FALSE;
+    simCtx->fieldStatisticsWindowCount = 0;
+    simCtx->fieldStatisticsWindows = NULL;
+    simCtx->statisticsConsoleOutputFreq = 0;
     simCtx->solutionConvergenceEnabled = PETSC_TRUE;
     simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC;
     simCtx->solutionConvergencePeriodSteps = 0;

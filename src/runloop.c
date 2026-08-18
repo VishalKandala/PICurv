@@ -7,6 +7,7 @@
 #include <signal.h>
 
 #include "runloop.h"
+#include "statistics_window.h"
 #include "verification_sources.h"
 
 static volatile sig_atomic_t g_runtime_shutdown_signal = 0;
@@ -703,6 +704,13 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // =================================================================
         //     4. UPDATE HISTORY & I/O
         // =================================================================
+
+        // The completed-state event feeds statistics windows before physical-solution
+        // monitoring, and before history rotation replaces the state just computed.
+        ierr = FieldStatisticsUpdateWindows(simCtx, simCtx->step, simCtx->ti); CHKERRQ(ierr);
+        if (ShouldEmitPeriodicStatisticsConsoleSnapshot(simCtx, simCtx->step)) {
+            ierr = EmitStatisticsConsoleSnapshot(simCtx, simCtx->step); CHKERRQ(ierr);
+        }
 
         PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
         

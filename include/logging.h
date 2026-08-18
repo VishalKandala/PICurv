@@ -16,6 +16,7 @@
 #include <petscsys.h>
 #include <ctype.h>
 #include "variables.h"
+#include "statistics_window.h"
 #include "Boundaries.h"
 // --------------------- Logging Levels Definition ---------------------
 
@@ -531,6 +532,36 @@ PetscBool ShouldEmitPeriodicParticleConsoleSnapshot(const SimCtx *simCtx, PetscI
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscInt step);
+
+/**
+ * @brief Reports whether the periodic statistics console snapshot is enabled.
+ *
+ * Mirrors the particle console gate: the subsystem must be active, the configured
+ * cadence positive, and the effective log level at least `LOG_INFO`.
+ *
+ * @param[in] simCtx Simulation context to inspect.
+ * @return `PETSC_TRUE` when snapshots should be emitted.
+ */
+PetscBool IsStatisticsConsoleSnapshotEnabled(const struct SimCtx *simCtx);
+
+/**
+ * @brief Reports whether a completed step falls on the console snapshot cadence.
+ * @param[in] simCtx         Simulation context to inspect.
+ * @param[in] completed_step Step that has just completed.
+ * @return `PETSC_TRUE` when a snapshot is due for this step.
+ */
+PetscBool ShouldEmitPeriodicStatisticsConsoleSnapshot(const struct SimCtx *simCtx, PetscInt completed_step);
+
+/**
+ * @brief Emits one console snapshot of window progress.
+ *
+ * Reports window-level scalars only; it never dumps field data.
+ *
+ * @param[in] simCtx Simulation context carrying the window array.
+ * @param[in] step   Step the snapshot describes.
+ * @return Zero on success.
+ */
+PetscErrorCode EmitStatisticsConsoleSnapshot(const struct SimCtx *simCtx, PetscInt step);
 
 /* ------------------------------------------------------------------------- */
 /**

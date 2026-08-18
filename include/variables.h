@@ -71,6 +71,7 @@ extern "C" {
 // --- Forward Declarations ---
 // These declarations allow pointers to these types before their full definition.
 typedef struct SimCtx SimCtx;
+struct PicurvWindow;
 typedef struct UserCtx UserCtx;
 typedef struct BC_Param_s BC_Param; /* Retains _s for linked list safety */
 typedef struct BoundaryCondition BoundaryCondition;
@@ -753,6 +754,11 @@ typedef struct SimCtx {
     PetscInt  solutionConvergenceSamplesRecorded;
     PetscReal *solutionConvergenceMeanSpeedHistory;
     PetscReal *solutionConvergenceMeanKEHistory;
+    /* --- Field Statistics (window lifecycle; accumulator binding arrives with ingress) --- */
+    PetscBool      fieldStatisticsEnabled;
+    PetscInt       fieldStatisticsWindowCount;
+    struct PicurvWindow *fieldStatisticsWindows;
+    PetscInt       statisticsConsoleOutputFreq;
     VerificationDiffusivityConfig verificationDiffusivity;
     VerificationScalarConfig verificationScalar;
     

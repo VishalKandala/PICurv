@@ -37,6 +37,20 @@
   - updated Python/C regression coverage and ingress/runtime/reference
     documentation. Scientific statistics accumulation remains Phase 2 work.
 
+- Added window lifecycle, scheduling, and weighting for the field-statistics
+  pipeline: `include/statistics_window.h` and `src/statistics_window.c` decide
+  whether a completed state is accepted and what weight it carries, applying
+  right-rectangle weighting, final-interval clipping, and the rule that a
+  zero-length interval is not a sample. Step and physical-time cadences are both
+  supported, with time targets on an absolute grid so the schedule cannot drift,
+  and a step overshooting several targets accepted exactly once. Duplicate offers
+  of the same completed step are rejected. The runloop calls the window update
+  immediately before physical-solution monitoring, after the Lagrangian block and
+  before history rotation, and an optional console snapshot mirroring the particle
+  console reports window-level progress through the logging sink. Covered by a new
+  `unit-statistics-window` suite whose central case asserts that sample and
+  physical-time weighting agree on a constant-timestep run.
+
 - Routed the remaining out-of-factory allocations through the designated
   infrastructure. The coarsest-level immersed-boundary `KSKE` workspace was
   allocated and freed on every Poisson solve from inside the solver, with a

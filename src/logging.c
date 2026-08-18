@@ -1,5 +1,6 @@
 // logging.c
 #include "logging.h"
+#include "statistics_window.h"
 #include "AnalyticalSolutions.h"
 #include "particle_field_catalog.h"
 #include "verification_sources.h"
@@ -2756,6 +2757,61 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, FieldId field_id, const char *st
     PetscCall(LogFieldAnatomyView(user, view.descriptor->canonical_name, stage_name,
                                   view.dm, view.local_vec, view.descriptor->dof,
                                   view.descriptor->layout));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref IsStatisticsConsoleSnapshotEnabled().
+ * @see IsStatisticsConsoleSnapshotEnabled()
+ */
+PetscBool IsStatisticsConsoleSnapshotEnabled(const SimCtx *simCtx)
+{
+    if (!simCtx) return PETSC_FALSE;
+    return (PetscBool)(simCtx->fieldStatisticsEnabled &&
+                       simCtx->fieldStatisticsWindowCount > 0 &&
+                       simCtx->statisticsConsoleOutputFreq > 0 &&
+                       get_log_level() >= LOG_INFO);
+}
+
+/**
+ * @brief Implementation of \ref ShouldEmitPeriodicStatisticsConsoleSnapshot().
+ * @see ShouldEmitPeriodicStatisticsConsoleSnapshot()
+ */
+PetscBool ShouldEmitPeriodicStatisticsConsoleSnapshot(const SimCtx *simCtx, PetscInt completed_step)
+{
+    if (!IsStatisticsConsoleSnapshotEnabled(simCtx)) return PETSC_FALSE;
+    if (completed_step < 0) return PETSC_FALSE;
+    return (PetscBool)((completed_step % simCtx->statisticsConsoleOutputFreq) == 0);
+}
+
+/**
+ * @brief Implementation of \ref EmitStatisticsConsoleSnapshot().
+ * @see EmitStatisticsConsoleSnapshot()
+ */
+PetscErrorCode EmitStatisticsConsoleSnapshot(const SimCtx *simCtx, PetscInt step)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
+    if (!IsStatisticsConsoleSnapshotEnabled(simCtx)) PetscFunctionReturn(0);
+
+    LOG(GLOBAL, LOG_INFO, "Statistics windows at step %d (%d window(s)):\n", step, simCtx->fieldStatisticsWindowCount);
+    for (PetscInt w = 0; w < simCtx->fieldStatisticsWindowCount; ++w) {
+        const PicurvWindow *window = &simCtx->fieldStatisticsWindows[w];
+        if (window->definition.bounded) {
+            LOG(GLOBAL, LOG_INFO,
+                "  %-24s %-8s samples=%-8d weight=%-12.6g represented=%-12.6g progress=%5.1f%%\n",
+                window->definition.name, PicurvWindowStateName(window->state),
+                window->sample_count, (double)window->total_weight,
+                (double)window->represented_time,
+                100.0 * (double)PicurvWindowProgress(window));
+        } else {
+            LOG(GLOBAL, LOG_INFO,
+                "  %-24s %-8s samples=%-8d weight=%-12.6g represented=%-12.6g progress=  open\n",
+                window->definition.name, PicurvWindowStateName(window->state),
+                window->sample_count, (double)window->total_weight,
+                (double)window->represented_time);
+        }
+    }
     PetscFunctionReturn(0);
 }
 
