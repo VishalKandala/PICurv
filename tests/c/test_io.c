@@ -7,6 +7,9 @@
 
 #include "checksum.h"
 #include "io.h"
+#include "statistics_accumulator.h"
+#include "statistics_window.h"
+#include "field_catalog.h"
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -117,6 +120,442 @@ static PetscErrorCode TestWriteAndReadSimulationFields(void)
     PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
     if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Builds the statistics fixture: one Ucat/P window with a second moment. */
+static PicurvWindowDefinition StatisticsFixtureDefinition(void)
+{
+    PicurvWindowDefinition d;
+
+    memset(&d, 0, sizeof(d));
+    strncpy(d.name, "production", PICURV_WINDOW_NAME_LENGTH - 1);
+    d.weighting = PICURV_WEIGHTING_SAMPLE;
+    d.cadence_kind = PICURV_CADENCE_STEP;
+    d.step_cadence = 1;
+    d.field_count = 2;
+    d.fields[0].field_id = FIELD_ID_UCAT; d.fields[0].want_second = PETSC_TRUE;
+    d.fields[1].field_id = FIELD_ID_P;    d.fields[1].want_second = PETSC_TRUE;
+    return d;
+}
+
+/** @brief Attaches one accumulating window to a fixture context and primes it with samples. */
+static PetscErrorCode AttachStatisticsFixture(SimCtx *simCtx, UserCtx *user,
+                                              PicurvWindow *window, PicurvWindowStorage *storage,
+                                              const PicurvWindowDefinition *definition)
+{
+    PetscFunctionBeginUser;
+    PetscCall(PicurvWindowInit(window, definition));
+    PetscCall(PicurvWindowStorageCreate(user, definition, storage));
+    simCtx->fieldStatisticsEnabled = PETSC_TRUE;
+    simCtx->fieldStatisticsWindowCount = 1;
+    simCtx->fieldStatisticsWindows = window;
+    user->fieldStatisticsStorage = storage;
+    PetscFunctionReturn(0);
+}
+
+/** @brief Detaches the statistics fixture without disturbing the shared teardown. */
+static PetscErrorCode DetachStatisticsFixture(SimCtx *simCtx, UserCtx *user,
+                                              PicurvWindowStorage *storage)
+{
+    PetscFunctionBeginUser;
+    simCtx->fieldStatisticsEnabled = PETSC_FALSE;
+    simCtx->fieldStatisticsWindowCount = 0;
+    simCtx->fieldStatisticsWindows = NULL;
+    user->fieldStatisticsStorage = NULL;
+    PetscCall(PicurvWindowStorageDestroy(storage));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Rewrites the bundle holding a window that closed well before the checkpoint time.
+ *
+ * Reproduces the shape a real run reaches when a bounded window finished and the
+ * simulation kept going: the saved state is complete, and its end sits behind the
+ * checkpoint by far more than one step.
+ */
+static PetscErrorCode WriteCompletedStatisticsWindow(SimCtx *simCtx, UserCtx *user,
+                                                     PicurvWindow *window,
+                                                     PicurvWindowStorage *storage,
+                                                     const PicurvWindowDefinition *definition)
+{
+    PicurvWindowDefinition bounded = *definition;
+    PetscBool accepted = PETSC_FALSE;
+    PetscReal weight = 0.0;
+    char step_directory[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    bounded.bounded = PETSC_TRUE;
+    bounded.end_time = 1.0;
+    PetscCall(PicurvWindowInit(window, &bounded));
+    PetscCall(PicurvWindowOfferState(window, 0, 0.0, &accepted, &weight));
+    PetscCall(PicurvWindowOfferState(window, 1, 1.0, &accepted, &weight));
+    if (accepted) PetscCall(PicurvWindowAccumulate(user, &bounded, storage, weight));
+    PetscCall(PicurvAssertBool((PetscBool)(window->state == PICURV_WINDOW_COMPLETE),
+                               "the fixture window reaches its bounded end"));
+
+    /* The run continued well past the window's end before this checkpoint. */
+    simCtx->ti = 5.0;
+    PetscCall(PetscSNPrintf(step_directory, sizeof(step_directory),
+                            "%s/checkpoints/step_000000000001", simCtx->output_dir));
+    if (simCtx->rank == 0) PetscCall(PetscRMTree(step_directory));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    PetscCall(WriteCheckpointBundle(simCtx, "test"));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Verifies accumulated statistics survive a checkpoint round trip unchanged.
+ *
+ * Both halves of the state matter and are checked separately: the per-point
+ * accumulator vectors, and the window's scalar bookkeeping. Restoring only the
+ * vectors would silently resume with a broken schedule, and restoring only the
+ * scalars would report a sample count the fields do not support.
+ */
+static PetscErrorCode TestCheckpointStatisticsRoundTrip(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindow window;
+    PicurvWindowStorage storage;
+    const PicurvWindowDefinition definition = StatisticsFixtureDefinition();
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char path[PETSC_MAX_PATH_LEN];
+    PetscBool exists = PETSC_FALSE;
+    PetscInt payload_count = 0;
+    Vec *reference = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    tmpdir[0] = '\0';
+    if (simCtx->rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, sizeof(tmpdir), MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscStrncpy(simCtx->output_dir, tmpdir, sizeof(simCtx->output_dir)));
+    PetscCall(PetscStrncpy(simCtx->restart_dir, tmpdir, sizeof(simCtx->restart_dir)));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(AttachStatisticsFixture(simCtx, user, &window, &storage, &definition));
+
+    /* Three accepted states at unit weight: P takes 1, 2 and 6, so its per-point
+     * mean is 3 and its centered second moment is 14. */
+    {
+        const PetscReal scalars[3] = {1.0, 2.0, 6.0};
+
+        for (PetscInt s = 0; s < 3; ++s) {
+            PetscBool accepted = PETSC_FALSE;
+            PetscReal weight = 0.0;
+
+            PetscCall(VecSet(user->P, scalars[s]));
+            PetscCall(VecSet(user->Ucat, scalars[s]));
+            PetscCall(PicurvWindowOfferState(&window, s, (PetscReal)s, &accepted, &weight));
+            if (accepted) PetscCall(PicurvWindowAccumulate(user, &definition, &storage, weight));
+        }
+    }
+    PetscCall(PicurvAssertIntEqual(2, window.sample_count, "the anchoring state is not itself a sample"));
+
+    PetscCall(WriteCheckpointBundle(simCtx, "test"));
+    PetscCall(PetscSNPrintf(path, sizeof(path),
+                            "%s/checkpoints/step_000000000001/statistics/window_0000/block_0000/P_mean.dat",
+                            tmpdir));
+    PetscCall(PetscTestFile(path, 'r', &exists));
+    PetscCall(PicurvAssertBool(exists, "statistics payloads use their enumerated names"));
+    PetscCall(PetscSNPrintf(path, sizeof(path),
+                            "%s/checkpoints/step_000000000001/statistics/window_0000/block_0000/Ucat_m2.dat",
+                            tmpdir));
+    PetscCall(PetscTestFile(path, 'r', &exists));
+    PetscCall(PicurvAssertBool(exists, "the symmetric product is one payload, not six"));
+
+    /* Keep a reference copy of every payload, then discard the in-memory state so a
+     * restore that did nothing cannot pass. */
+    PetscCall(PicurvWindowStoragePayloadCount(&storage, &payload_count));
+    PetscCall(PetscCalloc1((size_t)payload_count, &reference));
+    for (PetscInt index = 0; index < payload_count; ++index) {
+        PicurvStatisticsPayload payload;
+
+        PetscCall(PicurvWindowStoragePayload(user, &definition, &storage, index, &payload));
+        PetscCall(VecDuplicate(payload.vec, &reference[index]));
+        PetscCall(VecCopy(payload.vec, reference[index]));
+        PetscCall(VecZeroEntries(payload.vec));
+    }
+    PetscCall(PicurvWindowInit(&window, &definition));
+    PetscCall(PicurvAssertIntEqual(0, window.sample_count, "the fixture is reset before restoring"));
+
+    simCtx->fieldStatisticsContinue = PETSC_TRUE;
+    PetscCall(RestoreFieldStatisticsState(simCtx, simCtx->step));
+
+    PetscCall(PicurvAssertIntEqual(2, window.sample_count, "the sample count is restored"));
+    PetscCall(PicurvAssertRealNear(2.0, window.total_weight, 1.0e-12, "the total weight is restored"));
+    PetscCall(PicurvAssertRealNear(2.0, window.represented_time, 1.0e-12,
+                                   "the represented time is restored"));
+    PetscCall(PicurvAssertRealNear(2.0, window.last_accepted_time, 1.0e-12,
+                                   "the quadrature origin is restored"));
+    PetscCall(PicurvAssertIntEqual(0, window.activation_step, "the schedule anchor is restored"));
+    PetscCall(PicurvAssertIntEqual(2, window.last_event_step,
+                                   "the duplicate-event guard survives the restart"));
+    PetscCall(PicurvAssertIntEqual(1, window.restart_count, "the restart lineage advances on resume"));
+    PetscCall(PicurvAssertBool((PetscBool)(window.state == PICURV_WINDOW_ACTIVE),
+                               "an open window resumes active"));
+
+    /* Every payload must come back bit for bit. The binary format stores IEEE
+     * doubles and the natural ordering is decomposition independent, so anything
+     * short of an exact match is a defect rather than rounding. */
+    for (PetscInt index = 0; index < payload_count; ++index) {
+        PicurvStatisticsPayload payload;
+        PetscReal difference = 0.0;
+        char context[192];
+
+        PetscCall(PicurvWindowStoragePayload(user, &definition, &storage, index, &payload));
+        PetscCall(VecAXPY(reference[index], -1.0, payload.vec));
+        PetscCall(VecNorm(reference[index], NORM_INFINITY, &difference));
+        PetscCall(PetscSNPrintf(context, sizeof(context),
+                                "payload '%s' is restored bit for bit", payload.name));
+        PetscCall(PicurvAssertBool((PetscBool)(difference == 0.0), context));
+        PetscCall(VecDestroy(&reference[index]));
+    }
+    PetscCall(PetscFree(reference));
+
+    /* Spot-check one interior point against the analytically known value, so the
+     * comparison above cannot pass by restoring two identically wrong vectors. */
+    {
+        PetscReal ***mean = NULL;
+
+        PetscCall(DMDAVecGetArrayRead(user->da, storage.mean[1], &mean));
+        if (user->info.xs <= 2 && 2 < user->info.xs + user->info.xm &&
+            user->info.ys <= 2 && 2 < user->info.ys + user->info.ym &&
+            user->info.zs <= 2 && 2 < user->info.zs + user->info.zm) {
+            PetscCall(PicurvAssertRealNear(4.0, mean[2][2][2], 1.0e-12,
+                                           "the restored scalar mean holds the accumulated value"));
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->da, storage.mean[1], &mean));
+    }
+
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    PetscCall(DetachStatisticsFixture(simCtx, user, &storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Verifies continuation refuses every state that would corrupt an average.
+ *
+ * A silent reset is the failure mode this guards: resuming from zero, or merging
+ * samples taken under a different definition, both produce a window whose reported
+ * sample count no longer describes the numbers it carries.
+ */
+static PetscErrorCode TestCheckpointStatisticsContinuationGuards(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindow window;
+    PicurvWindowStorage storage;
+    const PicurvWindowDefinition definition = StatisticsFixtureDefinition();
+    PicurvWindowDefinition changed;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    PetscErrorCode bad = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    tmpdir[0] = '\0';
+    if (simCtx->rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, sizeof(tmpdir), MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscStrncpy(simCtx->output_dir, tmpdir, sizeof(simCtx->output_dir)));
+    PetscCall(PetscStrncpy(simCtx->restart_dir, tmpdir, sizeof(simCtx->restart_dir)));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(AttachStatisticsFixture(simCtx, user, &window, &storage, &definition));
+    {
+        PetscBool accepted = PETSC_FALSE;
+        PetscReal weight = 0.0;
+
+        PetscCall(PicurvWindowOfferState(&window, 0, 0.0, &accepted, &weight));
+        PetscCall(PicurvWindowOfferState(&window, 1, 1.0, &accepted, &weight));
+        if (accepted) PetscCall(PicurvWindowAccumulate(user, &definition, &storage, weight));
+    }
+    PetscCall(WriteCheckpointBundle(simCtx, "test"));
+
+    /* A hashed property changed: the saved samples describe a different average. */
+    changed = definition;
+    changed.weighting = PICURV_WEIGHTING_PHYSICAL_TIME;
+    PetscCall(PicurvWindowInit(&window, &changed));
+    simCtx->fieldStatisticsContinue = PETSC_TRUE;
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    bad = RestoreFieldStatisticsState(simCtx, simCtx->step);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_INCOMP, bad,
+                                   "a changed definition is refused rather than merged"));
+
+    /* A window renamed under the same index is a different window. */
+    changed = definition;
+    strncpy(changed.name, "other", PICURV_WINDOW_NAME_LENGTH - 1);
+    PetscCall(PicurvWindowInit(&window, &changed));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    bad = RestoreFieldStatisticsState(simCtx, simCtx->step);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_INCOMP, bad, "a renamed window is refused"));
+
+    /* Shortening a window would discard represented time it already claims. */
+    changed = definition;
+    changed.bounded = PETSC_TRUE;
+    changed.end_time = 0.5;
+    PetscCall(PicurvWindowInit(&window, &changed));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    bad = RestoreFieldStatisticsState(simCtx, simCtx->step);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_INCOMP, bad, "a shortened window is refused"));
+
+    /* Extending it forward is permitted, because end_time is outside the hash. The
+     * saved window is still open here, so there is no former end to leave a gap
+     * after and the extension is accepted. */
+    changed = definition;
+    changed.bounded = PETSC_TRUE;
+    changed.end_time = 40.0;
+    PetscCall(PicurvWindowInit(&window, &changed));
+    PetscCall(RestoreFieldStatisticsState(simCtx, simCtx->step));
+    PetscCall(PicurvAssertIntEqual(1, window.sample_count, "an extended window keeps its samples"));
+    PetscCall(PicurvAssertBool((PetscBool)(window.state == PICURV_WINDOW_ACTIVE),
+                               "an extended window resumes active"));
+
+    /* Reopening a window that already closed, across time it never sampled, would
+     * weight that gap into the first new interval. */
+    simCtx->dt = 0.1;
+    PetscCall(WriteCompletedStatisticsWindow(simCtx, user, &window, &storage, &definition));
+    changed = definition;
+    changed.bounded = PETSC_TRUE;
+    changed.end_time = 40.0;
+    PetscCall(PicurvWindowInit(&window, &changed));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    bad = RestoreFieldStatisticsState(simCtx, simCtx->step);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_INCOMP, bad,
+                                   "reopening a closed window across an unsampled gap is refused"));
+
+    /* Without an explicit request, a restart starts from zero and says so. */
+    PetscCall(PicurvWindowInit(&window, &definition));
+    simCtx->fieldStatisticsContinue = PETSC_FALSE;
+    PetscCall(RestoreFieldStatisticsState(simCtx, simCtx->step));
+    PetscCall(PicurvAssertIntEqual(0, window.sample_count,
+                                   "statistics start fresh when continuation is not requested"));
+
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    PetscCall(DetachStatisticsFixture(simCtx, user, &storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief A damaged statistics payload must fail bundle validation, not load silently.
+ *
+ * Statistics payloads are validated because they enter the manifest inventory the
+ * existing validator already walks. That is an easy property to believe and an easy
+ * one to lose, so it is checked by damaging a payload rather than by inspection.
+ */
+static PetscErrorCode TestCheckpointStatisticsPayloadIsValidated(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindow window;
+    PicurvWindowStorage storage;
+    const PicurvWindowDefinition definition = StatisticsFixtureDefinition();
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char payload_path[PETSC_MAX_PATH_LEN];
+    PetscErrorCode bad = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    tmpdir[0] = '\0';
+    if (simCtx->rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, sizeof(tmpdir), MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscStrncpy(simCtx->output_dir, tmpdir, sizeof(simCtx->output_dir)));
+    PetscCall(PetscStrncpy(simCtx->restart_dir, tmpdir, sizeof(simCtx->restart_dir)));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(AttachStatisticsFixture(simCtx, user, &window, &storage, &definition));
+    {
+        PetscBool accepted = PETSC_FALSE;
+        PetscReal weight = 0.0;
+
+        PetscCall(PicurvWindowOfferState(&window, 0, 0.0, &accepted, &weight));
+        PetscCall(PicurvWindowOfferState(&window, 1, 1.0, &accepted, &weight));
+        if (accepted) PetscCall(PicurvWindowAccumulate(user, &definition, &storage, weight));
+    }
+    PetscCall(WriteCheckpointBundle(simCtx, "test"));
+
+    /* Truncating one payload leaves the manifest and its commit marker intact, so
+     * only the inventory's recorded byte size can catch it. */
+    PetscCall(PetscSNPrintf(payload_path, sizeof(payload_path),
+                            "%s/checkpoints/step_000000000001/statistics/window_0000/block_0000/P_mean.dat",
+                            tmpdir));
+    if (simCtx->rank == 0) {
+        FILE *damaged = fopen(payload_path, "w");
+
+        PetscCheck(damaged != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
+                   "Unable to truncate '%s'.", payload_path);
+        PetscCheck(fclose(damaged) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to close '%s'.", payload_path);
+    }
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+
+    simCtx->fieldStatisticsContinue = PETSC_TRUE;
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    bad = RestoreFieldStatisticsState(simCtx, simCtx->step);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_FILE_UNEXPECTED, bad,
+                                   "a truncated statistics payload fails bundle validation"));
+
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    PetscCall(DetachStatisticsFixture(simCtx, user, &storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/** @brief A run without statistics writes no statistics subtree and refuses to fake one. */
+static PetscErrorCode TestCheckpointStatisticsAbsentWhenDisabled(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindow window;
+    PicurvWindowStorage storage;
+    const PicurvWindowDefinition definition = StatisticsFixtureDefinition();
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char path[PETSC_MAX_PATH_LEN];
+    PetscBool exists = PETSC_TRUE;
+    PetscErrorCode bad = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    tmpdir[0] = '\0';
+    if (simCtx->rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, sizeof(tmpdir), MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscStrncpy(simCtx->output_dir, tmpdir, sizeof(simCtx->output_dir)));
+    PetscCall(PetscStrncpy(simCtx->restart_dir, tmpdir, sizeof(simCtx->restart_dir)));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+
+    PetscCall(WriteCheckpointBundle(simCtx, "test"));
+    PetscCall(PetscSNPrintf(path, sizeof(path), "%s/checkpoints/step_000000000001/statistics", tmpdir));
+    PetscCall(PetscTestDirectory(path, 'r', &exists));
+    PetscCall(PicurvAssertBool((PetscBool)!exists,
+                               "a run without statistics writes no statistics subtree"));
+
+    /* Continuing from that bundle must fail loudly rather than resume from zero. */
+    PetscCall(AttachStatisticsFixture(simCtx, user, &window, &storage, &definition));
+    simCtx->fieldStatisticsContinue = PETSC_TRUE;
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    bad = RestoreFieldStatisticsState(simCtx, simCtx->step);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_INCOMP, bad,
+                                   "missing statistics state is fatal, never silently zeroed"));
+
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    PetscCall(DetachStatisticsFixture(simCtx, user, &storage));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -562,6 +1001,10 @@ int main(int argc, char **argv)
         {"verify-path-existence", TestVerifyPathExistence},
         {"write-and-read-simulation-fields", TestWriteAndReadSimulationFields},
         {"checkpoint-same-step-rewrite-rejected", TestCheckpointSameStepRewriteIsRejected},
+        {"checkpoint-statistics-round-trip", TestCheckpointStatisticsRoundTrip},
+        {"checkpoint-statistics-continuation-guards", TestCheckpointStatisticsContinuationGuards},
+        {"checkpoint-statistics-payload-is-validated", TestCheckpointStatisticsPayloadIsValidated},
+        {"checkpoint-statistics-absent-when-disabled", TestCheckpointStatisticsAbsentWhenDisabled},
         {"checkpoint-sha256-known-vector", TestCheckpointSHA256KnownVector},
         {"parse-post-processing-settings", TestParsePostProcessingSettings},
         {"trim-whitespace", TestTrimWhitespace},

@@ -264,4 +264,21 @@ PetscErrorCode CalculateOutletProperties(UserCtx *user);
 PetscErrorCode CalculateFaceCenterAndArea(UserCtx *user, BCFace face_id, 
                                           Cmpnts *face_center, PetscReal *face_area);
                                           
+/**
+ * @brief Creates a DMDA sharing a block's decomposition at a different degree of freedom.
+ *
+ * Fields whose component count is neither one nor three still have to live on the
+ * same index space as the block, so a pointwise loop can read `da` and write them at
+ * the same `(i,j,k)`. Copying the source DM's sizes, boundary types, stencil, and —
+ * critically — its explicit per-rank ownership ranges makes the decomposition
+ * identical rather than merely similar. Letting PETSc re-decide the split would be
+ * free to disagree, and the loop would misalign silently.
+ *
+ * @param[in]  source Existing block DMDA whose decomposition is mirrored.
+ * @param[in]  dof    Degrees of freedom the new DM carries; must be positive.
+ * @param[out] result Created DM; the caller owns it and must destroy it.
+ * @return Zero on success, or a PETSc error for a null argument or non-positive dof.
+ */
+PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result);
+
 #endif // GRID_H

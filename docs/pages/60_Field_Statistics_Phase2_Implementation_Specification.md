@@ -8,9 +8,14 @@ authoritative scientific and architectural design; this page settles the items t
 page deliberately deferred, fixes the exact contracts, and defines the
 implementation and acceptance order.
 
-Implementation status: specification only. No `field_statistics` key is accepted by
-any schema, template, or generated artifact, and no accumulator symbol exists in
-`include/` or `src/`. Nothing on this page is active until Stage 7 releases it.
+Implementation status: Stages 1 through 6 are implemented. `monitor.yml ->
+field_statistics` is validated, serialized into the generated `control`, resolved in
+C, accumulated each accepted step, and carried across a restart; `post.yml ->
+field_statistics` derives Reynolds stresses, RMS, turbulent kinetic energy, and
+fluxes from a saved window and writes them as VTK. What remains is Stage 7, which
+exposes both blocks in the shipped templates, adds a worked example, and updates the
+reference documentation. Until then the keys work but are documented only on this
+page, so they are usable without yet being a released contract.
 
 @tableofcontents
 
@@ -319,14 +324,40 @@ Hashed, in this fixed order:
 7. mask identity; and
 8. target kind and layout semantics.
 
+Each of those eight groups is additionally hashed on its own and the truncated group
+digests are stored beside the full one, which is what lets a mismatch name the
+property that changed rather than only reporting that two digests differ. Group 7,
+the mask, hashes a constant in Phase 2 because exactly one mask is resolved; it
+exists now so a Phase 3 mask key extends that group instead of renumbering the groups
+after it and invalidating every saved window.
+
+Field and covariance entries are serialized in catalog order, and each covariance
+pair is canonicalized within itself, so a reordered but otherwise identical
+configuration continues rather than being rejected. Covariance is symmetric, so
+listing its members either way describes the same quantity.
+
 Explicitly **excluded**: `end_time`, so a bounded window may be extended forward per
 page 58 §10; and `enabled`, so switching statistics off and on does not invalidate
-saved state.
+saved state; and the order in which fields and covariance pairs were listed.
 
 Extension is accepted only when the new end moves forward, does not exceed the
 configured simulation horizon, and continuation occurs without an unsampled gap after
 the former end. Shortening a window, or changing any hashed property, requires a new
 window name.
+
+The gap condition is enforced against the checkpoint's own physical time: reopening a
+window that closed at \f$t_{\mathrm{end}}\f$ from a bundle written at
+\f$t_{\mathrm{ckpt}}\f$ is refused once \f$t_{\mathrm{ckpt}} - t_{\mathrm{end}}\f$
+exceeds one timestep. This is a direct consequence of right-rectangle weighting: the
+first sample after the former end carries the whole interval back to it, so a gap
+would be weighted as though the window had observed it. One step of slack is allowed
+because the closing state's own clipping already leaves up to that much between the
+window's end and the state that closed it.
+
+`bounded` is excluded from the hash alongside `end_time`, since it only says whether
+an end exists. The dangerous direction — turning an open window into one that ends
+before the time it already represents — is caught by the shortening check rather than
+by the hash.
 
 @section p60_ingress_sec 8. Control Serialization and C Ingress
 
@@ -407,15 +438,42 @@ writer; no second binary serializer is introduced, per page 58 §12.
 output/checkpoints/step_000000001000/
   statistics/
     window_0000/
-      count.dat                 # per-point accepted sample count
-      weight.dat                # per-point valid weight W
-      weight_sq.dat             # per-point squared-weight sum W2
-      Ucat_mean.dat             # dof 3
-      Ucat_m2.dat               # dof 6, order (xx,xy,xz,yy,yz,zz)
-      Psi_mean.dat              # dof 1
-      Psi_m2.dat                # dof 1
-      Ucat_Psi_cm.dat           # dof 3, order (x*s, y*s, z*s)
+      block_0000/
+        count.dat               # per-point accepted sample count
+        weight.dat              # per-point valid weight W
+        weight_sq.dat           # per-point squared-weight sum W2
+        Ucat_mean.dat           # dof 3, the source field's own layout
+        Ucat_m2.dat             # dof 6, order (xx,xy,xz,yy,yz,zz)
+        Psi_mean.dat            # dof 1
+        Psi_m2.dat              # dof 1
+        Ucat_Psi_cm.dat         # dof 3, order (x*s, y*s, z*s)
 ```
+
+Two properties of that tree are load bearing.
+
+Payloads are **block scoped**, exactly as Eulerian payloads are, so a multiblock run
+keeps one accumulator tree per block under each window.
+
+Each product and co-moment is **one payload carrying all of its components**, not one
+payload per component. A symmetric second-order tensor is a single physical object,
+and splitting it would cost six memory streams in the per-step accumulation loop
+instead of one cache line, and six collective gathers per checkpoint instead of one.
+Splitting also fails to generalize: it works for a three-vector only because six
+happens to equal three plus three, and no comparable split exists for a dof-2 field's
+three-component product or a third moment's ten.
+
+Component counts that neither `da` nor `fda` provides are carried by a DM mirroring
+the block decomposition at that degree of freedom, created through
+`CreateCompatibleBlockDM` ([grid.c](../../src/grid.c)). This is the pattern the
+`fda2` slot on `UserCtx` already establishes for dof-2 RANS fields; the helper is
+what that slot needs as well. Mirroring copies the source DM's explicit per-rank
+ownership ranges rather than letting PETSc re-decide the split, so the decomposition
+is identical and a pointwise loop can read a source field and write an accumulator at
+the same index.
+
+Payload names come from the catalogued field name plus a fixed role suffix, so they
+are stable across runs, rank counts, and configuration reorderings. A field for which
+no second moment was requested contributes no product payload at all.
 
 Scalar per-window metadata is recorded in `checkpoint.meta`:
 
@@ -423,19 +481,48 @@ Scalar per-window metadata is recorded in `checkpoint.meta`:
 -checkpoint_statistics_window_count            1
 -checkpoint_statistics_window_0_name           production
 -checkpoint_statistics_window_0_hash           <sha256>
+-checkpoint_statistics_window_0_hash_groups    <8 truncated group digests>
 -checkpoint_statistics_window_0_state          active
 -checkpoint_statistics_window_0_sample_count   1500
 -checkpoint_statistics_window_0_total_weight   1.5
 -checkpoint_statistics_window_0_represented_time 1.5
 -checkpoint_statistics_window_0_last_accepted_time 51.5
 -checkpoint_statistics_window_0_effective_start  50.0
--checkpoint_statistics_window_0_lineage        <id>
+-checkpoint_statistics_window_0_effective_end    51.5
+-checkpoint_statistics_window_0_activation_step  1000
+-checkpoint_statistics_window_0_last_event_step  1500
+-checkpoint_statistics_window_0_next_time_target 30
+-checkpoint_statistics_window_0_restart_count    2
 ```
+
+The window count is written even when no window is configured, so a restart can tell
+an absent window list from an unreadable bundle.
+
+Everything after `effective_start` is **schedule state**, and omitting it is not a
+cosmetic loss. `activation_step` anchors the step stride, `next_time_target` anchors
+the absolute time grid, and `last_event_step` is the duplicate-event guard. A restart
+that restored only the reported quantities would resume on a silently shifted
+schedule while continuing to report a correct-looking sample count.
+
+`restart_count` is the concrete form of the restart lineage page 58 §6 requires: the
+number of restart segments the state descends from. Physical case identity is carried
+by the bundle's existing `-checkpoint_geometry_sha256`, so no second identity scheme
+is introduced.
+
+`hash_groups` holds one truncated digest per hashed property group, comma separated in
+the order of @ref p60_hash_sec. The saved definition itself is never stored, so
+without these a mismatch could only report that two opaque digests differ; with them
+the restart names the property that changed.
 
 Every statistics payload appears in the existing payload inventory with its field
 name, block, layout, component count, logical type, global size, encoding, relative
 path, and byte size, and is validated for existence and size before the bundle is
-accepted. Statistics payloads are block-scoped exactly as Eulerian payloads are.
+accepted. That validation needs no new code: entering the inventory is what makes a
+payload subject to the loop the validator already runs. Because that is easy to lose
+silently, acceptance damages a statistics payload and requires the bundle to be
+rejected, rather than asserting the property by inspection. The inventory field name is qualified by window, as `<window>/<payload>`,
+so two windows accumulating the same field stay distinguishable to anything reading
+the manifest alone.
 
 `last_accepted_time` is the only quadrature state required across a restart. That it
 is a single scalar rather than a field snapshot is the direct consequence of choosing
@@ -455,6 +542,12 @@ right-rectangle in @ref p60_quadrature_sub.
   resolved property.
 - A different MPI rank count is permitted. Statistics payloads use the same natural
   ordering as Eulerian payloads, so they are decomposition independent.
+- Shortening a window is refused: a requested `end_time` earlier than the time the
+  saved state already represents would discard samples the metadata still counts.
+- Restoration happens in `InitializeEulerianState`
+  ([initialcondition.c](../../src/initialcondition.c)), from the same bundle the flow
+  state came from, and independently of the Eulerian source, so an analytical restart
+  still continues a window that was accumulating before it.
 
 @section p60_post_sec 11. Postprocessing Contract
 
@@ -467,9 +560,72 @@ Two structural changes are required in [postprocessor.c](../../src/postprocessor
    currently true whenever any statistics pipeline is non-empty, and the run
    hard-errors when `np == 0`. Task dispatch becomes capability based: a
    `field_statistics` recipe declares `needs_statistics_checkpoint` instead.
-2. **Add a stage outside the timestep loop.** The existing post loop iterates
-   timesteps, but a statistics recipe loads **one** committed bundle's window state.
-   It therefore runs as its own stage rather than inside that loop.
+2. **Add a pipeline beside the particle one.** `FieldStatisticsPipeline(user, pps, ti)`
+   mirrors `GlobalStatisticsPipeline`, which is the established shape for a
+   per-timestep stage that writes its own output family. Statistics fields are a
+   fourth output family alongside Eulerian `.vts`, particle `.vtp`, and particle
+   statistics `.csv`, so they share the VTK assembly helpers but not the Eulerian
+   writer's fixed field list.
+
+**Where the pipeline runs.** `FieldStatisticsPipeline` is called once per processed
+step from the post loop, beside the particle `GlobalStatisticsPipeline` it mirrors. A
+recipe spanning several steps therefore produces a convergence history rather than
+one picture repeated; pinning `source_step` collapses it to a single bundle. This
+supersedes the earlier requirement for a stage outside the loop: the loop's own
+cadence is what makes the history possible, and running inside it costs nothing when
+a recipe covers one step.
+
+Each requested window is written to its own file. That is forced rather than
+preferred: `MAX_POINT_DATA_FIELDS` is 20 and one window carrying every output already
+produces 15 fields, so two windows cannot share a file.
+
+Outputs come in two formats. `vtk` writes the derived fields; `csv` appends one row
+per processed step recording sample count, total weight, represented time, the
+per-point valid-fraction range, and the mean turbulent kinetic energy. The CSV is the
+artifact that answers whether a window has run long enough, which no single field
+snapshot can.
+
+That mean is taken over the **fluid cells the window actually sampled**, not over the
+stored vector. A derived field is zero outside the target domain and at any point the
+mask excluded, and those zeros are absences rather than measurements: averaging over
+them scales the result down by whatever fraction of the vector the window never
+covered. For a cell-centred field the targeted span is exactly the real cells, since
+the first and last index of each dimension are dummy layers, so no cell count is
+computed from grid dimensions anywhere. The `valid_fraction_min` column in the same
+row is what reveals whether an immersed body made the sampled set smaller than the
+targeted one; at one they are the same set.
+
+A window that has not yet accumulated a sample at a given step is skipped with a note
+rather than treated as an error, because a recipe covering a whole run legitimately
+reaches bundles from before that window began.
+
+**Derived statistics are not dimensionalized**, even when
+`global_operations.dimensionalize` is set. A Reynolds stress scales as velocity
+squared and a co-moment as the product of two different scales; the existing
+per-field scaling table expresses neither, so applying a velocity scale would be
+wrong rather than merely incomplete. Dimensional derived statistics require scaling
+rules of their own.
+
+**How the postprocessor learns the windows.** It does not re-describe them. The
+postprocessor is launched with the run's own `-control_file`, and
+`CreateSimulationContext` resolves it through the same `ParseFieldStatisticsConfig`
+the solver uses, so the window list, the accumulator storage, and
+`RestoreFieldStatisticsState` all apply unchanged. A recipe therefore names a window
+and nothing more, and no second loader exists to disagree with the first.
+
+**Resolution of the nodal-output constraint.** Derived results are staged through two
+catalogued fields, `PostScalar` and `PostVector`, created beside the corner-staging
+workspace. A derived quantity is written there, reached by catalogued name through
+`UpdateLocalGhosts` and `ComputeNodalAverage`, and copied out to VTK before the next
+one reuses the buffer. This works *with* the compile-time offset constraint rather
+than against it: the alternative, a `FieldView` bound to explicit vectors, would still
+need the same local and nodal scratch vectors and would additionally have to move
+`dof`, layout, and sync class into the view for every consumer. The precedent is
+already in the catalog, where `CellScalarAtCorner` and `CellVectorAtCorner` are
+staging buffers rather than simulation state.
+
+Accumulator field logging is reachable the same way, by staging a window's vector
+before logging it, so no separate diagnostic path is required.
 
 **Known constraint on nodal output.** `UpdateLocalGhosts` resolves its vectors
 through `FieldGetView`, which reads compile-time `UserCtx` offsets stored in the
@@ -535,8 +691,20 @@ range of per-point valid fraction as a mask-health indicator. These are all
 window-level scalars. **The console snapshot never dumps field data**; that is
 what the debug-level field loggers are for.
 
-The startup banner gains a matching line beside the existing particle console
-entries, printing the configured cadence or `DISABLED`, so a run's log records
+The mask-health indicator is the range of per-point valid fraction, where a point's
+fraction is its own accumulated count divided by the window's accepted-sample count.
+A minimum of one means every targeted point saw every state; a minimum below one means
+a moving body excluded some points for part of the window; a minimum of zero means
+some point contributed nothing and its mean is undefined. That last case cannot be
+seen by reading the mean field, because an untouched point holds a zero that looks
+like a legitimate value, so it is also reported once as a warning when the window
+completes.
+
+Computing the range is a collective reduction, so it runs only on the console cadence
+and at window completion, never per step.
+
+The startup banner gains a line in the shape the existing `Field/Restart Cadence`
+entry uses, printing the configured cadence or `DISABLED`, so a run's log records
 whether monitoring was active.
 
 @subsection p60_levels_sub 12.2 Log Levels
@@ -547,16 +715,25 @@ Statistics code uses `LOG_ALLOW` at the levels the rest of the codebase uses:
   window definitions at startup, a window becoming active, a window completing
   with its final sample count and represented time, and checkpoint save or
   restore of window state.
-- `LOG_DEBUG` for per-event bookkeeping: a state accepted or skipped and why, the
-  weight assigned, schedule position advancing, and clipped first or final
-  intervals.
-- `LOG_WARNING` reserved for conditions an operator must act on, such as a window
-  completing with points whose valid fraction is zero. Expected behaviour is never
-  logged as a warning.
+- `LOG_DEBUG` for per-event bookkeeping: a state accepted with its weight and the
+  window's running totals, and a state an active window did not sample, with the
+  last accepted time that explains it. Both are expected outcomes, which is why
+  neither is a warning.
+- `LOG_WARNING` reserved for conditions an operator must act on: a window completing
+  without accepting any sample, and a window completing with points whose valid
+  fraction is zero. Expected behaviour is never logged as a warning.
 - `LOG_TRACE` for per-point or per-block detail that would otherwise flood a run.
 
 Accumulation is on the timestep path, so `LOG_DEBUG` and below must not perform
 collective reductions unless the level is already active.
+
+`LOG_ALLOW` is gated by the per-function allow list as everywhere else in the
+codebase, whose default admits only `main` and `CreateSimulationContext`. Statistics
+lifecycle lines therefore appear only when their functions are named in
+`logging.enabled_functions`, exactly as any other module's do. This is deliberate and
+is why the console snapshot uses `LOG` instead: monitoring an accumulating window is
+an operator-facing report that must not depend on naming an internal function, while
+the lifecycle lines are diagnostics.
 
 @subsection p60_fieldid_sub 12.3 Field Identity in Logging
 
@@ -591,10 +768,10 @@ Each stage is independently testable. No user-facing YAML is accepted until Stag
    resolved from configuration long before the factory runs.
 
    The mechanism is the one the convergence state already uses: `PetscCalloc1` for
-   the array, then `VecDuplicate` off a vector the factory has already built. That
-   inherits the DM, layout, and decomposition of an existing field, so no new DM or
-   layout decision is introduced. When a future mask makes a window smaller than the
-   full field, only the duplication source changes; the placement does not.
+   the array, then a global vector from the DM that carries the accumulator's
+   component count. That inherits the block decomposition, so no accumulator can
+   misalign with the field it accumulates. When a future mask makes a window smaller
+   than the full field, only the source DM changes; the placement does not.
 
    Allocation happens once at setup and release once at teardown. The runloop hook
    only updates state that already exists and allocates nothing.
@@ -608,7 +785,21 @@ Each stage is independently testable. No user-facing YAML is accepted until Stag
    anywhere in this stage; where a later stage does need ghosts, it must go through
    `UpdateLocalGhosts` rather than a hand-rolled exchange.
 4. **Checkpoint continuation.** Extend the existing coordinator, manifest writer, and
-   validator as specified in @ref p60_checkpoint_sec.
+   validator as specified in @ref p60_checkpoint_sec. Payloads go through the same
+   `WriteFieldData`/`ReadFieldData` pair Eulerian fields use, so no second binary
+   serializer appears and rank-count independence is inherited rather than
+   reimplemented.
+
+   Persistence is driven by one enumeration of a window's storage, walked identically
+   by the manifest inventory, the writer, and the reader. A payload therefore cannot
+   be written under one name and looked for under another.
+
+   The definition hash lands here rather than with ingress, because it is checkpoint
+   metadata: it is what a restart compares against, and it operates on a resolved
+   definition regardless of how that definition was produced.
+
+   The continuation switch defaults to the run's continue mode. Stage 5 exposes the
+   explicit request `--restart-from` requires.
 5. **Ingress.** Python schema, normalize/resolve pair, control emission, C resolution
    and hashing in `src/statistics_config.c`, and the audit extension. This stage also
    carries `io.statistics_console_output_frequency` through the same chain, and adds
@@ -681,6 +872,71 @@ reducer, which is permitted only after tests prove identical results.
 
 Explicitly not planned at any phase: a legacy `su0`/`su1`/`su2`/`sp` importer, a
 dual-write period, or any compatibility workflow.
+
+@subsection p60_naming_sub 15.1 Naming Convention
+
+The pipeline uses two prefixes, split by what a symbol is for rather than where it
+lives, so a name can be predicted from its role.
+
+`Picurv*` marks the reusable statistics library: the centered-moment kernels, the
+window lifecycle, and the accumulator. These take plain arguments or a block context
+and hold no opinion about how a run is configured, and their bare nouns — `Window`,
+`MomentState`, `ProductComponentCount` — are generic enough to collide in a single
+namespace. This follows `PicurvSHA256*` in [checksum.h](../../include/checksum.h),
+which carries the prefix for the same reason.
+
+`FieldStatistics*` marks the run-integration surface: the predicate the runloop,
+checkpoint writer, and console monitor share, the per-step driver, and the
+post-processing pipeline. These take a `SimCtx` and exist to be called from the
+solver and post-processor, so they follow the `Field*` family of the typed catalog
+rather than the library prefix. Configuration entry points keep the codebase's
+verb-first form, matching `ParsePostProcessingSettings`.
+
+`SpatialTargetPlan*` carries neither, because the noun is already specific enough not
+to collide, in the same way `FieldView` and `BoundingBox` need no qualifier.
+
+Loop variables follow the surrounding code: `i`, `j`, `k` for grid traversal, and a
+descriptive name for anything indexing a configured list, as the checkpoint writer
+already does with `block` and `payload`.
+
+@subsection p60_carried_sub 16.1 Carried Deliberately
+
+Three structural choices are left as they are, recorded here so a later change knows
+what was weighed rather than rediscovering it.
+
+**The accumulator module holds two halves.**
+[statistics_accumulator.c](../../src/statistics_accumulator.c) carries both the
+online accumulation that runs every accepted step and the offline derivation and
+spatial reduction that run only in post-processing. They are close to equal in size
+and share exactly one thing: the symmetric component-pair table that defines the
+order of a three-vector's self-product. Splitting the derivation into its own module
+would separate a hot path from a cold one, at the cost of exporting that table across
+a file boundary. The moment to do it is when a further product family arrives and the
+table needs a home of its own; until then the shared order is a stronger argument for
+one file than the size is against it.
+
+**Several centered-moment kernels have no production caller.** `PicurvMomentStateReset`
+and `PicurvCoMomentStateReset` are the constructors of their structs.
+`PicurvMomentStateMerge` and `PicurvCoMomentStateMerge` implement the stable weighted
+parallel combination that page 58 §7 requires centered state to support; pointwise
+accumulation never merges, so the first caller will be a spatial reduction in Phase 3.
+`PicurvMomentStateVariance` is the only reader of the second moment that
+`PicurvMomentStateUpdate` already maintains — the pipeline routes every product
+through the co-moment path so the diagonal and off-diagonal share one update, which
+leaves the scalar accessor correct but unused. `PicurvMomentStateEffectiveCount`
+returns the Kish effective sample size, which is what a physical-time-weighted window
+should report instead of a raw sample count when the timestep varies; surfacing it
+needs a window-level sum of squared weights, and therefore a new checkpoint field and
+restore path. Each is verified by the moment suite, so a future consumer inherits a
+tested kernel rather than writing one.
+
+**Comma-separated lists are walked in several places rather than through one helper.**
+The configuration parser splits into a token array, the derivation matches tokens
+against a keyword table, and the post-processing pipeline iterates and acts directly.
+The shapes differ enough that a shared splitter would take a callback or an output
+array that most callers discard, and
+[postprocessor.c](../../src/postprocessor.c) uses `strtok` throughout, so a bespoke
+helper there would read as the exception rather than the rule.
 
 @section p60_related_sec 17. Related Pages
 

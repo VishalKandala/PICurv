@@ -109,4 +109,27 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
  */
 PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, PetscInt ti);
 
+/**
+ * @brief Derives and writes field statistics for the windows a recipe requests.
+ *
+ * Runs once per processed step, beside the particle statistics pipeline, because a
+ * window's accumulated state is a property of the bundle at that step. A recipe
+ * spanning several steps therefore produces a convergence history rather than the
+ * same picture repeated; pinning `field_statistics_source_step` collapses it back to
+ * a single bundle.
+ *
+ * Each window is written to its own file. The VTK point-data cap is per file, and one
+ * window carrying every output already fills most of it.
+ *
+ * Does nothing when no window is requested. A window the run does not configure is
+ * fatal; a window that has not yet accumulated a sample is skipped with a note, since
+ * a recipe covering a whole run legitimately reaches bundles from before it began.
+ *
+ * @param[in] user Finest-level block context holding accumulators and staging fields.
+ * @param[in] pps  Post-processing recipe naming the windows, outputs, and formats.
+ * @param[in] ti   Step being processed; names the output and selects the bundle.
+ * @return Zero on success, or a PETSc error.
+ */
+PetscErrorCode FieldStatisticsPipeline(UserCtx *user, PostProcessParams *pps, PetscInt ti);
+
 #endif /* POSTPROCESSOR_H */

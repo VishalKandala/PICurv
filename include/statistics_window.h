@@ -85,6 +85,7 @@ typedef struct PicurvWindow {
     PetscInt               activation_step;      /**< Step at which the window became active. */
     PetscInt               last_event_step;      /**< Guards against a step being offered twice. */
     PetscInt               next_time_target;     /**< k in effective_start + k*time_cadence. */
+    PetscInt               restart_count;        /**< Restart segments this state descends from. */
 } PicurvWindow;
 
 /**
@@ -121,6 +122,64 @@ PetscErrorCode PicurvWindowInit(PicurvWindow *window, const PicurvWindowDefiniti
 PetscErrorCode PicurvWindowOfferState(PicurvWindow *window, PetscInt step, PetscReal time,
                                       PetscBool *accepted, PetscReal *weight);
 
+/** @brief Number of independently hashed property groups in a window definition. */
+#define PICURV_WINDOW_HASH_GROUP_COUNT 8
+
+/** @brief Stored length of one truncated group digest, including the terminator. */
+#define PICURV_WINDOW_HASH_GROUP_LENGTH 17
+
+/**
+ * @brief Computes the resolved identity hash of one window definition.
+ *
+ * Hashes the canonical serialization defined in
+ * @ref 60_Field_Statistics_Phase2_Implementation_Specification section 7, in that
+ * fixed order, so a saved window can be matched against a resolved one without
+ * storing the definition itself.
+ *
+ * `end_time` and the enabled flag are deliberately excluded, which is what lets a
+ * bounded window be extended forward and lets statistics be switched off and on
+ * without invalidating saved state.
+ *
+ * Field and covariance entries are serialized in catalog order rather than the
+ * order the user listed them, so a reordered but otherwise identical configuration
+ * continues rather than being rejected.
+ *
+ * Each property group is additionally hashed on its own. A restart that finds a
+ * mismatched full digest compares the group digests to name the first differing
+ * property, which a single digest could not do.
+ *
+ * @param[in]  definition       Window definition to hash.
+ * @param[out] digest_hex       Full 64-character digest plus terminator.
+ * @param[out] group_digest_hex Optional per-group truncated digests; pass NULL to skip.
+ * @return Zero on success, or a PETSc error for a null argument or unknown field.
+ */
+PetscErrorCode PicurvWindowComputeHash(const PicurvWindowDefinition *definition,
+                                       char digest_hex[65],
+                                       char group_digest_hex[][PICURV_WINDOW_HASH_GROUP_LENGTH]);
+
+/**
+ * @brief Reports which hashed property group first differs from saved group digests.
+ *
+ * A checkpoint stores the group digests but never the definition itself, so this is
+ * what turns "two hashes differ" into a message naming the property that changed.
+ *
+ * @param[in]  definition          Resolved definition to compare against.
+ * @param[in]  saved_group_digests Comma-separated group digests from a checkpoint.
+ * @param[out] group               First differing group index, or -1 when the saved
+ *                                 digests match or are too malformed to compare.
+ * @return Zero on success, or a PETSc error for a null argument or unknown field.
+ */
+PetscErrorCode PicurvWindowFirstHashDifference(const PicurvWindowDefinition *definition,
+                                               const char *saved_group_digests,
+                                               PetscInt *group);
+
+/**
+ * @brief Returns the stable name of one hashed property group.
+ * @param[in] group Group index in `[0, PICURV_WINDOW_HASH_GROUP_COUNT)`.
+ * @return Static string; `"unknown"` for an out-of-range index, never NULL.
+ */
+const char *PicurvWindowHashGroupName(PetscInt group);
+
 /**
  * @brief Reports the fraction of a bounded window's span that has been represented.
  * @param[in] window Window to query.
@@ -134,6 +193,20 @@ PetscReal PicurvWindowProgress(const PicurvWindow *window);
  * @return Static string; never NULL.
  */
 const char *PicurvWindowStateName(PicurvWindowState state);
+
+/**
+ * @brief Reports whether this run has live field-statistics state.
+ *
+ * The subsystem is active only when it is enabled, at least one window is
+ * configured, and the window array exists. Every caller that touches window or
+ * accumulator state asks this rather than restating the condition, so the three
+ * parts cannot drift apart between the runloop, the checkpoint writer, and the
+ * console monitor.
+ *
+ * @param[in] simCtx Simulation context; may be NULL.
+ * @return `PETSC_TRUE` when window state exists and may be touched.
+ */
+PetscBool FieldStatisticsIsActive(const struct SimCtx *simCtx);
 
 /**
  * @brief Offers one completed state to every configured window.

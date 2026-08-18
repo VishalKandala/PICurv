@@ -53,6 +53,44 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
 PetscErrorCode PrepareOutputEulerianFieldData(UserCtx* user, Vec field_vec, PetscInt num_components, PetscScalar** out_data);
 
 /**
+ * @brief Begins one structured VTK file: clears the metadata and builds its coordinates.
+ *
+ * Every Eulerian VTK file is assembled the same way — coordinates, then a set of
+ * point-data fields, then the write. This trio exists so the two producers share that
+ * shape instead of restating it, and so the buffers each producer allocates are
+ * released in one place rather than in neither.
+ *
+ * @param[in]  user Block context supplying the grid.
+ * @param[out] meta Metadata to initialize.
+ * @return Zero on success, or a PETSc error.
+ */
+PetscErrorCode BeginStructuredVTKOutput(UserCtx *user, VTKMetaData *meta);
+
+/**
+ * @brief Adds one point-data field to a structured VTK file being assembled.
+ *
+ * Skips the field with a warning when the file is already at its field limit, so a
+ * long output list degrades rather than corrupting the metadata.
+ *
+ * @param[in]     user       Block context supplying the grid.
+ * @param[in,out] meta       Metadata to append to.
+ * @param[in]     name       Field name as it will appear in the file.
+ * @param[in]     field_vec  Nodal vector holding the values.
+ * @param[in]     components One for a scalar, three for a vector.
+ * @return Zero on success, or a PETSc error.
+ */
+PetscErrorCode AppendStructuredVTKField(UserCtx *user, VTKMetaData *meta, const char *name,
+                                        Vec field_vec, PetscInt components);
+
+/**
+ * @brief Writes an assembled structured VTK file and releases its buffers.
+ * @param[in,out] meta     Metadata to write and then release.
+ * @param[in]     filename Destination path.
+ * @return Zero on success, or a PETSc error.
+ */
+PetscErrorCode FinishStructuredVTKOutput(VTKMetaData *meta, const char *filename);
+
+/**
  * @brief Gathers, subsamples, and prepares all particle data for VTK output.
  *
  * This function is a COLLECTIVE operation. All ranks must enter it.

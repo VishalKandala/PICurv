@@ -300,6 +300,74 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
 
 
 /**
+ * @brief Implementation of \ref BeginStructuredVTKOutput().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/vtk_io.h`.
+ * @see BeginStructuredVTKOutput()
+ */
+PetscErrorCode BeginStructuredVTKOutput(UserCtx *user, VTKMetaData *meta)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(user != NULL && meta != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Context and metadata are required.");
+    PetscCall(PetscMemzero(meta, sizeof(*meta)));
+    meta->fileType = VTK_STRUCTURED;
+    PetscCall(PrepareOutputCoordinates(user, &meta->coords, &meta->mx, &meta->my, &meta->mz,
+                                       &meta->npoints));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref AppendStructuredVTKField().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/vtk_io.h`.
+ * @see AppendStructuredVTKField()
+ */
+PetscErrorCode AppendStructuredVTKField(UserCtx *user, VTKMetaData *meta, const char *name,
+                                        Vec field_vec, PetscInt components)
+{
+    VTKFieldInfo *entry = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(user != NULL && meta != NULL && name != NULL && field_vec != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, metadata, name, and vector are required.");
+    if (meta->num_point_data_fields >= MAX_POINT_DATA_FIELDS) {
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "Reached the %d point-data field limit; '%s' is not written.\n",
+                  MAX_POINT_DATA_FIELDS, name);
+        PetscFunctionReturn(0);
+    }
+    entry = &meta->point_data_fields[meta->num_point_data_fields];
+    PetscCall(PetscStrncpy(entry->name, name, MAX_VTK_FIELD_NAME_LENGTH));
+    entry->num_components = components;
+    PetscCall(PrepareOutputEulerianFieldData(user, field_vec, components, &entry->data));
+    meta->num_point_data_fields++;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref FinishStructuredVTKOutput().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/vtk_io.h`.
+ * @see FinishStructuredVTKOutput()
+ */
+PetscErrorCode FinishStructuredVTKOutput(VTKMetaData *meta, const char *filename)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(meta != NULL && filename != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Metadata and filename are required.");
+    PetscCall(CreateVTKFileFromMetadata(filename, meta, PETSC_COMM_WORLD));
+    for (PetscInt index = 0; index < meta->num_point_data_fields; ++index) {
+        if (meta->point_data_fields[index].data) {
+            PetscCall(PetscFree(meta->point_data_fields[index].data));
+        }
+    }
+    if (meta->coords) PetscCall(PetscFree(meta->coords));
+    meta->num_point_data_fields = 0;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Implementation of \ref PrepareOutputEulerianFieldData().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/vtk_io.h`.

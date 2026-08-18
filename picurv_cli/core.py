@@ -1731,6 +1731,160 @@ def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str, monitor_c
     return list(dict.fromkeys(output_paths))
 
 
+#: Derived outputs a post recipe may request from an accumulated window.
+POST_FIELD_STATISTICS_OUTPUTS = ("mean", "reynolds_stress", "rms", "tke", "flux")
+
+#: Output formats a post recipe may request. `vtk` writes the derived fields; `csv`
+#: appends one convergence row per processed step.
+POST_FIELD_STATISTICS_FORMATS = ("vtk", "csv")
+
+
+def normalize_post_field_statistics_config(post_cfg: dict) -> dict:
+    """!
+    @brief Validate and canonicalize the field_statistics block of post.yml.
+
+    @details The recipe names windows rather than redescribing them, because the
+             window definitions already reach the post-processor through the run's
+             solver control. Validation therefore covers the recipe's own choices
+             only; a name no window matches is caught in C against the resolved list,
+             which is the only place the real set is known.
+
+    @param[in] post_cfg Parsed post-processing configuration.
+    @return Value returned by `normalize_post_field_statistics_config()`.
+    """
+    raw = (post_cfg or {}).get("field_statistics")
+    if raw is None:
+        return {"windows": [], "source_step": None, "outputs": [], "formats": []}
+    if not isinstance(raw, dict):
+        raise ValueError("'field_statistics' must be a mapping.")
+
+    windows = raw.get("windows")
+    if not isinstance(windows, list) or not windows:
+        raise ValueError("'field_statistics.windows' must be a non-empty list of window names.")
+    cleaned = []
+    for entry in windows:
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValueError("'field_statistics.windows' entries must be non-empty window names.")
+        name = entry.strip()
+        # Each window writes its own file, so a repeat would overwrite its own output.
+        if name in cleaned:
+            raise ValueError(f"field statistics recipe lists window '{name}' more than once.")
+        cleaned.append(name)
+
+    label = ", ".join(cleaned)
+    source_step = raw.get("source_step")
+    if source_step is not None:
+        if not isinstance(source_step, int) or isinstance(source_step, bool) or source_step < 0:
+            raise ValueError(
+                f"field statistics recipe for [{label}]: 'source_step' must be a non-negative "
+                f"integer (got {source_step!r})."
+            )
+
+    outputs = raw.get("outputs", list(POST_FIELD_STATISTICS_OUTPUTS))
+    if not isinstance(outputs, list) or not outputs:
+        raise ValueError(f"field statistics recipe for [{label}]: 'outputs' must be a non-empty list.")
+    unknown = [item for item in outputs if item not in POST_FIELD_STATISTICS_OUTPUTS]
+    if unknown:
+        raise ValueError(
+            f"field statistics recipe for [{label}]: unknown outputs {unknown}. "
+            f"Available outputs: {list(POST_FIELD_STATISTICS_OUTPUTS)}."
+        )
+    if len(set(outputs)) != len(outputs):
+        raise ValueError(f"field statistics recipe for [{label}]: 'outputs' lists a duplicate.")
+
+    formats = raw.get("formats", ["vtk"])
+    if not isinstance(formats, list) or not formats:
+        raise ValueError(f"field statistics recipe for [{label}]: 'formats' must be a non-empty list.")
+    unknown = [item for item in formats if item not in POST_FIELD_STATISTICS_FORMATS]
+    if unknown:
+        raise ValueError(
+            f"field statistics recipe for [{label}]: unknown formats {unknown}. "
+            f"Available formats: {list(POST_FIELD_STATISTICS_FORMATS)}."
+        )
+    if len(set(formats)) != len(formats):
+        raise ValueError(f"field statistics recipe for [{label}]: 'formats' lists a duplicate.")
+
+    return {
+        "windows": cleaned,
+        "source_step": source_step,
+        "outputs": list(outputs),
+        "formats": list(formats),
+    }
+
+
+def _post_window_derived_field_count(window_cfg: dict, outputs: list) -> int:
+    """!
+    @brief Count the derived fields one window would produce for a set of outputs.
+
+    @details Mirrors the resolution the C derivation performs, so a recipe that would
+             produce an empty file is refused before the run rather than after it. Each
+             output resolves against what the window accumulated: a window keeping only
+             first moments has no stresses, RMS, or turbulent kinetic energy to give.
+
+    @param[in] window_cfg Normalized window definition from monitor.yml.
+    @param[in] outputs Requested output kinds.
+    @return Value returned by `_post_window_derived_field_count()`.
+    """
+    fields = window_cfg.get("fields", []) or []
+    covariances = window_cfg.get("covariances", []) or []
+    with_second = [f for f in fields if "second" in (f.get("moments") or [])]
+    total = 0
+    for kind in outputs:
+        if kind == "mean":
+            total += len(fields)
+        elif kind == "reynolds_stress":
+            for entry in with_second:
+                dof = STATISTICS_ELIGIBLE_FIELDS[entry["field"]]["components"]
+                total += 6 if dof == 3 else 1
+        elif kind == "rms":
+            for entry in with_second:
+                total += STATISTICS_ELIGIBLE_FIELDS[entry["field"]]["components"]
+        elif kind == "tke":
+            total += sum(1 for entry in with_second
+                         if STATISTICS_ELIGIBLE_FIELDS[entry["field"]]["components"] == 3)
+        elif kind == "flux":
+            total += len(covariances)
+    return total
+
+
+def _post_requests_field_statistics(post_cfg: dict) -> bool:
+    """!
+    @brief Return whether the current post recipe derives accumulated field statistics.
+    @param[in] post_cfg Argument passed to `_post_requests_field_statistics()`.
+    @return Value returned by `_post_requests_field_statistics()`.
+    """
+    try:
+        return bool(normalize_post_field_statistics_config(post_cfg)["windows"])
+    except ValueError:
+        # Malformed configuration is reported by validation, not by this predicate.
+        return False
+
+
+def get_post_field_statistics_artifacts(post_cfg: dict, run_dir: str):
+    """!
+    @brief Predict the per-window statistics artifacts a recipe will produce.
+    @details Returns one entry per window and format, so resume tracking can tell a
+             half-finished window from a completed one.
+    @param[in] post_cfg Parsed post-processing configuration.
+    @param[in] run_dir Run directory the outputs are written under.
+    @return List of (kind, path_prefix) tuples; kind is 'vtk' or 'csv'.
+    """
+    config = normalize_post_field_statistics_config(post_cfg)
+    if not config["windows"]:
+        return []
+    io_cfg = post_cfg.get("io", {}) or {}
+    output_dir_abs = _post_output_directory_abs(run_dir, post_cfg)
+    prefix = io_cfg.get("output_filename_prefix", "Field")
+    artifacts = []
+    for window in config["windows"]:
+        base = os.path.join(output_dir_abs, f"{prefix}_statistics_{window}")
+        if "vtk" in config["formats"]:
+            artifacts.append(("vtk", base))
+        if "csv" in config["formats"]:
+            artifacts.append(("csv", base + ".csv"))
+    return artifacts
+
+
 def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
     """!
     @brief Build the flat key=value mapping consumed by the C post-processor.
@@ -1794,6 +1948,16 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
         c_config['statistics_output_prefix'] = statistics_output_prefix
 
     io = post_cfg.get('io', {})
+    field_statistics = normalize_post_field_statistics_config(post_cfg)
+    if field_statistics["windows"]:
+        c_config['field_statistics_windows'] = ",".join(field_statistics["windows"])
+        c_config['field_statistics_outputs'] = ",".join(field_statistics["outputs"])
+        c_config['field_statistics_formats'] = ",".join(field_statistics["formats"])
+        # An omitted source step means each processed step derives from its own
+        # bundle, which is what turns a multi-step recipe into a convergence history.
+        if field_statistics["source_step"] is not None:
+            c_config['field_statistics_source_step'] = field_statistics["source_step"]
+
     c_config['output_prefix'] = io.get('output_directory', 'viz') + '/' + io.get('output_filename_prefix', 'Field')
     c_config['particle_output_prefix'] = io.get('output_directory', 'viz') + '/' + io.get('particle_filename_prefix', 'Particle')
     c_config['output_particles'] = io.get('output_particles', False)
@@ -2060,6 +2224,14 @@ def collect_post_completion_families(run_dir: str, post_cfg: dict, monitor_cfg=N
 
     for stats_path in get_post_statistics_output_artifacts(post_cfg, run_dir, monitor_cfg):
         families.append(_scan_post_statistics_csv_steps(stats_path))
+
+    # Each window and format is its own family, so a run that produced the Eulerian
+    # fields but not the statistics is not mistaken for a completed step.
+    for kind, path in get_post_field_statistics_artifacts(post_cfg, run_dir):
+        if kind == 'vtk':
+            families.append(_scan_post_vtk_steps(path, 'vts'))
+        else:
+            families.append(_scan_post_statistics_csv_steps(path))
 
     return families
 
@@ -2743,6 +2915,18 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         )
 
     if restart_from:
+        # Statistics continuation is tied to --continue. A branch may follow a
+        # different physical trajectory than the samples already collected, so the
+        # specification requires an explicit opt-in that does not exist yet; without
+        # it the windows would silently restart from zero and report a sample count
+        # that describes a shorter average than the user expects.
+        if normalize_field_statistics_config(monitor_cfg or {})["enabled"]:
+            raise ValueError(
+                "--restart-from cannot carry accumulated field statistics forward: the windows "
+                "would silently restart from zero. Use --continue to resume a run in place, or "
+                "set 'field_statistics.enabled: false' to branch without them."
+            )
+
         # === MODE 1: New run, restart from another run ===
         source_run = os.path.abspath(restart_from)
         if not os.path.isdir(source_run):
@@ -4657,7 +4841,10 @@ _SOLVER_SCHEMA = {
 
 
 _MONITOR_SCHEMA = {
-    (): {"logging", "profiling", "diagnostics", "io", "solver_monitoring", "solution_monitoring"},
+    (): {
+        "logging", "profiling", "diagnostics", "io", "solver_monitoring", "solution_monitoring",
+        "field_statistics",
+    },
     ("logging",): {"verbosity", "enabled_functions"},
     ("profiling",): {"timestep_output", "final_summary"},
     ("profiling", "timestep_output"): {"mode", "functions", "file"},
@@ -4671,7 +4858,7 @@ _MONITOR_SCHEMA = {
     ("diagnostics", "runtime_memory_log"): {"enabled", "file"},
     ("io",): {
         "data_output_frequency", "particle_console_output_frequency", "particle_log_interval",
-        "directories",
+        "statistics_console_output_frequency", "directories",
     },
     ("io", "directories"): {"output", "restart", "log"},
     ("solver_monitoring",): {"momentum", "poisson", "petsc_passthrough_options"},
@@ -4687,14 +4874,49 @@ _MONITOR_SCHEMA = {
     },
     ("solution_monitoring", "convergence", "periodic_deterministic"): {"period_steps"},
     ("solution_monitoring", "convergence", "statistical_steady"): {"window_steps"},
+    ("field_statistics",): {"enabled", "windows"},
+    ("field_statistics", "windows", "[]"): {
+        "name", "start_time", "end_time", "weighting",
+        "step_cadence", "time_cadence", "fields", "covariances",
+    },
+    ("field_statistics", "windows", "[]", "fields", "[]"): {"field", "moments"},
 }
+
+
+#: Eulerian fields a Phase 2 window may accumulate, with the subsystem each needs.
+#:
+#: This is a curated subset of the typed catalog rather than a mirror of it. Averaging
+#: a grid metric is meaningless, and a face-staggered field has no single pointwise
+#: location, so offering the whole catalog would only move the rejection later and
+#: make it harder to read. `tests/test_cli_smoke.py` asserts every entry here still
+#: exists in `src/field_catalog.c` with the layout recorded, so the two cannot drift.
+STATISTICS_ELIGIBLE_FIELDS = {
+    "Ucat": {"components": 3, "requires": None},
+    "P": {"components": 1, "requires": None},
+    "Nvert": {"components": 1, "requires": None},
+    "Phi": {"components": 1, "requires": None},
+    "Psi": {"components": 1, "requires": "particles"},
+    "ParticleCount": {"components": 1, "requires": "particles"},
+    "Nu_t": {"components": 1, "requires": "turbulence"},
+    "CS": {"components": 1, "requires": "les"},
+}
+
+#: Moment names one field may request. Higher moments cannot be recovered from
+#: centered state after the fact, so they are a Phase 3 addition rather than an
+#: extension of this list.
+STATISTICS_MOMENT_NAMES = ("first", "second")
+
+#: Weighting modes a window may select.
+STATISTICS_WEIGHTING_MODES = ("sample", "physical_time")
 
 
 _POST_SCHEMA = {
     (): {
         "run_control", "source_data", "global_operations", "eulerian_pipeline",
-        "lagrangian_pipeline", "statistics_pipeline", "statistics_output_prefix", "io",
+        "lagrangian_pipeline", "statistics_pipeline", "statistics_output_prefix",
+        "field_statistics", "io",
     },
+    ("field_statistics",): {"windows", "source_step", "outputs", "formats"},
     ("run_control",): {
         "start_step", "end_step", "step_interval", "startTime", "endTime", "timeStep",
     },
@@ -5475,6 +5697,19 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             normalize_solution_monitoring_config(monitor_cfg)
         except ValueError as e:
             errors.append(f"  {monitor_path}: {e}")
+        statistics_console_freq = io_cfg.get('statistics_console_output_frequency')
+        if statistics_console_freq is not None and (
+                not isinstance(statistics_console_freq, int)
+                or isinstance(statistics_console_freq, bool)
+                or statistics_console_freq < 0):
+            errors.append(
+                f"  {monitor_path}: 'io.statistics_console_output_frequency' must be a non-negative "
+                f"integer (got {statistics_console_freq})."
+            )
+        try:
+            normalize_field_statistics_config(monitor_cfg, case_cfg)
+        except ValueError as e:
+            errors.append(f"  {monitor_path}: {e}")
 
     if not errors:
         if needs_restart_source(case_cfg, solver_cfg):
@@ -5490,16 +5725,54 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         print(f"[WARN] {warning}", file=sys.stderr)
 
 
-def validate_post_config(post_cfg: dict, post_path: str):
+def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = None):
     """!
     @brief Validates the post-processing config before running the post-processor.
     @param[in] post_cfg  Parsed post-processing YAML dictionary.
     @param[in] post_path Path to post file (for error messages).
+    @param[in] monitor_cfg Parsed monitor configuration, when available. Field
+                           statistics span both files: post.yml names the windows and
+                           outputs while monitor.yml decides what each window
+                           accumulates, so those checks run only when both are known.
     @throws SystemExit on validation failure.
     """
     errors = []
 
     _validate_yaml_schema_keys(post_cfg, _POST_SCHEMA, post_path, errors)
+
+    try:
+        recipe = normalize_post_field_statistics_config(post_cfg)
+    except ValueError as e:
+        recipe = None
+        errors.append(f"  {post_path}: {e}")
+    if recipe and recipe["windows"] and monitor_cfg is not None:
+        try:
+            configured = normalize_field_statistics_config(monitor_cfg)
+        except ValueError:
+            # The monitor file reports its own errors; do not repeat them here.
+            configured = None
+        if configured is not None:
+            if not configured["enabled"]:
+                errors.append(
+                    f"  {post_path}: field statistics are requested, but "
+                    "'field_statistics.enabled' is not set in the monitor configuration, so no "
+                    "window is accumulated."
+                )
+            else:
+                by_name = {window["name"]: window for window in configured["windows"]}
+                for name in recipe["windows"]:
+                    if name not in by_name:
+                        errors.append(
+                            f"  {post_path}: field-statistics window '{name}' is not defined in "
+                            f"the monitor configuration. Defined windows: {sorted(by_name)}."
+                        )
+                    elif _post_window_derived_field_count(by_name[name], recipe["outputs"]) == 0:
+                        errors.append(
+                            f"  {post_path}: outputs {recipe['outputs']} produce no field for "
+                            f"window '{name}'; it accumulates none of the state they need. Add "
+                            "'second' to a field's moments for stresses, RMS, or turbulent "
+                            "kinetic energy, or a covariance for a flux."
+                        )
 
     if not isinstance(post_cfg, dict) or not post_cfg:
         errors.append(f"  {post_path}: post-processing config is empty or not a valid YAML mapping.")
@@ -6783,6 +7056,267 @@ def build_petsc_diagnostics_args(monitor_cfg: dict, run_dir: str, stage_label: s
     if petsc["options_left"] is not None:
         args.extend(["-options_left", "true" if petsc["options_left"] else "false"])
     return args
+
+
+def _statistics_subsystem_available(case_cfg: dict, requirement) -> bool:
+    """!
+    @brief Report whether the subsystem a statistics field depends on is active.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] requirement Subsystem key from `STATISTICS_ELIGIBLE_FIELDS`, or None.
+    @return Value returned by `_statistics_subsystem_available()`.
+    """
+    if requirement is None:
+        return True
+    physics = ((case_cfg or {}).get("models", {}) or {}).get("physics", {}) or {}
+    if requirement == "particles":
+        particles = physics.get("particles", {}) or {}
+        try:
+            return int(particles.get("count", 0) or 0) > 0
+        except (TypeError, ValueError):
+            return False
+    turbulence = physics.get("turbulence", {}) or {}
+    les_on = bool((turbulence.get("les", {}) or {}).get("enabled", False))
+    rans_on = bool((turbulence.get("rans", {}) or {}).get("enabled", False))
+    if requirement == "les":
+        return les_on
+    if requirement == "turbulence":
+        return les_on or rans_on
+    return False
+
+
+def normalize_field_statistics_config(monitor_cfg: dict, case_cfg: dict = None) -> dict:
+    """!
+    @brief Validate and canonicalize the field-statistics block of monitor.yml.
+
+    @details Rejects every condition listed in the Phase 2 specification, naming the
+             offending window so a message points at one entry rather than the block.
+             Returns a canonical form the flag resolver serializes without further
+             interpretation, so validation and emission cannot disagree.
+
+    @param[in] monitor_cfg Parsed monitor configuration.
+    @param[in] case_cfg Parsed case configuration, used to check that each field's
+                        subsystem is active. Subsystem checks are skipped when None.
+    @return Value returned by `normalize_field_statistics_config()`.
+    """
+    raw = (monitor_cfg or {}).get("field_statistics")
+    if raw is None:
+        return {"enabled": False, "windows": []}
+    if not isinstance(raw, dict):
+        raise ValueError("'field_statistics' must be a mapping.")
+
+    enabled = raw.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("'field_statistics.enabled' must be true or false.")
+    windows_raw = raw.get("windows", []) or []
+    if not isinstance(windows_raw, list):
+        raise ValueError("'field_statistics.windows' must be a list.")
+    if enabled and not windows_raw:
+        raise ValueError("'field_statistics.enabled' is true but no window is defined.")
+
+    windows = []
+    seen_names = set()
+    for index, window in enumerate(windows_raw):
+        if not isinstance(window, dict):
+            raise ValueError(f"'field_statistics.windows[{index}]' must be a mapping.")
+        name = window.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"'field_statistics.windows[{index}]' needs a non-empty 'name'.")
+        name = name.strip()
+        # Window names identify saved state across a restart, so a duplicate would
+        # make two windows indistinguishable in the checkpoint.
+        if name in seen_names:
+            raise ValueError(f"field statistics window '{name}' is defined more than once.")
+        seen_names.add(name)
+
+        start_time = window.get("start_time")
+        if not isinstance(start_time, (int, float)) or isinstance(start_time, bool):
+            raise ValueError(f"field statistics window '{name}': 'start_time' must be a number.")
+        end_time = window.get("end_time")
+        if end_time is not None:
+            if not isinstance(end_time, (int, float)) or isinstance(end_time, bool):
+                raise ValueError(f"field statistics window '{name}': 'end_time' must be a number.")
+            if float(end_time) <= float(start_time):
+                raise ValueError(
+                    f"field statistics window '{name}': 'end_time' ({end_time}) must be greater "
+                    f"than 'start_time' ({start_time})."
+                )
+
+        weighting = window.get("weighting")
+        if weighting not in STATISTICS_WEIGHTING_MODES:
+            raise ValueError(
+                f"field statistics window '{name}': 'weighting' must be one of "
+                f"{list(STATISTICS_WEIGHTING_MODES)} (got {weighting!r})."
+            )
+
+        has_step = "step_cadence" in window and window["step_cadence"] is not None
+        has_time = "time_cadence" in window and window["time_cadence"] is not None
+        if has_step == has_time:
+            raise ValueError(
+                f"field statistics window '{name}': set exactly one of 'step_cadence' and "
+                "'time_cadence'."
+            )
+        step_cadence = None
+        time_cadence = None
+        if has_step:
+            step_cadence = window["step_cadence"]
+            if not isinstance(step_cadence, int) or isinstance(step_cadence, bool) or step_cadence <= 0:
+                raise ValueError(
+                    f"field statistics window '{name}': 'step_cadence' must be a positive integer "
+                    f"(got {step_cadence!r})."
+                )
+        else:
+            time_cadence = window["time_cadence"]
+            if (not isinstance(time_cadence, (int, float)) or isinstance(time_cadence, bool)
+                    or float(time_cadence) <= 0.0):
+                raise ValueError(
+                    f"field statistics window '{name}': 'time_cadence' must be a positive number "
+                    f"(got {time_cadence!r})."
+                )
+
+        fields_raw = window.get("fields")
+        if not isinstance(fields_raw, list) or not fields_raw:
+            raise ValueError(f"field statistics window '{name}': 'fields' must be a non-empty list.")
+        fields = []
+        for field_entry in fields_raw:
+            if not isinstance(field_entry, dict):
+                raise ValueError(f"field statistics window '{name}': each 'fields' entry must be a mapping.")
+            field_name = field_entry.get("field")
+            if field_name not in STATISTICS_ELIGIBLE_FIELDS:
+                raise ValueError(
+                    f"field statistics window '{name}': field {field_name!r} cannot be accumulated. "
+                    f"Available fields: {sorted(STATISTICS_ELIGIBLE_FIELDS)}."
+                )
+            requirement = STATISTICS_ELIGIBLE_FIELDS[field_name]["requires"]
+            if case_cfg is not None and not _statistics_subsystem_available(case_cfg, requirement):
+                raise ValueError(
+                    f"field statistics window '{name}': field '{field_name}' requires the "
+                    f"'{requirement}' subsystem, which is not enabled for this case."
+                )
+            if any(existing["field"] == field_name for existing in fields):
+                raise ValueError(
+                    f"field statistics window '{name}': field '{field_name}' is listed more than once."
+                )
+            moments = field_entry.get("moments")
+            if not isinstance(moments, list) or not moments:
+                raise ValueError(
+                    f"field statistics window '{name}': field '{field_name}' needs a non-empty "
+                    "'moments' list."
+                )
+            unknown = [m for m in moments if m not in STATISTICS_MOMENT_NAMES]
+            if unknown:
+                raise ValueError(
+                    f"field statistics window '{name}': field '{field_name}' requests unknown "
+                    f"moments {unknown}. Available moments: {list(STATISTICS_MOMENT_NAMES)}."
+                )
+            # The first moment is always kept, because every centered product is
+            # measured against it.
+            fields.append({"field": field_name, "moments": ["first"] + (["second"] if "second" in moments else [])})
+
+        covariances_raw = window.get("covariances", []) or []
+        if not isinstance(covariances_raw, list):
+            raise ValueError(f"field statistics window '{name}': 'covariances' must be a list.")
+        requested = {entry["field"] for entry in fields}
+        covariances = []
+        for pair in covariances_raw:
+            if not isinstance(pair, list) or len(pair) != 2:
+                raise ValueError(
+                    f"field statistics window '{name}': each covariance must be a pair of field names."
+                )
+            first, second = pair
+            for member in (first, second):
+                if member not in STATISTICS_ELIGIBLE_FIELDS:
+                    raise ValueError(
+                        f"field statistics window '{name}': covariance member {member!r} cannot be "
+                        f"accumulated. Available fields: {sorted(STATISTICS_ELIGIBLE_FIELDS)}."
+                    )
+            if first == second:
+                raise ValueError(
+                    f"field statistics window '{name}': covariance ['{first}', '{second}'] pairs a "
+                    "field with itself; request that through moments: [second] instead."
+                )
+            missing = sorted({first, second} - requested)
+            if missing:
+                raise ValueError(
+                    f"field statistics window '{name}': covariance ['{first}', '{second}'] needs "
+                    f"{missing} in 'fields' as well, because a co-moment is centered against their means."
+                )
+            # Two three-component fields would need a full nine-component tensor,
+            # which Phase 2 does not carry.
+            if (STATISTICS_ELIGIBLE_FIELDS[first]["components"] == 3
+                    and STATISTICS_ELIGIBLE_FIELDS[second]["components"] == 3):
+                raise ValueError(
+                    f"field statistics window '{name}': covariance ['{first}', '{second}'] pairs two "
+                    "vector fields, which is not supported in Phase 2."
+                )
+            if sorted((first, second)) in [sorted(existing) for existing in covariances]:
+                raise ValueError(
+                    f"field statistics window '{name}': covariance ['{first}', '{second}'] is "
+                    "requested more than once."
+                )
+            covariances.append([first, second])
+
+        windows.append({
+            "name": name,
+            "start_time": float(start_time),
+            "end_time": None if end_time is None else float(end_time),
+            "weighting": weighting,
+            "step_cadence": step_cadence,
+            "time_cadence": None if time_cadence is None else float(time_cadence),
+            "fields": fields,
+            "covariances": covariances,
+        })
+
+    return {"enabled": bool(enabled), "windows": windows}
+
+
+def resolve_field_statistics_flags(monitor_cfg: dict, case_cfg: dict = None) -> list:
+    """!
+    @brief Serialize field-statistics configuration into control-file option lines.
+    @details A window list is variable arity, so its option names are constructed from
+             the index. Each name belongs to a family declared in the ingress audit
+             manifest.
+    @param[in] monitor_cfg Parsed monitor configuration.
+    @param[in] case_cfg Parsed case configuration, for subsystem availability checks.
+    @return Value returned by `resolve_field_statistics_flags()`.
+    """
+    config = normalize_field_statistics_config(monitor_cfg, case_cfg)
+    if not config["enabled"]:
+        return []
+
+    lines = ["-field_statistics_enabled true",
+             f"-field_statistics_window_count {len(config['windows'])}"]
+    for index, window in enumerate(config["windows"]):
+        prefix = f"-field_statistics_window_{index}"
+        lines.append(f"{prefix}_name {window['name']}")
+        lines.append(f"{prefix}_start_time {window['start_time']!r}")
+        # An absent end time is what makes a window open ended, so the option is
+        # omitted rather than given a sentinel value.
+        if window["end_time"] is not None:
+            lines.append(f"{prefix}_end_time {window['end_time']!r}")
+        lines.append(f"{prefix}_weighting {window['weighting']}")
+        if window["step_cadence"] is not None:
+            lines.append(f"{prefix}_step_cadence {window['step_cadence']}")
+        else:
+            lines.append(f"{prefix}_time_cadence {window['time_cadence']!r}")
+        lines.append(f"{prefix}_field_count {len(window['fields'])}")
+        for field_index, field_entry in enumerate(window["fields"]):
+            lines.append(f"{prefix}_field_{field_index}_name {field_entry['field']}")
+            lines.append(f"{prefix}_field_{field_index}_moments {','.join(field_entry['moments'])}")
+        lines.append(f"{prefix}_covariance_count {len(window['covariances'])}")
+        for pair_index, pair in enumerate(window["covariances"]):
+            lines.append(f"{prefix}_covariance_{pair_index} {pair[0]},{pair[1]}")
+    return lines
+
+
+def resolve_statistics_console_output_frequency(io_cfg: dict) -> "int | None":
+    """!
+    @brief Resolve the statistics console cadence, mirroring the particle one.
+    @param[in] io_cfg Parsed monitor `io` block.
+    @return Value returned by `resolve_statistics_console_output_frequency()`.
+    """
+    if 'statistics_console_output_frequency' in io_cfg:
+        return io_cfg['statistics_console_output_frequency']
+    return io_cfg.get('data_output_frequency')
 
 
 def normalize_solution_monitoring_config(monitor_cfg: dict) -> dict:
@@ -9117,6 +9651,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if monitor_files.get("profile"):
         control_lines.append(f"-profile_config_file {monitor_files['profile']}")
     append_passthrough_flags(control_lines, resolve_solution_monitoring_flags(monitor_cfg))
+    control_lines.extend(resolve_field_statistics_flags(monitor_cfg, case_cfg))
     profiling_cfg = monitor_files.get("profiling", {})
     control_lines.append(f"-profiling_timestep_mode {profiling_cfg.get('mode', 'off')}")
     if profiling_cfg.get("mode") != "off":
@@ -9265,6 +9800,9 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if 'data_output_frequency' in io_cfg: control_lines.append(f"-tio {io_cfg['data_output_frequency']}")
     if particle_console_output_freq is not None:
         control_lines.append(f"-particle_console_output_freq {particle_console_output_freq}")
+    statistics_console_output_freq = resolve_statistics_console_output_frequency(io_cfg)
+    if statistics_console_output_freq is not None:
+        control_lines.append(f"-statistics_console_output_freq {statistics_console_output_freq}")
     if 'particle_log_interval' in io_cfg: control_lines.append(f"-logfreq {io_cfg['particle_log_interval']}")
     if 'directories' in io_cfg:
         dirs = io_cfg['directories']
@@ -10472,7 +11010,7 @@ def build_run_dry_plan(args) -> dict:
         post_path = os.path.abspath(args.post)
         plan["inputs"]["post"] = post_path
         post_cfg = read_yaml_file(post_path)
-        validate_post_config(post_cfg, post_path)
+        validate_post_config(post_cfg, post_path, loaded_monitor_cfg)
 
         if args.run_dir:
             run_dir = os.path.abspath(args.run_dir)
@@ -10855,6 +11393,7 @@ def validate_workflow(args):
     if continue_run and not run_dir_val:
         fail_cli_usage("--continue requires --run-dir.")
 
+    monitor_cfg = None
     if solver_group_selected:
         case_path = os.path.abspath(args.case)
         solver_path = os.path.abspath(args.solver)
@@ -10879,7 +11418,7 @@ def validate_workflow(args):
     if args.post:
         post_path = os.path.abspath(args.post)
         post_cfg = read_yaml_file(post_path)
-        validate_post_config(post_cfg, post_path)
+        validate_post_config(post_cfg, post_path, monitor_cfg)
         checked.append(post_path)
 
     cluster_cfg = None
@@ -10961,7 +11500,8 @@ def validate_workflow(args):
                     base_monitor_path,
                 )
             if base_post_path:
-                validate_post_config(read_yaml_file(base_post_path), base_post_path)
+                validate_post_config(read_yaml_file(base_post_path), base_post_path,
+                                     read_yaml_file(base_monitor_path) if base_monitor_path else None)
 
     print(f"[SUCCESS] Validation completed for {len(checked)} file(s).")
     for path in checked:
@@ -11307,7 +11847,7 @@ def run_workflow(args):
         post_cfg = read_yaml_file(args.post)
 
         print("[INFO] Validating post-processing configuration...")
-        validate_post_config(post_cfg, args.post)
+        validate_post_config(post_cfg, args.post, monitor_cfg)
         print("[SUCCESS] Post-processing configuration passed validation.\n")
 
         solver_sources_deferred = bool(args.solve and (cluster_mode or args.no_submit))
@@ -11677,7 +12217,7 @@ def sweep_workflow(args):
         write_yaml_file(post_path, post_cfg)
 
         validate_solver_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
-        validate_post_config(post_cfg, post_path)
+        validate_post_config(post_cfg, post_path, monitor_cfg)
 
         source_files = {'Case': case_path, 'Solver': solver_path, 'Monitor': monitor_path}
         monitor_files = prepare_monitor_files(run_dir, case_id, monitor_cfg, source_files)

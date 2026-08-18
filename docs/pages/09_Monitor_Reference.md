@@ -46,10 +46,13 @@ There is no `observations.run` sidecar and no observation-plan schema/version
 at this boundary. `control` remains the single generated C-ingress artifact for
 these settings.
 
-The planned `field_statistics` contract is documented in
-**@subpage 58_Turbulence_Statistics_Pipeline_Specification**, but is not active
-YAML. Saved instantaneous fields remain the supported input for offline
-Eulerian statistics until that feature is complete.
+The `field_statistics` contract is designed in
+**@subpage 58_Turbulence_Statistics_Pipeline_Specification** and specified in
+**@subpage 60_Field_Statistics_Phase2_Implementation_Specification**. The key is
+accepted and accumulates online, but its postprocessing stage and its shipped
+template are not finished, so it is not yet a released contract and is documented
+only on those pages. Saved instantaneous fields remain the supported input for
+offline Eulerian statistics until it is.
 
 The removed `case.yml -> models.statistics.time_averaging` and `-averaging`
 surface is not compatible input and is not translated into a replacement
@@ -80,8 +83,12 @@ Semantics:
 - `data_output_frequency` controls committed-checkpoint cadence. Initial and
   final completed states are also checkpointed, including an off-cadence final
   state.
-- Checkpoint-internal `eulerian/` and `particles/` names are fixed and are not
-  user configuration. See @ref p58_checkpoint_sec.
+- Checkpoint-internal `eulerian/`, `particles/`, and `statistics/` names are
+  fixed and are not user configuration. See @ref p58_checkpoint_sec.
+- `statistics_console_output_frequency` controls how often field-statistics window
+  snapshots are printed to the main log. It defaults to `data_output_frequency`, and
+  `0` disables the snapshot without disabling accumulation. It is reporting only:
+  changing it cannot change any accumulated result.
 - `particle_console_output_frequency` controls how often particle snapshots are printed to the main log.
 - `particle_log_interval` controls row subsampling within each particle snapshot.
 - If `particle_console_output_frequency` is omitted, `picurv` defaults it to `data_output_frequency`.

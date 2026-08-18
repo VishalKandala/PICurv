@@ -110,4 +110,57 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
  */
 PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field);
 
+/**
+ * @brief Derives one accumulated statistic and converts it to nodal values.
+ *
+ * The counterpart of ComputeNodalAverage() for accumulated window state: it takes an
+ * index into a window's requested output set, normalizes the centered state behind
+ * it, and leaves the result in the shared post-processing staging field ready for
+ * output. The staging vectors are reused between calls, so a caller must consume the
+ * result before requesting the next one.
+ *
+ * Derived statistics are left non-dimensional even when `global_operations.dimensionalize`
+ * is set. A Reynolds stress scales as velocity squared and a co-moment as a product of
+ * two different scales, none of which the existing per-field scaling table expresses;
+ * silently applying a velocity scale would be wrong rather than merely incomplete.
+ *
+ * @param[in]  user         Block context holding the accumulators and staging fields.
+ * @param[in]  window_index Window whose state is derived.
+ * @param[in]  outputs      Comma-separated output kinds the recipe requested.
+ * @param[in]  output_index Index into that output set.
+ * @param[out] out_name     Name of the derived field, window qualified.
+ * @param[in]  name_size    Capacity of @p out_name.
+ * @param[out] out_vec      Nodal vector holding the result; borrowed, not owned.
+ * @param[out] out_components Component count of the result.
+ * @return Zero on success, or a PETSc error.
+ */
+PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, PetscInt window_index,
+                                           const char *outputs, PetscInt output_index,
+                                           char *out_name, size_t name_size,
+                                           Vec *out_vec, PetscInt *out_components);
+
+/**
+ * @brief Appends one convergence row for an accumulated window to its CSV history.
+ *
+ * The counterpart of ComputeParticleMSD() for Eulerian window state: it reduces the
+ * window to the few numbers that answer whether it has run long enough — sample
+ * count, total weight, represented time, the per-point valid-fraction range, and the
+ * mean turbulent kinetic energy — and appends them as one row per processed step.
+ * No single field snapshot can answer that question, which is why the history exists
+ * beside the field output rather than instead of it.
+ *
+ * The mean is taken over the fluid cells the window actually sampled. Cells outside
+ * the target domain, and cells a moving mask excluded, hold zeros that mean "never
+ * measured"; averaging over them would scale the result down by the fraction of the
+ * grid the window never covered.
+ *
+ * @param[in] user          Block context holding the accumulators and staging fields.
+ * @param[in] window_index  Window to summarize.
+ * @param[in] output_prefix Output path prefix; the window name and `.csv` are appended.
+ * @param[in] ti            Step being processed, recorded as the row's key.
+ * @return Zero on success, or a PETSc error.
+ */
+PetscErrorCode ComputeWindowStatisticsSummary(UserCtx *user, PetscInt window_index,
+                                              const char *output_prefix, PetscInt ti);
+
 #endif // POSTPROCESSING_KERNELS_H

@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import re
 import struct
 import sys
 import time
@@ -8146,3 +8147,401 @@ def test_markdown_link_checker_passes():
         check=False,
     )
     assert result.returncode == 0
+
+
+def _statistics_monitor_cfg(**overrides):
+    """!
+    @brief Build a valid field_statistics monitor block, with optional overrides.
+    @param[in] overrides Window keys to replace in the single default window.
+    @return Value returned by `_statistics_monitor_cfg()`.
+    """
+    window = {
+        "name": "production",
+        "start_time": 50.0,
+        "end_time": 250.0,
+        "weighting": "physical_time",
+        "step_cadence": 1,
+        "fields": [
+            {"field": "Ucat", "moments": ["first", "second"]},
+            {"field": "P", "moments": ["first", "second"]},
+        ],
+        "covariances": [["Ucat", "P"]],
+    }
+    for key, value in overrides.items():
+        if value is _ABSENT:
+            window.pop(key, None)
+        else:
+            window[key] = value
+    return {"field_statistics": {"enabled": True, "windows": [window]}}
+
+
+#: Sentinel meaning "remove this key" in `_statistics_monitor_cfg()`.
+_ABSENT = object()
+
+_NO_PARTICLES_CASE = {"models": {"physics": {"particles": {"count": 0}}}}
+
+
+def test_field_statistics_eligible_fields_match_the_c_catalog():
+    """!
+    @brief Every statistics-eligible field must still exist in the C typed catalog.
+
+    @details The Python table is a curated subset chosen for what is meaningful to
+             average, not a mirror of the catalog, but each entry still has to name a
+             real field with the component count Python assumes. Parsing the C source
+             is what keeps the two from drifting apart silently.
+    """
+    from picurv_cli.core import STATISTICS_ELIGIBLE_FIELDS
+
+    catalog_text = (REPO_ROOT / "src" / "field_catalog.c").read_text(encoding="utf-8")
+    entries = dict(
+        (name, int(dof))
+        for name, dof in re.findall(
+            r'FIELD_ENTRY\(\s*FIELD_ID_[A-Z_0-9]+\s*,\s*"([A-Za-z_0-9]+)"\s*,'
+            r'\s*(?:NULL|"[^"]*")\s*,\s*(?:NULL|"[^"]*")\s*,\s*(\d+)\s*,',
+            catalog_text,
+        )
+    )
+    assert entries, "failed to parse any FIELD_ENTRY from src/field_catalog.c"
+
+    for name, spec in STATISTICS_ELIGIBLE_FIELDS.items():
+        assert name in entries, f"statistics field '{name}' is not in the C field catalog"
+        assert entries[name] == spec["components"], (
+            f"statistics field '{name}' has {entries[name]} components in the C catalog "
+            f"but {spec['components']} in STATISTICS_ELIGIBLE_FIELDS"
+        )
+
+
+def test_field_statistics_control_emission_matches_option_families():
+    """!
+    @brief Emitted control lines must match the families declared to the ingress audit.
+    """
+    from picurv_cli.core import resolve_field_statistics_flags
+
+    manifest = json.loads(
+        (REPO_ROOT / "tests" / "tooling" / "audit_ingress_manifest.json").read_text(encoding="utf-8")
+    )
+    literals = set(manifest["known_petsc_options"])
+    families = set(manifest["known_petsc_option_families"])
+
+    lines = resolve_field_statistics_flags(_statistics_monitor_cfg(), _NO_PARTICLES_CASE)
+    assert lines, "an enabled configuration must emit control lines"
+    for line in lines:
+        name = line.split()[0]
+        canonical = re.sub(r"_\d+", "_%", name)
+        assert name in literals or canonical in families, (
+            f"emitted option '{name}' is neither a declared literal nor a declared family"
+        )
+
+
+def test_field_statistics_open_window_omits_end_time():
+    """!
+    @brief An open-ended window must omit the end-time option rather than send a sentinel.
+    """
+    from picurv_cli.core import resolve_field_statistics_flags
+
+    lines = resolve_field_statistics_flags(
+        _statistics_monitor_cfg(end_time=_ABSENT), _NO_PARTICLES_CASE
+    )
+    assert not any("_end_time" in line for line in lines)
+    assert any(line.startswith("-field_statistics_window_0_start_time") for line in lines)
+
+
+def test_field_statistics_disabled_emits_nothing():
+    """!
+    @brief A disabled or absent block must emit no control lines at all.
+    """
+    from picurv_cli.core import resolve_field_statistics_flags
+
+    cfg = _statistics_monitor_cfg()
+    cfg["field_statistics"]["enabled"] = False
+    assert resolve_field_statistics_flags(cfg, _NO_PARTICLES_CASE) == []
+    assert resolve_field_statistics_flags({}, _NO_PARTICLES_CASE) == []
+
+
+@pytest.mark.parametrize(
+    "overrides, fragment",
+    [
+        ({"start_time": 300.0}, "must be greater than"),
+        ({"step_cadence": _ABSENT}, "exactly one of"),
+        ({"time_cadence": 0.5}, "exactly one of"),
+        ({"step_cadence": 0}, "positive integer"),
+        ({"weighting": "inverse_variance"}, "weighting"),
+        ({"fields": []}, "non-empty list"),
+        ({"fields": [{"field": "Ucat", "moments": []}]}, "non-empty"),
+        ({"fields": [{"field": "Ucat", "moments": ["third"]}]}, "unknown"),
+        ({"fields": [{"field": "Nonexistent", "moments": ["first"]}]}, "cannot be accumulated"),
+        ({"fields": [{"field": "Ucont", "moments": ["first"]}]}, "cannot be accumulated"),
+        ({"covariances": [["Ucat", "Ucat"]]}, "pairs a field with itself"),
+        ({"covariances": [["Ucat", "Nvert"]]}, "in 'fields' as well"),
+        ({"covariances": [["Ucat", "P"], ["P", "Ucat"]]}, "more than once"),
+        ({"name": ""}, "non-empty 'name'"),
+    ],
+)
+def test_field_statistics_validation_rejects(overrides, fragment):
+    """!
+    @brief Each documented validation rule must reject with a message naming the cause.
+    @param[in] overrides Window keys to replace.
+    @param[in] fragment Text the resulting message must contain.
+    """
+    from picurv_cli.core import normalize_field_statistics_config
+
+    with pytest.raises(ValueError) as excinfo:
+        normalize_field_statistics_config(_statistics_monitor_cfg(**overrides), _NO_PARTICLES_CASE)
+    assert fragment in str(excinfo.value)
+
+
+def test_field_statistics_rejects_duplicate_window_names():
+    """!
+    @brief Two windows sharing a name cannot be told apart in a checkpoint.
+    """
+    from picurv_cli.core import normalize_field_statistics_config
+
+    cfg = _statistics_monitor_cfg()
+    cfg["field_statistics"]["windows"].append(dict(cfg["field_statistics"]["windows"][0]))
+    with pytest.raises(ValueError, match="defined more than once"):
+        normalize_field_statistics_config(cfg, _NO_PARTICLES_CASE)
+
+
+def test_field_statistics_rejects_field_whose_subsystem_is_off():
+    """!
+    @brief A field whose subsystem is disabled is rejected before the run starts.
+    """
+    from picurv_cli.core import normalize_field_statistics_config
+
+    cfg = _statistics_monitor_cfg(
+        fields=[{"field": "Ucat", "moments": ["first"]}, {"field": "Psi", "moments": ["first"]}],
+        covariances=[],
+    )
+    with pytest.raises(ValueError, match="requires the 'particles' subsystem"):
+        normalize_field_statistics_config(cfg, _NO_PARTICLES_CASE)
+
+    # The same configuration is accepted once particles are present.
+    with_particles = {"models": {"physics": {"particles": {"count": 100}}}}
+    resolved = normalize_field_statistics_config(cfg, with_particles)
+    assert [entry["field"] for entry in resolved["windows"][0]["fields"]] == ["Ucat", "Psi"]
+
+
+def test_field_statistics_always_keeps_the_first_moment():
+    """!
+    @brief A second moment is centered against the mean, so the mean is always kept.
+    """
+    from picurv_cli.core import normalize_field_statistics_config
+
+    cfg = _statistics_monitor_cfg(
+        fields=[{"field": "Ucat", "moments": ["second"]}], covariances=[]
+    )
+    resolved = normalize_field_statistics_config(cfg, _NO_PARTICLES_CASE)
+    assert resolved["windows"][0]["fields"][0]["moments"] == ["first", "second"]
+
+
+def test_post_field_statistics_recipe_emission():
+    """!
+    @brief A post recipe names windows and emits the keys the C pipeline reads.
+    """
+    from picurv_cli.core import build_post_recipe_config
+
+    post_cfg = {
+        "run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+        "field_statistics": {
+            "windows": ["production", "spinup"],
+            "source_step": 10,
+            "outputs": ["mean", "tke"],
+            "formats": ["vtk", "csv"],
+        },
+    }
+    config = build_post_recipe_config(post_cfg)
+    assert config["field_statistics_windows"] == "production,spinup"
+    assert config["field_statistics_outputs"] == "mean,tke"
+    assert config["field_statistics_formats"] == "vtk,csv"
+    assert config["field_statistics_source_step"] == 10
+
+
+def test_post_field_statistics_omits_absent_source_step():
+    """!
+    @brief An omitted source step lets each processed step derive from its own bundle.
+    """
+    from picurv_cli.core import build_post_recipe_config
+
+    post_cfg = {
+        "run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+        "field_statistics": {"windows": ["production"]},
+    }
+    config = build_post_recipe_config(post_cfg)
+    assert "field_statistics_source_step" not in config
+    assert config["field_statistics_outputs"] == "mean,reynolds_stress,rms,tke,flux"
+    # VTK alone is the default; the convergence history is opt-in.
+    assert config["field_statistics_formats"] == "vtk"
+
+
+def test_post_field_statistics_completion_families_cover_every_window():
+    """!
+    @brief Each window and format must be its own completion family.
+
+    @details Without this, a step whose Eulerian file exists but whose statistics file
+             does not would be counted complete, and `--continue` would never derive it.
+    """
+    from picurv_cli.core import get_post_field_statistics_artifacts
+
+    post_cfg = {
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+        "field_statistics": {"windows": ["production", "spinup"], "formats": ["vtk", "csv"]},
+    }
+    artifacts = get_post_field_statistics_artifacts(post_cfg, "/run")
+    kinds = [kind for kind, _ in artifacts]
+    assert kinds.count("vtk") == 2 and kinds.count("csv") == 2
+    assert any(path.endswith("Field_statistics_production") for kind, path in artifacts if kind == "vtk")
+    assert any(path.endswith("Field_statistics_spinup.csv") for kind, path in artifacts if kind == "csv")
+
+
+def test_post_field_statistics_predicate_tracks_statistics_only_recipes():
+    """!
+    @brief A recipe with only field statistics must still register as requesting work.
+    """
+    from picurv_cli.core import _post_requests_field_statistics
+
+    assert _post_requests_field_statistics({"field_statistics": {"windows": ["production"]}})
+    assert not _post_requests_field_statistics({})
+    # A malformed block is reported by validation, not by the predicate.
+    assert not _post_requests_field_statistics({"field_statistics": {"windows": []}})
+
+
+def test_post_without_field_statistics_emits_no_keys():
+    """!
+    @brief A recipe that does not request statistics must not activate the stage.
+    """
+    from picurv_cli.core import build_post_recipe_config
+
+    post_cfg = {
+        "run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+    }
+    config = build_post_recipe_config(post_cfg)
+    assert not any(key.startswith("field_statistics") for key in config)
+
+
+@pytest.mark.parametrize(
+    "block, fragment",
+    [
+        ({}, "non-empty list of window names"),
+        ({"windows": ["  "]}, "non-empty window names"),
+        ({"windows": ["p", "p"]}, "more than once"),
+        ({"windows": ["p"], "source_step": -1}, "non-negative integer"),
+        ({"windows": ["p"], "outputs": []}, "non-empty list"),
+        ({"windows": ["p"], "outputs": ["skewness"]}, "unknown outputs"),
+        ({"windows": ["p"], "outputs": ["tke", "tke"]}, "duplicate"),
+        ({"windows": ["p"], "formats": ["hdf5"]}, "unknown formats"),
+        ({"windows": ["p"], "formats": []}, "non-empty list"),
+    ],
+)
+def test_post_field_statistics_validation_rejects(block, fragment):
+    """!
+    @brief Each recipe-level rule rejects with a message naming the cause.
+    @param[in] block Field-statistics block under test.
+    @param[in] fragment Text the message must contain.
+    """
+    from picurv_cli.core import normalize_post_field_statistics_config
+
+    with pytest.raises(ValueError) as excinfo:
+        normalize_post_field_statistics_config({"field_statistics": block})
+    assert fragment in str(excinfo.value)
+
+
+def _statistics_monitor_with_windows(*specs):
+    """!
+    @brief Build a monitor config whose windows carry the given moment sets.
+    @param[in] specs (name, moments, covariances) tuples.
+    @return Value returned by `_statistics_monitor_with_windows()`.
+    """
+    windows = []
+    for name, moments, covariances in specs:
+        windows.append({
+            "name": name,
+            "start_time": 0.0,
+            "weighting": "physical_time",
+            "step_cadence": 1,
+            "fields": [{"field": "Ucat", "moments": list(moments)},
+                       {"field": "P", "moments": list(moments)}],
+            "covariances": [list(pair) for pair in covariances],
+        })
+    return {"field_statistics": {"enabled": True, "windows": windows}}
+
+
+def _post_validation_errors(post_cfg, monitor_cfg, tmp_path, capsys):
+    """!
+    @brief Run the real post validator and return the messages it reported.
+    @param[in] post_cfg Post configuration under test.
+    @param[in] monitor_cfg Monitor configuration supplying window definitions.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    @return Captured stderr text.
+    """
+    from picurv_cli.core import validate_post_config
+
+    path = str(tmp_path / "post.yml")
+    with pytest.raises(SystemExit):
+        validate_post_config(post_cfg, path, monitor_cfg)
+    return capsys.readouterr().err
+
+
+def test_post_validation_rejects_window_that_yields_no_output(tmp_path, capsys):
+    """!
+    @brief A recipe whose outputs resolve to nothing must fail validation.
+
+    @details The check spans both files: post.yml names the outputs, monitor.yml
+             decides whether the window accumulated the state they need. Without it the
+             run writes an empty artifact that resume tracking counts as a done step.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    """
+    from picurv_cli.core import validate_post_config
+
+    monitor = _statistics_monitor_with_windows(("means_only", ["first"], []))
+    post = {
+        "run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+        "field_statistics": {"windows": ["means_only"], "outputs": ["tke", "rms"]},
+    }
+    assert "produce no field for window 'means_only'" in _post_validation_errors(
+        post, monitor, tmp_path, capsys)
+
+    # The same request passes once the window keeps second moments.
+    monitor = _statistics_monitor_with_windows(("means_only", ["first", "second"], []))
+    validate_post_config(post, str(tmp_path / "post.yml"), monitor)
+
+
+def test_post_validation_rejects_unknown_window(tmp_path, capsys):
+    """!
+    @brief Naming a window the monitor never defines fails with the known set listed.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    """
+    monitor = _statistics_monitor_with_windows(("production", ["first", "second"], []))
+    post = {
+        "run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+        "field_statistics": {"windows": ["typo"], "outputs": ["mean"]},
+    }
+    assert "not defined in the monitor configuration" in _post_validation_errors(
+        post, monitor, tmp_path, capsys)
+
+
+def test_post_validation_allows_mixed_windows(tmp_path):
+    """!
+    @brief One window yielding a kind is enough; others may legitimately skip it.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    from picurv_cli.core import validate_post_config
+
+    monitor = _statistics_monitor_with_windows(
+        ("means_only", ["first"], []),
+        ("full", ["first", "second"], [["Ucat", "P"]]),
+    )
+    post = {
+        "run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+        "field_statistics": {"windows": ["means_only", "full"],
+                             "outputs": ["mean", "tke", "flux"]},
+    }
+    validate_post_config(post, str(tmp_path / "post.yml"), monitor)

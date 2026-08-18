@@ -431,6 +431,25 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
                            &user->da));
     PetscCall(DMSetUp(user->da));
     PetscCall(DMGetCoordinateDM(user->da, &user->fda));
+    /* The fixture builds the same DM set the real factory does, through the same
+     * helper, so a test cannot pass against a decomposition production never uses. */
+    PetscCall(CreateCompatibleBlockDM(user->da, 6, &user->fda6));
+
+    /* Post-processing staging pair, matching the factory's Group N. Production gates
+     * these on statistics being active; the fixture builds them unconditionally so a
+     * test can exercise the derived-output path without a resolved window list. */
+    PetscCall(DMCreateGlobalVector(user->da,  &user->PostScalar));
+    PetscCall(VecSet(user->PostScalar, 0.0));
+    PetscCall(DMCreateLocalVector(user->da,   &user->lPostScalar));
+    PetscCall(VecSet(user->lPostScalar, 0.0));
+    PetscCall(DMCreateGlobalVector(user->da,  &user->PostScalarNodal));
+    PetscCall(VecSet(user->PostScalarNodal, 0.0));
+    PetscCall(DMCreateGlobalVector(user->fda, &user->PostVector));
+    PetscCall(VecSet(user->PostVector, 0.0));
+    PetscCall(DMCreateLocalVector(user->fda,  &user->lPostVector));
+    PetscCall(VecSet(user->lPostVector, 0.0));
+    PetscCall(DMCreateGlobalVector(user->fda, &user->PostVectorNodal));
+    PetscCall(VecSet(user->PostVectorNodal, 0.0));
     PetscCall(PetscObjectReference((PetscObject)user->fda));
     PetscCall(DMDASetUniformCoordinates(user->da, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0));
     PetscCall(DMDAGetLocalInfo(user->da, &user->info));
@@ -967,6 +986,13 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
             }
         }
 
+        PetscCall(DestroyVecIfSet(&user->PostScalar));
+        PetscCall(DestroyVecIfSet(&user->lPostScalar));
+        PetscCall(DestroyVecIfSet(&user->PostScalarNodal));
+        PetscCall(DestroyVecIfSet(&user->PostVector));
+        PetscCall(DestroyVecIfSet(&user->lPostVector));
+        PetscCall(DestroyVecIfSet(&user->PostVectorNodal));
+        PetscCall(DestroyDMIfSet(&user->fda6));
         PetscCall(DestroyDMIfSet(&user->fda));
         PetscCall(DestroyDMIfSet(&user->da));
         PetscCall(PetscFree(user));

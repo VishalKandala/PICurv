@@ -10,6 +10,10 @@
 #include "Boundaries.h"
 #include "grid.h"
 #include "statistics_target.h"
+#include "statistics_accumulator.h"
+#include "statistics_window.h"
+#include "io.h"
+#include "field_catalog.h"
 
 #include <stdlib.h>
 
@@ -534,6 +538,137 @@ static PetscErrorCode TestSpatialTargetIsDecompositionIndependent(void)
 }
 
 /**
+ * @brief Statistics payloads must survive a checkpoint round trip under decomposition.
+ *
+ * The write path gathers each accumulator into natural ordering before it reaches
+ * disk, and the read path scatters it back. That pairing is where a decomposition
+ * bug would live, so this drives the whole cycle on more than one rank and requires
+ * an exact match: the format stores IEEE doubles, and natural ordering is defined
+ * to be independent of how ranks divide the block.
+ */
+static PetscErrorCode TestStatisticsCheckpointRoundTripMultiRank(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindow window;
+    PicurvWindowStorage storage;
+    PicurvWindowDefinition definition;
+    Vec *reference = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    PetscInt payload_count = 0;
+    PetscMPIInt size = 0;
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    PetscCall(PicurvAssertBool((PetscBool)(size >= 2), "unit-mpi requires at least two MPI ranks"));
+
+    memset(&definition, 0, sizeof(definition));
+    strncpy(definition.name, "production", PICURV_WINDOW_NAME_LENGTH - 1);
+    definition.weighting = PICURV_WEIGHTING_PHYSICAL_TIME;
+    definition.cadence_kind = PICURV_CADENCE_STEP;
+    definition.step_cadence = 1;
+    definition.field_count = 2;
+    definition.fields[0].field_id = FIELD_ID_UCAT; definition.fields[0].want_second = PETSC_TRUE;
+    definition.fields[1].field_id = FIELD_ID_P;    definition.fields[1].want_second = PETSC_TRUE;
+    definition.covariance_count = 1;
+    definition.covariances[0].first = FIELD_ID_UCAT;
+    definition.covariances[0].second = FIELD_ID_P;
+
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    tmpdir[0] = '\0';
+    if (simCtx->rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, sizeof(tmpdir), MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscStrncpy(simCtx->output_dir, tmpdir, sizeof(simCtx->output_dir)));
+    PetscCall(PetscStrncpy(simCtx->restart_dir, tmpdir, sizeof(simCtx->restart_dir)));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(VecSet(user->Nvert, 0.0));
+
+    PetscCall(PicurvWindowInit(&window, &definition));
+    PetscCall(PicurvWindowStorageCreate(user, &definition, &storage));
+    simCtx->fieldStatisticsEnabled = PETSC_TRUE;
+    simCtx->fieldStatisticsWindowCount = 1;
+    simCtx->fieldStatisticsWindows = &window;
+    user->fieldStatisticsStorage = &storage;
+
+    /* A spatially varying field makes the assertion meaningful: a payload gathered
+     * or scattered through the wrong owner comes back permuted, which a uniform
+     * field could not reveal. */
+    for (PetscInt s = 0; s < 4; ++s) {
+        PetscBool accepted = PETSC_FALSE;
+        PetscReal weight = 0.0;
+        PetscReal ***p = NULL;
+        Cmpnts ***ucat = NULL;
+        const DMDALocalInfo info = user->info;
+
+        PetscCall(DMDAVecGetArray(user->da, user->P, &p));
+        PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+        for (PetscInt k = info.zs; k < info.zs + info.zm; ++k)
+            for (PetscInt j = info.ys; j < info.ys + info.ym; ++j)
+                for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+                    const PetscReal tag = (PetscReal)(100 * k + 10 * j + i);
+
+                    p[k][j][i] = tag + 0.25 * (PetscReal)s;
+                    ucat[k][j][i].x = tag;
+                    ucat[k][j][i].y = tag + 1.0 + (PetscReal)s;
+                    ucat[k][j][i].z = tag - 1.0;
+                }
+        PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+        PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
+
+        PetscCall(PicurvWindowOfferState(&window, s, 0.5 * (PetscReal)s, &accepted, &weight));
+        if (accepted) PetscCall(PicurvWindowAccumulate(user, &definition, &storage, weight));
+    }
+    PetscCall(PicurvAssertIntEqual(3, window.sample_count, "three intervals are represented"));
+
+    PetscCall(WriteCheckpointBundle(simCtx, "test"));
+
+    PetscCall(PicurvWindowStoragePayloadCount(&storage, &payload_count));
+    PetscCall(PetscCalloc1((size_t)payload_count, &reference));
+    for (PetscInt index = 0; index < payload_count; ++index) {
+        PicurvStatisticsPayload payload;
+
+        PetscCall(PicurvWindowStoragePayload(user, &definition, &storage, index, &payload));
+        PetscCall(VecDuplicate(payload.vec, &reference[index]));
+        PetscCall(VecCopy(payload.vec, reference[index]));
+        PetscCall(VecZeroEntries(payload.vec));
+    }
+    PetscCall(PicurvWindowInit(&window, &definition));
+
+    simCtx->fieldStatisticsContinue = PETSC_TRUE;
+    PetscCall(RestoreFieldStatisticsState(simCtx, simCtx->step));
+    PetscCall(PicurvAssertIntEqual(3, window.sample_count, "window bookkeeping survives on every rank"));
+    PetscCall(PicurvAssertRealNear(1.5, window.total_weight, 1.0e-12,
+                                   "physical-time weights survive on every rank"));
+
+    for (PetscInt index = 0; index < payload_count; ++index) {
+        PicurvStatisticsPayload payload;
+        PetscReal difference = 0.0;
+        char context[192];
+
+        PetscCall(PicurvWindowStoragePayload(user, &definition, &storage, index, &payload));
+        PetscCall(VecAXPY(reference[index], -1.0, payload.vec));
+        PetscCall(VecNorm(reference[index], NORM_INFINITY, &difference));
+        PetscCall(PetscSNPrintf(context, sizeof(context),
+                                "payload '%s' round trips exactly across %d ranks",
+                                payload.name, (int)size));
+        PetscCall(PicurvAssertBool((PetscBool)(difference == 0.0), context));
+        PetscCall(VecDestroy(&reference[index]));
+    }
+    PetscCall(PetscFree(reference));
+
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    simCtx->fieldStatisticsEnabled = PETSC_FALSE;
+    simCtx->fieldStatisticsWindowCount = 0;
+    simCtx->fieldStatisticsWindows = NULL;
+    user->fieldStatisticsStorage = NULL;
+    PetscCall(PicurvWindowStorageDestroy(&storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-mpi PETSc test binary.
  */
 int main(int argc, char **argv)
@@ -548,6 +683,7 @@ int main(int argc, char **argv)
         {"periodic-face-field-synchronization-multi-rank", TestPeriodicFaceFieldSynchronizationMultiRank},
         {"periodic-staggered-field-synchronization-multi-rank", TestPeriodicStaggeredFieldSynchronizationMultiRank},
         {"spatial-target-decomposition-independent", TestSpatialTargetIsDecompositionIndependent},
+        {"statistics-checkpoint-round-trip-multi-rank", TestStatisticsCheckpointRoundTripMultiRank},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
     };
 

@@ -12,6 +12,7 @@
 #include "test_support.h"
 
 #include "statistics_window.h"
+#include "field_catalog.h"
 
 /** @brief Builds a step-cadence definition. */
 static PicurvWindowDefinition StepWindow(const char *name, PetscReal start, PetscReal end,
@@ -322,6 +323,209 @@ static PetscErrorCode TestInvalidDefinitionsRejected(void)
     PetscFunctionReturn(0);
 }
 
+/** @brief Hashes a definition and reports which property group changed against a baseline. */
+static PetscErrorCode HashAndCompare(const PicurvWindowDefinition *baseline,
+                                     const PicurvWindowDefinition *variant,
+                                     PetscBool *same, PetscInt *first_difference)
+{
+    char base_digest[65], variant_digest[65];
+    char base_groups[PICURV_WINDOW_HASH_GROUP_COUNT][PICURV_WINDOW_HASH_GROUP_LENGTH];
+    char variant_groups[PICURV_WINDOW_HASH_GROUP_COUNT][PICURV_WINDOW_HASH_GROUP_LENGTH];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvWindowComputeHash(baseline, base_digest, base_groups));
+    PetscCall(PicurvWindowComputeHash(variant, variant_digest, variant_groups));
+    PetscCall(PetscStrcmp(base_digest, variant_digest, same));
+    *first_difference = -1;
+    for (PetscInt group = 0; group < PICURV_WINDOW_HASH_GROUP_COUNT; ++group) {
+        PetscBool group_same = PETSC_FALSE;
+
+        PetscCall(PetscStrcmp(base_groups[group], variant_groups[group], &group_same));
+        if (!group_same) { *first_difference = group; break; }
+    }
+    PetscFunctionReturn(0);
+}
+
+/** @brief Builds the hash fixture: a Ucat/P window with a second moment and a covariance. */
+static PicurvWindowDefinition HashWindow(void)
+{
+    PicurvWindowDefinition d = StepWindow("production", 10.0, 20.0, PETSC_TRUE,
+                                          PICURV_WEIGHTING_PHYSICAL_TIME, 5);
+    d.field_count = 2;
+    d.fields[0].field_id = FIELD_ID_UCAT; d.fields[0].want_second = PETSC_TRUE;
+    d.fields[1].field_id = FIELD_ID_P;    d.fields[1].want_second = PETSC_FALSE;
+    d.covariance_count = 1;
+    d.covariances[0].first = FIELD_ID_UCAT;
+    d.covariances[0].second = FIELD_ID_P;
+    return d;
+}
+
+/** @brief The hash is stable, and excludes exactly the properties the spec excludes. */
+static PetscErrorCode TestHashExclusionsAndStability(void)
+{
+    const PicurvWindowDefinition baseline = HashWindow();
+    PicurvWindowDefinition variant;
+    PetscBool same = PETSC_FALSE;
+    PetscInt group = -1;
+
+    PetscFunctionBeginUser;
+    /* Stability: hashing the same definition twice gives the same digest. */
+    variant = baseline;
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool(same, "hashing an unchanged definition is stable"));
+
+    /* end_time is excluded so a bounded window can be extended forward. */
+    variant = baseline;
+    variant.end_time = 40.0;
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool(same, "extending end_time does not change the identity"));
+
+    /* Listing order is excluded so a reordered configuration still continues. */
+    variant = baseline;
+    variant.fields[0] = baseline.fields[1];
+    variant.fields[1] = baseline.fields[0];
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool(same, "reordering the field list does not change the identity"));
+
+    /* A covariance pair is symmetric, so its member order is excluded too. */
+    variant = baseline;
+    variant.covariances[0].first = FIELD_ID_P;
+    variant.covariances[0].second = FIELD_ID_UCAT;
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool(same, "swapping covariance members does not change the identity"));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Every hashed property changes the digest and is named by its group digest. */
+static PetscErrorCode TestHashDetectsEachProperty(void)
+{
+    const PicurvWindowDefinition baseline = HashWindow();
+    PicurvWindowDefinition variant;
+    PetscBool same = PETSC_FALSE;
+    PetscInt group = -1;
+    PetscBool named = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    variant = baseline;
+    strncpy(variant.name, "other", PICURV_WINDOW_NAME_LENGTH - 1);
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool((PetscBool)!same, "a renamed window is a different window"));
+    PetscCall(PicurvAssertIntEqual(0, group, "the name group reports the difference"));
+
+    variant = baseline;
+    variant.start_time = 11.0;
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool((PetscBool)!same, "a moved start is a different window"));
+    PetscCall(PicurvAssertIntEqual(1, group, "the start_time group reports the difference"));
+
+    variant = baseline;
+    variant.weighting = PICURV_WEIGHTING_SAMPLE;
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool((PetscBool)!same, "a changed weighting is a different window"));
+    PetscCall(PicurvAssertIntEqual(2, group, "the weighting group reports the difference"));
+
+    variant = baseline;
+    variant.step_cadence = 7;
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool((PetscBool)!same, "a changed cadence is a different window"));
+    PetscCall(PicurvAssertIntEqual(3, group, "the cadence group reports the difference"));
+
+    /* Dropping a requested moment changes what the saved state means. */
+    variant = baseline;
+    variant.fields[0].want_second = PETSC_FALSE;
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool((PetscBool)!same, "a changed moment set is a different window"));
+    PetscCall(PicurvAssertIntEqual(4, group, "the fields group reports the difference"));
+
+    variant = baseline;
+    variant.covariance_count = 0;
+    PetscCall(HashAndCompare(&baseline, &variant, &same, &group));
+    PetscCall(PicurvAssertBool((PetscBool)!same, "a dropped covariance is a different window"));
+    PetscCall(PicurvAssertIntEqual(5, group, "the covariances group reports the difference"));
+
+    /* Group names exist for every group and are bounded. */
+    for (PetscInt g = 0; g < PICURV_WINDOW_HASH_GROUP_COUNT; ++g) {
+        PetscCall(PetscStrcmp(PicurvWindowHashGroupName(g), "unknown", &named));
+        PetscCall(PicurvAssertBool((PetscBool)!named, "every hashed group has a stable name"));
+    }
+    PetscCall(PetscStrcmp(PicurvWindowHashGroupName(PICURV_WINDOW_HASH_GROUP_COUNT), "unknown", &named));
+    PetscCall(PicurvAssertBool(named, "an out-of-range group index is named unknown"));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Serializes a definition's group digests the way a checkpoint records them. */
+static PetscErrorCode SerializeGroupDigests(const PicurvWindowDefinition *definition,
+                                            char *out, size_t out_size)
+{
+    char digest[65];
+    char groups[PICURV_WINDOW_HASH_GROUP_COUNT][PICURV_WINDOW_HASH_GROUP_LENGTH];
+    size_t used = 0;
+
+    PetscFunctionBeginUser;
+    out[0] = '\0';
+    PetscCall(PicurvWindowComputeHash(definition, digest, groups));
+    for (PetscInt group = 0; group < PICURV_WINDOW_HASH_GROUP_COUNT; ++group) {
+        PetscCall(PetscStrlen(out, &used));
+        PetscCall(PetscSNPrintf(out + used, out_size - used, "%s%s", group ? "," : "", groups[group]));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Saved group digests must localize a change to the property that caused it.
+ *
+ * This is the only path that turns a refused continuation into an actionable
+ * message, and it is reachable at runtime only through a fatal error, so it is
+ * exercised directly here rather than through that path.
+ */
+static PetscErrorCode TestFirstHashDifferenceLocalization(void)
+{
+    const PicurvWindowDefinition baseline = HashWindow();
+    PicurvWindowDefinition variant;
+    char saved[PICURV_WINDOW_HASH_GROUP_COUNT * (PICURV_WINDOW_HASH_GROUP_LENGTH + 4)];
+    PetscInt group = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(SerializeGroupDigests(&baseline, saved, sizeof(saved)));
+
+    /* An unchanged definition reports no differing group. */
+    PetscCall(PicurvWindowFirstHashDifference(&baseline, saved, &group));
+    PetscCall(PicurvAssertIntEqual(-1, group, "an unchanged definition localizes to no group"));
+
+    /* Each changed property is localized to its own group. */
+    variant = baseline;
+    variant.weighting = PICURV_WEIGHTING_SAMPLE;
+    PetscCall(PicurvWindowFirstHashDifference(&variant, saved, &group));
+    PetscCall(PicurvAssertIntEqual(2, group, "a changed weighting localizes to the weighting group"));
+
+    variant = baseline;
+    variant.covariance_count = 0;
+    PetscCall(PicurvWindowFirstHashDifference(&variant, saved, &group));
+    PetscCall(PicurvAssertIntEqual(5, group, "a dropped covariance localizes to the covariances group"));
+
+    /* The earliest differing group wins when several changed at once. */
+    variant = baseline;
+    variant.start_time = 99.0;
+    variant.step_cadence = 3;
+    PetscCall(PicurvWindowFirstHashDifference(&variant, saved, &group));
+    PetscCall(PicurvAssertIntEqual(1, group, "the first differing group is the one reported"));
+
+    /* Degenerate inputs report no localization rather than a wrong property. */
+    PetscCall(PicurvWindowFirstHashDifference(&baseline, NULL, &group));
+    PetscCall(PicurvAssertIntEqual(-1, group, "absent group digests localize to nothing"));
+    PetscCall(PicurvWindowFirstHashDifference(&baseline, "", &group));
+    PetscCall(PicurvAssertIntEqual(-1, group, "an empty digest list localizes to nothing"));
+
+    variant = baseline;
+    variant.covariance_count = 0;
+    PetscCall(SerializeGroupDigests(&baseline, saved, sizeof(saved)));
+    saved[40] = '\0';   /* truncate mid-digest, so the last segment is short */
+    PetscCall(PicurvWindowFirstHashDifference(&variant, saved, &group));
+    PetscCall(PicurvAssertIntEqual(-1, group,
+                                   "a truncated digest list reports no property rather than a wrong one"));
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Entry point for the window lifecycle suite.
  */
@@ -338,6 +542,9 @@ int main(int argc, char **argv)
         {"duplicate-event-rejected", TestDuplicateEventRejected},
         {"time-cadence-overshoot-accepted-once", TestTimeCadenceOvershootAcceptedOnce},
         {"invalid-definitions-rejected", TestInvalidDefinitionsRejected},
+        {"hash-exclusions-and-stability", TestHashExclusionsAndStability},
+        {"hash-detects-each-property", TestHashDetectsEachProperty},
+        {"first-hash-difference-localization", TestFirstHashDifferenceLocalization},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv statistics window tests");

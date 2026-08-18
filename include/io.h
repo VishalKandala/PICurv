@@ -104,6 +104,26 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason);
  */
 PetscErrorCode ReadSimulationFields(UserCtx *user, PetscInt ti);
 
+/**
+ * @brief Restores field-statistics window state and accumulators from a checkpoint.
+ *
+ * Resumes every configured window from the bundle at @p ti when continuation was
+ * requested, per @ref 60_Field_Statistics_Phase2_Implementation_Specification
+ * section 10. Window scalars come from the bundle manifest and accumulator payloads
+ * through the same natural-ordering vector reader Eulerian fields use, so a restart
+ * on a different MPI rank count restores identical state.
+ *
+ * Does nothing when statistics are disabled, no window is configured, or
+ * continuation was not requested. Anything else is fatal rather than silently
+ * zeroed: a window count mismatch, a renamed window, a changed definition hash, a
+ * requested end earlier than the represented span, or missing state.
+ *
+ * @param[in,out] simCtx Simulation context carrying the windows and accumulators.
+ * @param[in]     ti     Step whose committed bundle supplies the state.
+ * @return Zero on success, or a PETSc error when continuation cannot be honored.
+ */
+PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti);
+
 
 /**
  * @brief Reads data for a specific field from a file into the provided vector.

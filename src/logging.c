@@ -1,6 +1,7 @@
 // logging.c
 #include "logging.h"
 #include "statistics_window.h"
+#include "statistics_accumulator.h"
 #include "AnalyticalSolutions.h"
 #include "particle_field_catalog.h"
 #include "verification_sources.h"
@@ -2766,11 +2767,8 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, FieldId field_id, const char *st
  */
 PetscBool IsStatisticsConsoleSnapshotEnabled(const SimCtx *simCtx)
 {
-    if (!simCtx) return PETSC_FALSE;
-    return (PetscBool)(simCtx->fieldStatisticsEnabled &&
-                       simCtx->fieldStatisticsWindowCount > 0 &&
-                       simCtx->statisticsConsoleOutputFreq > 0 &&
-                       get_log_level() >= LOG_INFO);
+    if (!FieldStatisticsIsActive(simCtx)) return PETSC_FALSE;
+    return (PetscBool)(simCtx->statisticsConsoleOutputFreq > 0 && get_log_level() >= LOG_INFO);
 }
 
 /**
@@ -2788,29 +2786,45 @@ PetscBool ShouldEmitPeriodicStatisticsConsoleSnapshot(const SimCtx *simCtx, Pets
  * @brief Implementation of \ref EmitStatisticsConsoleSnapshot().
  * @see EmitStatisticsConsoleSnapshot()
  */
-PetscErrorCode EmitStatisticsConsoleSnapshot(const SimCtx *simCtx, PetscInt step)
+PetscErrorCode EmitStatisticsConsoleSnapshot(UserCtx *user, const SimCtx *simCtx, PetscInt step)
 {
     PetscFunctionBeginUser;
     PetscCheck(simCtx != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
     if (!IsStatisticsConsoleSnapshotEnabled(simCtx)) PetscFunctionReturn(0);
 
-    LOG(GLOBAL, LOG_INFO, "Statistics windows at step %d (%d window(s)):\n", step, simCtx->fieldStatisticsWindowCount);
+    LOG(GLOBAL, LOG_INFO, "Statistics windows at step %d (%d window(s)):\n",
+        step, simCtx->fieldStatisticsWindowCount);
     for (PetscInt w = 0; w < simCtx->fieldStatisticsWindowCount; ++w) {
         const PicurvWindow *window = &simCtx->fieldStatisticsWindows[w];
+        char progress[16];
+        char coverage[32] = "";
+
         if (window->definition.bounded) {
-            LOG(GLOBAL, LOG_INFO,
-                "  %-24s %-8s samples=%-8d weight=%-12.6g represented=%-12.6g progress=%5.1f%%\n",
-                window->definition.name, PicurvWindowStateName(window->state),
-                window->sample_count, (double)window->total_weight,
-                (double)window->represented_time,
-                100.0 * (double)PicurvWindowProgress(window));
+            PetscCall(PetscSNPrintf(progress, sizeof(progress), "%5.1f%%",
+                                    100.0 * (double)PicurvWindowProgress(window)));
         } else {
-            LOG(GLOBAL, LOG_INFO,
-                "  %-24s %-8s samples=%-8d weight=%-12.6g represented=%-12.6g progress=  open\n",
-                window->definition.name, PicurvWindowStateName(window->state),
-                window->sample_count, (double)window->total_weight,
-                (double)window->represented_time);
+            PetscCall(PetscSNPrintf(progress, sizeof(progress), "  open"));
         }
+
+        /* Mask health: with a moving body different points see different numbers of
+         * states, and the spread of per-point valid fraction is what tells an
+         * operator whether the window covers the domain evenly. Reported only on the
+         * first block, since the reduction it performs is already collective. */
+        if (user && user->fieldStatisticsStorage && window->sample_count > 0) {
+            PetscReal lowest = 1.0, highest = 0.0;
+
+            PetscCall(PicurvWindowValidFractionRange(user, &window->definition,
+                                                     &user->fieldStatisticsStorage[w],
+                                                     window->sample_count, &lowest, &highest));
+            PetscCall(PetscSNPrintf(coverage, sizeof(coverage), " valid=[%.2f,%.2f]",
+                                    (double)lowest, (double)highest));
+        }
+
+        LOG(GLOBAL, LOG_INFO,
+            "  %-24s %-8s samples=%-8d weight=%-12.6g represented=%-12.6g progress=%s%s\n",
+            window->definition.name, PicurvWindowStateName(window->state),
+            window->sample_count, (double)window->total_weight,
+            (double)window->represented_time, progress, coverage);
     }
     PetscFunctionReturn(0);
 }

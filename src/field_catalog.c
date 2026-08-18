@@ -151,7 +151,19 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
     FIELD_ENTRY(FIELD_ID_CELL_VECTOR_AT_CORNER, "CellVectorAtCorner", NULL, NULL, 3,
                 FIELD_DM_FDA, FIELD_LAYOUT_NODE_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, CellVectorAtCorner, lCellVectorAtCorner)
+                FIELD_CAPABILITY_GHOST_UPDATE, CellVectorAtCorner, lCellVectorAtCorner),
+    /* Post-processing staging fields. A derived statistic is config-counted and so
+     * has no compile-time offset of its own; staging the result here lets the
+     * existing ghost, nodal-average, and logging paths address it by name instead
+     * of each growing a second, view-based entry point. */
+    FIELD_ENTRY(FIELD_ID_POST_SCALAR, "PostScalar", NULL, NULL, 1,
+                FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
+                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
+                FIELD_CAPABILITY_GHOST_UPDATE, PostScalar, lPostScalar),
+    FIELD_ENTRY(FIELD_ID_POST_VECTOR, "PostVector", NULL, NULL, 3,
+                FIELD_DM_FDA, FIELD_LAYOUT_CELL_CENTERED,
+                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
+                FIELD_CAPABILITY_GHOST_UPDATE, PostVector, lPostVector)
 };
 
 _Static_assert(sizeof(gFieldCatalog) / sizeof(gFieldCatalog[0]) == FIELD_ID_COUNT,

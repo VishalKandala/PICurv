@@ -709,7 +709,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // monitoring, and before history rotation replaces the state just computed.
         ierr = FieldStatisticsUpdateWindows(simCtx, simCtx->step, simCtx->ti); CHKERRQ(ierr);
         if (ShouldEmitPeriodicStatisticsConsoleSnapshot(simCtx, simCtx->step)) {
-            ierr = EmitStatisticsConsoleSnapshot(simCtx, simCtx->step); CHKERRQ(ierr);
+            ierr = EmitStatisticsConsoleSnapshot(user, simCtx, simCtx->step); CHKERRQ(ierr);
         }
 
         PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));

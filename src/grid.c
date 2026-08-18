@@ -1,6 +1,7 @@
 // in src/grid.c
 
 #include "grid.h"
+#include "statistics_window.h"
 #include "logging.h"
 
 #define BBOX_TOLERANCE 1e-6
@@ -94,6 +95,40 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
 
     PROFILE_FUNCTION_END;
 
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "CreateCompatibleBlockDM"
+/**
+ * @brief Implementation of \ref CreateCompatibleBlockDM().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/grid.h`.
+ * @see CreateCompatibleBlockDM()
+ */
+PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result)
+{
+    PetscErrorCode ierr;
+    PetscInt       dim = 0, M = 0, N = 0, P = 0, m = 0, n = 0, p = 0, source_dof = 0, stencil_width = 0;
+    DMBoundaryType bx = DM_BOUNDARY_NONE, by = DM_BOUNDARY_NONE, bz = DM_BOUNDARY_NONE;
+    DMDAStencilType stencil_type = DMDA_STENCIL_BOX;
+    const PetscInt *lx = NULL, *ly = NULL, *lz = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(source != NULL && result != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Source DM and output pointer are required.");
+    PetscCheck(dof > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+               "A compatible DM needs a positive degree of freedom, got %" PetscInt_FMT ".", dof);
+
+    ierr = DMDAGetInfo(source, &dim, &M, &N, &P, &m, &n, &p, &source_dof, &stencil_width,
+                       &bx, &by, &bz, &stencil_type); CHKERRQ(ierr);
+    ierr = DMDAGetOwnershipRanges(source, &lx, &ly, &lz); CHKERRQ(ierr);
+    ierr = DMDACreate3d(PetscObjectComm((PetscObject)source), bx, by, bz, stencil_type,
+                        M, N, P, m, n, p, dof, stencil_width, lx, ly, lz, result); CHKERRQ(ierr);
+    ierr = DMSetUp(*result); CHKERRQ(ierr);
+    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG,
+                   "Created a dof-%d DM mirroring the block decomposition (%dx%dx%d ranks).\n",
+                   (int)dof, (int)m, (int)n, (int)p);
     PetscFunctionReturn(0);
 }
 
@@ -214,6 +249,12 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
     // --- Standard DM setup applicable to all levels ---
     ierr = DMSetUp(user->da); CHKERRQ(ierr);
     ierr = DMGetCoordinateDM(user->da, &user->fda); CHKERRQ(ierr);
+    /* The symmetric-tensor DM exists only to carry statistics products, and only the
+     * finest level accumulates them. Configuration is resolved before grid setup, so
+     * a run without statistics never builds it. */
+    if (FieldStatisticsIsActive(simCtx) && user->thislevel == simCtx->mglevels - 1) {
+        ierr = CreateCompatibleBlockDM(user->da, 6, &user->fda6); CHKERRQ(ierr);
+    }
     ierr = DMDASetUniformCoordinates(user->da, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0); CHKERRQ(ierr);
     ierr = DMDAGetLocalInfo(user->da, &user->info); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   DM creation for block %d level %d complete.\n", simCtx->rank, user->_this, user->thislevel);

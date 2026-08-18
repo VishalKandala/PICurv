@@ -616,6 +616,16 @@ typedef struct PostProcessParams {
     char statistics_pipeline[MAX_PIPELINE_LENGTH];      /**< e.g. "ComputeMSD" */
     char statistics_output_prefix[MAX_FILENAME_LENGTH]; /**< basename for CSV output, e.g. "Stats" */
 
+    // --- Field Statistics (accumulated window state → derived fields) ---
+    /** Comma-separated window names to derive; empty disables the pipeline. */
+    char field_statistics_windows[MAX_FIELD_LIST_LENGTH];
+    /** Comma-separated outputs: mean, reynolds_stress, rms, tke, flux. */
+    char field_statistics_outputs[MAX_FIELD_LIST_LENGTH];
+    /** Comma-separated formats: vtk for derived fields, csv for the convergence history. */
+    char field_statistics_formats[MAX_FIELD_LIST_LENGTH];
+    /** Committed step supplying the state; negative means the step being processed. */
+    PetscInt field_statistics_source_step;
+
     // --- Legacy settings ---
     char eulerianExt[8]; // from original PostProcessParams (repurposed for PreCheckAndResize() as the input file extension.)
     char particleExt[8]; // from original PostProcessParams
@@ -760,6 +770,10 @@ typedef struct SimCtx {
     PetscInt       fieldStatisticsWindowCount;
     struct PicurvWindow *fieldStatisticsWindows;
     PetscInt       statisticsConsoleOutputFreq;
+    /* Whether saved window state is resumed rather than restarted from zero.
+     * Defaults to the run's continue mode; --restart-from requires an explicit
+     * request because it may branch onto a different physical trajectory. */
+    PetscBool      fieldStatisticsContinue;
     VerificationDiffusivityConfig verificationDiffusivity;
     VerificationScalarConfig verificationScalar;
     
@@ -886,6 +900,11 @@ typedef struct UserCtx {
 
     // --- Grid, Geometry & Parallelization (Per-Level) ---
     DM da, fda, fda2;
+    /* Symmetric second-order tensor DM (dof 6), mirroring da's decomposition.
+     * Field-statistics products need six components at each point; splitting them
+     * across six scalar vectors would cost six memory streams in the per-step
+     * accumulation loop and six collective gathers per checkpoint. */
+    DM fda6;
     DMDALocalInfo info;
     AO ao;
     PetscInt IM, JM, KM; // No.of grid points.
@@ -922,6 +941,13 @@ typedef struct UserCtx {
      * the degree of freedom has to be rediscovered from a cached vector. */
     Vec CellScalarAtCorner, lCellScalarAtCorner;   /* da-based,  dof 1 */
     Vec CellVectorAtCorner, lCellVectorAtCorner;   /* fda-based, dof 3 */
+    /* Post-processing staging vectors. A derived statistic is config-counted and has
+     * no compile-time offset of its own, so it is written here to be addressed by
+     * name through the existing ghost and nodal-average paths. The nodal companions
+     * are reused field by field, because the VTK writer copies each one out before
+     * the next is produced. */
+    Vec PostScalar, lPostScalar, PostScalarNodal;  /* da-based,  dof 1 */
+    Vec PostVector, lPostVector, PostVectorNodal;  /* fda-based, dof 3 */
     /* Per-window statistics accumulators, one entry per configured window. */
     struct PicurvWindowStorage *fieldStatisticsStorage;
 

@@ -365,6 +365,13 @@ output/checkpoints/step_000000001000/
     position.dat
     velocity.dat
     ...catalogued restart fields...
+  statistics/                # only when a field-statistics window is configured
+    window_0000/
+      block_0000/
+        count.dat
+        weight.dat
+        weight_sq.dat
+        ...one payload per accumulated mean, product, and co-moment...
 ```
 
 The format identity in metadata is `picurv-checkpoint`, version 1. `picurv` is
@@ -373,6 +380,11 @@ Every `.dat` payload remains an ordinary PETSc binary vector and is written and
 read through the existing generic field/swarm I/O functions. Eulerian vectors
 use natural ordering, so compatible grid data are independent of the MPI
 decomposition used to write them.
+
+Statistics payloads are block scoped like Eulerian ones, with a window level
+above the block level, because each named window owns independent accumulator
+state on every block. Their exact layout, naming, and per-window metadata are
+fixed in @ref 60_Field_Statistics_Phase2_Implementation_Specification section 9.
 
 Eulerian payloads are block scoped: each block writes its own
 `eulerian/block_%04d` subdirectory and each inventory entry records its block

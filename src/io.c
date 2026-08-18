@@ -11,6 +11,7 @@
 #include "checksum.h"
 #include "field_catalog.h"
 #include "particle_field_catalog.h"
+#include "statistics_accumulator.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -22,6 +23,7 @@
 #define PICURV_CHECKPOINTS_DIRECTORY "checkpoints"
 #define PICURV_EULERIAN_DIRECTORY "eulerian"
 #define PICURV_PARTICLE_DIRECTORY "particles"
+#define PICURV_STATISTICS_DIRECTORY "statistics"
 #define PICURV_CHECKPOINT_STEP_WIDTH 12
 
 // =============================================================================
@@ -77,6 +79,45 @@ static PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescr
     if ((availability & FIELD_AVAILABILITY_RANS) && !simCtx->rans) return PETSC_FALSE;
     if ((availability & FIELD_AVAILABILITY_PARTICLES) && simCtx->np <= 0) return PETSC_FALSE;
     return PETSC_TRUE;
+}
+
+/**
+ * @brief Format any level of the statistics subtree, from the root down to one payload.
+ *
+ * This is the only place the statistics layout is written down. The directory
+ * creator, the payload writer, the manifest inventory, and the restart reader all
+ * ask for the level they need, so a path cannot be built one way and looked for
+ * another.
+ *
+ * Statistics payloads are block scoped exactly as Eulerian payloads are, with a
+ * window level above the block level, so a multiblock run keeps one accumulator tree
+ * per block under each window.
+ *
+ * Pass @p root NULL for a bundle-relative path, and stop early by passing a negative
+ * @p window or @p block, or a NULL @p payload_name.
+ */
+static PetscErrorCode FormatStatisticsPath(const char *root, PetscInt window, PetscInt block,
+                                           const char *payload_name, char *path, size_t path_size)
+{
+    size_t used = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output path is required.");
+    if (root) PetscCall(PetscSNPrintf(path, path_size, "%s/%s", root, PICURV_STATISTICS_DIRECTORY));
+    else PetscCall(PetscSNPrintf(path, path_size, "%s", PICURV_STATISTICS_DIRECTORY));
+    if (window < 0) PetscFunctionReturn(0);
+
+    PetscCall(PetscStrlen(path, &used));
+    PetscCall(PetscSNPrintf(path + used, path_size - used, "/window_%04" PetscInt_FMT, window));
+    if (block < 0) PetscFunctionReturn(0);
+
+    PetscCall(PetscStrlen(path, &used));
+    PetscCall(PetscSNPrintf(path + used, path_size - used, "/block_%04" PetscInt_FMT, block));
+    if (!payload_name) PetscFunctionReturn(0);
+
+    PetscCall(PetscStrlen(path, &used));
+    PetscCall(PetscSNPrintf(path + used, path_size - used, "/%s.dat", payload_name));
+    PetscFunctionReturn(0);
 }
 
 /** @brief Gather a vector in decomposition-independent natural ordering onto rank zero. */
@@ -1393,6 +1434,230 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 }
 
 
+/** @brief Restore one window's scalar bookkeeping from a validated manifest. */
+static PetscErrorCode ReadStatisticsWindowState(PetscOptions options, PetscInt window,
+                                                const char *metadata_path, PetscReal checkpoint_time,
+                                                PetscReal step_size, ExecutionMode exec_mode,
+                                                PicurvWindow *state)
+{
+    char option_name[128];
+    char saved_name[PICURV_WINDOW_NAME_LENGTH] = "";
+    char saved_digest[65] = "";
+    char saved_groups[PICURV_WINDOW_HASH_GROUP_COUNT * (PICURV_WINDOW_HASH_GROUP_LENGTH + 4)] = "";
+    char saved_state[32] = "";
+    char current_digest[65] = "";
+    PetscBool found = PETSC_FALSE;
+    PetscBool name_matches = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+
+#define PICURV_STATISTICS_REQUIRE(suffix, getter, target)                                        \
+    do {                                                                                         \
+        PetscCall(PetscSNPrintf(option_name, sizeof(option_name),                                \
+                                "-checkpoint_statistics_window_%" PetscInt_FMT "_" suffix, window)); \
+        PetscCall(getter(options, NULL, option_name, target, &found));                           \
+        PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,                           \
+                   "Statistics continuation requested, but '%s' records no %s for window "       \
+                   "%" PetscInt_FMT ".", metadata_path, suffix, window);                         \
+    } while (0)
+
+    PetscCall(PetscSNPrintf(option_name, sizeof(option_name),
+                            "-checkpoint_statistics_window_%" PetscInt_FMT "_name", window));
+    PetscCall(PetscOptionsGetString(options, NULL, option_name, saved_name, sizeof(saved_name), &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Statistics continuation requested, but '%s' records no name for window %" PetscInt_FMT ".",
+               metadata_path, window);
+    PetscCall(PetscStrcmp(saved_name, state->definition.name, &name_matches));
+    PetscCheck(name_matches, PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+               "Statistics window %" PetscInt_FMT " is '%s' in the checkpoint but '%s' in this run. "
+               "Window order and names must match to continue.",
+               window, saved_name, state->definition.name);
+
+    PetscCall(PetscSNPrintf(option_name, sizeof(option_name),
+                            "-checkpoint_statistics_window_%" PetscInt_FMT "_hash", window));
+    PetscCall(PetscOptionsGetString(options, NULL, option_name, saved_digest, sizeof(saved_digest), &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Statistics continuation requested, but '%s' records no hash for window '%s'.",
+               metadata_path, state->definition.name);
+    PetscCall(PicurvWindowComputeHash(&state->definition, current_digest, NULL));
+    if (strcmp(saved_digest, current_digest)) {
+        const char *differing = "an unrecorded property";
+
+        /* The saved definition itself is not stored, so the per-group digests are
+         * what make it possible to name the property that changed rather than
+         * reporting only that two opaque hashes differ. */
+        PetscCall(PetscSNPrintf(option_name, sizeof(option_name),
+                                "-checkpoint_statistics_window_%" PetscInt_FMT "_hash_groups", window));
+        PetscCall(PetscOptionsGetString(options, NULL, option_name, saved_groups,
+                                        sizeof(saved_groups), &found));
+        if (found) {
+            PetscInt group = -1;
+
+            PetscCall(PicurvWindowFirstHashDifference(&state->definition, saved_groups, &group));
+            if (group >= 0) differing = PicurvWindowHashGroupName(group);
+        }
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+                "Statistics window '%s' was defined differently in the checkpoint: %s changed. "
+                "Continuing would merge incompatible samples; rename the window to start a new one.",
+                state->definition.name, differing);
+    }
+
+    PICURV_STATISTICS_REQUIRE("sample_count", PetscOptionsGetInt, &state->sample_count);
+    PICURV_STATISTICS_REQUIRE("total_weight", PetscOptionsGetReal, &state->total_weight);
+    PICURV_STATISTICS_REQUIRE("represented_time", PetscOptionsGetReal, &state->represented_time);
+    PICURV_STATISTICS_REQUIRE("last_accepted_time", PetscOptionsGetReal, &state->last_accepted_time);
+    PICURV_STATISTICS_REQUIRE("effective_start", PetscOptionsGetReal, &state->effective_start);
+    PICURV_STATISTICS_REQUIRE("effective_end", PetscOptionsGetReal, &state->effective_end);
+    PICURV_STATISTICS_REQUIRE("activation_step", PetscOptionsGetInt, &state->activation_step);
+    PICURV_STATISTICS_REQUIRE("last_event_step", PetscOptionsGetInt, &state->last_event_step);
+    PICURV_STATISTICS_REQUIRE("next_time_target", PetscOptionsGetInt, &state->next_time_target);
+    PICURV_STATISTICS_REQUIRE("restart_count", PetscOptionsGetInt, &state->restart_count);
+#undef PICURV_STATISTICS_REQUIRE
+
+    PetscCall(PetscSNPrintf(option_name, sizeof(option_name),
+                            "-checkpoint_statistics_window_%" PetscInt_FMT "_state", window));
+    PetscCall(PetscOptionsGetString(options, NULL, option_name, saved_state, sizeof(saved_state), &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Statistics continuation requested, but '%s' records no lifecycle state for window '%s'.",
+               metadata_path, state->definition.name);
+    if (!strcmp(saved_state, "complete")) state->state = PICURV_WINDOW_COMPLETE;
+    else if (!strcmp(saved_state, "active")) state->state = PICURV_WINDOW_ACTIVE;
+    else state->state = PICURV_WINDOW_PENDING;
+
+    /* A window saved as complete may still be resumable: page 58 §10 permits moving
+     * a bounded end forward, and the end time is deliberately outside the hash. */
+    if (state->state == PICURV_WINDOW_COMPLETE && state->definition.bounded &&
+        state->definition.end_time > state->effective_end) {
+        /* Only across an unbroken span. Under right-rectangle weighting the first
+         * sample after the former end carries the whole interval back to it, so
+         * resuming across a gap would weight time the window never observed. One
+         * step of slack is the closing state's own clipping, not a gap. */
+        PetscCheck(checkpoint_time - state->effective_end <= PetscMax(step_size, 0.0),
+                   PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+                   "Statistics window '%s' ended at t=%.17g and this checkpoint is at t=%.17g, "
+                   "so extending it to %.17g would weight %.17g of unobserved time. "
+                   "Start a new window instead.",
+                   state->definition.name, (double)state->effective_end, (double)checkpoint_time,
+                   (double)state->definition.end_time,
+                   (double)(checkpoint_time - state->effective_end));
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "Statistics window '%s' was complete at t=%.6g and is extended to t=%.6g.\n",
+                  state->definition.name, (double)state->effective_end,
+                  (double)state->definition.end_time);
+        state->state = PICURV_WINDOW_ACTIVE;
+    }
+    PetscCheck(!state->definition.bounded || state->definition.end_time >= state->effective_end,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+               "Statistics window '%s' already represents time up to %.17g, past the requested end "
+               "%.17g. A window may be extended forward but never shortened; rename it to start a new one.",
+               state->definition.name, (double)state->effective_end,
+               (double)state->definition.end_time);
+    /* A post-processing read is analysis, not a continuation, so it must not look
+     * like another restart segment. Only a solver resuming the window advances the
+     * lineage; otherwise deriving a series of steps would inflate it once per step. */
+    if (exec_mode == EXEC_MODE_SOLVER) state->restart_count += 1;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref RestoreFieldStatisticsState().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see RestoreFieldStatisticsState()
+ */
+PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
+{
+    UserCtx *user = NULL;
+    PetscOptions options = NULL;
+    char checkpoint_directory[PETSC_MAX_PATH_LEN];
+    char metadata_path[PETSC_MAX_PATH_LEN];
+    const char *source_path = NULL;
+    PetscInt saved_window_count = 0;
+    PetscReal checkpoint_time = 0.0;
+    PetscBool found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
+    if (!FieldStatisticsIsActive(simCtx)) PetscFunctionReturn(0);
+    if (!simCtx->fieldStatisticsContinue) {
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "Statistics continuation was not requested; %d window(s) start from zero.\n",
+                  simCtx->fieldStatisticsWindowCount);
+        PetscFunctionReturn(0);
+    }
+
+    user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "Finest-level fields must exist before statistics state is restored.");
+    source_path = (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) ? simCtx->pps->source_dir
+                                                                 : simCtx->restart_dir;
+    PetscCheck(source_path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "No checkpoint source directory is set for the current execution mode.");
+    PetscCall(ResolveCheckpointStepDirectory(source_path, ti,
+                                             checkpoint_directory, sizeof(checkpoint_directory)));
+    PetscCall(ValidateCheckpointBundle(simCtx, user, checkpoint_directory, ti,
+                                       &checkpoint_time, NULL, NULL, NULL, NULL));
+    PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path), "%s/checkpoint.meta",
+                            checkpoint_directory));
+
+    PetscCall(PetscOptionsCreate(&options));
+    PetscCall(PetscOptionsInsertFile(PETSC_COMM_WORLD, options, metadata_path, PETSC_TRUE));
+    PetscCall(PetscOptionsGetInt(options, NULL, "-checkpoint_statistics_window_count",
+                                 &saved_window_count, &found));
+    /* Missing state for a requested continuation is fatal and never silently
+     * zeroed: resuming from zero would report a converged average built from a
+     * fraction of the samples its metadata claims. */
+    PetscCheck(found && saved_window_count == simCtx->fieldStatisticsWindowCount,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+               "Statistics continuation requested, but checkpoint '%s' holds %" PetscInt_FMT
+               " window(s) and this run configures %" PetscInt_FMT ".",
+               checkpoint_directory, found ? saved_window_count : 0,
+               simCtx->fieldStatisticsWindowCount);
+
+    for (PetscInt window = 0; window < simCtx->fieldStatisticsWindowCount; ++window) {
+        PetscCall(ReadStatisticsWindowState(options, window, metadata_path, checkpoint_time,
+                                            simCtx->dt, simCtx->exec_mode,
+                                            &simCtx->fieldStatisticsWindows[window]));
+    }
+    PetscCall(PetscOptionsDestroy(&options));
+
+    for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+        PetscCheck(user[block].fieldStatisticsStorage != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+                   "Statistics accumulators were not allocated for block %" PetscInt_FMT ".", block);
+        for (PetscInt window = 0; window < simCtx->fieldStatisticsWindowCount; ++window) {
+            const PicurvWindowDefinition *definition = &simCtx->fieldStatisticsWindows[window].definition;
+            const PicurvWindowStorage *storage = &user[block].fieldStatisticsStorage[window];
+            PetscInt payload_count = 0;
+
+            PetscCall(FormatStatisticsPath(checkpoint_directory, window, block, NULL,
+                                           simCtx->_io_context_buffer,
+                                           sizeof(simCtx->_io_context_buffer)));
+            simCtx->current_io_directory = simCtx->_io_context_buffer;
+            PetscCall(PicurvWindowStoragePayloadCount(storage, &payload_count));
+            for (PetscInt index = 0; index < payload_count; ++index) {
+                PicurvStatisticsPayload payload;
+
+                PetscCall(PicurvWindowStoragePayload(&user[block], definition, storage, index, &payload));
+                PetscCall(ReadFieldData(&user[block], payload.name, payload.vec, "dat"));
+            }
+        }
+        simCtx->current_io_directory = NULL;
+    }
+
+    for (PetscInt window = 0; window < simCtx->fieldStatisticsWindowCount; ++window) {
+        const PicurvWindow *state = &simCtx->fieldStatisticsWindows[window];
+
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "Statistics window '%s' continued from '%s': state %s, %d sample(s), "
+                  "total weight %.6g, represented time %.6g, restart segment %d.\n",
+                  state->definition.name, checkpoint_directory,
+                  PicurvWindowStateName(state->state), state->sample_count,
+                  (double)state->total_weight, (double)state->represented_time,
+                  state->restart_count);
+    }
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Internal helper implementation: `ReadSwarmField()`.
  * @details Local to this translation unit.
@@ -1661,6 +1926,41 @@ PetscErrorCode WriteSimulationFields(UserCtx *user, const char *checkpoint_direc
     PetscFunctionReturn(0);
 }
 
+/** @brief Write every window's accumulator payloads for one block into a bundle. */
+static PetscErrorCode WriteStatisticsFields(UserCtx *user, const char *checkpoint_directory)
+{
+    SimCtx *simCtx = user->simCtx;
+
+    PetscFunctionBeginUser;
+    PetscCheck(checkpoint_directory != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Checkpoint destination cannot be NULL.");
+    if (!FieldStatisticsIsActive(simCtx) || !user->fieldStatisticsStorage) PetscFunctionReturn(0);
+
+    for (PetscInt window = 0; window < simCtx->fieldStatisticsWindowCount; ++window) {
+        const PicurvWindowStorage *storage = &user->fieldStatisticsStorage[window];
+        PetscInt payload_count = 0;
+
+        PetscCall(FormatStatisticsPath(checkpoint_directory, window, user->_this, NULL,
+                                       simCtx->_io_context_buffer,
+                                       sizeof(simCtx->_io_context_buffer)));
+        simCtx->current_io_directory = simCtx->_io_context_buffer;
+        PetscCall(PicurvWindowStoragePayloadCount(storage, &payload_count));
+        for (PetscInt index = 0; index < payload_count; ++index) {
+            PicurvStatisticsPayload payload;
+
+            PetscCall(PicurvWindowStoragePayload(user, &simCtx->fieldStatisticsWindows[window].definition,
+                                                 storage, index, &payload));
+            PetscCall(WriteFieldData(user, payload.name, payload.vec, "dat"));
+        }
+        LOG_ALLOW(LOCAL, LOG_DEBUG,
+                  "Wrote %d statistics payload(s) for window '%s' block %d.\n",
+                  (int)payload_count, simCtx->fieldStatisticsWindows[window].definition.name,
+                  (int)user->_this);
+    }
+    simCtx->current_io_directory = NULL;
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Implementation of \ref WriteSwarmField().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1900,6 +2200,18 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
             if (descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_CHECKPOINT) ++payload_count;
         }
     }
+    if (FieldStatisticsIsActive(simCtx)) {
+        for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+            if (!user[block].fieldStatisticsStorage) continue;
+            for (PetscInt window = 0; window < simCtx->fieldStatisticsWindowCount; ++window) {
+                PetscInt storage_payloads = 0;
+
+                PetscCall(PicurvWindowStoragePayloadCount(&user[block].fieldStatisticsStorage[window],
+                                                          &storage_payloads));
+                payload_count += storage_payloads;
+            }
+        }
+    }
 
     if (simCtx->rank == 0) {
         PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path),
@@ -1947,6 +2259,63 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                    PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
                    "Unable to write checkpoint periodicity metadata.");
 
+        /* Window scalars are recorded even when no window is configured, so a
+         * restart can tell an absent window list from an unreadable bundle. */
+        PetscCheck(fprintf(manifest, "-checkpoint_statistics_window_count %" PetscInt_FMT "\n",
+                           FieldStatisticsIsActive(simCtx) ? simCtx->fieldStatisticsWindowCount : 0) > 0,
+                   PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to write statistics window count.");
+        if (FieldStatisticsIsActive(simCtx)) {
+            for (PetscInt window = 0; window < simCtx->fieldStatisticsWindowCount; ++window) {
+                const PicurvWindow *state = &simCtx->fieldStatisticsWindows[window];
+                char digest[65] = "";
+                char groups[PICURV_WINDOW_HASH_GROUP_COUNT][PICURV_WINDOW_HASH_GROUP_LENGTH];
+                /* Group digests plus their separators, with headroom so a longer
+                 * digest would not silently truncate into a false match. */
+                char group_list[PICURV_WINDOW_HASH_GROUP_COUNT * (PICURV_WINDOW_HASH_GROUP_LENGTH + 4)] = "";
+                size_t used = 0;
+
+                PetscCall(PicurvWindowComputeHash(&state->definition, digest, groups));
+                for (PetscInt group = 0; group < PICURV_WINDOW_HASH_GROUP_COUNT; ++group) {
+                    PetscCall(PetscStrlen(group_list, &used));
+                    PetscCall(PetscSNPrintf(group_list + used, sizeof(group_list) - used, "%s%s",
+                                            group ? "," : "", groups[group]));
+                }
+                PetscCheck(fprintf(manifest,
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_name %s\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_hash %s\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_hash_groups %s\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_state %s\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_sample_count %" PetscInt_FMT "\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_total_weight %.17g\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_represented_time %.17g\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_last_accepted_time %.17g\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_effective_start %.17g\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_effective_end %.17g\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_activation_step %" PetscInt_FMT "\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_last_event_step %" PetscInt_FMT "\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_next_time_target %" PetscInt_FMT "\n"
+                                   "-checkpoint_statistics_window_%" PetscInt_FMT "_restart_count %" PetscInt_FMT "\n",
+                                   window, state->definition.name,
+                                   window, digest,
+                                   window, group_list,
+                                   window, PicurvWindowStateName(state->state),
+                                   window, state->sample_count,
+                                   window, (double)state->total_weight,
+                                   window, (double)state->represented_time,
+                                   window, (double)state->last_accepted_time,
+                                   window, (double)state->effective_start,
+                                   window, (double)state->effective_end,
+                                   window, state->activation_step,
+                                   window, state->last_event_step,
+                                   window, state->next_time_target,
+                                   window, state->restart_count) > 0,
+                           PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                           "Unable to write metadata for statistics window '%s'.",
+                           state->definition.name);
+            }
+        }
+
         for (PetscInt block = 0; block < simCtx->block_number; ++block) {
             for (PetscInt raw_id = 0; raw_id < FIELD_ID_COUNT; ++raw_id) {
                 const FieldDescriptor *descriptor = NULL;
@@ -1990,6 +2359,43 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                                                        PetscDataTypes[descriptor->data_type],
                                                        particle_count * descriptor->components,
                                                        encoding));
+            }
+        }
+        if (FieldStatisticsIsActive(simCtx)) {
+            for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+                if (!user[block].fieldStatisticsStorage) continue;
+                for (PetscInt window = 0; window < simCtx->fieldStatisticsWindowCount; ++window) {
+                    const PicurvWindowDefinition *definition =
+                        &simCtx->fieldStatisticsWindows[window].definition;
+                    const PicurvWindowStorage *storage = &user[block].fieldStatisticsStorage[window];
+                    PetscInt storage_payloads = 0;
+
+                    PetscCall(PicurvWindowStoragePayloadCount(storage, &storage_payloads));
+                    for (PetscInt index = 0; index < storage_payloads; ++index) {
+                        PicurvStatisticsPayload payload;
+                        PetscInt global_size = 0;
+                        char relative_path[PETSC_MAX_PATH_LEN];
+                        char qualified_name[PETSC_MAX_PATH_LEN];
+
+                        PetscCall(PicurvWindowStoragePayload(&user[block], definition, storage,
+                                                             index, &payload));
+                        PetscCall(VecGetSize(payload.vec, &global_size));
+                        PetscCall(FormatStatisticsPath(NULL, window, block, payload.name,
+                                                       relative_path, sizeof(relative_path)));
+                        /* The inventory field name is qualified by window so two
+                         * windows accumulating the same field stay distinguishable
+                         * to anything reading the manifest alone. */
+                        PetscCall(PetscSNPrintf(qualified_name, sizeof(qualified_name), "%s/%s",
+                                                definition->name, payload.name));
+                        PetscCall(WriteCheckpointPayloadEntry(manifest, checkpoint_directory,
+                                                               payload_index++, relative_path,
+                                                               payload.role, qualified_name,
+                                                               block, payload.layout,
+                                                               payload.components, "PetscScalar",
+                                                               global_size,
+                                                               "petsc_vec_binary_natural"));
+                    }
+                }
             }
         }
         PetscCheck(fflush(manifest) == 0 && fsync(fileno(manifest)) == 0,
@@ -2068,12 +2474,30 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
         PetscCall(CreateCheckpointDirectoryCollective(simCtx, nested_directory));
         PetscCall(DMSwarmGetSize(user->swarm, &particle_count));
     }
+    if (FieldStatisticsIsActive(simCtx)) {
+        PetscCall(FormatStatisticsPath(temporary_directory, -1, -1, NULL,
+                                       nested_directory, sizeof(nested_directory)));
+        PetscCall(CreateCheckpointDirectoryCollective(simCtx, nested_directory));
+        for (PetscInt window = 0; window < simCtx->fieldStatisticsWindowCount; ++window) {
+            PetscCall(FormatStatisticsPath(temporary_directory, window, -1, NULL,
+                                           nested_directory, sizeof(nested_directory)));
+            PetscCall(CreateCheckpointDirectoryCollective(simCtx, nested_directory));
+            for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+                PetscCall(FormatStatisticsPath(temporary_directory, window, block, NULL,
+                                               nested_directory, sizeof(nested_directory)));
+                PetscCall(CreateCheckpointDirectoryCollective(simCtx, nested_directory));
+            }
+        }
+    }
 
     PetscCall(ComputeCheckpointGeometrySHA256(simCtx, user, geometry_digest));
     for (PetscInt block = 0; block < simCtx->block_number; ++block) {
         PetscCall(WriteSimulationFields(&user[block], temporary_directory));
     }
     if (simCtx->np > 0) PetscCall(WriteAllSwarmFields(user, temporary_directory));
+    for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+        PetscCall(WriteStatisticsFields(&user[block], temporary_directory));
+    }
     PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
 
     PetscCall(WriteCheckpointManifest(simCtx, user, temporary_directory, reason,
@@ -2389,6 +2813,17 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         } else {
             ierr = PetscPrintf(PETSC_COMM_SELF, " Field/Restart Cadence      : DISABLED\n"); CHKERRQ(ierr);
         }
+        /* Recorded whether or not statistics are configured, so a log says plainly
+         * whether monitoring was active rather than leaving its absence ambiguous. */
+        if (FieldStatisticsIsActive(simCtx) && simCtx->statisticsConsoleOutputFreq > 0) {
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Statistics Console Cadence : every %d step(s), %d window(s)\n",
+                               simCtx->statisticsConsoleOutputFreq, simCtx->fieldStatisticsWindowCount); CHKERRQ(ierr);
+        } else if (FieldStatisticsIsActive(simCtx)) {
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Statistics Console Cadence : DISABLED (%d window(s) accumulating)\n",
+                               simCtx->fieldStatisticsWindowCount); CHKERRQ(ierr);
+        } else {
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Statistics Console Cadence : DISABLED (no window configured)\n"); CHKERRQ(ierr);
+        }
         ierr = PetscPrintf(PETSC_COMM_SELF, " Immersed Boundary          : %s\n", simCtx->immersed ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
         if (simCtx->walltimeGuardEnabled) {
             ierr = PetscPrintf(
@@ -2551,6 +2986,12 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     strncpy(pps->statistics_output_prefix, "Stats",  MAX_FILENAME_LENGTH - 1);
     strcpy(pps->particleExt,"dat"); // The input file format for particles.
     strcpy(pps->eulerianExt,"dat"); // The input file format for Eulerian fields.
+    /* A negative source step means "the last step this recipe covers", so a recipe
+     * that does not name one still derives from a bundle that exists. */
+    pps->field_statistics_windows[0] = '\0';
+    strcpy(pps->field_statistics_outputs, "mean,reynolds_stress,rms,tke,flux");
+    strcpy(pps->field_statistics_formats, "vtk");
+    pps->field_statistics_source_step = -1;
     pps->reference[0] = pps->reference[1] = pps->reference[2] = 1;
     strncpy(pps->source_dir, simCtx->output_dir, sizeof(pps->source_dir) - 1);
     pps->source_dir[sizeof(pps->source_dir) - 1] = '\0'; // Ensure null-termination
@@ -2575,6 +3016,17 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                 else if (strcasecmp(key, "process_pipeline") == 0) {
                     strncpy(pps->process_pipeline, value, MAX_PIPELINE_LENGTH - 1);
                     pps->process_pipeline[MAX_PIPELINE_LENGTH - 1] = '\0'; // Ensure null-termination
+                } else if (strcasecmp(key, "field_statistics_windows") == 0) {
+                    strncpy(pps->field_statistics_windows, value, MAX_FIELD_LIST_LENGTH - 1);
+                    pps->field_statistics_windows[MAX_FIELD_LIST_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "field_statistics_formats") == 0) {
+                    strncpy(pps->field_statistics_formats, value, MAX_FIELD_LIST_LENGTH - 1);
+                    pps->field_statistics_formats[MAX_FIELD_LIST_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "field_statistics_outputs") == 0) {
+                    strncpy(pps->field_statistics_outputs, value, MAX_FIELD_LIST_LENGTH - 1);
+                    pps->field_statistics_outputs[MAX_FIELD_LIST_LENGTH - 1] = '\0';
+                } else if (strcasecmp(key, "field_statistics_source_step") == 0) {
+                    pps->field_statistics_source_step = atoi(value);
                 } else if (strcasecmp(key, "output_fields_instantaneous") == 0) {
                     strncpy(pps->output_fields_instantaneous, value, MAX_FIELD_LIST_LENGTH - 1);
                     pps->output_fields_instantaneous[MAX_FIELD_LIST_LENGTH - 1] = '\0';

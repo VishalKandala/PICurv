@@ -8,6 +8,7 @@
 #include <errno.h>
 
 #include "setup.h"
+#include "statistics_config.h"
 #include "statistics_accumulator.h"
 
 /**
@@ -248,6 +249,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->fieldStatisticsWindowCount = 0;
     simCtx->fieldStatisticsWindows = NULL;
     simCtx->statisticsConsoleOutputFreq = 0;
+    simCtx->fieldStatisticsContinue = PETSC_FALSE;
     simCtx->solutionConvergenceEnabled = PETSC_TRUE;
     simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC;
     simCtx->solutionConvergencePeriodSteps = 0;
@@ -486,6 +488,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL,NULL, "-totalsteps", &simCtx->StepsToRun, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-only_setup", &simCtx->OnlySetup, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-continue_mode", &simCtx->continueMode, NULL); CHKERRQ(ierr);
+    /* Resuming in the same run directory continues accumulated statistics by
+     * default; branching with --restart-from must opt in, because the branch may
+     * follow a different physical trajectory than the samples already collected. */
+    simCtx->fieldStatisticsContinue = simCtx->continueMode;
     ierr = PetscOptionsGetReal(NULL, NULL, "-dt", &simCtx->dt, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-tio", &simCtx->tiout, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-particle_console_output_freq", &simCtx->particleConsoleOutputFreq, &particle_console_output_freq_flg); CHKERRQ(ierr);
@@ -600,6 +606,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetBool(NULL, NULL, "-solution_convergence_enabled", &simCtx->solutionConvergenceEnabled, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-solution_convergence_period_steps", &simCtx->solutionConvergencePeriodSteps, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-solution_convergence_window_steps", &simCtx->solutionConvergenceWindowSteps, NULL); CHKERRQ(ierr);
+    /* Field statistics resolve here rather than inline, because a variable-arity
+     * window list needs its own parse site; see statistics_config.c. It must
+     * precede CreateAndInitializeAllVectors, which sizes the per-window
+     * accumulators from the window count resolved here. */
+    ierr = ParseFieldStatisticsConfig(simCtx); CHKERRQ(ierr);
 
     // Keep parser acceptance aligned with the enum and FlowSolver dispatch.
     if (mom_solver_type_flg) {
@@ -1543,8 +1554,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	    // Config-counted, like the convergence-state reference fields: the window
 	    // count is resolved before this factory runs, and each accumulator is
 	    // duplicated from a vector created above so it inherits DM and layout.
-	    if (level == usermg->mglevels - 1 &&
-	        simCtx->fieldStatisticsEnabled && simCtx->fieldStatisticsWindowCount > 0) {
+	    if (level == usermg->mglevels - 1 && FieldStatisticsIsActive(simCtx)) {
 	        ierr = PetscCalloc1((size_t)simCtx->fieldStatisticsWindowCount,
 	                            &user->fieldStatisticsStorage); CHKERRQ(ierr);
 	        for (PetscInt w = 0; w < simCtx->fieldStatisticsWindowCount; ++w) {
@@ -1570,6 +1580,26 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	        ierr = VecSet(user->CellVectorAtCorner, 0.0); CHKERRQ(ierr);
 	        ierr = DMCreateLocalVector(user->fda,  &user->lCellVectorAtCorner); CHKERRQ(ierr);
 	        ierr = VecSet(user->lCellVectorAtCorner, 0.0); CHKERRQ(ierr);
+	    }
+
+	    /* --- Group N: Statistics Output Staging (Finest Level Only) ---
+	     * The same kind of object as the corner workspace: a named buffer the
+	     * shared kernels can address, rather than simulation state. It exists only
+	     * to carry derived statistics to the nodal and VTK paths, so a run without
+	     * statistics allocates none of it. */
+	    if (level == usermg->mglevels - 1 && FieldStatisticsIsActive(simCtx)) {
+	        ierr = DMCreateGlobalVector(user->da,  &user->PostScalar);       CHKERRQ(ierr);
+	        ierr = VecSet(user->PostScalar, 0.0); CHKERRQ(ierr);
+	        ierr = DMCreateLocalVector(user->da,   &user->lPostScalar);      CHKERRQ(ierr);
+	        ierr = VecSet(user->lPostScalar, 0.0); CHKERRQ(ierr);
+	        ierr = DMCreateGlobalVector(user->da,  &user->PostScalarNodal);  CHKERRQ(ierr);
+	        ierr = VecSet(user->PostScalarNodal, 0.0); CHKERRQ(ierr);
+	        ierr = DMCreateGlobalVector(user->fda, &user->PostVector);       CHKERRQ(ierr);
+	        ierr = VecSet(user->PostVector, 0.0); CHKERRQ(ierr);
+	        ierr = DMCreateLocalVector(user->fda,  &user->lPostVector);      CHKERRQ(ierr);
+	        ierr = VecSet(user->lPostVector, 0.0); CHKERRQ(ierr);
+	        ierr = DMCreateGlobalVector(user->fda, &user->PostVectorNodal);  CHKERRQ(ierr);
+	        ierr = VecSet(user->PostVectorNodal, 0.0); CHKERRQ(ierr);
 	    }
 
       if(level == usermg->mglevels - 1){
@@ -3552,6 +3582,12 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->CellScalarAtCorner) { ierr = VecDestroy(&user->CellScalarAtCorner); CHKERRQ(ierr); }
     if (user->lCellScalarAtCorner) { ierr = VecDestroy(&user->lCellScalarAtCorner); CHKERRQ(ierr); }
     if (user->CellVectorAtCorner) { ierr = VecDestroy(&user->CellVectorAtCorner); CHKERRQ(ierr); }
+    if (user->PostScalar) { ierr = VecDestroy(&user->PostScalar); CHKERRQ(ierr); }
+    if (user->lPostScalar) { ierr = VecDestroy(&user->lPostScalar); CHKERRQ(ierr); }
+    if (user->PostScalarNodal) { ierr = VecDestroy(&user->PostScalarNodal); CHKERRQ(ierr); }
+    if (user->PostVector) { ierr = VecDestroy(&user->PostVector); CHKERRQ(ierr); }
+    if (user->lPostVector) { ierr = VecDestroy(&user->lPostVector); CHKERRQ(ierr); }
+    if (user->PostVectorNodal) { ierr = VecDestroy(&user->PostVectorNodal); CHKERRQ(ierr); }
     if (user->lCellVectorAtCorner) { ierr = VecDestroy(&user->lCellVectorAtCorner); CHKERRQ(ierr); }
 
     // --- Group L: Implicit Solver Temporary Vectors (Destroyed after use, but check anyway) ---
@@ -3628,7 +3664,7 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
     }
 
     // --- Step 5: Destroy DM Objects ---
-    // Destroy in reverse order of dependency: post_swarm, swarm, fda2, fda, da
+    // Destroy in reverse order of dependency: post_swarm, swarm, fda6, fda2, fda, da
     if (user->post_swarm) {
         ierr = DMDestroy(&user->post_swarm); CHKERRQ(ierr);
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  post_swarm DM destroyed.\n");
@@ -3636,6 +3672,10 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
     if (user->swarm) {
         ierr = DMDestroy(&user->swarm); CHKERRQ(ierr);
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  swarm DM destroyed.\n");
+    }
+    if (user->fda6) {
+        ierr = DMDestroy(&user->fda6); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  fda6 DM destroyed.\n");
     }
     if (user->fda2) {
         ierr = DMDestroy(&user->fda2); CHKERRQ(ierr);
@@ -3690,6 +3730,7 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
     // ============================================================================
 
     ierr = DestroySolutionConvergenceState(simCtx); CHKERRQ(ierr);
+    ierr = DestroyFieldStatisticsConfig(simCtx); CHKERRQ(ierr);
 
     if (simCtx->usermg.mgctx) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying multigrid hierarchy (%d levels)...\n",

@@ -376,6 +376,10 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
                     simCtx->StartTime, simCtx->StartStep);
             ierr = SetInitialFluidState_Load(simCtx); CHKERRQ(ierr);
         }
+        /* Statistics resume from the same bundle the flow state came from, and are
+         * restored regardless of the Eulerian source: an analytical restart still
+         * continues a window that was accumulating before it. */
+        ierr = RestoreFieldStatisticsState(simCtx, simCtx->StartStep); CHKERRQ(ierr);
     } else { // StartStep = 0
         LOG_ALLOW(GLOBAL, LOG_INFO, "Performing a FRESH START (t=0, step=0).\n");
         if(strcmp(simCtx->eulerianSource,"solve")==0){

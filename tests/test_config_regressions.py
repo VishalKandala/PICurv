@@ -81,7 +81,9 @@ def test_audit_ingress_manifest_matches_c_ingress():
     )
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    assert "[OK] Ingress manifest matches setup/io PETSc option scan." in result.stdout
+    assert "[OK] Ingress manifest matches the PETSc option scan of its declared sources." in result.stdout
+    # Constructed names are only covered when the family check actually ran.
+    assert "Scanned option families:" in result.stdout
 
 
 def test_generate_post_recipe_rejects_non_checkpoint_input_extensions(tmp_path):

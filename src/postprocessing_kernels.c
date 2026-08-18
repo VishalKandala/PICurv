@@ -1,4 +1,6 @@
 #include "postprocessing_kernels.h"
+#include "statistics_accumulator.h"
+#include "statistics_window.h"
 #include "particle_field_catalog.h"
 
 // =========== Dimensionalization Kernels ========================
@@ -153,12 +155,18 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     if (strcasecmp(in_field_name, "P") == 0)             { in_vec_local = user->lP;         dm_in = user->da;   dof = 1; }
     else if (strcasecmp(in_field_name, "Ucat") == 0)    { in_vec_local = user->lUcat;      dm_in = user->fda;  dof = 3; }
     else if (strcasecmp(in_field_name, "Psi") == 0)     { in_vec_local = user->lPsi;       dm_in = user->da;   dof = 1; }
+    /* The staging pair carries derived statistics, which are config-counted and so
+     * cannot be named by a compile-time member of their own. */
+    else if (strcasecmp(in_field_name, "PostScalar") == 0) { in_vec_local = user->lPostScalar; dm_in = user->da;  dof = 1; }
+    else if (strcasecmp(in_field_name, "PostVector") == 0) { in_vec_local = user->lPostVector; dm_in = user->fda; dof = 3; }
     // ... (add other fields as needed) ...
     else SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Unknown input field name for nodal averaging: %s", in_field_name);
 
     if (strcasecmp(out_field_name, "P_nodal") == 0)      { out_vec_global = user->P_nodal;    dm_out = user->da; }
     else if (strcasecmp(out_field_name, "Ucat_nodal") == 0) { out_vec_global = user->Ucat_nodal; dm_out = user->fda; }
     else if (strcasecmp(out_field_name, "Psi_nodal") == 0)   { out_vec_global = user->Psi_nodal;  dm_out = user->da; }
+    else if (strcasecmp(out_field_name, "PostScalarNodal") == 0) { out_vec_global = user->PostScalarNodal; dm_out = user->da; }
+    else if (strcasecmp(out_field_name, "PostVectorNodal") == 0) { out_vec_global = user->PostVectorNodal; dm_out = user->fda; }
     // ... (add other fields as needed) ...
     else SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Unknown output field name for nodal averaging: %s", out_field_name);
 
@@ -224,6 +232,139 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     PetscFunctionReturn(0);
 }
 
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeWindowStatisticNodal"
+/**
+ * @brief Implementation of \ref ComputeWindowStatisticNodal().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessing_kernels.h`.
+ * @see ComputeWindowStatisticNodal()
+ */
+PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, PetscInt window_index,
+                                           const char *outputs, PetscInt output_index,
+                                           char *out_name, size_t name_size,
+                                           Vec *out_vec, PetscInt *out_components)
+{
+    PetscErrorCode ierr;
+    SimCtx *simCtx = NULL;
+    PicurvDerivedField derived;
+    const PicurvWindowDefinition *definition = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(user != NULL && out_name != NULL && out_vec != NULL && out_components != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context and outputs are required.");
+    simCtx = user->simCtx;
+    PetscCheck(FieldStatisticsIsActive(simCtx) && user->fieldStatisticsStorage != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "No accumulated window state exists to derive.");
+    definition = &simCtx->fieldStatisticsWindows[window_index].definition;
+
+    /* Derive into the cell-centred staging pair, then reach the nodal path by
+     * catalogued name. A per-window accumulator has no compile-time offset, so
+     * staging is what lets the shared ghost and nodal kernels address it at all. */
+    ierr = PicurvWindowDerive(user, definition, &user->fieldStatisticsStorage[window_index],
+                              outputs, output_index, user->PostScalar, user->PostVector,
+                              &derived); CHKERRQ(ierr);
+    if (derived.components == 1) {
+        ierr = UpdateLocalGhosts(user, FIELD_ID_POST_SCALAR); CHKERRQ(ierr);
+        ierr = ComputeNodalAverage(user, "PostScalar", "PostScalarNodal"); CHKERRQ(ierr);
+        *out_vec = user->PostScalarNodal;
+    } else {
+        ierr = UpdateLocalGhosts(user, FIELD_ID_POST_VECTOR); CHKERRQ(ierr);
+        ierr = ComputeNodalAverage(user, "PostVector", "PostVectorNodal"); CHKERRQ(ierr);
+        *out_vec = user->PostVectorNodal;
+    }
+    *out_components = derived.components;
+    ierr = PetscStrncpy(out_name, derived.name, name_size); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "-> KERNEL: Derived '%s' (%d component(s)).\n",
+              out_name, (int)derived.components);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeWindowStatisticsSummary"
+/**
+ * @brief Implementation of \ref ComputeWindowStatisticsSummary().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessing_kernels.h`.
+ * @see ComputeWindowStatisticsSummary()
+ */
+PetscErrorCode ComputeWindowStatisticsSummary(UserCtx *user, PetscInt window_index,
+                                              const char *output_prefix, PetscInt ti)
+{
+    PetscErrorCode ierr;
+    SimCtx *simCtx = NULL;
+    const PicurvWindow *window = NULL;
+    const PicurvWindowStorage *storage = NULL;
+    PetscReal lowest = 1.0, highest = 0.0;
+    PetscReal mean_tke = 0.0;
+    PetscBool has_tke = PETSC_FALSE;
+    PetscInt derived_count = 0;
+    char path[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(user != NULL && output_prefix != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Context and output prefix are required.");
+    simCtx = user->simCtx;
+    PetscCheck(FieldStatisticsIsActive(simCtx) && user->fieldStatisticsStorage != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "No accumulated window state exists to summarize.");
+    window = &simCtx->fieldStatisticsWindows[window_index];
+    storage = &user->fieldStatisticsStorage[window_index];
+
+    ierr = PicurvWindowValidFractionRange(user, &window->definition, storage,
+                                          window->sample_count, &lowest, &highest); CHKERRQ(ierr);
+
+    /* A single domain number is what makes the row plottable against step. It is
+     * produced by the same derivation the field output uses, so the scalar and the
+     * field can never disagree about what the window holds. */
+    ierr = PicurvWindowDerivedCount(&window->definition, storage, "tke", &derived_count); CHKERRQ(ierr);
+    if (derived_count > 0) {
+        PicurvDerivedField derived;
+
+        ierr = PicurvWindowDerive(user, &window->definition, storage, "tke", 0,
+                                  user->PostScalar, user->PostVector, &derived); CHKERRQ(ierr);
+        /* Averaged over the fluid cells the window actually sampled. A whole-vector
+         * mean would divide by boundary and dummy entries the derivation never
+         * writes, scaling the answer down by the fraction it never covered. */
+        ierr = PicurvWindowSpatialMean(user, &window->definition, storage,
+                                       user->PostScalar, &mean_tke); CHKERRQ(ierr);
+        has_tke = PETSC_TRUE;
+    }
+
+    if (simCtx->rank == 0) {
+        FILE *csv = NULL;
+        PetscBool exists = PETSC_FALSE;
+
+        ierr = PetscSNPrintf(path, sizeof(path), "%s_statistics_%s.csv",
+                             output_prefix, window->definition.name); CHKERRQ(ierr);
+        ierr = PetscTestFile(path, 'r', &exists); CHKERRQ(ierr);
+        csv = fopen(path, exists ? "a" : "w");
+        PetscCheck(csv != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
+                   "Unable to open statistics summary '%s'.", path);
+        if (!exists) {
+            fprintf(csv, "step,state,samples,total_weight,represented_time,"
+                         "valid_fraction_min,valid_fraction_max,mean_tke\n");
+        }
+        fprintf(csv, "%" PetscInt_FMT ",%s,%d,%.10e,%.10e,%.6f,%.6f,",
+                ti, PicurvWindowStateName(window->state), window->sample_count,
+                (double)window->total_weight, (double)window->represented_time,
+                (double)lowest, (double)highest);
+        if (has_tke) fprintf(csv, "%.10e\n", (double)mean_tke);
+        else fprintf(csv, "\n");
+        PetscCheck(fclose(csv) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to close statistics summary '%s'.", path);
+    }
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "-> KERNEL: Summarized window '%s' at step %" PetscInt_FMT ".\n",
+              window->definition.name, ti);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
 
 #undef __FUNCT__
 #define __FUNCT__ "ComputeQCriterion"

@@ -557,11 +557,12 @@ PetscBool ShouldEmitPeriodicStatisticsConsoleSnapshot(const struct SimCtx *simCt
  *
  * Reports window-level scalars only; it never dumps field data.
  *
+ * @param[in] user   Finest-level block array supplying accumulator state.
  * @param[in] simCtx Simulation context carrying the window array.
  * @param[in] step   Step the snapshot describes.
  * @return Zero on success.
  */
-PetscErrorCode EmitStatisticsConsoleSnapshot(const struct SimCtx *simCtx, PetscInt step);
+PetscErrorCode EmitStatisticsConsoleSnapshot(UserCtx *user, const struct SimCtx *simCtx, PetscInt step);
 
 /* ------------------------------------------------------------------------- */
 /**
