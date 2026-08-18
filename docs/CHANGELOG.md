@@ -37,6 +37,19 @@
   - updated Python/C regression coverage and ingress/runtime/reference
     documentation. Scientific statistics accumulation remains Phase 2 work.
 
+- Completed the field-statistics window stage with independent per-window PETSc
+  accumulator state: `include/statistics_accumulator.h` and
+  `src/statistics_accumulator.c` allocate one accumulator set per window from the
+  vector factory, duplicating every vector from one the factory already built, and
+  apply an accepted state pointwise through the centered kernels. A three-vector's
+  second moment is the six symmetric co-moments between component pairs in fixed
+  (xx, xy, xz, yy, yz, zz) order, not three per-component variances. Per-point
+  occupancy is tracked separately from the moments because the fluid mask can move.
+  Storage is released through the same teardown that releases the block's other
+  vectors, and the runloop driver applies accepted weights to every block. Covered
+  by a new `unit-statistics-accumulator` suite, including an integration case that
+  drives the runloop entry point and asserts only scheduled states reach the fields.
+
 - Added window lifecycle, scheduling, and weighting for the field-statistics
   pipeline: `include/statistics_window.h` and `src/statistics_window.c` decide
   whether a completed state is accepted and what weight it carries, applying

@@ -41,6 +41,21 @@ typedef enum {
     PICURV_CADENCE_TIME       /**< First state at or past each nominal time target. */
 } PicurvCadenceKind;
 
+/** @brief Maximum fields or covariance pairs one window may request. */
+#define PICURV_WINDOW_MAX_REQUESTS 16
+
+/** @brief One field a window accumulates. The first moment is always kept. */
+typedef struct {
+    PetscInt  field_id;     /**< Catalogued Eulerian field identity. */
+    PetscBool want_second;  /**< Also keep the centered second moment. */
+} PicurvWindowFieldRequest;
+
+/** @brief One cross-field covariance a window accumulates. */
+typedef struct {
+    PetscInt first;   /**< First member; must also appear in the field list. */
+    PetscInt second;  /**< Second member; must also appear in the field list. */
+} PicurvWindowCovarianceRequest;
+
 /** @brief The scientifically immutable definition of one window. */
 typedef struct {
     char              name[PICURV_WINDOW_NAME_LENGTH];
@@ -51,6 +66,10 @@ typedef struct {
     PicurvCadenceKind cadence_kind;
     PetscInt          step_cadence;  /**< Used when cadence_kind is step; must be positive. */
     PetscReal         time_cadence;  /**< Used when cadence_kind is time; must be positive. */
+    PetscInt                      field_count;
+    PicurvWindowFieldRequest      fields[PICURV_WINDOW_MAX_REQUESTS];
+    PetscInt                      covariance_count;
+    PicurvWindowCovarianceRequest covariances[PICURV_WINDOW_MAX_REQUESTS];
 } PicurvWindowDefinition;
 
 /** @brief Runtime state of one window. */

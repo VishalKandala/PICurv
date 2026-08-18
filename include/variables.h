@@ -72,6 +72,7 @@ extern "C" {
 // These declarations allow pointers to these types before their full definition.
 typedef struct SimCtx SimCtx;
 struct PicurvWindow;
+struct PicurvWindowStorage;
 typedef struct UserCtx UserCtx;
 typedef struct BC_Param_s BC_Param; /* Retains _s for linked list safety */
 typedef struct BoundaryCondition BoundaryCondition;
@@ -921,6 +922,8 @@ typedef struct UserCtx {
      * the degree of freedom has to be rediscovered from a cached vector. */
     Vec CellScalarAtCorner, lCellScalarAtCorner;   /* da-based,  dof 1 */
     Vec CellVectorAtCorner, lCellVectorAtCorner;   /* fda-based, dof 3 */
+    /* Per-window statistics accumulators, one entry per configured window. */
+    struct PicurvWindowStorage *fieldStatisticsStorage;
 
     // --- Pressure-Poisson System ---
     Mat A, C; KSP ksp; MatNullSpace nullsp;

@@ -9,6 +9,7 @@
 #include "statistics_window.h"
 #include "variables.h"
 #include "logging.h"
+#include "statistics_accumulator.h"
 
 /** @brief Tolerance for treating two physical times as the same instant. */
 #define WINDOW_TIME_EPSILON 1.0e-12
@@ -220,8 +221,14 @@ PetscErrorCode FieldStatisticsUpdateWindows(SimCtx *simCtx, PetscInt step, Petsc
                       window->definition.name, (double)window->effective_start);
         }
         if (accepted) {
-            /* Accumulator application is bound to this weight once configuration
-             * ingress supplies the field and product list. */
+            /* Apply the accepted weight to every block's accumulators. Windows share
+             * the source state but own independent accumulator state. */
+            for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+                UserCtx *user = &simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user[bi];
+                if (!user->fieldStatisticsStorage) continue;
+                PetscCall(PicurvWindowAccumulate(user, &window->definition,
+                                                 &user->fieldStatisticsStorage[w], weight));
+            }
             LOG_ALLOW(GLOBAL, LOG_DEBUG,
                       "Statistics window '%s' accepted step %d at t=%.6g with weight %.6g "
                       "(samples=%d, represented=%.6g).\n",

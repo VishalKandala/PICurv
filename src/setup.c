@@ -8,6 +8,7 @@
 #include <errno.h>
 
 #include "setup.h"
+#include "statistics_accumulator.h"
 
 /**
  * @brief Implementation of \ref RuntimeWalltimeGuardParsePositiveSeconds().
@@ -1536,6 +1537,24 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	    if (level == 0 && simCtx->immersed) {
 	        ierr = PetscCalloc1((size_t)(user->info.mx * user->info.my * 2), &user->KSKE); CHKERRQ(ierr);
 	        LOG_ALLOW(LOCAL, LOG_DEBUG, "Coarsest-level KSKE workspace allocated for immersed boundaries.\n");
+	    }
+
+	    // --- Group L: Field-Statistics Accumulators (Finest Level Only) ---
+	    // Config-counted, like the convergence-state reference fields: the window
+	    // count is resolved before this factory runs, and each accumulator is
+	    // duplicated from a vector created above so it inherits DM and layout.
+	    if (level == usermg->mglevels - 1 &&
+	        simCtx->fieldStatisticsEnabled && simCtx->fieldStatisticsWindowCount > 0) {
+	        ierr = PetscCalloc1((size_t)simCtx->fieldStatisticsWindowCount,
+	                            &user->fieldStatisticsStorage); CHKERRQ(ierr);
+	        for (PetscInt w = 0; w < simCtx->fieldStatisticsWindowCount; ++w) {
+	            ierr = PicurvWindowStorageCreate(user,
+	                       &simCtx->fieldStatisticsWindows[w].definition,
+	                       &user->fieldStatisticsStorage[w]); CHKERRQ(ierr);
+	        }
+	        LOG_ALLOW(LOCAL, LOG_INFO,
+	                  "Allocated accumulators for %d statistics window(s).\n",
+	                  simCtx->fieldStatisticsWindowCount);
 	    }
 
 	    // --- Group K: Corner-Staging Workspace (Finest Level Only) ---
@@ -3521,6 +3540,15 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->Psi_nodal) { ierr = VecDestroy(&user->Psi_nodal); CHKERRQ(ierr); }
 
     // --- Group K: Interpolation Vectors (Lazy allocation) ---
+    if (user->fieldStatisticsStorage) {
+        SimCtx *stats_ctx = user->simCtx;
+        const PetscInt window_count = stats_ctx ? stats_ctx->fieldStatisticsWindowCount : 0;
+        for (PetscInt w = 0; w < window_count; ++w) {
+            ierr = PicurvWindowStorageDestroy(&user->fieldStatisticsStorage[w]); CHKERRQ(ierr);
+        }
+        ierr = PetscFree(user->fieldStatisticsStorage); CHKERRQ(ierr);
+        user->fieldStatisticsStorage = NULL;
+    }
     if (user->CellScalarAtCorner) { ierr = VecDestroy(&user->CellScalarAtCorner); CHKERRQ(ierr); }
     if (user->lCellScalarAtCorner) { ierr = VecDestroy(&user->lCellScalarAtCorner); CHKERRQ(ierr); }
     if (user->CellVectorAtCorner) { ierr = VecDestroy(&user->CellVectorAtCorner); CHKERRQ(ierr); }
