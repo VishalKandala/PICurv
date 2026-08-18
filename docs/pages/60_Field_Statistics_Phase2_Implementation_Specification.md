@@ -276,9 +276,17 @@ it is unit tested in Stage 1 so later reductions inherit a verified kernel.
 mapping implemented, so Phase 3 extends rather than retrofits.
 
 Field resolution reuses `FieldGetDescriptor` and `FieldGetView`
-([field_catalog.h](../../include/field_catalog.h)) and the existing owned-range and
-periodic-range helpers. No new field lookup, layout table, or range convention is
-introduced.
+([field_catalog.h](../../include/field_catalog.h)) for identity and layout, and the
+block's existing `DMDALocalInfo` for ownership. No new field lookup, layout table,
+or range convention is introduced.
+
+`GetOwnedCellRange` is deliberately not called. It reports cells by origin node
+index and covers cell-centered layouts only, whereas the target plan works in
+field-storage indices under the solver's shifted convention and must also resolve
+node and face layouts. The two describe the same cells in different index spaces:
+the cell with origin `j` is stored at index `j + 1`. That relationship is asserted
+by a unit test rather than left implicit, so the plan and the established helper
+cannot drift apart.
 
 Iteration must exclude **both** categories, which are distinct:
 
@@ -490,8 +498,17 @@ Each stage is independently testable. No user-facing YAML is accepted until Stag
    window. The completed-state event is inserted in
    [runloop.c](../../src/runloop.c) immediately before `LOG_SOLUTION_CONVERGENCE`,
    after the Lagrangian block and before history rotation and checkpoint output.
-   Setup and teardown mirror `InitializeSolutionConvergenceState` and
-   `DestroySolutionConvergenceState`; creation follows `InitializeEulerianState`.
+
+   Accumulator vectors are created in the existing factory,
+   `CreateAndInitializeAllVectors` ([setup.c](../../src/setup.c)), as a further
+   conditional group beside the turbulence-model and particle groups already there,
+   and released in `DestroyUserVectors`. They are **not** allocated on the fly: the
+   runloop hook only updates state that already exists. Window configuration is
+   resolved before that factory runs, so the per-window count is known at creation
+   time. Non-vector window bookkeeping (schedule position, counts, weights,
+   last-event identity, definition hash) is initialized beside
+   `InitializeSolutionConvergenceState`, which runs immediately after the factory
+   and is the established home for config-derived monitoring state.
 4. **Checkpoint continuation.** Extend the existing coordinator, manifest writer, and
    validator as specified in @ref p60_checkpoint_sec.
 5. **Ingress.** Python schema, normalize/resolve pair, control emission, C resolution

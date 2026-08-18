@@ -15,6 +15,7 @@
 #include "test_support.h"
 
 #include "statistics_target.h"
+#include "setup.h"
 
 #define TARGET_TEST_N 6            /* fixture size; DMDA is TARGET_TEST_N + 1 per dimension */
 #define TARGET_CELL_EXTENT 5       /* cell-like span: indices [1, 6) */
@@ -209,6 +210,41 @@ static PetscErrorCode TestFluidMaskThreshold(void)
 }
 
 /**
+ * @brief The cell-centered span must agree with the existing owned-cell helper.
+ *
+ * `GetOwnedCellRange` reports cells by their origin node index, while field
+ * storage uses the solver's shifted convention where the cell with origin `j`
+ * lives at array index `j + 1`. The two therefore describe the same cells in
+ * different index spaces. This pins that relationship so the target plan and the
+ * established helper cannot drift apart.
+ */
+static PetscErrorCode TestCellSpanAgreesWithOwnedCellRange(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    SpatialTargetPlan plan;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, TARGET_TEST_N, TARGET_TEST_N, TARGET_TEST_N));
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_P, PICURV_STATISTICS_MASK_FLUID, &plan));
+
+    for (PetscInt dim = 0; dim < 3; ++dim) {
+        PetscInt origin_start = 0;
+        PetscInt origin_count = 0;
+
+        PetscCall(GetOwnedCellRange(&user->info, dim, &origin_start, &origin_count));
+        /* Shift from origin-node indexing into field-storage indexing. */
+        PetscCall(PicurvAssertIntEqual(origin_start + 1, plan.start[dim],
+                                       "cell span start must be the owned-cell origin shifted by one"));
+        PetscCall(PicurvAssertIntEqual(origin_start + origin_count + 1, plan.end[dim],
+                                       "cell span end must be the owned-cell extent shifted by one"));
+    }
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Entry point for the spatial target suite.
  */
 int main(int argc, char **argv)
@@ -220,6 +256,7 @@ int main(int argc, char **argv)
         {"periodic-directions-drop-duplicate-plane", TestPeriodicDirectionsDropDuplicatePlane},
         {"component-staggered-rejected", TestComponentStaggeredRejected},
         {"fluid-mask-threshold", TestFluidMaskThreshold},
+        {"cell-span-agrees-with-owned-cell-range", TestCellSpanAgreesWithOwnedCellRange},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv spatial target tests");
