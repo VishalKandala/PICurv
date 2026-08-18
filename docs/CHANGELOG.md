@@ -37,6 +37,22 @@
   - updated Python/C regression coverage and ingress/runtime/reference
     documentation. Scientific statistics accumulation remains Phase 2 work.
 
+- Added pointwise spatial target resolution for the field-statistics pipeline:
+  `include/statistics_target.h` and `src/statistics_target.c` resolve, for one
+  field on one block, an iteration domain that excludes PETSc halo storage and
+  solver-layout boundary, dummy, and duplicate-periodic indices, which are
+  distinct categories. Layout classification comes from the typed field catalog:
+  cell-like dimensions span the shifted interior, node-like dimensions carry one
+  more entry, and each face family is node-like only in its own direction.
+  Periodic directions drop the wrapped duplicate plane, which leaves cell-like
+  spans unchanged because their duplicates already sat outside. Component-
+  staggered fields are rejected, since their components live on different face
+  families and cannot share one pointwise domain. `SpatialTargetPlan` exists with
+  only the pointwise identity mapping so later spatial bins extend rather than
+  retrofit it. Covered by a new `unit-statistics-target` suite across cell, node,
+  and I/J/K-face layouts in nonperiodic, mixed, and fully periodic domains, plus
+  a multi-rank case asserting the resolved domain is decomposition independent.
+
 - Added the weighted centered-moment kernels backing the field-statistics
   accumulator contract: `include/statistics_moments.h` and
   `src/statistics_moments.c` implement the stable weighted Welford update, the

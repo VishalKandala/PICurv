@@ -9,6 +9,7 @@
 #include "ParticleSwarm.h"
 #include "Boundaries.h"
 #include "grid.h"
+#include "statistics_target.h"
 
 #include <stdlib.h>
 
@@ -474,9 +475,67 @@ static PetscErrorCode TestRestartCellIdMigrationMovesParticleToOwner(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Spatial target domains must not depend on how ranks divide the block.
+ *
+ * The global point count is a function of layout, global dimensions, and
+ * periodicity alone. Summing the per-rank counts must therefore reproduce the
+ * same analytic totals a single rank computes, with no point counted twice at a
+ * decomposition seam and none dropped.
+ */
+static PetscErrorCode TestSpatialTargetIsDecompositionIndependent(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    SpatialTargetPlan plan;
+    PetscInt local = 0, global = 0, rank_count = 0;
+    PetscMPIInt size = 0;
+    const PetscInt n = 6;          /* DMDA is n + 1 = 7 per dimension */
+    const PetscInt cell = 5;       /* cell-like span [1, 6) */
+    const PetscInt node = 6;       /* node-like nonperiodic span [0, 6) */
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, n, n, n));
+
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_UCAT, PICURV_STATISTICS_MASK_FLUID, &plan));
+    PetscCall(SpatialTargetPlanLocalPointCount(&plan, &local));
+    PetscCall(SpatialTargetPlanGlobalPointCount(&plan, PETSC_COMM_WORLD, &global));
+    PetscCall(PicurvAssertIntEqual(cell * cell * cell, global,
+                                   "cell-centered global count must be decomposition independent"));
+
+    /* Every rank must contribute a non-negative count, and the ranks together
+     * must contribute the whole domain exactly once. */
+    PetscCall(PicurvAssertBool((PetscBool)(local >= 0), "local point count must be non-negative"));
+    PetscCallMPI(MPI_Allreduce(&local, &rank_count, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCall(PicurvAssertIntEqual(global, rank_count,
+                                   "summed local counts must equal the reduced global count"));
+
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_CSI, PICURV_STATISTICS_MASK_FLUID, &plan));
+    PetscCall(SpatialTargetPlanGlobalPointCount(&plan, PETSC_COMM_WORLD, &global));
+    PetscCall(PicurvAssertIntEqual(node * cell * cell, global,
+                                   "I-face global count must be decomposition independent"));
+
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_COORDINATES, PICURV_STATISTICS_MASK_FLUID, &plan));
+    PetscCall(SpatialTargetPlanGlobalPointCount(&plan, PETSC_COMM_WORLD, &global));
+    PetscCall(PicurvAssertIntEqual(node * node * node, global,
+                                   "node-centered global count must be decomposition independent"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+
+    /* Fully periodic: duplicate planes must be dropped once globally, not once per rank. */
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, n, n, n,
+                                                         PETSC_TRUE, PETSC_TRUE, PETSC_TRUE));
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_COORDINATES, PICURV_STATISTICS_MASK_FLUID, &plan));
+    PetscCall(SpatialTargetPlanGlobalPointCount(&plan, PETSC_COMM_WORLD, &global));
+    PetscCall(PicurvAssertIntEqual(cell * cell * cell, global,
+                                   "fully periodic node-centered count must drop duplicates exactly once"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-mpi PETSc test binary.
  */
-
 int main(int argc, char **argv)
 {
     PetscErrorCode ierr;
@@ -488,6 +547,7 @@ int main(int argc, char **argv)
         {"periodic-face-center-coordinates-multi-rank", TestPeriodicFaceCenterCoordinatesMultiRank},
         {"periodic-face-field-synchronization-multi-rank", TestPeriodicFaceFieldSynchronizationMultiRank},
         {"periodic-staggered-field-synchronization-multi-rank", TestPeriodicStaggeredFieldSynchronizationMultiRank},
+        {"spatial-target-decomposition-independent", TestSpatialTargetIsDecompositionIndependent},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
     };
 
