@@ -511,20 +511,20 @@ Each stage is independently testable. No user-facing YAML is accepted until Stag
    [runloop.c](../../src/runloop.c) immediately before `LOG_SOLUTION_CONVERGENCE`,
    after the Lagrangian block and before history rotation and checkpoint output.
 
-   Accumulator storage follows the established pattern for **config-counted**
-   vectors, which is `InitializeSolutionConvergenceState` /
-   `DestroySolutionConvergenceState` ([setup.c](../../src/setup.c)), not the fixed
-   members of `CreateAndInitializeAllVectors`. That existing pair already allocates
-   a `Vec *` array whose length comes from configuration, via `PetscCalloc1`
-   followed by `VecDuplicate` off a factory-created vector, and releases it by the
-   mirrored loop. Statistics windows have the same shape: a count known only after
-   configuration is resolved.
+   Accumulator vectors are created inside `CreateAndInitializeAllVectors`
+   ([setup.c](../../src/setup.c)) and released through the teardown that
+   `DestroyUserVectors` participates in. Every vector a run owns is created in that
+   one factory; a config-counted array is no exception, since the window count is
+   resolved from configuration long before the factory runs.
 
-   Duplicating from `user->Ucat` or `user->P` means each accumulator inherits the
-   DM, layout, and decomposition of a vector the factory already built, so no new
-   DM or layout decision is introduced. Allocation happens once at setup and
-   release once at teardown; the runloop hook only updates state that already
-   exists and allocates nothing.
+   The mechanism is the one the convergence state already uses: `PetscCalloc1` for
+   the array, then `VecDuplicate` off a vector the factory has already built. That
+   inherits the DM, layout, and decomposition of an existing field, so no new DM or
+   layout decision is introduced. When a future mask makes a window smaller than the
+   full field, only the duplication source changes; the placement does not.
+
+   Allocation happens once at setup and release once at teardown. The runloop hook
+   only updates state that already exists and allocates nothing.
 
    Accumulation requires **no ghost exchange**. Each update reads a field value at
    an owned point and writes the accumulator at that same point, with no neighbour

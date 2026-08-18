@@ -1349,7 +1349,6 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
     ierr = AssignAllGridCoordinates(simCtx); CHKERRQ(ierr);
     ierr = CreateAndInitializeAllVectors(simCtx); CHKERRQ(ierr);
     ierr = SetupSolverParameters(simCtx); CHKERRQ(ierr);
-    ierr = InitializeSolutionConvergenceState(simCtx); CHKERRQ(ierr);
 
     // NOTE: CalculateAllGridMetrics is now called inside SetupBoundaryConditions (not here) to ensure:
     // 1. Boundary condition configuration data (boundary_faces) is available for periodic BC corrections
@@ -1551,6 +1550,13 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	
   }
 }
+
+    /* Config-counted vectors belong to this factory too. The convergence state
+     * allocates a Vec array whose length comes from configuration, so it is
+     * invoked here rather than by the caller, keeping every vector this run
+     * owns created in one place. It depends only on option-parsed configuration
+     * and on the vectors created above. */
+    ierr = InitializeSolutionConvergenceState(simCtx); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "All simulation vectors created and initialized.\n");
 
