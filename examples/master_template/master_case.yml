@@ -242,10 +242,6 @@ models:
         # model: "log_law"
         roughness_height: 1.0e-16     # -> -wall_roughness
   
-  # --- Statistical Analysis ---
-  statistics:
-    time_averaging: false  # [true/false] -> -averaging. Enables running averages.
-
 # ==============================================================================
 # 5. BOUNDARY CONDITIONS
 #    Defines the behavior at each of the 6 faces of the computational domain(s).
@@ -302,7 +298,7 @@ boundary_conditions:
     #   source:
     #     type: field_slice
     #     script: tools/custom_profile.py  # Optional; defaults to generators/profile.gen
-    #     field_file: ../old_run/output/eulerian/ufield10000_0.dat
+    #     field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
     #     grid_file: ../old_run/config/grid.run
     #     source_case: ../old_run/config/case.yml
     #     output_file: config/inlet_profile_block0_negEta.sliced.picslice
@@ -352,7 +348,7 @@ boundary_conditions:
 #       # OR slice from an existing Ucat field:
 #       # source:
 #       #   type: field_slice
-#       #   field_file: ../old_run/output/eulerian/ufield10000_0.dat
+#       #   field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
 #       #   grid_file: ../old_run/config/grid.run
 #       #   source_case: ../old_run/config/case.yml
 #       #   output_file: config/inlet_profile.sliced.picslice

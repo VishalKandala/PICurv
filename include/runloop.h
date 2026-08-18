@@ -97,9 +97,11 @@ PetscBool RuntimeWalltimeGuardShouldTrigger(PetscInt completed_steps, PetscInt w
  *
  * @param user The UserCtx for a single block. The function modifies the history
  *             vectors (Ucont_o, Ucont_rm1, etc.) within this context.
+ * @param preserve_previous_state Keep a restored Ucont_rm1 checkpoint instead
+ *             of replacing it with the current state during restart setup.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user);
+PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_previous_state);
 
 /**
  * @brief Executes the main time-marching loop for the particle simulation.

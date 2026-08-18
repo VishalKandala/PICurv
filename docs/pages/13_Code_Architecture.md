@@ -168,6 +168,8 @@ Not all option consumption is explicit `PetscOptionsGet*`; PETSc dynamic ingesti
 - Particle-model index: **@subpage 34_Particle_Model_Overview**
 - API docs quality status: **@subpage 35_API_Documentation_Status**
 - Field identity/layout catalog: **@subpage 56_Field_Identity_and_Layout_Catalog**
+- Future architecture index: **@subpage 57_Future_Architecture_Specifications**
+- Proposed statistics/observation pipeline: **@subpage 58_Turbulence_Statistics_Pipeline_Specification**
 - Low-priority fix queue: **@subpage 29_Maintenance_Backlog**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->

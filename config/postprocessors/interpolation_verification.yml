@@ -20,7 +20,6 @@ io:
   output_filename_prefix: "Field"
   particle_filename_prefix: "Particle"
   eulerian_fields: ["Ucat_nodal"]
-  eulerian_fields_averaged: []
   output_particles: true
   particle_fields: ["position", "velocity", "pid"]
   particle_subsampling_frequency: 1

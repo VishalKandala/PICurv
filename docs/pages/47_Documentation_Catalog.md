@@ -78,6 +78,9 @@ Use this page instead of the raw generated page dump.
 - **@subpage 20_Grid_Cell_Architecture_Guide**
 - **@subpage 46_C_Runtime_Execution_Map**
 - **@subpage 56_Field_Identity_and_Layout_Catalog** — typed Eulerian and persistent particle field contracts
+- **@subpage 57_Future_Architecture_Specifications** — proposed-architecture status and dependency index
+- **@subpage 58_Turbulence_Statistics_Pipeline_Specification** — proposed field statistics, monitoring, checkpoint, and postprocessing contract
+- **@subpage 59_Function_Identity_and_Observability_Specification** — deferred logging/profiling identity optimization
 - **@subpage 35_API_Documentation_Status**
 
 @section p47_operations_axis_sec 5. Operations and Quality

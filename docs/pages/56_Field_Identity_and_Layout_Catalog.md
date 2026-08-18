@@ -245,3 +245,5 @@ behavioral regressions for the unchanged numerical paths.
 - **@ref p54_geometric_periodic "Geometric Periodic Boundaries"**
 - **@subpage 13_Code_Architecture**
 - **@subpage 51_C_Test_Suite_Developer_Guide**
+- **@subpage 57_Future_Architecture_Specifications**
+- **@subpage 58_Turbulence_Statistics_Pipeline_Specification**

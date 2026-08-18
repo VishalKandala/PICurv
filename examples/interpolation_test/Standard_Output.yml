@@ -20,8 +20,6 @@ io:
     output: "output"
     restart: "restart"
     log: "logs"
-    eulerian_subdir: "eulerian"
-    particle_subdir: "particles"
 
 logging:
   # Interpolation error is always written to logs/interpolation_error.csv

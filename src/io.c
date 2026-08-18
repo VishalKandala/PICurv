@@ -8,7 +8,21 @@
  */
 
 #include "io.h"
+#include "checksum.h"
+#include "field_catalog.h"
 #include "particle_field_catalog.h"
+
+#include <errno.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#define PICURV_CHECKPOINT_FORMAT "picurv-checkpoint"
+#define PICURV_CHECKPOINT_VERSION 1
+#define PICURV_CHECKPOINTS_DIRECTORY "checkpoints"
+#define PICURV_EULERIAN_DIRECTORY "eulerian"
+#define PICURV_PARTICLE_DIRECTORY "particles"
+#define PICURV_CHECKPOINT_STEP_WIDTH 12
 
 // =============================================================================
 //          STATIC (PRIVATE) VARIABLES FOR ONE-TIME FILE READ
@@ -52,6 +66,284 @@ static PetscErrorCode CopyOwnedLocalScalarToGlobal(DM dm, Vec local_vec, Vec glo
     PetscFunctionReturn(0);
 }
 
+/** @brief Return whether a catalogued field belongs in the current checkpoint. */
+static PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescriptor *descriptor)
+{
+    const unsigned int availability = descriptor ? descriptor->availability : FIELD_AVAILABILITY_ALWAYS;
+
+    if (!simCtx || !descriptor || !(descriptor->capabilities & FIELD_CAPABILITY_CHECKPOINT)) return PETSC_FALSE;
+    if ((availability & FIELD_AVAILABILITY_TURBULENCE) && !(simCtx->les || simCtx->rans)) return PETSC_FALSE;
+    if ((availability & FIELD_AVAILABILITY_LES) && !simCtx->les) return PETSC_FALSE;
+    if ((availability & FIELD_AVAILABILITY_RANS) && !simCtx->rans) return PETSC_FALSE;
+    if ((availability & FIELD_AVAILABILITY_PARTICLES) && simCtx->np <= 0) return PETSC_FALSE;
+    return PETSC_TRUE;
+}
+
+/** @brief Gather a vector in decomposition-independent natural ordering onto rank zero. */
+static PetscErrorCode GatherVectorToRankZero(Vec field_vec, Vec *sequential_vec)
+{
+    DM dm = NULL;
+    const char *dm_type = NULL;
+    Vec natural_vec = NULL;
+    VecScatter scatter = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(field_vec != NULL && sequential_vec != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "A source vector and output vector pointer are required.");
+    *sequential_vec = NULL;
+
+    PetscCall(VecGetDM(field_vec, &dm));
+    if (dm) PetscCall(DMGetType(dm, &dm_type));
+    if (dm_type && !strcmp(dm_type, DMDA)) {
+        PetscCall(DMDACreateNaturalVector(dm, &natural_vec));
+        PetscCall(DMDAGlobalToNaturalBegin(dm, field_vec, INSERT_VALUES, natural_vec));
+        PetscCall(DMDAGlobalToNaturalEnd(dm, field_vec, INSERT_VALUES, natural_vec));
+    }
+
+    PetscCall(VecScatterCreateToZero(natural_vec ? natural_vec : field_vec, &scatter, sequential_vec));
+    PetscCall(VecScatterBegin(scatter, natural_vec ? natural_vec : field_vec, *sequential_vec,
+                              INSERT_VALUES, SCATTER_FORWARD));
+    PetscCall(VecScatterEnd(scatter, natural_vec ? natural_vec : field_vec, *sequential_vec,
+                            INSERT_VALUES, SCATTER_FORWARD));
+    PetscCall(VecScatterDestroy(&scatter));
+    PetscCall(VecDestroy(&natural_vec));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Compute and cache a rank-count-independent hash of the active grid geometry. */
+static PetscErrorCode ComputeCheckpointGeometrySHA256(SimCtx *simCtx, UserCtx *user, char digest_hex[65])
+{
+    PicurvSHA256Context hash_context;
+    char metadata[256];
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx != NULL && user != NULL && digest_hex != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Geometry hash inputs cannot be NULL.");
+    if (simCtx->checkpointGeometryHashReady) {
+        PetscCall(PetscStrncpy(digest_hex, simCtx->checkpointGeometrySHA256, 65));
+        PetscFunctionReturn(0);
+    }
+
+    if (simCtx->rank == 0) PicurvSHA256Init(&hash_context);
+    for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+        FieldView coordinates;
+        Vec sequential_vec = NULL;
+
+        PetscCall(FieldGetView(&user[block], FIELD_ID_COORDINATES, &coordinates));
+        PetscCall(GatherVectorToRankZero(coordinates.global_vec, &sequential_vec));
+        if (simCtx->rank == 0) {
+            const PetscScalar *values = NULL;
+            PetscInt value_count = 0;
+            size_t metadata_length = 0;
+
+            PetscCall(PetscSNPrintf(metadata, sizeof(metadata),
+                                    "block=%" PetscInt_FMT ";im=%" PetscInt_FMT ";jm=%" PetscInt_FMT
+                                    ";km=%" PetscInt_FMT ";periodic=%d,%d,%d;",
+                                    block, user[block].IM, user[block].JM, user[block].KM,
+                                    (int)simCtx->i_periodic, (int)simCtx->j_periodic, (int)simCtx->k_periodic));
+            PetscCall(PetscStrlen(metadata, &metadata_length));
+            PicurvSHA256Update(&hash_context, metadata, metadata_length);
+            PetscCall(VecGetSize(sequential_vec, &value_count));
+            PicurvSHA256Update(&hash_context, &value_count, sizeof(value_count));
+            PetscCall(VecGetArrayRead(sequential_vec, &values));
+            PicurvSHA256Update(&hash_context, values, (size_t)value_count * sizeof(*values));
+            PetscCall(VecRestoreArrayRead(sequential_vec, &values));
+        }
+        PetscCall(VecDestroy(&sequential_vec));
+    }
+
+    if (simCtx->rank == 0) PicurvSHA256FinalHex(&hash_context, digest_hex);
+    PetscCallMPI(MPI_Bcast(digest_hex, 65, MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscStrncpy(simCtx->checkpointGeometrySHA256, digest_hex, 65));
+    simCtx->checkpointGeometryHashReady = PETSC_TRUE;
+    PetscFunctionReturn(0);
+}
+
+/** @brief Format the canonical directory name for one completed step. */
+static PetscErrorCode FormatCheckpointStepDirectory(const char *root, PetscInt step, char *path, size_t path_size)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(root != NULL && path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Checkpoint root and output path are required.");
+    PetscCall(PetscSNPrintf(path, path_size, "%s/%s/step_%0*" PetscInt_FMT,
+                            root, PICURV_CHECKPOINTS_DIRECTORY, PICURV_CHECKPOINT_STEP_WIDTH, step));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Resolve either an exact bundle or a run/output root to one step bundle. */
+static PetscErrorCode ResolveCheckpointStepDirectory(const char *source_root, PetscInt step,
+                                                     char *path, size_t path_size)
+{
+    char metadata_path[PETSC_MAX_PATH_LEN];
+    PetscBool exact_bundle = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCheck(source_root != NULL && path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Checkpoint source and output path are required.");
+    PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path), "%s/checkpoint.meta", source_root));
+    PetscCall(PetscTestFile(metadata_path, 'r', &exact_bundle));
+    if (exact_bundle) PetscCall(PetscStrncpy(path, source_root, path_size));
+    else PetscCall(FormatCheckpointStepDirectory(source_root, step, path, path_size));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Create one directory on rank zero and report failures collectively. */
+static PetscErrorCode CreateCheckpointDirectoryCollective(const SimCtx *simCtx, const char *path)
+{
+    PetscMPIInt create_failed = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx != NULL && path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Simulation context and directory path are required.");
+    if (simCtx->rank == 0 && mkdir(path, 0777) != 0) {
+        struct stat directory_stat;
+        if (errno != EEXIST || stat(path, &directory_stat) != 0 || !S_ISDIR(directory_stat.st_mode)) {
+            create_failed = 1;
+        }
+    }
+    PetscCallMPI(MPI_Bcast(&create_failed, 1, MPI_INT, 0, PETSC_COMM_WORLD));
+    PetscCheck(!create_failed, PETSC_COMM_WORLD, PETSC_ERR_FILE_OPEN,
+               "Unable to create checkpoint directory '%s'.", path);
+    PetscFunctionReturn(0);
+}
+
+/** @brief Validate a committed bundle and return selected authoritative metadata. */
+static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
+                                               const char *checkpoint_directory,
+                                               PetscInt expected_step,
+                                               PetscReal *physical_time,
+                                               PetscInt *particle_count,
+                                               PetscBool *particles_saved,
+                                               PetscBool *les_saved,
+                                               PetscBool *rans_saved)
+{
+    char metadata_path[PETSC_MAX_PATH_LEN];
+    char commit_path[PETSC_MAX_PATH_LEN];
+    char expected_digest[65] = "";
+    char actual_digest[65] = "";
+    char format[64] = "";
+    char saved_geometry_digest[65] = "";
+    char current_geometry_digest[65] = "";
+    PetscOptions options = NULL;
+    PetscInt version = 0;
+    PetscInt saved_step = -1;
+    PetscInt payload_count = 0;
+    PetscInt saved_particle_count = 0;
+    PetscReal saved_time = 0.0;
+    PetscBool saved_particles = PETSC_FALSE;
+    PetscBool saved_les = PETSC_FALSE;
+    PetscBool saved_rans = PETSC_FALSE;
+    PetscBool found = PETSC_FALSE;
+    FILE *commit_file = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx != NULL && user != NULL && checkpoint_directory != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Checkpoint validation inputs cannot be NULL.");
+    PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path), "%s/checkpoint.meta", checkpoint_directory));
+    PetscCall(PetscSNPrintf(commit_path, sizeof(commit_path), "%s/COMMITTED", checkpoint_directory));
+
+    PetscCall(PetscTestFile(metadata_path, 'r', &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_OPEN,
+               "Checkpoint metadata is missing: %s", metadata_path);
+    PetscCall(PetscTestFile(commit_path, 'r', &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_OPEN,
+               "Checkpoint is not committed: %s", checkpoint_directory);
+
+    commit_file = fopen(commit_path, "r");
+    PetscCheck(commit_file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
+               "Unable to read checkpoint commit marker '%s'.", commit_path);
+    PetscCheck(fgets(expected_digest, sizeof(expected_digest), commit_file) != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
+               "Checkpoint commit marker '%s' is empty.", commit_path);
+    PetscCheck(fclose(commit_file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
+               "Unable to close checkpoint commit marker '%s'.", commit_path);
+    TrimWhitespace(expected_digest);
+    PetscCheck(strlen(expected_digest) == 64, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint commit marker '%s' does not contain a SHA-256 digest.", commit_path);
+    PetscCall(PicurvSHA256File(metadata_path, actual_digest));
+    PetscCheck(!strcmp(expected_digest, actual_digest), PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint metadata hash mismatch in '%s'.", checkpoint_directory);
+
+    PetscCall(PetscOptionsCreate(&options));
+    PetscCall(PetscOptionsInsertFile(PETSC_COMM_WORLD, options, metadata_path, PETSC_TRUE));
+    PetscCall(PetscOptionsGetString(options, NULL, "-checkpoint_format", format, sizeof(format), &found));
+    PetscCheck(found && !strcmp(format, PICURV_CHECKPOINT_FORMAT), PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Unsupported checkpoint format '%s' in '%s'.", found ? format : "<missing>", metadata_path);
+    PetscCall(PetscOptionsGetInt(options, NULL, "-checkpoint_version", &version, &found));
+    PetscCheck(found && version == PICURV_CHECKPOINT_VERSION, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Unsupported checkpoint version %" PetscInt_FMT " in '%s'; expected %d.",
+               version, metadata_path, PICURV_CHECKPOINT_VERSION);
+    PetscCall(PetscOptionsGetInt(options, NULL, "-checkpoint_step", &saved_step, &found));
+    PetscCheck(found && saved_step == expected_step, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint step is %" PetscInt_FMT ", expected %" PetscInt_FMT ".",
+               saved_step, expected_step);
+    PetscCall(PetscOptionsGetReal(options, NULL, "-checkpoint_time", &saved_time, &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint '%s' does not record physical time.", metadata_path);
+    PetscCall(PetscOptionsGetString(options, NULL, "-checkpoint_geometry_sha256",
+                                    saved_geometry_digest, sizeof(saved_geometry_digest), &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint '%s' does not record geometry identity.", metadata_path);
+    PetscCall(ComputeCheckpointGeometrySHA256(simCtx, user, current_geometry_digest));
+    PetscCheck(!strcmp(saved_geometry_digest, current_geometry_digest), PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+               "Checkpoint geometry/layout does not match the active grid.");
+
+    PetscCall(PetscOptionsGetInt(options, NULL, "-checkpoint_payload_count", &payload_count, &found));
+    PetscCheck(found && payload_count > 0, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint '%s' has no payload inventory.", metadata_path);
+    PetscCall(PetscOptionsGetInt(options, NULL, "-checkpoint_particle_count",
+                                 &saved_particle_count, &found));
+    PetscCheck(found && saved_particle_count >= 0, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint '%s' has no valid particle count.", metadata_path);
+    PetscCall(PetscOptionsGetBool(options, NULL, "-checkpoint_particles", &saved_particles, &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint '%s' does not record particle-state availability.", metadata_path);
+    PetscCall(PetscOptionsGetBool(options, NULL, "-checkpoint_les", &saved_les, &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint '%s' does not record LES-state availability.", metadata_path);
+    PetscCall(PetscOptionsGetBool(options, NULL, "-checkpoint_rans", &saved_rans, &found));
+    PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint '%s' does not record RANS-state availability.", metadata_path);
+    for (PetscInt payload = 0; payload < payload_count; ++payload) {
+        char option_name[96];
+        char relative_path[PETSC_MAX_PATH_LEN];
+        char payload_path[PETSC_MAX_PATH_LEN];
+        long long expected_bytes = -1;
+        char expected_bytes_text[64];
+        struct stat payload_stat;
+
+        PetscCall(PetscSNPrintf(option_name, sizeof(option_name),
+                                "-checkpoint_payload_%" PetscInt_FMT "_path", payload));
+        PetscCall(PetscOptionsGetString(options, NULL, option_name,
+                                        relative_path, sizeof(relative_path), &found));
+        PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+                   "Checkpoint payload %" PetscInt_FMT " has no path.", payload);
+        PetscCall(PetscSNPrintf(option_name, sizeof(option_name),
+                                "-checkpoint_payload_%" PetscInt_FMT "_bytes", payload));
+        PetscCall(PetscOptionsGetString(options, NULL, option_name,
+                                        expected_bytes_text, sizeof(expected_bytes_text), &found));
+        if (found) expected_bytes = strtoll(expected_bytes_text, NULL, 10);
+        PetscCheck(found && expected_bytes >= 0, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+                   "Checkpoint payload %" PetscInt_FMT " has no valid byte size.", payload);
+        PetscCall(PetscSNPrintf(payload_path, sizeof(payload_path), "%s/%s",
+                                checkpoint_directory, relative_path));
+        PetscCheck(stat(payload_path, &payload_stat) == 0 && S_ISREG(payload_stat.st_mode),
+                   PETSC_COMM_WORLD, PETSC_ERR_FILE_OPEN,
+                   "Checkpoint payload is missing: %s", payload_path);
+        PetscCheck((long long)payload_stat.st_size == expected_bytes,
+                   PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+                   "Checkpoint payload '%s' is %lld bytes; expected %lld.",
+                   payload_path, (long long)payload_stat.st_size, expected_bytes);
+    }
+    PetscCall(PetscOptionsDestroy(&options));
+    if (physical_time) *physical_time = saved_time;
+    if (particle_count) *particle_count = saved_particle_count;
+    if (particles_saved) *particles_saved = saved_particles;
+    if (les_saved) *les_saved = saved_les;
+    if (rans_saved) *rans_saved = saved_rans;
+    PetscFunctionReturn(0);
+}
+
 
 // =============================================================================
 //                      PUBLIC FUNCTION IMPLEMENTATIONS
@@ -65,6 +357,7 @@ static PetscErrorCode CopyOwnedLocalScalarToGlobal(DM dm, Vec local_vec, Vec glo
  */
 void TrimWhitespace(char *str) {
     if (!str) return;
+    if (str[0] == '\0') return;
 
     char *start = str;
     // Find the first non-whitespace character
@@ -806,123 +1099,6 @@ PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool
     PetscFunctionReturn(0);
 }
 
-/**
- * @brief Validate that an input data file exists and can be opened for reading.
- */
-static PetscErrorCode CheckDataFile(UserCtx *user, PetscInt ti, const char *fieldName, const char *ext, PetscBool *fileExists)
-{
-    PetscErrorCode ierr;
-    PetscMPIInt    rank;
-    MPI_Comm       comm = PETSC_COMM_WORLD;
-    PetscInt       placeholder_int = 0;
-    SimCtx         *simCtx = user->simCtx;
-
-    PetscFunctionBeginUser;
-
-    if(!simCtx->current_io_directory) {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "I/O context directory is NULL. Ensure it is set before calling CheckDataFile().");
-    }
-
-    ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
-
-    if (rank == 0) {
-        char filename[PETSC_MAX_PATH_LEN];
-        // Use the same standardized, rank-independent filename format
-
-        ierr =  PetscSNPrintf(filename, sizeof(filename), "%s/%s%05"PetscInt_FMT"_%d.%s",simCtx->current_io_directory,fieldName, ti, placeholder_int, ext); 
-        ierr = PetscTestFile(filename, 'r', fileExists); CHKERRQ(ierr);
-        if (!(*fileExists)) {
-            LOG_ALLOW(GLOBAL, LOG_WARNING, "(Rank 0) - Optional data file '%s' not found.\n", filename);
-        }
-    }
-
-    // Broadcast the result from Rank 0 to all other ranks.
-    // We cast the PetscBool to a PetscMPIInt for MPI_Bcast.
-    PetscMPIInt fileExists_int = (rank == 0) ? (PetscMPIInt)(*fileExists) : 0;
-    ierr = MPI_Bcast(&fileExists_int, 1, MPI_INT, 0, comm); CHKERRMPI(ierr);
-    *fileExists = (PetscBool)fileExists_int;
-
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Load an optional Eulerian restart field when its file is present.
- */
-static PetscErrorCode ReadOptionalField(UserCtx *user, const char *field_name, const char *field_label, Vec field_vec, PetscInt ti, const char *ext)
-{
-  PetscErrorCode ierr;
-  PetscBool      fileExists;
-
-  PetscFunctionBeginUser;
-
-  /* Check if the data file for this optional field exists. */
-  ierr = CheckDataFile(user,ti, field_name, ext, &fileExists); CHKERRQ(ierr);
-
-  if (fileExists) {
-    /* File exists, so we MUST be able to read it. */
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "File for %s found, attempting to read...\n", field_label);
-    ierr = ReadFieldData(user, field_name, field_vec, ti, ext);
-
-    if (ierr) {
-      /* Any error here is fatal. A PETSC_ERR_FILE_OPEN would mean a race condition or
-         permissions issue. Other errors could be size mismatch or corruption. */
-      SETERRQ(PETSC_COMM_WORLD, ierr, "Failed to read data for %s from existing file for step %d. The file may be corrupt or have an incorrect size.", field_label, ti);
-    } else {
-      LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully read %s field for step %d.\n", field_label, ti);
-    }
-  } else {
-    /* File does not exist, which is acceptable for an optional field. */
-    LOG_ALLOW(GLOBAL, LOG_WARNING, "Optional %s file for step %d not found. Skipping.\n", field_label, ti);
-  }
-
-  PetscFunctionReturn(0);
-}
-
-/**
- * @brief Load an optional swarm restart field when its file is present.
- */
-static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, ParticleFieldId field_id,
-                                             const char *field_label, PetscInt ti, const char *ext)
-{
-  PetscErrorCode ierr;
-  PetscBool      fileExists;
-  const ParticleFieldDescriptor *descriptor = NULL;
-  const char *field_name = NULL;
-
-  PetscFunctionBeginUser;
-
-  ierr = ParticleFieldGetDescriptor(field_id, &descriptor); CHKERRQ(ierr);
-  field_name = descriptor->canonical_name;
-
-  /* Check if the data file for this optional field exists. */
-  ierr = CheckDataFile(user,ti, field_name, ext, &fileExists); CHKERRQ(ierr);
-
-  if (fileExists) {
-    /* File exists, so we MUST be able to read it. */
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "File for %s found, attempting to read...\n", field_label);
-    if (descriptor->data_type == PETSC_INT || descriptor->data_type == PETSC_INT64) {
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading integer swarm field '%s'.\n", field_name);
-        ierr = ReadSwarmIntField(user,field_name,ti,ext);
-    }
-    else{
-    ierr = ReadSwarmField(user, field_name, ti, ext);
-    } 
-
-    if (ierr) {
-      /* Any error here is fatal. A PETSC_ERR_FILE_OPEN would mean a race condition or
-         permissions issue. Other errors could be size mismatch or corruption. */
-      SETERRQ(PETSC_COMM_WORLD, ierr, "Failed to read data for %s from existing file for step %d. The file may be corrupt or have an incorrect size.", field_label, ti);
-    } else {
-      LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully read %s field for step %d.\n", field_label, ti);
-    }
-  } else {
-    /* File does not exist, which is acceptable for an optional field. */
-    LOG_ALLOW(GLOBAL, LOG_WARNING, "Optional %s file for step %d not found. Skipping.\n", field_label, ti);
-  }
-
-  PetscFunctionReturn(0);
-}
-
 #undef __FUNCT__
 #define __FUNCT__ "ReadFieldData"
 /**
@@ -932,7 +1108,6 @@ static PetscErrorCode ReadOptionalSwarmField(UserCtx *user, ParticleFieldId fiel
 PetscErrorCode ReadFieldData(UserCtx *user,
                              const char *field_name,
                              Vec         field_vec,
-                             PetscInt    ti,
                              const char *ext)
 {
    PetscErrorCode ierr;
@@ -960,13 +1135,8 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    if(!source_path){
     SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE, "source_path was not set for the current execution mode.");
    }
-   /* ---------------------------------------------------------------------
-    * Compose <path-to-file>/<field_name><step with 5 digits>_0.<ext>
-    * (all restart files are written by rank-0 with that naming scheme).
-    * ------------------------------------------------------------------ */
-   ierr = PetscSNPrintf(filename,sizeof(filename),
-                        "%s/%s%05" PetscInt_FMT "_0.%s",
-                        source_path,field_name,ti,ext);CHKERRQ(ierr);
+   ierr = PetscSNPrintf(filename, sizeof(filename), "%s/%s.%s",
+                        source_path, field_name, ext); CHKERRQ(ierr);
 
    LOG_ALLOW(GLOBAL,LOG_DEBUG,
              "Attempting to read <%s> on rank %d/%d\n",
@@ -1159,154 +1329,67 @@ PetscErrorCode ReadFieldData(UserCtx *user,
  */
 PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 {
-    PetscErrorCode ierr;
-
     SimCtx *simCtx = user->simCtx;
     const char *source_path = NULL;
-    const char *eulerian_ext = "dat";
+    char checkpoint_directory[PETSC_MAX_PATH_LEN];
+    PetscReal checkpoint_time = 0.0;
+    PetscBool particles_saved = PETSC_FALSE;
+    PetscBool les_saved = PETSC_FALSE;
+    PetscBool rans_saved = PETSC_FALSE;
 
+    PetscFunctionBeginUser;
     if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
         source_path = simCtx->pps->source_dir;
-        if (simCtx->pps->eulerianExt[0] != '\0') {
-            eulerian_ext = simCtx->pps->eulerianExt;
-        }
     } else if(simCtx->exec_mode == EXEC_MODE_SOLVER){
         source_path = simCtx->restart_dir;
     } else{
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Invalid execution mode for reading simulation fields.");
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read simulation fields.\n");
+    PetscCall(ResolveCheckpointStepDirectory(source_path, ti,
+                                             checkpoint_directory, sizeof(checkpoint_directory)));
+    PetscCall(ValidateCheckpointBundle(simCtx, user - user->_this,
+                                       checkpoint_directory, ti, &checkpoint_time, NULL,
+                                       &particles_saved, &les_saved, &rans_saved));
+    PetscCheck(!(simCtx->np > 0 && !strcmp(simCtx->particleRestartMode, "load")) || particles_saved,
+               PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Particle restart_mode=load was requested, but checkpoint step %" PetscInt_FMT
+               " contains no particle state.", ti);
+    if (simCtx->exec_mode == EXEC_MODE_SOLVER && user->_this == 0) {
+        simCtx->ti = checkpoint_time;
+        if (ti == simCtx->StartStep) simCtx->StartTime = checkpoint_time;
+    }
 
-    // Set the current I/O directory context
-    ierr  = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer), "%s/%s",source_path,simCtx->euler_subdir); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Reading Eulerian checkpoint fields for block %d from '%s'.\n",
+              user->_this, checkpoint_directory);
+    PetscCall(PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
+                            "%s/%s/block_%04" PetscInt_FMT,
+                            checkpoint_directory, PICURV_EULERIAN_DIRECTORY, user->_this));
     simCtx->current_io_directory = simCtx->_io_context_buffer;
 
-    // Read Cartesian velocity field
-    ierr = ReadFieldData(user, "ufield", user->Ucat, ti, eulerian_ext); CHKERRQ(ierr);
+    for (PetscInt raw_id = 0; raw_id < FIELD_ID_COUNT; ++raw_id) {
+        const FieldDescriptor *descriptor = NULL;
+        FieldView view;
 
-    // Read contravariant velocity field
-    ierr = ReadFieldData(user, "vfield", user->Ucont, ti, eulerian_ext); CHKERRQ(ierr);
-
-    // Read pressure field
-    ierr = ReadFieldData(user, "pfield", user->P, ti, eulerian_ext); CHKERRQ(ierr);
-
-    // Read node state field (nvert)
-    ierr = ReadFieldData(user, "nvfield", user->Nvert, ti, eulerian_ext); CHKERRQ(ierr);
-
-    LOG_ALLOW(GLOBAL,LOG_INFO,"Successfully read all mandatory fields. \n");
-
-    if(simCtx->np>0){    
-    // Read Particle Count field
-    if(!user->ParticleCount){
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ParticleCount Vec is NULL but np>0");
+        PetscCall(FieldGetDescriptor((FieldId)raw_id, &descriptor));
+        if (!CheckpointFieldIsEnabled(simCtx, descriptor)) continue;
+        if ((descriptor->availability & FIELD_AVAILABILITY_PARTICLES) &&
+            (!particles_saved || strcmp(simCtx->particleRestartMode, "load"))) continue;
+        if ((descriptor->availability & FIELD_AVAILABILITY_LES) && !les_saved) continue;
+        if ((descriptor->availability & FIELD_AVAILABILITY_RANS) && !rans_saved) continue;
+        if ((descriptor->availability & FIELD_AVAILABILITY_TURBULENCE) &&
+            !((simCtx->les && les_saved) || (simCtx->rans && rans_saved))) continue;
+        PetscCall(FieldGetView(user, descriptor->id, &view));
+        PetscCall(ReadFieldData(user, descriptor->canonical_name, view.global_vec, "dat"));
+        if (view.local_vec) PetscCall(UpdateLocalGhosts(user, descriptor->id));
     }
-    ierr = ReadOptionalField(user, "ParticleCount", "Particle Count", user->ParticleCount, ti, eulerian_ext); CHKERRQ(ierr);
-    
-    ierr = ReadOptionalField(user, "psifield", "Scalar Psi Field", user->Psi, ti, eulerian_ext); CHKERRQ(ierr);
-    }
-    else{
-        LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, skipping Particle fields reading.\n");
-    }
-    // Process LES fields if enabled
-    if (simCtx->les) {
-      ierr = ReadLESFields(user,ti); CHKERRQ(ierr);
-    }
-
-    // Process RANS fields if enabled
     if (simCtx->rans) {
-      ierr = ReadRANSFields(user,ti); CHKERRQ(ierr);
+        PetscCall(VecCopy(user->K_Omega, user->K_Omega_o));
+        PetscCall(UpdateLocalGhosts(user, FIELD_ID_K_OMEGA_O));
     }
-
-    // Process statistical fields if averaging is enabled
-    if (simCtx->averaging) {
-      ierr = ReadStatisticalFields(user,ti); CHKERRQ(ierr);
-    }
-
-    simCtx->current_io_directory = NULL; // Clear the I/O context after reading
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading simulation fields.\n");
-
-    return 0;
-}
-
-/**
- * @brief Implementation of \ref ReadStatisticalFields().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/io.h`.
- * @see ReadStatisticalFields()
- */
-PetscErrorCode ReadStatisticalFields(UserCtx *user,PetscInt ti)
-{
-    PetscErrorCode ierr;
-    const char *eulerian_ext = "dat";
-    if (user->simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR && user->simCtx->pps->eulerianExt[0] != '\0') {
-        eulerian_ext = user->simCtx->pps->eulerianExt;
-    }
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read statistical fields.\n");
-
-    ierr = ReadOptionalField(user, "su0", "Velocity Sum",       user->Ucat_sum,        ti, eulerian_ext); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "su1", "Velocity Cross Sum", user->Ucat_cross_sum,  ti, eulerian_ext); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "su2", "Velocity Square Sum",user->Ucat_square_sum, ti, eulerian_ext); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "sp",  "Pressure Sum",       user->P_sum,           ti, eulerian_ext); CHKERRQ(ierr);    
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading statistical fields.\n");
-
-    return 0;
-}
-
-/**
- * @brief Internal helper implementation: `ReadLESFields()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode ReadLESFields(UserCtx *user,PetscInt ti)
-{
-    PetscErrorCode ierr;
-    const char *eulerian_ext = "dat";
-    if (user->simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR && user->simCtx->pps->eulerianExt[0] != '\0') {
-        eulerian_ext = user->simCtx->pps->eulerianExt;
-    }
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read LES fields.\n");
-
-    ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, eulerian_ext); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "cs", "Smagorinsky Constant (Cs)", user->CS, ti, eulerian_ext); CHKERRQ(ierr);
-
-    ierr = UpdateLocalGhosts(user, FIELD_ID_CS); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, FIELD_ID_NU_T); CHKERRQ(ierr);
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading LES fields.\n");
-
-    return 0;
-}
-
-/**
- * @brief Internal helper implementation: `ReadRANSFields()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
-{
-    PetscErrorCode ierr;
-    const char *eulerian_ext = "dat";
-    if (user->simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR && user->simCtx->pps->eulerianExt[0] != '\0') {
-        eulerian_ext = user->simCtx->pps->eulerianExt;
-    }
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to read RANS fields.\n");
-
-    ierr = ReadOptionalField(user, "kfield", "K-Omega RANS", user->K_Omega, ti, eulerian_ext); CHKERRQ(ierr);
-    ierr = ReadOptionalField(user, "Nu_t", "Turbulent Viscosity", user->Nu_t, ti, eulerian_ext); CHKERRQ(ierr);
-
-    VecCopy(user->K_Omega, user->K_Omega_o);
-
-    ierr = UpdateLocalGhosts(user, FIELD_ID_K_OMEGA); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, FIELD_ID_NU_T); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, FIELD_ID_K_OMEGA_O); CHKERRQ(ierr);
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading RANS fields.\n");
-
-    return 0;
+    simCtx->restartHistoryAvailable = PETSC_TRUE;
+    simCtx->current_io_directory = NULL;
+    PetscFunctionReturn(0);
 }
 
 
@@ -1314,7 +1397,7 @@ PetscErrorCode ReadRANSFields(UserCtx *user,PetscInt ti)
  * @brief Internal helper implementation: `ReadSwarmField()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
+PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, const char *ext)
 {
   PetscErrorCode ierr;
   DM             swarm;
@@ -1332,7 +1415,7 @@ PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti
   LOG_ALLOW(GLOBAL,LOG_DEBUG," Vector created from Field \n");
 
   /* 3) Use the ReadFieldData() function to read data into fieldVec. */
-  ierr = ReadFieldData(user, field_name, fieldVec, ti, ext);CHKERRQ(ierr);
+  ierr = ReadFieldData(user, field_name, fieldVec, ext);CHKERRQ(ierr);
 
   /* 4) Destroy the global vector reference. */
   ierr = DMSwarmDestroyGlobalVectorFromField(swarm, field_name, &fieldVec);CHKERRQ(ierr);
@@ -1344,7 +1427,7 @@ PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti
  * @brief Internal helper implementation: `ReadSwarmIntField()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
+PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, const char *ext)
 {
     PetscErrorCode ierr;
     DM             swarm = user->swarm;
@@ -1378,7 +1461,7 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt
     ierr = VecSetUp(temp_vec); CHKERRQ(ierr);
 
     // Call your existing reader to populate the temporary Vec
-    ierr = ReadFieldData(user, field_name, temp_vec, ti, ext); CHKERRQ(ierr);
+    ierr = ReadFieldData(user, field_name, temp_vec, ext); CHKERRQ(ierr);
 
     // Get local pointers
     ierr = VecGetArrayRead(temp_vec, &scalar_array); CHKERRQ(ierr);
@@ -1413,14 +1496,13 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt
  */
 PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 {
-  PetscErrorCode ierr;
   PetscInt nGlobal;
   SimCtx *simCtx = user->simCtx;
   const char *source_path = NULL;
-  const char *particle_ext = "dat";
+  char checkpoint_directory[PETSC_MAX_PATH_LEN];
 
   PetscFunctionBeginUser;
-  ierr = DMSwarmGetSize(user->swarm, &nGlobal); CHKERRQ(ierr);
+  PetscCall(DMSwarmGetSize(user->swarm, &nGlobal));
   LOG_ALLOW(GLOBAL, LOG_INFO, "Reading DMSwarm fields for timestep %d (swarm size is %d).\n", ti, nGlobal);
 
   if (nGlobal == 0) {
@@ -1433,40 +1515,59 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
         source_path = simCtx->restart_dir;
     } else if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) {
         source_path = simCtx->pps->source_dir;
-        if (simCtx->pps->particleExt[0] != '\0') {
-            particle_ext = simCtx->pps->particleExt;
-        }
     } else {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "Invalid execution mode for reading simulation fields.");
     }
 
-    // Set the current I/O directory context
-    ierr = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
-                         "%s/%s", source_path, simCtx->particle_subdir); CHKERRQ(ierr);
-
+    PetscCall(ResolveCheckpointStepDirectory(source_path, ti,
+                                             checkpoint_directory, sizeof(checkpoint_directory)));
+    PetscCall(PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
+                            "%s/%s", checkpoint_directory, PICURV_PARTICLE_DIRECTORY));
     simCtx->current_io_directory = simCtx->_io_context_buffer;
 
-  /* 1) Read positions (REQUIRED) */
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading mandatory position field...\n");
-  ierr = ReadSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), ti, particle_ext);
-  if (ierr) {
-      SETERRQ(PETSC_COMM_WORLD, ierr, "Failed to read MANDATORY 'position' field for step %d. Cannot continue.", ti);
+  for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
+      const ParticleFieldDescriptor *descriptor = NULL;
+
+      PetscCall(ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor));
+      if (!(descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_CHECKPOINT)) continue;
+      if (descriptor->data_type == PETSC_INT || descriptor->data_type == PETSC_INT64) {
+          PetscCall(ReadSwarmIntField(user, descriptor->canonical_name, "dat"));
+      } else {
+          PetscCall(ReadSwarmField(user, descriptor->canonical_name, "dat"));
+      }
   }
-  LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully read mandatory position field for step %d.\n", ti);
 
-  /* 2) Read all OPTIONAL fields using the helper function. */
-  /* The helper will print a warning and continue if a file is not found. */
-  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_VELOCITY,        "Velocity",         ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_PID,             "Particle ID",      ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_CELL_ID,         "Cell ID",          ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_WEIGHT,          "Particle Weight",  ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_PSI,             "Scalar Psi",       ti, particle_ext); CHKERRQ(ierr);
-  ierr = ReadOptionalSwarmField(user, PARTICLE_FIELD_ID_LOCATION_STATUS, "Migration Status", ti, particle_ext); CHKERRQ(ierr);
-
-  simCtx->current_io_directory = NULL; // Clear the I/O context after reading
+  simCtx->current_io_directory = NULL;
 
   LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading DMSwarm fields for timestep %d.\n", ti);
   PetscFunctionReturn(0);
+}
+
+/** @brief Implementation of \ref ReadCheckpointParticleCount(). */
+PetscErrorCode ReadCheckpointParticleCount(UserCtx *user, PetscInt ti, PetscInt *particle_count)
+{
+    SimCtx *simCtx = NULL;
+    const char *source_path = NULL;
+    char checkpoint_directory[PETSC_MAX_PATH_LEN];
+    PetscBool particles_saved = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCheck(user != NULL && particle_count != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Simulation context and particle-count output are required.");
+    simCtx = user->simCtx;
+    if (simCtx->exec_mode == EXEC_MODE_SOLVER) source_path = simCtx->restart_dir;
+    else if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) source_path = simCtx->pps->source_dir;
+    else SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+                 "Invalid execution mode for reading checkpoint particle metadata.");
+
+    PetscCall(ResolveCheckpointStepDirectory(source_path, ti,
+                                             checkpoint_directory, sizeof(checkpoint_directory)));
+    PetscCall(ValidateCheckpointBundle(simCtx, user - user->_this,
+                                       checkpoint_directory, ti, NULL, particle_count,
+                                       &particles_saved, NULL, NULL));
+    PetscCheck(particles_saved, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+               "Checkpoint step %" PetscInt_FMT " contains no particle state.", ti);
+    PetscFunctionReturn(0);
 }
 
 
@@ -1479,16 +1580,13 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 PetscErrorCode WriteFieldData(UserCtx *user,
                               const char *field_name,
                               Vec field_vec,
-                              PetscInt ti,
                               const char *ext)
 {
-    PetscErrorCode ierr;
     MPI_Comm       comm;
-    PetscMPIInt    rank, size;
-
-    const PetscInt placeholder_int = 0;                    /* keep legacy name */
+    PetscMPIInt    rank;
+    Vec            sequential_vec = NULL;
     char           filename[PETSC_MAX_PATH_LEN];
-    SimCtx  *simCtx=user->simCtx;
+    SimCtx         *simCtx=user->simCtx;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -1500,91 +1598,29 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     /* ------------------------------------------------------------ */
     /*                  Basic communicator information              */
     /* ------------------------------------------------------------ */
-    ierr = PetscObjectGetComm((PetscObject)field_vec,&comm);CHKERRQ(ierr);
-    ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
-    ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
+    PetscCall(PetscObjectGetComm((PetscObject)field_vec,&comm));
+    PetscCallMPI(MPI_Comm_rank(comm,&rank));
 
-    ierr = PetscSNPrintf(filename,sizeof(filename),
-                         "%s/%s%05" PetscInt_FMT "_%d.%s",
-                         simCtx->current_io_directory,field_name,ti,placeholder_int,ext);CHKERRQ(ierr);
+    PetscCall(PetscSNPrintf(filename, sizeof(filename), "%s/%s.%s",
+                            simCtx->current_io_directory, field_name, ext));
 
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,
-              " Preparing to write <%s> on rank %d/%d\n",
-              filename,rank,size);
-
-    /* ------------------------------------------------------------ */
-    /*                       1.  Serial path                        */
-    /* ------------------------------------------------------------ */
-    if (size == 1) {
-        PetscViewer viewer;
-
-        ierr = PetscViewerBinaryOpen(comm,filename,
-                                     FILE_MODE_WRITE,&viewer);CHKERRQ(ierr);
-        ierr = VecView(field_vec,viewer);CHKERRQ(ierr);
-        ierr = PetscViewerDestroy(&viewer);CHKERRQ(ierr);
-
-        LOG_ALLOW(GLOBAL,LOG_INFO,
-                  " Wrote <%s> (serial path)\n",filename);
-        PetscFunctionReturn(0);
-    }
-
-    /* ------------------------------------------------------------ */
-    /*                      2.  Parallel path                       */
-    /* ------------------------------------------------------------ */
-    VecScatter scatter;
-    Vec        seq_vec=NULL;               /* created by PETSc, lives only on rank 0 */
-    DM         dm = NULL;
-    const char *dmtype = NULL;
-    Vec        nat = NULL;                 /* Natural-ordered vector for DMDA */
-
-    /* 2.1  Check if vector has DMDA and convert to natural ordering if needed */
-    ierr = VecGetDM(field_vec, &dm); CHKERRQ(ierr);
-    if (dm) { ierr = DMGetType(dm, &dmtype); CHKERRQ(ierr); }
-
-    if (dmtype && !strcmp(dmtype, DMDA)) {
-        /* DMDA path: convert to natural ordering first */
-        ierr = DMDACreateNaturalVector(dm, &nat); CHKERRQ(ierr);
-        ierr = DMDAGlobalToNaturalBegin(dm, field_vec, INSERT_VALUES, nat); CHKERRQ(ierr);
-        ierr = DMDAGlobalToNaturalEnd(dm, field_vec, INSERT_VALUES, nat); CHKERRQ(ierr);
-
-        /* Gather the natural-ordered vector */
-        ierr = VecScatterCreateToZero(nat, &scatter, &seq_vec); CHKERRQ(ierr);
-    } else {
-        /* Non-DMDA path: direct gather in global ordering */
-        ierr = VecScatterCreateToZero(field_vec, &scatter, &seq_vec); CHKERRQ(ierr);
-    }
-
-    /* 2.2  Gather distributed → sequential (on rank 0)             */
-    ierr = VecScatterBegin(scatter, (nat ? nat : field_vec), seq_vec,
-                           INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-    ierr = VecScatterEnd(scatter, (nat ? nat : field_vec), seq_vec,
-                         INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-
-    /* 2.3  Rank 0 writes the file                                  */
+    PetscCall(GatherVectorToRankZero(field_vec, &sequential_vec));
     if (rank == 0) {
         PetscViewer viewer;
+        PetscReal vmin, vmax;
 
-        /* (optional) value diagnostics */
-        PetscReal vmin,vmax;
-        ierr = VecMin(seq_vec,NULL,&vmin);CHKERRQ(ierr);
-        ierr = VecMax(seq_vec,NULL,&vmax);CHKERRQ(ierr);
+        PetscCall(VecMin(sequential_vec, NULL, &vmin));
+        PetscCall(VecMax(sequential_vec, NULL, &vmax));
         LOG_ALLOW(GLOBAL,LOG_DEBUG,
                   " <%s> range = [%.4e … %.4e]\n",
                   field_name,(double)vmin,(double)vmax);
-
-        ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF,filename,
-                                     FILE_MODE_WRITE,&viewer);CHKERRQ(ierr);
-        ierr = VecView(seq_vec,viewer);CHKERRQ(ierr);
-        ierr = PetscViewerDestroy(&viewer);CHKERRQ(ierr);
-
-        LOG_ALLOW(GLOBAL,LOG_INFO,
-                  " Wrote <%s> (parallel path)\n",filename);
+        PetscCall(PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer));
+        PetscCall(PetscViewerBinarySetSkipInfo(viewer, PETSC_TRUE));
+        PetscCall(VecView(sequential_vec, viewer));
+        PetscCall(PetscViewerDestroy(&viewer));
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Wrote <%s>\n", filename);
     }
-
-    /* 2.4  Cleanup                                                 */
-    ierr = VecScatterDestroy(&scatter);CHKERRQ(ierr);
-    ierr = VecDestroy(&seq_vec);CHKERRQ(ierr);
-    if (nat) { ierr = VecDestroy(&nat); CHKERRQ(ierr); }
+    PetscCall(VecDestroy(&sequential_vec));
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -1596,127 +1632,33 @@ PetscErrorCode WriteFieldData(UserCtx *user,
  *          the header declaration in `include/io.h`.
  * @see WriteSimulationFields()
  */
-PetscErrorCode WriteSimulationFields(UserCtx *user)
+PetscErrorCode WriteSimulationFields(UserCtx *user, const char *checkpoint_directory)
 {
-    PetscErrorCode ierr;
-
     SimCtx *simCtx = user->simCtx;
-    
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write simulation fields.\n");
 
-    // Set the current IO directory
-    ierr = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
-                         "%s/%s", simCtx->output_dir, simCtx->euler_subdir);CHKERRQ(ierr);
+    PetscFunctionBeginUser;
+    PetscCheck(checkpoint_directory != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Checkpoint destination cannot be NULL.");
+    PetscCall(PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
+                            "%s/%s/block_%04" PetscInt_FMT,
+                            checkpoint_directory, PICURV_EULERIAN_DIRECTORY, user->_this));
     simCtx->current_io_directory = simCtx->_io_context_buffer;
 
-    // Write contravariant velocity field
-    ierr = WriteFieldData(user, "vfield", user->Ucont, simCtx->step, "dat"); CHKERRQ(ierr);
-
-    // Write Cartesian velocity field
-    ierr = WriteFieldData(user, "ufield", user->Ucat, simCtx->step, "dat"); CHKERRQ(ierr);
-
-    // Write pressure field
-    ierr = WriteFieldData(user, "pfield", user->P, simCtx->step, "dat"); CHKERRQ(ierr);
-
-    // Write node state field (nvert)
-    ierr = WriteFieldData(user, "nvfield", user->Nvert, simCtx->step, "dat"); CHKERRQ(ierr);
-
-    // Write ParticleCountPerCell if enabled.
-    if(simCtx->np>0){
-    ierr = WriteFieldData(user, "ParticleCount",user->ParticleCount,simCtx->step,"dat"); CHKERRQ(ierr);
-    ierr = WriteFieldData(user, "psifield", user->Psi, simCtx->step, "dat"); CHKERRQ(ierr);
-    }
-    
-    // Write LES fields if enabled
     if (simCtx->les) {
-        ierr = WriteLESFields(user); CHKERRQ(ierr);
+        PetscCall(CopyOwnedLocalScalarToGlobal(user->da, user->lCs, user->CS));
+        PetscCall(CopyOwnedLocalScalarToGlobal(user->da, user->lNu_t, user->Nu_t));
     }
+    for (PetscInt raw_id = 0; raw_id < FIELD_ID_COUNT; ++raw_id) {
+        const FieldDescriptor *descriptor = NULL;
+        FieldView view;
 
-    // Write RANS fields if enabled
-    if (simCtx->rans) {
-        ierr = WriteRANSFields(user); CHKERRQ(ierr);
+        PetscCall(FieldGetDescriptor((FieldId)raw_id, &descriptor));
+        if (!CheckpointFieldIsEnabled(simCtx, descriptor)) continue;
+        PetscCall(FieldGetView(user, descriptor->id, &view));
+        PetscCall(WriteFieldData(user, descriptor->canonical_name, view.global_vec, "dat"));
     }
-
-    // Write statistical fields if averaging is enabled
-    if (simCtx->averaging) {
-        ierr = WriteStatisticalFields(user); CHKERRQ(ierr);
-    }
-
     simCtx->current_io_directory = NULL;
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing simulation fields.\n");
-
-    return 0;
-}
-
-/**
- * @brief Implementation of \ref WriteStatisticalFields().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/io.h`.
- * @see WriteStatisticalFields()
- */
-PetscErrorCode WriteStatisticalFields(UserCtx *user)
-{
-    PetscErrorCode ierr;
-
-    SimCtx *simCtx = user->simCtx;
-    
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write statistical fields.\n");
-
-    ierr = WriteFieldData(user, "su0", user->Ucat_sum, simCtx->step, "dat"); CHKERRQ(ierr);
-    ierr = WriteFieldData(user, "su1", user->Ucat_cross_sum, simCtx->step, "dat"); CHKERRQ(ierr);
-    ierr = WriteFieldData(user, "su2", user->Ucat_square_sum, simCtx->step, "dat"); CHKERRQ(ierr);
-    ierr = WriteFieldData(user, "sp", user->P_sum, simCtx->step, "dat"); CHKERRQ(ierr);
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing statistical fields.\n");
-
-    return 0;
-}
-
-/**
- * @brief Internal helper implementation: `WriteLESFields()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode WriteLESFields(UserCtx *user)
-{
-    PetscErrorCode ierr;
-
-    SimCtx *simCtx = user->simCtx;
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write LES fields.\n");
-
-
-    PetscCall(CopyOwnedLocalScalarToGlobal(user->da, user->lCs, user->CS));
-    PetscCall(CopyOwnedLocalScalarToGlobal(user->da, user->lNu_t, user->Nu_t));
-
-    ierr = WriteFieldData(user, "Nu_t", user->Nu_t, simCtx->step, "dat"); CHKERRQ(ierr);
-    ierr = WriteFieldData(user, "cs", user->CS, simCtx->step, "dat"); CHKERRQ(ierr);
-   
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing LES fields.\n");
-
-    return 0;
-}
-
-/**
- * @brief Implementation of \ref WriteRANSFields().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/io.h`.
- * @see WriteRANSFields()
- */
-PetscErrorCode WriteRANSFields(UserCtx *user)
-{
-    PetscErrorCode ierr;
-
-    SimCtx *simCtx = user->simCtx;
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write RANS fields.\n");
-
-    ierr = WriteFieldData(user, "kfield", user->K_Omega, simCtx->step, "dat"); CHKERRQ(ierr);
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing RANS fields.\n");
-
-    return 0;
+    PetscFunctionReturn(0);
 }
 
 /**
@@ -1725,7 +1667,7 @@ PetscErrorCode WriteRANSFields(UserCtx *user)
  *          the header declaration in `include/io.h`.
  * @see WriteSwarmField()
  */
-PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
+PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, const char *ext)
 {
   PetscErrorCode ierr;
   Vec            fieldVec;
@@ -1756,7 +1698,7 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt t
   LOG_ALLOW(GLOBAL, LOG_DEBUG,
             "Calling WriteFieldData for field: %s\n",
             field_name);
-  ierr = WriteFieldData(user, field_name, fieldVec, ti, ext);CHKERRQ(ierr);
+  ierr = WriteFieldData(user, field_name, fieldVec, ext);CHKERRQ(ierr);
 
   /*
    * 4) Destroy the global vector once the data is successfully written.
@@ -1780,7 +1722,7 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt t
  * @brief Internal helper implementation: `WriteSwarmIntField()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext)
+PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, const char *ext)
 {
     PetscErrorCode ierr;
     DM             swarm = user->swarm;
@@ -1833,7 +1775,7 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscIn
     ierr = DMSwarmRestoreField(swarm, field_name, &bs, NULL, &field_array_void); CHKERRQ(ierr);
 
     // Call your existing writer with the temporary, populated Vec
-    ierr = WriteFieldData(user, field_name, temp_vec, ti, ext); CHKERRQ(ierr);
+    ierr = WriteFieldData(user, field_name, temp_vec, ext); CHKERRQ(ierr);
 
     // Clean up
     ierr = VecDestroy(&temp_vec); CHKERRQ(ierr);
@@ -1845,9 +1787,8 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscIn
  * @brief Internal helper implementation: `WriteAllSwarmFields()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode WriteAllSwarmFields(UserCtx *user)
+PetscErrorCode WriteAllSwarmFields(UserCtx *user, const char *checkpoint_directory)
 {
-    PetscErrorCode ierr;
     SimCtx         *simCtx = user->simCtx;
     
     PetscFunctionBeginUser;
@@ -1857,40 +1798,307 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user)
         PetscFunctionReturn(0);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting to write swarm fields.\n");
-
-    // Ensure the current IO directory is set
-    ierr = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
-                         "%s/%s", simCtx->output_dir, simCtx->particle_subdir);CHKERRQ(ierr);
+    PetscCheck(checkpoint_directory != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Checkpoint destination cannot be NULL.");
+    PetscCall(PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
+                            "%s/%s", checkpoint_directory, PICURV_PARTICLE_DIRECTORY));
     simCtx->current_io_directory = simCtx->_io_context_buffer;
 
-    // Write particle position field
-    ierr = WriteSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), simCtx->step, "dat"); CHKERRQ(ierr);
+    for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
+        const ParticleFieldDescriptor *descriptor = NULL;
 
-    // Write particle velocity field
-    ierr = WriteSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), simCtx->step, "dat"); CHKERRQ(ierr);
-
-    // Write particle weight field
-    ierr = WriteSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), simCtx->step, "dat"); CHKERRQ(ierr);
-    
-    // Write custom particle field "Psi"
-    ierr = WriteSwarmField(user, ParticleFieldName(PARTICLE_FIELD_ID_PSI), simCtx->step, "dat"); CHKERRQ(ierr);
-    
-    // Integer fields require special handling
-
-    // Write the background mesh cell ID for each particle
-    ierr = WriteSwarmIntField(user, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), simCtx->step, "dat"); CHKERRQ(ierr);
-
-    // Write the particle location status (e.g., inside or outside the domain)
-    ierr = WriteSwarmIntField(user, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), simCtx->step, "dat"); CHKERRQ(ierr);
-
-    // Write the unique particle ID
-    ierr = WriteSwarmIntField(user, ParticleFieldName(PARTICLE_FIELD_ID_PID), simCtx->step, "dat"); CHKERRQ(ierr);
+        PetscCall(ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor));
+        if (!(descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_CHECKPOINT)) continue;
+        if (descriptor->data_type == PETSC_INT || descriptor->data_type == PETSC_INT64) {
+            PetscCall(WriteSwarmIntField(user, descriptor->canonical_name, "dat"));
+        } else {
+            PetscCall(WriteSwarmField(user, descriptor->canonical_name, "dat"));
+        }
+    }
 
     simCtx->current_io_directory = NULL;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished writing swarm fields.\n");
+    PetscFunctionReturn(0);
+}
 
+/** @brief Append one payload inventory entry to a checkpoint manifest. */
+static PetscErrorCode WriteCheckpointPayloadEntry(FILE *manifest,
+                                                  const char *checkpoint_directory,
+                                                  PetscInt payload_index,
+                                                  const char *relative_path,
+                                                  const char *kind,
+                                                  const char *field_name,
+                                                  PetscInt block,
+                                                  const char *layout,
+                                                  PetscInt components,
+                                                  const char *logical_type,
+                                                  PetscInt global_size,
+                                                  const char *encoding)
+{
+    char payload_path[PETSC_MAX_PATH_LEN];
+    struct stat payload_stat;
+
+    PetscFunctionBeginUser;
+    PetscCheck(manifest != NULL && checkpoint_directory != NULL && relative_path != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Checkpoint payload metadata inputs are required.");
+    PetscCall(PetscSNPrintf(payload_path, sizeof(payload_path), "%s/%s",
+                            checkpoint_directory, relative_path));
+    PetscCheck(stat(payload_path, &payload_stat) == 0 && S_ISREG(payload_stat.st_mode),
+               PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
+               "Expected checkpoint payload was not written: %s", payload_path);
+    PetscCheck(fprintf(manifest,
+                       "-checkpoint_payload_%" PetscInt_FMT "_path %s\n"
+                       "-checkpoint_payload_%" PetscInt_FMT "_kind %s\n"
+                       "-checkpoint_payload_%" PetscInt_FMT "_field %s\n"
+                       "-checkpoint_payload_%" PetscInt_FMT "_block %" PetscInt_FMT "\n"
+                       "-checkpoint_payload_%" PetscInt_FMT "_layout %s\n"
+                       "-checkpoint_payload_%" PetscInt_FMT "_components %" PetscInt_FMT "\n"
+                       "-checkpoint_payload_%" PetscInt_FMT "_logical_type %s\n"
+                       "-checkpoint_payload_%" PetscInt_FMT "_global_size %" PetscInt_FMT "\n"
+                       "-checkpoint_payload_%" PetscInt_FMT "_encoding %s\n"
+                       "-checkpoint_payload_%" PetscInt_FMT "_bytes %lld\n",
+                       payload_index, relative_path,
+                       payload_index, kind,
+                       payload_index, field_name,
+                       payload_index, block,
+                       payload_index, layout,
+                       payload_index, components,
+                       payload_index, logical_type,
+                       payload_index, global_size,
+                       payload_index, encoding,
+                       payload_index, (long long)payload_stat.st_size) > 0,
+               PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+               "Unable to append payload metadata for '%s'.", relative_path);
+    PetscFunctionReturn(0);
+}
+
+/** @brief Write the complete manifest after every payload has closed successfully. */
+static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
+                                              const char *checkpoint_directory,
+                                              const char *reason,
+                                              const char *geometry_digest,
+                                              PetscInt particle_count,
+                                              char manifest_digest[65])
+{
+    char metadata_path[PETSC_MAX_PATH_LEN];
+    PetscInt payload_count = 0;
+    PetscInt payload_index = 0;
+    FILE *manifest = NULL;
+
+    PetscFunctionBeginUser;
+    for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+        for (PetscInt raw_id = 0; raw_id < FIELD_ID_COUNT; ++raw_id) {
+            const FieldDescriptor *descriptor = NULL;
+            PetscCall(FieldGetDescriptor((FieldId)raw_id, &descriptor));
+            if (CheckpointFieldIsEnabled(simCtx, descriptor)) ++payload_count;
+        }
+    }
+    if (simCtx->np > 0) {
+        for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
+            const ParticleFieldDescriptor *descriptor = NULL;
+            PetscCall(ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor));
+            if (descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_CHECKPOINT) ++payload_count;
+        }
+    }
+
+    if (simCtx->rank == 0) {
+        PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path),
+                                "%s/checkpoint.meta", checkpoint_directory));
+        manifest = fopen(metadata_path, "w");
+        PetscCheck(manifest != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
+                   "Unable to create checkpoint metadata '%s'.", metadata_path);
+        PetscCheck(fprintf(manifest,
+                           "-checkpoint_format %s\n"
+                           "-checkpoint_version %d\n"
+                           "-checkpoint_step %" PetscInt_FMT "\n"
+                           "-checkpoint_time %.17g\n"
+                           "-checkpoint_dt %.17g\n"
+                           "-checkpoint_reason %s\n"
+                           "-checkpoint_geometry_sha256 %s\n"
+                           "-checkpoint_block_count %" PetscInt_FMT "\n"
+                           "-checkpoint_particles %s\n"
+                           "-checkpoint_particle_count %" PetscInt_FMT "\n"
+                           "-checkpoint_les %s\n"
+                           "-checkpoint_rans %s\n"
+                           "-checkpoint_payload_count %" PetscInt_FMT "\n",
+                           PICURV_CHECKPOINT_FORMAT, PICURV_CHECKPOINT_VERSION,
+                           simCtx->step, (double)simCtx->ti, (double)simCtx->dt,
+                           reason, geometry_digest, simCtx->block_number,
+                           simCtx->np > 0 ? "true" : "false",
+                           particle_count,
+                           simCtx->les ? "true" : "false",
+                           simCtx->rans ? "true" : "false",
+                           payload_count) > 0,
+                   PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to write checkpoint metadata '%s'.", metadata_path);
+
+        for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+            PetscCheck(fprintf(manifest,
+                               "-checkpoint_block_%" PetscInt_FMT "_im %" PetscInt_FMT "\n"
+                               "-checkpoint_block_%" PetscInt_FMT "_jm %" PetscInt_FMT "\n"
+                               "-checkpoint_block_%" PetscInt_FMT "_km %" PetscInt_FMT "\n",
+                               block, user[block].IM, block, user[block].JM, block, user[block].KM) > 0,
+                       PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                       "Unable to write block metadata for block %" PetscInt_FMT ".", block);
+        }
+        PetscCheck(fprintf(manifest, "-checkpoint_periodic %d,%d,%d\n",
+                           (int)simCtx->i_periodic, (int)simCtx->j_periodic,
+                           (int)simCtx->k_periodic) > 0,
+                   PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to write checkpoint periodicity metadata.");
+
+        for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+            for (PetscInt raw_id = 0; raw_id < FIELD_ID_COUNT; ++raw_id) {
+                const FieldDescriptor *descriptor = NULL;
+                FieldView view;
+                PetscInt global_size = 0;
+                char relative_path[PETSC_MAX_PATH_LEN];
+
+                PetscCall(FieldGetDescriptor((FieldId)raw_id, &descriptor));
+                if (!CheckpointFieldIsEnabled(simCtx, descriptor)) continue;
+                PetscCall(FieldGetView(&user[block], descriptor->id, &view));
+                PetscCall(VecGetSize(view.global_vec, &global_size));
+                PetscCall(PetscSNPrintf(relative_path, sizeof(relative_path),
+                                        "%s/block_%04" PetscInt_FMT "/%s.dat",
+                                        PICURV_EULERIAN_DIRECTORY, block, descriptor->canonical_name));
+                PetscCall(WriteCheckpointPayloadEntry(manifest, checkpoint_directory,
+                                                       payload_index++, relative_path,
+                                                       "eulerian", descriptor->canonical_name,
+                                                       block, FieldLayoutName(descriptor->layout),
+                                                       descriptor->dof, "PetscScalar", global_size,
+                                                       "petsc_vec_binary_natural"));
+            }
+        }
+        if (simCtx->np > 0) {
+            for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
+                const ParticleFieldDescriptor *descriptor = NULL;
+                char relative_path[PETSC_MAX_PATH_LEN];
+                const char *encoding = "petsc_vec_binary_global";
+
+                PetscCall(ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor));
+                if (!(descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_CHECKPOINT)) continue;
+                if (descriptor->data_type == PETSC_INT || descriptor->data_type == PETSC_INT64) {
+                    encoding = "petsc_vec_binary_scalar_cast";
+                }
+                PetscCall(PetscSNPrintf(relative_path, sizeof(relative_path),
+                                        "%s/%s.dat", PICURV_PARTICLE_DIRECTORY,
+                                        descriptor->canonical_name));
+                PetscCall(WriteCheckpointPayloadEntry(manifest, checkpoint_directory,
+                                                       payload_index++, relative_path,
+                                                       "particle", descriptor->canonical_name,
+                                                       -1, "DMSwarm", descriptor->components,
+                                                       PetscDataTypes[descriptor->data_type],
+                                                       particle_count * descriptor->components,
+                                                       encoding));
+            }
+        }
+        PetscCheck(fflush(manifest) == 0 && fsync(fileno(manifest)) == 0,
+                   PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to flush checkpoint metadata '%s'.", metadata_path);
+        PetscCheck(fclose(manifest) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to close checkpoint metadata '%s'.", metadata_path);
+        PetscCall(PicurvSHA256File(metadata_path, manifest_digest));
+    }
+    PetscCallMPI(MPI_Bcast(manifest_digest, 65, MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Implementation of the transactional full-state checkpoint coordinator. */
+PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
+{
+    UserCtx *user = NULL;
+    char checkpoints_root[PETSC_MAX_PATH_LEN];
+    char final_directory[PETSC_MAX_PATH_LEN];
+    char temporary_directory[PETSC_MAX_PATH_LEN];
+    char nested_directory[PETSC_MAX_PATH_LEN];
+    char commit_path[PETSC_MAX_PATH_LEN];
+    char geometry_digest[65] = "";
+    char manifest_digest[65] = "";
+    PetscBool final_exists = PETSC_FALSE;
+    PetscInt particle_count = 0;
+    PetscMPIInt writer_pid = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx != NULL && reason != NULL && reason[0] != '\0',
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Simulation context and checkpoint reason are required.");
+    user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+    PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "Finest-level fields must exist before checkpoint output.");
+
+    PetscCall(PetscSNPrintf(checkpoints_root, sizeof(checkpoints_root), "%s/%s",
+                            simCtx->output_dir, PICURV_CHECKPOINTS_DIRECTORY));
+    PetscCall(FormatCheckpointStepDirectory(simCtx->output_dir, simCtx->step,
+                                            final_directory, sizeof(final_directory)));
+    PetscCall(PetscTestDirectory(final_directory, 'r', &final_exists));
+    if (final_exists) {
+        PetscReal saved_time = 0.0;
+        PetscCall(ValidateCheckpointBundle(simCtx, user, final_directory, simCtx->step,
+                                           &saved_time, NULL, NULL, NULL, NULL));
+        PetscCheck(PetscAbsReal(saved_time - simCtx->ti) <=
+                   10.0 * PETSC_MACHINE_EPSILON * PetscMax(1.0, PetscAbsReal(simCtx->ti)),
+                   PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+                   "Committed checkpoint step %" PetscInt_FMT " has time %.17g, current state has time %.17g.",
+                   simCtx->step, (double)saved_time, (double)simCtx->ti);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Checkpoint step %d is already committed; skipping duplicate write.\n",
+                  simCtx->step);
+        PetscFunctionReturn(0);
+    }
+
+    if (simCtx->rank == 0) writer_pid = (PetscMPIInt)getpid();
+    PetscCallMPI(MPI_Bcast(&writer_pid, 1, MPI_INT, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscSNPrintf(temporary_directory, sizeof(temporary_directory),
+                            "%s/.step_%0*" PetscInt_FMT ".incomplete.%d",
+                            checkpoints_root, PICURV_CHECKPOINT_STEP_WIDTH,
+                            simCtx->step, (int)writer_pid));
+    PetscCall(CreateCheckpointDirectoryCollective(simCtx, checkpoints_root));
+    PetscCall(CreateCheckpointDirectoryCollective(simCtx, temporary_directory));
+    PetscCall(PetscSNPrintf(nested_directory, sizeof(nested_directory), "%s/%s",
+                            temporary_directory, PICURV_EULERIAN_DIRECTORY));
+    PetscCall(CreateCheckpointDirectoryCollective(simCtx, nested_directory));
+    for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+        PetscCall(PetscSNPrintf(nested_directory, sizeof(nested_directory),
+                                "%s/%s/block_%04" PetscInt_FMT,
+                                temporary_directory, PICURV_EULERIAN_DIRECTORY, block));
+        PetscCall(CreateCheckpointDirectoryCollective(simCtx, nested_directory));
+    }
+    if (simCtx->np > 0) {
+        PetscCall(PetscSNPrintf(nested_directory, sizeof(nested_directory), "%s/%s",
+                                temporary_directory, PICURV_PARTICLE_DIRECTORY));
+        PetscCall(CreateCheckpointDirectoryCollective(simCtx, nested_directory));
+        PetscCall(DMSwarmGetSize(user->swarm, &particle_count));
+    }
+
+    PetscCall(ComputeCheckpointGeometrySHA256(simCtx, user, geometry_digest));
+    for (PetscInt block = 0; block < simCtx->block_number; ++block) {
+        PetscCall(WriteSimulationFields(&user[block], temporary_directory));
+    }
+    if (simCtx->np > 0) PetscCall(WriteAllSwarmFields(user, temporary_directory));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+
+    PetscCall(WriteCheckpointManifest(simCtx, user, temporary_directory, reason,
+                                      geometry_digest, particle_count, manifest_digest));
+    if (simCtx->rank == 0) {
+        FILE *commit_file = NULL;
+
+        PetscCall(PetscSNPrintf(commit_path, sizeof(commit_path), "%s/COMMITTED", temporary_directory));
+        commit_file = fopen(commit_path, "w");
+        PetscCheck(commit_file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
+                   "Unable to create checkpoint commit marker '%s'.", commit_path);
+        PetscCheck(fprintf(commit_file, "%s\n", manifest_digest) > 0 &&
+                   fflush(commit_file) == 0 && fsync(fileno(commit_file)) == 0,
+                   PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to write checkpoint commit marker '%s'.", commit_path);
+        PetscCheck(fclose(commit_file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to close checkpoint commit marker '%s'.", commit_path);
+        PetscCheck(rename(temporary_directory, final_directory) == 0,
+                   PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to commit checkpoint '%s': %s", final_directory, strerror(errno));
+    }
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    LOG_ALLOW(GLOBAL, LOG_INFO,
+              "Committed checkpoint step %d at t=%.17g (%s): %s\n",
+              simCtx->step, (double)simCtx->ti, reason, final_directory);
     PetscFunctionReturn(0);
 }
 
@@ -1900,82 +2108,33 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user)
  */
 PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
 {
-    PetscErrorCode ierr;
-    MPI_Comm       comm;
-    PetscMPIInt    rank;
-    PetscInt       globalSize;
-    DM             dm = NULL;
-    const char    *dmtype = NULL;
-
-    /* For DMDA path */
-    Vec            nat = NULL, seqNat = NULL;
-    VecScatter     scatNat = NULL;
-    const PetscScalar *nar = NULL;
-    PetscScalar    *buf = NULL;
-
-    /* For generic (no DM) path */
-    Vec            seq = NULL;
-    VecScatter     scat = NULL;
-    const PetscScalar *sar = NULL;
+    MPI_Comm comm;
+    PetscMPIInt rank;
+    Vec sequential_vec = NULL;
 
     PetscFunctionBeginUser;
-
-    ierr = PetscObjectGetComm((PetscObject)inVec, &comm); CHKERRQ(ierr);
-    ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
-    ierr = VecGetSize(inVec, &globalSize); CHKERRQ(ierr);
-    *N = globalSize;
+    PetscCheck(inVec != NULL && N != NULL && arrayOut != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Vector, size output, and array output are required.");
+    PetscCall(PetscObjectGetComm((PetscObject)inVec, &comm));
+    PetscCallMPI(MPI_Comm_rank(comm, &rank));
+    PetscCall(VecGetSize(inVec, N));
     *arrayOut = NULL;
 
-    ierr = VecGetDM(inVec, &dm); CHKERRQ(ierr);
-    if (dm) { ierr = DMGetType(dm, &dmtype); CHKERRQ(ierr); }
+    PetscCall(GatherVectorToRankZero(inVec, &sequential_vec));
+    if (rank == 0) {
+        const PetscScalar *values = NULL;
+        PetscInt local_size = 0;
 
-    if (dmtype && !strcmp(dmtype, DMDA)) {
-        /* --- DMDA path: go to NATURAL ordering, then gather to rank 0 --- */
-        ierr = DMDACreateNaturalVector(dm, &nat); CHKERRQ(ierr);
-        ierr = DMDAGlobalToNaturalBegin(dm, inVec, INSERT_VALUES, nat); CHKERRQ(ierr);
-        ierr = DMDAGlobalToNaturalEnd  (dm, inVec, INSERT_VALUES, nat); CHKERRQ(ierr);
-
-        ierr = VecScatterCreateToZero(nat, &scatNat, &seqNat); CHKERRQ(ierr);
-        ierr = VecScatterBegin(scatNat, nat, seqNat, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-        ierr = VecScatterEnd  (scatNat, nat, seqNat, INSERT_VALUES, SCATTER_FORWARD);   CHKERRQ(ierr);
-
-        if (rank == 0) {
-            PetscInt nseq;
-            ierr = VecGetLocalSize(seqNat, &nseq); CHKERRQ(ierr);
-            ierr = VecGetArrayRead(seqNat, &nar);  CHKERRQ(ierr);
-
-            ierr = PetscMalloc1(nseq, &buf);       CHKERRQ(ierr);
-            ierr = PetscMemcpy(buf, nar, (size_t)nseq * sizeof(PetscScalar)); CHKERRQ(ierr);
-
-            ierr = VecRestoreArrayRead(seqNat, &nar); CHKERRQ(ierr);
-            *arrayOut = (double*)buf; /* hand back as double* to match the helper signature */
+        PetscCall(VecGetLocalSize(sequential_vec, &local_size));
+        PetscCall(PetscMalloc1(local_size, arrayOut));
+        PetscCall(VecGetArrayRead(sequential_vec, &values));
+        for (PetscInt index = 0; index < local_size; ++index) {
+            (*arrayOut)[index] = (double)PetscRealPart(values[index]);
         }
-
-        ierr = VecScatterDestroy(&scatNat); CHKERRQ(ierr);
-        ierr = VecDestroy(&seqNat);        CHKERRQ(ierr);
-        ierr = VecDestroy(&nat);           CHKERRQ(ierr);
-    } else {
-        /* --- No DM attached: plain gather in Vec’s global (parallel) layout order --- */
-        ierr = VecScatterCreateToZero(inVec, &scat, &seq); CHKERRQ(ierr);
-        ierr = VecScatterBegin(scat, inVec, seq, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-        ierr = VecScatterEnd  (scat, inVec, seq, INSERT_VALUES, SCATTER_FORWARD);   CHKERRQ(ierr);
-
-        if (rank == 0) {
-            PetscInt nseq;
-            ierr = VecGetLocalSize(seq, &nseq); CHKERRQ(ierr);
-            ierr = VecGetArrayRead(seq, &sar);  CHKERRQ(ierr);
-
-            ierr = PetscMalloc1(nseq, &buf);    CHKERRQ(ierr);
-            ierr = PetscMemcpy(buf, sar, (size_t)nseq * sizeof(PetscScalar)); CHKERRQ(ierr);
-
-            ierr = VecRestoreArrayRead(seq, &sar); CHKERRQ(ierr);
-            *arrayOut = (double*)buf;
-        }
-
-        ierr = VecScatterDestroy(&scat); CHKERRQ(ierr);
-        ierr = VecDestroy(&seq);        CHKERRQ(ierr);
+        PetscCall(VecRestoreArrayRead(sequential_vec, &values));
     }
-
+    PetscCall(VecDestroy(&sequential_vec));
     PetscFunctionReturn(0);
 }
 
@@ -2252,6 +2411,8 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         } else {
             ierr = PetscPrintf(PETSC_COMM_SELF, " Runtime Memory Log          : DISABLED\n"); CHKERRQ(ierr);
         }
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Solution Convergence Log    : %s\n",
+                           simCtx->solutionConvergenceEnabled ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Number of MPI Processes     : %d\n", num_mpi_procs); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %d\n", total_num_particles); CHKERRQ(ierr);
         if (simCtx->np > 0) {
@@ -2382,7 +2543,6 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     pps->particle_output_freq = simCtx->LoggingFrequency; // Default to logging frequency;
     strcpy(pps->process_pipeline, "");
     strcpy(pps->output_fields_instantaneous, "Ucat,P");
-    strcpy(pps->output_fields_averaged, "");
     strcpy(pps->output_prefix, "Field");
     strcpy(pps->particle_output_prefix,"Particle");
     strcpy(pps->particle_fields,"velocity,CellID,weight,pid");
@@ -2418,9 +2578,6 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                 } else if (strcasecmp(key, "output_fields_instantaneous") == 0) {
                     strncpy(pps->output_fields_instantaneous, value, MAX_FIELD_LIST_LENGTH - 1);
                     pps->output_fields_instantaneous[MAX_FIELD_LIST_LENGTH - 1] = '\0';
-                } else if (strcasecmp(key, "output_fields_averaged") == 0) {
-                    strncpy(pps->output_fields_averaged, value, MAX_FIELD_LIST_LENGTH - 1);
-                    pps->output_fields_averaged[MAX_FIELD_LIST_LENGTH - 1] = '\0';
                 } else if (strcasecmp(key, "output_prefix") == 0) {
                     strncpy(pps->output_prefix, value, MAX_FILENAME_LENGTH - 1);
                     pps->output_prefix[MAX_FILENAME_LENGTH - 1] = '\0';
@@ -2489,7 +2646,6 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Fields: %s\n", pps->particle_fields);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Pipeline: %s\n", pps->particle_pipeline);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Frequency: %d\n", pps->particle_output_freq);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Averaged Output Fields (reserved): %s\n", pps->output_fields_averaged);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Post input extensions: Eulerian='.%s', Particle='.%s'\n", pps->eulerianExt, pps->particleExt);
 
     PROFILE_FUNCTION_END;
@@ -2696,7 +2852,7 @@ PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
   ierr = VecSetFromOptions(coordsVec);CHKERRQ(ierr);
 
   // For example: "position" is the name of the coordinate data
-  ierr = ReadFieldData(user, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), coordsVec, timeIndex, "dat");
+  ierr = ReadFieldData(user, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), coordsVec, "dat");
   if (ierr) {
     LOG_ALLOW(GLOBAL, LOG_ERROR,
               "Error reading position data (ti=%d).\n",
@@ -2734,7 +2890,7 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
   ierr = VecCreate(PETSC_COMM_WORLD, &fieldVec);CHKERRQ(ierr);
   ierr = VecSetFromOptions(fieldVec);CHKERRQ(ierr);
 
-  ierr = ReadFieldData(user, fieldName, fieldVec, timeIndex, "dat");
+  ierr = ReadFieldData(user, fieldName, fieldVec, "dat");
   if (ierr) {
     LOG_ALLOW(GLOBAL, LOG_ERROR,
               "Error reading field '%s' (ti=%d).\n",

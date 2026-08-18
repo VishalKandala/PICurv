@@ -46,7 +46,8 @@ events. Physics-based completion is a separate future extension and should keep
 that same checkpoint discipline.
 
 Extension-ready next steps:
-1. add optional convergence-stop criteria under `solver.yml -> solution_convergence`,
+1. add optional convergence-stop criteria under
+   `monitor.yml -> solution_monitoring.convergence`,
 2. limit deterministic fixed-state stopping to `mode: steady_deterministic`,
 3. use explicit tolerances, minimum samples, and dwell windows before declaring completion,
 4. keep `mode: transient` diagnostic-only because nonzero drift can be the expected physics,

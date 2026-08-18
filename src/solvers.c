@@ -175,14 +175,6 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
         }
         */
 
-        // --- Averaging and Statistics (if enabled) ---
-        /*
-        if (simCtx->averaging) {
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Performing statistical averaging for block %d.\n", bi);
-            Do_averaging(&user[bi]);
-        }
-        */
-
         // }
     }
     

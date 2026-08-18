@@ -202,47 +202,15 @@ Rules:
 - The current PETSc binding applies one MG smoother count; when `pre_sweeps` and `post_sweeps` differ, PICurv uses the larger value and logs a warning.
 - Advanced PETSc tuning remains available through `petsc_passthrough_options`; common examples include `-ps_mg_levels_N_pc_sor_omega` for SOR and `-ps_mg_levels_N_pc_factor_shift_amount` / `-ps_mg_levels_N_pc_factor_levels` for factor PCs.
 
-@section p08_solution_conv_sec 6. solution_convergence
+@section p08_solution_conv_sec 6. Physical-solution convergence monitoring
 
-```yaml
-solution_convergence:
-  enabled: true                  # optional; set false to disable without removing the block
-  mode: "steady_deterministic"   # steady_deterministic | periodic_deterministic | statistical_steady | transient
-  periodic_deterministic:
-    period_steps: 200
-  statistical_steady:
-    window_steps: 500
-```
-
-Mappings:
-- `enabled` — when `false`, suppresses all `-solution_convergence_*` flags; default `true`
-- `mode` -> `-solution_convergence_mode`
-- `periodic_deterministic.period_steps` -> `-solution_convergence_period_steps`
-- `statistical_steady.window_steps` -> `-solution_convergence_window_steps`
-
-Rules:
-- the `solution_convergence` block is optional; when omitted, the runtime still logs
-  `logs/solution_convergence.log` once per physical timestep using the default
-  `steady_deterministic` mode.
-- it is logging-only in the current implementation.
-- it does not replace the existing inner solver-health logs:
-  - `logs/Momentum_Solver_Convergence_History_Block_*.log`
-  - `logs/Poisson_Solver_Convergence_History_Block_*.log`
-  - `logs/Continuity_Metrics.log`
-- `periodic_deterministic.period_steps` is required only when `mode: "periodic_deterministic"`.
-- `statistical_steady.window_steps` is required only when `mode: "statistical_steady"`.
-- nested mode blocks are rejected when they do not match the selected `mode`.
-
-Mode intent:
-- `steady_deterministic`: timestep-to-timestep physical field drift for runs expected to settle to a fixed state.
-- `periodic_deterministic`: phase-aligned cycle drift using one stored period of field snapshots.
-- `statistical_steady`: adjacent-window drift of global observables for runs whose instantaneous fields should not settle pointwise.
-- `transient`: logs the same deterministic drift family for diagnosis, but without any implied steady-state interpretation.
-
-Future completion semantics:
-- `steady_deterministic` is the intended home for future convergence-based completion criteria for fixed-state runs, such as stopping or marking a run complete once field-drift metrics remain below configured tolerances for a required dwell period.
-- `transient` should remain diagnostic-only for physically evolving runs, even though it currently logs the same deterministic drift columns as `steady_deterministic`.
-- any future automatic stop feature should be opt-in, tolerance-driven, and routed through the same safe checkpoint/final-write path used by existing runtime shutdown guards.
+Physical-solution convergence is observation policy rather than a numerical
+solver selection. Its user configuration therefore moved to
+`monitor.yml -> solution_monitoring.convergence`. The old
+top-level `solver.yml -> solution_convergence` key is rejected with a direct
+migration message. See **@subpage 09_Monitor_Reference** for modes, mappings,
+and defaults. The monitor records every completed timestep; cadence is not a
+user setting.
 
 @section p08_interp_sec 7. interpolation
 

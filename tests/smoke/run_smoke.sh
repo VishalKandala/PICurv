@@ -69,6 +69,17 @@ require_count_ge() {
   fi
 }
 
+require_files_identical() {
+  local left="$1"
+  local right="$2"
+  local label="$3"
+  require_file "${left}" "${label} (left operand)"
+  require_file "${right}" "${label} (right operand)"
+  if ! cmp -s "${left}" "${right}"; then
+    die "expected '${left}' and '${right}' to be byte-identical (${label})."
+  fi
+}
+
 require_file_contains() {
   local file_path="$1"
   local pattern="$2"
@@ -85,6 +96,73 @@ require_file_not_contains() {
   if grep -q -- "${pattern}" "${file_path}"; then
     die "expected '${file_path}' to omit '${pattern}' (${label})."
   fi
+}
+
+create_mock_committed_checkpoint_series() {
+  local output_root="$1"
+  local first_step="$2"
+  local last_step="$3"
+
+  python3 - "${output_root}" "${first_step}" "${last_step}" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+output_root = pathlib.Path(sys.argv[1])
+first_step = int(sys.argv[2])
+last_step = int(sys.argv[3])
+fields = ("Ucat", "Ucont", "Ucont_rm1", "P", "Nvert")
+
+for step in range(first_step, last_step + 1):
+    bundle = output_root / "checkpoints" / f"step_{step:012d}"
+    block_dir = bundle / "eulerian" / "block_0000"
+    block_dir.mkdir(parents=True, exist_ok=True)
+    payloads = []
+    for field in fields:
+        relative = pathlib.Path("eulerian") / "block_0000" / f"{field}.dat"
+        payload = bundle / relative
+        payload.write_bytes(b"smoke-checkpoint-payload\n")
+        payloads.append((relative.as_posix(), field, payload.stat().st_size))
+
+    lines = [
+        "-checkpoint_format picurv-checkpoint",
+        "-checkpoint_version 1",
+        f"-checkpoint_step {step}",
+        f"-checkpoint_time {step * 0.1:.17g}",
+        "-checkpoint_dt 0.1",
+        "-checkpoint_reason smoke_fixture",
+        "-checkpoint_geometry_sha256 " + "0" * 64,
+        "-checkpoint_block_count 1",
+        "-checkpoint_particles false",
+        "-checkpoint_particle_count 0",
+        "-checkpoint_les false",
+        "-checkpoint_rans false",
+        f"-checkpoint_payload_count {len(payloads)}",
+        "-checkpoint_block_0_im 4",
+        "-checkpoint_block_0_jm 4",
+        "-checkpoint_block_0_km 4",
+        "-checkpoint_periodic 0,0,0",
+    ]
+    for index, (relative, field, byte_count) in enumerate(payloads):
+        lines.extend([
+            f"-checkpoint_payload_{index}_path {relative}",
+            f"-checkpoint_payload_{index}_kind eulerian",
+            f"-checkpoint_payload_{index}_field {field}",
+            f"-checkpoint_payload_{index}_block 0",
+            f"-checkpoint_payload_{index}_layout smoke",
+            f"-checkpoint_payload_{index}_components 1",
+            f"-checkpoint_payload_{index}_logical_type PetscScalar",
+            f"-checkpoint_payload_{index}_global_size 1",
+            f"-checkpoint_payload_{index}_encoding smoke",
+            f"-checkpoint_payload_{index}_bytes {byte_count}",
+        ])
+    metadata = bundle / "checkpoint.meta"
+    metadata.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (bundle / "COMMITTED").write_text(
+        hashlib.sha256(metadata.read_bytes()).hexdigest() + "\n",
+        encoding="ascii",
+    )
+PY
 }
 
 parse_mpi_launcher() {
@@ -487,7 +565,7 @@ run_restart_resolution_smoke() {
   local monitor_cfg="${restart_root}/monitor.yml"
   local plan_json="${tmp_root}/restart-plan.json"
 
-  mkdir -p "${restart_root}" "${prior_run}/config" "${prior_output_dir}/eulerian"
+  mkdir -p "${restart_root}" "${prior_run}/config" "${prior_output_dir}"
   cp "${valid_fixtures_dir}/case.yml" "${case_cfg}"
   cp "${valid_fixtures_dir}/solver.yml" "${solver_cfg}"
   cp "${valid_fixtures_dir}/monitor.yml" "${monitor_cfg}"
@@ -498,13 +576,8 @@ io:
     restart: "restart"
 YAML
 
-  # Create fake step files for load mode validation (steps 5-15)
-  for step in $(seq 5 15); do
-    printf -v stepfmt "%05d" "${step}"
-    for field in ufield vfield pfield nvfield; do
-      touch "${prior_output_dir}/eulerian/${field}${stepfmt}_0.dat"
-    done
-  done
+  # Create complete fake bundles for load mode validation (steps 5-15).
+  create_mock_committed_checkpoint_series "${prior_output_dir}" 5 15
 
   python3 - "${case_cfg}" "${solver_cfg}" <<'PY'
 import sys
@@ -1493,8 +1566,9 @@ run_full_runtime_smoke() {
 
   local flat_les_run
   flat_les_run="${LAST_RUN_DIR}"
-  require_dir "${flat_les_run}/output/eulerian" "flat LES Eulerian output directory"
-  require_count_ge "${flat_les_run}/output/eulerian" "*.dat" 1 "flat LES Eulerian data files"
+  require_dir "${flat_les_run}/output/checkpoints" "flat LES checkpoint directory"
+  require_count_ge "${flat_les_run}/output/checkpoints" "COMMITTED" 1 "flat LES committed checkpoints"
+  require_count_ge "${flat_les_run}/output/checkpoints" "Ucat.dat" 1 "flat LES Eulerian checkpoint payloads"
   require_count_ge "${flat_les_run}/viz/les_smoke" "*.vts" 1 "flat LES post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Run Mode                   : Full Simulation" "runtime banner run mode"
   require_file_contains "${LAST_SOLVER_LOG}" "Field/Restart Cadence      : every 1 step(s)" "runtime banner field cadence"
@@ -1516,8 +1590,9 @@ run_full_runtime_smoke() {
 
   local bent_run
   bent_run="${LAST_RUN_DIR}"
-  require_dir "${bent_run}/output/eulerian" "bent Eulerian output directory"
-  require_count_ge "${bent_run}/output/eulerian" "*.dat" 1 "bent Eulerian data files"
+  require_dir "${bent_run}/output/checkpoints" "bent checkpoint directory"
+  require_count_ge "${bent_run}/output/checkpoints" "COMMITTED" 1 "bent committed checkpoints"
+  require_count_ge "${bent_run}/output/checkpoints" "Ucat.dat" 1 "bent Eulerian checkpoint payloads"
   require_count_ge "${bent_run}/viz/bent_smoke" "*.vts" 1 "bent post VTS files"
 
   local bent_analytical_case="${tmp_root}/bent-analytical"
@@ -1533,8 +1608,9 @@ run_full_runtime_smoke() {
 
   local bent_analytical_run
   bent_analytical_run="${LAST_RUN_DIR}"
-  require_dir "${bent_analytical_run}/output/eulerian" "bent analytical Eulerian output directory"
-  require_count_ge "${bent_analytical_run}/output/eulerian" "*.dat" 1 "bent analytical Eulerian data files"
+  require_dir "${bent_analytical_run}/output/checkpoints" "bent analytical checkpoint directory"
+  require_count_ge "${bent_analytical_run}/output/checkpoints" "COMMITTED" 1 "bent analytical committed checkpoints"
+  require_count_ge "${bent_analytical_run}/output/checkpoints" "Ucat.dat" 1 "bent analytical Eulerian checkpoint payloads"
   require_count_ge "${bent_analytical_run}/viz/bent_analytical_smoke" "*.vts" 1 "bent analytical post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Analytical Solution Type : UNIFORM_FLOW" "bent analytical uniform-flow runtime branch"
   "${picurv_exe}" init flat_channel --dest "${flat_particles_case}" >/dev/null
@@ -1549,7 +1625,7 @@ run_full_runtime_smoke() {
 
   local base_particles_run
   base_particles_run="${LAST_RUN_DIR}"
-  require_count_ge "${base_particles_run}/output/particles" "*.dat" 1 "particle snapshot files"
+  require_count_ge "${base_particles_run}/output/checkpoints" "position.dat" 1 "particle checkpoint payloads"
   require_count_ge "${base_particles_run}/viz/particle_smoke" "*.vtp" 1 "particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 32" "particle runtime banner particle count"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "particle runtime banner disabled particle console cadence"
@@ -1567,7 +1643,7 @@ run_full_runtime_smoke() {
     "${flat_particles_ca_case}/standard_analysis.yml" \
     "flat_particles_corner_averaged"
 
-  require_count_ge "${LAST_RUN_DIR}/output/particles" "*.dat" 1 "corner-averaged particle snapshot files"
+  require_count_ge "${LAST_RUN_DIR}/output/checkpoints" "position.dat" 1 "corner-averaged particle checkpoint payloads"
   require_count_ge "${LAST_RUN_DIR}/viz/particle_corner_averaged_smoke" "*.vtp" 1 "corner-averaged particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Interpolation Method       : CornerAveraged (legacy)" "corner-averaged runtime banner interpolation method"
 
@@ -1589,7 +1665,7 @@ run_full_runtime_smoke() {
 
   local restart_load_run
   restart_load_run="${LAST_RUN_DIR}"
-  require_count_ge "${restart_load_run}/output/particles" "*.dat" 1 "restart-load particle snapshots"
+  require_count_ge "${restart_load_run}/output/checkpoints" "position.dat" 1 "restart-load particle checkpoint payloads"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : load" "restart load branch"
 
   local case_restart_init="${flat_particles_case}/case_restart_init.yml"
@@ -1610,7 +1686,7 @@ run_full_runtime_smoke() {
 
   local restart_init_run
   restart_init_run="${LAST_RUN_DIR}"
-  require_count_ge "${restart_init_run}/output/particles" "*.dat" 1 "restart-init particle snapshots"
+  require_count_ge "${restart_init_run}/output/checkpoints" "position.dat" 1 "restart-init particle checkpoint payloads"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : init" "restart init branch"
 
   run_restart_equivalence_smoke
@@ -1655,7 +1731,7 @@ run_multi_rank_runtime_smoke() {
 
   local flat_run
   flat_run="${LAST_RUN_DIR}"
-  require_count_ge "${flat_run}/output/eulerian" "*.dat" 1 "flat MPI Eulerian data files"
+  require_count_ge "${flat_run}/output/checkpoints" "Ucat.dat" 1 "flat MPI Eulerian checkpoint payloads"
   require_count_ge "${flat_run}/viz/les_smoke" "*.vts" 1 "flat MPI post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "flat MPI rank count in runtime summary"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 0" "flat MPI runtime banner particle count"
@@ -1674,7 +1750,7 @@ run_multi_rank_runtime_smoke() {
 
   local bent_run
   bent_run="${LAST_RUN_DIR}"
-  require_count_ge "${bent_run}/output/eulerian" "*.dat" 1 "bent MPI Eulerian data files"
+  require_count_ge "${bent_run}/output/checkpoints" "Ucat.dat" 1 "bent MPI Eulerian checkpoint payloads"
   require_count_ge "${bent_run}/viz/bent_smoke" "*.vts" 1 "bent MPI post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "bent MPI rank count in runtime summary"
 
@@ -1690,7 +1766,7 @@ run_multi_rank_runtime_smoke() {
 
   local base_particles_run
   base_particles_run="${LAST_RUN_DIR}"
-  require_count_ge "${base_particles_run}/output/particles" "*.dat" 1 "MPI particle snapshot files"
+  require_count_ge "${base_particles_run}/output/checkpoints" "position.dat" 1 "MPI particle checkpoint payloads"
   require_count_ge "${base_particles_run}/viz/particle_smoke" "*.vtp" 1 "MPI particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI particle run rank count in runtime summary"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 32" "MPI particle runtime banner particle count"
@@ -1713,7 +1789,7 @@ run_multi_rank_runtime_smoke() {
     "${post_restart_load}" \
     "flat_particles_mpi_restart_load" \
     "${base_particles_run}"
-  require_count_ge "${LAST_RUN_DIR}/output/particles" "*.dat" 1 "MPI restart-load particle snapshots"
+  require_count_ge "${LAST_RUN_DIR}/output/checkpoints" "position.dat" 1 "MPI restart-load particle checkpoint payloads"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : load" "MPI restart load branch"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-load rank count in runtime summary"
 
@@ -1732,9 +1808,110 @@ run_multi_rank_runtime_smoke() {
     "${post_restart_init}" \
     "flat_particles_mpi_restart_init" \
     "${base_particles_run}"
-  require_count_ge "${LAST_RUN_DIR}/output/particles" "*.dat" 1 "MPI restart-init particle snapshots"
+  require_count_ge "${LAST_RUN_DIR}/output/checkpoints" "position.dat" 1 "MPI restart-init particle checkpoint payloads"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Restart Mode      : init" "MPI restart init branch"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-init rank count in runtime summary"
+}
+
+# Restart a run under a different MPI rank count than the one that wrote the
+# checkpoint. Committed Eulerian payloads are stored in DMDA natural ordering via
+# GatherVectorToRankZero, so persisted state must be independent of the
+# decomposition that wrote it.
+#
+# The assertion is split in two because a restart does not simply echo what it
+# read: re-establishing a boundary-consistent state at branch_start recomputes
+# Ucat and Ucont, which a same-rank restart does too. That recomputation is not a
+# decomposition effect, so it is held constant rather than asserted away:
+#
+#   1. Payloads that are pure load-and-store (P, Nvert, Ucont_rm1) must come back
+#      byte identical to the multi-rank base bundle after a single-rank restart.
+#      This is the direct natural-ordering round-trip proof.
+#   2. Restarting the one identical base bundle at two different rank counts must
+#      produce byte-identical branch_start bundles for every payload. Same input
+#      bytes, same code path, only the decomposition differs, so any difference
+#      here would be a genuine rank dependence.
+#
+# Only meaningful when the harness rank count differs from one, so this runs in
+# the multi-rank tier.
+run_rank_change_restart_smoke() {
+  local case_dir="${tmp_root}/rank-change-restart"
+  local base_run="" restart_one_run="" restart_many_run=""
+  local saved_nprocs="${nprocs}"
+  local step_dir="output/checkpoints/step_000000000002"
+  local block_dir="${step_dir}/eulerian/block_0000"
+  local payload=""
+
+  if [[ "${saved_nprocs}" -le 1 ]]; then
+    echo "    (skipped: rank-change restart needs a multi-rank harness, have ${saved_nprocs})"
+    return 0
+  fi
+
+  "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
+  prepare_flat_restart_equivalence_case "${case_dir}" 0 2 "solve" "" "viz/rank_change_base" 0 2
+  run_case_workflow \
+    "${case_dir}" \
+    "${case_dir}/flat_channel.yml" \
+    "${case_dir}/Imp-MG-Standard.yml" \
+    "${case_dir}/Standard_Output.yml" \
+    "${case_dir}/standard_analysis.yml" \
+    "rank_change_base"
+  base_run="${LAST_RUN_DIR}"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${saved_nprocs}" \
+    "rank-change base run rank count"
+  require_dir "${base_run}/${step_dir}" "rank-change base committed bundle at the resume step"
+
+  # Restart the multi-rank bundle on a single rank.
+  nprocs=1
+  prepare_flat_restart_equivalence_case "${case_dir}" 2 2 "solve" "${base_run}" "viz/rank_change_restart_one" 2 4
+  run_case_workflow \
+    "${case_dir}" \
+    "${case_dir}/flat_channel.yml" \
+    "${case_dir}/Imp-MG-Standard.yml" \
+    "${case_dir}/Standard_Output.yml" \
+    "${case_dir}/standard_analysis.yml" \
+    "rank_change_restart_one" \
+    "${base_run}"
+  restart_one_run="${LAST_RUN_DIR}"
+  nprocs="${saved_nprocs}"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : 1" \
+    "rank-change single-rank restart rank count"
+  require_dir "${restart_one_run}/${step_dir}" "rank-change single-rank branch_start bundle"
+
+  # (1) Load-and-store payloads must survive the decomposition change untouched.
+  for payload in P.dat Nvert.dat Ucont_rm1.dat; do
+    require_files_identical \
+      "${base_run}/${block_dir}/${payload}" \
+      "${restart_one_run}/${block_dir}/${payload}" \
+      "rank-change natural-ordering round trip for ${payload} (${saved_nprocs} ranks -> 1 rank)"
+  done
+
+  # Restart the very same bundle again, this time at the original rank count.
+  prepare_flat_restart_equivalence_case "${case_dir}" 2 2 "solve" "${base_run}" "viz/rank_change_restart_many" 2 4
+  run_case_workflow \
+    "${case_dir}" \
+    "${case_dir}/flat_channel.yml" \
+    "${case_dir}/Imp-MG-Standard.yml" \
+    "${case_dir}/Standard_Output.yml" \
+    "${case_dir}/standard_analysis.yml" \
+    "rank_change_restart_many" \
+    "${base_run}"
+  restart_many_run="${LAST_RUN_DIR}"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${saved_nprocs}" \
+    "rank-change multi-rank restart rank count"
+  require_dir "${restart_many_run}/${step_dir}" "rank-change multi-rank branch_start bundle"
+
+  # (2) Identical input bundle, differing only in rank count, must reload identically.
+  require_count_ge "${base_run}/${block_dir}" "*.dat" 3 "rank-change base Eulerian payloads to compare"
+  while IFS= read -r payload; do
+    require_files_identical \
+      "${restart_one_run}/${block_dir}/${payload}" \
+      "${restart_many_run}/${block_dir}/${payload}" \
+      "rank-change restart payload ${payload} (1 rank vs ${saved_nprocs} ranks from one bundle)"
+  done < <(find "${base_run}/${block_dir}" -type f -name '*.dat' -printf '%f\n' | sort)
+
+  # The restart must not merely reload; it must continue marching to the new horizon.
+  require_dir "${restart_one_run}/output/checkpoints/step_000000000004" \
+    "rank-change restart final bundle after resuming on a different rank count"
 }
 
 run_stress_smoke() {
@@ -1756,7 +1933,7 @@ run_stress_smoke() {
     "${particle_case}/Standard_Output.yml" \
     "${particle_case}/standard_analysis.yml" \
     "flat_particles_stress"
-  require_count_ge "${LAST_RUN_DIR}/output/particles" "*.dat" 2 "stress particle snapshots"
+  require_count_ge "${LAST_RUN_DIR}/output/checkpoints" "position.dat" 2 "stress particle checkpoint payloads"
   require_count_ge "${LAST_RUN_DIR}/viz/particle_stress" "*.vtp" 1 "stress particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 96" "stress particle count in runtime summary"
 
@@ -1887,7 +2064,7 @@ run_geometric_periodic_smoke() {
     "constant_uniform_geometric_periodic"
   require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "geometric-periodic continuity metrics log"
   require_file_contains "${LAST_SOLVER_LOG}" "Periodic Axes (BC-derived)  : I=YES, J=YES, K=YES" "BC-derived periodic axes"
-  source_ufield="$(find "${LAST_RUN_DIR}/output/eulerian" -maxdepth 1 -type f -name 'ufield00000_0.dat' | head -n 1)"
+  source_ufield="${LAST_RUN_DIR}/output/checkpoints/step_000000000000/eulerian/block_0000/Ucat.dat"
   require_file "${source_ufield}" "file-IC source Ucat"
 
   cp -R "${repo_root}/examples/periodic_test/constant_uniform_flow" "${file_ic_case}"
@@ -1973,6 +2150,8 @@ run_restart_resolution_smoke
 if [[ "${nprocs}" -gt 1 ]]; then
   echo "==> PICurv smoke: multi-rank runtime sequences (flat+bent)"
   run_multi_rank_runtime_smoke
+  echo "==> PICurv smoke: restart across a changed MPI rank count"
+  run_rank_change_restart_smoke
 else
   echo "==> PICurv smoke: Newton--Krylov flat-channel BDF1 startup"
   run_newton_krylov_flat_channel_startup_smoke

@@ -107,7 +107,8 @@ typedef enum {
     FIELD_CAPABILITY_PERIODIC_CELL_SYNC        = 1u << 1,
     FIELD_CAPABILITY_PERIODIC_FACE_SYNC        = 1u << 2,
     FIELD_CAPABILITY_PERIODIC_STAGGERED_SYNC   = 1u << 3,
-    FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT   = 1u << 4
+    FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT   = 1u << 4,
+    FIELD_CAPABILITY_CHECKPOINT                = 1u << 5
 } FieldCapabilities;
 
 /** @brief Immutable metadata for one field identity. */

@@ -6,11 +6,56 @@ For the full commented template, see:
 
 @verbinclude master_template/master_monitor.yml
 
-`monitor.yml` controls observability, diagnostics, and run I/O behavior.
+`monitor.yml` controls runtime monitoring, diagnostics, profiling, and run I/O
+behavior. Scientific Eulerian field statistics are not exposed in the active
+configuration until their accumulation, checkpoint, and postprocessing path is
+complete end to end.
 
 @tableofcontents
 
-@section p09_io_sec 1. io
+@section p09_solution_monitoring_sec 1. solution_monitoring
+
+Physical-solution convergence uses the existing runtime monitor through this
+contract:
+
+```yaml
+solution_monitoring:
+  convergence:
+    enabled: true
+    mode: statistical_steady
+    statistical_steady:
+      window_steps: 100
+```
+
+PICurv writes the normalized settings directly into the generated master
+`.control` file as the existing `-solution_convergence_*` options. It retains
+`logs/solution_convergence.log`, its columns, and its current observable loops.
+`enabled: false` disables that writer and its private history allocation. The
+default remains enabled `steady_deterministic` monitoring. Convergence is
+observed after every completed timestep; there is no user-facing cadence key.
+
+Mode-specific rules:
+
+- `periodic_deterministic` requires
+  `periodic_deterministic.period_steps > 0`;
+- `statistical_steady` requires `statistical_steady.window_steps > 0`;
+- `steady_deterministic` and `transient` take no nested mode block; and
+- a nested block for a different mode is rejected.
+
+There is no `observations.run` sidecar and no observation-plan schema/version
+at this boundary. `control` remains the single generated C-ingress artifact for
+these settings.
+
+The planned `field_statistics` contract is documented in
+**@subpage 58_Turbulence_Statistics_Pipeline_Specification**, but is not active
+YAML. Saved instantaneous fields remain the supported input for offline
+Eulerian statistics until that feature is complete.
+
+The removed `case.yml -> models.statistics.time_averaging` and `-averaging`
+surface is not compatible input and is not translated into a replacement
+workflow.
+
+@section p09_io_sec 2. io
 
 ```yaml
 io:
@@ -21,8 +66,6 @@ io:
     output: "output"
     restart: "restart"
     log: "logs"
-    eulerian_subdir: "eulerian"
-    particle_subdir: "particles"
 ```
 
 Mappings:
@@ -32,17 +75,19 @@ Mappings:
 - `directories.output` -> `-output_dir`
 - `directories.restart` -> `-restart_dir`
 - `directories.log` -> `-log_dir`
-- `directories.eulerian_subdir` -> `-euler_subdir`
-- `directories.particle_subdir` -> `-particle_subdir`
 
 Semantics:
-- `data_output_frequency` controls file/restart output cadence.
+- `data_output_frequency` controls committed-checkpoint cadence. Initial and
+  final completed states are also checkpointed, including an off-cadence final
+  state.
+- Checkpoint-internal `eulerian/` and `particles/` names are fixed and are not
+  user configuration. See @ref p58_checkpoint_sec.
 - `particle_console_output_frequency` controls how often particle snapshots are printed to the main log.
 - `particle_log_interval` controls row subsampling within each particle snapshot.
 - If `particle_console_output_frequency` is omitted, `picurv` defaults it to `data_output_frequency`.
 - If `particle_console_output_frequency` is `0`, periodic particle console snapshots are disabled.
 
-@section p09_logging_sec 2. logging
+@section p09_logging_sec 3. logging
 
 ```yaml
 logging:
@@ -102,7 +147,7 @@ their solver-specific reporting branches. The checked-in
 command's parser, handler, and context marker, including submission and plot
 paths.
 
-@section p09_profiling_sec 3. profiling
+@section p09_profiling_sec 4. profiling
 
 ```yaml
 profiling:
@@ -125,7 +170,7 @@ Rules:
 - `timestep_output.file` sets the filename written under the run `logs/` directory
 - `final_summary.enabled` controls the end-of-run `ProfilingSummary_*.log` file
 
-@section p09_diagnostics_sec 4. diagnostics
+@section p09_diagnostics_sec 5. diagnostics
 
 Structured diagnostics for PETSc memory/object/function debugging plus a compact
 PICurv runtime memory log:
@@ -189,7 +234,7 @@ for the solver stage, with analogous `PostProcessor` log names for post runs.
   and `--plot <qualified-series>` renders full or last-N append-order histories
   through standalone `generators/plot.gen`.
 
-@section p09_solver_monitoring_sec 5. solver_monitoring
+@section p09_solver_monitoring_sec 6. solver_monitoring
 
 Human-readable solver monitor controls. PICurv maps these keys to the raw
 C/PETSc flags written into the generated `.control` file:
@@ -235,7 +280,7 @@ Rules:
 - Legacy direct flag entries under `solver_monitoring` are still accepted for
   compatibility, but new profiles should prefer the structured form above.
 
-@section p09_next_steps_sec 6. Next Steps
+@section p09_next_steps_sec 7. Next Steps
 
 Proceed to **@subpage 10_Post_Processing_Reference**.
 
@@ -243,6 +288,7 @@ Also see:
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 50_Modular_Selector_Extension_Guide**
+- **@subpage 58_Turbulence_Statistics_Pipeline_Specification**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

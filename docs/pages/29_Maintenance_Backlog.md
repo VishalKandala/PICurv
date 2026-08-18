@@ -63,7 +63,10 @@ Potential low-priority observability improvements worth revisiting:
 - consider presentation-only normalization for longstanding diagnostic renderers (consistent severity prefixes and stable identifiers) while preserving the documented exceptions: bootstrap warnings emitted before logging is initialized, and dedicated banner/progress output sinks.
 - move the local wrapper stream log out of `runs/<run_id>/logs/` so it is not affected by solver-side log-directory recreation; `scheduler/` is the existing precedent for batch stdout/stderr.
 - add an optional compact per-step summary CSV that consolidates already-available signals such as momentum pseudo-iterations/final residual, Poisson iterations/final residual, continuity/divergence, and particle health counters.
-- add opt-in convergence-based runtime completion for `solution_convergence.mode: steady_deterministic`; keep `transient` diagnostic-only and require configured tolerances, minimum samples, dwell windows, and safe-checkpoint final writes before stopping.
+- add opt-in convergence-based runtime completion for
+  `solution_monitoring.convergence.mode: steady_deterministic`;
+  keep `transient` diagnostic-only and require configured tolerances, minimum
+  samples, dwell windows, and safe-checkpoint final writes before stopping.
 - add an optional boundary-flux summary CSV for inlet/farfield/outlet totals and conservation error when boundary-condition debugging becomes a repeated workflow need.
 - add cadence-based field-extrema summaries (`P`, `|Ucat|`, `Psi`, diffusivity) only if users need compact trend logs instead of verbose anatomy/min-max output.
 - extend particle metrics only when current `Particle_Metrics.log` proves insufficient; prefer compact inventory/health summaries over larger particle state dumps.
@@ -74,6 +77,64 @@ Observability policy note:
 - backlog items in this section are primarily convenience or subsystem-specific diagnostics, not missing core health signals.
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
+
+@section p29_restart_floor_sec 8. Characterized: Restart Is Not Bit-Exact
+
+Measured 2026-08-17 on `flat_channel`. This is characterized and accepted, not an
+open defect. It is recorded here so it is not rediscovered as a bug and so future
+restart/statistics tolerances are set from a measured floor.
+
+**What happens.** `SetInitialFluidState_Load` calls `ApplyBoundaryConditions`
+immediately after `ReadSimulationFields` ([src/initialcondition.c](../../src/initialcondition.c)).
+That runs a three-pass boundary fixed-point loop whose `Contra2Cart` step rebuilds
+`Ucat` from `Ucont`, so a restarted run resumes from `BC(x_N)` rather than the
+checkpointed `x_N`. `Apply_OutletConservation` does not refine the outlet, it
+overwrites it: the outlet flux is regenerated from the adjacent interior `Ucat`
+plus a global mass correction. The stored end-of-step state is therefore not a
+fixed point of the boundary map, and re-applying it reveals the offset.
+
+**Measured behavior.**
+
+- The perturbation is confined to the outlet plane. The interior is untouched.
+- `P`, `Nvert`, and `Ucont_rm1` are bit-exact across the restart.
+- One step later it is domain-wide, which is expected: the elliptic pressure solve
+  couples any boundary perturbation everywhere in a single step.
+- It then decays monotonically and does not amplify. On 24x24x48 with a restart at
+  step 50, `Ucont` relative L2 peaks near 5e-8 at step 55 and decays to 4.5e-8 by
+  step 100; `P` peaks near 1.5e-7 and decays to 1.3e-7.
+- Absolute magnitudes sit below the solver's own stopping tolerances (`Ucont`
+  |d|inf ~4.6e-10 against momentum `absolute_tol` 1e-8).
+- The magnitude *decreases* on finer grids and more developed flow.
+
+**The perturbation is invariant to solver tolerance.** Tightening momentum
+`relative_tol` 1e-3 to 1e-8, `absolute_tol` 1e-8 to 1e-12, and Poisson
+`absolute_tolerance` 1e-5 to 1e-10 changed the restart offset by under one percent
+(`Ucont` relative L2 9.061e-09 versus 9.153e-09), while changing the underlying
+trajectory by 1.67e-05, roughly 370 times larger than the offset itself. The floor
+is structural. It cannot be tightened away through solver settings.
+
+**Consequences.**
+
+- @ref 58_Turbulence_Statistics_Pipeline_Specification section 12 is correct that
+  checkpointing `Ucont_rm1` avoids an artificial first-order restart step. It must
+  not be read as promising a bit-exact trajectory. One step after restart the BDF2
+  history pair is asymmetric: the n-1 slot carries `BC(x_N)` where an uninterrupted
+  run carries `x_N`.
+- Statistics restart-equivalence acceptance tests must set tolerance from this
+  measured floor, not from machine epsilon and not on the assumption that
+  verification runs can tighten their way below it.
+- This floor was measured on a laminar, stable case. In turbulent runs trajectories
+  separate exponentially and pointwise restart comparison stops being meaningful at
+  any tolerance; statistics equivalence there must be tested on converged window
+  means instead of field-by-field.
+
+**Open question, deliberately not pursued.** Why the offset lands near 1e-7 rather
+than some other magnitude is not established. Two candidate mechanisms remain:
+a residual of the three-pass boundary loop, or the ordering of the pressure
+projection relative to the last boundary application within a step. Changing the
+pass count in [src/Boundaries.c](../../src/Boundaries.c) and re-measuring the offset
+would distinguish them. Geometric scaling with pass count implicates the loop;
+no change implicates checkpoint placement within the step.
 
 ## CFD Reader Guidance and Practical Use
 

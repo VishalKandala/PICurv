@@ -9,6 +9,5 @@ io:
   output_directory: visualization/dit
   output_filename_prefix: dit
   eulerian_fields: [Ucat_nodal, P_nodal, Qcrit]
-  eulerian_fields_averaged: []
   output_particles: false
   input_extensions: {eulerian: dat, particle: dat}

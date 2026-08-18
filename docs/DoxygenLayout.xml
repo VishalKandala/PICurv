@@ -7,6 +7,8 @@
     <tab type="user" visible="yes" url="21_Methods_Overview.html" title="Methods"/>
     <tab type="user" visible="yes" url="46_C_Runtime_Execution_Map.html" title="Runtime Internals"/>
     <tab type="user" visible="yes" url="56_Field_Identity_and_Layout_Catalog.html" title="Field Catalog"/>
+    <tab type="user" visible="yes" url="57_Future_Architecture_Specifications.html" title="Future Specs"/>
+    <tab type="user" visible="yes" url="58_Turbulence_Statistics_Pipeline_Specification.html" title="Statistics Spec"/>
     <tab type="user" visible="yes" url="files_structured.html" title="File List"/>
     <tab type="user" visible="yes" url="annotated_structured.html" title="Data Structures"/>
     <tab type="user" visible="yes" url="/projects/" title="Projects Home"/>

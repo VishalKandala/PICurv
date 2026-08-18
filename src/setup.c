@@ -52,6 +52,7 @@ PetscErrorCode InitializeSolutionConvergenceState(SimCtx *simCtx)
     PetscFunctionBeginUser;
     if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
     if (simCtx->exec_mode != EXEC_MODE_SOLVER) PetscFunctionReturn(0);
+    if (!simCtx->solutionConvergenceEnabled) PetscFunctionReturn(0);
     if (!simCtx->usermg.mgctx) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                 "Multigrid hierarchy must exist before initializing solution convergence storage.");
@@ -180,10 +181,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     strcpy(simCtx->restart_dir,"restart");
     strcpy(simCtx->output_dir,"output");
     strcpy(simCtx->log_dir,"logs");
-    strcpy(simCtx->euler_subdir,"eulerian");
-    strcpy(simCtx->particle_subdir,"particles");
     simCtx->_io_context_buffer[0] = '\0';
     simCtx->current_io_directory = NULL;
+    simCtx->checkpointGeometrySHA256[0] = '\0';
+    simCtx->checkpointGeometryHashReady = PETSC_FALSE;
+    simCtx->restartHistoryAvailable = PETSC_FALSE;
 
     // --- Group 3: High-Level Physics & Model Selection Flags ---
     simCtx->immersed = 0; simCtx->movefsi = 0; simCtx->rotatefsi = 0;
@@ -235,6 +237,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->AnalyticalUniformVelocity.x = 0.0;
     simCtx->AnalyticalUniformVelocity.y = 0.0;
     simCtx->AnalyticalUniformVelocity.z = 0.0;
+    simCtx->solutionConvergenceEnabled = PETSC_TRUE;
     simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC;
     simCtx->solutionConvergencePeriodSteps = 0;
     simCtx->solutionConvergenceWindowSteps = 0;
@@ -280,7 +283,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     
     
     // --- Group 8: Turbulence Modeling (LES/RANS) ---
-    simCtx->averaging = PETSC_FALSE; simCtx->les = NO_LES_MODEL; simCtx->rans = 0;
+    simCtx->les = NO_LES_MODEL; simCtx->rans = 0;
     simCtx->wallfunction = 0; simCtx->mixed = 0; simCtx->clark = 0;
     simCtx->dynamic_freq = 1; simCtx->max_cs = 0.5;
     simCtx->Const_CS = 0.03;
@@ -385,6 +388,14 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     }
     CHKERRQ(ierr);
 
+    {
+        PetscBool legacy_averaging = PETSC_FALSE;
+        ierr = PetscOptionsHasName(NULL, NULL, "-averaging", &legacy_averaging); CHKERRQ(ierr);
+        PetscCheck(!legacy_averaging, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                   "Legacy -averaging was removed. Use instantaneous output and offline "
+                   "postprocessing until the replacement field-statistics pipeline is available.");
+    }
+
     // === 3. A Configure Logging System ========================================
     // This logic determines the logging configuration and STORES it in simCtx for
     // later reference and cleanup.
@@ -474,8 +485,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-euler_subdir",simCtx->euler_subdir,sizeof(simCtx->euler_subdir),NULL);CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL,NULL,"-particle_subdir",simCtx->particle_subdir,sizeof(simCtx->particle_subdir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-walltime_guard_enabled", &simCtx->walltimeGuardEnabled, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-walltime_guard_warmup_steps", &simCtx->walltimeGuardWarmupSteps, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_multiplier", &simCtx->walltimeGuardMultiplier, NULL); CHKERRQ(ierr);
@@ -577,6 +586,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetString(NULL, NULL, "-solution_convergence_mode",
                                  solution_convergence_mode_char, sizeof(solution_convergence_mode_char),
                                  &solution_convergence_mode_flg); CHKERRQ(ierr);
+    ierr = PetscOptionsGetBool(NULL, NULL, "-solution_convergence_enabled", &simCtx->solutionConvergenceEnabled, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-solution_convergence_period_steps", &simCtx->solutionConvergencePeriodSteps, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-solution_convergence_window_steps", &simCtx->solutionConvergenceWindowSteps, NULL); CHKERRQ(ierr);
 
@@ -620,7 +630,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                 "solution convergence mode STATISTICAL_STEADY requires -solution_convergence_window_steps > 0.");
     }
-    
+
     // --- Multigrid Options ---
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_level", &simCtx->mglevels, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_max_it", &simCtx->mg_MAX_IT, NULL); CHKERRQ(ierr);
@@ -874,7 +884,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-i_homo_filter", &simCtx->i_homo_filter, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-j_homo_filter", &simCtx->j_homo_filter, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-k_homo_filter", &simCtx->k_homo_filter, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetBool(NULL, NULL, "-averaging", &simCtx->averaging, NULL); CHKERRQ(ierr);
 
      //  --- Group 9
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 9:  Particle / DMSwarm Data & Settings \n");
@@ -1104,35 +1113,14 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
             ierr = PetscMkdir(simCtx->log_dir); CHKERRQ(ierr);
         }
 
-        // --- Prepare Output Directories ---
-        char path_buffer[PETSC_MAX_PATH_LEN];
-
-        // 1. Check/Create the main output directory
+        // --- Prepare Output Directory ---
+        // The checkpoint coordinator creates its fixed internal hierarchy
+        // transactionally when a checkpoint is due.
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Verifying main output directory: %s\n", simCtx->output_dir);
         ierr = PetscTestDirectory(simCtx->output_dir, 'r', &exists); CHKERRQ(ierr);
         if (!exists) {
             LOG_ALLOW(GLOBAL, LOG_INFO, "Output directory not found. Creating: %s\n", simCtx->output_dir);
             ierr = PetscMkdir(simCtx->output_dir); CHKERRQ(ierr);
-        }
-
-        // 2. Check/Create the Eulerian subdirectory
-        ierr = PetscSNPrintf(path_buffer, sizeof(path_buffer), "%s/%s", simCtx->output_dir, simCtx->euler_subdir); CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Verifying Eulerian subdirectory: %s\n", path_buffer);
-        ierr = PetscTestDirectory(path_buffer, 'r', &exists); CHKERRQ(ierr);
-        if (!exists) {
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian subdirectory not found. Creating: %s\n", path_buffer);
-            ierr = PetscMkdir(path_buffer); CHKERRQ(ierr);
-        }
-
-        // 3. Check/Create the Particle subdirectory if needed
-        if (simCtx->np > 0) {
-          ierr = PetscSNPrintf(path_buffer, sizeof(path_buffer), "%s/%s", simCtx->output_dir, simCtx->particle_subdir); CHKERRQ(ierr);
-          LOG_ALLOW(GLOBAL, LOG_DEBUG, "Verifying Particle subdirectory: %s\n", path_buffer);
-          ierr = PetscTestDirectory(path_buffer, 'r', &exists); CHKERRQ(ierr);
-          if (!exists) {
-              LOG_ALLOW(GLOBAL, LOG_INFO, "Particle subdirectory not found. Creating: %s\n", path_buffer);
-              ierr = PetscMkdir(path_buffer); CHKERRQ(ierr);
-          }
         }
       } else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Preparing post-processing output directories ...\n");
@@ -3495,18 +3483,12 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->CellFieldAtCorner) { ierr = VecDestroy(&user->CellFieldAtCorner); CHKERRQ(ierr); }
     if (user->lCellFieldAtCorner) { ierr = VecDestroy(&user->lCellFieldAtCorner); CHKERRQ(ierr); }
 
-    // --- Group L: Statistical Averaging Vectors (If allocated) ---
-    if (user->Ucat_sum) { ierr = VecDestroy(&user->Ucat_sum); CHKERRQ(ierr); }
-    if (user->Ucat_cross_sum) { ierr = VecDestroy(&user->Ucat_cross_sum); CHKERRQ(ierr); }
-    if (user->Ucat_square_sum) { ierr = VecDestroy(&user->Ucat_square_sum); CHKERRQ(ierr); }
-    if (user->P_sum) { ierr = VecDestroy(&user->P_sum); CHKERRQ(ierr); }
-
-    // --- Group M: Implicit Solver Temporary Vectors (Destroyed after use, but check anyway) ---
+    // --- Group L: Implicit Solver Temporary Vectors (Destroyed after use, but check anyway) ---
     if (user->Rhs) { ierr = VecDestroy(&user->Rhs); CHKERRQ(ierr); }
     if (user->dUcont) { ierr = VecDestroy(&user->dUcont); CHKERRQ(ierr); }
     if (user->pUcont) { ierr = VecDestroy(&user->pUcont); CHKERRQ(ierr); }
 
-    // --- Group N: Poisson Solver Vectors (Destroyed after solve, but check anyway) ---
+    // --- Group M: Poisson Solver Vectors (Destroyed after solve, but check anyway) ---
     if (user->B) { ierr = VecDestroy(&user->B); CHKERRQ(ierr); }
     if (user->R) { ierr = VecDestroy(&user->R); CHKERRQ(ierr); }
 

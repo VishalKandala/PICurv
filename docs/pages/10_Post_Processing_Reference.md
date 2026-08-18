@@ -8,6 +8,13 @@ For the full commented template, see:
 
 `post.yml` defines postprocessing input range, processing pipelines, statistics tasks, and VTK output selection.
 
+The current `statistics_pipeline` is the particle-reduction path. The proposed
+online Eulerian field-statistics system will use a separate `field_statistics`
+recipe so particle MSD and resolved turbulence statistics are not conflated.
+That future contract is specified in
+**@subpage 58_Turbulence_Statistics_Pipeline_Specification** and is not yet
+implemented.
+
 @tableofcontents
 
 @section p10_structure_sec 1. File Structure
@@ -66,7 +73,10 @@ Operational semantics when launched through `picurv`:
 
 - `source_data.directory` -> `source_directory`
 - `<solver_output_dir>` is a supported placeholder resolved by `picurv`.
-- for live post-processing while the solver is still running, PICurv treats a timestep as source-available only when the full required source set for the current recipe exists. For Eulerian-only recipes that means the mandatory field files; for particle/statistics recipes it also requires the particle position file for that timestep.
+- for live post-processing while the solver is still running, PICurv treats a
+  timestep as source-available only when its checkpoint bundle has a valid
+  `checkpoint.meta`/`COMMITTED` pair and complete payload inventory. A recipe
+  that needs particles also requires committed particle state.
 
 @section p10_pipelines_sec 4. Processing Pipelines
 
@@ -103,12 +113,12 @@ Mappings:
 - `output_particles` -> `output_particles`
 - `particle_subsampling_frequency` -> `particle_output_freq`
 - `eulerian_fields` -> `output_fields_instantaneous`
-- `eulerian_fields_averaged` -> `output_fields_averaged` (reserved)
 - `particle_fields` -> `particle_fields_instantaneous` — **must be non-empty when `output_particles: true`**; an empty list produces no particle VTP output even if particle output is enabled. Standard swarm field names: `position`, `velocity`, `pid`, `CellID`, `weight`.
-- `input_extensions.eulerian` -> `eulerianExt`
-- `input_extensions.particle` -> `particleExt`
+- `input_extensions.eulerian/particle`, when present, must be `dat`; committed
+  bundle payload names are fixed
 
-Default post input extension remains `dat` unless overridden.
+The postprocessor reads the catalogued `.dat` PETSc vectors inventoried by each
+committed checkpoint; input extensions are not runtime-selectable.
 `statistics_pipeline.output_prefix` is independent of `io.output_directory`; bare basenames
 default under `<monitor output>/statistics/`, while explicit relative or absolute paths are preserved.
 When the same timestep is post-processed again, PICurv now rewrites same-step VTK/VTP outputs and rewrites same-step statistics rows so the final CSV still contains one row per step.
@@ -121,6 +131,7 @@ For mapping and extension details:
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 50_Modular_Selector_Extension_Guide**
+- **@subpage 58_Turbulence_Statistics_Pipeline_Specification** (proposed future contract)
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

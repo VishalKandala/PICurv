@@ -209,7 +209,158 @@ POST_LOCK_METADATA_FILENAME = "post.lock.json"
 POST_LOCK_WRAPPER_FILENAME = "post_lock_wrapper.py"
 POST_RESUME_SCHEMA_VERSION = 1
 POST_RECIPE_SIGNATURE_EXCLUDED_KEYS = {"startTime", "endTime"}
-POST_REQUIRED_EULERIAN_SOURCE_BASENAMES = ("ufield", "vfield", "pfield", "nvfield")
+CHECKPOINT_FORMAT = "picurv-checkpoint"
+CHECKPOINT_VERSION = 1
+CHECKPOINT_STEP_WIDTH = 12
+CHECKPOINT_REQUIRED_EULERIAN_FIELDS = {"Ucat", "Ucont", "Ucont_rm1", "P", "Nvert"}
+
+
+def _checkpoint_bundle_path(source_dir: str, step: int) -> str:
+    """!
+    @brief Resolve a run/output root or an exact checkpoint bundle.
+    @param[in] source_dir Run/output root or exact bundle path.
+    @param[in] step Checkpoint step to resolve.
+    @return Absolute path to the checkpoint bundle.
+    """
+    source_dir = os.path.abspath(source_dir)
+    if os.path.isfile(os.path.join(source_dir, "checkpoint.meta")):
+        return source_dir
+    return os.path.join(source_dir, "checkpoints", f"step_{step:0{CHECKPOINT_STEP_WIDTH}d}")
+
+
+def _read_checkpoint_options(metadata_path: str) -> dict:
+    """!
+    @brief Parse the deliberately small PETSc-options checkpoint manifest.
+    @param[in] metadata_path Path to checkpoint.meta.
+    @return Mapping of option names to scalar text values.
+    """
+    options = {}
+    with open(metadata_path, "r", encoding="utf-8") as stream:
+        for line_number, raw_line in enumerate(stream, start=1):
+            tokens = shlex.split(raw_line, comments=True, posix=True)
+            if not tokens:
+                continue
+            if len(tokens) != 2 or not tokens[0].startswith("-"):
+                raise ValueError(
+                    f"Invalid checkpoint metadata line {line_number} in {metadata_path}."
+                )
+            key = tokens[0][1:]
+            if key in options:
+                raise ValueError(f"Duplicate checkpoint metadata key '-{key}' in {metadata_path}.")
+            options[key] = tokens[1]
+    return options
+
+
+def validate_committed_checkpoint(source_dir: str, step: int, require_particles: bool = False) -> dict:
+    """!
+    @brief Validate one committed bundle using the same manifest contract as C.
+    @param[in] source_dir Run/output root or exact bundle path.
+    @param[in] step Expected checkpoint step.
+    @param[in] require_particles Whether particle restart payloads are required.
+    @return Validated bundle path, metadata, and payload inventory.
+    """
+    bundle = _checkpoint_bundle_path(source_dir, step)
+    metadata_path = os.path.join(bundle, "checkpoint.meta")
+    commit_path = os.path.join(bundle, "COMMITTED")
+    if not os.path.isfile(metadata_path) or not os.path.isfile(commit_path):
+        raise ValueError(f"No committed checkpoint for step {step}: {bundle}")
+
+    with open(commit_path, "r", encoding="ascii") as stream:
+        expected_digest = stream.read().strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", expected_digest):
+        raise ValueError(f"Invalid checkpoint commit marker: {commit_path}")
+    with open(metadata_path, "rb") as stream:
+        actual_digest = hashlib.sha256(stream.read()).hexdigest()
+    if actual_digest.lower() != expected_digest.lower():
+        raise ValueError(f"Checkpoint metadata hash mismatch: {bundle}")
+
+    options = _read_checkpoint_options(metadata_path)
+    try:
+        saved_version = int(options.get("checkpoint_version", "-1"))
+        saved_step = int(options.get("checkpoint_step", "-1"))
+        payload_count = int(options.get("checkpoint_payload_count", "-1"))
+        particle_count = int(options.get("checkpoint_particle_count", "-1"))
+        block_count = int(options.get("checkpoint_block_count", "-1"))
+        float(options["checkpoint_time"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Checkpoint metadata is incomplete or malformed: {metadata_path}") from exc
+    if options.get("checkpoint_format") != CHECKPOINT_FORMAT or saved_version != CHECKPOINT_VERSION:
+        raise ValueError(f"Unsupported checkpoint format/version: {metadata_path}")
+    if saved_step != step:
+        raise ValueError(f"Checkpoint records step {saved_step}, expected {step}: {bundle}")
+    if payload_count <= 0 or particle_count < 0 or block_count <= 0:
+        raise ValueError(f"Checkpoint inventory counts are invalid: {metadata_path}")
+
+    payloads = []
+    for index in range(payload_count):
+        prefix = f"checkpoint_payload_{index}_"
+        relative_path = options.get(prefix + "path")
+        try:
+            expected_bytes = int(options[prefix + "bytes"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"Checkpoint payload {index} has invalid metadata: {metadata_path}") from exc
+        if not relative_path or os.path.isabs(relative_path) or ".." in relative_path.split("/"):
+            raise ValueError(f"Checkpoint payload {index} has an unsafe path: {relative_path!r}")
+        payload_path = os.path.join(bundle, *relative_path.split("/"))
+        if not os.path.isfile(payload_path) or os.path.getsize(payload_path) != expected_bytes:
+            raise ValueError(f"Checkpoint payload is missing or truncated: {payload_path}")
+        payloads.append({
+            "path": relative_path,
+            "kind": options.get(prefix + "kind"),
+            "field": options.get(prefix + "field"),
+            "block": options.get(prefix + "block"),
+        })
+
+    for block in range(block_count):
+        fields = {
+            item["field"] for item in payloads
+            if item["kind"] == "eulerian" and item["block"] == str(block)
+        }
+        missing = CHECKPOINT_REQUIRED_EULERIAN_FIELDS - fields
+        if missing:
+            raise ValueError(
+                f"Checkpoint block {block} is missing required Eulerian field(s): "
+                f"{', '.join(sorted(missing))}."
+            )
+    particle_payloads = [item for item in payloads if item["kind"] == "particle"]
+    has_particles = options.get("checkpoint_particles", "false").lower() == "true"
+    if (not has_particles and particle_count != 0) or (has_particles and not particle_payloads):
+        raise ValueError(f"Checkpoint particle inventory is inconsistent: {metadata_path}")
+    if require_particles and not has_particles:
+        raise ValueError(f"Checkpoint step {step} does not contain particle state: {bundle}")
+
+    return {
+        "bundle": bundle,
+        "metadata": options,
+        "payloads": payloads,
+        "has_particles": has_particles,
+        "particle_count": particle_count,
+    }
+
+
+def _scan_committed_checkpoint_steps(source_dir: str, require_particles: bool = False) -> "set[int]":
+    """!
+    @brief Return only fully validated, committed checkpoint steps.
+    @param[in] source_dir Run/output root containing checkpoints.
+    @param[in] require_particles Whether particle restart payloads are required.
+    @return Set of valid committed step numbers.
+    """
+    checkpoints_dir = os.path.join(os.path.abspath(source_dir), "checkpoints")
+    if not os.path.isdir(checkpoints_dir):
+        return set()
+    pattern = re.compile(rf"^step_(\d{{{CHECKPOINT_STEP_WIDTH}}})$")
+    steps = set()
+    for name in os.listdir(checkpoints_dir):
+        match = pattern.fullmatch(name)
+        if not match:
+            continue
+        step = int(match.group(1))
+        try:
+            validate_committed_checkpoint(source_dir, step, require_particles=require_particles)
+        except ValueError:
+            continue
+        steps.add(step)
+    return steps
 
 
 def parse_slurm_time_limit_to_seconds(time_text: str) -> int:
@@ -1648,16 +1799,16 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
     c_config['output_particles'] = io.get('output_particles', False)
     c_config['particle_output_freq'] = io.get('particle_subsampling_frequency', 1)
     c_config['output_fields_instantaneous'] = ",".join(io.get('eulerian_fields', []))
-    c_config['output_fields_averaged'] = ",".join(io.get('eulerian_fields_averaged', []))
     c_config['particle_fields_instantaneous'] = ",".join(io.get('particle_fields', []))
     input_extensions = get_post_input_extensions(post_cfg)
     if isinstance(input_extensions, dict):
-        e_ext = input_extensions.get('eulerian')
-        p_ext = input_extensions.get('particle')
-        if e_ext:
-            c_config['eulerianExt'] = str(e_ext).strip().lstrip('.')
-        if p_ext:
-            c_config['particleExt'] = str(p_ext).strip().lstrip('.')
+        for extension_name in ('eulerian', 'particle'):
+            extension = input_extensions.get(extension_name)
+            if extension and str(extension).strip().lstrip('.').lower() != 'dat':
+                raise ValueError(
+                    f"post input extension '{extension_name}' must be 'dat'; "
+                    "committed checkpoint payload names are fixed."
+                )
 
     source_directory = get_post_source_directory_template(post_cfg, default=None)
     if source_directory is not None:
@@ -1967,43 +2118,14 @@ def _scan_complete_source_steps(source_dir: str, monitor_cfg: dict, post_cfg: di
     @param[in] post_cfg Parsed post-processing configuration.
     @return Tuple of complete source steps and source path metadata.
     """
-    dirs = (monitor_cfg.get('io', {}) or {}).get('directories', {}) or {}
-    euler_subdir = dirs.get('eulerian_subdir', 'eulerian')
-    particle_subdir = dirs.get('particle_subdir', 'particles')
-    euler_dir = os.path.join(source_dir, euler_subdir)
-    particle_dir = os.path.join(source_dir, particle_subdir)
-
-    input_extensions = get_post_input_extensions(post_cfg)
-    euler_ext = str((input_extensions.get('eulerian') or 'dat')).strip().lstrip('.')
-    particle_ext = str((input_extensions.get('particle') or 'dat')).strip().lstrip('.')
-
-    families = []
-    for basename in POST_REQUIRED_EULERIAN_SOURCE_BASENAMES:
-        steps = set()
-        if os.path.isdir(euler_dir):
-            pattern = re.compile(rf'^{re.escape(basename)}(\d{{5}})_0\.{re.escape(euler_ext)}$')
-            for name in os.listdir(euler_dir):
-                match = pattern.match(name)
-                if match:
-                    steps.add(int(match.group(1)))
-        families.append(steps)
-
-    if _post_needs_particle_source(post_cfg):
-        steps = set()
-        if os.path.isdir(particle_dir):
-            pattern = re.compile(rf'^position(\d{{5}})_0\.{re.escape(particle_ext)}$')
-            for name in os.listdir(particle_dir):
-                match = pattern.match(name)
-                if match:
-                    steps.add(int(match.group(1)))
-        families.append(steps)
-
-    complete_steps = set.intersection(*families) if families else set()
+    del monitor_cfg
+    require_particles = _post_needs_particle_source(post_cfg)
+    complete_steps = _scan_committed_checkpoint_steps(
+        source_dir, require_particles=require_particles
+    )
     return complete_steps, {
-        'euler_dir': euler_dir,
-        'particle_dir': particle_dir,
-        'euler_ext': euler_ext,
-        'particle_ext': particle_ext,
+        'source_dir': os.path.abspath(source_dir),
+        'require_particles': require_particles,
     }
 
 
@@ -2015,12 +2137,11 @@ def _expected_source_paths_for_step(step: int, source_scan: dict, post_cfg: dict
     @param[in] post_cfg Parsed post-processing configuration.
     @return Required source artifact paths.
     """
-    paths = [
-        os.path.join(source_scan['euler_dir'], f'{basename}{step:05d}_0.{source_scan["euler_ext"]}')
-        for basename in POST_REQUIRED_EULERIAN_SOURCE_BASENAMES
-    ]
-    if _post_needs_particle_source(post_cfg):
-        paths.append(os.path.join(source_scan['particle_dir'], f'position{step:05d}_0.{source_scan["particle_ext"]}'))
+    del post_cfg
+    bundle = _checkpoint_bundle_path(source_scan['source_dir'], step)
+    paths = [os.path.join(bundle, 'checkpoint.meta'), os.path.join(bundle, 'COMMITTED')]
+    if source_scan.get('require_particles'):
+        paths.append(os.path.join(bundle, 'particles', 'position.dat'))
     return paths
 
 
@@ -2054,12 +2175,22 @@ def detect_post_source_frontier(source_dir: str, monitor_cfg: dict, post_cfg: di
 
     frontier = None
     for step in _iter_post_steps(start_step, end_step, step_interval):
-        expected_paths = _expected_source_paths_for_step(step, source_scan, post_cfg)
-        if not all(os.path.isfile(path) for path in expected_paths):
+        try:
+            validate_committed_checkpoint(
+                source_dir, step,
+                require_particles=source_scan.get('require_particles', False),
+            )
+        except ValueError:
+            expected_paths = _expected_source_paths_for_step(step, source_scan, post_cfg)
             diagnostic['first_incomplete_step'] = step
             diagnostic['missing_files_for_first_incomplete_step'] = [
                 os.path.relpath(path, source_dir) for path in expected_paths if not os.path.isfile(path)
             ]
+            if not diagnostic['missing_files_for_first_incomplete_step']:
+                diagnostic['missing_files_for_first_incomplete_step'] = [
+                    os.path.relpath(_checkpoint_bundle_path(source_dir, step), source_dir)
+                    + ' (invalid bundle)'
+                ]
             break
         frontier = step
     return {
@@ -2394,6 +2525,44 @@ def resolve_run_restart_dir(run_dir: str, monitor_cfg: dict) -> str:
     return os.path.abspath(os.path.join(run_dir, restart_rel))
 
 
+def compute_physical_case_identity(case_cfg: dict) -> str:
+    """!
+    @brief Compute the hidden identity used to guard in-place continuation.
+    @details Run length/timestep controls and particle load-vs-init policy do
+             not define the physical case. All other case.yml content does.
+    @param[in] case_cfg Parsed case configuration.
+    @return Lowercase SHA-256 identity of normalized physical-case content.
+    """
+    normalized = copy.deepcopy(case_cfg)
+    if isinstance(normalized, dict):
+        normalized.pop("run_control", None)
+        particles = (((normalized.get("models") or {}).get("physics") or {}).get("particles"))
+        if isinstance(particles, dict):
+            particles.pop("restart_mode", None)
+    payload = json.dumps(
+        normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def validate_continue_case_identity(run_dir: str, case_cfg: dict) -> None:
+    """!
+    @brief Reject in-place continuation when the physical case has changed.
+    @param[in] run_dir Existing run directory being continued.
+    @param[in] case_cfg Newly requested case configuration.
+    @return None.
+    """
+    saved_case_path = os.path.join(run_dir, "config", "case.yml")
+    if not os.path.isfile(saved_case_path):
+        raise ValueError(f"--continue run is missing its saved case.yml: {saved_case_path}")
+    saved_case = read_yaml_file(saved_case_path)
+    if compute_physical_case_identity(saved_case) != compute_physical_case_identity(case_cfg):
+        raise ValueError(
+            "--continue cannot change the physical case. Change only run_control, "
+            "solver.yml, monitor.yml, or post.yml; use --restart-from for a new case branch."
+        )
+
+
 def populate_restart_directory(source_output: str, target_restart: str, start_step: int, monitor_cfg: dict):
     """!
     @brief Copy checkpoint files for a specific step from source output to target restart.
@@ -2401,33 +2570,36 @@ def populate_restart_directory(source_output: str, target_restart: str, start_st
     @param[in] target_restart Path to the target restart directory to populate.
     @param[in] start_step The step number whose checkpoint files should be copied.
     @param[in] monitor_cfg Parsed monitor YAML dictionary (for subdirectory names).
+    @return Exact path to the copied committed checkpoint bundle.
     """
-    # Verify before replacing a curated restart directory.  The C runtime loads
-    # all four Eulerian fields, so a single matching file is not a checkpoint.
-    validate_eulerian_checkpoint(source_output, start_step, monitor_cfg)
+    del monitor_cfg
+    source = validate_committed_checkpoint(source_output, start_step)["bundle"]
+    checkpoints_root = os.path.join(os.path.abspath(target_restart), "checkpoints")
+    destination = os.path.join(
+        checkpoints_root, f"step_{start_step:0{CHECKPOINT_STEP_WIDTH}d}"
+    )
+    if os.path.isdir(destination):
+        validate_committed_checkpoint(destination, start_step)
+        print(f"[INFO] Reusing committed restart bundle: {destination}")
+        return destination
 
-    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
-    euler_sub = dirs.get("eulerian_subdir", "eulerian")
-    particle_sub = dirs.get("particle_subdir", "particles")
-
-    if os.path.exists(target_restart):
-        shutil.rmtree(target_restart)
-    os.makedirs(os.path.join(target_restart, euler_sub), exist_ok=True)
-    os.makedirs(os.path.join(target_restart, particle_sub), exist_ok=True)
-
-    step_str = f"{start_step:05d}"
-    for subdir in [euler_sub, particle_sub]:
-        src = os.path.join(source_output, subdir)
-        dst = os.path.join(target_restart, subdir)
-        if not os.path.isdir(src):
-            continue
-        for f_name in glob.glob(os.path.join(src, f"*{step_str}_0.*")):
-            shutil.copy2(f_name, dst)
-
-    copied = glob.glob(os.path.join(target_restart, "**", f"*{step_str}_0.*"), recursive=True)
-    if not copied:
-        raise ValueError(f"No checkpoint files found for step {start_step} in {source_output}")
-    print(f"[INFO] Populated restart directory with {len(copied)} file(s) for step {start_step}: {target_restart}")
+    os.makedirs(checkpoints_root, exist_ok=True)
+    temporary = os.path.join(
+        checkpoints_root,
+        f".step_{start_step:0{CHECKPOINT_STEP_WIDTH}d}.copying.{os.getpid()}",
+    )
+    if os.path.exists(temporary):
+        raise ValueError(f"Restart staging path already exists: {temporary}")
+    try:
+        shutil.copytree(source, temporary)
+        validate_committed_checkpoint(temporary, start_step)
+        os.replace(temporary, destination)
+    except Exception:
+        if os.path.isdir(temporary):
+            shutil.rmtree(temporary)
+        raise
+    print(f"[INFO] Copied committed restart bundle for step {start_step}: {destination}")
+    return destination
 
 
 def validate_eulerian_checkpoint(source_dir: str, step: int, monitor_cfg: dict):
@@ -2436,54 +2608,22 @@ def validate_eulerian_checkpoint(source_dir: str, step: int, monitor_cfg: dict):
     @param[in] source_dir Root directory containing the Eulerian subdirectory.
     @param[in] step Checkpoint step to validate.
     @param[in] monitor_cfg Monitor configuration defining the Eulerian subdirectory.
+    @return Validated checkpoint description.
     @throws ValueError if any mandatory Eulerian field is absent.
     """
-    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
-    euler_sub = dirs.get("eulerian_subdir", "eulerian")
-    euler_path = os.path.join(source_dir, euler_sub)
-    step_str = f"{step:05d}"
-    required_fields = ("ufield", "vfield", "pfield", "nvfield")
-    missing = [field for field in required_fields
-               if not glob.glob(os.path.join(euler_path, f"{field}{step_str}_0.*"))]
-    if missing:
-        raise ValueError(
-            f"Incomplete Eulerian checkpoint for step {step} in {euler_path}; "
-            f"missing required field(s): {', '.join(missing)}."
-        )
+    del monitor_cfg
+    return validate_committed_checkpoint(source_dir, step)
 
 
-def detect_last_checkpoint_step(output_dir: str, euler_subdir: str = "eulerian", particle_subdir: str = "particles"):
+def detect_last_checkpoint_step(output_dir: str):
     """!
     @brief Scan output directory for the highest step number available.
-    @details Checks eulerian files first (ufield), then falls back to particle
-             files (position) for analytical-mode cases that have no eulerian output.
+    @details Ignores incomplete temporary directories and invalid bundles.
     @param[in] output_dir Path to the output directory.
-    @param[in] euler_subdir Name of the eulerian subdirectory.
-    @param[in] particle_subdir Name of the particle subdirectory.
     @return The highest step number found, or None if no checkpoints exist.
     """
-    import re as _re
-    euler_path = os.path.join(output_dir, euler_subdir)
-    if os.path.isdir(euler_path):
-        pattern = _re.compile(r"ufield(\d{5})_0\.dat")
-        steps = []
-        for fname in os.listdir(euler_path):
-            match = pattern.match(fname)
-            if match:
-                steps.append(int(match.group(1)))
-        if steps:
-            return max(steps)
-    particle_path = os.path.join(output_dir, particle_subdir)
-    if os.path.isdir(particle_path):
-        pattern = _re.compile(r"position(\d{5})_0\.dat")
-        steps = []
-        for fname in os.listdir(particle_path):
-            match = pattern.match(fname)
-            if match:
-                steps.append(int(match.group(1)))
-        if steps:
-            return max(steps)
-    return None
+    steps = _scan_committed_checkpoint_steps(output_dir)
+    return max(steps) if steps else None
 
 
 def detect_case_completion_status(run_dir: str, monitor_cfg: dict, target_final_step: int) -> dict:
@@ -2495,11 +2635,8 @@ def detect_case_completion_status(run_dir: str, monitor_cfg: dict, target_final_
     @return Dictionary with keys 'last_step' (int or None), 'target_step' (int),
             and 'status' ('complete', 'partial', or 'empty').
     """
-    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
-    euler_sub = dirs.get("eulerian_subdir", "eulerian")
-    particle_sub = dirs.get("particle_subdir", "particles")
     output_dir = resolve_run_output_dir(run_dir, monitor_cfg)
-    last_step = detect_last_checkpoint_step(output_dir, euler_sub, particle_sub)
+    last_step = detect_last_checkpoint_step(output_dir)
     if last_step is not None and last_step >= target_final_step:
         status = "complete"
     elif last_step is not None:
@@ -2519,10 +2656,6 @@ def validate_load_mode_step_range(source_output: str, start_step: int, total_ste
     @param[in] total_steps Number of steps to run.
     @param[in] monitor_cfg Parsed monitor YAML dictionary (for subdirectory names).
     """
-    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
-    euler_sub = dirs.get("eulerian_subdir", "eulerian")
-    euler_path = os.path.join(source_output, euler_sub)
-
     missing = []
     for step in range(start_step, start_step + total_steps + 1):
         try:
@@ -2533,7 +2666,7 @@ def validate_load_mode_step_range(source_output: str, start_step: int, total_ste
     if missing:
         sample = missing[:3] + (["..."] if len(missing) > 6 else []) + missing[-3:]
         raise ValueError(
-            f"Eulerian 'load' mode: {len(missing)} step file(s) missing in {euler_path}. "
+            f"Eulerian 'load' mode: {len(missing)} committed checkpoint(s) missing in {source_output}. "
             f"Missing steps include: {sample}"
         )
 
@@ -2546,15 +2679,10 @@ def validate_particle_checkpoint(source_dir: str, start_step: int, monitor_cfg: 
     @param[in] source_dir Path to the directory containing the particle subdirectory.
     @param[in] start_step The step number whose particle checkpoint is expected.
     @param[in] monitor_cfg Parsed monitor YAML dictionary (for subdirectory names).
+    @return Validated checkpoint description.
     """
-    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
-    particle_sub = dirs.get("particle_subdir", "particles")
-    particle_path = os.path.join(source_dir, particle_sub)
-    expected = os.path.join(particle_path, f"position{start_step:05d}_0.dat")
-    if not os.path.isfile(expected):
-        raise ValueError(
-            f"Particle restart_mode='load' but checkpoint not found: {expected}"
-        )
+    del monitor_cfg
+    return validate_committed_checkpoint(source_dir, start_step, require_particles=True)
 
 
 def read_monitor_from_run(run_dir: str) -> dict:
@@ -2595,10 +2723,6 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
     eulerian_source = str(
         (solver_cfg.get("operation_mode", {}) or {}).get("eulerian_field_source", "solve")
     ).strip().lower()
-
-    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
-    euler_sub = dirs.get("eulerian_subdir", "eulerian")
-    particle_sub = dirs.get("particle_subdir", "particles")
 
     particle_restart_mode = str(
         (case_cfg.get("models", {}).get("physics", {}).get("particles", {}) or {}).get("restart_mode", "init")
@@ -2644,12 +2768,14 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
                 validate_particle_checkpoint(source_output, start_step, source_monitor)
             return source_output, False
         else:
-            # R1/R2/R6: Copy checkpoint to new run's restart/
+            # Copy one immutable bundle into the new run's restart staging area.
             target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
-            populate_restart_directory(source_output, target_restart, start_step, monitor_cfg)
+            restart_bundle = populate_restart_directory(
+                source_output, target_restart, start_step, monitor_cfg
+            )
             if particle_needs:
-                validate_particle_checkpoint(target_restart, start_step, monitor_cfg)
-            return target_restart, False
+                validate_particle_checkpoint(restart_bundle, start_step, monitor_cfg)
+            return restart_bundle, False
 
     elif continue_run:
         # === MODE 2: Continue in-place ===
@@ -2659,12 +2785,11 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         continue_run_dir = os.path.abspath(continue_run_dir)
         if not os.path.isdir(continue_run_dir):
             raise ValueError(f"--run-dir does not exist: {continue_run_dir}")
+        validate_continue_case_identity(continue_run_dir, case_cfg)
 
         source_output = resolve_run_output_dir(continue_run_dir, monitor_cfg)
-        target_restart = resolve_run_restart_dir(continue_run_dir, monitor_cfg)
-
         # Warn if start_step != last checkpoint
-        last_step = detect_last_checkpoint_step(source_output, euler_sub)
+        last_step = detect_last_checkpoint_step(source_output)
         if last_step is not None and last_step != start_step:
             print(
                 f"[WARN] start_step={start_step} but last checkpoint in output is step {last_step}.",
@@ -2681,69 +2806,11 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
             # C6: analytical + init — only log-append behavior, no data needed
             return None, True
         else:
-            # C1/C2/C5: Smart resolution for solve/analytical
-            euler_needs = (eulerian_source == "solve" and start_step > 0)
-
-            step_str = f"{start_step:05d}"
-            needed_subs = []
-            if euler_needs:
-                needed_subs.append(euler_sub)
-            if particle_needs:
-                needed_subs.append(particle_sub)
-
-            # Check restart/ for EACH needed component
-            restart_has = {}
-            if os.path.isdir(target_restart):
-                for sub in needed_subs:
-                    if sub == euler_sub:
-                        try:
-                            validate_eulerian_checkpoint(target_restart, start_step, monitor_cfg)
-                            restart_has[sub] = True
-                        except ValueError:
-                            restart_has[sub] = False
-                    else:
-                        restart_has[sub] = bool(
-                            glob.glob(os.path.join(target_restart, sub, f"*{step_str}_0.*"))
-                        )
-
-            all_in_restart = needed_subs and all(restart_has.get(s, False) for s in needed_subs)
-            some_in_restart = any(restart_has.get(s, False) for s in needed_subs)
-
-            if all_in_restart:
-                # Fully curated restart/ (warm-up-and-discard workflow)
-                print(f"[INFO] Using curated restart directory: {target_restart}")
-                return target_restart, True
-            elif os.path.isdir(source_output):
-                # Auto-populate missing components from output/ into restart/
-                if some_in_restart:
-                    # Partial curate: only copy components NOT already in restart/
-                    missing = [s for s in needed_subs if not restart_has.get(s, False)]
-                    os.makedirs(target_restart, exist_ok=True)
-                    for sub in missing:
-                        src = os.path.join(source_output, sub)
-                        dst = os.path.join(target_restart, sub)
-                        os.makedirs(dst, exist_ok=True)
-                        if os.path.isdir(src):
-                            for f_name in glob.glob(os.path.join(src, f"*{step_str}_0.*")):
-                                shutil.copy2(f_name, dst)
-                    filled = glob.glob(os.path.join(target_restart, "**", f"*{step_str}_0.*"), recursive=True)
-                    print(f"[INFO] Merged curated restart/ with {len(missing)} component(s) from output/: {target_restart}")
-                    if not filled:
-                        raise ValueError(
-                            f"After merge, no checkpoint files found for step {start_step} in {target_restart}"
-                        )
-                    if euler_needs:
-                        validate_eulerian_checkpoint(target_restart, start_step, monitor_cfg)
-                    return target_restart, True
-                else:
-                    # Nothing curated — full populate from output/
-                    populate_restart_directory(source_output, target_restart, start_step, monitor_cfg)
-                    return target_restart, True
-            else:
-                raise ValueError(
-                    f"Neither restart/ nor output/ contain data for step {start_step}. "
-                    f"Checked: {target_restart}, {source_output}"
-                )
+            # In-place continuation reads the immutable committed bundle directly.
+            checkpoint = validate_committed_checkpoint(
+                source_output, start_step, require_particles=particle_needs
+            )
+            return checkpoint["bundle"], True
 
     elif requires_source:
         raise ValueError(
@@ -2844,12 +2911,16 @@ def prepare_case_for_continuation(run_dir: str, case_id: str, last_step: int,
     case_cfg["run_control"]["total_steps"] = remaining
     print(f"[INFO] {case_id}: updating start_step={last_step}, total_steps={remaining}")
 
-    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
-    particle_sub = dirs.get("particle_subdir", "particles")
     output_dir = resolve_run_output_dir(run_dir, monitor_cfg)
-    particle_ckpt = os.path.join(output_dir, particle_sub, f"position{last_step:05d}_0.dat")
     particles_cfg = (case_cfg.get("models", {}).get("physics", {}) or {}).get("particles")
-    if particles_cfg is not None and os.path.isfile(particle_ckpt):
+    checkpoint_has_particles = False
+    try:
+        checkpoint_has_particles = validate_committed_checkpoint(
+            output_dir, last_step, require_particles=True
+        )["has_particles"]
+    except ValueError:
+        checkpoint_has_particles = False
+    if particles_cfg is not None and checkpoint_has_particles:
         current_mode = str(particles_cfg.get("restart_mode", "init")).strip().lower()
         if current_mode != "load":
             particles_cfg["restart_mode"] = "load"
@@ -4477,7 +4548,7 @@ _CASE_SCHEMA = {
     ("grid", "legacy_conversion"): {
         "enabled", "format", "script", "output_file", "axis_columns", "strict_trailing", "cli_args",
     },
-    ("models",): {"domain", "physics", "statistics"},
+    ("models",): {"domain", "physics"},
     ("models", "domain"): {"blocks"},
     ("models", "physics"): {"dimensionality", "fsi", "particles", "turbulence"},
     ("models", "physics", "fsi"): {"immersed", "moving_fsi"},
@@ -4489,7 +4560,6 @@ _CASE_SCHEMA = {
     },
     ("models", "physics", "turbulence", "rans"): {"enabled", "model"},
     ("models", "physics", "turbulence", "wall_function"): {"enabled", "model", "roughness_height"},
-    ("models", "statistics"): {"time_averaging"},
     ("boundary_conditions", "[]"): {"face", "type", "handler", "params"},
     ("boundary_conditions", "[]", "[]"): {"face", "type", "handler", "params"},
     ("boundary_conditions", "[]", "params"): None,
@@ -4502,7 +4572,7 @@ _SOLVER_SCHEMA = {
     (): {
         "operation_mode", "strategy", "tolerances", "momentum_solver", "poisson_solver",
         "pressure_solver", "interpolation", "petsc_passthrough_options", "verification",
-        "scalar_transport", "solution_convergence",
+        "scalar_transport",
     },
     ("operation_mode",): {"eulerian_field_source", "analytical_type", "uniform_flow"},
     ("operation_mode", "uniform_flow"): {"u", "v", "w"},
@@ -4583,14 +4653,11 @@ _SOLVER_SCHEMA = {
         "mode", "profile", "value", "phi0", "slope_x", "amplitude", "kx", "ky", "kz",
     },
     ("scalar_transport",): {"schmidt_number", "turbulent_schmidt_number"},
-    ("solution_convergence",): {"enabled", "mode", "periodic_deterministic", "statistical_steady"},
-    ("solution_convergence", "periodic_deterministic"): {"period_steps"},
-    ("solution_convergence", "statistical_steady"): {"window_steps"},
 }
 
 
 _MONITOR_SCHEMA = {
-    (): {"logging", "profiling", "diagnostics", "io", "solver_monitoring"},
+    (): {"logging", "profiling", "diagnostics", "io", "solver_monitoring", "solution_monitoring"},
     ("logging",): {"verbosity", "enabled_functions"},
     ("profiling",): {"timestep_output", "final_summary"},
     ("profiling", "timestep_output"): {"mode", "functions", "file"},
@@ -4606,7 +4673,7 @@ _MONITOR_SCHEMA = {
         "data_output_frequency", "particle_console_output_frequency", "particle_log_interval",
         "directories",
     },
-    ("io", "directories"): {"output", "restart", "log", "eulerian_subdir", "particle_subdir"},
+    ("io", "directories"): {"output", "restart", "log"},
     ("solver_monitoring",): {"momentum", "poisson", "petsc_passthrough_options"},
     ("solver_monitoring", "momentum"): {
         "newton_krylov_history", "snes_monitor", "snes_converged_reason",
@@ -4614,6 +4681,12 @@ _MONITOR_SCHEMA = {
     },
     ("solver_monitoring", "poisson"): {"pic_true_residual", "true_residual", "converged_reason", "view"},
     ("solver_monitoring", "petsc_passthrough_options"): None,
+    ("solution_monitoring",): {"convergence"},
+    ("solution_monitoring", "convergence"): {
+        "enabled", "mode", "periodic_deterministic", "statistical_steady",
+    },
+    ("solution_monitoring", "convergence", "periodic_deterministic"): {"period_steps"},
+    ("solution_monitoring", "convergence", "statistical_steady"): {"window_steps"},
 }
 
 
@@ -4634,7 +4707,7 @@ _POST_SCHEMA = {
     ("statistics_pipeline", "tasks", "[]"): {"task"},
     ("io",): {
         "output_directory", "output_filename_prefix", "particle_filename_prefix", "output_particles",
-        "particle_subsampling_frequency", "input_extensions", "eulerian_fields_averaged",
+        "particle_subsampling_frequency", "input_extensions",
         "eulerian_fields", "particle_fields",
     },
     ("io", "input_extensions"): {"eulerian", "particle"},
@@ -4689,6 +4762,21 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
     errors = []
     warnings = []
     eulerian_source_mode = "solve"
+
+    legacy_statistics = (case_cfg.get("models", {}) or {}).get("statistics") if isinstance(case_cfg, dict) else None
+    if legacy_statistics is not None:
+        errors.append(
+            f"  {case_path}: 'models.statistics' was removed with the legacy averaging system. "
+            "Use instantaneous output and offline postprocessing until the replacement "
+            "field-statistics pipeline is available."
+        )
+    if isinstance(solver_cfg, dict) and "solution_convergence" in solver_cfg:
+        errors.append(
+            f"  {solver_path}: 'solution_convergence' moved to "
+            "monitor.yml -> solution_monitoring.convergence."
+        )
+    if errors:
+        _print_validation_errors(errors)
 
     _validate_yaml_schema_keys(case_cfg, _CASE_SCHEMA, case_path, errors)
     _validate_yaml_schema_keys(solver_cfg, _SOLVER_SCHEMA, solver_path, errors)
@@ -5347,73 +5435,6 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                         except (TypeError, ValueError):
                             errors.append(f"  {solver_path}: ratio_ema_alpha must be numeric.")
 
-        solution_convergence_cfg = solver_cfg.get('solution_convergence', {})
-        if solution_convergence_cfg is not None and not isinstance(solution_convergence_cfg, dict):
-            errors.append(f"  {solver_path}: 'solution_convergence' must be a mapping when provided.")
-        elif isinstance(solution_convergence_cfg, dict) and solution_convergence_cfg:
-            allowed_solution_convergence_keys = {
-                'enabled', 'mode', 'periodic_deterministic', 'statistical_steady'
-            }
-            unknown_solution_convergence_keys = sorted(set(solution_convergence_cfg.keys()) - allowed_solution_convergence_keys)
-            if unknown_solution_convergence_keys:
-                errors.append(
-                    f"  {solver_path}: unsupported solution_convergence keys: {unknown_solution_convergence_keys}."
-                )
-
-            mode = solution_convergence_cfg.get('mode', 'steady_deterministic')
-            try:
-                normalized_solution_mode = normalize_solution_convergence_mode(mode)
-            except ValueError as e:
-                errors.append(f"  {solver_path}: {e}")
-                normalized_solution_mode = None
-
-            periodic_cfg = solution_convergence_cfg.get('periodic_deterministic')
-            statistical_cfg = solution_convergence_cfg.get('statistical_steady')
-            if periodic_cfg is not None and not isinstance(periodic_cfg, dict):
-                errors.append(f"  {solver_path}: solution_convergence.periodic_deterministic must be a mapping when provided.")
-            if statistical_cfg is not None and not isinstance(statistical_cfg, dict):
-                errors.append(f"  {solver_path}: solution_convergence.statistical_steady must be a mapping when provided.")
-
-            if isinstance(periodic_cfg, dict):
-                unknown_periodic_keys = sorted(set(periodic_cfg.keys()) - {'period_steps'})
-                if unknown_periodic_keys:
-                    errors.append(
-                        f"  {solver_path}: unsupported keys in solution_convergence.periodic_deterministic: {unknown_periodic_keys}."
-                    )
-                period_steps = periodic_cfg.get('period_steps')
-                if period_steps is not None and (not isinstance(period_steps, int) or period_steps <= 0):
-                    errors.append(f"  {solver_path}: solution_convergence.periodic_deterministic.period_steps must be a positive integer.")
-
-            if isinstance(statistical_cfg, dict):
-                unknown_statistical_keys = sorted(set(statistical_cfg.keys()) - {'window_steps'})
-                if unknown_statistical_keys:
-                    errors.append(
-                        f"  {solver_path}: unsupported keys in solution_convergence.statistical_steady: {unknown_statistical_keys}."
-                    )
-                window_steps = statistical_cfg.get('window_steps')
-                if window_steps is not None and (not isinstance(window_steps, int) or window_steps <= 0):
-                    errors.append(f"  {solver_path}: solution_convergence.statistical_steady.window_steps must be a positive integer.")
-
-            if normalized_solution_mode == "PERIODIC_DETERMINISTIC":
-                if not isinstance(periodic_cfg, dict) or 'period_steps' not in periodic_cfg:
-                    errors.append(
-                        f"  {solver_path}: solution_convergence.periodic_deterministic.period_steps is required when mode is 'periodic_deterministic'."
-                    )
-            elif periodic_cfg is not None:
-                errors.append(
-                    f"  {solver_path}: solution_convergence.periodic_deterministic is only valid when mode is 'periodic_deterministic'."
-                )
-
-            if normalized_solution_mode == "STATISTICAL_STEADY":
-                if not isinstance(statistical_cfg, dict) or 'window_steps' not in statistical_cfg:
-                    errors.append(
-                        f"  {solver_path}: solution_convergence.statistical_steady.window_steps is required when mode is 'statistical_steady'."
-                    )
-            elif statistical_cfg is not None:
-                errors.append(
-                    f"  {solver_path}: solution_convergence.statistical_steady is only valid when mode is 'statistical_steady'."
-                )
-
     # --- solver.yml: interpolation section ---
     interp_cfg = solver_cfg.get('interpolation', {}) if isinstance(solver_cfg, dict) else {}
     if interp_cfg is not None and not isinstance(interp_cfg, dict):
@@ -5448,6 +5469,10 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
             errors.append(f"  {monitor_path}: {e}")
         try:
             resolve_solver_monitoring_flags(monitor_cfg)
+        except ValueError as e:
+            errors.append(f"  {monitor_path}: {e}")
+        try:
+            normalize_solution_monitoring_config(monitor_cfg)
         except ValueError as e:
             errors.append(f"  {monitor_path}: {e}")
 
@@ -5545,6 +5570,11 @@ def validate_post_config(post_cfg: dict, post_path: str):
                     ext_val = input_extensions.get(ext_key)
                     if ext_val is not None and not isinstance(ext_val, str):
                         errors.append(f"  {post_path}: 'io.input_extensions.{ext_key}' must be a string extension.")
+                    elif ext_val is not None and str(ext_val).strip().lstrip('.').lower() != 'dat':
+                        errors.append(
+                            f"  {post_path}: 'io.input_extensions.{ext_key}' must be 'dat'; "
+                            "committed checkpoint payload names are fixed."
+                        )
         if source_input_extensions is not None:
             if not isinstance(source_input_extensions, dict):
                 errors.append(f"  {post_path}: 'source_data.input_extensions' must be a mapping when provided.")
@@ -5555,10 +5585,12 @@ def validate_post_config(post_cfg: dict, post_path: str):
                         errors.append(
                             f"  {post_path}: 'source_data.input_extensions.{ext_key}' must be a string extension."
                         )
+                    elif ext_val is not None and str(ext_val).strip().lstrip('.').lower() != 'dat':
+                        errors.append(
+                            f"  {post_path}: 'source_data.input_extensions.{ext_key}' must be 'dat'; "
+                            "committed checkpoint payload names are fixed."
+                        )
 
-        averaged_fields = io_cfg.get('eulerian_fields_averaged')
-        if averaged_fields is not None and not isinstance(averaged_fields, list):
-            errors.append(f"  {post_path}: 'io.eulerian_fields_averaged' must be a list when provided.")
         for list_key in ('eulerian_fields', 'particle_fields'):
             list_val = io_cfg.get(list_key)
             if list_val is not None and not isinstance(list_val, list):
@@ -6753,6 +6785,79 @@ def build_petsc_diagnostics_args(monitor_cfg: dict, run_dir: str, stage_label: s
     return args
 
 
+def normalize_solution_monitoring_config(monitor_cfg: dict) -> dict:
+    """!
+    @brief Validate and canonicalize physical-solution convergence monitoring.
+    @param[in] monitor_cfg Parsed monitor.yml mapping.
+    @return Canonical solution-monitoring configuration.
+    @throws ValueError when convergence settings are invalid.
+    """
+    if not isinstance(monitor_cfg, dict):
+        raise ValueError("monitor.yml must be a mapping before solution monitoring can be normalized.")
+    monitoring = monitor_cfg.get("solution_monitoring", {}) or {}
+    if not isinstance(monitoring, dict):
+        raise ValueError("solution_monitoring must be a mapping when provided.")
+    convergence = monitoring.get("convergence", {}) or {}
+    if not isinstance(convergence, dict):
+        raise ValueError("solution_monitoring.convergence must be a mapping when provided.")
+    enabled = convergence.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ValueError("solution_monitoring.convergence.enabled must be boolean.")
+    mode = normalize_solution_convergence_mode(convergence.get("mode", "steady_deterministic"))
+    normalized = {"enabled": enabled, "mode": mode.lower()}
+    periodic_cfg = convergence.get("periodic_deterministic")
+    statistical_cfg = convergence.get("statistical_steady")
+    if mode == "PERIODIC_DETERMINISTIC":
+        if not isinstance(periodic_cfg, dict):
+            raise ValueError(
+                "solution_monitoring.convergence.periodic_deterministic is required for periodic_deterministic mode."
+            )
+        period_steps = periodic_cfg.get("period_steps")
+        if isinstance(period_steps, bool) or not isinstance(period_steps, int) or period_steps <= 0:
+            raise ValueError(
+                "solution_monitoring.convergence.periodic_deterministic.period_steps must be a positive integer."
+            )
+        normalized["periodic_deterministic"] = {"period_steps": period_steps}
+    elif periodic_cfg is not None:
+        raise ValueError(
+            "solution_monitoring.convergence.periodic_deterministic is only valid for periodic_deterministic mode."
+        )
+    if mode == "STATISTICAL_STEADY":
+        if not isinstance(statistical_cfg, dict):
+            raise ValueError(
+                "solution_monitoring.convergence.statistical_steady is required for statistical_steady mode."
+            )
+        window_steps = statistical_cfg.get("window_steps")
+        if isinstance(window_steps, bool) or not isinstance(window_steps, int) or window_steps <= 0:
+            raise ValueError(
+                "solution_monitoring.convergence.statistical_steady.window_steps must be a positive integer."
+            )
+        normalized["statistical_steady"] = {"window_steps": window_steps}
+    elif statistical_cfg is not None:
+        raise ValueError(
+            "solution_monitoring.convergence.statistical_steady is only valid for statistical_steady mode."
+        )
+    return {"convergence": normalized}
+
+
+def resolve_solution_monitoring_flags(monitor_cfg: dict) -> dict:
+    """!
+    @brief Translate solution-monitoring YAML into the existing C convergence flags.
+    @param[in] monitor_cfg Parsed monitor.yml mapping.
+    @return Mapping of convergence options to explicit runtime values.
+    """
+    convergence = normalize_solution_monitoring_config(monitor_cfg)["convergence"]
+    flags = {
+        "-solution_convergence_enabled": "true" if convergence["enabled"] else "false",
+        "-solution_convergence_mode": f'"{normalize_solution_convergence_mode(convergence["mode"])}"',
+    }
+    if "periodic_deterministic" in convergence:
+        flags["-solution_convergence_period_steps"] = convergence["periodic_deterministic"]["period_steps"]
+    if "statistical_steady" in convergence:
+        flags["-solution_convergence_window_steps"] = convergence["statistical_steady"]["window_steps"]
+    return flags
+
+
 def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_files: dict) -> dict:
     """!
     @brief Generate monitor sidecar files and resolve profiling reporting behavior.
@@ -6788,7 +6893,11 @@ def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_f
     else:
         print(f"[INFO] profiling.timestep_output.mode is '{profiling_cfg['mode']}'; no profile.run function list is needed.")
 
-    return {"whitelist": whitelist_path, "profile": profile_path, "profiling": profiling_cfg}
+    return {
+        "whitelist": whitelist_path,
+        "profile": profile_path,
+        "profiling": profiling_cfg,
+    }
 
 def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_files: dict) -> list:
     """!
@@ -8454,7 +8563,6 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
         'domain': {'blocks': '-nblk'},
         'physics.fsi': {'immersed': '-imm', 'moving_fsi': '-fsi'},
         'physics.particles': {'count': '-numParticles'},
-        'statistics': {'time_averaging': '-averaging'}
     }
     for section_path, flags in FLAG_MAP.items():
         current_level = models
@@ -8734,23 +8842,6 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                     f"momentum_solver.newton_krylov is set but selected solver is {selected_solver}."
                 )
             _append_newton_krylov_options(newton_cfg)
-    solution_convergence_cfg = solver_cfg.get('solution_convergence', {})
-    if solution_convergence_cfg is not None:
-        if not isinstance(solution_convergence_cfg, dict):
-            raise ValueError("solution_convergence must be a mapping when provided.")
-        if solution_convergence_cfg and solution_convergence_cfg.get('enabled', True):
-            mode = normalize_solution_convergence_mode(solution_convergence_cfg.get('mode', 'steady_deterministic'))
-            flags['-solution_convergence_mode'] = f"\"{mode}\""
-            if mode == "PERIODIC_DETERMINISTIC":
-                periodic_cfg = solution_convergence_cfg.get('periodic_deterministic')
-                if not isinstance(periodic_cfg, dict):
-                    raise ValueError("solution_convergence.periodic_deterministic must be a mapping when mode is 'periodic_deterministic'.")
-                flags['-solution_convergence_period_steps'] = periodic_cfg['period_steps']
-            if mode == "STATISTICAL_STEADY":
-                statistical_cfg = solution_convergence_cfg.get('statistical_steady')
-                if not isinstance(statistical_cfg, dict):
-                    raise ValueError("solution_convergence.statistical_steady must be a mapping when mode is 'statistical_steady'.")
-                flags['-solution_convergence_window_steps'] = statistical_cfg['window_steps']
     def _normalize_poisson_method(value) -> str:
         """!
         @brief Normalize a user-facing Poisson linear-solver method name.
@@ -9025,6 +9116,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         control_lines.append(f"-whitelist_config_file {monitor_files['whitelist']}")
     if monitor_files.get("profile"):
         control_lines.append(f"-profile_config_file {monitor_files['profile']}")
+    append_passthrough_flags(control_lines, resolve_solution_monitoring_flags(monitor_cfg))
     profiling_cfg = monitor_files.get("profiling", {})
     control_lines.append(f"-profiling_timestep_mode {profiling_cfg.get('mode', 'off')}")
     if profiling_cfg.get("mode") != "off":
@@ -9180,8 +9272,6 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         if 'restart' in dirs and not restart_source_dir:
             control_lines.append(f"-restart_dir {dirs['restart']}")
         if 'log' in dirs: control_lines.append(f"-log_dir {dirs['log']}")
-        if 'eulerian_subdir' in dirs: control_lines.append(f"-euler_subdir {dirs['eulerian_subdir']}")
-        if 'particle_subdir' in dirs: control_lines.append(f"-particle_subdir {dirs['particle_subdir']}")
     if restart_source_dir:
         control_lines.append(f"-restart_dir {restart_source_dir}")
     if continue_mode:
@@ -12307,7 +12397,6 @@ def _build_case_overview(context: dict) -> dict:
             "fsi": physics.get("fsi", {}),
             "particles": particles,
             "turbulence": _summarize_turbulence(physics.get("turbulence", {}) or {}),
-            "statistics": models.get("statistics", {}),
         },
         "boundary_conditions": bc_blocks,
     }
@@ -12326,8 +12415,6 @@ def _build_solver_overview(context: dict) -> dict:
     dualtime = momentum_cfg.get("dual_time_picard_jameson_rk", momentum_cfg.get("dual_time_picard_rk4", {})) or {}
     newton_krylov = momentum_cfg.get("newton_krylov", {}) or {}
     poisson = cfg.get("poisson_solver", cfg.get("pressure_solver", {})) or {}
-    convergence = cfg.get("solution_convergence", {}) or {}
-    convergence_mode = normalize_solution_convergence_mode(convergence.get("mode", "steady_deterministic"))
     operation_mode = cfg.get("operation_mode", {}) or {}
     operation_mode = {
         **operation_mode,
@@ -12346,7 +12433,6 @@ def _build_solver_overview(context: dict) -> dict:
         },
         "poisson": poisson,
         "interpolation": cfg.get("interpolation", {"method": "Trilinear"}),
-        "solution_convergence": {**convergence, "mode": convergence_mode},
         "scalar_transport": cfg.get("scalar_transport", {}),
         "verification": cfg.get("verification", {}),
         "petsc_passthrough": {"count": len(passthrough), "options": sorted(passthrough.keys())},
@@ -12364,6 +12450,7 @@ def _build_monitor_overview(context: dict) -> dict:
     io_cfg = cfg.get("io", {}) or {}
     diagnostics = resolve_diagnostics_config(cfg, context["run_dir"], "Solver")
     monitoring_flags = resolve_solver_monitoring_flags(cfg)
+    solution_monitoring = normalize_solution_monitoring_config(cfg)
     enabled_petsc = sorted(key for key, value in diagnostics["petsc"].items() if value not in (False, None))
     return {
         "logging": {
@@ -12386,6 +12473,7 @@ def _build_monitor_overview(context: dict) -> dict:
             "enabled_flags": sorted(flag for flag, value in monitoring_flags.items() if value not in (False, None)),
             "flags": monitoring_flags,
         },
+        "solution_monitoring": solution_monitoring,
     }
 
 

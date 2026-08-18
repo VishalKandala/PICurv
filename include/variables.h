@@ -604,7 +604,6 @@ typedef struct PostProcessParams {
     // --- Configuration primarily from the .cfg file ---
     char process_pipeline[MAX_PIPELINE_LENGTH];
     char output_fields_instantaneous[MAX_FIELD_LIST_LENGTH];
-    char output_fields_averaged[MAX_FIELD_LIST_LENGTH];
     char output_prefix[MAX_FILENAME_LENGTH];
     char particle_pipeline[MAX_PIPELINE_LENGTH];
     char particle_fields[MAX_FIELD_LIST_LENGTH];
@@ -704,11 +703,12 @@ typedef struct SimCtx {
     char eulerianSource[PETSC_MAX_PATH_LEN];
     char restart_dir[PETSC_MAX_PATH_LEN];
     char output_dir[PETSC_MAX_PATH_LEN];
-    char euler_subdir[PETSC_MAX_PATH_LEN];
-    char particle_subdir[PETSC_MAX_PATH_LEN];
     char log_dir[PETSC_MAX_PATH_LEN];
     char _io_context_buffer[PETSC_MAX_PATH_LEN]; // Persistent store for I/O context strings.
     char *current_io_directory; // Pointer into the above buffer.
+    char checkpointGeometrySHA256[65];
+    PetscBool checkpointGeometryHashReady;
+    PetscBool restartHistoryAvailable;
 
     //================ Group 3: High-Level Physics & Model Selection Flags ================
     PetscInt  immersed, movefsi, rotatefsi, sediment, rheology;
@@ -746,6 +746,7 @@ typedef struct SimCtx {
     FlowDirection flowDirection;      /* explicit flow direction for streamwise/Poiseuille */
     PetscReal icVelocityPhysical;     /* scalar speed for curvilinear Constant and Poiseuille */
     Cmpnts    AnalyticalUniformVelocity;
+    PetscBool solutionConvergenceEnabled;
     SolutionConvergenceMode solutionConvergenceMode;
     PetscInt  solutionConvergencePeriodSteps;
     PetscInt  solutionConvergenceWindowSteps;
@@ -790,7 +791,6 @@ typedef struct SimCtx {
     PetscInt  wallfunction, mixed, clark, dynamic_freq;
     PetscReal max_cs,Const_CS;
     PetscInt  testfilter_ik, testfilter_1d, i_homo_filter, j_homo_filter, k_homo_filter;
-    PetscBool  averaging;
   
     //================ Group 9: Particle / DMSwarm Data & Settings ================
     PetscInt  np;
@@ -854,7 +854,6 @@ typedef struct SimCtx {
     PetscBool runtimeMemoryLogStarted;               /**< True after rank 0 writes the log header. */
     PetscBool runtimeMemoryLogHasPrevious;           /**< True after the first process-memory sample. */
     PetscReal runtimeMemoryLogPreviousProcessMB;     /**< Previous local process memory sample in MB. */
-
     //================ Group 12: Post-Processing =================================================
     char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];
     PostProcessParams *pps;
@@ -933,9 +932,6 @@ typedef struct UserCtx {
 
   // --- Turbulence Modeling (LES/RANS) ---
   Vec Nu_t, lNu_t, CS, lCs, K_Omega, lK_Omega, K_Omega_o, lK_Omega_o, Distance;
-
-  // --- Statistical Averaging ---
-  Vec Ucat_sum, Ucat_cross_sum, Ucat_square_sum, P_sum;
 
   // --- Immersed Boundary Method (IBM) ---
   IBMNodes *ibm; IBMList *ibmlist;

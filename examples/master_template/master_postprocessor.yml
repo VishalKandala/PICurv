@@ -147,10 +147,6 @@ io:
     - 'Qcrit'
     - 'P_nodal'
 
-  # (Optional) Reserved for future averaged-field writer support.
-  # Maps to 'output_fields_averaged' in post.run.
-  eulerian_fields_averaged: []
-
   # (Optional) A master switch for all particle-related output. Defaults to false.
   # Maps to 'output_particles' in post.run.
   output_particles: true
@@ -170,8 +166,8 @@ io:
   # Maps to 'particle_output_freq' in post.run.
   particle_subsampling_frequency: 1
 
-  # (Optional) Input file extensions used by the C post reader (without dot preferred).
-  # Maps to 'eulerianExt' and 'particleExt' in post.run.
+  # (Optional) Checkpoint payload extension contract. Committed bundles use
+  # fixed PETSc-vector .dat payloads, so both values must remain "dat".
   input_extensions:
     eulerian: "dat"
     particle: "dat"

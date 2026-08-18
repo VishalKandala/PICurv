@@ -764,96 +764,15 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
                                       const char *ext)
 {
     PetscErrorCode ierr;
-    char           filename[PETSC_MAX_PATH_LEN];
-    PetscInt       N_file = 0; // The number of particles determined from the file
+    PetscInt       N_file = 0;
     PetscInt       N_current = 0;
-    MPI_Comm       comm;
-    PetscMPIInt    rank;
-    const char    *refFieldName = ParticleFieldName(PARTICLE_FIELD_ID_POSITION);
-    const PetscInt bs = 3;
-    SimCtx        *simCtx = user->simCtx;
-    char          *source_path;
-    
-    // NOTE: Your filename format has a hardcoded "_0" which is typical for
-    // PETSc when writing a parallel object from a single rank.
-    // If you ever write in parallel, PETSc might create one file per rank.
-    // The current logic assumes a single file written by one process.
-    const int      placeholder_int = 0;
-
-    // Setup the I/O environment
-
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = PetscObjectGetComm((PetscObject)user->swarm, &comm); CHKERRQ(ierr);
-    ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
-
-    // First, determine the top-level source directory based on the execution mode.
-    if (simCtx->exec_mode == EXEC_MODE_SOLVER) {
-        source_path = simCtx->restart_dir;
-    } else if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) {
-        source_path = simCtx->pps->source_dir;
-    } else {
-        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "Invalid execution mode for reading simulation fields.");
-    }
-
-    // Set the current I/O directory context
-    ierr = PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
-                         "%s/%s", source_path, simCtx->particle_subdir); CHKERRQ(ierr);
-
-    simCtx->current_io_directory = simCtx->_io_context_buffer;
-
-        // --- Construct filename using the specified format ---
-    ierr = PetscSNPrintf(filename, sizeof(filename), "%s/%s%05" PetscInt_FMT "_%d.%s",
-                         simCtx->current_io_directory,refFieldName, ti, placeholder_int, ext); CHKERRQ(ierr);
-
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Checking particle count for timestep %d using ref file '%s'.\n", ti, filename);
-
-    // --- Rank 0 reads the file to determine the size ---
-    if (rank == 0) {
-        PetscBool fileExists = PETSC_FALSE;
-        ierr = PetscTestFile(filename, 'r', &fileExists); CHKERRQ(ierr);
-
-        if (!fileExists) {
-            // Set a special value to indicate file not found, then broadcast it.
-            N_file = -1;
-            LOG_ALLOW(GLOBAL, LOG_ERROR, "Rank 0: Mandatory reference file '%s' not found for timestep %d.\n", filename, ti);
-        } else {
-            PetscViewer viewer;
-            Vec         tmpVec;
-            PetscInt    vecSize;
-            
-            ierr = VecCreate(PETSC_COMM_SELF, &tmpVec); CHKERRQ(ierr); // Create a SEQUENTIAL vector
-            ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_READ, &viewer); CHKERRQ(ierr);
-            ierr = VecLoad(tmpVec, viewer); CHKERRQ(ierr);
-            ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
-
-            ierr = VecGetSize(tmpVec, &vecSize); CHKERRQ(ierr);
-            ierr = VecDestroy(&tmpVec); CHKERRQ(ierr);
-
-            if (vecSize % bs != 0) {
-                N_file = -2; // Special error code for bad file format
-                LOG_ALLOW(GLOBAL, LOG_ERROR, "Rank 0: Vector size %d from file '%s' is not divisible by block size %d.\n", vecSize, filename, bs);
-            } else {
-                N_file = vecSize / bs;
-                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Rank 0: Found %d particles in file.\n", N_file);
-            }
-        }
-    }
-
-    // --- Broadcast the particle count (or error code) from Rank 0 to all other ranks ---
-    ierr = MPI_Bcast(&N_file, 1, MPIU_INT, 0, comm); CHKERRMPI(ierr);
-
-    // --- All ranks check for errors and abort if necessary ---
-    if (N_file == -1) {
-        SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Mandatory reference file '%s' not found for timestep %d (as determined by Rank 0).", filename, ti);
-    }
-    if (N_file == -2) {
-        SETERRQ(comm, PETSC_ERR_FILE_READ, "Reference file '%s' has incorrect format (as determined by Rank 0).", filename);
-    }
-    if (N_file < 0) {
-         SETERRQ(comm, PETSC_ERR_PLIB, "Received invalid particle count %d from Rank 0.", N_file);
-    }
+    (void)ext;
+    ierr = ReadCheckpointParticleCount(user, ti, &N_file); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_INFO,
+              "Committed checkpoint step %d records %d particles.\n", ti, N_file);
 
 
     // --- Now all ranks have the correct N_file, compare and resize if needed ---

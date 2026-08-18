@@ -575,8 +575,8 @@ Grid profile library:
 
 Inlet profile generation:
 - `generators/profile.gen` writes dimensional canonical `PICSLICE` profiles.
-- `profile.gen field-slice` derives a reusable PICSLICE from an old `ufield*.dat`
-  and old canonical `PICGRID` without changing C-side ingestion.
+- `profile.gen field-slice` derives a reusable PICSLICE from a checkpoint
+  `Ucat.dat` field and canonical `PICGRID` without changing C-side ingestion.
 - `picurv precompute --case ...` materializes configured grid/profile/initial-condition artifacts
   without launching the solver.
 - `config/profiles/guide.md` documents reusable profile patterns.

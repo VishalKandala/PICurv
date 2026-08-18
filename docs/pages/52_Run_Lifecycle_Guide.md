@@ -61,9 +61,11 @@ This sequence verifies contract correctness before consuming runtime or queue ti
 
 A typical run directory contains:
 
-- `runs/<run_id>/config/`: generated `.control`, BC files, copied YAML inputs, and `post.run`
+- `runs/<run_id>/config/`: generated `.control`, BC files, copied YAML inputs,
+  and `post.run`
 - `runs/<run_id>/logs/`: solver/postprocessor runtime logs and metrics written by PICurv itself
-- `runs/<run_id>/output/`: solver outputs when monitor paths use the default layout
+- `runs/<run_id>/output/checkpoints/step_<12 digits>/`: immutable committed
+  solver checkpoints when monitor paths use the default layout
 - `runs/<run_id>/scheduler/`: generated Slurm scripts, `submission.json`, and cluster stdout/stderr in cluster mode
 - `runs/<run_id>/manifest.json`: top-level run metadata
 
@@ -124,7 +126,8 @@ Relevant YAML settings:
 
 Operational meaning:
 
-- PICurv copies the checkpoint from `runs/old_run` into the new run's `restart/` directory,
+- PICurv validates the requested committed bundle and copies that whole bundle
+  into the new run's `restart/checkpoints/` directory,
 - the solver loads that checkpoint and continues from step 501,
 - all new output is written into a fresh `runs/<new_run_id>/` directory.
 
@@ -160,9 +163,10 @@ picurv run --solve --continue --run-dir runs/my_run \
 Operational meaning:
 
 - `case.yml -> run_control.start_step` must be the saved checkpoint step and must be greater than zero; use a normal run without `--continue` for a fresh start at step zero,
-- PICurv copies the latest checkpoint from `output/` to `restart/` inside `runs/my_run/`,
+- PICurv validates and reads the requested immutable bundle directly from
+  `output/checkpoints/`; it does not create a second in-place copy,
 - the solver resumes from that checkpoint,
-- logs append to the existing log files,
+- logs append to the existing log files and remain independent of checkpoint payloads,
 - all output stays within the same `runs/my_run/` directory.
 
 @subsection p52_restart_notes 5.4 Notes
@@ -172,9 +176,17 @@ The `eulerian_field_source` value only controls what happens on subsequent steps
 
 Before launching any restart or continuation:
 
-- verify restart source files exist for the requested step,
+- verify a committed bundle exists for the requested step,
 - use `start_step` equal to the saved checkpoint step, not the next desired step,
-- verify `monitor.yml` directory names match the source run layout.
+- do not edit bundle contents or generated control files by hand.
+
+`--continue` is for the same physical case. It permits changes to run-control
+time settings, solver parameters/type, monitoring, postprocessing, and resource
+settings. Other `case.yml` changes are rejected; use `--restart-from` to create
+a new branch. `--restart-from` may change case physics, but C still requires the
+same grid geometry/layout. A newly enabled optional subsystem such as particles
+uses its normal initialization path unless its restart mode explicitly requests
+saved state; subsequent checkpoints then include that subsystem.
 
 @section p52_post_sec 6. Postprocess An Existing Run
 
@@ -271,6 +283,7 @@ not reaching checkpoints.
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
+- **@subpage 58_Turbulence_Statistics_Pipeline_Specification** (committed-checkpoint and future field-statistics contract)
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

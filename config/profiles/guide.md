@@ -45,7 +45,7 @@ boundary_conditions:
     params:
       source:
         type: field_slice
-        field_file: ../old_run/output/eulerian/ufield10000_0.dat
+        field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
         grid_file: ../old_run/config/grid.run
         source_case: ../old_run/config/case.yml
         slice:
@@ -83,7 +83,7 @@ python3 generators/profile.gen square_duct_poiseuille \
 
 python3 generators/profile.gen field-slice \
   --output inlet_from_old_run.picslice \
-  --field-file old_run/output/eulerian/ufield10000_0.dat \
+  --field-file old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat \
   --source-grid old_run/config/grid.run \
   --target-grid new_run/config/grid.run \
   --slice-face=+Zeta \

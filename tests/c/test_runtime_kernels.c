@@ -465,7 +465,7 @@ static PetscErrorCode TestPopulateInitialUcontLoadsStagedUcat(void)
     PetscCall(VecSet(user->Ucat, 2.5));
     PetscCall(PetscStrncpy(simCtx->_io_context_buffer, tmpdir, sizeof(simCtx->_io_context_buffer)));
     simCtx->current_io_directory = simCtx->_io_context_buffer;
-    PetscCall(WriteFieldData(user, "ufield", user->Ucat, 0, "dat"));
+    PetscCall(WriteFieldData(user, "ufield00000_0", user->Ucat, "dat"));
     simCtx->current_io_directory = NULL;
 
     PetscCall(VecZeroEntries(user->Ucat));
@@ -492,6 +492,8 @@ static PetscErrorCode TestWriteLESFieldsCopiesOwnedPeriodicValues(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     char tmpdir[PETSC_MAX_PATH_LEN];
+    char euler_dir[PETSC_MAX_PATH_LEN];
+    char block_dir[PETSC_MAX_PATH_LEN];
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContextsWithPeriodicity(
@@ -504,17 +506,19 @@ static PetscErrorCode TestWriteLESFieldsCopiesOwnedPeriodicValues(void)
     PetscCall(VecSet(user->lCs, 2.5));
     PetscCall(VecSet(user->Nu_t, 0.0));
     PetscCall(VecSet(user->lNu_t, 7.5));
+    simCtx->les = 1;
 
     PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
-    PetscCall(PetscStrncpy(simCtx->_io_context_buffer, tmpdir, sizeof(simCtx->_io_context_buffer)));
-    simCtx->current_io_directory = simCtx->_io_context_buffer;
-    PetscCall(WriteLESFields(user));
-    simCtx->current_io_directory = NULL;
+    PetscCall(PetscSNPrintf(euler_dir, sizeof(euler_dir), "%s/eulerian", tmpdir));
+    PetscCall(PetscSNPrintf(block_dir, sizeof(block_dir), "%s/block_0000", euler_dir));
+    PetscCall(PicurvEnsureDir(euler_dir));
+    PetscCall(PicurvEnsureDir(block_dir));
+    PetscCall(WriteSimulationFields(user, tmpdir));
 
     PetscCall(PicurvAssertVecConstant(user->CS, 2.5, 1.0e-12,
-                                      "WriteLESFields should copy owned periodic lCs values"));
+                                      "checkpoint output should copy owned periodic lCs values"));
     PetscCall(PicurvAssertVecConstant(user->Nu_t, 7.5, 1.0e-12,
-                                      "WriteLESFields should copy owned periodic lNu_t values"));
+                                      "checkpoint output should copy owned periodic lNu_t values"));
 
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
@@ -560,7 +564,7 @@ static PetscErrorCode StagedFourierModeMaxDivergence(UserCtx *user,
 
     PetscCall(PetscStrncpy(simCtx->_io_context_buffer, tmpdir, sizeof(simCtx->_io_context_buffer)));
     simCtx->current_io_directory = simCtx->_io_context_buffer;
-    PetscCall(WriteFieldData(user, "ufield", user->Ucat, 0, "dat"));
+    PetscCall(WriteFieldData(user, "ufield00000_0", user->Ucat, "dat"));
     simCtx->current_io_directory = NULL;
     PetscCall(VecZeroEntries(user->Ucat));
     PetscCall(VecZeroEntries(user->Ucont));
@@ -644,7 +648,7 @@ static PetscErrorCode TestPopulateInitialUcontLoadsStagedUcont(void)
     PetscCall(VecSet(user->Ucont, 4.5));
     PetscCall(PetscStrncpy(simCtx->_io_context_buffer, tmpdir, sizeof(simCtx->_io_context_buffer)));
     simCtx->current_io_directory = simCtx->_io_context_buffer;
-    PetscCall(WriteFieldData(user, "vfield", user->Ucont, 0, "dat"));
+    PetscCall(WriteFieldData(user, "vfield00000_0", user->Ucont, "dat"));
     simCtx->current_io_directory = NULL;
 
     PetscCall(VecZeroEntries(user->Ucont));
@@ -1439,7 +1443,7 @@ static PetscErrorCode TestUpdateSolverHistoryVectorsShiftsStates(void)
     PetscCall(VecSet(user->P, 9.0));
     PetscCall(VecSet(user->P_o, -2.0));
 
-    PetscCall(UpdateSolverHistoryVectors(user));
+    PetscCall(UpdateSolverHistoryVectors(user, PETSC_FALSE));
 
     PetscCall(PicurvAssertVecConstant(user->Ucont_o, 11.0, 1.0e-12, "Ucont_o should receive current Ucont"));
     PetscCall(PicurvAssertVecConstant(user->Ucont_rm1, 7.0, 1.0e-12, "Ucont_rm1 should receive prior Ucont_o"));

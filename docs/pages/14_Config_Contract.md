@@ -113,7 +113,6 @@ For each run, `picurv` generates:
     disable CFL growth entirely.
   - `pseudo_cfl.reduction_factor` -> `-pseudo_cfl_reduction_factor` (default 0.75, must be
     in (0,1)): factor applied to the pseudo-CFL after a rejected trial.
-- `solution_convergence.*` -> `-solution_convergence_*` for physical solution drift logging.
 - `momentum_solver.newton_krylov.nonlinear_solver.*` -> prefixed `-mom_nk_snes_*`
   options, including `line_search.type` -> `-mom_nk_snes_linesearch_type`.
 - `momentum_solver.newton_krylov.jacobian.*` and `.preconditioner.*` ->
@@ -146,33 +145,29 @@ Verification-pathway rule:
 - `verification.sources.scalar` prescribes particle `Psi` and drives the runtime diagnostic `logs/scatter_metrics.csv` while leaving ordinary production runs unchanged when absent.
 - new verification source overrides belong in `verification_sources.*`, with production call sites kept as thin delegation points.
 
-Solution-convergence rule:
-
-- `solver.yml -> solution_convergence` is an optional override block for the always-on runtime solution-convergence logger.
-- the runtime always writes `logs/solution_convergence.log` once per physical timestep, defaulting to `steady_deterministic` mode when the block is omitted.
-- it complements, rather than replaces, the inner solver-health logs:
-  - `logs/Momentum_Solver_Convergence_History_Block_*.log`
-  - `logs/Poisson_Solver_Convergence_History_Block_*.log`
-  - `logs/Continuity_Metrics.log`
-- supported modes are:
-  - `steady_deterministic`
-  - `periodic_deterministic`
-  - `statistical_steady`
-  - `transient`
-- `periodic_deterministic.period_steps` is required only when `mode: periodic_deterministic`.
-- `statistical_steady.window_steps` is required only when `mode: statistical_steady`.
-- nested mode blocks are rejected when they do not match the selected `mode`.
-
 @section p14_monitor_sec 5. Monitor Contract Highlights
 
 - `io.data_output_frequency` -> `-tio`
 - `io.particle_console_output_frequency` -> `-particle_console_output_freq` (defaults to `data_output_frequency` when omitted)
 - `io.particle_log_interval` -> `-logfreq`
 - `io.directories.output/restart/log` -> `-output_dir/-restart_dir/-log_dir`
-- `io.directories.eulerian_subdir/particle_subdir` -> `-euler_subdir/-particle_subdir`
+- checkpoint-internal directory and payload names are fixed; monitor YAML does
+  not expose Eulerian or particle checkpoint subdirectory overrides
 - `profiling.timestep_output` -> `profile.run` when `mode: selected`, plus profiling control flags
 - `diagnostics.petsc` -> PETSc startup arguments on solver/postprocessor commands
 - `diagnostics.runtime_memory_log` -> `-runtime_memory_log_enabled/-runtime_memory_log_file`
+- `solution_monitoring.convergence.*` maps directly into the generated master
+  control as the existing `-solution_convergence_*` options and retains the
+  existing log writer. `enabled` is explicit; sampling occurs every completed
+  timestep and has no exposed cadence option.
+- `control` remains the single generated C-ingress artifact for physical
+  solution monitoring; there is no observation-plan sidecar.
+- scientific Eulerian field-statistics YAML is intentionally not accepted
+  until accumulation, checkpoint continuation, and postprocessing are complete
+  end to end.
+- the old `case.models.statistics.time_averaging`, `-averaging`, and
+  `solver.solution_convergence` ingress locations are rejected rather than
+  translated.
 - `solver_monitoring.poisson.*` maps readable monitor keys into prefixed Poisson KSP flags.
 - `solver_monitoring.momentum.*` maps readable Newton history/SNES/KSP monitor
   booleans into bare `-mom_nk_*` switches.
@@ -182,7 +177,6 @@ Solution-convergence rule:
 
 - Pipelines are serialized into semicolon-delimited C pipeline strings.
 - `io.eulerian_fields` -> `output_fields_instantaneous`
-- `io.eulerian_fields_averaged` -> `output_fields_averaged` (reserved/no-op in current writer path)
 - `io.particle_fields` -> `particle_fields_instantaneous`
 - `io.input_extensions.eulerian/particle` -> `eulerianExt/particleExt` for post input readers
 - `source_data.directory` -> `source_directory`

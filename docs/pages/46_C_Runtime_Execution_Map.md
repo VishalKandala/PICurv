@@ -46,6 +46,12 @@ Core generated files consumed by C:
 - `grid.run` (for file/grid_gen paths),
 - `post.run` (postprocessor path).
 
+Physical-solution monitoring is normalized by `picurv` and written directly
+into `*.control` as `-solution_convergence_*` options. There is no separate
+observation-plan sidecar. Scientific field-statistics ingress will only be
+added when the runtime, checkpoint, and postprocessor implementation is ready
+as one usable feature.
+
 @section p46_core_structs_sec 3. Core Runtime Structs
 
 Most solver-wide state flows through:
@@ -87,14 +93,19 @@ Per-step sequence:
    - @ref InterpolateAllFieldsToSwarm,
    - @ref UpdateAllParticleFields,
    - @ref CalculateParticleCountPerCell and @ref ScatterAllParticleFieldsToEulerFields,
-5. update history vectors,
-6. write outputs on configured cadence.
+5. write the configured physical-solution convergence observation through the
+   existing logger (unless disabled),
+6. update history vectors,
+7. commit a checkpoint bundle on configured cadence.
 
-Concrete output calls in the loop are:
+The loop calls @ref WriteCheckpointBundle. That thin coordinator delegates
+payload I/O to:
 
 - @ref WriteSimulationFields
 - @ref WriteAllSwarmFields
-- @ref ProfilingLogTimestepSummary
+
+@ref ProfilingLogTimestepSummary and all other persistent logging remain
+separate loop services and are not checkpoint payloads.
 
 Loop-time branch notes:
 
@@ -179,6 +190,8 @@ Additional fast diagnostics:
 - **@subpage 21_Methods_Overview**
 - **@subpage 44_Boundary_Conditions_Guide**
 - **@subpage 45_Particle_Initialization_and_Restart**
+- **@subpage 56_Field_Identity_and_Layout_Catalog**
+- **@subpage 58_Turbulence_Statistics_Pipeline_Specification** (proposed runtime extension)
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

@@ -54,8 +54,8 @@ Solve and postprocess in one command:
 ## 4. Notes on Newer Options
 
 - `statistics_pipeline` is supported (canonical task: `msd`); `particle_msd.yml` is the reusable starting point.
-- `io.input_extensions.eulerian/particle` map reader expectations to generated filenames.
-- `io.eulerian_fields_averaged` is accepted as reserved passthrough.
+- `io.input_extensions.eulerian/particle`, when present, must remain `dat`;
+  committed checkpoint payload filenames are fixed.
 - keep the full desired timestep window in `run_control` for a reusable post profile. With `--continue`, PICurv computes the effective restart step for the same recipe lineage instead of requiring you to edit `start_step` by hand.
 - if the solver is still writing outputs, PICurv processes only the highest fully available contiguous source prefix for the current recipe.
 - PICurv enforces a single post writer per run directory so two post jobs cannot race on the same `viz/` or `statistics/` outputs.

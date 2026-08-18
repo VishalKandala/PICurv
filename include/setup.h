@@ -566,8 +566,8 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
 /**
  * @brief Destroys all PETSc Vec objects within a single UserCtx structure.
  *
- * This helper function systematically destroys all ~74 Vec objects stored in a UserCtx.
- * The vectors are organized into 14 groups (A-N) for clarity:
+ * This helper function systematically destroys the Vec objects stored in a UserCtx.
+ * The vectors are organized into functional groups for clarity:
  *   - Primary flow fields (Ucont, Ucat, P, Nvert)
  *   - Solver work vectors (Phi)
  *   - Time-stepping vectors (Ucont_o, Ucont_rm1, etc.)
@@ -576,7 +576,6 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
  *   - Particle vectors (ParticleCount, Psi)
  *   - Boundary condition vectors (Ubcs, Uch)
  *   - Post-processing vectors (P_nodal, Qcrit)
- *   - Statistical averaging vectors (Ucat_sum, etc.)
  *   - And more...
  *
  * All destroys are protected with NULL checks to handle conditional allocations safely.

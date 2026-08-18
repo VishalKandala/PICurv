@@ -5,11 +5,13 @@
 
 #include "test_support.h"
 
+#include "checksum.h"
 #include "io.h"
 
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 /**
  * @brief Tests cadence-based Eulerian output triggering.
@@ -65,13 +67,14 @@ static PetscErrorCode TestWriteAndReadSimulationFields(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     char tmpdir[PETSC_MAX_PATH_LEN];
-    char euler_dir[PETSC_MAX_PATH_LEN];
+    char path[PETSC_MAX_PATH_LEN];
+    PetscBool exists = PETSC_FALSE;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
-    PetscCall(PetscSNPrintf(euler_dir, sizeof(euler_dir), "%s/%s", tmpdir, simCtx->euler_subdir));
-    PetscCall(PicurvEnsureDir(euler_dir));
+    tmpdir[0] = '\0';
+    if (simCtx->rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, sizeof(tmpdir), MPI_CHAR, 0, PETSC_COMM_WORLD));
 
     PetscCall(PetscStrncpy(simCtx->output_dir, tmpdir, sizeof(simCtx->output_dir)));
     PetscCall(PetscStrncpy(simCtx->restart_dir, tmpdir, sizeof(simCtx->restart_dir)));
@@ -79,20 +82,133 @@ static PetscErrorCode TestWriteAndReadSimulationFields(void)
     PetscCall(VecSet(user->Nvert, 0.0));
     PetscCall(VecSet(user->Ucat, 2.0));
     PetscCall(VecSet(user->Ucont, 3.0));
+    PetscCall(VecSet(user->Ucont_rm1, 1.25));
+    simCtx->ti = 0.35;
     PetscCall(PicurvPopulateIdentityMetrics(user));
 
-    PetscCall(WriteSimulationFields(user));
+    PetscCall(WriteCheckpointBundle(simCtx, "test"));
+    PetscCall(PetscSNPrintf(path, sizeof(path),
+                            "%s/checkpoints/step_000000000001/checkpoint.meta", tmpdir));
+    PetscCall(PetscTestFile(path, 'r', &exists));
+    PetscCall(PicurvAssertBool(exists, "checkpoint coordinator should write checkpoint.meta"));
+    PetscCall(PetscSNPrintf(path, sizeof(path),
+                            "%s/checkpoints/step_000000000001/COMMITTED", tmpdir));
+    PetscCall(PetscTestFile(path, 'r', &exists));
+    PetscCall(PicurvAssertBool(exists, "checkpoint coordinator should write COMMITTED last"));
+    PetscCall(PetscSNPrintf(path, sizeof(path),
+                            "%s/checkpoints/step_000000000001/eulerian/block_0000/Ucat.dat", tmpdir));
+    PetscCall(PetscTestFile(path, 'r', &exists));
+    PetscCall(PicurvAssertBool(exists, "checkpoint should use catalogued canonical field names"));
     PetscCall(VecZeroEntries(user->P));
     PetscCall(VecZeroEntries(user->Ucat));
     PetscCall(VecZeroEntries(user->Ucont));
+    PetscCall(VecZeroEntries(user->Ucont_rm1));
+    simCtx->ti = 0.0;
 
     PetscCall(ReadSimulationFields(user, simCtx->step));
     PetscCall(PicurvAssertVecConstant(user->P, 4.5, 1.0e-12, "ReadSimulationFields should restore P"));
     PetscCall(PicurvAssertVecConstant(user->Ucat, 2.0, 1.0e-12, "ReadSimulationFields should restore Ucat"));
     PetscCall(PicurvAssertVecConstant(user->Ucont, 3.0, 1.0e-12, "ReadSimulationFields should restore Ucont"));
+    PetscCall(PicurvAssertVecConstant(user->Ucont_rm1, 1.25, 1.0e-12,
+                                      "ReadSimulationFields should restore BDF2 history"));
+    PetscCall(PicurvAssertRealNear(0.35, simCtx->ti, 1.0e-12,
+                                   "checkpoint physical time should be authoritative"));
 
-    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Verifies a committed checkpoint step is rewritten neither silently nor inconsistently.
+ *
+ * `WriteCheckpointBundle` revalidates an already-committed step instead of rewriting it,
+ * so a repeated call at the same step must leave the payloads byte-identical even when the
+ * in-memory state has since diverged. The same guard must reject a repeat call whose
+ * physical time disagrees with the committed bundle, because that means the step number no
+ * longer identifies the same solver state.
+ */
+static PetscErrorCode TestCheckpointSameStepRewriteIsRejected(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char payload_path[PETSC_MAX_PATH_LEN];
+    struct stat first_stat;
+    struct stat second_stat;
+    PetscErrorCode mismatch_ierr = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    tmpdir[0] = '\0';
+    if (simCtx->rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, sizeof(tmpdir), MPI_CHAR, 0, PETSC_COMM_WORLD));
+
+    PetscCall(PetscStrncpy(simCtx->output_dir, tmpdir, sizeof(simCtx->output_dir)));
+    PetscCall(PetscStrncpy(simCtx->restart_dir, tmpdir, sizeof(simCtx->restart_dir)));
+    PetscCall(VecSet(user->P, 4.5));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(VecSet(user->Ucat, 2.0));
+    PetscCall(VecSet(user->Ucont, 3.0));
+    PetscCall(VecSet(user->Ucont_rm1, 1.25));
+    simCtx->ti = 0.35;
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+
+    PetscCall(WriteCheckpointBundle(simCtx, "cadence"));
+    PetscCall(PetscSNPrintf(payload_path, sizeof(payload_path),
+                            "%s/checkpoints/step_000000000001/eulerian/block_0000/Ucat.dat", tmpdir));
+    PetscCall(PicurvAssertBool((PetscBool)(stat(payload_path, &first_stat) == 0),
+                               "first checkpoint write should produce a Ucat payload"));
+
+    /* Diverge the in-memory state so a rewrite would be observable in the payload bytes. */
+    PetscCall(VecSet(user->Ucat, 99.0));
+    PetscCall(WriteCheckpointBundle(simCtx, "cadence"));
+
+    PetscCall(PicurvAssertBool((PetscBool)(stat(payload_path, &second_stat) == 0),
+                               "repeated checkpoint write should leave the Ucat payload in place"));
+    /* Nanosecond resolution: a same-second rewrite would still move this. */
+    PetscCall(PicurvAssertBool((PetscBool)(first_stat.st_mtim.tv_sec == second_stat.st_mtim.tv_sec &&
+                                           first_stat.st_mtim.tv_nsec == second_stat.st_mtim.tv_nsec),
+                               "repeated checkpoint write at a committed step should not touch payload mtime"));
+    PetscCall(PicurvAssertBool((PetscBool)(first_stat.st_size == second_stat.st_size),
+                               "repeated checkpoint write at a committed step should not resize payloads"));
+
+    PetscCall(VecZeroEntries(user->Ucat));
+    PetscCall(ReadSimulationFields(user, simCtx->step));
+    PetscCall(PicurvAssertVecConstant(user->Ucat, 2.0, 1.0e-12,
+                                      "repeated checkpoint write must not overwrite committed payload contents"));
+
+    /* A same-step call whose physical time disagrees is a state-identity error, not a no-op. */
+    simCtx->ti = 0.75;
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    mismatch_ierr = WriteCheckpointBundle(simCtx, "cadence");
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_FILE_UNEXPECTED, mismatch_ierr,
+                                   "same-step checkpoint write with a different physical time should fail"));
+
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Verifies the dependency-free SHA-256 implementation against a standard vector. */
+static PetscErrorCode TestCheckpointSHA256KnownVector(void)
+{
+    PicurvSHA256Context context;
+    char digest[65];
+
+    PetscFunctionBeginUser;
+    PicurvSHA256Init(&context);
+    PicurvSHA256Update(&context, "abc", 3);
+    PicurvSHA256FinalHex(&context, digest);
+    PetscCall(PicurvAssertBool(
+        (PetscBool)!strcmp(digest, "ba7816bf8f01cfea414140de5dae2223"
+                                   "b00361a396177a9cb410ff61f20015ad"),
+        "SHA-256 implementation should match the standard abc test vector"));
     PetscFunctionReturn(0);
 }
 /**
@@ -135,6 +251,7 @@ static PetscErrorCode TestParsePostProcessingSettings(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+
 /**
  * @brief Tests trimming of leading and trailing whitespace.
  */
@@ -275,6 +392,7 @@ static PetscErrorCode CaptureBannerOutput(SimCtx *simCtx, char *captured, size_t
     captured[bytes_read] = '\0';
     fclose(capture_file);
     PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Bcast(captured, (PetscMPIInt)captured_len, MPI_CHAR, 0, PETSC_COMM_WORLD));
     PetscFunctionReturn(0);
 }
 /**
@@ -443,6 +561,8 @@ int main(int argc, char **argv)
         {"should-write-data-output", TestShouldWriteDataOutput},
         {"verify-path-existence", TestVerifyPathExistence},
         {"write-and-read-simulation-fields", TestWriteAndReadSimulationFields},
+        {"checkpoint-same-step-rewrite-rejected", TestCheckpointSameStepRewriteIsRejected},
+        {"checkpoint-sha256-known-vector", TestCheckpointSHA256KnownVector},
         {"parse-post-processing-settings", TestParsePostProcessingSettings},
         {"trim-whitespace", TestTrimWhitespace},
         {"bc-string-parsers", TestBoundaryConditionStringParsers},

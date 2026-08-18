@@ -46,7 +46,8 @@ typedef enum {
     PARTICLE_FIELD_CAPABILITY_NONE               = 0u,
     PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE = 1u << 0,
     PARTICLE_FIELD_CAPABILITY_MODEL_UPDATE       = 1u << 1,
-    PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER   = 1u << 2
+    PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER   = 1u << 2,
+    PARTICLE_FIELD_CAPABILITY_CHECKPOINT          = 1u << 3
 } ParticleFieldCapabilities;
 
 /** @brief Immutable metadata for one persistent particle field. */

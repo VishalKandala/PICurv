@@ -2,7 +2,9 @@
 
 @anchor _IEM_and_Statistical_Averaging
 
-PICurv currently couples a particle scalar micromixing model (IEM-style) with separate statistics/averaging utilities in solver and post-processing stages.
+PICurv couples a particle scalar micromixing model (IEM-style) with particle
+statistics postprocessing. The planned Eulerian field-statistics pipeline is a
+separate system.
 
 @tableofcontents
 
@@ -56,21 +58,38 @@ r_{theory} = \sqrt{6Dt},
 
 with global MPI reductions and CSV output per statistics call.
 
-@section p28_terminology_sec 4. Averaging Terminology In PICurv
+@section p28_field_observations_sec 4. Eulerian Field Statistics Status
+
+Eulerian scientific statistics are not currently exposed in active YAML. The
+old `models.statistics.time_averaging`, raw `su0`/`su1`/`su2`/`sp` state, and
+reserved averaged-field post output were removed rather than retained as a
+second workflow. Until the replacement is complete, users can compute offline
+statistics only from the instantaneous states they elected to save.
+
+The replacement design uses field-catalog-aware pointwise weighted centered
+first and second moments with independent state per named window. Reynolds
+stress, RMS, and TKE remain postprocessor-derived quantities. See the
+authoritative future specification for the full contract and staged status.
+
+Particle MSD remains under the existing postprocessor `statistics_pipeline`.
+It is not an Eulerian field window and does not share accumulator state.
+
+@section p28_terminology_sec 5. Averaging Terminology In PICurv
 
 "Averaging" appears in multiple contexts:
 
 - particle->grid count-normalized scatter,
-- solver-side optional field averaging toggles,
+- future Eulerian field-statistics windows,
 - postprocessing global statistical reductions.
 
 Treat these as distinct workflows with different configuration points.
 
-@section p28_refs_sec 5. Related Pages
+@section p28_refs_sec 6. Related Pages
 
 - **@subpage 27_Trilinear_Interpolation_and_Projection**
 - **@subpage 34_Particle_Model_Overview**
 - **@subpage 10_Post_Processing_Reference**
+- **@subpage 58_Turbulence_Statistics_Pipeline_Specification**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 
@@ -93,4 +112,3 @@ Treat this page as both a conceptual reference and a runbook. If you are debuggi
 2. Change one control at a time and keep all other roles/configs fixed.
 3. Validate generated artifacts and logs after each change before scaling up.
 4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

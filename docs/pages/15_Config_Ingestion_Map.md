@@ -9,7 +9,8 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 @section p15_pipeline_sec 1. End-to-End Flow
 
 1. `picurv` validates YAML inputs.
-2. `picurv` generates `*.control`, `bcs*.run`, and `post.run`, plus optional `whitelist.run` / `profile.run` sidecars when those features are enabled.
+2. `picurv` generates `*.control`, `bcs*.run`, and `post.run`, plus optional
+   `whitelist.run` / `profile.run` sidecars when those features are enabled.
 3. `CreateSimulationContext()` in `src/setup.c` loads `-control_file` and ingests options.
 4. Secondary file parsers ingest BC/post/logging profile inputs.
 5. Runtime modules consume parsed values during setup, solve, and postprocess.
@@ -32,25 +33,24 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `solver.verification.sources.scalar.*` | `-verification_scalar_mode/-profile/-value/-phi0/-slope_x/-amplitude/-kx/-ky/-kz` | `src/setup.c` | `src/verification_sources.c`, `src/AnalyticalSolutions.c`, `src/ParticlePhysics.c`, `src/logging.c` |
 | `solver.strategy/tolerances/momentum_solver.*` | solver flags (`-mom_*`, pseudo-CFL, etc.) | `src/setup.c` | `src/momentumsolvers.c` |
 | `solver.momentum_solver.newton_krylov.*` | application selectors `-mom_nk_jacobian_*`, `-mom_nk_preconditioner_*`; prefixed `-mom_nk_snes_*`, `-mom_nk_ksp_*` | application parsing plus PETSc options db via `SNESSetFromOptions()` | `src/momentum_newton_krylov.c` |
-| `solver.solution_convergence.*` | `-solution_convergence_mode/-solution_convergence_period_steps/-solution_convergence_window_steps` | `src/setup.c` | `src/logging.c`, `src/runloop.c` |
 | `solver.scalar_transport.*` | `-schmidt_number`, `-turb_schmidt_number` | `src/setup.c` | `src/rhs.c`, `src/particle_statistics.c`, scalar/particle transport |
 | `solver.poisson_solver.*` / legacy `solver.pressure_solver.*` | `-poisson_tol`, `-ps_ksp_*`, `-ps_pc_type`, `-mg_*`, `-ps_mg_levels_*` | `src/setup.c` + PETSc options db | `src/poisson.c` |
 | `solver.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc KSP/PC stack, mostly in `src/poisson.c` |
 | `monitor.io.data_output_frequency` | `-tio` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
 | `monitor.io.particle_console_output_frequency` | `-particle_console_output_freq` | `src/setup.c` | `src/io.c`, `src/setup.c`, particle console logging |
 | `monitor.io.particle_log_interval` | `-logfreq` | `src/setup.c` | particle console row subsampling |
-| `monitor.io.directories.*` | `-output_dir`, `-restart_dir`, `-log_dir`, `-euler_subdir`, `-particle_subdir` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
+| `monitor.io.directories.*` | `-output_dir`, `-restart_dir`, `-log_dir` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
 | `monitor.logging.*` | `whitelist.run`, `LOG_LEVEL` env | `src/setup.c` + `src/logging.c` | logging macros/system |
 | `monitor.profiling.*` | `profile.run` (selected-mode only) + explicit profiling flags in `*.control` | `src/setup.c` + profiling init | profiler summaries |
 | `monitor.diagnostics.petsc.*` | solver/postprocessor executable arguments (`-malloc_*`, `-log_view`, `-objects_dump`, etc.) | PETSc initialization | PETSc memory/log/object diagnostics |
 | `monitor.diagnostics.runtime_memory_log.*` | `-runtime_memory_log_enabled`, `-runtime_memory_log_file` | `src/setup.c` | `src/logging.c`, `src/runloop.c`, `src/postprocessor.c`, `src/simulator.c` |
+| `monitor.solution_monitoring.convergence.*` | `-solution_convergence_enabled/-solution_convergence_mode/-solution_convergence_period_steps/-solution_convergence_window_steps` in `*.control` | `src/setup.c` | existing `src/logging.c` and `src/runloop.c` convergence path; every completed timestep |
 | `cluster.execution.walltime_guard.*` | `-walltime_guard_*` in solver `*.control` | `src/setup.c` | `src/runloop.c` runtime walltime estimator and graceful final-write cutoff |
 | `monitor.solver_monitoring.poisson.*` | prefixed Poisson monitor flags in control (`-ps_ksp_*`) | PETSc options db | `src/poisson.c` KSP monitor setup |
 | `monitor.solver_monitoring.momentum.*` | bare Newton history/SNES/KSP monitor flags (`-mom_nk_*`) | `src/setup.c` + PETSc options db | `src/momentum_newton_krylov.c` |
 | `monitor.solver_monitoring.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc monitors/debug options |
 | `post.run_control.*` | `startTime/endTime/timeStep` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `src/postprocessor.c` main loop |
 | `post.io.input_extensions.*` | `eulerianExt`, `particleExt` in `post.run` | `src/io.c` | `ReadSimulationFields`, `ReadAllSwarmFields`, swarm precheck |
-| `post.io.eulerian_fields_averaged` | `output_fields_averaged` in `post.run` | `src/io.c` | reserved/no-op in current writer path |
 | `post.statistics_pipeline.*` | `statistics_pipeline`, `statistics_output_prefix` | `src/io.c` | `GlobalStatisticsPipeline` dispatch |
 
 @section p15_python_only_sec 3. Python-Only Orchestration Mapping (No C Ingestion)

@@ -1612,6 +1612,7 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
     PetscFunctionBeginUser;
     if (!simCtx) PetscFunctionReturn(0);
     if (simCtx->exec_mode != EXEC_MODE_SOLVER) PetscFunctionReturn(0);
+    if (!simCtx->solutionConvergenceEnabled) PetscFunctionReturn(0);
 
     samples_before = simCtx->solutionConvergenceSamplesRecorded;
 

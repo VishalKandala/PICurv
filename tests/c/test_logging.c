@@ -1247,6 +1247,35 @@ static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
 }
 
 /**
+ * @brief Verifies -solution_convergence_enabled=false suppresses the convergence writer.
+ */
+static PetscErrorCode TestSolutionConvergenceDisabled(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char log_path[PETSC_MAX_PATH_LEN];
+    PetscBool exists = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    simCtx->solutionConvergenceEnabled = PETSC_FALSE;
+
+    PetscCall(InitializeSolutionConvergenceState(simCtx));
+    PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(PetscTestFile(log_path, 'r', &exists));
+    PetscCall(PicurvAssertBool((PetscBool)!exists,
+                               "disabled solution convergence must not create a log"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests steady solution-convergence log output, IBM masking, and gauge-invariant pressure drift.
  */
 static PetscErrorCode TestSolutionConvergenceSteadyLogging(void)
@@ -1566,6 +1595,7 @@ int main(int argc, char **argv)
         {"field-anatomy-logging", TestFieldAnatomyLogging},
         {"profiling-lifecycle-helpers", TestProfilingLifecycleHelpers},
         {"runtime-memory-log-helpers", TestRuntimeMemoryLogHelpers},
+        {"solution-convergence-disabled", TestSolutionConvergenceDisabled},
         {"solution-convergence-steady-logging", TestSolutionConvergenceSteadyLogging},
         {"solution-convergence-periodic-logging", TestSolutionConvergencePeriodicLogging},
         {"solution-convergence-statistical-logging", TestSolutionConvergenceStatisticalLogging},

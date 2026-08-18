@@ -359,6 +359,7 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     simCtx->LoggingFrequency = 1;
     simCtx->exec_mode = EXEC_MODE_SOLVER;
     simCtx->mom_solver_type = MOMENTUM_SOLVER_EXPLICIT_RK;
+    simCtx->solutionConvergenceEnabled = PETSC_TRUE;
     simCtx->poisson = 0;
     simCtx->ren = 1.0;
     simCtx->schmidt_number = 1.0;
@@ -374,8 +375,6 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     simCtx->initialConditionField = IC_FIELD_UCAT;
     PetscCall(PetscStrncpy(simCtx->initialConditionDirectory, "/tmp", sizeof(simCtx->initialConditionDirectory)));
     simCtx->icVelocityPhysical = 0.0;
-    PetscCall(PetscStrncpy(simCtx->euler_subdir, "euler", sizeof(simCtx->euler_subdir)));
-    PetscCall(PetscStrncpy(simCtx->particle_subdir, "particles", sizeof(simCtx->particle_subdir)));
     PetscCall(PetscStrncpy(simCtx->output_dir, "/tmp", sizeof(simCtx->output_dir)));
     PetscCall(PetscStrncpy(simCtx->restart_dir, "/tmp", sizeof(simCtx->restart_dir)));
     PetscCall(PetscStrncpy(simCtx->log_dir, "/tmp", sizeof(simCtx->log_dir)));

@@ -60,7 +60,6 @@ io:
     - 'Qcrit'
 
   # Reserved passthrough (currently no-op in writer path).
-  eulerian_fields_averaged: []
 
   # Keep false for Eulerian-only postprocessing.
   output_particles: false

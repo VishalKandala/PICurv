@@ -6,6 +6,57 @@
 
 ## Unreleased
 
+- Restored future-architecture documentation and added the authoritative
+  proposed field-statistics specification, including centered moment state,
+  layout/mask rules, future spatial targets, restart behavior, postprocessing
+  responsibilities, legacy removal, and phased implementation plan. Also
+  restored the separate benchmark-gated function-identity specification.
+
+- Field-statistics foundation (Phase 1 implementation):
+  - moved physical-solution convergence configuration to
+    `monitor.yml -> solution_monitoring.convergence`, preserving its existing
+    flags, every-completed-step behavior, and log format while adding an
+    effective enable switch;
+  - kept the generated master `control` as the single C-ingress artifact and
+    removed the premature observation sidecar, schema/version envelope,
+    exposed cadence, and unsupported-window startup gate;
+  - kept unfinished scientific field-statistics keys out of active user YAML
+    until accumulation, checkpointing, and postprocessing work end to end;
+  - removed `SimCtx::averaging`, legacy sum vectors, `su0`/`su1`/`su2`/`sp`
+    read/write hooks, the dead averaging call, old templates, and the reserved
+    averaged-field postprocessor passthrough; and
+  - replaced flat restart files with immutable committed checkpoint bundles
+    containing a text manifest, manifest SHA-256 commit marker, geometry/layout
+    identity, catalog-selected PETSc-vector payloads, optional particle/model
+    state, and the previous contravariant velocity needed for exact BDF2 restart;
+  - routed solve output, continuation, restart staging, live post discovery, and
+    final/graceful-shutdown output through the bundle contract while retaining
+    the existing generic vector and swarm readers/writers;
+  - kept solver/convergence/profiling and other persistent logs independent of
+    checkpoint state; and
+  - updated Python/C regression coverage and ingress/runtime/reference
+    documentation. Scientific statistics accumulation remains Phase 2 work.
+
+- Field-statistics Phase 1 closeout:
+  - added the same-step checkpoint acceptance test, covering both the idempotent
+    no-op rewrite of an already-committed step and the rejection of a same-step
+    write whose physical time disagrees with the committed bundle;
+  - added a multi-rank smoke scenario that restarts one committed bundle at two
+    different rank counts, asserting that load-and-store payloads survive the
+    decomposition change byte identically and that the resumed run keeps
+    marching;
+  - documented that particle payloads are deliberately not block scoped in
+    version 1 of the checkpoint format, since PICurv carries a single swarm; and
+  - corrected stale status prose that still described the checkpoint contract as
+    outstanding Phase 1 work; and
+  - characterized restart fidelity and recorded it in the maintenance backlog:
+    re-applying boundary conditions to loaded fields means a restart resumes from
+    a boundary-consistent state that differs from the stored one at the outlet.
+    The offset is outlet-local, decays, sits below solver stopping tolerances, and
+    is invariant to them, so it cannot be tightened away. Softened the checkpoint
+    contract's BDF2 wording accordingly: preserving `Ucont_rm1` preserves the order
+    of the restart, not bitwise identity.
+
 - Field identity infrastructure (phase 1):
   - added a 38-entry typed `FieldId`/`FieldDescriptor` catalog with canonical
     names, active aliases, DM family, degree of freedom, shifted/staggered

@@ -37,7 +37,6 @@ io:
   particle_filename_prefix: "Particle"
   eulerian_fields:
     - Ucat_nodal
-  eulerian_fields_averaged: []
   output_particles: true
   particle_fields:
     - 'position'

@@ -8,8 +8,8 @@
 # detailed monitoring of the numerical solvers.
 #
 # IMPORTANT:
-# Changing this file will NEVER change the scientific result of the simulation.
-# It only changes what is observed and recorded.
+# This file does not change the solved flow equations. It only changes what is
+# observed, recorded, and written to disk.
 #
 # ==============================================================================
 
@@ -92,7 +92,24 @@ diagnostics:
     file: "Runtime_Memory.log"
 
 # ==============================================================================
-# 4. I/O AND DATA MANAGEMENT
+# 4. PHYSICAL-SOLUTION MONITORING
+#    Controls convergence reporting for the completed flow state.
+# ==============================================================================
+solution_monitoring:
+  convergence:
+    # Preserves the existing logs/solution_convergence.log writer and records
+    # every completed timestep.
+    enabled: true
+    mode: "steady_deterministic"
+    # Options: steady_deterministic | periodic_deterministic |
+    #          statistical_steady | transient
+    # periodic_deterministic:
+    #   period_steps: 200
+    # statistical_steady:
+    #   window_steps: 500
+
+# ==============================================================================
+# 5. I/O AND DATA MANAGEMENT
 #    Controls data file generation and locations for the SOLVER.
 # ==============================================================================
 io:
@@ -121,11 +138,9 @@ io:
     output: "output"    # [string] -> -output_dir
     restart: "restart"  # [string] -> -restart_dir
     log: "logs"         # [string] -> -log_dir
-    eulerian_subdir: "eulerian"  # [string] -> -euler_subdir
-    particle_subdir: "particles" # [string] -> -particle_subdir
 
 # ==============================================================================
-# 5. SOLVER MONITORING
+# 6. SOLVER MONITORING
 # ==============================================================================
 #
 # This section exposes common solver-monitor controls with readable names.

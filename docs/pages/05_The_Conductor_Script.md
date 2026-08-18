@@ -803,7 +803,8 @@ make all
 @section p05_artifacts_sec 13. Generated Runtime Artifacts
 
 Single run (`run`):
-- `runs/<run_id>/config/*.control`, `bcs*.run`, `post.run`, plus optional `whitelist.run` / `profile.run` sidecars when enabled
+- `runs/<run_id>/config/*.control`, `bcs*.run`, `post.run`, plus optional
+  `whitelist.run` / `profile.run` sidecars when enabled
 - `runs/<run_id>/logs/*` (runtime logs and metrics written by solver/postprocessor)
 - `runs/<run_id>/scheduler/solver.sbatch`, `post.sbatch` (cluster mode)
 - `runs/<run_id>/scheduler/solver_<jobid>.out/.err`, `post_<jobid>.out/.err` (cluster mode, after submission)

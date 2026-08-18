@@ -286,13 +286,7 @@ static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user
         "[T=%.4f, Step=%d] Shutdown requested by %s during %s. Writing final output outside the normal cadence before exiting.\n",
         simCtx->ti, simCtx->step, RuntimeShutdownReasonName(), phase);
 
-    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
-    }
-
-    if (simCtx->np > 0) {
-        ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
-    }
+    ierr = WriteCheckpointBundle(simCtx, "signal"); CHKERRQ(ierr);
 
     if (IsParticleConsoleSnapshotEnabled(simCtx)) {
         ierr = EmitParticleConsoleSnapshot(user, simCtx, simCtx->step); CHKERRQ(ierr);
@@ -308,7 +302,7 @@ static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user
  * @brief Internal helper implementation: `UpdateSolverHistoryVectors()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user)
+PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_previous_state)
 {
     PetscErrorCode ierr;
     SimCtx         *simCtx = user->simCtx; // Access global settings if needed
@@ -319,8 +313,11 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user)
 
     // --- Primary Contravariant Velocity History ---
     // The order is critical here.
-    // 1. First, move the n-1 state (Ucont_o) to the n-2 slot (Ucont_rm1).
-    ierr = VecCopy(user->Ucont_o, user->Ucont_rm1); CHKERRQ(ierr);
+    // 1. Move n-1 into n-2 during normal advancement. A restored checkpoint
+    // already supplied the authoritative n-1 state in Ucont_rm1.
+    if (!preserve_previous_state) {
+        ierr = VecCopy(user->Ucont_o, user->Ucont_rm1); CHKERRQ(ierr);
+    }
     // 2. Then, move the new n state (Ucont) to the n-1 slot (Ucont_o).
     ierr = VecCopy(user->Ucont, user->Ucont_o); CHKERRQ(ierr);
 
@@ -412,17 +409,13 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     // --- 4. Initial History and Output ---
     // Update solver history vectors with the t=0 state before the first real step
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        ierr = UpdateSolverHistoryVectors(&user[bi]); CHKERRQ(ierr);
+        ierr = UpdateSolverHistoryVectors(&user[bi],
+                                           (PetscBool)(simCtx->StartStep > 0 && simCtx->restartHistoryAvailable)); CHKERRQ(ierr);
     }
 
-    if (simCtx->tiout > 0 || (simCtx->StepsToRun == 0 && simCtx->StartStep == 0)) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initial simulation data.\n", simCtx->ti, simCtx->step);
-        ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
-        
-        // --- Eulerian Field Output (MUST loop over all blocks) --- // <<< CHANGED/FIXED
-        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-            ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
-        }
+    {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initialized checkpoint.\n", simCtx->ti, simCtx->step);
+        ierr = WriteCheckpointBundle(simCtx, simCtx->StartStep == 0 ? "initial" : "branch_start"); CHKERRQ(ierr);
         ierr = LOG_SCATTER_METRICS(user); CHKERRQ(ierr);
     }
 
@@ -482,17 +475,13 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     // --- 4. Initial History and Output ---
     // Update solver history vectors with the t=0 state before the first real step
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        ierr = UpdateSolverHistoryVectors(&user[bi]); CHKERRQ(ierr);
+        ierr = UpdateSolverHistoryVectors(&user[bi],
+                                           (PetscBool)(simCtx->StartStep > 0 && simCtx->restartHistoryAvailable)); CHKERRQ(ierr);
     }
 
-    if (simCtx->tiout > 0 || (simCtx->StepsToRun == 0 && simCtx->StartStep == 0)) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initial simulation data.\n", simCtx->ti, simCtx->step);
-        ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
-        
-        // --- Eulerian Field Output (MUST loop over all blocks) --- // <<< CHANGED/FIXED
-        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-            ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
-        }
+    {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing restored checkpoint.\n", simCtx->ti, simCtx->step);
+        ierr = WriteCheckpointBundle(simCtx, "branch_start"); CHKERRQ(ierr);
         ierr = LOG_SCATTER_METRICS(user); CHKERRQ(ierr);
     }
 
@@ -513,8 +502,6 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
 PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
-    UserCtx       *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
-
     PetscFunctionBeginUser;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Finalizing RESTART from state (step=%d, t=%.4f) ---\n", simCtx->StartStep, simCtx->ti);
@@ -539,10 +526,7 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
     } else {
         LOG_ALLOW(GLOBAL, LOG_INFO, "No particles in simulation, restart finalization is complete.\n");
 
-        // Write the initial eulerian fields (this is done in PerformInitialSetup if particles exist.)
-        for(PetscInt bi = 0; bi < simCtx->block_number; bi ++){
-            ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
-        }
+        ierr = WriteCheckpointBundle(simCtx, "branch_start"); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Restart state successfully finalized. --\n");
@@ -725,7 +709,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // Copy the newly computed fields (Ucont, P, etc.) to the history vectors
         // (_o, _rm1) to prepare for the next time step.
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-            ierr = UpdateSolverHistoryVectors(&user[bi]); CHKERRQ(ierr);
+            ierr = UpdateSolverHistoryVectors(&user[bi], PETSC_FALSE); CHKERRQ(ierr);
         }
         
         //ierr = LOG_UCAT_ANATOMY(&user[0],"Final"); CHKERRQ(ierr);
@@ -733,11 +717,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // Handle periodic file output
         if (ShouldWriteDataOutput(simCtx, simCtx->step)) {
             LOG_ALLOW(GLOBAL, LOG_INFO, "Writing output for step %d.\n",simCtx->step);
-            for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-                ierr = WriteSimulationFields(&user[bi]); CHKERRQ(ierr);
-            }
+            ierr = WriteCheckpointBundle(simCtx, "cadence"); CHKERRQ(ierr);
             if (simCtx->np > 0) {
-                ierr = WriteAllSwarmFields(user); CHKERRQ(ierr);
                 if (strcmp(simCtx->eulerianSource, "analytical") == 0 &&
                     AnalyticalTypeSupportsInterpolationError(simCtx->AnalyticalSolutionType)) {
                     LOG_INTERPOLATION_ERROR(user);
@@ -793,6 +774,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
                   "Time marching stopped early after %s. Final retained state is step %d at t=%.4f.\n",
                   RuntimeShutdownReasonName(), simCtx->step, simCtx->ti);
     } else {
+        if (StepsToRun > 0) {
+            ierr = WriteCheckpointBundle(simCtx, "final"); CHKERRQ(ierr);
+        }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Time marching completed. Final time t=%.4f.\n", simCtx->ti);
     }
     PROFILE_FUNCTION_END;

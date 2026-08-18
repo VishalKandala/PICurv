@@ -44,7 +44,6 @@ io:
   particle_filename_prefix: "Particle"
   eulerian_fields:
     - Ucat_nodal            # Confirm velocity is identically zero throughout
-  eulerian_fields_averaged: []
   output_particles: true    # Write particle VTP for visual sanity check
   particle_fields:
     - 'position'

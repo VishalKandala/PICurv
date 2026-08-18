@@ -43,7 +43,6 @@ io:
     - 'P_nodal'
     - 'Qcrit'
 
-  eulerian_fields_averaged: []
   output_particles: false
   particle_fields: []
   particle_subsampling_frequency: 1

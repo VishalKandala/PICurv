@@ -36,8 +36,6 @@ io:
     output: "output"
     restart: "restart"
     log: "logs"
-    eulerian_subdir: "eulerian"
-    particle_subdir: "particles"
 
 solver_monitoring:
   poisson:

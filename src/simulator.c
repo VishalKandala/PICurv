@@ -89,11 +89,7 @@ int main(int argc, char **argv)
         if(simCtx->np>0){
         ierr = PerformInitializedParticleSetup(simCtx); CHKERRQ(ierr);
       }else{ 
-        // Write the initial Eulerian fields.
-        UserCtx *user = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
-        for(PetscInt bi = 0; bi < simCtx->block_number; bi++){
-          ierr = WriteSimulationFields(&user[bi]);
-        }
+        ierr = WriteCheckpointBundle(simCtx, "initial"); CHKERRQ(ierr);
       }
     }else{
       ierr = FinalizeRestartState(simCtx); CHKERRQ(ierr);

@@ -84,14 +84,21 @@ PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool
 PetscBool ShouldWriteDataOutput(const SimCtx *simCtx, PetscInt completed_step);
 
 /**
+ * @brief Write and atomically publish one complete checkpoint bundle.
+ * @param[in,out] simCtx Simulation context owning all enabled checkpoint state.
+ * @param[in] reason Stable lifecycle reason such as `initial`, `cadence`, `final`, or `signal`.
+ * @return Zero on success or a PETSc/MPI/filesystem error.
+ */
+PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason);
+
+/**
  * @brief Reads binary field data for velocity, pressure, and other required vectors.
  *
- * Reads contravariant velocity (`Ucont`) from `vfield`, Cartesian velocity (`Ucat`) from `ufield`,
- * pressure (`P`), node state (`Nvert_o`), and optionally statistical quantities, LES, and RANS fields
- * from binary files. Logs missing files but continues execution.
+ * Validates one committed checkpoint bundle and reads every enabled Eulerian
+ * checkpoint field through the field catalog.
  *
  * @param[in,out] user Pointer to the UserCtx structure containing the simulation context.
- * @param[in]     ti   Timestep index used to construct restart file names.
+ * @param[in]     ti   Checkpoint step resolved below the configured source root.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
@@ -107,51 +114,12 @@ PetscErrorCode ReadSimulationFields(UserCtx *user, PetscInt ti);
  * @param[in]     user        Pointer to the UserCtx structure containing simulation context.
  * @param[in]     field_name  Name of the field (e.g., "ufield", "vfield", "pfield").
  * @param[out]    field_vec   PETSc vector to store the field data.
- * @param[in]     ti          Time index for constructing the file name.
  * @param[in]     ext         File extension (e.g., "dat").
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode ReadFieldData(UserCtx *user, const char *field_name, Vec field_vec, PetscInt ti, const char *ext);
+PetscErrorCode ReadFieldData(UserCtx *user, const char *field_name, Vec field_vec, const char *ext);
 
-
-/**
- * @brief Reads statistical fields used for time-averaged simulations.
- *
- * Reads statistical quantities such as velocity sums and pressure sums. Logs missing files and initializes
- * fields to zero if files are unavailable.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing the simulation context.
- * @param[in]     ti   Timestep index used to construct statistics file names.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode ReadStatisticalFields(UserCtx *user,PetscInt ti);
-
-/**
- * @brief Reads LES-related fields used in turbulence modeling.
- *
- * Reads the Smagorinsky constant (`Cs`) and transfers data to local vectors. Logs missing files and
- * initializes fields to zero if files are unavailable.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing the simulation context.
- * @param[in]     ti          Time index for constructing the file name.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode ReadLESFields(UserCtx *user, PetscInt ti);
-
-/**
- * @brief Reads RANS-related fields for turbulence modeling.
- *
- * Reads `K_Omega` fields (used in RANS modeling) and initializes them if files are unavailable.
- *
- * @param[in,out] user Pointer to the UserCtx structure containing the simulation context.
- * @param[in]     ti          Time index for constructing the file name.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode ReadRANSFields(UserCtx *user, PetscInt ti);
 
 /**
  * @brief Writes data from a specific PETSc vector to a file.
@@ -162,63 +130,26 @@ PetscErrorCode ReadRANSFields(UserCtx *user, PetscInt ti);
  * @param[in] user       Pointer to the UserCtx structure containing simulation context.
  * @param[in] field_name Name of the field (e.g., "ufield", "vfield", "pfield").
  * @param[in] field_vec  PETSc vector containing the field data to write.
- * @param[in] ti         Time index for constructing the file name.
  * @param[in] ext        File extension (e.g., "dat").
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_vec, PetscInt ti, const char *ext);
+PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_vec, const char *ext);
 
 
 /**
  * @brief Writes simulation fields to files.
  *
  * This function writes contravariant velocity, Cartesian velocity, pressure, and node state
- * fields to their respective binary files. It also conditionally writes LES, RANS, and
- * statistical fields if they are enabled.
+ * fields to their respective binary files. It also conditionally writes LES and RANS
+ * model fields when those models are enabled.
  *
  * @param[in] user Pointer to the UserCtx structure containing simulation context.
+ * @param[in] checkpoint_directory Root of the in-progress checkpoint bundle.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode WriteSimulationFields(UserCtx *user);
-
-
-/**
- * @brief Writes statistical fields for averaging purposes.
- *
- * This function writes data for fields such as Ucat_sum, Ucat_cross_sum, Ucat_square_sum,
- * and P_sum to their respective binary files.
- *
- * @param[in] user Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode WriteStatisticalFields(UserCtx *user);
-
-/**
- * @brief Writes LES-related fields.
- *
- * This function writes LES-related fields such as Cs (Smagorinsky constant)
- * to their respective binary files.
- *
- * @param[in] user Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode WriteLESFields(UserCtx *user);
-
-/**
- * @brief Writes RANS-related fields.
- *
- * This function writes RANS-related fields such as K_Omega to their respective
- * binary files.
- *
- * @param[in] user Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode WriteRANSFields(UserCtx *user);
+PetscErrorCode WriteSimulationFields(UserCtx *user, const char *checkpoint_directory);
 
 /**
  * @brief Writes data from a specific field in a PETSc Swarm to a file.
@@ -232,14 +163,13 @@ PetscErrorCode WriteRANSFields(UserCtx *user);
  * @param[in] user       Pointer to the UserCtx structure containing simulation context
  *                       and the PetscSwarm (as `user->swarm`).
  * @param[in] field_name Name of the Swarm field to be written (e.g., "my_field").
- * @param[in] ti         Time index used to construct the output file name.
  * @param[in] ext        File extension (e.g., "dat", "bin").
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  *
  * @note Compatible with PETSc 3.14.4.
  */
-PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext);
+PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, const char *ext);
 
 /**
  * @brief Writes integer data from a specific PETSc Swarm field to a file.
@@ -252,29 +182,27 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, PetscInt t
  *
  * @param[in] user       Pointer to the UserCtx structure containing the PetscSwarm.
  * @param[in] field_name Name of the integer Swarm field to be written.
- * @param[in] ti         Time index used to construct the output file name.
  * @param[in] ext        File extension (e.g., "dat", "bin").
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext);
+PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, const char *ext);
 
 /**
  * @brief Writes a predefined set of PETSc Swarm fields to files.
  *
- * This function iterates through a hardcoded list of common swarm fields
- * (position, velocity, etc.) and calls the WriteSwarmField() helper function
- * for each one. This provides a straightforward way to output essential particle
- * data at a given simulation step.
+ * This function iterates through checkpoint-capable particle catalog entries
+ * and delegates each payload to the existing generic swarm writer.
  *
  * This function will only execute if particles are enabled in the simulation
  * (i.e., `user->simCtx->np > 0` and `user->swarm` is not NULL).
  *
  * @param[in] user Pointer to the UserCtx structure containing the simulation context
  *                 and the PetscSwarm.
+ * @param[in] checkpoint_directory Root of the in-progress checkpoint bundle.
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode WriteAllSwarmFields(UserCtx *user);
+PetscErrorCode WriteAllSwarmFields(UserCtx *user, const char *checkpoint_directory);
 
 /**
  * @brief Reads a simple ASCII data file containing one numeric value per line.
@@ -348,14 +276,13 @@ PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name,
  *
  * @param[in]  user       Pointer to the UserCtx structure (containing `user->swarm`).
  * @param[in]  field_name Name of the DMSwarm field to read into (must be previously declared/allocated).
- * @param[in]  ti         Time index used to construct the input file name.
  * @param[in]  ext        File extension (e.g., "dat" or "bin").
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  *
  * @note Compatible with PETSc 3.14.x.
  */
-PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext);
+PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, const char *ext);
 
 /**
  * @brief Reads integer swarm data by using ReadFieldData and casting the result.
@@ -371,12 +298,11 @@ PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, PetscInt ti
  *
  * @param[in] user       Pointer to the UserCtx structure.
  * @param[in] field_name Name of the integer Swarm field to be read.
- * @param[in] ti         Time index for the input file.
  * @param[in] ext        File extension.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt ti, const char *ext);
+PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, const char *ext);
 
 /**
  * @brief Reads multiple fields (positions, velocity, CellID, and weight) into a DMSwarm.
@@ -390,6 +316,16 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, PetscInt
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
 PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti);
+
+/**
+ * @brief Read the particle count from a validated committed checkpoint.
+ *
+ * @param[in,out] user Simulation context and active grid used for validation.
+ * @param[in] ti Checkpoint step resolved below the configured source root.
+ * @param[out] particle_count Number of particles recorded by the bundle.
+ * @return Zero on success or a checkpoint-validation error.
+ */
+PetscErrorCode ReadCheckpointParticleCount(UserCtx *user, PetscInt ti, PetscInt *particle_count);
 
 /**
  * @brief Reads coordinate data (for particles)  from file into a PETSc Vec, then gathers it to rank 0.

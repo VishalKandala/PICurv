@@ -193,7 +193,7 @@ static PetscErrorCode LoadInitialUcont(UserCtx *user)
     simCtx->current_io_directory = simCtx->_io_context_buffer;
 
     if (simCtx->initialConditionField == IC_FIELD_UCAT) {
-        ierr = ReadFieldData(user, "ufield", user->Ucat, 0, "dat"); CHKERRQ(ierr);
+        ierr = ReadFieldData(user, "ufield00000_0", user->Ucat, "dat"); CHKERRQ(ierr);
         {
             const FieldId cell_fields[] = {FIELD_ID_UCAT};
             ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
@@ -201,7 +201,7 @@ static PetscErrorCode LoadInitialUcont(UserCtx *user)
         ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
         ierr = Cart2Contra(user); CHKERRQ(ierr);
     } else if (simCtx->initialConditionField == IC_FIELD_UCONT) {
-        ierr = ReadFieldData(user, "vfield", user->Ucont, 0, "dat"); CHKERRQ(ierr);
+        ierr = ReadFieldData(user, "vfield00000_0", user->Ucont, "dat"); CHKERRQ(ierr);
     } else {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                 "Unsupported file initial-condition field selector %d.",
@@ -395,7 +395,8 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
     // that the history vectors (Ucont_o, Ucont_rm1, etc.) are correctly
     // populated before the first call to the time-stepping loop.
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        ierr = UpdateSolverHistoryVectors(&user_finest[bi]); CHKERRQ(ierr);
+        ierr = UpdateSolverHistoryVectors(&user_finest[bi],
+                                           (PetscBool)(simCtx->StartStep > 0 && simCtx->restartHistoryAvailable)); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Eulerian State Initialized and History Vectors Populated ---\n");

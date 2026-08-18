@@ -5,6 +5,7 @@
 
 import importlib.machinery
 import importlib.util
+import hashlib
 import json
 import os
 import shutil
@@ -46,15 +47,76 @@ def run_picurv(args, cwd=REPO_ROOT, env=None):
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False, env=merged_env)
 
 
-def write_eulerian_checkpoint(directory: Path, step: int, content: str = "euler_data") -> None:
+def write_eulerian_checkpoint(
+    directory: Path,
+    step: int,
+    content: str = "euler_data",
+    include_particles: bool = False,
+    fields=("Ucat", "Ucont", "Ucont_rm1", "P", "Nvert"),
+) -> Path:
     """!
     @brief Write the complete Eulerian checkpoint set consumed by `ReadSimulationFields()`.
-    @param[in] directory Eulerian output or restart directory.
+    @param[in] directory Checkpoint output or restart root.
     @param[in] step Checkpoint step to write.
     @param[in] content Test payload stored in each field file.
+    @param[in] include_particles Whether to include a particle payload.
+    @param[in] fields Eulerian fields to place in the manifest.
+    @return Path to the committed test bundle.
     """
-    for field in ("ufield", "vfield", "pfield", "nvfield"):
-        (directory / f"{field}{step:05d}_0.dat").write_text(content, encoding="utf-8")
+    bundle = directory / "checkpoints" / f"step_{step:012d}"
+    eulerian = bundle / "eulerian" / "block_0000"
+    eulerian.mkdir(parents=True, exist_ok=True)
+    payloads = []
+    for field in fields:
+        payload = eulerian / f"{field}.dat"
+        payload.write_text(content, encoding="utf-8")
+        payloads.append((f"eulerian/block_0000/{field}.dat", "eulerian", field, 0))
+    if include_particles:
+        particles = bundle / "particles"
+        particles.mkdir()
+        payload = particles / "position.dat"
+        payload.write_text(content, encoding="utf-8")
+        payloads.append(("particles/position.dat", "particle", "position", -1))
+
+    lines = [
+        "-checkpoint_format picurv-checkpoint",
+        "-checkpoint_version 1",
+        f"-checkpoint_step {step}",
+        f"-checkpoint_time {step * 0.1:.17g}",
+        "-checkpoint_dt 0.1",
+        "-checkpoint_reason test",
+        "-checkpoint_geometry_sha256 " + "0" * 64,
+        "-checkpoint_block_count 1",
+        f"-checkpoint_particles {'true' if include_particles else 'false'}",
+        f"-checkpoint_particle_count {1 if include_particles else 0}",
+        "-checkpoint_les false",
+        "-checkpoint_rans false",
+        f"-checkpoint_payload_count {len(payloads)}",
+        "-checkpoint_block_0_im 4",
+        "-checkpoint_block_0_jm 4",
+        "-checkpoint_block_0_km 4",
+        "-checkpoint_periodic 0,0,0",
+    ]
+    for index, (relative, kind, field, block) in enumerate(payloads):
+        payload = bundle / relative
+        lines.extend([
+            f"-checkpoint_payload_{index}_path {relative}",
+            f"-checkpoint_payload_{index}_kind {kind}",
+            f"-checkpoint_payload_{index}_field {field}",
+            f"-checkpoint_payload_{index}_block {block}",
+            f"-checkpoint_payload_{index}_layout test",
+            f"-checkpoint_payload_{index}_components 1",
+            f"-checkpoint_payload_{index}_logical_type PetscScalar",
+            f"-checkpoint_payload_{index}_global_size 1",
+            f"-checkpoint_payload_{index}_encoding test",
+            f"-checkpoint_payload_{index}_bytes {payload.stat().st_size}",
+        ])
+    metadata = bundle / "checkpoint.meta"
+    metadata.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (bundle / "COMMITTED").write_text(
+        hashlib.sha256(metadata.read_bytes()).hexdigest() + "\n", encoding="ascii"
+    )
+    return bundle
 
 
 @pytest.mark.parametrize("command", sorted(REPORTING_CONTRACT["cli_commands"]))
@@ -468,6 +530,10 @@ def test_generate_solver_control_file_stages_ic_gen_after_grid(tmp_path):
     assert "-finit 4" in content
     assert "-ic_field 0" in content
     assert "-ic_dir " in content
+    assert "-solution_convergence_enabled true" in content
+    assert "-solution_convergence_mode \"STEADY_DETERMINISTIC\"" in content
+    assert "-observations_config_file" not in content
+    assert not (run_dir / "config" / "observations.run").exists()
     assert (run_dir / "config" / "initial_condition" / "ufield00000_0.dat").is_file()
 
 
@@ -788,19 +854,13 @@ def create_post_source_steps(
     @param[in] eulerian_ext Argument passed to `create_post_source_steps()`.
     @param[in] particle_ext Argument passed to `create_post_source_steps()`.
     """
+    del eulerian_ext, particle_ext
     dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
     output_root = run_dir / dirs.get("output", "output")
-    euler_dir = output_root / dirs.get("eulerian_subdir", "eulerian")
-    particle_dir = output_root / dirs.get("particle_subdir", "particles")
-    euler_dir.mkdir(parents=True, exist_ok=True)
-    if include_particles:
-        particle_dir.mkdir(parents=True, exist_ok=True)
-
     for step in steps:
-        for basename in ("ufield", "vfield", "pfield", "nvfield"):
-            (euler_dir / f"{basename}{step:05d}_0.{eulerian_ext.lstrip('.')}" ).write_text("0\n", encoding="utf-8")
-        if include_particles:
-            (particle_dir / f"position{step:05d}_0.{particle_ext.lstrip('.')}" ).write_text("0\n", encoding="utf-8")
+        write_eulerian_checkpoint(
+            output_root, step, content="0\n", include_particles=include_particles
+        )
 
 
 def create_post_outputs(
@@ -3494,7 +3554,7 @@ def test_dry_run_post_process_reports_nearest_available_source_steps(tmp_path):
     assert diagnostic["first_incomplete_step"] == 0
     assert diagnostic["closest_complete_step_to_start"] == 1000
     assert diagnostic["closest_complete_step_to_end"] == 15000
-    assert "eulerian/ufield00000_0.dat" in diagnostic["missing_files_for_first_incomplete_step"]
+    assert "checkpoints/step_000000000000/checkpoint.meta" in diagnostic["missing_files_for_first_incomplete_step"]
 
 
 def test_dry_run_post_process_requires_all_requested_output_families_for_resume(tmp_path):
@@ -5747,14 +5807,11 @@ def test_restart_from_copies_checkpoint_and_sets_restart_dir(tmp_path):
     # Create a fake source run directory with checkpoint files at step 5
     source_run_dir = tmp_path / "old_run"
     (source_run_dir / "config").mkdir(parents=True)
-    source_output = source_run_dir / "output" / "eulerian"
+    source_output = source_run_dir / "output"
     source_output.mkdir(parents=True)
-    source_particles = source_run_dir / "output" / "particles"
-    source_particles.mkdir(parents=True)
 
     # Create fake checkpoint files for step 5
-    write_eulerian_checkpoint(source_output, 5)
-    (source_particles / "pfield00005_0.dat").write_text("particle_data")
+    write_eulerian_checkpoint(source_output, 5, include_particles=True)
 
     source_monitor_cfg = {
         "io": {
@@ -5782,8 +5839,8 @@ def test_restart_from_copies_checkpoint_and_sets_restart_dir(tmp_path):
     assert not is_continue
     assert resolved is not None
     # Verify files were copied to new_run/restart/
-    assert (Path(resolved) / "eulerian" / "ufield00005_0.dat").exists()
-    assert (Path(resolved) / "particles" / "pfield00005_0.dat").exists()
+    assert (Path(resolved) / "eulerian" / "block_0000" / "Ucat.dat").exists()
+    assert (Path(resolved) / "particles" / "position.dat").exists()
 
     # Verify control file uses the resolved path
     (new_run_dir / "config").mkdir(parents=True)
@@ -5826,9 +5883,9 @@ def test_restart_rejects_incomplete_eulerian_checkpoint_without_replacing_curate
     case_cfg["run_control"]["start_step"] = 5
 
     source_run_dir = tmp_path / "old_run"
-    source_eulerian = source_run_dir / "output" / "eulerian"
-    source_eulerian.mkdir(parents=True)
-    (source_eulerian / "ufield00005_0.dat").write_text("only one field", encoding="utf-8")
+    source_output = source_run_dir / "output"
+    source_output.mkdir(parents=True)
+    write_eulerian_checkpoint(source_output, 5, fields=("Ucat",))
     (source_run_dir / "config").mkdir()
     picurv.write_yaml_file(
         str(source_run_dir / "config" / "monitor.yml"),
@@ -5840,9 +5897,31 @@ def test_restart_rejects_incomplete_eulerian_checkpoint_without_replacing_curate
     (curated / "keep.txt").write_text("preserve", encoding="utf-8")
     args = SimpleNamespace(restart_from=str(source_run_dir), continue_run=False, run_dir=None)
 
-    with pytest.raises(ValueError, match="Incomplete Eulerian checkpoint.*vfield.*pfield.*nvfield"):
+    with pytest.raises(ValueError, match="missing required Eulerian field"):
         picurv.resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, str(new_run_dir))
     assert (curated / "keep.txt").read_text(encoding="utf-8") == "preserve"
+
+
+def test_checkpoint_discovery_rejects_tampered_or_uncommitted_bundles(tmp_path):
+    """!
+    @brief Discovery accepts only manifest-hash-verified committed bundles.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    output = tmp_path / "output"
+    valid_bundle = write_eulerian_checkpoint(output, 4)
+    uncommitted = write_eulerian_checkpoint(output, 5)
+    (uncommitted / "COMMITTED").unlink()
+    tampered = write_eulerian_checkpoint(output, 6)
+    with (tampered / "checkpoint.meta").open("a", encoding="utf-8") as stream:
+        stream.write("-tampered true\n")
+
+    assert picurv.detect_last_checkpoint_step(str(output)) == 4
+    assert picurv.validate_committed_checkpoint(str(valid_bundle), 4)["bundle"] == str(valid_bundle)
+    with pytest.raises(ValueError, match="committed checkpoint"):
+        picurv.validate_committed_checkpoint(str(output), 5)
+    with pytest.raises(ValueError, match="hash mismatch"):
+        picurv.validate_committed_checkpoint(str(output), 6)
 
 
 def test_restart_from_load_mode_uses_direct_reference(tmp_path):
@@ -5859,7 +5938,7 @@ def test_restart_from_load_mode_uses_direct_reference(tmp_path):
     # Setup source run with all step files for "load" mode
     source_run_dir = tmp_path / "flow_run"
     (source_run_dir / "config").mkdir(parents=True)
-    source_output = source_run_dir / "output" / "eulerian"
+    source_output = source_run_dir / "output"
     source_output.mkdir(parents=True)
 
     case_cfg["run_control"]["start_step"] = 0
@@ -5900,7 +5979,7 @@ def test_restart_from_load_mode_missing_step_files_fails(tmp_path):
 
     source_run_dir = tmp_path / "flow_run"
     (source_run_dir / "config").mkdir(parents=True)
-    source_output = source_run_dir / "output" / "eulerian"
+    source_output = source_run_dir / "output"
     source_output.mkdir(parents=True)
 
     case_cfg["run_control"]["start_step"] = 0
@@ -5917,7 +5996,7 @@ def test_restart_from_load_mode_missing_step_files_fails(tmp_path):
 
     args = SimpleNamespace(restart_from=str(source_run_dir), continue_run=False, run_dir=None)
 
-    with pytest.raises(ValueError, match="step file.*missing"):
+    with pytest.raises(ValueError, match="committed checkpoint.*missing"):
         picurv.resolve_restart_source(
             args, case_cfg, solver_cfg, monitor_cfg, str(tmp_path / "new_run")
         )
@@ -5935,15 +6014,15 @@ def test_continue_mode_auto_populates_restart(tmp_path):
     monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
 
     run_dir = tmp_path / "my_run"
-    output_dir = run_dir / "output" / "eulerian"
+    output_dir = run_dir / "output"
     output_dir.mkdir(parents=True)
-    (run_dir / "output" / "particles").mkdir()
+    (run_dir / "config").mkdir()
 
     case_cfg["run_control"]["start_step"] = 10
+    picurv.write_yaml_file(str(run_dir / "config" / "case.yml"), case_cfg)
 
     # Create checkpoint at step 10
     write_eulerian_checkpoint(output_dir, 10, "euler")
-    (run_dir / "output" / "particles" / "pfield00010_0.dat").write_text("particle")
 
     args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
 
@@ -5953,11 +6032,11 @@ def test_continue_mode_auto_populates_restart(tmp_path):
 
     assert is_continue
     assert resolved is not None
-    # Auto-populated restart/ should contain the checkpoint files
-    assert (Path(resolved) / "eulerian" / "ufield00010_0.dat").exists()
+    # Continue reads the immutable output bundle directly.
+    assert (Path(resolved) / "eulerian" / "block_0000" / "Ucat.dat").exists()
 
 
-def test_continue_mode_prefers_curated_restart(tmp_path):
+def test_continue_mode_ignores_uncommitted_restart_staging(tmp_path):
     """!
     @brief Test that --continue uses curated restart/ over output/ (warm-up-and-discard).
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
@@ -5970,13 +6049,15 @@ def test_continue_mode_prefers_curated_restart(tmp_path):
 
     run_dir = tmp_path / "my_run"
 
-    # Both output/ and restart/ exist, restart/ has curated files
-    (run_dir / "output" / "eulerian").mkdir(parents=True)
-    write_eulerian_checkpoint(run_dir / "output" / "eulerian", 10, "output_version")
-    (run_dir / "restart" / "eulerian").mkdir(parents=True)
-    write_eulerian_checkpoint(run_dir / "restart" / "eulerian", 10, "curated_version")
+    # A committed output bundle is authoritative for in-place continuation.
+    (run_dir / "output").mkdir(parents=True)
+    output_bundle = write_eulerian_checkpoint(run_dir / "output", 10, "output_version")
+    (run_dir / "restart").mkdir(parents=True)
+    (run_dir / "restart" / "stale.dat").write_text("uncommitted", encoding="utf-8")
 
     case_cfg["run_control"]["start_step"] = 10
+    (run_dir / "config").mkdir()
+    picurv.write_yaml_file(str(run_dir / "config" / "case.yml"), case_cfg)
 
     args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
 
@@ -5985,8 +6066,34 @@ def test_continue_mode_prefers_curated_restart(tmp_path):
     )
 
     assert is_continue
-    # Should use restart/ (curated) not output/
-    assert resolved == str(run_dir / "restart")
+    assert resolved == str(output_bundle)
+
+
+def test_continue_rejects_physical_case_change(tmp_path):
+    """!
+    @brief In-place continuation allows time controls but rejects physical-case changes.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    saved_case = picurv.read_yaml_file(str(valid / "case.yml"))
+    requested_case = json.loads(json.dumps(saved_case))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    run_dir = tmp_path / "same_run"
+    (run_dir / "config").mkdir(parents=True)
+    picurv.write_yaml_file(str(run_dir / "config" / "case.yml"), saved_case)
+    write_eulerian_checkpoint(run_dir / "output", 10)
+
+    requested_case["run_control"]["start_step"] = 10
+    requested_case["run_control"]["total_steps"] = 20
+    requested_case["properties"]["fluid"]["viscosity"] = 999.0
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
+
+    with pytest.raises(ValueError, match="cannot change the physical case"):
+        picurv.resolve_restart_source(
+            args, requested_case, solver_cfg, monitor_cfg, str(run_dir)
+        )
 
 
 def test_continue_mode_sets_continue_mode_flag(tmp_path):

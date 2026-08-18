@@ -28,7 +28,6 @@ io:
   eulerian_fields:
     - "Ucat_nodal"
     - "P_nodal"
-  eulerian_fields_averaged: []
   output_particles: false
   input_extensions:
     eulerian: "dat"

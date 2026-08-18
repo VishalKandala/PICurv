@@ -622,8 +622,8 @@ static PetscErrorCode MomSetLocalScalarCell(DM da, Vec lvec, PetscInt ci, PetscI
     PetscFunctionReturn(0);
 }
 
-/* 1. Shared BDF coefficient: BDF1 through the first restart solve, where the run
- * loop has advanced ti to StartStep+1. */
+/* 1. Shared BDF coefficient: old/current-only state falls back to BDF1, while
+ * a committed checkpoint with restored Ucont_rm1 retains BDF2 immediately. */
 static PetscErrorCode TestMomentumBDFCoefficient(void)
 {
     SimCtx *simCtx = NULL; UserCtx *user = NULL;
@@ -641,6 +641,13 @@ static PetscErrorCode TestMomentumBDFCoefficient(void)
     PetscCall(PicurvAssertRealNear(1.0, MomentumBDFCoefficient(simCtx), 1e-12, "a0 BDF1 on first restart solve (ti==StartStep+1)"));
     simCtx->step = 7;
     PetscCall(PicurvAssertRealNear(1.5, MomentumBDFCoefficient(simCtx), 1e-12, "a0 BDF2 after first restart solve"));
+    simCtx->restartHistoryAvailable = PETSC_TRUE;
+    simCtx->step = 5;
+    PetscCall(PicurvAssertRealNear(1.5, MomentumBDFCoefficient(simCtx), 1e-12,
+                                   "restored history enables BDF2 at restart setup"));
+    simCtx->step = 6;
+    PetscCall(PicurvAssertRealNear(1.5, MomentumBDFCoefficient(simCtx), 1e-12,
+                                   "restored history enables BDF2 on first restart solve"));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }

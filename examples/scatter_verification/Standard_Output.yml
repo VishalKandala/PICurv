@@ -7,8 +7,6 @@ io:
     output: "output"
     restart: "restart"
     log: "logs"
-    eulerian_subdir: "eulerian"
-    particle_subdir: "particles"
 
 logging:
   # scatter_metrics.csv is always written when scalar verification is active.

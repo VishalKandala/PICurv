@@ -84,9 +84,9 @@ def test_audit_ingress_manifest_matches_c_ingress():
     assert "[OK] Ingress manifest matches setup/io PETSc option scan." in result.stdout
 
 
-def test_generate_post_recipe_supports_legacy_aliases_and_legacy_input_extensions(tmp_path):
+def test_generate_post_recipe_rejects_non_checkpoint_input_extensions(tmp_path):
     """!
-    @brief Test that generate post recipe supports legacy aliases and legacy input extensions.
+    @brief Test that post recipes reject extensions incompatible with committed bundles.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -120,23 +120,13 @@ def test_generate_post_recipe_supports_legacy_aliases_and_legacy_input_extension
         },
     }
 
-    recipe_path = Path(
+    with pytest.raises(ValueError, match="must be 'dat'"):
         picurv.generate_post_recipe_file(
             str(run_dir),
             "demo_run",
             post_cfg,
             {"Case": "case.yml", "Post-Profile": "post.yml"},
         )
-    )
-    content = recipe_path.read_text(encoding="utf-8")
-
-    assert "startTime = 5" in content
-    assert "endTime = 15" in content
-    assert "timeStep = 2" in content
-    assert "eulerianExt = fld" in content
-    assert "particleExt = prt" in content
-    assert "statistics_pipeline = ComputeMSD" in content
-    assert "statistics_output_prefix = stats/BrownianStats" in content
 
 
 def test_generate_post_recipe_defaults_statistics_output_prefix_under_monitor_output_root(tmp_path):
@@ -609,24 +599,76 @@ def test_parse_solver_config_maps_verification_scalar_flags():
     assert flags["-verification_scalar_kz"] == 0.7853981633974483
 
 
-def test_parse_solver_config_maps_solution_convergence_flags():
+def test_solution_monitoring_maps_solution_convergence_flags():
     """!
-    @brief Test that parse_solver_config maps solution-convergence settings into control flags.
+    @brief Test that solution-monitoring ingress maps into the existing C flags.
     """
     picurv = load_picurv_module()
-    solver_cfg = {
-        "solution_convergence": {
-            "mode": "periodic_deterministic",
-            "periodic_deterministic": {
-                "period_steps": 12,
-            },
+    monitor_cfg = {
+        "solution_monitoring": {
+            "convergence": {
+                "enabled": True,
+                "mode": "periodic_deterministic",
+                "periodic_deterministic": {"period_steps": 12},
+            }
         }
     }
 
-    flags = picurv.parse_solver_config(solver_cfg)
+    flags = picurv.resolve_solution_monitoring_flags(monitor_cfg)
 
+    assert flags["-solution_convergence_enabled"] == "true"
     assert flags["-solution_convergence_mode"] == '"PERIODIC_DETERMINISTIC"'
     assert flags["-solution_convergence_period_steps"] == 12
+
+
+def test_validate_rejects_removed_legacy_averaging_location(tmp_path):
+    """!
+    @brief Ensure the old case statistics switch cannot silently survive staging.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    case_cfg["models"]["statistics"] = {"time_averaging": True}
+    case_path = tmp_path / "case_with_legacy_averaging.yml"
+    picurv.write_yaml_file(str(case_path), case_cfg)
+
+    result = run_picurv([
+        "validate",
+        "--case", str(case_path),
+        "--solver", str(valid / "solver.yml"),
+        "--monitor", str(valid / "monitor.yml"),
+        "--post", str(valid / "post.yml"),
+    ])
+
+    assert result.returncode == 1
+    assert "models.statistics' was removed" in result.stderr
+    assert "field-statistics pipeline is available" in result.stderr
+
+
+def test_validate_rejects_old_solver_convergence_location(tmp_path):
+    """!
+    @brief Ensure physical-solution monitoring uses the monitor configuration.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver_cfg["solution_convergence"] = {"mode": "steady_deterministic"}
+    solver_path = tmp_path / "solver_with_old_convergence.yml"
+    picurv.write_yaml_file(str(solver_path), solver_cfg)
+
+    result = run_picurv([
+        "validate",
+        "--case", str(valid / "case.yml"),
+        "--solver", str(solver_path),
+        "--monitor", str(valid / "monitor.yml"),
+        "--post", str(valid / "post.yml"),
+    ])
+
+    assert result.returncode == 1
+    assert "solution_convergence' moved" in result.stderr
+    assert "solution_monitoring.convergence" in result.stderr
 
 
 def test_parse_solver_config_maps_canonical_jameson_controls():
@@ -1647,14 +1689,16 @@ def test_validate_rejects_solution_convergence_periodic_mode_without_period_step
     """
     picurv = load_picurv_module()
     valid = FIXTURES / "valid"
-    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
-    solver_cfg["solution_convergence"] = {
-        "enabled": True,
-        "mode": "periodic_deterministic",
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    monitor_cfg["solution_monitoring"] = {
+        "convergence": {
+            "enabled": True,
+            "mode": "periodic_deterministic",
+        }
     }
 
-    solver_path = tmp_path / "solver_invalid_solution_convergence_periodic.yml"
-    picurv.write_yaml_file(str(solver_path), solver_cfg)
+    monitor_path = tmp_path / "monitor_invalid_solution_convergence_periodic.yml"
+    picurv.write_yaml_file(str(monitor_path), monitor_cfg)
 
     result = run_picurv(
         [
@@ -1662,16 +1706,16 @@ def test_validate_rejects_solution_convergence_periodic_mode_without_period_step
             "--case",
             str(valid / "case.yml"),
             "--solver",
-            str(solver_path),
+            str(valid / "solver.yml"),
             "--monitor",
-            str(valid / "monitor.yml"),
+            str(monitor_path),
             "--post",
             str(valid / "post.yml"),
         ]
     )
 
     assert result.returncode == 1
-    assert "solution_convergence.periodic_deterministic.period_steps is required" in result.stderr
+    assert "solution_monitoring.convergence.periodic_deterministic is required" in result.stderr
 
 
 def test_validate_rejects_solution_convergence_statistical_block_under_wrong_mode(tmp_path):
@@ -1681,17 +1725,17 @@ def test_validate_rejects_solution_convergence_statistical_block_under_wrong_mod
     """
     picurv = load_picurv_module()
     valid = FIXTURES / "valid"
-    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
-    solver_cfg["solution_convergence"] = {
-        "enabled": True,
-        "mode": "steady_deterministic",
-        "statistical_steady": {
-            "window_steps": 20,
-        },
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    monitor_cfg["solution_monitoring"] = {
+        "convergence": {
+            "enabled": True,
+            "mode": "steady_deterministic",
+            "statistical_steady": {"window_steps": 20},
+        }
     }
 
-    solver_path = tmp_path / "solver_invalid_solution_convergence_mismatch.yml"
-    picurv.write_yaml_file(str(solver_path), solver_cfg)
+    monitor_path = tmp_path / "monitor_invalid_solution_convergence_mismatch.yml"
+    picurv.write_yaml_file(str(monitor_path), monitor_cfg)
 
     result = run_picurv(
         [
@@ -1699,16 +1743,16 @@ def test_validate_rejects_solution_convergence_statistical_block_under_wrong_mod
             "--case",
             str(valid / "case.yml"),
             "--solver",
-            str(solver_path),
+            str(valid / "solver.yml"),
             "--monitor",
-            str(valid / "monitor.yml"),
+            str(monitor_path),
             "--post",
             str(valid / "post.yml"),
         ]
     )
 
     assert result.returncode == 1
-    assert "solution_convergence.statistical_steady is only valid when mode is 'statistical_steady'" in result.stderr
+    assert "solution_monitoring.convergence.statistical_steady is only valid for statistical_steady mode" in result.stderr
 
 
 

@@ -11,8 +11,6 @@ io:
     output: "output"
     restart: "restart"
     log: "logs"
-    eulerian_subdir: "eulerian"
-    particle_subdir: "particles"
 
 logging:
   # search_metrics.csv is always written for particle-enabled runs.

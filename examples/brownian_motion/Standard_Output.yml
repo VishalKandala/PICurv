@@ -22,8 +22,6 @@ io:
     output: "output"
     restart: "restart"
     log: "logs"
-    eulerian_subdir: "eulerian"
-    particle_subdir: "particles"
 
 logging:
   # WARNING keeps production runs quiet while still surfacing shutdown/fallback

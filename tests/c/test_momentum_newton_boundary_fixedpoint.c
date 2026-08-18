@@ -387,7 +387,7 @@ static PetscErrorCode TestNewtonKrylovProductionRegression(void)
      * through the real run path, advance histories, then enter step 2. */
     simCtx->step = 1; simCtx->ti = simCtx->dt;
     PetscCall(FlowSolver(simCtx));
-    PetscCall(UpdateSolverHistoryVectors(user));
+    PetscCall(UpdateSolverHistoryVectors(user, PETSC_FALSE));
     simCtx->step = 2; simCtx->ti = 2.0 * simCtx->dt;
 
     PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
