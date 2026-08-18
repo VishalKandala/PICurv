@@ -1518,6 +1518,31 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Uch); CHKERRQ(ierr);
 	    ierr = VecSet(user->Bcs.Uch, 0.0); CHKERRQ(ierr);
 	    
+	    // --- Group J: Coarsest-Level Immersed-Boundary Workspace ---
+	    // Sized from the coarsest-level DMDA, which is fixed once the DMs exist,
+	    // so this is allocated once here rather than on every Poisson solve.
+	    // FullyBlocked() guards every read with its own Blocked[] flag, so the
+	    // buffer carries no state between solves.
+	    if (level == 0 && simCtx->immersed) {
+	        ierr = PetscCalloc1((size_t)(user->info.mx * user->info.my * 2), &user->KSKE); CHKERRQ(ierr);
+	        LOG_ALLOW(LOCAL, LOG_DEBUG, "Coarsest-level KSKE workspace allocated for immersed boundaries.\n");
+	    }
+
+	    // --- Group K: Corner-Staging Workspace (Finest Level Only) ---
+	    // One pair per block size. Previously these were created lazily inside
+	    // the interpolation routine and rebuilt whenever the block size changed;
+	    // allocating both here removes that churn and the cached-size check.
+	    if (level == usermg->mglevels - 1) {
+	        ierr = DMCreateGlobalVector(user->da,  &user->CellScalarAtCorner);  CHKERRQ(ierr);
+	        ierr = VecSet(user->CellScalarAtCorner, 0.0); CHKERRQ(ierr);
+	        ierr = DMCreateLocalVector(user->da,   &user->lCellScalarAtCorner); CHKERRQ(ierr);
+	        ierr = VecSet(user->lCellScalarAtCorner, 0.0); CHKERRQ(ierr);
+	        ierr = DMCreateGlobalVector(user->fda, &user->CellVectorAtCorner);  CHKERRQ(ierr);
+	        ierr = VecSet(user->CellVectorAtCorner, 0.0); CHKERRQ(ierr);
+	        ierr = DMCreateLocalVector(user->fda,  &user->lCellVectorAtCorner); CHKERRQ(ierr);
+	        ierr = VecSet(user->lCellVectorAtCorner, 0.0); CHKERRQ(ierr);
+	    }
+
       if(level == usermg->mglevels - 1){
         if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
                 LOG_ALLOW(LOCAL, LOG_DEBUG, "Post-processor mode detected. Allocating derived field vectors.\n");
@@ -3486,8 +3511,10 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->Psi_nodal) { ierr = VecDestroy(&user->Psi_nodal); CHKERRQ(ierr); }
 
     // --- Group K: Interpolation Vectors (Lazy allocation) ---
-    if (user->CellFieldAtCorner) { ierr = VecDestroy(&user->CellFieldAtCorner); CHKERRQ(ierr); }
-    if (user->lCellFieldAtCorner) { ierr = VecDestroy(&user->lCellFieldAtCorner); CHKERRQ(ierr); }
+    if (user->CellScalarAtCorner) { ierr = VecDestroy(&user->CellScalarAtCorner); CHKERRQ(ierr); }
+    if (user->lCellScalarAtCorner) { ierr = VecDestroy(&user->lCellScalarAtCorner); CHKERRQ(ierr); }
+    if (user->CellVectorAtCorner) { ierr = VecDestroy(&user->CellVectorAtCorner); CHKERRQ(ierr); }
+    if (user->lCellVectorAtCorner) { ierr = VecDestroy(&user->lCellVectorAtCorner); CHKERRQ(ierr); }
 
     // --- Group L: Implicit Solver Temporary Vectors (Destroyed after use, but check anyway) ---
     if (user->Rhs) { ierr = VecDestroy(&user->Rhs); CHKERRQ(ierr); }

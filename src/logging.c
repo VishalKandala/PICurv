@@ -2765,21 +2765,22 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, FieldId field_id, const char *st
  * @brief Emits anatomy for the transient scalar or vector corner-staging field.
  * @see LOG_CORNER_FIELD_ANATOMY()
  */
-PetscErrorCode LOG_CORNER_FIELD_ANATOMY(UserCtx *user, const char *stage_name)
+PetscErrorCode LOG_CORNER_FIELD_ANATOMY(UserCtx *user, FieldId corner_field_id, const char *stage_name)
 {
-    PetscInt dof = 0;
-    DM dm = NULL;
+    FieldView view;
 
     PetscFunctionBeginUser;
     PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
-    PetscCheck(user->CellFieldAtCorner != NULL && user->lCellFieldAtCorner != NULL,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-               "Transient corner field is unavailable for anatomy logging.");
-    PetscCall(VecGetBlockSize(user->CellFieldAtCorner, &dof));
-    dm = (dof == 1) ? user->da : user->fda;
-    PetscCall(LogFieldAnatomyView(user, "CornerField", stage_name, dm,
-                                  user->lCellFieldAtCorner, dof,
-                                  FIELD_LAYOUT_NODE_CENTERED));
+    PetscCheck(corner_field_id == FIELD_ID_CELL_SCALAR_AT_CORNER ||
+               corner_field_id == FIELD_ID_CELL_VECTOR_AT_CORNER,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+               "Corner anatomy logging expects a corner-staging field identity.");
+    /* The caller states which workspace it used, so the degree of freedom and DM
+     * come from the catalog instead of being inferred from a cached vector. */
+    PetscCall(FieldGetView(user, corner_field_id, &view));
+    PetscCall(LogFieldAnatomyView(user, view.descriptor->canonical_name, stage_name, view.dm,
+                                  view.local_vec, view.descriptor->dof,
+                                  view.descriptor->layout));
     PetscFunctionReturn(0);
 }
 

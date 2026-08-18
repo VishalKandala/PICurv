@@ -876,11 +876,12 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, FieldId field_id, const char *st
 
 /**
  * @brief Logs the node-layout anatomy of the transient center-to-corner interpolation field.
- * @param user       Context owning `CellFieldAtCorner` and `lCellFieldAtCorner`.
+ * @param user       Context owning the corner-staging workspace.
+ * @param corner_field_id Which corner workspace the caller populated.
  * @param stage_name Printable simulation stage.
  * @return Zero on success.
  */
-PetscErrorCode LOG_CORNER_FIELD_ANATOMY(UserCtx *user, const char *stage_name);
+PetscErrorCode LOG_CORNER_FIELD_ANATOMY(UserCtx *user, FieldId corner_field_id, const char *stage_name);
 
 /**
  * @brief Logs the interpolation error between the analytical and computed solutions.

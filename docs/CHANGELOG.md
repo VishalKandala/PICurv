@@ -37,6 +37,23 @@
   - updated Python/C regression coverage and ingress/runtime/reference
     documentation. Scientific statistics accumulation remains Phase 2 work.
 
+- Routed the remaining out-of-factory allocations through the designated
+  infrastructure. The coarsest-level immersed-boundary `KSKE` workspace was
+  allocated and freed on every Poisson solve from inside the solver, with a
+  defensive second free in teardown; it is now allocated once by
+  `CreateAndInitializeAllVectors` and freed once in teardown, which is safe
+  because `FullyBlocked` guards every read with its own flag array and so carries
+  no state between solves. The corner-staging workspace was created lazily inside
+  the interpolation routine and rebuilt whenever the block size changed; it is now
+  two explicitly typed pairs, `CellScalarAtCorner` and `CellVectorAtCorner`,
+  created by the same factory.
+- Gave the corner-staging workspace typed field identities. Because the vectors
+  are now fixed named members with global and local pairs, they satisfy the
+  catalog's `offsetof` requirement, so the hand-rolled global-to-local scatter in
+  the interpolation path is replaced by `UpdateLocalGhosts`. Corner anatomy
+  logging takes the field identity from its caller rather than inferring the
+  degree of freedom from a cached vector's block size.
+
 - Added pointwise spatial target resolution for the field-statistics pipeline:
   `include/statistics_target.h` and `src/statistics_target.c` resolve, for one
   field on one block, an iteration domain that excludes PETSc halo storage and

@@ -140,7 +140,18 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, K_Omega, lK_Omega),
     FIELD_ENTRY(FIELD_ID_K_OMEGA_O, "K_Omega_o", NULL, NULL, 2, FIELD_DM_FDA2, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_RANS,
-                FIELD_CAPABILITY_GHOST_UPDATE, K_Omega_o, lK_Omega_o)
+                FIELD_CAPABILITY_GHOST_UPDATE, K_Omega_o, lK_Omega_o),
+    /* Corner-staging workspace. Node-centered by construction: the interpolation
+     * writes cell-centered data onto grid corners. Not checkpointed, since it is
+     * transient scratch rebuilt on every conversion. */
+    FIELD_ENTRY(FIELD_ID_CELL_SCALAR_AT_CORNER, "CellScalarAtCorner", NULL, NULL, 1,
+                FIELD_DM_DA, FIELD_LAYOUT_NODE_CENTERED,
+                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
+                FIELD_CAPABILITY_GHOST_UPDATE, CellScalarAtCorner, lCellScalarAtCorner),
+    FIELD_ENTRY(FIELD_ID_CELL_VECTOR_AT_CORNER, "CellVectorAtCorner", NULL, NULL, 3,
+                FIELD_DM_FDA, FIELD_LAYOUT_NODE_CENTERED,
+                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
+                FIELD_CAPABILITY_GHOST_UPDATE, CellVectorAtCorner, lCellVectorAtCorner)
 };
 
 _Static_assert(sizeof(gFieldCatalog) / sizeof(gFieldCatalog[0]) == FIELD_ID_COUNT,

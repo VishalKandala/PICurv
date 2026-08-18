@@ -1093,38 +1093,21 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
 
     /* STAGE 1: Center-to-Corner Calculation with Communication */
 
-    // (A) Create or reuse the corner vectors.
-    if(user->CellFieldAtCorner){
-        PetscInt cached_bs;
-        ierr = VecGetBlockSize(user->CellFieldAtCorner, &cached_bs); CHKERRQ(ierr);
-        if(cached_bs != bs){
-                LOG_ALLOW(LOCAL, LOG_WARNING, "[Rank %d] Block size mismatch for existing corner vector and current field %s(Cached: %d, New: %d). Replacing.\n", rank, fieldName, cached_bs, bs);
-            ierr = VecDestroy(&user->CellFieldAtCorner); CHKERRQ(ierr);
-            ierr = VecDestroy(&user->lCellFieldAtCorner); CHKERRQ(ierr);
-            user->CellFieldAtCorner = NULL;
-            user->lCellFieldAtCorner = NULL;    
-        }
-    }
+    // (A) Select the pre-created corner workspace for this block size. Both pairs
+    //     are allocated once by CreateAndInitializeAllVectors, so nothing is
+    //     created, destroyed, or size-checked on this path.
+    const FieldId corner_field_id = (bs == 3) ? FIELD_ID_CELL_VECTOR_AT_CORNER
+                                              : FIELD_ID_CELL_SCALAR_AT_CORNER;
+    FieldView corner_view;
+    ierr = FieldGetView(user, corner_field_id, &corner_view); CHKERRQ(ierr);
 
-    if(user->CellFieldAtCorner == NULL){
-        LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Creating new global corner vector for field '%s'.\n", rank, fieldName);
-        ierr = DMCreateGlobalVector(dm_corner, &user->CellFieldAtCorner); CHKERRQ(ierr);
-    }else{
-        LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Reusing existing global corner vector for field '%s'.\n", rank, fieldName);
-    }
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Using '%s' corner workspace for field '%s'.\n",
+              rank, corner_view.descriptor->canonical_name, fieldName);
 
-    ierr = VecSet(user->CellFieldAtCorner,0.0); CHKERRQ(ierr);
-    Vec cornerGlobal = user->CellFieldAtCorner;
-
-    if(user->lCellFieldAtCorner == NULL){
-        LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Creating new local corner vector for field '%s'.\n", rank, fieldName);
-        ierr = DMCreateLocalVector(dm_corner, &user->lCellFieldAtCorner); CHKERRQ(ierr);
-    }else{
-        LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Reusing existing local corner vector for field '%s'.\n", rank, fieldName);
-    }
-
-    ierr = VecSet(user->lCellFieldAtCorner,0.0); CHKERRQ(ierr);
-    Vec cornerLocal = user->lCellFieldAtCorner;
+    Vec cornerGlobal = corner_view.global_vec;
+    Vec cornerLocal  = corner_view.local_vec;
+    ierr = VecSet(cornerGlobal, 0.0); CHKERRQ(ierr);
+    ierr = VecSet(cornerLocal, 0.0); CHKERRQ(ierr);
 
     // (B) Get a read-only array from the input cell-centered vector
     ierr = DMDAVecGetArrayRead(dm_corner, fieldLocal_cellCentered, &cellCenterPtr_read); CHKERRQ(ierr);
@@ -1244,8 +1227,9 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     // (D) CRITICAL STEP: Communicate the newly computed corner data to fill ghost regions
     LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Beginning ghost exchange for corner data...\n", rank);
 
-    ierr = DMGlobalToLocalBegin(dm_corner, cornerGlobal, INSERT_VALUES, cornerLocal); CHKERRQ(ierr);
-    ierr = DMGlobalToLocalEnd(dm_corner, cornerGlobal, INSERT_VALUES, cornerLocal); CHKERRQ(ierr);
+    /* Routed through the shared ghost-update path now that the corner workspace
+     * is catalogued; this replaces a hand-rolled global-to-local scatter. */
+    ierr = UpdateLocalGhosts(user, corner_field_id); CHKERRQ(ierr);
     
     LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Ghost exchange for corner data complete.\n", rank);
 
@@ -1253,7 +1237,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     if (is_function_allowed(__func__) && (int)(LOG_VERBOSE) <= (int)get_log_level()) {
         // DEBUG: Inspect cornerLocal after ghost exchange
         
-        ierr = LOG_CORNER_FIELD_ANATOMY(user, "After Corner Velocity Interpolated"); CHKERRQ(ierr);
+        ierr = LOG_CORNER_FIELD_ANATOMY(user, corner_field_id, "After Corner Velocity Interpolated"); CHKERRQ(ierr);
 
         // DEBUG
         //ierr = DMView(user->fda, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);

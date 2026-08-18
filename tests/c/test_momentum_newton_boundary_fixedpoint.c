@@ -56,7 +56,7 @@ static void FpGetVectors(UserCtx *user, Vec field[FP_FIELD_COUNT])
     field[9] = user->Ucont_o; field[10] = user->lUcont_o;
     field[11] = user->Ucont_rm1; field[12] = user->lUcont_rm1;
     field[13] = user->Ucat_o; field[14] = user->P_o;
-    field[15] = user->CellFieldAtCorner;
+    field[15] = user->CellVectorAtCorner;
 }
 
 /** @brief Collects the persistent scalar diagnostics maintained by boundary processing. */

@@ -3183,7 +3183,8 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             // Coarsest level check for disconnected domains due to IBM
             l = 0;
             user = mgctx[l].user;
-            ierr = PetscMalloc1(user[bi].info.mx * user[bi].info.my * 2, &user[bi].KSKE); CHKERRQ(ierr);
+            /* KSKE is allocated once by CreateAndInitializeAllVectors; FullyBlocked
+             * rewrites every entry it reads, so no per-solve reallocation is needed. */
             FullyBlocked(&user[bi]);
         }
         
@@ -3387,8 +3388,6 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             if (l > 0) {
                 MatDestroy(&user[bi].MR);
                 MatDestroy(&user[bi].MP);
-            } else if (l==0 && immersed) {
-                PetscFree(user[bi].KSKE);
             }
             if (l < usermg->mglevels - 1) {
                 VecDestroy(&user[bi].R);

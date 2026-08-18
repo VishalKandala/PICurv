@@ -464,6 +464,12 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
 
     PetscCall(CreateZeroedGlobalVector(user->fda, &user->Ucat));
     PetscCall(CreateZeroedLocalVector(user->fda, &user->lUcat));
+    /* Corner-staging workspace, mirroring the finest-level group the real
+     * vector factory creates, so catalog lookups resolve in fixtures too. */
+    PetscCall(CreateZeroedGlobalVector(user->da,  &user->CellScalarAtCorner));
+    PetscCall(CreateZeroedLocalVector(user->da,   &user->lCellScalarAtCorner));
+    PetscCall(CreateZeroedGlobalVector(user->fda, &user->CellVectorAtCorner));
+    PetscCall(CreateZeroedLocalVector(user->fda,  &user->lCellVectorAtCorner));
     PetscCall(CreateZeroedGlobalVector(user->fda, &user->Ucont));
     PetscCall(CreateZeroedLocalVector(user->fda, &user->lUcont));
     PetscCall(CreateZeroedGlobalVector(user->fda, &user->Csi));
@@ -929,8 +935,10 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
         PetscCall(DestroyVecIfSet(&user->Rhs));
         PetscCall(DestroyVecIfSet(&user->dUcont));
         PetscCall(DestroyVecIfSet(&user->pUcont));
-        PetscCall(DestroyVecIfSet(&user->CellFieldAtCorner));
-        PetscCall(DestroyVecIfSet(&user->lCellFieldAtCorner));
+        PetscCall(DestroyVecIfSet(&user->CellScalarAtCorner));
+        PetscCall(DestroyVecIfSet(&user->lCellScalarAtCorner));
+        PetscCall(DestroyVecIfSet(&user->CellVectorAtCorner));
+        PetscCall(DestroyVecIfSet(&user->lCellVectorAtCorner));
         PetscCall(DestroyVecIfSet(&user->B));
         PetscCall(DestroyVecIfSet(&user->R));
         PetscCall(DestroyVecIfSet(&user->Cent));

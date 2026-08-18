@@ -911,7 +911,10 @@ typedef struct UserCtx {
     Vec Ucont_rm1, lUcont_rm1, Rhs, dUcont, pUcont;
     Vec *solutionConvergencePeriodicUcatRef;
     Vec *solutionConvergencePeriodicPRef;
-    Vec CellFieldAtCorner, lCellFieldAtCorner;
+    /* Corner-staging workspace, one pair per block size, so neither the DM nor
+     * the degree of freedom has to be rediscovered from a cached vector. */
+    Vec CellScalarAtCorner, lCellScalarAtCorner;   /* da-based,  dof 1 */
+    Vec CellVectorAtCorner, lCellVectorAtCorner;   /* fda-based, dof 3 */
 
     // --- Pressure-Poisson System ---
     Mat A, C; KSP ksp; MatNullSpace nullsp;
