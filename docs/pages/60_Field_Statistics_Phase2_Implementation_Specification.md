@@ -813,30 +813,56 @@ Each stage is independently testable. No user-facing YAML is accepted until Stag
 
 @section p60_acceptance_sec 14. Validation and Acceptance
 
-Page 58 §16 applies in full. The items with no current coverage at all are:
+Page 58 §16 applies in full. Its items are carried by these suites:
 
-- constant scalar and vector fields yielding exactly zero covariance;
-- analytic periodic signals with known sample- and time-weighted moments;
-- high-mean, low-fluctuation precision;
-- variable `dt`, cadence stride, start and end clipping, and overlapping windows;
-- uninterrupted versus restart or continue equivalence;
-- duplicate-event rejection and graceful-shutdown timing;
-- fixed and moving masks with per-point valid weights;
-- nonperiodic, mixed, and fully periodic domains with no duplicate planes;
-- cell, node, and I/J/K-face layouts;
-- serial, MPI, rank-count-change, and multiblock equivalence; and
+- constant scalar and vector fields yielding exactly zero covariance, analytic signals
+  with known sample- and time-weighted moments, and high-mean, low-fluctuation
+  precision — [test_statistics_moments.c](../../tests/c/test_statistics_moments.c) and
+  [test_statistics_accumulator.c](../../tests/c/test_statistics_accumulator.c);
+- variable `dt`, cadence stride, start and end clipping, overlapping windows, and
+  duplicate-event rejection — [test_statistics_window.c](../../tests/c/test_statistics_window.c);
+- fixed and moving masks with per-point valid weights — the valid-fraction tests in
+  [test_statistics_accumulator.c](../../tests/c/test_statistics_accumulator.c), which
+  blank a point partway through a window;
+- nonperiodic, mixed, and fully periodic domains with no duplicate planes, and cell,
+  node, and I/J/K-face layouts — [test_statistics_target.c](../../tests/c/test_statistics_target.c);
+- uninterrupted versus restart or continue equivalence — the checkpoint round trip and
+  continuation guards in [test_io.c](../../tests/c/test_io.c);
+- serial and rank-count-change equivalence — the statistics smoke scenarios in
+  [run_smoke.sh](../../tests/smoke/run_smoke.sh), which run one analytically prescribed
+  case at one rank and at the harness rank count and require the committed accumulator
+  payloads to be byte-identical. An analytic field is used deliberately: it is
+  evaluated pointwise, so a solved field's Krylov reductions cannot mask a real
+  decomposition dependence in the last bits; and
 - unchanged flow, monitoring, logging, profiling, particle, and model behavior when
-  field statistics are disabled.
+  field statistics are disabled — the disabled-run smoke variant, together with the
+  bundle and console gates in [test_io.c](../../tests/c/test_io.c) and
+  [test_logging.c](../../tests/c/test_logging.c).
 
-Logging and monitoring carry their own acceptance items:
+Logging and monitoring carry their own acceptance items, covered by the statistics
+console tests in [test_logging.c](../../tests/c/test_logging.c) and the three smoke
+variants:
 
 - the console snapshot is emitted at the configured cadence and **not at all** when
   the cadence is zero or the log level is below `LOG_INFO`, mirroring the existing
-  particle-console tests;
+  particle-console tests. The below-`LOG_INFO` half is asserted from a solver run
+  rather than a unit test, because the effective level is resolved once per process;
 - the startup banner reports the configured cadence, or `DISABLED`, in both cases;
 - changing the console cadence does not change any accumulated result, which is the
-  observable form of its exclusion from the definition hash; and
+  observable form of its exclusion from the definition hash. The comparison runs where
+  the log level admits `LOG_INFO`, so the reporting run genuinely reports; and
 - a run with statistics disabled emits no statistics logging on any path.
+
+Two items remain open, and neither is Stage 7 work:
+
+- **Multiblock equivalence** has no coverage, because no multiblock runtime harness
+  exists at any level. Establishing one is the prerequisite, and it is not specific to
+  statistics.
+- **Graceful-shutdown timing** is covered only through the writer it shares with the
+  ordinary cadence: the committed bundle at a given step carries that step's
+  contribution, which the smoke scenarios assert. That the run loop offers the
+  completed state to the windows *before* it reaches the shutdown writer is currently
+  guaranteed by the ordering in [runloop.c](../../src/runloop.c) rather than by a test.
 
 Two acceptance constraints are specific to this design:
 

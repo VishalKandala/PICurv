@@ -853,6 +853,57 @@ static PetscErrorCode AssertCapturedOmits(const char *captured, const char *need
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that the startup banner reports statistics monitoring in every state.
+ *
+ * The banner is the one place a log records whether monitoring was active, so all three
+ * states must be distinguishable after the fact: a live cadence, a subsystem that is
+ * accumulating with the console silenced, and a run that configured no window at all.
+ * The banner reads only the window array and the console cadence, so this fixture sets
+ * those directly rather than allocating accumulator storage it would never touch.
+ */
+
+static PetscErrorCode TestDisplayBannerReportsStatisticsCadence(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindow window;
+    PicurvWindowDefinition definition = StatisticsFixtureDefinition();
+    char captured[16384];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvWindowInit(&window, &definition));
+    simCtx->OnlySetup = PETSC_FALSE;
+    simCtx->StepsToRun = 5;
+    PetscCall(PetscStrncpy(simCtx->eulerianSource, "solve", sizeof(simCtx->eulerianSource)));
+
+    /* A run with statistics accumulating and the console cadence live. */
+    simCtx->fieldStatisticsEnabled = PETSC_TRUE;
+    simCtx->fieldStatisticsWindowCount = 1;
+    simCtx->fieldStatisticsWindows = &window;
+    simCtx->statisticsConsoleOutputFreq = 5;
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Statistics Console Cadence : every 5 step(s), 1 window(s)",
+                                     "DisplayBanner should report the live statistics console cadence"));
+
+    /* Accumulating, but with console reporting switched off. */
+    simCtx->statisticsConsoleOutputFreq = 0;
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Statistics Console Cadence : DISABLED (1 window(s) accumulating)",
+                                     "DisplayBanner should distinguish a silenced console from an inactive subsystem"));
+
+    /* No window configured: the row still appears, so its absence is never ambiguous. */
+    simCtx->fieldStatisticsEnabled = PETSC_FALSE;
+    simCtx->fieldStatisticsWindowCount = 0;
+    simCtx->fieldStatisticsWindows = NULL;
+    PetscCall(CaptureBannerOutput(simCtx, captured, sizeof(captured)));
+    PetscCall(AssertCapturedContains(captured, "Statistics Console Cadence : DISABLED (no window configured)",
+                                     "DisplayBanner should record that no statistics window was configured"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests conditional startup-banner fields across particle and analytical cases.
  */
 
@@ -1001,6 +1052,7 @@ int main(int argc, char **argv)
         {"verify-path-existence", TestVerifyPathExistence},
         {"write-and-read-simulation-fields", TestWriteAndReadSimulationFields},
         {"checkpoint-same-step-rewrite-rejected", TestCheckpointSameStepRewriteIsRejected},
+        {"display-banner-reports-statistics-cadence", TestDisplayBannerReportsStatisticsCadence},
         {"checkpoint-statistics-round-trip", TestCheckpointStatisticsRoundTrip},
         {"checkpoint-statistics-continuation-guards", TestCheckpointStatisticsContinuationGuards},
         {"checkpoint-statistics-payload-is-validated", TestCheckpointStatisticsPayloadIsValidated},

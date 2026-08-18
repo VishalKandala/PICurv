@@ -940,6 +940,129 @@ with open(post_path, "w", encoding="utf-8") as f:
 PY
 }
 
+prepare_flat_case_field_statistics() {
+  local case_dir="$1"
+  local statistics_enabled="$2"
+  local console_frequency="$3"
+  local verbosity="$4"
+  local post_output_dir="$5"
+  python3 - \
+    "${case_dir}/flat_channel.yml" \
+    "${case_dir}/Imp-MG-Standard.yml" \
+    "${case_dir}/Standard_Output.yml" \
+    "${case_dir}/standard_analysis.yml" \
+    "${statistics_enabled}" \
+    "${console_frequency}" \
+    "${verbosity}" \
+    "${post_output_dir}" <<'PY'
+import sys
+import yaml
+
+(
+    case_path,
+    solver_path,
+    monitor_path,
+    post_path,
+    statistics_enabled,
+    console_frequency,
+    verbosity,
+    post_output_dir,
+) = sys.argv[1:]
+
+statistics_enabled = statistics_enabled == "1"
+
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+with open(monitor_path, "r", encoding="utf-8") as f:
+    monitor_cfg = yaml.safe_load(f)
+with open(post_path, "r", encoding="utf-8") as f:
+    post_cfg = yaml.safe_load(f)
+
+case_cfg.setdefault("run_control", {})
+case_cfg["run_control"]["start_step"] = 0
+case_cfg["run_control"]["total_steps"] = 4
+case_cfg["run_control"]["dt_physical"] = 0.001
+
+case_cfg.setdefault("grid", {}).setdefault("programmatic_settings", {})
+grid = case_cfg["grid"]["programmatic_settings"]
+grid["im"] = 8
+grid["jm"] = 8
+grid["km"] = 16
+
+case_cfg.setdefault("models", {}).setdefault("physics", {})
+case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["turbulence"] = {"les": False}
+
+# An analytically prescribed field is evaluated pointwise, so the same grid point
+# carries the same value whatever rank owns it. That is what makes the accumulator
+# payloads comparable byte for byte across a decomposition change; a solved field
+# would differ in the last bits through the Krylov reductions alone.
+solver_cfg.setdefault("operation_mode", {})
+solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
+solver_cfg["operation_mode"]["analytical_type"] = "UNIFORM_FLOW"
+solver_cfg["operation_mode"]["uniform_flow"] = {"u": 0.05, "v": -0.02, "w": 0.1}
+
+monitor_cfg.setdefault("io", {})
+monitor_cfg["io"]["data_output_frequency"] = 2
+monitor_cfg["io"]["particle_console_output_frequency"] = 0
+monitor_cfg["io"]["particle_log_interval"] = 1
+monitor_cfg["io"]["statistics_console_output_frequency"] = int(console_frequency)
+monitor_cfg.setdefault("logging", {})
+monitor_cfg["logging"]["verbosity"] = verbosity
+
+if statistics_enabled:
+    monitor_cfg["field_statistics"] = {
+        "enabled": True,
+        "windows": [
+            {
+                "name": "equivalence",
+                "start_time": 0.0,
+                "weighting": "sample",
+                "step_cadence": 1,
+                "fields": [
+                    {"field": "Ucat", "moments": ["first", "second"]},
+                    {"field": "P", "moments": ["first"]},
+                ],
+                "covariances": [["Ucat", "P"]],
+            }
+        ],
+    }
+else:
+    monitor_cfg.pop("field_statistics", None)
+
+post_cfg.setdefault("run_control", {})
+# Two processed steps, each reading the accumulator state committed at that step, so
+# the CSV carries a real convergence history rather than one row repeated.
+post_cfg["run_control"]["start_step"] = 2
+post_cfg["run_control"]["end_step"] = 4
+post_cfg["run_control"]["step_interval"] = 2
+post_cfg.setdefault("io", {})
+post_cfg["io"]["output_directory"] = post_output_dir
+post_cfg["io"]["output_filename_prefix"] = "Field"
+post_cfg["io"]["output_particles"] = False
+
+if statistics_enabled:
+    post_cfg["field_statistics"] = {
+        "windows": ["equivalence"],
+        "outputs": ["mean", "reynolds_stress", "rms", "tke", "flux"],
+        "formats": ["vtk", "csv"],
+    }
+else:
+    post_cfg.pop("field_statistics", None)
+
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+with open(monitor_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(monitor_cfg, f, sort_keys=False)
+with open(post_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(post_cfg, f, sort_keys=False)
+PY
+}
+
 prepare_brownian_case_analytical() {
   local case_dir="$1"
   python3 - "${case_dir}/brownian_motion.yml" "${case_dir}/Analytical-Zero.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/brownian_analysis.yml" <<'PY'
@@ -1914,6 +2037,108 @@ run_rank_change_restart_smoke() {
     "rank-change restart final bundle after resuming on a different rank count"
 }
 
+# Each variant gets its own case directory: run identifiers are stamped to the second,
+# so two workflows finishing inside the same second would otherwise share a run tree.
+run_field_statistics_variant() {
+  local label="$1"
+  local statistics_enabled="$2"
+  local console_frequency="$3"
+  local verbosity="$4"
+  local case_dir="${tmp_root}/${label}"
+
+  "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
+  prepare_flat_case_field_statistics "${case_dir}" "${statistics_enabled}" "${console_frequency}" \
+    "${verbosity}" "viz/${label}"
+  run_case_workflow \
+    "${case_dir}" \
+    "${case_dir}/flat_channel.yml" \
+    "${case_dir}/Imp-MG-Standard.yml" \
+    "${case_dir}/Standard_Output.yml" \
+    "${case_dir}/standard_analysis.yml" \
+    "${label}"
+}
+
+run_field_statistics_smoke() {
+  local reported_run="" quiet_run="" disabled_run=""
+  local stats_dir="output/checkpoints/step_000000000004/statistics/window_0000/block_0000"
+
+  # (1) Statistics accumulating, console reporting live.
+  run_field_statistics_variant "field_statistics_reported" 1 2 "INFO"
+  reported_run="${LAST_RUN_DIR}"
+  require_file_contains "${LAST_SOLVER_LOG}" "Statistics Console Cadence : every 2 step(s), 1 window(s)" \
+    "startup banner reports the configured statistics console cadence"
+  require_file_contains "${LAST_SOLVER_LOG}" "Statistics windows at step" \
+    "console snapshot is emitted at the configured cadence"
+  require_file_contains "${LAST_SOLVER_LOG}" "equivalence .*samples=" \
+    "console snapshot reports the named window's accepted sample count"
+  require_dir "${reported_run}/${stats_dir}" "committed accumulator payloads"
+  require_count_ge "${reported_run}/${stats_dir}" "*.dat" 5 \
+    "accumulator payloads for two fields, a second moment, and a covariance"
+  require_count_ge "${reported_run}/viz/field_statistics_reported" \
+    "Field_statistics_equivalence_*.vts" 2 "derived statistics VTK output per processed step"
+  require_file "${reported_run}/viz/field_statistics_reported/Field_statistics_equivalence.csv" \
+    "statistics convergence history CSV"
+  require_file_contains "${reported_run}/viz/field_statistics_reported/Field_statistics_equivalence.csv" \
+    "step,state,samples" "statistics convergence history header"
+
+  # (2) The same accumulation below LOG_INFO: the banner still records the cadence, so a
+  #     quiet log stays interpretable, but no snapshot is emitted.
+  run_field_statistics_variant "field_statistics_quiet" 1 2 "WARNING"
+  quiet_run="${LAST_RUN_DIR}"
+  require_file_contains "${LAST_SOLVER_LOG}" "Statistics Console Cadence : every 2 step(s), 1 window(s)" \
+    "startup banner reports the cadence even below LOG_INFO"
+  require_file_not_contains "${LAST_SOLVER_LOG}" "Statistics windows at step" \
+    "no console snapshot is emitted below LOG_INFO"
+  require_dir "${quiet_run}/${stats_dir}" "accumulation continues while the console is quiet"
+
+  # (3) A run that configured no window must be untouched by the subsystem on every path.
+  run_field_statistics_variant "field_statistics_disabled" 0 0 "INFO"
+  disabled_run="${LAST_RUN_DIR}"
+  require_file_contains "${LAST_SOLVER_LOG}" "Statistics Console Cadence : DISABLED (no window configured)" \
+    "startup banner records that no statistics window was configured"
+  require_file_not_contains "${LAST_SOLVER_LOG}" "Statistics windows at step" \
+    "a disabled run emits no statistics console output"
+  if [[ -d "${disabled_run}/output/checkpoints/step_000000000004/statistics" ]]; then
+    die "a disabled run wrote a statistics subtree into its checkpoint bundle."
+  fi
+}
+
+run_field_statistics_rank_equivalence_smoke() {
+  local serial_run="" parallel_run=""
+  local saved_nprocs="${nprocs}"
+  local stats_dir="output/checkpoints/step_000000000004/statistics/window_0000/block_0000"
+  local payload=""
+
+  if [[ "${saved_nprocs}" -le 1 ]]; then
+    echo "    (skipped: rank equivalence needs a multi-rank harness, have ${saved_nprocs})"
+    return 0
+  fi
+
+  nprocs=1
+  run_field_statistics_variant "field_statistics_serial" 1 2 "INFO"
+  serial_run="${LAST_RUN_DIR}"
+  nprocs="${saved_nprocs}"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : 1" \
+    "statistics serial reference run rank count"
+
+  run_field_statistics_variant "field_statistics_parallel" 1 2 "INFO"
+  parallel_run="${LAST_RUN_DIR}"
+  require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${saved_nprocs}" \
+    "statistics parallel run rank count"
+
+  # Accumulation is pointwise and the payloads are written in natural ordering, so a
+  # decomposition change may not move a single byte. The per-point count and weight
+  # payloads carry the sampled-point mask, which is what would shift first if a rank
+  # boundary were mistaken for a domain boundary.
+  require_count_ge "${serial_run}/${stats_dir}" "*.dat" 5 "statistics payloads to compare"
+  while IFS= read -r payload; do
+    require_files_identical \
+      "${serial_run}/${stats_dir}/${payload}" \
+      "${parallel_run}/${stats_dir}/${payload}" \
+      "statistics payload ${payload} (1 rank vs ${saved_nprocs} ranks)"
+  done < <(find "${serial_run}/${stats_dir}" -type f -name '*.dat' -printf '%f\n' | sort)
+}
+
 run_stress_smoke() {
   local particle_case="${tmp_root}/flat-particles-stress"
   local restart_case="${tmp_root}/restart-chain-stress"
@@ -2147,11 +2372,16 @@ run_petsc_diagnostics_smoke
 echo "==> PICurv smoke: restart source resolution in dry-run plan"
 run_restart_resolution_smoke
 
+echo "==> PICurv smoke: field statistics accumulation, monitoring, and post-processing"
+run_field_statistics_smoke
+
 if [[ "${nprocs}" -gt 1 ]]; then
   echo "==> PICurv smoke: multi-rank runtime sequences (flat+bent)"
   run_multi_rank_runtime_smoke
   echo "==> PICurv smoke: restart across a changed MPI rank count"
   run_rank_change_restart_smoke
+  echo "==> PICurv smoke: field statistics across a changed MPI rank count"
+  run_field_statistics_rank_equivalence_smoke
 else
   echo "==> PICurv smoke: Newton--Krylov flat-channel BDF1 startup"
   run_newton_krylov_flat_channel_startup_smoke

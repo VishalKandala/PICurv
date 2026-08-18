@@ -8,6 +8,8 @@
 #include "logging.h"
 #include "interpolation.h"
 #include "setup.h"
+#include "statistics_accumulator.h"
+#include "statistics_window.h"
 
 #include <fcntl.h>
 #include <math.h>
@@ -482,6 +484,18 @@ static PetscErrorCode InvokeParticleConsoleSnapshot(UserCtx *user, SimCtx *simCt
 }
 
 /**
+ * @brief Adapts `EmitStatisticsConsoleSnapshot()` to the generic stdout-capture callback shape.
+ */
+static PetscErrorCode InvokeStatisticsConsoleSnapshot(UserCtx *user, SimCtx *simCtx, void *ctx)
+{
+    PetscInt step = *((PetscInt *)ctx);
+
+    PetscFunctionBeginUser;
+    PetscCall(EmitStatisticsConsoleSnapshot(user, simCtx, step));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Adapts `LOG_FIELD_ANATOMY()` to the generic stdout-capture callback shape.
  */
 static PetscErrorCode InvokeFieldAnatomyLog(UserCtx *user, SimCtx *simCtx, void *ctx)
@@ -712,6 +726,76 @@ static PetscErrorCode TestParticleConsoleSnapshotCadence(void)
     PetscCall(PicurvAssertBool((PetscBool)!IsParticleConsoleSnapshotEnabled(&simCtx),
                                "Zero cadence should disable periodic particle snapshots"));
     PetscCall(PicurvAssertBool((PetscBool)!ShouldEmitPeriodicParticleConsoleSnapshot(NULL, 4),
+                               "NULL SimCtx should never emit periodic snapshots"));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Builds the window definition backing this suite's statistics console fixture.
+ *
+ * One bounded pressure window on a per-step cadence: bounded so the snapshot exercises
+ * its percentage-progress branch, and a single field so the fixture stays cheap.
+ */
+static PicurvWindowDefinition LoggingStatisticsDefinition(void)
+{
+    PicurvWindowDefinition definition;
+
+    memset(&definition, 0, sizeof(definition));
+    strncpy(definition.name, "console_window", PICURV_WINDOW_NAME_LENGTH - 1);
+    definition.weighting = PICURV_WEIGHTING_SAMPLE;
+    definition.cadence_kind = PICURV_CADENCE_STEP;
+    definition.step_cadence = 1;
+    definition.bounded = PETSC_TRUE;
+    definition.end_time = 4.0;
+    definition.field_count = 1;
+    definition.fields[0].field_id = FIELD_ID_P;
+    return definition;
+}
+/**
+ * @brief Tests periodic statistics console snapshot enablement and cadence.
+ */
+
+static PetscErrorCode TestStatisticsConsoleSnapshotCadence(void)
+{
+    SimCtx simCtx;
+    PicurvWindow window;
+    PicurvWindowDefinition definition = LoggingStatisticsDefinition();
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
+    PetscCall(PicurvWindowInit(&window, &definition));
+    simCtx.fieldStatisticsEnabled = PETSC_TRUE;
+    simCtx.fieldStatisticsWindowCount = 1;
+    simCtx.fieldStatisticsWindows = &window;
+    simCtx.statisticsConsoleOutputFreq = 4;
+
+    PetscCall(PicurvAssertBool(IsStatisticsConsoleSnapshotEnabled(&simCtx),
+                               "Statistics snapshot contract should be enabled when a window and cadence are configured"));
+    PetscCall(PicurvAssertBool(ShouldEmitPeriodicStatisticsConsoleSnapshot(&simCtx, 8),
+                               "Snapshot should emit on cadence-aligned completed steps"));
+    PetscCall(PicurvAssertBool((PetscBool)!ShouldEmitPeriodicStatisticsConsoleSnapshot(&simCtx, 7),
+                               "Snapshot should not emit off-cadence"));
+    PetscCall(PicurvAssertBool((PetscBool)!ShouldEmitPeriodicStatisticsConsoleSnapshot(&simCtx, -1),
+                               "Snapshot should not emit for a step that has not completed"));
+
+    simCtx.statisticsConsoleOutputFreq = 0;
+    PetscCall(PicurvAssertBool((PetscBool)!IsStatisticsConsoleSnapshotEnabled(&simCtx),
+                               "Zero cadence should disable periodic statistics snapshots"));
+    PetscCall(PicurvAssertBool((PetscBool)!ShouldEmitPeriodicStatisticsConsoleSnapshot(&simCtx, 0),
+                               "Zero cadence should not emit even on the step that opens a run"));
+
+    /* The console cadence is a reporting contract layered on the subsystem gate: with
+     * nothing accumulating there is nothing to report, whatever the cadence says. */
+    simCtx.statisticsConsoleOutputFreq = 4;
+    simCtx.fieldStatisticsWindowCount = 0;
+    PetscCall(PicurvAssertBool((PetscBool)!IsStatisticsConsoleSnapshotEnabled(&simCtx),
+                               "A configured cadence should not enable snapshots without an accumulating window"));
+
+    simCtx.fieldStatisticsWindowCount = 1;
+    simCtx.fieldStatisticsEnabled = PETSC_FALSE;
+    PetscCall(PicurvAssertBool((PetscBool)!IsStatisticsConsoleSnapshotEnabled(&simCtx),
+                               "A disabled subsystem should not emit statistics snapshots"));
+
+    PetscCall(PicurvAssertBool((PetscBool)!ShouldEmitPeriodicStatisticsConsoleSnapshot(NULL, 4),
                                "NULL SimCtx should never emit periodic snapshots"));
     PetscFunctionReturn(0);
 }
@@ -1027,6 +1111,186 @@ static PetscErrorCode TestParticleConsoleSnapshotLogging(void)
                                "EmitParticleConsoleSnapshot should print the step banner"));
     PetscCall(PicurvAssertBool((PetscBool)(strstr(captured, "Position (x,y,z)") != NULL),
                                "EmitParticleConsoleSnapshot should reuse the particle table output"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests statistics console snapshot content, and its silence when disabled.
+ *
+ * Covers both halves of the monitoring contract from one fixture: an active window
+ * reports its window-level scalars, and the identical call on a disabled subsystem
+ * writes nothing at all, which is the observable form of the gate the runloop relies
+ * on to keep a non-statistics run's log untouched.
+ */
+
+static PetscErrorCode TestStatisticsConsoleSnapshotLogging(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindow window;
+    PicurvWindowStorage storage;
+    PicurvWindowDefinition definition = LoggingStatisticsDefinition();
+    PetscInt step = 2;
+    char captured[8192];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(PicurvWindowInit(&window, &definition));
+    PetscCall(PicurvWindowStorageCreate(user, &definition, &storage));
+
+    simCtx->fieldStatisticsEnabled = PETSC_TRUE;
+    simCtx->fieldStatisticsWindowCount = 1;
+    simCtx->fieldStatisticsWindows = &window;
+    simCtx->statisticsConsoleOutputFreq = 1;
+    user->fieldStatisticsStorage = &storage;
+
+    /* Step 0 anchors the origin without sampling; steps 1 and 2 each represent one
+     * unit of time, so the snapshot has two accepted samples to report. */
+    for (PetscInt offered = 0; offered <= step; ++offered) {
+        PetscCall(FieldStatisticsUpdateWindows(simCtx, offered, (PetscReal)offered));
+    }
+
+    PetscCall(CaptureLoggingOutput(user, simCtx, InvokeStatisticsConsoleSnapshot, &step,
+                                   captured, sizeof(captured)));
+    PetscCall(PicurvAssertBool((PetscBool)(strstr(captured, "Statistics windows at step 2") != NULL),
+                               "EmitStatisticsConsoleSnapshot should print the step banner"));
+    PetscCall(PicurvAssertBool((PetscBool)(strstr(captured, "console_window") != NULL),
+                               "EmitStatisticsConsoleSnapshot should name each configured window"));
+    PetscCall(PicurvAssertBool((PetscBool)(strstr(captured, "samples=2") != NULL),
+                               "EmitStatisticsConsoleSnapshot should report the accepted sample count"));
+    PetscCall(PicurvAssertBool((PetscBool)(strstr(captured, "valid=[") != NULL),
+                               "EmitStatisticsConsoleSnapshot should report mask coverage once storage carries samples"));
+
+    simCtx->fieldStatisticsEnabled = PETSC_FALSE;
+    PetscCall(CaptureLoggingOutput(user, simCtx, InvokeStatisticsConsoleSnapshot, &step,
+                                   captured, sizeof(captured)));
+    PetscCall(PicurvAssertIntEqual(0, (PetscInt)strlen(captured),
+                                   "a disabled subsystem emits no statistics console output"));
+
+    simCtx->fieldStatisticsWindows = NULL;
+    simCtx->fieldStatisticsWindowCount = 0;
+    user->fieldStatisticsStorage = NULL;
+    PetscCall(PicurvWindowStorageDestroy(&storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Sets the pressure field to a uniform value across the owned range.
+ */
+static PetscErrorCode SetUniformPressure(UserCtx *user, PetscReal value)
+{
+    PetscReal ***p = NULL;
+    const DMDALocalInfo info = user->info;
+
+    PetscFunctionBeginUser;
+    PetscCall(DMDAVecGetArray(user->da, user->P, &p));
+    for (PetscInt k = info.zs; k < info.zs + info.zm; ++k)
+        for (PetscInt j = info.ys; j < info.ys + info.ym; ++j)
+            for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) p[k][j][i] = value;
+    PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Drives one accumulation run at a given console cadence, in the runloop's order.
+ *
+ * Reproduces the sequence the run loop applies for each completed step so the console
+ * observes exactly the states a real run would present to it.
+ */
+static PetscErrorCode AccumulateAtConsoleCadence(SimCtx *simCtx, UserCtx *user,
+                                                 PicurvWindow *window,
+                                                 PicurvWindowStorage *storage,
+                                                 const PicurvWindowDefinition *definition,
+                                                 PetscInt console_frequency)
+{
+    PetscFunctionBeginUser;
+    PetscCall(PicurvWindowInit(window, definition));
+    simCtx->fieldStatisticsEnabled = PETSC_TRUE;
+    simCtx->fieldStatisticsWindowCount = 1;
+    simCtx->fieldStatisticsWindows = window;
+    simCtx->statisticsConsoleOutputFreq = console_frequency;
+    user->fieldStatisticsStorage = storage;
+
+    for (PetscInt step = 0; step <= 3; ++step) {
+        PetscCall(SetUniformPressure(user, 1.0 + (PetscReal)step));
+        PetscCall(FieldStatisticsUpdateWindows(simCtx, step, (PetscReal)step));
+        if (ShouldEmitPeriodicStatisticsConsoleSnapshot(simCtx, step)) {
+            PetscCall(EmitStatisticsConsoleSnapshot(user, simCtx, step));
+        }
+    }
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Asserts two accumulator vectors are bit-identical.
+ */
+static PetscErrorCode AssertVecsIdentical(Vec expected, Vec actual, const char *context)
+{
+    PetscBool equal = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCall(VecEqual(expected, actual, &equal));
+    PetscCall(PicurvAssertBool(equal, context));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests that the console cadence has no effect on any accumulated result.
+ *
+ * This is the observable form of the console cadence's exclusion from the window
+ * definition hash: two runs over an identical field series, one reporting every step
+ * and one reporting never, must leave bit-identical accumulator state. Running it
+ * where the log level is at least `LOG_INFO` matters, because a snapshot that silently
+ * declined to emit would make the comparison vacuous.
+ */
+
+static PetscErrorCode TestConsoleCadenceDoesNotChangeAccumulation(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindow reported, silent;
+    PicurvWindowStorage reported_storage, silent_storage;
+    PicurvWindowDefinition definition = LoggingStatisticsDefinition();
+    char captured[8192];
+    PetscInt step = 3;
+
+    PetscFunctionBeginUser;
+    definition.fields[0].want_second = PETSC_TRUE;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(PicurvWindowStorageCreate(user, &definition, &reported_storage));
+    PetscCall(PicurvWindowStorageCreate(user, &definition, &silent_storage));
+
+    PetscCall(AccumulateAtConsoleCadence(simCtx, user, &reported, &reported_storage, &definition, 1));
+    PetscCall(AccumulateAtConsoleCadence(simCtx, user, &silent, &silent_storage, &definition, 0));
+
+    PetscCall(PicurvAssertIntEqual(reported.sample_count, silent.sample_count,
+                                   "both cadences accept the same states"));
+    PetscCall(PicurvAssertRealNear(reported.total_weight, silent.total_weight, 0.0,
+                                   "both cadences accumulate the same total weight"));
+    PetscCall(AssertVecsIdentical(reported_storage.count, silent_storage.count,
+                                  "per-point sample counts are independent of the console cadence"));
+    PetscCall(AssertVecsIdentical(reported_storage.weight, silent_storage.weight,
+                                  "per-point weights are independent of the console cadence"));
+    PetscCall(AssertVecsIdentical(reported_storage.mean[0], silent_storage.mean[0],
+                                  "means are independent of the console cadence"));
+    PetscCall(AssertVecsIdentical(reported_storage.m2[0], silent_storage.m2[0],
+                                  "second moments are independent of the console cadence"));
+
+    /* The reporting cadence did drive real output, so the comparison above compared a
+     * reported run against a silent one rather than two silent ones. */
+    simCtx->statisticsConsoleOutputFreq = 1;
+    simCtx->fieldStatisticsWindows = &reported;
+    user->fieldStatisticsStorage = &reported_storage;
+    PetscCall(CaptureLoggingOutput(user, simCtx, InvokeStatisticsConsoleSnapshot, &step,
+                                   captured, sizeof(captured)));
+    PetscCall(PicurvAssertBool((PetscBool)(strstr(captured, "console_window") != NULL),
+                               "the reporting cadence emits console output at this log level"));
+
+    simCtx->fieldStatisticsEnabled = PETSC_FALSE;
+    simCtx->fieldStatisticsWindows = NULL;
+    simCtx->fieldStatisticsWindowCount = 0;
+    user->fieldStatisticsStorage = NULL;
+    PetscCall(PicurvWindowStorageDestroy(&silent_storage));
+    PetscCall(PicurvWindowStorageDestroy(&reported_storage));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -1584,12 +1848,15 @@ int main(int argc, char **argv)
         {"get-log-level-from-environment", TestGetLogLevelFromEnvironment},
         {"allowed-functions-filter", TestAllowedFunctionsFilter},
         {"particle-console-snapshot-cadence", TestParticleConsoleSnapshotCadence},
+        {"statistics-console-snapshot-cadence", TestStatisticsConsoleSnapshotCadence},
         {"logging-file-parsing-and-formatting-helpers", TestLoggingFileParsingAndFormattingHelpers},
         {"logging-continuity-and-field-diagnostics", TestLoggingContinuityAndFieldDiagnostics},
         {"interpolation-error-logging", TestInterpolationErrorLogging},
         {"scatter-metrics-logging", TestScatterMetricsLogging},
         {"particle-field-table-logging", TestParticleFieldTableLogging},
         {"particle-console-snapshot-logging", TestParticleConsoleSnapshotLogging},
+        {"statistics-console-snapshot-logging", TestStatisticsConsoleSnapshotLogging},
+        {"console-cadence-does-not-change-accumulation", TestConsoleCadenceDoesNotChangeAccumulation},
         {"particle-metrics-logging", TestParticleMetricsLogging},
         {"search-metrics-logging", TestSearchMetricsLogging},
         {"field-anatomy-logging", TestFieldAnatomyLogging},
