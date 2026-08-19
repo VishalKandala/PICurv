@@ -1953,9 +1953,10 @@ def test_profile_gen_field_slice_cli_projects_ucat_to_picslice(tmp_path):
     """
     grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(3, 3, 3))
     values = []
-    for _k in range(3):
-        for _j in range(3):
-            for _i in range(3):
+    # Cell-centered Ucat occupies a DMDA sized (IM+1, JM+1, KM+1).
+    for _k in range(4):
+        for _j in range(4):
+            for _i in range(4):
                 values.extend([0.0, 0.0, 4.0])
     field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
     output = tmp_path / "slice.picslice"
@@ -2005,9 +2006,10 @@ def test_profile_gen_field_slice_cli_supports_axis_index_selector(tmp_path):
     """
     grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(3, 3, 3))
     values = []
-    for _k in range(3):
-        for _j in range(3):
-            for _i in range(3):
+    # Cell-centered Ucat occupies a DMDA sized (IM+1, JM+1, KM+1).
+    for _k in range(4):
+        for _j in range(4):
+            for _i in range(4):
                 values.extend([3.0, 0.0, 0.0])
     field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
     output = tmp_path / "slice_axis.picslice"
@@ -2057,9 +2059,10 @@ def test_profile_gen_field_slice_rejects_bad_orientation_sign(tmp_path):
     """
     grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(3, 3, 3))
     values = []
-    for _k in range(3):
-        for _j in range(3):
-            for _i in range(3):
+    # Cell-centered Ucat occupies a DMDA sized (IM+1, JM+1, KM+1).
+    for _k in range(4):
+        for _j in range(4):
+            for _i in range(4):
                 values.extend([0.0, 0.0, -1.0])
     field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
 
@@ -2232,9 +2235,10 @@ def test_prescribed_flow_bcs_generation_materializes_field_slice_source(tmp_path
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(9, 9, 9))
     values = []
-    for _k in range(9):
-        for _j in range(9):
-            for _i in range(9):
+    # Cell-centered Ucat occupies a DMDA sized (IM+1, JM+1, KM+1).
+    for _k in range(10):
+        for _j in range(10):
+            for _i in range(10):
                 values.extend([0.0, 0.0, 6.0])
     field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
     case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
@@ -3133,9 +3137,10 @@ def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(9, 9, 9))
     values = []
-    for _k in range(9):
-        for _j in range(9):
-            for _i in range(9):
+    # Cell-centered Ucat occupies a DMDA sized (IM+1, JM+1, KM+1).
+    for _k in range(10):
+        for _j in range(10):
+            for _i in range(10):
                 values.extend([0.0, 0.0, 2.0])
     field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
     old_case = tmp_path / "old_case.yml"
@@ -3242,9 +3247,10 @@ def test_local_no_submit_materializes_field_slice_profile(tmp_path):
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
     grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(9, 9, 9))
     values = []
-    for _k in range(9):
-        for _j in range(9):
-            for _i in range(9):
+    # Cell-centered Ucat occupies a DMDA sized (IM+1, JM+1, KM+1).
+    for _k in range(10):
+        for _j in range(10):
+            for _i in range(10):
                 values.extend([0.0, 0.0, 1.5])
     field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
     case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}

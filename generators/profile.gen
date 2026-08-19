@@ -553,6 +553,33 @@ def _surface_normals(coords, spec: dict):
     return normals, sample_indices
 
 
+def _cell_index_for_sample(axis: str, node_sample: tuple, dims: tuple) -> tuple:
+    """!
+    @brief Map a slice sample to the cell-centered DMDA index that carries its velocity.
+
+    `_surface_normals()` reports the two tangential positions as zero-based cell
+    indices and the normal position as a grid node index. Cell-centered fields live
+    on a DMDA sized `(IM+1, JM+1, KM+1)` whose physical cells occupy index 1 through
+    `dim-1`, so the tangential indices shift by one and the normal index is clamped
+    onto the adjacent physical cell. A face at node 0 therefore reads the first
+    interior cell rather than the dummy layer beneath it.
+
+    @param[in] axis        Slice axis: `Xi`, `Eta`, or `Zeta`.
+    @param[in] node_sample Sample reported by `_surface_normals()` as `(k, j, i)`.
+    @param[in] dims        Grid node dimensions `(IM, JM, KM)`.
+    @return Cell-centered DMDA index `(k, j, i)`.
+    """
+    im, jm, km = dims
+    k, j, i = node_sample
+    if axis == "Xi":
+        return (k + 1, j + 1, max(1, min(i, im - 1)))
+    if axis == "Eta":
+        return (k + 1, max(1, min(j, jm - 1)), i + 1)
+    if axis == "Zeta":
+        return (max(1, min(k, km - 1)), j + 1, i + 1)
+    raise ValueError(f"Unsupported slice axis '{axis}'.")
+
+
 def _average_unit_normal(normals):
     """!
     @brief Average a normal field and normalize the result.
@@ -653,22 +680,23 @@ def generate_field_slice_profile(output_path: str, field_file: str, source_grid:
         )
 
     raw_values = read_petsc_vec_binary(field_file)
-    expected_value_count = source_dims[0] * source_dims[1] * source_dims[2] * 3
+    im, jm, km = source_dims
+    expected_value_count = (im + 1) * (jm + 1) * (km + 1) * 3
     if raw_values.size != expected_value_count:
         raise ValueError(
             f"field_file vector length mismatch: expected {expected_value_count} "
-            f"from source grid dimensions {source_dims} and 3 Ucat components, found {raw_values.size}."
+            f"for source grid node dimensions {source_dims} (cell-centered DMDA "
+            f"{(im + 1, jm + 1, km + 1)} with 3 Ucat components), found {raw_values.size}."
         )
-    im, jm, km = source_dims
-    ucat = raw_values.reshape((km, jm, im, 3)) * float(velocity_scale)
+    ucat = raw_values.reshape((km + 1, jm + 1, im + 1, 3)) * float(velocity_scale)
 
     n1, n2 = source_spec["dims"]
     speeds = numpy.zeros((n1, n2), dtype=float)
     signed_components = numpy.zeros((n1, n2), dtype=float)
     for a in range(n1):
         for b in range(n2):
-            k, j, i = sample_indices[a][b]
-            signed = float(numpy.dot(ucat[k, j, i, :], source_normals[a, b, :]))
+            cell = _cell_index_for_sample(source_spec["axis"], sample_indices[a][b], source_dims)
+            signed = float(numpy.dot(ucat[cell], source_normals[a, b, :]))
             signed_components[a, b] = signed
             speeds[a, b] = signed if orientation == "opposite" else -signed
 
