@@ -636,6 +636,7 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     // Validate input parameters
     if (numParticles <= 0) {
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Number of particles must be positive. Given: %d\n", numParticles);
+        PROFILE_FUNCTION_END;
         return PETSC_ERR_ARG_OUTOFRANGE;
     }
     

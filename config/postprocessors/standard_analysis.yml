@@ -13,7 +13,9 @@ run_control:
   # effective restart step internally for the same recipe lineage.
   start_step: 0
   end_step: -1
-  step_interval: 1
+  # Must be a multiple of the paired monitor's io.data_output_frequency: only
+  # steps the solver committed a checkpoint at can be read back.
+  step_interval: 100
 
 source_data:
   # Recommended placeholder: resolved by picurv to this run's solver output.

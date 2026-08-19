@@ -23,6 +23,7 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
 
     if (!user->inletFaceDefined) {
         LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d]: Inlet face not defined in user context. Cannot service.\n", rank_for_logging);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 

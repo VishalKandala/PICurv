@@ -2,7 +2,9 @@
 run_control:
   start_step: 0
   end_step: 0
-  step_interval: 1
+  # Must be a multiple of the paired monitor's io.data_output_frequency: only
+  # steps the solver committed a checkpoint at can be read back.
+  step_interval: 100
 
 source_data:
   directory: "<solver_output_dir>"

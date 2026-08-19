@@ -4967,12 +4967,19 @@ _STUDY_SCHEMA = {
 }
 
 
-def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
-                            case_path: str, solver_path: str, monitor_path: str):
+def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
+                                case_path: str, solver_path: str, monitor_path: str):
     """!
-    @brief Validates all solver input configs before any work is done.
-    @details Checks for required sections, required keys, and physical sanity.
-             Exits with a clear error message on the first problem found.
+    @brief Validates every configuration a simulation run consumes, before any work is done.
+    @details Covers the three roles the solver is launched with: the case, the solver,
+             and the monitor. Only one of those is a solver configuration, which is
+             why this is not named for the solver; the monitor in particular carries
+             observation and field-statistics contracts that have nothing to do with
+             the numerical scheme.
+
+             Checks required sections, required keys, physical sanity, and the
+             cross-file combinations no single file can rule out. Post-processing
+             configuration is validated separately by `validate_post_config()`.
     @param[in] case_cfg    Parsed case YAML dictionary.
     @param[in] solver_cfg  Parsed solver YAML dictionary.
     @param[in] monitor_cfg Parsed monitor YAML dictionary.
@@ -5725,18 +5732,91 @@ def validate_solver_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
         print(f"[WARN] {warning}", file=sys.stderr)
 
 
+def check_post_checkpoint_cadence_alignment(post_cfg: dict, monitor_cfg: dict, post_path: str,
+                                            monitor_path: str = "monitor.yml") -> "tuple[list, list]":
+    """!
+    @brief Report post step selections that cannot land on a committed checkpoint.
+
+    @details The post-processor reads committed bundles, and the solver commits one
+             every `io.data_output_frequency` completed steps. A `step_interval` that
+             is not a multiple of that cadence therefore asks for steps that were
+             never written: the source-frontier scan stops at the first missing one
+             and processes far less than the recipe requested. That is only
+             discovered after a solve has already run, so it is caught here instead.
+
+             The solver also commits the initial and final states off cadence, which
+             is why a misaligned `start_step` is a warning rather than an error: it
+             may legitimately be the run's own starting step. `step_interval` has no
+             such exemption, because a stride off the cadence cannot land on two
+             consecutive checkpoints whatever the run's bounds are.
+
+    @param[in] post_cfg     Parsed post-processing configuration.
+    @param[in] monitor_cfg  Parsed monitor configuration governing the source run.
+    @param[in] post_path    Path to the post file, for error messages.
+    @param[in] monitor_path Path to the monitor file, for error messages.
+    @return `(errors, warnings)`, each a list of message strings. Both are empty when
+            the comparison cannot be made, because the inputs that would make it
+            meaningful are validated and reported elsewhere.
+    """
+    errors = []
+    warnings = []
+    if not isinstance(post_cfg, dict) or not isinstance(monitor_cfg, dict):
+        return errors, warnings
+
+    io_cfg = monitor_cfg.get("io") or {}
+    if not isinstance(io_cfg, dict):
+        return errors, warnings
+    try:
+        cadence = int(io_cfg["data_output_frequency"])
+    except (KeyError, TypeError, ValueError):
+        # A missing or malformed cadence is reported by the monitor's own checks.
+        return errors, warnings
+    # A disabled cadence commits only the initial and final states, so there is no
+    # stride to align to.
+    if cadence <= 0:
+        return errors, warnings
+
+    try:
+        step_interval = int(get_post_run_control_value(post_cfg, "step_interval", 1))
+        start_step = int(get_post_run_control_value(post_cfg, "start_step", 0))
+    except (TypeError, ValueError):
+        # Reported by the run_control checks, which run against the same values.
+        return errors, warnings
+
+    if step_interval > 0 and step_interval % cadence != 0:
+        suggestion = max(cadence, (step_interval // cadence) * cadence)
+        errors.append(
+            f"  {post_path}: 'run_control.step_interval' is {step_interval}, which is not a "
+            f"multiple of 'io.data_output_frequency' ({cadence}) in {monitor_path}. The solver "
+            f"only commits a checkpoint every {cadence} steps, so most requested steps were "
+            f"never written and post-processing would stop at the first missing one. Use "
+            f"{suggestion}, or another multiple of {cadence}, or lower the monitor cadence."
+        )
+
+    if start_step > 0 and start_step % cadence != 0:
+        warnings.append(
+            f"{post_path}: 'run_control.start_step' is {start_step}, which is not a multiple of "
+            f"'io.data_output_frequency' ({cadence}) in {monitor_path}. That step only exists if "
+            f"it is the run's own starting step, which is committed off cadence."
+        )
+
+    return errors, warnings
+
+
 def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = None):
     """!
     @brief Validates the post-processing config before running the post-processor.
     @param[in] post_cfg  Parsed post-processing YAML dictionary.
     @param[in] post_path Path to post file (for error messages).
-    @param[in] monitor_cfg Parsed monitor configuration, when available. Field
-                           statistics span both files: post.yml names the windows and
-                           outputs while monitor.yml decides what each window
-                           accumulates, so those checks run only when both are known.
+    @param[in] monitor_cfg Parsed monitor configuration, when available. Two checks
+                           span both files: field statistics, where post.yml names
+                           the windows and monitor.yml decides what each accumulates,
+                           and step cadence, where monitor.yml decides which steps
+                           exist to be read. Both run only when the monitor is known.
     @throws SystemExit on validation failure.
     """
     errors = []
+    warnings = []
 
     _validate_yaml_schema_keys(post_cfg, _POST_SCHEMA, post_path, errors)
 
@@ -5980,8 +6060,17 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
     if legacy_stats_output_prefix is not None and not isinstance(legacy_stats_output_prefix, str):
         errors.append(f"  {post_path}: 'statistics_output_prefix' must be a string when provided.")
 
+    # Runs last so it reports against values the run_control checks above have
+    # already established are integers.
+    cadence_errors, cadence_warnings = check_post_checkpoint_cadence_alignment(
+        post_cfg, monitor_cfg, post_path)
+    errors.extend(cadence_errors)
+    warnings.extend(cadence_warnings)
+
     if errors:
         _print_validation_errors(errors)
+    for warning in warnings:
+        print(f"[WARN] {warning}", file=sys.stderr)
 
 def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
     """!
@@ -10892,7 +10981,7 @@ def build_run_dry_plan(args) -> dict:
         loaded_case_cfg = read_yaml_file(case_path)
         solver_cfg = read_yaml_file(solver_path)
         loaded_monitor_cfg = read_yaml_file(monitor_path)
-        validate_solver_configs(loaded_case_cfg, solver_cfg, loaded_monitor_cfg, case_path, solver_path, monitor_path)
+        validate_simulation_configs(loaded_case_cfg, solver_cfg, loaded_monitor_cfg, case_path, solver_path, monitor_path)
 
         continue_mode = getattr(args, 'continue_run', False)
 
@@ -11401,7 +11490,7 @@ def validate_workflow(args):
         case_cfg = read_yaml_file(case_path)
         solver_cfg = read_yaml_file(solver_path)
         monitor_cfg = read_yaml_file(monitor_path)
-        validate_solver_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
+        validate_simulation_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
         checked.extend([case_path, solver_path, monitor_path])
 
         # Validate restart flags if provided
@@ -11491,7 +11580,7 @@ def validate_workflow(args):
             base_monitor_path = resolve_path(study_path, base_cfgs.get("monitor"))
             base_post_path = resolve_path(study_path, base_cfgs.get("post"))
             if all([base_case_path, base_solver_path, base_monitor_path]):
-                validate_solver_configs(
+                validate_simulation_configs(
                     read_yaml_file(base_case_path),
                     read_yaml_file(base_solver_path),
                     read_yaml_file(base_monitor_path),
@@ -11677,7 +11766,7 @@ def run_workflow(args):
         }
 
         print("\n[INFO] Validating configuration files...")
-        validate_solver_configs(
+        validate_simulation_configs(
             configs['case'], configs['solver'], configs['monitor'],
             args.case, args.solver, args.monitor
         )
@@ -12173,7 +12262,7 @@ def sweep_workflow(args):
     base_solver = read_yaml_file(base_paths["solver"])
     base_monitor = read_yaml_file(base_paths["monitor"])
     base_post = read_yaml_file(base_paths["post"])
-    validate_solver_configs(base_case, base_solver, base_monitor, base_paths["case"], base_paths["solver"], base_paths["monitor"])
+    validate_simulation_configs(base_case, base_solver, base_monitor, base_paths["case"], base_paths["solver"], base_paths["monitor"])
     validate_post_config(base_post, base_paths["post"])
 
     combinations = expand_study_parameter_combinations(study_cfg)
@@ -12216,7 +12305,7 @@ def sweep_workflow(args):
         write_yaml_file(monitor_path, monitor_cfg)
         write_yaml_file(post_path, post_cfg)
 
-        validate_solver_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
+        validate_simulation_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
         validate_post_config(post_cfg, post_path, monitor_cfg)
 
         source_files = {'Case': case_path, 'Solver': solver_path, 'Monitor': monitor_path}

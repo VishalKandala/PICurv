@@ -116,6 +116,7 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
     // Do nothing if the pipeline string is empty
     if (pps->process_pipeline[0] == '\0') {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Processing pipeline is empty. No transformations will be run.\n");
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     
@@ -208,6 +209,7 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
 
     if (pps->output_fields_instantaneous[0] == '\0') {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "No instantaneous fields requested for output at ti=%" PetscInt_FMT ". Skipping.\n", ti);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -487,7 +489,7 @@ PetscErrorCode FieldStatisticsPipeline(UserCtx *user, PostProcessParams *pps, Pe
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    if (pps->field_statistics_windows[0] == '\0') PetscFunctionReturn(0);
+    if (pps->field_statistics_windows[0] == '\0') { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     simCtx = user->simCtx;
 
     PetscCheck(FieldStatisticsIsActive(simCtx), PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
@@ -509,7 +511,7 @@ PetscErrorCode FieldStatisticsPipeline(UserCtx *user, PostProcessParams *pps, Pe
             token = strtok(NULL, ",");
         }
     }
-    if (!want_vtk && !want_csv) PetscFunctionReturn(0);
+    if (!want_vtk && !want_csv) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     /* An explicit source step pins every processed step to one bundle; otherwise each
      * step derives from its own, which is what turns a multi-step recipe into a
@@ -627,6 +629,7 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
     PROFILE_FUNCTION_BEGIN;
 
     if (pps->particle_pipeline[0] == '\0') {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -694,12 +697,13 @@ PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, P
     char *pipeline_copy, *step_token, *step_saveptr;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
-    if (pps->statistics_pipeline[0] == '\0') PetscFunctionReturn(0);
+    if (pps->statistics_pipeline[0] == '\0') { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     PetscInt n_global;
     ierr = DMSwarmGetSize(user->swarm, &n_global); CHKERRQ(ierr);
-    if (n_global == 0) PetscFunctionReturn(0);
+    if (n_global == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Global Statistics Pipeline ---\n");
 
@@ -726,6 +730,7 @@ PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, P
     ierr = PetscFree(pipeline_copy); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Global Statistics Pipeline Complete ---\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -749,12 +754,14 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
 
     // These checks can be done on all ranks
     if (!pps->outputParticles || pps->particle_fields[0] == '\0') {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     PetscInt n_global;
     ierr = DMSwarmGetSize(user->swarm, &n_global); CHKERRQ(ierr);
     if (n_global == 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Swarm is empty for ti=%" PetscInt_FMT ". Skipping particle file write.\n", ti);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 

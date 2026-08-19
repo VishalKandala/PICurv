@@ -202,7 +202,9 @@ logging:
 
 - `verbosity` maps to environment variable `LOG_LEVEL` via `picurv` launcher.
 - `enabled_functions` is serialized into `whitelist.run` only when non-empty.
-- If `enabled_functions` is empty, `picurv` omits `whitelist.run` and the C runtime falls back to its default allow-list.
+- If `enabled_functions` is empty, `picurv` omits `whitelist.run` and the C runtime falls back to its default allow-list, which is `main` and `CreateSimulationContext` only.
+- Console output is two-tiered by design. **Operator reporting** — the startup banner, progress, graceful-shutdown notices, and the periodic particle and statistics console snapshots — is gated by `verbosity` alone, so a run always reports what it is doing. **Code-level diagnostics** are dual-gated on `verbosity` *and* this allow list, so instrumenting one function for debugging does not drag every other function's output along with it.
+- Raising `verbosity` therefore does not surface a function's diagnostics on its own; name the function here as well. See **@subpage 11_User_How_To_Guides** section 3.4 for the workflow.
 - An explicitly provided `whitelist.run` must contain at least one function name; an empty whitelist file is invalid.
 - `config/monitors/Standard_Output.yml` uses `WARNING` with an empty allow-list for quiet production runs; the startup banner still reports the walltime-guard status.
 - Some runtime artifacts are independent of console verbosity. For particle-enabled runs, `logs/search_metrics.csv` is written automatically and includes both raw search counters and derived signals such as `search_failure_fraction`, `search_work_index`, and `re_search_fraction`; allow-listing `LOG_SEARCH_METRICS` only affects the optional compact console summary.

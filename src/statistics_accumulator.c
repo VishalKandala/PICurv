@@ -115,6 +115,8 @@ PetscErrorCode PicurvStatisticsComponentDM(UserCtx *user, PetscInt components, D
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "PicurvWindowStorageCreate"
 /**
  * @brief Implementation of \ref PicurvWindowStorageCreate().
  * @see PicurvWindowStorageCreate()
@@ -123,6 +125,7 @@ PetscErrorCode PicurvWindowStorageCreate(UserCtx *user, const PicurvWindowDefini
                                          PicurvWindowStorage *storage)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && definition != NULL && storage != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, definition, and storage are required.");
     PetscCall(PetscMemzero(storage, sizeof(*storage)));
@@ -190,6 +193,7 @@ PetscErrorCode PicurvWindowStorageCreate(UserCtx *user, const PicurvWindowDefini
                   "Statistics window '%s' block %d: %d accumulator vector(s) over %d point(s).\n",
                   definition->name, (int)user->_this, (int)payloads, (int)points);
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -528,6 +532,8 @@ static PetscErrorCode ResolveDerivedIndex(const PicurvWindowDefinition *definiti
             "Derived index is past the end of the requested output set.");
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "PicurvWindowDerive"
 /**
  * @brief Implementation of \ref PicurvWindowDerive().
  * @see PicurvWindowDerive()
@@ -551,6 +557,7 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
     PetscInt source_components = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && definition != NULL && storage != NULL && field != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Context, definition, storage, and output are required.");
@@ -708,9 +715,12 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
         PetscCall(DMDAVecRestoreArrayRead(user->da, storage->weight_sq, &weight_sq_arr));
         PetscCall(DMDAVecRestoreArrayRead(user->da, storage->weight, &weight_arr));
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "PicurvWindowSpatialMean"
 /**
  * @brief Implementation of \ref PicurvWindowSpatialMean().
  * @see PicurvWindowSpatialMean()
@@ -728,11 +738,12 @@ PetscErrorCode PicurvWindowSpatialMean(UserCtx *user, const PicurvWindowDefiniti
     PetscReal reduced[2] = {0.0, 0.0};
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && definition != NULL && storage != NULL && field != NULL && mean != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Context, definition, storage, field, and output are required.");
     *mean = 0.0;
-    if (definition->field_count == 0) PetscFunctionReturn(0);
+    if (definition->field_count == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     PetscCall(SpatialTargetPlanCreate(user, (FieldId)definition->fields[0].field_id,
                                       PICURV_STATISTICS_MASK_FLUID, &plan));
@@ -756,9 +767,12 @@ PetscErrorCode PicurvWindowSpatialMean(UserCtx *user, const PicurvWindowDefiniti
     totals[1] = local_count;
     PetscCallMPI(MPI_Allreduce(totals, reduced, 2, MPIU_REAL, MPIU_SUM, PETSC_COMM_WORLD));
     if (reduced[1] > 0.0) *mean = reduced[0] / reduced[1];
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "PicurvWindowValidFractionRange"
 /**
  * @brief Implementation of \ref PicurvWindowValidFractionRange().
  * @see PicurvWindowValidFractionRange()
@@ -775,12 +789,13 @@ PetscErrorCode PicurvWindowValidFractionRange(UserCtx *user, const PicurvWindowD
     PetscReal reduced_min = 0.0, reduced_max = 0.0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && definition != NULL && storage != NULL &&
                minimum != NULL && maximum != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, definition, storage, and outputs are required.");
     *minimum = 1.0;
     *maximum = 0.0;
-    if (definition->field_count == 0 || sample_count <= 0) PetscFunctionReturn(0);
+    if (definition->field_count == 0 || sample_count <= 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     PetscCall(SpatialTargetPlanCreate(user, (FieldId)definition->fields[0].field_id,
                                       PICURV_STATISTICS_MASK_FLUID, &plan));
@@ -808,9 +823,12 @@ PetscErrorCode PicurvWindowValidFractionRange(UserCtx *user, const PicurvWindowD
     PetscCallMPI(MPI_Allreduce(&local_max, &reduced_max, 1, MPIU_REAL, MPIU_MAX, PETSC_COMM_WORLD));
     *minimum = (reduced_min == PETSC_MAX_REAL) ? 1.0 : reduced_min;
     *maximum = reduced_max;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "PicurvWindowAccumulate"
 /**
  * @brief Implementation of \ref PicurvWindowAccumulate().
  * @see PicurvWindowAccumulate()
@@ -823,11 +841,12 @@ PetscErrorCode PicurvWindowAccumulate(UserCtx *user, const PicurvWindowDefinitio
     PetscReal ***count_arr = NULL, ***weight_arr = NULL, ***weight_sq_arr = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && definition != NULL && storage != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, definition, and storage are required.");
     PetscCheck(weight > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Accepted states carry a positive weight, got %g.", (double)weight);
-    if (definition->field_count == 0) PetscFunctionReturn(0);
+    if (definition->field_count == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     /* Every requested field shares the pointwise cell-centered domain, so the plan
      * is resolved once rather than per field. */
@@ -991,5 +1010,6 @@ PetscErrorCode PicurvWindowAccumulate(UserCtx *user, const PicurvWindowDefinitio
     PetscCall(DMDAVecRestoreArray(user->da, storage->weight, &weight_arr));
     PetscCall(DMDAVecRestoreArray(user->da, storage->count, &count_arr));
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->Nvert, &nvert));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

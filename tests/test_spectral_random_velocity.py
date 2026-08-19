@@ -332,7 +332,7 @@ def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
     # The C runtime loads the checkpoint when start_step > 0, and control-file
     # generation suppresses IC staging in that state.  Validation must follow
     # the same source-authority contract.
-    CORE.validate_solver_configs(
+    CORE.validate_simulation_configs(
         restarted_case, solver, monitor,
         "restart-case.yml", "solver.yml", "monitor.yml",
     )
@@ -368,7 +368,7 @@ def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
     ):
         inactive_case = deepcopy(restarted_case)
         inactive_case["properties"]["initial_conditions"] = inactive_ic
-        CORE.validate_solver_configs(
+        CORE.validate_simulation_configs(
             inactive_case, solver, monitor,
             "restart-case.yml", "solver.yml", "monitor.yml",
         )

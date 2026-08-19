@@ -66,6 +66,14 @@ Mappings in generated `post.run`:
 - `end_step` -> `endTime`
 - `step_interval` -> `timeStep`
 
+**Requested steps must be steps the solver committed.** The solver writes a
+checkpoint every `monitor.yml -> io.data_output_frequency` completed steps, plus
+the initial and final states. `step_interval` must therefore be a multiple of that
+cadence; a finer stride names steps that were never written, and post-processing
+stops at the first one it cannot find rather than skipping it. `picurv validate`
+rejects a mismatch, and warns when `start_step` is off cadence — that one is only
+valid if it is the run's own starting step, which is committed off cadence.
+
 Operational semantics when launched through `picurv`:
 - keep `start_step` and `end_step` as the full logical analysis window you want the recipe to represent.
 - `picurv run --post-process --continue --run-dir ... --post post.yml` computes an internal effective start step for the same recipe lineage, so you do not need to keep editing `start_step` during batch catch-up.

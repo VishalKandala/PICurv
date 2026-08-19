@@ -38,10 +38,14 @@ run_control:
   # Maps to 'endTime' in the generated C-side post.run recipe.
   end_step: -1
 
-  # (Optional) The interval for processing steps (e.g., 10 means process
-  # steps 0, 10, 20...). Defaults to 1.
+  # (Optional) The interval for processing steps (e.g., 100 means process
+  # steps 0, 100, 200...). Defaults to 1.
+  # Must be a multiple of monitor.yml -> io.data_output_frequency: the solver only
+  # commits a checkpoint at that cadence, so a finer stride names steps that were
+  # never written. Validation rejects a mismatch rather than letting the run stop
+  # at the first missing step.
   # Maps to 'timeStep' in the generated C-side post.run recipe.
-  step_interval: 1
+  step_interval: 100
 
 # ==============================================================================
 # SECTION 2: GLOBAL OPERATIONS

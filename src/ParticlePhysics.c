@@ -75,6 +75,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
 
     ierr = DMSwarmGetLocalSize(swarm, &n_local); CHKERRQ(ierr);
     if (n_local == 0) {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 

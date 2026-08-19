@@ -27,7 +27,7 @@ diagnostics:
     file: "Runtime_Memory.log"
 
 io:
-  data_output_frequency: 2
+  data_output_frequency: 1
   particle_console_output_frequency: 2
   particle_log_interval: 2
 

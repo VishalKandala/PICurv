@@ -7,6 +7,7 @@
  */
 
 #include "statistics_target.h"
+#include "logging.h"
 
 /**
  * @brief Implementation of \ref PicurvLayoutDimensionIsNodeLike().
@@ -69,6 +70,8 @@ static void ResolveLayoutSpan(PetscBool node_like, PetscBool periodic, PetscInt 
     *hi_exclusive = size - 1;
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "SpatialTargetPlanCreate"
 /**
  * @brief Implementation of \ref SpatialTargetPlanCreate().
  * @see SpatialTargetPlanCreate()
@@ -85,6 +88,7 @@ PetscErrorCode SpatialTargetPlanCreate(UserCtx *user, FieldId field_id,
     PetscBool periodic[3];
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && plan != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Block context and plan output are required.");
     PetscCheck(mask == PICURV_STATISTICS_MASK_FLUID, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
@@ -130,6 +134,7 @@ PetscErrorCode SpatialTargetPlanCreate(UserCtx *user, FieldId field_id,
         plan->end[dim]   = PetscMin(owned_end[dim], layout_hi);
         if (plan->end[dim] < plan->start[dim]) plan->end[dim] = plan->start[dim];
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -153,6 +158,8 @@ PetscErrorCode SpatialTargetPlanLocalPointCount(const SpatialTargetPlan *plan, P
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "SpatialTargetPlanGlobalPointCount"
 /**
  * @brief Implementation of \ref SpatialTargetPlanGlobalPointCount().
  * @see SpatialTargetPlanGlobalPointCount()
@@ -162,10 +169,12 @@ PetscErrorCode SpatialTargetPlanGlobalPointCount(const SpatialTargetPlan *plan, 
     PetscInt local = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(plan != NULL && count != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Plan and count output are required.");
     PetscCall(SpatialTargetPlanLocalPointCount(plan, &local));
     PetscCallMPI(MPI_Allreduce(&local, count, 1, MPIU_INT, MPI_SUM, comm));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 

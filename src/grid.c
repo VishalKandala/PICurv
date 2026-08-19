@@ -115,6 +115,7 @@ PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result)
     const PetscInt *lx = NULL, *ly = NULL, *lz = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(source != NULL && result != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Source DM and output pointer are required.");
     PetscCheck(dof > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
@@ -129,6 +130,7 @@ PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result)
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG,
                    "Created a dof-%d DM mirroring the block decomposition (%dx%dx%d ranks).\n",
                    (int)dof, (int)m, (int)n, (int)p);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -426,6 +428,7 @@ PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
     DMDALocalInfo info;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(DMDAGetLocalInfo(user->da, &info));
     PetscCall(DMGetCoordinatesLocal(user->da, &lcoor));
     PetscCheck(lcoor != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
@@ -542,6 +545,7 @@ PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
                   (double)translation[0], (double)translation[1], (double)translation[2]);
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -864,10 +868,12 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     // Validate input Pointers
     if (!user) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Input 'user' Pointer is NULL.\n");
+        PROFILE_FUNCTION_END;
         return PETSC_ERR_ARG_NULL;
     }
     if (!localBBox) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Output 'localBBox' Pointer is NULL.\n");
+        PROFILE_FUNCTION_END;
         return PETSC_ERR_ARG_NULL;
     }
 
@@ -878,11 +884,13 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     ierr = DMGetCoordinatesLocal(user->da, &coordinates);
     if (ierr) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Error getting local coordinates vector.\n");
+        PROFILE_FUNCTION_END;
         return ierr;
     }
 
     if (!coordinates) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Coordinates vector is NULL.\n");
+        PROFILE_FUNCTION_END;
         return PETSC_ERR_ARG_NULL;
     }
 
@@ -890,6 +898,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     ierr = DMDAVecGetArrayRead(user->fda, coordinates, &coordArray);
     if (ierr) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Error accessing coordinate array.\n");
+        PROFILE_FUNCTION_END;
         return ierr;
     }
 
@@ -897,6 +906,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     ierr = DMDAGetLocalInfo(user->da, &info);
     if (ierr) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Error getting DMDA local info.\n");
+        PROFILE_FUNCTION_END;
         return ierr;
     }
 
@@ -959,6 +969,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     ierr = DMDAVecRestoreArrayRead(user->fda, coordinates, &coordArray);
     if (ierr) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Error restoring coordinate array.\n");
+        PROFILE_FUNCTION_END;
         return ierr;
     }
 
@@ -1547,5 +1558,6 @@ PetscErrorCode CalculateFaceCenterAndArea(UserCtx *user, BCFace face_id,
               "Calculated area for Face %s: Area=%.6f\n", 
               BCFaceToString(face_id), *face_area);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

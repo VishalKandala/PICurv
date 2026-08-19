@@ -25,8 +25,10 @@
  *
  * Reads the option families, resolves every field name through the typed catalog,
  * validates each definition through `PicurvWindowInit`, and stores the resulting
- * windows on the context. Reports every resolved definition at `LOG_INFO` so a run's
- * log records exactly what was accumulated.
+ * windows on the context. Each resolved definition is reported at `LOG_INFO` through
+ * `LOG_ALLOW`, so it carries the usual dual gate and is surfaced by allow-listing the
+ * emitting function. Whether statistics were active at all is recorded
+ * unconditionally by the startup banner.
  *
  * Leaves the context untouched when statistics are disabled or no window is
  * configured, so a run that does not ask for statistics allocates nothing.

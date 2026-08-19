@@ -30,6 +30,8 @@ const char *PicurvWindowStateName(PicurvWindowState state)
     }
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "PicurvWindowInit"
 /**
  * @brief Implementation of \ref PicurvWindowInit().
  * @see PicurvWindowInit()
@@ -37,6 +39,7 @@ const char *PicurvWindowStateName(PicurvWindowState state)
 PetscErrorCode PicurvWindowInit(PicurvWindow *window, const PicurvWindowDefinition *definition)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(window != NULL && definition != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Window and definition are required.");
     PetscCheck(definition->name[0] != '\0', PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
@@ -66,6 +69,7 @@ PetscErrorCode PicurvWindowInit(PicurvWindow *window, const PicurvWindowDefiniti
     window->activation_step = -1;
     window->last_event_step = PETSC_MIN_INT;
     window->next_time_target = 0;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -221,6 +225,8 @@ static void SortRequestOrder(PetscInt count, const PetscInt *primary, const Pets
     }
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "PicurvWindowComputeHash"
 /**
  * @brief Implementation of \ref PicurvWindowComputeHash().
  * @see PicurvWindowComputeHash()
@@ -238,6 +244,7 @@ PetscErrorCode PicurvWindowComputeHash(const PicurvWindowDefinition *definition,
     PetscInt pair_order[PICURV_WINDOW_MAX_REQUESTS];
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(definition != NULL && digest_hex != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Definition and digest output are required.");
     PetscCheck(definition->field_count >= 0 && definition->field_count <= PICURV_WINDOW_MAX_REQUESTS,
@@ -356,6 +363,7 @@ PetscErrorCode PicurvWindowComputeHash(const PicurvWindowDefinition *definition,
         }
     }
     PicurvSHA256FinalHex(&whole, digest_hex);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -424,6 +432,8 @@ PetscBool FieldStatisticsIsActive(const SimCtx *simCtx)
                        simCtx->fieldStatisticsWindows != NULL);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "FieldStatisticsUpdateWindows"
 /**
  * @brief Implementation of \ref FieldStatisticsUpdateWindows().
  * @see FieldStatisticsUpdateWindows()
@@ -431,8 +441,9 @@ PetscBool FieldStatisticsIsActive(const SimCtx *simCtx)
 PetscErrorCode FieldStatisticsUpdateWindows(SimCtx *simCtx, PetscInt step, PetscReal time)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
-    if (!FieldStatisticsIsActive(simCtx)) PetscFunctionReturn(0);
+    if (!FieldStatisticsIsActive(simCtx)) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     for (PetscInt window_index = 0; window_index < simCtx->fieldStatisticsWindowCount; ++window_index) {
         PicurvWindow *window = &simCtx->fieldStatisticsWindows[window_index];
@@ -508,5 +519,6 @@ PetscErrorCode FieldStatisticsUpdateWindows(SimCtx *simCtx, PetscInt step, Petsc
             }
         }
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

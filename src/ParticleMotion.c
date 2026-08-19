@@ -157,6 +157,7 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
   ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
   if (nLocal == 0) {
     LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d] No particles to move/transport. \n",rank);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);   // nothing to do, no fields held 
   }
   // 2) Access the "position" and "velocity" fields
@@ -824,6 +825,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
 
     // This function is only relevant for surface initialization mode and if an inlet face is defined.
     if ((user->simCtx->ParticleInitialization != 0 && user->simCtx->ParticleInitialization !=3) || !user->inletFaceDefined) {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -833,6 +835,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     // If no particles on this rank, nothing to do.
     if (nlocal_current == 0) {
         LOG_ALLOW(LOCAL, LOG_DEBUG, "[T=%.4f, Step=%d] Rank %d has no local particles to re-initialize on inlet.\n", currentTime, step, rank);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -1163,6 +1166,7 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
 
     // If there are no particles now, there's nothing to do.
     if (n_local_after == 0) {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     

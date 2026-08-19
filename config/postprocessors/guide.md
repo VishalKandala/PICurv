@@ -54,6 +54,7 @@ Solve and postprocess in one command:
 
 ## 4. Notes on Newer Options
 
+- `run_control.step_interval` must be a multiple of the paired monitor's `io.data_output_frequency`. These profiles ship with `step_interval: 100` to match `config/monitors/`; if you pair one with a monitor using a different cadence, adjust the stride to suit.
 - `statistics_pipeline` is supported (canonical task: `msd`); `particle_msd.yml` is the reusable starting point.
 - `field_statistics` is a separate recipe that derives Reynolds stresses, RMS, turbulent kinetic energy, and fluxes from windows the solver accumulated. It names windows configured in `monitor.yml` rather than redescribing them, so it only applies to runs that had field statistics enabled.
 - `io.input_extensions.eulerian/particle`, when present, must remain `dat`;

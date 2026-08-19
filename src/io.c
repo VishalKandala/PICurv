@@ -1434,6 +1434,8 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 }
 
 
+#undef __FUNCT__
+#define __FUNCT__ "ReadStatisticsWindowState"
 /** @brief Restore one window's scalar bookkeeping from a validated manifest. */
 static PetscErrorCode ReadStatisticsWindowState(PetscOptions options, PetscInt window,
                                                 const char *metadata_path, PetscReal checkpoint_time,
@@ -1450,6 +1452,7 @@ static PetscErrorCode ReadStatisticsWindowState(PetscOptions options, PetscInt w
     PetscBool name_matches = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
 #define PICURV_STATISTICS_REQUIRE(suffix, getter, target)                                        \
     do {                                                                                         \
@@ -1556,9 +1559,12 @@ static PetscErrorCode ReadStatisticsWindowState(PetscOptions options, PetscInt w
      * like another restart segment. Only a solver resuming the window advances the
      * lineage; otherwise deriving a series of steps would inflate it once per step. */
     if (exec_mode == EXEC_MODE_SOLVER) state->restart_count += 1;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "RestoreFieldStatisticsState"
 /**
  * @brief Implementation of \ref RestoreFieldStatisticsState().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1577,12 +1583,14 @@ PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
     PetscBool found = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
-    if (!FieldStatisticsIsActive(simCtx)) PetscFunctionReturn(0);
+    if (!FieldStatisticsIsActive(simCtx)) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     if (!simCtx->fieldStatisticsContinue) {
         LOG_ALLOW(GLOBAL, LOG_INFO,
                   "Statistics continuation was not requested; %d window(s) start from zero.\n",
                   simCtx->fieldStatisticsWindowCount);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -1655,6 +1663,7 @@ PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
                   (double)state->total_weight, (double)state->represented_time,
                   state->restart_count);
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -1926,15 +1935,18 @@ PetscErrorCode WriteSimulationFields(UserCtx *user, const char *checkpoint_direc
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "WriteStatisticsFields"
 /** @brief Write every window's accumulator payloads for one block into a bundle. */
 static PetscErrorCode WriteStatisticsFields(UserCtx *user, const char *checkpoint_directory)
 {
     SimCtx *simCtx = user->simCtx;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(checkpoint_directory != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Checkpoint destination cannot be NULL.");
-    if (!FieldStatisticsIsActive(simCtx) || !user->fieldStatisticsStorage) PetscFunctionReturn(0);
+    if (!FieldStatisticsIsActive(simCtx) || !user->fieldStatisticsStorage) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     for (PetscInt window = 0; window < simCtx->fieldStatisticsWindowCount; ++window) {
         const PicurvWindowStorage *storage = &user->fieldStatisticsStorage[window];
@@ -1958,6 +1970,7 @@ static PetscErrorCode WriteStatisticsFields(UserCtx *user, const char *checkpoin
                   (int)user->_this);
     }
     simCtx->current_io_directory = NULL;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 

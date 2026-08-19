@@ -188,6 +188,10 @@ Verification-pathway rule:
 - `io.particle_fields` -> `particle_fields_instantaneous`
 - `io.input_extensions.eulerian/particle` -> `eulerianExt/particleExt` for post input readers
 - `source_data.directory` -> `source_directory`
+- `run_control.step_interval` must be a multiple of
+  `monitor.io.data_output_frequency`. The two files are validated together because
+  neither can rule the combination out alone: the monitor decides which steps exist
+  and the post recipe decides which are asked for.
 - `field_statistics.windows/outputs/formats/source_step` ->
   `field_statistics_windows`, `field_statistics_outputs`,
   `field_statistics_formats`, `field_statistics_source_step`. This is a distinct

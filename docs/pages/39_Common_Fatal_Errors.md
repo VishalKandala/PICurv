@@ -25,6 +25,14 @@ Code reference:
 | `CFG_GRID_PARSE` | Grid payload/format error | Fix block count, dimensions, or coordinate rows. |
 | `CFG_INCONSISTENT_COMBO` | Conflicting options/keys | Align related flags/keys (periodic pairs, scheduler, process counts). |
 
+Cross-file combinations that no single file can rule out are reported the same way:
+
+| Message fragment | Likely cause | Fix |
+|---|---|---|
+| is not a multiple of io.data_output_frequency | The post recipe asks for steps at a finer stride than the solver commits checkpoints at | Set `step_interval` to a multiple of the monitor cadence, or lower the cadence so the requested steps are written. |
+| is not defined in the monitor configuration | A post recipe names a field-statistics window the monitor never defines | Correct the window name, or add the window to the monitor configuration. |
+| produce no field for window | The requested derived outputs need accumulator state the window does not keep | Add `second` to a field's moments for stresses, RMS, or TKE, or add a covariance for a flux. |
+
 Geometric-periodic runtime validation can also stop before timestepping:
 
 | Message fragment | Likely cause | Fix |

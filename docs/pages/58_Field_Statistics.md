@@ -405,10 +405,25 @@ Lifecycle logging uses `LOG_ALLOW` at the levels the rest of the codebase uses:
 `LOG_INFO` for once-per-run and once-per-window events, `LOG_DEBUG` for per-event
 bookkeeping including states an active window did not sample, `LOG_WARNING` only
 for conditions an operator must act on, and `LOG_TRACE` for per-point detail.
-Because `LOG_ALLOW` is gated by the per-function allow list, those lines appear
-only when their functions are named in `logging.enabled_functions`. That is why
-the console snapshot uses `LOG` instead: an accumulating window is an
-operator-facing report that must not depend on naming an internal function.
+`LOG_ALLOW` carries the codebase's usual dual gate; see @ref p09_logging_sec for
+the mechanism and @ref p11_logging_ssec for the workflow. The console snapshot is
+the exception that uses plain `LOG`, because an accumulating window is an
+operator-facing report rather than an instrument for debugging the code.
+
+The functions to name in `logging.enabled_functions` when tracing this subsystem:
+
+| Add to `logging.enabled_functions` | Reports |
+| --- | --- |
+| `LogResolvedWindow` | each window definition as resolved at startup |
+| `PicurvWindowStorageCreate` | accumulator storage allocated per window |
+| `FieldStatisticsUpdateWindows` | window activation and completion, and each accepted or skipped state |
+| `WriteStatisticsFields` | window state written into a checkpoint bundle |
+| `ReadStatisticsWindowState`, `RestoreFieldStatisticsState` | window state read back on continuation |
+| `FieldStatisticsPipeline` | per-step derivation and output during post-processing |
+
+The filter matches the function containing the call, so `LogResolvedWindow` is the
+name to use for the resolved definitions rather than the configuration entry point
+that calls it.
 
 Accumulation sits on the timestep path, so debug-level paths perform no collective
 reduction unless the level is already active.

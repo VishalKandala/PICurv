@@ -185,7 +185,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
     ierr = MPI_Allreduce(local_buf, global_buf, 7, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
     const PetscReal N_total  = global_buf[6];
-    if (N_total < 1.0) PetscFunctionReturn(0); /* no particles */
+    if (N_total < 1.0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); } /* no particles */
 
     const PetscReal MSD_x    = global_buf[0] / N_total;
     const PetscReal MSD_y    = global_buf[1] / N_total;

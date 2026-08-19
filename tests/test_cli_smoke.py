@@ -5392,6 +5392,10 @@ def test_particle_console_output_frequency_defaults_to_data_output_frequency(tmp
     case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
     solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
     monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    # Set a cadence distinct from the fixture's own, so the assertion below shows the
+    # particle cadence following it rather than coinciding with a shared default.
+    monitor_cfg["io"]["data_output_frequency"] = 2
+    monitor_cfg["io"].pop("particle_console_output_frequency", None)
 
     run_dir = tmp_path / "run"
     (run_dir / "config").mkdir(parents=True)
@@ -8483,6 +8487,115 @@ def _post_validation_errors(post_cfg, monitor_cfg, tmp_path, capsys):
     with pytest.raises(SystemExit):
         picurv.validate_post_config(post_cfg, path, monitor_cfg)
     return capsys.readouterr().err
+
+
+def _monitor_with_output_cadence(cadence):
+    """!
+    @brief Build a minimal monitor config carrying only a checkpoint cadence.
+    @param[in] cadence Value for io.data_output_frequency.
+    @return Value returned by `_monitor_with_output_cadence()`.
+    """
+    return {"io": {"data_output_frequency": cadence}}
+
+
+def _post_with_window(start_step, end_step, step_interval):
+    """!
+    @brief Build a minimal valid post config with the given step window.
+    @param[in] start_step First requested step.
+    @param[in] end_step Last requested step.
+    @param[in] step_interval Stride between requested steps.
+    @return Value returned by `_post_with_window()`.
+    """
+    return {
+        "run_control": {"start_step": start_step, "end_step": end_step,
+                        "step_interval": step_interval},
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+    }
+
+
+def test_post_validation_rejects_step_interval_off_checkpoint_cadence(tmp_path, capsys):
+    """!
+    @brief A stride finer than the checkpoint cadence names steps that were never written.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    """
+    errors = _post_validation_errors(
+        _post_with_window(0, 1000, 1), _monitor_with_output_cadence(100), tmp_path, capsys)
+    assert "'run_control.step_interval' is 1" in errors
+    assert "not a multiple of 'io.data_output_frequency' (100)" in errors
+    # The message must name a value that would work, not only the problem.
+    assert "Use 100" in errors
+
+
+def test_post_validation_accepts_step_interval_matching_cadence(tmp_path):
+    """!
+    @brief A stride that is a multiple of the cadence resolves to real checkpoints.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    picurv = load_picurv_module()
+
+    for interval in (100, 200, 500):
+        picurv.validate_post_config(
+            _post_with_window(0, 1000, interval), str(tmp_path / "post.yml"),
+            _monitor_with_output_cadence(100))
+
+
+def test_post_validation_warns_but_allows_start_step_off_cadence(tmp_path, capsys):
+    """!
+    @brief An off-cadence start may be the run's own first step, which is committed off cadence.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    """
+    picurv = load_picurv_module()
+
+    picurv.validate_post_config(
+        _post_with_window(150, 1000, 100), str(tmp_path / "post.yml"),
+        _monitor_with_output_cadence(100))
+    captured = capsys.readouterr().err
+    assert "[WARN]" in captured
+    assert "'run_control.start_step' is 150" in captured
+
+
+def test_post_validation_skips_cadence_check_when_it_cannot_apply(tmp_path):
+    """!
+    @brief No monitor, no cadence, or a disabled cadence leaves the stride unchecked.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    picurv = load_picurv_module()
+
+    post = _post_with_window(0, 1000, 7)
+    # No monitor to compare against.
+    picurv.validate_post_config(post, str(tmp_path / "post.yml"))
+    # A monitor that configures no cadence at all.
+    picurv.validate_post_config(post, str(tmp_path / "post.yml"), {"io": {}})
+    # A disabled cadence commits only the initial and final states.
+    picurv.validate_post_config(post, str(tmp_path / "post.yml"),
+                                _monitor_with_output_cadence(0))
+
+
+def test_shipped_post_recipes_align_with_their_monitor_cadence():
+    """!
+    @brief Every shipped case bundle names steps its own monitor cadence commits.
+    """
+    picurv = load_picurv_module()
+
+    contract = json.loads(
+        (REPO_ROOT / "tests" / "tooling" / "starter_content_contract.json").read_text()
+    )
+    checked = 0
+    for bundle in contract.get("case_bundles", []):
+        post_path = REPO_ROOT / bundle["post"]
+        monitor_path = REPO_ROOT / bundle["monitor"]
+        if not post_path.is_file() or not monitor_path.is_file():
+            continue
+        errors, warnings = picurv.check_post_checkpoint_cadence_alignment(
+            yaml.safe_load(post_path.read_text()),
+            yaml.safe_load(monitor_path.read_text()),
+            str(post_path), str(monitor_path))
+        assert not errors, (bundle["post"], errors)
+        assert not warnings, (bundle["post"], warnings)
+        checked += 1
+    assert checked >= 5, f"expected several shipped bundles to check, saw {checked}"
 
 
 def test_post_validation_rejects_window_that_yields_no_output(tmp_path, capsys):

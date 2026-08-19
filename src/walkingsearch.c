@@ -574,6 +574,7 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
     LOG_ALLOW(LOCAL,LOG_INFO, "Traversal for particle %lld initialized to start at cell (%d, %d, %d).\n",
                (long long)particle->PID, *idx, *idy, *idz);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -744,6 +745,7 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
                   "Skipping cell due to degenerate face.\n");
         // We can set *position = -1 here
         *position = -1; // treat as outside
+        PROFILE_FUNCTION_END;
         return 0; // not a fatal error, just skip
     } else {
         CHKERRQ(ierr);

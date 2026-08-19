@@ -602,7 +602,7 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
 
     // Get local data arrays from the DMSwarm
     ierr = DMSwarmGetLocalSize(user->swarm, &n_local); CHKERRQ(ierr);
-    if (n_local == 0) PetscFunctionReturn(0);
+    if (n_local == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     // Get read-only access to velocity and write access to the output field
     ierr = DMSwarmGetField(user->swarm, velocity_field, NULL, NULL, (void**)&vel_arr); CHKERRQ(ierr);
@@ -644,7 +644,7 @@ PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field)
     LOG_ALLOW(GLOBAL, LOG_INFO, "-> KERNEL: Running ComputeDisplacement (-> '%s').\n", disp_field);
 
     ierr = DMSwarmGetLocalSize(user->swarm, &n_local); CHKERRQ(ierr);
-    if (n_local == 0) PetscFunctionReturn(0);
+    if (n_local == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     const PetscReal x0 = simCtx->psrc_x;
     const PetscReal y0 = simCtx->psrc_y;

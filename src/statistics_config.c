@@ -280,6 +280,8 @@ static PetscErrorCode LogResolvedWindow(const PicurvWindowDefinition *definition
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ParseFieldStatisticsConfig"
 /**
  * @brief Implementation of \ref ParseFieldStatisticsConfig().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -292,6 +294,7 @@ PetscErrorCode ParseFieldStatisticsConfig(SimCtx *simCtx)
     PetscBool found = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
 
     PetscCall(PetscOptionsGetInt(NULL, NULL, "-statistics_console_output_freq",
@@ -300,6 +303,7 @@ PetscErrorCode ParseFieldStatisticsConfig(SimCtx *simCtx)
                                   &simCtx->fieldStatisticsEnabled, NULL));
     if (!simCtx->fieldStatisticsEnabled) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Field statistics are disabled.\n");
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -341,6 +345,7 @@ PetscErrorCode ParseFieldStatisticsConfig(SimCtx *simCtx)
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Field statistics resolved %d window(s).\n", (int)window_count);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 

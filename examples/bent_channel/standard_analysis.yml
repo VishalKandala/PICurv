@@ -9,11 +9,18 @@ source_data:
   directory: "<solver_output_dir>"
 
 run_control:
-  # Analyze only the final timestep from the solver run.
-  # For a movie, you could use: start_step: 0, end_step: 1000, step_interval: 100
-  start_step: 0
-  end_step: 10
-  step_interval: 1
+  # Every step named here must be one the solver committed a checkpoint at, so the
+  # range and stride follow monitor.yml -> io.data_output_frequency, which is 100
+  # for this case over a 1000-step run. A stride finer than that cadence asks for
+  # steps that were never written, and validation rejects it.
+  # Analyze only the final timestep:
+  start_step: 1000
+  end_step: 1000
+  step_interval: 100
+  # For a movie over the whole run, use instead:
+  #   start_step: 0
+  #   end_step: 1000
+  #   step_interval: 100
 
 global_operations:
   dimensionalize: true
