@@ -60,11 +60,15 @@ moments online, ride in the committed checkpoint bundle, resume on continuation,
 and are derived into Reynolds stresses, RMS, turbulent kinetic energy, and fluxes
 in post-processing. The contract is at **@subpage 58_Field_Statistics**.
 
-The direction the remaining work follows is a shared, field-layout-aware reducer:
-the same traversal serving spatial targets, reduced statistics, and eventually the
-rolling physical-solution monitor, instead of one implementation per consumer.
-That replacement is permitted only where tests demonstrate identical results.
-Existing logger formats and PETSc monitors are preserved throughout.
+The direction the remaining work follows is that averaging commutes with linear
+operations and not with anything else. Spatial reduction over accumulated
+pointwise state is exact after the fact, so profiles, regions, and bins are
+post-processing operations; only what the reduction cannot reach — the moment
+order, the choice of products, statistics of interpolated or nonlinear
+quantities, and conditional sampling — has to be resolved while the solver runs.
+The same reduction traversal could eventually serve the rolling
+physical-solution monitor, permitted only where tests demonstrate identical
+results. Existing logger formats and PETSc monitors are preserved throughout.
 
 The proposed extensions and their dependency order are at
 **@subpage 60_Field_Statistics_Planned_Extensions**.

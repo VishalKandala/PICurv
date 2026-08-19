@@ -8,29 +8,76 @@ window, carried across a restart, and derived into Reynolds stresses, RMS,
 turbulent kinetic energy, and fluxes.
 
 This page records what it deliberately does not do, why each extension was left
-out, and what it depends on. Each is opt-in and builds on the target and product
-abstractions that already exist, so none of them requires reworking what is
-there. Configuration written against the current contract keeps working through
-all of them.
+out, and what it depends on. Each is opt-in and builds on the abstractions that
+already exist, so none of them requires reworking what is there. Configuration
+written against the current contract keeps working through all of them.
 
 @tableofcontents
 
-@section p60_order_sec 1. Dependency Order
+@section p60_principle_sec 1. What Must Be Online, And What Must Not
+
+One rule decides where each extension belongs, and it is worth stating before
+the list because it removes more work than it adds.
+
+**Averaging commutes with linear operations and not with anything else.**
+
+A spatial reduction over accumulated pointwise state is linear, so it is exact
+after the fact. Reducing per-point accumulators over a region reproduces the
+region-wide centered moment about the region mean, including the spatial
+variance of the local means, through the same weighted combination
+`PicurvMomentStateMerge` already implements:
+
+\f[
+M_{2,AB} = M_{2,A} + M_{2,B} + \frac{W_A W_B}{W_A + W_B}\,(\mu_B - \mu_A)^2 .
+\f]
+
+That identity extends to higher orders, so whatever order is accumulated
+pointwise can be reduced to any spatial subset at that order or below without
+approximation. **Bins, profiles, regions, and clipping are therefore
+post-processing operations, not accumulator kinds.** They need no online
+machinery, no additional checkpoint state, and no monitor-side configuration.
+
+What genuinely must happen online is everything the identity does not reach:
+
+- **The moment order.** Order cannot be raised after the fact; the second moment
+  is what is accumulated today.
+- **Which products.** A cross-moment is not derivable from its marginals, so a
+  pair not requested at solve time is unavailable afterwards.
+- **Statistics of nonlinear or interpolated quantities.** For a probe or surface
+  value built from a stencil, \f$P = \sum_i w_i u_i\f$, the mean interpolates
+  but the variance does not: \f$\mathrm{Var}(P)\f$ needs the covariance
+  *between* neighbouring points, which pointwise state does not hold. The same
+  applies to the statistics of any derived nonlinear field.
+- **Conditional sampling.** Unconditional weights cannot be split afterwards.
+
+Memory is the one remaining argument for accumulating a reduced quantity online
+rather than reducing later, and it is stratified: negligible for moments,
+decisive for per-point histograms, prohibitive for retained histories.
+
+A physical caveat applies to spatial reduction however it is computed: merging
+across points is only *meaningful* where those points are statistically
+equivalent. Over an inhomogeneous region the result is a well-defined total
+variance that mixes in the spatial variation of the mean, which is rarely what
+was wanted. Homogeneous-direction averaging is the case this serves.
+
+@section p60_order_sec 2. Dependency Order
 
 | Extension | Depends on | Unlocks |
 | --- | --- | --- |
+| @ref p60_reduction_sec | nothing | profiles, regions, bins, clipping |
 | @ref p60_view_sec | nothing | nodal statistics output, accumulator field logging |
-| @ref p60_targets_sec | nothing | bins, profiles, regions, surfaces, probes |
-| @ref p60_products_sec | @ref p60_targets_sec for face targets | face-flux and single-component products |
 | @ref p60_ess_sec | nothing | uncertainty reporting under unequal weights |
-| @ref p60_history_sec | @ref p60_targets_sec | histories, PDFs, higher moments |
-| @ref p60_reducer_sec | @ref p60_targets_sec | one reducer behind flow observables |
+| @ref p60_order_extension_sec | nothing | skewness, flatness, and their spatial reductions |
+| @ref p60_products_sec | online face targets, for the face case | face-flux and single-component products |
+| @ref p60_targets_sec | @ref p60_view_sec for surface output | surfaces, probes, conditional sampling |
+| @ref p60_reducer_sec | @ref p60_reduction_sec | one reducer behind flow observables |
 | @ref p60_dimensional_sec | nothing | dimensional derived statistics |
 
-The view extension is listed first because it is the only one that two separate
-surfaces are already waiting on, and because it is self-contained.
+Spatial reduction is listed first because it is the largest capability for the
+least new code: the kernel it needs is already written and tested, and it has no
+online counterpart to design.
 
-@section p60_view_sec 2. A View Bindable To An Explicit Vector Pair
+@section p60_view_sec 3. A View Bindable To An Explicit Vector Pair
 
 **What is missing.** `UpdateLocalGhosts` resolves its vectors through a field view
 built on compile-time `UserCtx` offsets recorded in the catalog, and the nodal
@@ -56,39 +103,95 @@ addressable by the field-anatomy and min/max loggers, which today can only repor
 window-level scalars. A statistics-specific logging path would solve half of that
 and add a second mechanism doing what the first already does.
 
-@section p60_targets_sec 3. Spatial Targets Beyond Pointwise
+@section p60_reduction_sec 4. Spatial Reduction In Post-Processing
+
+Profiles, regions, bins, and clipping are derived from the pointwise state a
+window already holds, by the reduction described in @ref p60_principle_sec. This
+is where the majority of the remaining scientific capability lives, and it needs
+no new online state.
+
+What it requires:
+
+- **A region selector in the post recipe.** Coordinate ranges, index ranges, a
+  homogeneous-direction collapse such as averaging over `i` and `k` at fixed `j`,
+  or a named region. This sits in `post.yml` because the choice is made after
+  the run, not committed at solve time.
+- **A reduction driver** that walks the selected points and combines their
+  accumulators through the existing weighted merge, in a pairwise or tree order
+  rather than sequentially, so the combination stays well conditioned across a
+  large point count. `PicurvWindowSpatialMean` is the shape to follow; it already
+  performs the domain-wide case of exactly this reduction, and it already
+  excludes points the mask never sampled.
+- **An output form for reduced results.** A profile is a one-dimensional table
+  rather than a field, so it belongs in a CSV alongside the convergence history
+  rather than in the `.vts`.
+
+The practical gain beyond cost is that regions are chosen *after* the solve.
+Because the pointwise state is checkpointed, a wake window or a wall-normal
+profile that nobody anticipated can be extracted from a completed run without
+re-solving, and revised as often as the analysis demands.
+
+@section p60_targets_sec 5. Online Targets For The Non-Commuting Cases
+
+A target must be resolved online only where @ref p60_principle_sec says the
+reduction cannot follow:
+
+- **Immersed and grid surfaces**, where the quantity is interpolated onto a
+  surface that cuts through cells. The surface mean can be interpolated from
+  pointwise means, but its variance cannot, because that needs the covariance
+  between the stencil points.
+- **Point probes at off-grid locations**, for the same reason.
+- **Conditional sampling**, where a state is accumulated only when a condition
+  holds, since unconditional weights cannot be split afterwards.
 
 `SpatialTargetPlan` exists as an abstraction with only the pointwise identity
-mapping implemented, so these extend it rather than retrofit it.
+mapping implemented, so these extend it rather than retrofit it, and the
+identity hash already reserves its own group for the mask so a later mask key
+extends that group instead of renumbering the groups after it and invalidating
+every saved window.
 
-Planned target kinds:
+The user-facing surface for these is a `target:` block with `kind` and `mask` as
+**optional** keys defaulting to current behaviour, so no configuration written
+today breaks. They are not exposed now because a single-valued key reserves
+syntax without earning it.
 
-- **Bins** over a coordinate direction or a derived coordinate.
-- **Profile layers**, the wall-normal case that channel and boundary-layer work
-  needs.
-- **Named regions**, an axis-aligned or geometric subset accumulated as one
-  reduced quantity.
-- **Grid and immersed surfaces**, accumulating over a boundary rather than a
-  volume.
-- **Point probes**, a small named set of locations sampled at every accepted
-  state.
+@section p60_order_extension_sec 6. Raising The Accumulated Moment Order
 
-Each is a different mapping from field storage indices to accumulator slots, which
-is exactly what the plan abstraction is for. The reduction they need is the
-weighted parallel-combination form that already exists and is tested but has no
-production caller yet.
+The second moment is what is accumulated today, which fixes the ceiling on what
+any later reduction can produce: order cannot be raised after the fact. Raising
+it to the third and fourth moments would make skewness and flatness available,
+and — because the merge identity extends to higher orders — would make them
+available for every spatial reduction at the same time, not only for the whole
+domain.
 
-**The YAML is already reserved for this compatibly.** A `target:` block with
-`kind` and `mask` arrives as **optional** keys defaulting to current behaviour, so
-no configuration written today breaks. They are not exposed now because a
-single-valued key reserves syntax without earning it.
+What this needs: additional per-point state, the higher-order terms of the
+weighted combination, the corresponding checkpoint payloads, and moment entries
+in the window definition so the requested order is part of the identity hash.
+The per-point cost is one additional field per order per accumulated quantity,
+which is modest next to what a per-point histogram would cost.
 
-**The identity hash is already prepared.** The mask occupies its own hash group
-even though exactly one mask is resolved today, so adding a mask key extends that
-group rather than renumbering the groups after it and invalidating every saved
-window.
+This is the extension that most enlarges what post-processing can do, because it
+raises the ceiling rather than adding a mechanism.
 
-@section p60_products_sec 4. Further Products
+@section p60_pdf_sec 7. Distributions, Deferred
+
+Per-point probability density functions and histograms are deferred rather than
+designed. They would reduce spatially without difficulty — histograms over shared
+bin edges are additive, so a region histogram is the sum of its points' — but the
+per-point cost is one field per bin per quantity, which is one to two orders of
+magnitude above the moment path. That cost, not the mathematics, is what defers
+them.
+
+Should they arrive, bin edges must be fixed and global rather than per-point
+adaptive, since additivity is what makes the spatial reduction exact.
+
+Retained time histories remain outside this pipeline at any point. Whatever
+retains history must stay bounded, for reduced probes or regions only; turning
+the statistics manager into a second full-field output system is not on this
+list. A run that needs the states themselves selects ordinary instantaneous
+field output.
+
+@section p60_products_sec 8. Further Products
 
 **Explicit `Ucont` face-flux products.** `Ucont` is component-staggered, so pairs
 involving it are rejected on layout compatibility today. Face-flux statistics need
@@ -104,7 +207,7 @@ nothing currently allocates. The symmetric six-component form exists precisely
 because a self-product is symmetric; a cross product between two different vectors
 is not.
 
-@section p60_ess_sec 5. Effective Sample Size Reporting
+@section p60_ess_sec 9. Effective Sample Size Reporting
 
 Under physical-time weighting the weights are unequal, so a raw sample count
 overstates how much independent information a window holds. The Kish effective
@@ -116,22 +219,12 @@ weights, which means a new checkpoint metadata field and a restore path for it.
 Per-point squared weight is already accumulated and checkpointed; only the
 window-level scalar is absent.
 
-@section p60_history_sec 6. Histories, PDFs, and Higher Moments
-
-Reduced time histories, probability density functions, and moments beyond the
-second **cannot be recovered from centered state after the fact**. They require
-their own accumulation, and are therefore additions rather than derivations.
-
-They are constrained by a boundary that must hold: whatever retains history must
-stay bounded, for reduced probes or regions only. Turning the statistics manager
-into a second full-field output system is not on this list at any point. A run that
-needs the states themselves selects ordinary instantaneous field output.
-
-@section p60_reducer_sec 7. One Reducer Behind Flow Observables
+@section p60_reducer_sec 10. One Reducer Behind Flow Observables
 
 `ComputeCurrentFlowObservables` computes its own domain reductions for the runtime
-convergence monitor. The spatial reducer these extensions introduce would be able
-to serve it, removing a second implementation of the same traversal.
+convergence monitor. The reduction driver in @ref p60_reduction_sec performs the
+same traversal, so it could serve that monitor too and remove one of the two
+implementations.
 
 This is permitted **only after tests demonstrate identical results**, and the
 replacement must correctly follow field layout, periodicity, masks, blocks, and
@@ -141,7 +234,7 @@ existing implementation is correct and the gain is structural.
 Function-level logging, logging allow-lists, PETSc monitors, and performance
 profiling are not subsumed into scientific statistics at any point.
 
-@section p60_dimensional_sec 8. Dimensional Derived Statistics
+@section p60_dimensional_sec 11. Dimensional Derived Statistics
 
 Derived statistics are written in nondimensional form even when
 `global_operations.dimensionalize` is set. A Reynolds stress scales as velocity
@@ -153,7 +246,7 @@ product knows the scales of both its factors. Applying the velocity scale as thi
 stand would be wrong rather than merely incomplete, which is why the current
 behaviour is to leave derived output nondimensional and say so.
 
-@section p60_notplanned_sec 9. Not Planned
+@section p60_notplanned_sec 12. Not Planned
 
 These are recorded so they are not proposed again as gaps.
 
@@ -165,9 +258,11 @@ These are recorded so they are not proposed again as gaps.
 - **Relabelling modelled turbulence quantities.** `Nu_t` and `CS` can be averaged
   like any other field, but modelled `k` is never presented as turbulent kinetic
   energy derived from resolved fluctuations.
-- **Full-field time histories**, as above.
+- **Full-field time histories**, as above. Per-point distributions are a
+  different matter: they are deferred on cost rather than ruled out, and
+  @ref p60_pdf_sec records the terms under which they could arrive.
 
-@section p60_related_sec 10. Related Pages
+@section p60_related_sec 13. Related Pages
 
 - @subpage 58_Field_Statistics — what the pipeline does today
 - @subpage 56_Field_Identity_and_Layout_Catalog — the catalog these extensions build on

@@ -457,8 +457,10 @@ table that defines product order. The moment to split them is when a further
 product family arrives and that table needs a home of its own.
 
 **Several moment kernels have no production caller yet.** The reset functions are
-their structs' constructors; the merge functions implement the parallel combination
-that a spatial reduction will need; the scalar variance accessor is correct but
+their structs' constructors; the merge functions implement the weighted parallel
+combination that makes spatial reduction exact after the fact, which is why
+profiles, regions, and bins are post-processing operations rather than
+accumulator kinds (see @ref p60_principle_sec); the scalar variance accessor is correct but
 unused because every product is routed through the co-moment path so the diagonal
 and off-diagonal share one update; and the effective-sample-size accessor needs a
 window-level squared-weight sum surfaced before it can be reported. Each is covered
