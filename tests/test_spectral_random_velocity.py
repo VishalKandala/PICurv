@@ -22,6 +22,7 @@ def load(path, name):
 
 
 IC = load(ROOT / "generators" / "ic.gen", "picurv_spectral_random_velocity_tests")
+SPECTRA = load(ROOT / "generators" / "spectra.gen", "picurv_spectra_for_ic_tests")
 CORE = load(ROOT / "picurv_cli" / "core.py", "picurv_core_spectral_random_velocity_tests")
 
 
@@ -182,8 +183,9 @@ def test_k4_exponential_finite_shell_target_peaks_at_k0():
                       "spectrum": {"type": "k4_exponential", "k0": 4.0, "k_cut": 8.0},
                       "projection": {"type": "none"}, "normalization": {"type": "none"},
                       "remove_mean": True}
-        _, summary = IC.generate_spectral_random_velocity(cartesian_nodes((24, 24, 24)), configured)
-        energy = np.array([row["energy"] for row in summary["realized_shell_spectrum"]])
+        full, _ = IC.generate_spectral_random_velocity(cartesian_nodes((24, 24, 24)), configured)
+        measured = SPECTRA.shell_spectrum(full[1:-1, 1:-1, 1:-1], (2*np.pi, 2*np.pi, 2*np.pi))
+        energy = np.array([row["energy"] for row in measured["shell_spectrum"]])
         accumulated = energy if accumulated is None else accumulated + energy
     mean_energy = accumulated/8.0
     assert int(np.argmax(mean_energy)) == 4

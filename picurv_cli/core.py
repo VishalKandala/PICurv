@@ -1731,12 +1731,432 @@ def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str, monitor_c
     return list(dict.fromkeys(output_paths))
 
 
+#: Spectra tasks a post recipe may request, with the preconditions each needs.
+#:
+#: `requires_uniform_cartesian` is checked against the staged PICGRID and
+#: `requires_periodic_geometric` against the resolved boundary conditions, both
+#: before any field is read. A task whose preconditions the case cannot meet is
+#: refused at validation rather than producing a curve with no meaning: a spectrum
+#: needs the transform direction to be uniformly spaced, periodic, and statistically
+#: homogeneous, and a curvilinear or wall-bounded geometry supplies none of those.
+POST_SPECTRA_TASKS = {
+    "shell_spectrum": {
+        "requires_uniform_cartesian": True,
+        "requires_periodic_geometric": True,
+        "requires_single_block": True,
+        "fields": ("Ucat",),
+    },
+}
+
+#: Binning abscissae a spectra task may request.
+POST_SPECTRA_SYMBOLS = ("continuum", "discrete")
+
+#: Fluctuation definitions a spectra task may request. `window:<name>` is accepted
+#: as a prefixed form and resolved against the accumulated windows.
+POST_SPECTRA_MEAN_MODES = ("none", "domain")
+
+
 #: Derived outputs a post recipe may request from an accumulated window.
 POST_FIELD_STATISTICS_OUTPUTS = ("mean", "reynolds_stress", "rms", "tke", "flux")
 
 #: Output formats a post recipe may request. `vtk` writes the derived fields; `csv`
 #: appends one convergence row per processed step.
 POST_FIELD_STATISTICS_FORMATS = ("vtk", "csv")
+
+
+def normalize_post_spectra_config(post_cfg: dict) -> dict:
+    """!
+    @brief Validate and canonicalize the spectra block of post.yml.
+
+    @details The recipe chooses what to measure; whether the case *can* support that
+             measurement is a separate question answered by
+             `validate_post_spectra_preconditions()`, which needs the grid and the
+             boundary conditions. Keeping the two apart means a recipe stays valid on
+             its own terms even when it is read without a case beside it.
+
+    @param[in] post_cfg Parsed post-processing configuration.
+    @return Normalized mapping with an output prefix and a list of tasks.
+    @throws ValueError on a malformed or inconsistent recipe.
+    """
+    raw = (post_cfg or {}).get("spectra")
+    if raw is None:
+        return {"output_prefix": "Spectrum", "tasks": []}
+    if not isinstance(raw, dict):
+        raise ValueError("'spectra' must be a mapping.")
+
+    prefix = raw.get("output_prefix", "Spectrum")
+    if not isinstance(prefix, str) or not prefix.strip():
+        raise ValueError("'spectra.output_prefix' must be a non-empty string.")
+
+    tasks = raw.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError("'spectra.tasks' must be a non-empty list.")
+
+    cleaned = []
+    seen = []
+    for position, entry in enumerate(tasks):
+        if not isinstance(entry, dict):
+            raise ValueError(f"spectra task {position}: each task must be a mapping.")
+        name = entry.get("task")
+        if name not in POST_SPECTRA_TASKS:
+            raise ValueError(
+                f"spectra task {position}: unknown task {name!r}. "
+                f"Available tasks: {sorted(POST_SPECTRA_TASKS)}."
+            )
+        spec = POST_SPECTRA_TASKS[name]
+
+        field = entry.get("field", spec["fields"][0])
+        if field not in spec["fields"]:
+            raise ValueError(
+                f"spectra task '{name}': field {field!r} is not supported. "
+                f"Supported fields: {list(spec['fields'])}."
+            )
+
+        block = entry.get("block", 0)
+        if not isinstance(block, int) or isinstance(block, bool) or block < 0:
+            raise ValueError(f"spectra task '{name}': 'block' must be a non-negative integer.")
+
+        symbol = entry.get("symbol", "continuum")
+        if symbol not in POST_SPECTRA_SYMBOLS:
+            raise ValueError(
+                f"spectra task '{name}': unknown symbol {symbol!r}. "
+                f"Available symbols: {list(POST_SPECTRA_SYMBOLS)}."
+            )
+
+        subtract_mean = entry.get("subtract_mean", "none")
+        if not isinstance(subtract_mean, str) or not subtract_mean.strip():
+            raise ValueError(f"spectra task '{name}': 'subtract_mean' must be a string.")
+        subtract_mean = subtract_mean.strip()
+        if subtract_mean.startswith("window:"):
+            window_name = subtract_mean.split(":", 1)[1].strip()
+            if not window_name:
+                raise ValueError(
+                    f"spectra task '{name}': 'subtract_mean: window:<name>' needs a window name."
+                )
+        elif subtract_mean not in POST_SPECTRA_MEAN_MODES:
+            raise ValueError(
+                f"spectra task '{name}': unknown subtract_mean {subtract_mean!r}. "
+                f"Use one of {list(POST_SPECTRA_MEAN_MODES)} or 'window:<name>'."
+            )
+
+        # A window mean is only worth subtracting once the window has converged, so the
+        # bundle the mean is read from is chosen separately from the step being
+        # transformed. Left unset, each step uses its own bundle, whose running mean is
+        # undefined at the moment the window activates.
+        mean_source_step = entry.get("mean_source_step")
+        if mean_source_step is not None:
+            if (not isinstance(mean_source_step, int) or isinstance(mean_source_step, bool)
+                    or mean_source_step < 0):
+                raise ValueError(
+                    f"spectra task '{name}': 'mean_source_step' must be a non-negative integer."
+                )
+            if not subtract_mean.startswith("window:"):
+                raise ValueError(
+                    f"spectra task '{name}': 'mean_source_step' only applies to "
+                    f"'subtract_mean: window:<name>'."
+                )
+
+        reference = entry.get("reference")
+        if reference is not None and (not isinstance(reference, str) or not reference.strip()):
+            raise ValueError(f"spectra task '{name}': 'reference' must be a non-empty string.")
+
+        # Each task writes its own file, so a repeat would overwrite its own output.
+        identity = (name, field, block, symbol)
+        if identity in seen:
+            raise ValueError(
+                f"spectra recipe lists task '{name}' for field {field} on block {block} "
+                f"with symbol '{symbol}' more than once."
+            )
+        seen.append(identity)
+        cleaned.append({
+            "task": name,
+            "field": field,
+            "block": block,
+            "symbol": symbol,
+            "subtract_mean": subtract_mean,
+            "mean_source_step": mean_source_step,
+            "reference": reference.strip() if isinstance(reference, str) else None,
+        })
+
+    return {"output_prefix": prefix.strip(), "tasks": cleaned}
+
+
+def validate_post_spectra_preconditions(spectra_cfg: dict, case_cfg: dict, post_path: str) -> list:
+    """!
+    @brief Check spectra tasks against what the case can actually support.
+
+    @details Runs before any field is read, so a case with no homogeneous direction is
+             refused rather than yielding a curve that means nothing. Only the checks
+             the case file can answer are made here: periodicity and block count. Grid
+             uniformity is enforced by `generators/spectra.gen`, which reads the staged
+             PICGRID and is the only place the real node coordinates are known.
+
+    @param[in] spectra_cfg Normalized spectra recipe.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] post_path Post recipe path, for error messages.
+    @return List of formatted error strings; empty when every task is supportable.
+    """
+    errors = []
+    if not spectra_cfg.get("tasks"):
+        return errors
+
+    try:
+        prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
+    except ValueError:
+        # The case file reports its own boundary-condition errors; do not repeat them.
+        return errors
+
+    block_count = int((case_cfg.get("models", {}) or {}).get("domain", {}).get("blocks", 1))
+    periodic_faces = {}
+    for block_index, block_bcs in enumerate(prepared_blocks):
+        faces = {entry.get("face") for entry in block_bcs if entry.get("type") == "PERIODIC"}
+        periodic_faces[block_index] = faces
+
+    all_faces = {"-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta"}
+    for task_cfg in spectra_cfg["tasks"]:
+        spec = POST_SPECTRA_TASKS[task_cfg["task"]]
+        label = f"spectra task '{task_cfg['task']}'"
+
+        if spec.get("requires_single_block") and block_count != 1:
+            errors.append(
+                f"  {post_path}: {label} requires a single-block domain; this case has "
+                f"{block_count} blocks."
+            )
+
+        block = task_cfg["block"]
+        if block >= block_count:
+            errors.append(
+                f"  {post_path}: {label} targets block {block}, but the case defines "
+                f"{block_count} block(s)."
+            )
+            continue
+
+        if spec.get("requires_periodic_geometric"):
+            missing = sorted(all_faces - periodic_faces.get(block, set()))
+            if missing:
+                errors.append(
+                    f"  {post_path}: {label} requires every face of block {block} to be "
+                    f"PERIODIC, because a shell-averaged spectrum is only defined for a "
+                    f"triply periodic homogeneous box. Non-periodic faces: {missing}."
+                )
+    return errors
+
+
+def _resolve_spectra_payload(bundle: dict, kind: str, field: str, block: int) -> str:
+    """!
+    @brief Locate one checkpoint payload by its inventory entry rather than by path shape.
+    @param[in] bundle Validated checkpoint bundle mapping.
+    @param[in] kind Payload kind recorded in the inventory.
+    @param[in] field Payload field name recorded in the inventory.
+    @param[in] block Block index the payload belongs to.
+    @return Absolute path to the payload file.
+    @throws ValueError when the bundle carries no such payload.
+    """
+    for payload in bundle["payloads"]:
+        if (payload["kind"] == kind and payload["field"] == field
+                and payload["block"] == str(block)):
+            return os.path.join(bundle["bundle"], *payload["path"].split("/"))
+    raise ValueError(
+        f"checkpoint {os.path.basename(bundle['bundle'])} carries no {kind} payload "
+        f"'{field}' for block {block}."
+    )
+
+
+def _spectra_mean_arguments(task_cfg: dict, bundle: dict, mean_bundle: dict = None) -> list:
+    """!
+    @brief Build the generator arguments implementing a task's fluctuation choice.
+    @param[in] task_cfg Normalized spectra task.
+    @param[in] bundle Validated checkpoint bundle for the step being transformed.
+    @param[in] mean_bundle Bundle supplying the window mean; defaults to @p bundle.
+    @return Argument list to append to the generator command.
+    @throws ValueError when a named window is absent from the bundle.
+    """
+    mode = task_cfg["subtract_mean"]
+    if not mode.startswith("window:"):
+        return ["--subtract-mean", mode]
+    window = mode.split(":", 1)[1].strip()
+    block = task_cfg["block"]
+    source = mean_bundle or bundle
+    mean_path = _resolve_spectra_payload(source, "mean", f"{window}/{task_cfg['field']}_mean", block)
+    count_path = _resolve_spectra_payload(source, "occupancy", f"{window}/count", block)
+    return ["--subtract-mean", "field", "--mean-file", mean_path, "--count-file", count_path]
+
+
+#: Scalar columns the spectra stage records once per processed step.
+POST_SPECTRA_SCALAR_COLUMNS = (
+    "resolved_kinetic_energy", "spectrum_total_energy", "parseval_residual",
+    "spectrum_peak_k", "zero_mode_energy", "integral_length_scale",
+    "taylor_microscale", "dissipation_over_viscosity",
+)
+
+
+#: Stages `picurv run --post-process` can execute, in the order they are listed.
+POST_STAGE_NAMES = ("fields", "spectra")
+
+
+def resolve_post_stage_selection(only) -> set:
+    """!
+    @brief Resolve the `--only` selector into the set of post stages to execute.
+    @param[in] only Comma-separated selector text, or None for every stage.
+    @return Set of stage names.
+    @throws ValueError when the selector names an unknown or empty stage.
+    """
+    if not only:
+        return set(POST_STAGE_NAMES)
+    requested = [token.strip() for token in str(only).split(",")]
+    if not all(requested):
+        raise ValueError("--only must not contain an empty stage name.")
+    unknown = sorted({token for token in requested if token not in POST_STAGE_NAMES})
+    if unknown:
+        raise ValueError(
+            f"--only names unknown post stage(s) {unknown}. "
+            f"Available stages: {list(POST_STAGE_NAMES)}."
+        )
+    return set(requested)
+
+
+def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
+                           source_dir: str, steps, quiet: bool = False) -> dict:
+    """!
+    @brief Measure spectra for every requested task across a window of committed steps.
+
+    @details One spectrum per step per task, because a spectrum is a property of one
+             state: averaging across steps would be wrong for a decaying flow, where
+             every step is a different statistical state. Results are written in long
+             form so a family of curves stays one file, alongside a scalar history that
+             plots through the ordinary series machinery.
+
+    @param[in] run_dir Run directory receiving the output.
+    @param[in] post_cfg Parsed post-processing configuration.
+    @param[in] monitor_cfg Parsed monitor configuration anchoring the output root.
+    @param[in] source_dir Directory holding the committed checkpoints.
+    @param[in] steps Iterable of checkpoint steps to process, in order.
+    @param[in] quiet Suppress progress reporting.
+    @return Summary with the written paths and the steps actually processed.
+    @throws ValueError when the generator fails or a requested payload is absent.
+    """
+    spectra = normalize_post_spectra_config(post_cfg)
+    if not spectra["tasks"]:
+        return {"tasks": [], "steps": [], "artifacts": []}
+
+    script = os.path.join(GENERATORS_PATH, "spectra.gen")
+    if not os.path.isfile(script):
+        raise ValueError(f"spectra.gen script not found: {script}")
+    staged_grid = os.path.join(run_dir, "config", "grid.run")
+    if not os.path.isfile(staged_grid):
+        raise ValueError(f"spectra require a staged PICGRID at {staged_grid}.")
+
+    output_dir = os.path.join(os.path.abspath(run_dir), resolve_post_spectra_output_dir(monitor_cfg))
+    os.makedirs(output_dir, exist_ok=True)
+
+    ordered_steps = sorted(set(int(step) for step in steps))
+    artifacts = []
+    for task_cfg in spectra["tasks"]:
+        basename = post_spectra_task_basename(task_cfg, spectra["output_prefix"])
+        spectrum_path = os.path.join(output_dir, f"{basename}.csv")
+        scalar_path = os.path.join(output_dir, f"{basename}_history.csv")
+        spectrum_rows = []
+        scalar_rows = []
+        mean_bundle = None
+        if task_cfg["mean_source_step"] is not None:
+            mean_bundle = validate_committed_checkpoint(source_dir, task_cfg["mean_source_step"])
+
+        for step in ordered_steps:
+            bundle = validate_committed_checkpoint(source_dir, step)
+            time = float(bundle["metadata"]["checkpoint_time"])
+            field_path = _resolve_spectra_payload(
+                bundle, "eulerian", task_cfg["field"], task_cfg["block"]
+            )
+            cmd = [sys.executable, script, "shell-spectrum",
+                   "--field-file", field_path, "--source-grid", staged_grid,
+                   "--block", str(task_cfg["block"]), "--symbol", task_cfg["symbol"]]
+            cmd.extend(_spectra_mean_arguments(task_cfg, bundle, mean_bundle))
+            result = subprocess.run(cmd, text=True, capture_output=True)
+            if result.returncode != 0:
+                details = (result.stderr or result.stdout or "").strip()
+                raise ValueError(
+                    f"spectra task '{task_cfg['task']}' failed at step {step} with exit code "
+                    f"{result.returncode}. Details:\n{details}"
+                )
+            summary = json.loads(result.stdout)
+            for row in summary["shell_spectrum"]:
+                spectrum_rows.append({"step": step, "time": time,
+                                      "k": row["k"], "energy": row["energy"]})
+            scalar_rows.append({"step": step, "time": time,
+                                **{name: summary[name] for name in POST_SPECTRA_SCALAR_COLUMNS}})
+
+        with open(spectrum_path, "w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=("step", "time", "k", "energy"))
+            writer.writeheader()
+            writer.writerows(spectrum_rows)
+        with open(scalar_path, "w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=("step", "time") + POST_SPECTRA_SCALAR_COLUMNS)
+            writer.writeheader()
+            writer.writerows(scalar_rows)
+        artifacts.extend([spectrum_path, scalar_path])
+        if not quiet:
+            print(f"[INFO] Spectra: wrote {len(scalar_rows)} step(s) for task "
+                  f"'{task_cfg['task']}' to {os.path.relpath(spectrum_path, run_dir)}")
+
+    return {
+        "tasks": [entry["task"] for entry in spectra["tasks"]],
+        "steps": ordered_steps,
+        "artifacts": artifacts,
+    }
+
+
+def compute_post_spectra_signature(spectra_cfg: dict) -> str:
+    """!
+    @brief Reduce a normalized spectra recipe to a stable identity string.
+    @param[in] spectra_cfg Normalized spectra recipe.
+    @return Hex digest covering every choice that changes the produced spectra.
+    """
+    payload = json.dumps(spectra_cfg, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:16]
+
+
+def resolve_post_spectra_output_dir(monitor_cfg=None) -> str:
+    """!
+    @brief Resolve the run-relative directory spectra CSVs are written to.
+    @param[in] monitor_cfg Optional monitor configuration anchoring the output root.
+    @return Run-relative directory path.
+    """
+    return os.path.join(get_monitor_output_directory(monitor_cfg or {}), "spectra")
+
+
+def get_post_spectra_output_artifacts(post_cfg: dict, run_dir: str, monitor_cfg=None) -> list:
+    """!
+    @brief Predict the spectra CSV paths a recipe will write.
+    @param[in] post_cfg Parsed post-processing configuration.
+    @param[in] run_dir Run directory the recipe operates on.
+    @param[in] monitor_cfg Optional monitor configuration anchoring the output root.
+    @return Absolute CSV paths, one per task, in recipe order.
+    """
+    try:
+        spectra = normalize_post_spectra_config(post_cfg)
+    except ValueError:
+        # The recipe reports its own errors during validation; predict nothing here.
+        return []
+    if not spectra["tasks"]:
+        return []
+    base = os.path.join(os.path.abspath(run_dir), resolve_post_spectra_output_dir(monitor_cfg))
+    paths = []
+    for task_cfg in spectra["tasks"]:
+        name = post_spectra_task_basename(task_cfg, spectra["output_prefix"])
+        paths.append(os.path.join(base, f"{name}.csv"))
+    return list(dict.fromkeys(paths))
+
+
+def post_spectra_task_basename(task_cfg: dict, output_prefix: str) -> str:
+    """!
+    @brief Build the file basename one normalized spectra task writes.
+    @param[in] task_cfg Normalized task mapping.
+    @param[in] output_prefix Recipe output prefix.
+    @return Basename without directory or extension.
+    """
+    parts = [output_prefix, task_cfg["task"], task_cfg["field"],
+             f"block{task_cfg['block']:04d}", task_cfg["symbol"]]
+    return "_".join(parts)
 
 
 def normalize_post_field_statistics_config(post_cfg: dict) -> dict:
@@ -1977,6 +2397,14 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
     source_directory = get_post_source_directory_template(post_cfg, default=None)
     if source_directory is not None:
         c_config['source_directory'] = source_directory
+
+    # Spectra run in the conductor's Python stage, but the recipe fingerprint is
+    # computed over this mapping, so the block has to be represented here or a
+    # changed spectra recipe would resume against stale lineage. The C
+    # post-processor accepts and ignores the key.
+    spectra = normalize_post_spectra_config(post_cfg)
+    if spectra["tasks"]:
+        c_config['spectra_signature'] = compute_post_spectra_signature(spectra)
 
     return c_config
 
@@ -4914,9 +5342,14 @@ _POST_SCHEMA = {
     (): {
         "run_control", "source_data", "global_operations", "eulerian_pipeline",
         "lagrangian_pipeline", "statistics_pipeline", "statistics_output_prefix",
-        "field_statistics", "io",
+        "field_statistics", "spectra", "io",
     },
     ("field_statistics",): {"windows", "source_step", "outputs", "formats"},
+    ("spectra",): {"output_prefix", "tasks"},
+    ("spectra", "tasks", "[]"): {
+        "task", "field", "block", "symbol", "subtract_mean", "mean_source_step",
+        "reference",
+    },
     ("run_control",): {
         "start_step", "end_step", "step_interval", "startTime", "endTime", "timeStep",
     },
@@ -5803,7 +6236,7 @@ def check_post_checkpoint_cadence_alignment(post_cfg: dict, monitor_cfg: dict, p
     return errors, warnings
 
 
-def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = None):
+def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = None, case_cfg: dict = None):
     """!
     @brief Validates the post-processing config before running the post-processor.
     @param[in] post_cfg  Parsed post-processing YAML dictionary.
@@ -5813,6 +6246,10 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
                            the windows and monitor.yml decides what each accumulates,
                            and step cadence, where monitor.yml decides which steps
                            exist to be read. Both run only when the monitor is known.
+    @param[in] case_cfg Parsed case configuration, when available. Spectra
+                        preconditions need the boundary conditions and block count, so
+                        they are checked only when the case is known; validating a
+                        recipe on its own still checks it on its own terms.
     @throws SystemExit on validation failure.
     """
     errors = []
@@ -5825,6 +6262,14 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
     except ValueError as e:
         recipe = None
         errors.append(f"  {post_path}: {e}")
+
+    try:
+        spectra_recipe = normalize_post_spectra_config(post_cfg)
+    except ValueError as e:
+        spectra_recipe = None
+        errors.append(f"  {post_path}: {e}")
+    if spectra_recipe and spectra_recipe["tasks"] and case_cfg is not None:
+        errors.extend(validate_post_spectra_preconditions(spectra_recipe, case_cfg, post_path))
     if recipe and recipe["windows"] and monitor_cfg is not None:
         try:
             configured = normalize_field_statistics_config(monitor_cfg)
@@ -8503,6 +8948,37 @@ def validate_petsc_vec_binary(path: str) -> dict:
         )
     return {"path": os.path.abspath(path), "scalar_count": scalar_count}
 
+def run_initial_spectrum_generator(field_path: str, staged_grid: str,
+                                   spectrum_path: str, case_dir: str) -> str:
+    """!
+    @brief Measure the shell-averaged spectrum of a staged initial condition.
+
+    The spectrum has a single implementation in `generators/spectra.gen`, so the
+    conductor measures the generated field rather than asking the initial-condition
+    generator to report a spectrum it would have to bin itself.
+
+    @param[in] field_path    Generated PETSc binary Ucat path.
+    @param[in] staged_grid   Staged canonical PICGRID path.
+    @param[in] spectrum_path Destination `k,energy` CSV path.
+    @param[in] case_dir      Working directory for the subprocess.
+    @return Absolute path to the written spectrum CSV.
+    @throws ValueError when the generator is missing or fails.
+    """
+    script = os.path.join(GENERATORS_PATH, "spectra.gen")
+    if not os.path.isfile(script):
+        raise ValueError(f"spectra.gen script not found: {script}")
+    cmd = [sys.executable, script, "shell-spectrum",
+           "--field-file", field_path, "--source-grid", staged_grid,
+           "--spectrum-csv", spectrum_path]
+    result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        raise ValueError(
+            f"initial-condition spectrum failed with exit code {result.returncode}. Details:\n{details}"
+        )
+    return os.path.abspath(spectrum_path)
+
+
 def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: dict) -> str:
     """!
     @brief Run the repository IC generator.
@@ -8532,12 +9008,13 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
                "--grid", staged_grid, "--output", output_path,
                "--params-json", json.dumps(resolved_ic["params"], sort_keys=True),
                "--context-json", json.dumps(resolved_ic.get("provider_context", {}), sort_keys=True),
-               "--summary-json", summary_path, "--spectrum-csv", spectrum_path]
+               "--summary-json", summary_path]
         result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
         if result.returncode != 0:
             details = (result.stderr or result.stdout or "").strip()
             raise ValueError(f"spectral_random_velocity failed with exit code {result.returncode}. Details:\n{details}")
         validate_petsc_vec_binary(output_path)
+        run_initial_spectrum_generator(output_path, staged_grid, spectrum_path, case_dir)
         return output_path
     script = _resolve_generator_script(resolved_ic.get("script"), case_path, "ic.gen")
     config_file = resolved_ic["config_file"]
@@ -11099,7 +11576,7 @@ def build_run_dry_plan(args) -> dict:
         post_path = os.path.abspath(args.post)
         plan["inputs"]["post"] = post_path
         post_cfg = read_yaml_file(post_path)
-        validate_post_config(post_cfg, post_path, loaded_monitor_cfg)
+        validate_post_config(post_cfg, post_path, loaded_monitor_cfg, loaded_case_cfg)
 
         if args.run_dir:
             run_dir = os.path.abspath(args.run_dir)
@@ -11483,6 +11960,7 @@ def validate_workflow(args):
         fail_cli_usage("--continue requires --run-dir.")
 
     monitor_cfg = None
+    case_cfg = None
     if solver_group_selected:
         case_path = os.path.abspath(args.case)
         solver_path = os.path.abspath(args.solver)
@@ -11507,7 +11985,7 @@ def validate_workflow(args):
     if args.post:
         post_path = os.path.abspath(args.post)
         post_cfg = read_yaml_file(post_path)
-        validate_post_config(post_cfg, post_path, monitor_cfg)
+        validate_post_config(post_cfg, post_path, monitor_cfg, case_cfg)
         checked.append(post_path)
 
     cluster_cfg = None
@@ -11590,7 +12068,8 @@ def validate_workflow(args):
                 )
             if base_post_path:
                 validate_post_config(read_yaml_file(base_post_path), base_post_path,
-                                     read_yaml_file(base_monitor_path) if base_monitor_path else None)
+                                     read_yaml_file(base_monitor_path) if base_monitor_path else None,
+                                     read_yaml_file(base_case_path) if base_case_path else None)
 
     print(f"[SUCCESS] Validation completed for {len(checked)} file(s).")
     for path in checked:
@@ -11936,7 +12415,7 @@ def run_workflow(args):
         post_cfg = read_yaml_file(args.post)
 
         print("[INFO] Validating post-processing configuration...")
-        validate_post_config(post_cfg, args.post, monitor_cfg)
+        validate_post_config(post_cfg, args.post, monitor_cfg, case_cfg)
         print("[SUCCESS] Post-processing configuration passed validation.\n")
 
         solver_sources_deferred = bool(args.solve and (cluster_mode or args.no_submit))
@@ -11950,6 +12429,10 @@ def run_workflow(args):
             continue_requested=getattr(args, 'continue_run', False),
             allow_source_frontier_scan=allow_source_frontier_scan,
         )
+
+        post_stages = resolve_post_stage_selection(getattr(args, 'only', None))
+        if post_stages != set(POST_STAGE_NAMES):
+            print(f"[INFO] Post stages selected: {','.join(sorted(post_stages))}")
 
         source_template = get_post_source_directory_template(post_cfg)
         if source_template == '<solver_output_dir>':
@@ -12029,115 +12512,134 @@ def run_workflow(args):
             for stats_path in statistics_output_paths:
                 print(f"[INFO] Statistics CSV output: {os.path.relpath(stats_path)}")
 
-            source_files_post = {'Case': case_path, 'Post-Profile': args.post}
-            post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_effective_cfg, source_files_post, monitor_cfg)
-
-            post_exe = resolve_runtime_executable("postprocessor")
-            post_args = build_petsc_diagnostics_args(monitor_cfg, run_dir, "PostProcessor") + [
-                "-control_file",
-                solver_control_path,
-                "-postprocessing_config_file",
-                post_recipe_file,
-            ]
-            if cluster_mode:
-                scheduler_dir = os.path.join(run_dir, "scheduler")
-                os.makedirs(scheduler_dir, exist_ok=True)
-                post_script = os.path.join(scheduler_dir, "post.sbatch")
-                post_log = os.path.join(scheduler_dir, "post_%j.out")
-                post_err = os.path.join(scheduler_dir, "post_%j.err")
-                post_cluster_cfg = build_serial_post_cluster_config(cluster_cfg, post_num_procs_effective)
-                raw_post_cmd = build_cluster_launch_command(
-                    post_cluster_cfg,
-                    post_exe,
-                    post_args,
-                    config_search_anchor=case_path,
-                    extra_search_anchors=[cluster_path],
-                    force_num_procs=post_num_procs_effective,
-                )
-                post_cmd, _ = build_post_locked_command(
+            if 'spectra' in post_stages:
+                spectra_summary = run_post_spectra_stage(
                     run_dir,
-                    post_plan['recipe_fingerprint'],
-                    raw_post_cmd,
-                    create_wrapper=True,
+                    post_effective_cfg,
+                    monitor_cfg,
+                    post_plan['source_data_directory'],
+                    range(post_plan['effective_start_step'],
+                          post_plan['effective_end_step'] + 1,
+                          post_plan['step_interval']),
                 )
-                render_slurm_script(
-                    post_script,
-                    f"{run_id}_post",
-                    post_cluster_cfg,
-                    post_cmd,
-                    run_dir,
-                    post_log,
-                    post_err,
-                    env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
-                )
-                submission_meta["stages"]["post-process"] = {
-                    "script": post_script,
-                    "submitted": False,
-                    "num_procs_effective": post_num_procs_effective,
-                    "resume_recipe_match": post_plan['resume_recipe_match'],
-                    "resume_bootstrapped": post_plan['resume_bootstrapped'],
-                    "resume_match_source": post_plan['resume_match_source'],
-                    "effective_start_step": post_plan['effective_start_step'],
-                    "effective_end_step": post_plan['effective_end_step'],
-                    "completed_frontier_step": post_plan['completed_frontier_step'],
-                    "source_frontier_step": post_plan['source_frontier_step'],
-                    "source_frontier_deferred": post_plan['source_frontier_deferred'],
-                    "recipe_fingerprint": post_plan['recipe_fingerprint'],
-                }
-                print(f"[SUCCESS] Generated post Slurm script: {os.path.relpath(post_script)}")
+                for artifact in spectra_summary['artifacts']:
+                    print(f"[INFO] Spectra output: {os.path.relpath(artifact)}")
 
-                if not args.no_submit:
-                    dependency_job = None
-                    if args.solve:
-                        dependency_job = submission_meta.get("stages", {}).get("solve", {}).get("job_id")
-                    submit_info = submit_sbatch(post_script, dependency=dependency_job)
-                    submission_meta["stages"]["post-process"].update(submit_info)
-                    submission_meta["stages"]["post-process"]["submitted"] = True
-                    if dependency_job:
-                        submission_meta["stages"]["post-process"]["dependency"] = f"afterok:{dependency_job}"
-                    print(f"[SUCCESS] Submitted post job: {submit_info['job_id']}")
+            if 'fields' not in post_stages:
+                # --only selected a subset that excludes the field post-processor.
+                print("[INFO] Skipping the field post-processor (--only "
+                      f"{','.join(sorted(post_stages))}).")
                 stages_completed.append('post-process')
             else:
-                raw_command = build_local_launch_command(
-                    post_exe,
-                    post_args,
-                    post_num_procs_effective,
-                    config_search_anchor=case_path,
-                    allow_single_rank_launcher_override=True,
-                    force_num_procs=post_num_procs_effective,
-                )
-                command, _ = build_post_locked_command(
-                    run_dir,
-                    post_plan['recipe_fingerprint'],
-                    raw_command,
-                    create_wrapper=True,
-                )
-                post_log = os.path.join("scheduler", f"{run_id}_{output_prefix}.log")
-                submission_meta["stages"]["post-process"] = {
-                    "command": command,
-                    "command_string": format_command_for_display(command),
-                    "log_file": post_log,
-                    "submitted": False,
-                    "num_procs_effective": post_num_procs_effective,
-                    "resume_recipe_match": post_plan['resume_recipe_match'],
-                    "resume_bootstrapped": post_plan['resume_bootstrapped'],
-                    "resume_match_source": post_plan['resume_match_source'],
-                    "effective_start_step": post_plan['effective_start_step'],
-                    "effective_end_step": post_plan['effective_end_step'],
-                    "completed_frontier_step": post_plan['completed_frontier_step'],
-                    "source_frontier_step": post_plan['source_frontier_step'],
-                    "source_frontier_deferred": post_plan['source_frontier_deferred'],
-                    "recipe_fingerprint": post_plan['recipe_fingerprint'],
-                }
-                if args.no_submit:
-                    print(f"[SUCCESS] Staged local post command: {post_log}")
+                source_files_post = {'Case': case_path, 'Post-Profile': args.post}
+                post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_effective_cfg, source_files_post, monitor_cfg)
+
+                post_exe = resolve_runtime_executable("postprocessor")
+                post_args = build_petsc_diagnostics_args(monitor_cfg, run_dir, "PostProcessor") + [
+                    "-control_file",
+                    solver_control_path,
+                    "-postprocessing_config_file",
+                    post_recipe_file,
+                ]
+                if cluster_mode:
+                    scheduler_dir = os.path.join(run_dir, "scheduler")
+                    os.makedirs(scheduler_dir, exist_ok=True)
+                    post_script = os.path.join(scheduler_dir, "post.sbatch")
+                    post_log = os.path.join(scheduler_dir, "post_%j.out")
+                    post_err = os.path.join(scheduler_dir, "post_%j.err")
+                    post_cluster_cfg = build_serial_post_cluster_config(cluster_cfg, post_num_procs_effective)
+                    raw_post_cmd = build_cluster_launch_command(
+                        post_cluster_cfg,
+                        post_exe,
+                        post_args,
+                        config_search_anchor=case_path,
+                        extra_search_anchors=[cluster_path],
+                        force_num_procs=post_num_procs_effective,
+                    )
+                    post_cmd, _ = build_post_locked_command(
+                        run_dir,
+                        post_plan['recipe_fingerprint'],
+                        raw_post_cmd,
+                        create_wrapper=True,
+                    )
+                    render_slurm_script(
+                        post_script,
+                        f"{run_id}_post",
+                        post_cluster_cfg,
+                        post_cmd,
+                        run_dir,
+                        post_log,
+                        post_err,
+                        env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
+                    )
+                    submission_meta["stages"]["post-process"] = {
+                        "script": post_script,
+                        "submitted": False,
+                        "num_procs_effective": post_num_procs_effective,
+                        "resume_recipe_match": post_plan['resume_recipe_match'],
+                        "resume_bootstrapped": post_plan['resume_bootstrapped'],
+                        "resume_match_source": post_plan['resume_match_source'],
+                        "effective_start_step": post_plan['effective_start_step'],
+                        "effective_end_step": post_plan['effective_end_step'],
+                        "completed_frontier_step": post_plan['completed_frontier_step'],
+                        "source_frontier_step": post_plan['source_frontier_step'],
+                        "source_frontier_deferred": post_plan['source_frontier_deferred'],
+                        "recipe_fingerprint": post_plan['recipe_fingerprint'],
+                    }
+                    print(f"[SUCCESS] Generated post Slurm script: {os.path.relpath(post_script)}")
+
+                    if not args.no_submit:
+                        dependency_job = None
+                        if args.solve:
+                            dependency_job = submission_meta.get("stages", {}).get("solve", {}).get("job_id")
+                        submit_info = submit_sbatch(post_script, dependency=dependency_job)
+                        submission_meta["stages"]["post-process"].update(submit_info)
+                        submission_meta["stages"]["post-process"]["submitted"] = True
+                        if dependency_job:
+                            submission_meta["stages"]["post-process"]["dependency"] = f"afterok:{dependency_job}"
+                        print(f"[SUCCESS] Submitted post job: {submit_info['job_id']}")
+                    stages_completed.append('post-process')
                 else:
-                    execute_command(command, run_dir, post_log, monitor_cfg)
-                    persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['effective_end_step'])
-                    submission_meta["stages"]["post-process"]["submitted"] = True
-                    submission_meta["stages"]["post-process"]["executed"] = True
-                    submission_meta["stages"]["post-process"]["completed_at"] = datetime.now().isoformat()
-                stages_completed.append('post-process')
+                    raw_command = build_local_launch_command(
+                        post_exe,
+                        post_args,
+                        post_num_procs_effective,
+                        config_search_anchor=case_path,
+                        allow_single_rank_launcher_override=True,
+                        force_num_procs=post_num_procs_effective,
+                    )
+                    command, _ = build_post_locked_command(
+                        run_dir,
+                        post_plan['recipe_fingerprint'],
+                        raw_command,
+                        create_wrapper=True,
+                    )
+                    post_log = os.path.join("scheduler", f"{run_id}_{output_prefix}.log")
+                    submission_meta["stages"]["post-process"] = {
+                        "command": command,
+                        "command_string": format_command_for_display(command),
+                        "log_file": post_log,
+                        "submitted": False,
+                        "num_procs_effective": post_num_procs_effective,
+                        "resume_recipe_match": post_plan['resume_recipe_match'],
+                        "resume_bootstrapped": post_plan['resume_bootstrapped'],
+                        "resume_match_source": post_plan['resume_match_source'],
+                        "effective_start_step": post_plan['effective_start_step'],
+                        "effective_end_step": post_plan['effective_end_step'],
+                        "completed_frontier_step": post_plan['completed_frontier_step'],
+                        "source_frontier_step": post_plan['source_frontier_step'],
+                        "source_frontier_deferred": post_plan['source_frontier_deferred'],
+                        "recipe_fingerprint": post_plan['recipe_fingerprint'],
+                    }
+                    if args.no_submit:
+                        print(f"[SUCCESS] Staged local post command: {post_log}")
+                    else:
+                        execute_command(command, run_dir, post_log, monitor_cfg)
+                        persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['effective_end_step'])
+                        submission_meta["stages"]["post-process"]["submitted"] = True
+                        submission_meta["stages"]["post-process"]["executed"] = True
+                        submission_meta["stages"]["post-process"]["completed_at"] = datetime.now().isoformat()
+                    stages_completed.append('post-process')
 
     if run_dir:
         manifest = {
@@ -12263,7 +12765,7 @@ def sweep_workflow(args):
     base_monitor = read_yaml_file(base_paths["monitor"])
     base_post = read_yaml_file(base_paths["post"])
     validate_simulation_configs(base_case, base_solver, base_monitor, base_paths["case"], base_paths["solver"], base_paths["monitor"])
-    validate_post_config(base_post, base_paths["post"])
+    validate_post_config(base_post, base_paths["post"], base_monitor, base_case)
 
     combinations = expand_study_parameter_combinations(study_cfg)
     if not combinations:
@@ -12306,7 +12808,7 @@ def sweep_workflow(args):
         write_yaml_file(post_path, post_cfg)
 
         validate_simulation_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
-        validate_post_config(post_cfg, post_path, monitor_cfg)
+        validate_post_config(post_cfg, post_path, monitor_cfg, case_cfg)
 
         source_files = {'Case': case_path, 'Solver': solver_path, 'Monitor': monitor_path}
         monitor_files = prepare_monitor_files(run_dir, case_id, monitor_cfg, source_files)
@@ -14970,6 +15472,52 @@ def _collect_summary_plot_records(context: dict) -> list:
                 step = _parse_int_loose(parts[0])
                 values = {name: _parse_float_loose(value) for name, value in zip(columns, parts) if name not in {"step", "mode", "ref"}}
                 _append_summary_plot_record(records, "convergence", step, "convergence", values, convergence_path, segment)
+
+    records.extend(_collect_spectra_plot_records(context))
+    return records
+
+
+def _collect_spectra_plot_records(context: dict) -> list:
+    """!
+    @brief Collect the per-step scalar histories written by the spectra post stage.
+
+    @details Each spectra task keeps its own history file, so one task becomes one
+             plotted line and several tasks compare directly on the same axes.
+
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @return Append-ordered plot record list; empty when no spectra were measured.
+    """
+    records = []
+    run_dir = context.get("run_dir")
+    if not run_dir:
+        return records
+    for root, _dirs, files in os.walk(os.path.join(run_dir, "output")):
+        if os.path.basename(root) != "spectra":
+            continue
+        for filename in sorted(files):
+            if not filename.endswith("_history.csv"):
+                continue
+            history_path = os.path.join(root, filename)
+            line = filename[: -len("_history.csv")]
+            try:
+                with open(history_path, "r", encoding="utf-8", errors="replace") as stream:
+                    for row in csv.DictReader(stream):
+                        step = _parse_int_loose(row.get("step"))
+                        if step is None:
+                            continue
+                        values = {}
+                        for column in POST_SPECTRA_SCALAR_COLUMNS:
+                            parsed = _parse_float_loose(row.get(column))
+                            if parsed is not None:
+                                values[column] = parsed
+                        if values:
+                            _append_summary_plot_record(
+                                records, "spectra", step, line, values, history_path, 0
+                            )
+            except OSError:
+                # A history a concurrent post stage is still writing is simply not
+                # listed yet; summarize is read-only and must never fail on it.
+                continue
     return records
 
 
@@ -14995,6 +15543,100 @@ def _build_summary_plot_catalog(records: list) -> list:
         }
         for _, item in sorted(catalog.items())
     ]
+
+
+def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
+                                 linear_y: bool, output_path: "str | None") -> dict:
+    """!
+    @brief Build a plot.gen request drawing one spectrum per processed step.
+
+    @details A decaying flow has a different spectrum at every step, so the family is
+             plotted rather than averaged. The initial-condition spectrum is overlaid
+             when it exists, which is the comparison the measurement is usually made
+             for.
+
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @param[in] task Task basename, or a unique substring of one.
+    @param[in] reference Overlay the staged initial-condition spectrum when available.
+    @param[in] linear_y Force linear axes instead of the log-log default.
+    @param[in] output_path Optional explicit output path.
+    @return Versioned normalized plot request.
+    @throws ValueError when no matching spectrum file exists.
+    """
+    spectra_dir = os.path.join(context["run_dir"], "output", "spectra")
+    candidates = []
+    if os.path.isdir(spectra_dir):
+        candidates = sorted(
+            name for name in os.listdir(spectra_dir)
+            if name.endswith(".csv") and not name.endswith("_history.csv")
+        )
+    if not candidates:
+        raise ValueError(
+            "No spectra were found for this run. Run "
+            "'picurv run --post-process --only spectra' first."
+        )
+    matches = [name for name in candidates if task in name] if task else candidates
+    if len(matches) != 1:
+        available = ", ".join(name[: -len(".csv")] for name in candidates)
+        raise ValueError(
+            f"Spectrum selector {task!r} matched {len(matches)} files. Available: {available}."
+        )
+    spectrum_path = os.path.join(spectra_dir, matches[0])
+
+    by_step = {}
+    times = {}
+    with open(spectrum_path, "r", encoding="utf-8", errors="replace") as stream:
+        for row in csv.DictReader(stream):
+            step = _parse_int_loose(row.get("step"))
+            wavenumber = _parse_float_loose(row.get("k"))
+            energy = _parse_float_loose(row.get("energy"))
+            if step is None or wavenumber is None or energy is None:
+                continue
+            # A log-log plot cannot carry the zero wavenumber or an empty shell.
+            if wavenumber <= 0.0 or (not linear_y and energy <= 0.0):
+                continue
+            by_step.setdefault(step, []).append([wavenumber, energy])
+            times.setdefault(step, _parse_float_loose(row.get("time")))
+    if not by_step:
+        raise ValueError(f"{os.path.relpath(spectrum_path)} carries no plottable spectrum rows.")
+
+    lines = []
+    if reference:
+        reference_path = os.path.join(context["run_dir"], "diagnostics",
+                                      "initial_condition_spectrum.csv")
+        if os.path.isfile(reference_path):
+            points = []
+            with open(reference_path, "r", encoding="utf-8", errors="replace") as stream:
+                for row in csv.DictReader(stream):
+                    wavenumber = _parse_float_loose(row.get("k"))
+                    energy = _parse_float_loose(row.get("energy"))
+                    if wavenumber is None or energy is None:
+                        continue
+                    if wavenumber <= 0.0 or (not linear_y and energy <= 0.0):
+                        continue
+                    points.append([wavenumber, energy])
+            if points:
+                lines.append({"label": "initial condition", "points": points})
+    for step in sorted(by_step):
+        time = times.get(step)
+        label = f"step {step}" if time is None else f"step {step} (t={time:g})"
+        lines.append({"label": label, "points": by_step[step]})
+
+    name = matches[0][: -len(".csv")]
+    fallback = os.path.join(context["run_dir"], "summary", "plots", f"{name}.png")
+    return {
+        "schema_version": 1,
+        "plot_type": "time_history",
+        "series": name,
+        "title": f"Energy spectrum: {name}",
+        "x_label": "Wavenumber k",
+        "y_label": "E(k)",
+        "x_scale": "linear" if linear_y else "log",
+        "y_scale": "linear" if linear_y else "log",
+        "window": {"mode": "full", "last": None},
+        "lines": lines,
+        "output_path": os.path.abspath(output_path) if output_path else fallback,
+    }
 
 
 def _build_summary_plot_request(context: dict, records: list, series: str, last_n: "int | None", linear_y: bool, output_path: "str | None") -> dict:
@@ -15099,10 +15741,11 @@ def summarize_workflow(args):
         fail_cli_usage("--snapshot-rows must be at least 1.")
     plot_series = getattr(args, "plot_series", None)
     list_plot_series = bool(getattr(args, "list_plot_series", False))
+    plot_spectrum = getattr(args, "plot_spectrum", None)
     last_n = getattr(args, "last_n", None)
     plot_output = getattr(args, "plot_output", None)
     linear_y = bool(getattr(args, "linear_y", False))
-    plot_mode = bool(plot_series or list_plot_series)
+    plot_mode = bool(plot_series or list_plot_series or plot_spectrum is not None)
     existing_selectors = any(
         [
             getattr(args, "overview", False),
@@ -15116,8 +15759,10 @@ def summarize_workflow(args):
     )
     if plot_mode and existing_selectors:
         fail_cli_usage("Plot discovery and --plot cannot be combined with config or selected-step selectors.")
-    if not plot_series and (last_n is not None or plot_output or linear_y):
-        fail_cli_usage("--last, --plot-output, and --linear-y require --plot.")
+    if not plot_series and last_n is not None:
+        fail_cli_usage("--last requires --plot.")
+    if not plot_series and plot_spectrum is None and (plot_output or linear_y):
+        fail_cli_usage("--plot-output and --linear-y require --plot or --plot-spectrum.")
     if last_n is not None and last_n < 1:
         fail_cli_usage("--last must be a positive integer.")
     if plot_series and args.output_format == "json":
@@ -15132,7 +15777,14 @@ def summarize_workflow(args):
                     raise ValueError("No plottable scalar histories were found in the run logs.")
                 _render_summary_plot_catalog(catalog, args.output_format)
                 return
-            request = _build_summary_plot_request(context, records, plot_series, last_n, linear_y, plot_output)
+            if plot_spectrum is not None:
+                request = _build_spectrum_plot_request(
+                    context, plot_spectrum, True, linear_y, plot_output
+                )
+            else:
+                request = _build_summary_plot_request(
+                    context, records, plot_series, last_n, linear_y, plot_output
+                )
             _invoke_plot_gen(request)
             return
         except PlotDependencyError as exc:

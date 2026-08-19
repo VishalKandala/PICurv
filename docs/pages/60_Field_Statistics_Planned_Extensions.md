@@ -72,6 +72,9 @@ was wanted. Homogeneous-direction averaging is the case this serves.
 | @ref p60_targets_sec | @ref p60_view_sec for surface output | surfaces, probes, conditional sampling |
 | @ref p60_reducer_sec | @ref p60_reduction_sec | one reducer behind flow observables |
 | @ref p60_dimensional_sec | nothing | dimensional derived statistics |
+| @ref p60_spectra_partial_sec | nothing | spectra for channels, ducts, and boundary layers |
+| @ref p60_spectra_temporal_sec | bounded probe history | frequency spectra where nothing is homogeneous |
+| @ref p60_spectra_online_sec | @ref p60_spectra_temporal_sec for the transpose | spatial spectra without a snapshot series |
 
 Spatial reduction is listed first because it is the largest capability for the
 least new code: the kernel it needs is already written and tested, and it has no
@@ -246,7 +249,170 @@ product knows the scales of both its factors. Applying the velocity scale as thi
 stand would be wrong rather than merely incomplete, which is why the current
 behaviour is to leave derived output nondimensional and say so.
 
-@section p60_notplanned_sec 12. Not Planned
+@section p60_spectra_partial_sec 12. Offline Line And Plane Spectra
+
+**What exists today.** `post.yml -> spectra` implements one task, `shell_spectrum`,
+which requires all three directions to be periodic and homogeneous. See
+@ref p10_spectra_sec.
+
+**What is missing.** Everything between "homogeneous in three directions" and
+"homogeneous in none": a channel homogeneous in two directions and bounded in the
+third, a straight duct homogeneous in one, a spatially developing boundary layer
+homogeneous in the spanwise direction alone. This is the most common wall-bounded
+turbulence configuration there is, and it is presently unserved — a channel has a
+perfectly good spatial spectrum that the pipeline cannot produce.
+
+Note this is *not* what @ref p60_spectra_temporal_sec covers. That section is for
+geometries with no homogeneous direction at all, where only a frequency spectrum is
+defined. A channel has homogeneous directions, and what is wanted there is a
+wavenumber spectrum resolving scales, not a frequency spectrum at a probe.
+
+**Why it is first among the three spectral extensions.** It needs no new online state,
+no retained history, no FFT in the solver, and no MPI transpose. It reuses the offline
+stage exactly as it stands: read a committed checkpoint, transform, bin, write. Of the
+three, it is the only one that is purely additive to machinery already running.
+
+@subsection p60_spectra_partial_shape_sub The reduction is the choice, not the topology
+
+The obvious design — infer the task from how many directions are periodic — does not
+survive contact with what people actually want. Two homogeneous directions admit at
+least four distinct deliverables, and they answer different questions:
+
+- \f$E(k_x)\f$ at each wall-normal station,
+- \f$E(k_z)\f$ at each wall-normal station,
+- the full two-dimensional \f$E(k_x, k_z)\f$ at one chosen station,
+- premultiplied \f$k E(k)\f$, which is what log-layer scaling is read from.
+
+The most common channel deliverable is not "the plane spectrum" at all: it is a plane
+transform *reduced two different ways*. So the map from topology to task is
+one-to-many, and the topology cannot pick for the user.
+
+**Periodicity is also necessary rather than sufficient.** The pairwise consistency
+check in `validate_and_prepare_boundary_conditions` makes "this axis is periodic" a
+reliable, already-validated property, but homogeneity is the real requirement. An
+immersed body inside a periodic box breaks it while every boundary condition still
+reads `PERIODIC`, and the `Nvert` mask that reveals it is a runtime property that moves
+with the body, so no configuration-time inference can see it.
+
+**What may be inferred.** The *direction* may, where it is unambiguous: a
+`line_spectrum` on a case with exactly one periodic axis has only one sensible
+`direction`, and defaulting it removes real tedium without removing a scientific
+decision. The *task* may not, for the reasons above.
+
+That distinction matters beyond convenience. The value of the precondition gate is that
+it refuses: ask for something undefined and the reason is named before any compute is
+spent. Inferring the task inverts that — when the inference is right a configuration
+line is saved, and when it is wrong there is no error at all, only a plausible curve.
+A pipeline built on @ref p60_principle_sec should not trade a loud failure for a silent
+one to save a line of YAML.
+
+What is worth doing instead is making the refusal constructive: a case whose spanwise
+axis is periodic could be told that `line_spectrum` along that axis would be valid,
+rather than only being told what is wrong.
+
+@subsection p60_spectra_partial_cost_sub What it costs
+
+The transform is the easy part. What genuinely changes:
+
+- **Output stops being one-dimensional.** `shell_spectrum` yields \f$E(k)\f$ per
+  step. A line spectrum yields \f$E(k_1)\f$ per retained index, a plane spectrum
+  \f$E(k_x,k_z)\f$ per station. The long-format CSV generalizes with an index column;
+  the plot does not, because "a spectrum at every wall-normal station" is a family or a
+  contour rather than a curve. `--plot-spectrum` needs a station selector.
+- **Masking becomes per-line.** `shell_spectrum` sidesteps immersed boundaries by
+  refusing them outright. A line spectrum must test each transform line for blanked
+  points and drop or refuse that line individually.
+- **Serial memory becomes the ceiling.** `generators/spectra.gen` reads whole fields in
+  Python. A 64-cubed box is under seven megabytes; a 512-cubed channel is a few
+  gigabytes per snapshot. For channel-scale cases this, rather than sample count, is
+  what eventually forces @ref p60_spectra_online_sec.
+
+**Test case.** `examples/flat_channel`, which is homogeneous in the streamwise and
+spanwise directions. Not `examples/bent_channel`: a 90-degree bend develops
+streamwise and is bounded on all four sides, so it has no homogeneous direction and
+belongs to @ref p60_spectra_temporal_sec.
+
+@section p60_spectra_temporal_sec 13. Temporal Spectra From Bounded Probe Histories
+
+**What exists today.** `post.yml -> spectra` measures spatial spectra offline from the
+instantaneous velocity in each committed checkpoint, documented in
+@ref p10_spectra_sec. The one implemented task, `shell_spectrum`, requires a triply
+periodic uniform Cartesian box.
+
+**What is missing, and why it is not a gap in the above.** A spatial spectrum needs a
+direction that is uniformly spaced, periodic, and statistically homogeneous. A curved
+duct, a wall-bounded channel section, or any immersed geometry supplies none of the
+three: the streamwise direction develops, and the cross-stream directions are bounded.
+For these the meaningful quantity is a **frequency** spectrum \f$E(f)\f$ at a point,
+which needs no homogeneity at all and is what resolves shedding and Strouhal content.
+
+A frequency spectrum needs the signal itself, retained in time. That is the one thing
+@ref p60_pdf_sec rules out at full-field scale and explicitly leaves open at reduced
+scale: *whatever retains history must stay bounded, for reduced probes or regions
+only*. A handful of probes sampled every step is kilobytes; the same information as
+full-field snapshots is terabytes.
+
+**Why the snapshot path cannot substitute.** A temporal transform of the existing
+checkpoint series is limited to
+\f$f_{\max} = 1/(2\,\Delta t\,\texttt{data\_output\_frequency})\f$. Reaching a
+useful band means writing full three-dimensional fields every step or two, which is
+precisely the cost this extension avoids. The snapshot series can reach a
+low-frequency peak; it cannot reach an inertial range.
+
+What it requires:
+
+- **A probe set in the monitor configuration**, since retaining history is a solve-time
+  decision rather than a post-processing one.
+- **Bounded per-probe history**, appended as the run proceeds, with the sampling cadence
+  fixed at configuration time so the transform has a uniform time base.
+- **Interpolation for off-grid probes.** Note that the caveat in
+  @ref p60_targets_sec does not apply here: that section concerns the *variance* of an
+  interpolated quantity, which needs the covariance between stencil points. A retained
+  time series holds the actual interpolated values, so its spectrum is exact.
+- **A `temporal_spectrum` task** in the spectra recipe, with Welch averaging over
+  segments and a window function, since a finite record is not periodic in time.
+
+This is the extension that unlocks spectra for every geometry the spatial tasks refuse,
+and it is the smaller of the two remaining spectral pieces.
+
+@section p60_spectra_online_sec 14. Online Spatial Spectral Accumulation
+
+**What is missing.** Spatial spectra are measured offline from written snapshots, so
+the number of independent samples is bounded by how many full fields a run can afford
+to write, and the snapshot cadence has to be chosen before the run.
+
+**What the extension is.** Accumulate \f$\langle |\hat{u}(k)|^2 \rangle\f$ online:
+transform along the homogeneous direction each accepted state and add the modulus
+squared into a per-wavenumber accumulator.
+
+**Why it must be online rather than derived later.** The transform is linear, so a
+time-averaged \f$\hat{u}\f$ is recoverable from a time-averaged field. The modulus
+squared is not: \f$\langle |\hat{u}|^2 \rangle \neq |\langle \hat{u} \rangle|^2\f$.
+This is the same rule @ref p60_principle_sec states, applied in Fourier space, and it
+is also why no reduction of the existing pointwise accumulators can yield a spectrum —
+a spectrum is the transform of a two-point correlation, and pointwise state holds no
+covariance between distinct points.
+
+**Why it is nonetheless second in priority.** It is an efficiency change, not a
+capability change: it produces spectra the snapshot path already produces, for runs
+where writing the snapshots is the binding constraint. @ref p60_spectra_temporal_sec
+produces spectra that are otherwise unavailable at all.
+
+What it requires:
+
+- **A spectral target kind and product**, slotting into the existing window
+  machinery. Scheduling, weighting, restart merging, and checkpointing all apply
+  unchanged; the accumulator is a new product, not a new lifecycle.
+- **An FFT in the solver.** PETSc's `MatCreateFFT` needs an FFTW-enabled build, which
+  the current configuration does not have. A single-direction transform is cheap
+  enough that gathering the pencil and transforming directly is a viable alternative.
+- **A transpose or line gather** when the homogeneous direction is distributed across
+  ranks.
+
+Storage is negligible — wavenumber by wall-normal index by component — which is orders
+of magnitude below the per-point histograms @ref p60_pdf_sec defers.
+
+@section p60_notplanned_sec 15. Not Planned
 
 These are recorded so they are not proposed again as gaps.
 
@@ -262,9 +428,10 @@ These are recorded so they are not proposed again as gaps.
   different matter: they are deferred on cost rather than ruled out, and
   @ref p60_pdf_sec records the terms under which they could arrive.
 
-@section p60_related_sec 13. Related Pages
+@section p60_related_sec 16. Related Pages
 
 - @subpage 58_Field_Statistics — what the pipeline does today
+- @subpage 10_Post_Processing_Reference — the spectra recipe these two extend
 - @subpage 56_Field_Identity_and_Layout_Catalog — the catalog these extensions build on
 - @subpage 57_Future_Architecture_Specifications — status and sequencing of proposed architecture
 - @subpage 29_Maintenance_Backlog — open validation items

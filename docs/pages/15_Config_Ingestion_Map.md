@@ -55,6 +55,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `post.io.input_extensions.*` | `eulerianExt`, `particleExt` in `post.run` | `src/io.c` | `ReadSimulationFields`, `ReadAllSwarmFields`, swarm precheck |
 | `post.statistics_pipeline.*` | `statistics_pipeline`, `statistics_output_prefix` | `src/io.c` | `GlobalStatisticsPipeline` dispatch |
 | `post.field_statistics.*` | `field_statistics_windows`, `field_statistics_outputs`, `field_statistics_formats`, `field_statistics_source_step` | `src/io.c` (`ParsePostProcessingSettings`) | `FieldStatisticsPipeline` in `src/postprocessor.c`, derivation in `src/statistics_accumulator.c` |
+| `post.spectra.*` (digest only) | `spectra_signature` | `src/io.c` (`ParsePostProcessingSettings`) | accepted and ignored; exists so a changed spectra recipe reaches the `--continue` recipe fingerprint |
 
 @section p15_python_only_sec 3. Python-Only Orchestration Mapping (No C Ingestion)
 
@@ -72,6 +73,8 @@ These keys are consumed by `picurv` orchestration only:
 | `study.execution.max_concurrent_array_tasks` | Slurm array `%N` throttle | `picurv_cli/core.py` | Slurm scheduler |
 | `study.metrics` | `metrics_table.csv` extraction contract | `picurv_cli/core.py` metric extractors | study aggregation/reporting |
 | `study.plotting` | `results/plots/*` output controls | `picurv_cli/core.py` plotting pipeline | study reporting |
+| `post.spectra.tasks[*]` | `spectra.gen shell-spectrum` arguments | `picurv_cli/core.py` (`normalize_post_spectra_config`) | `run_post_spectra_stage`, `generators/spectra.gen` |
+| `post.spectra.output_prefix` | spectra CSV basenames under `<monitor output>/spectra/` | `picurv_cli/core.py` (`post_spectra_task_basename`) | `run_post_spectra_stage` |
 
 @section p15_exceptions_sec 4. Important Exceptions
 

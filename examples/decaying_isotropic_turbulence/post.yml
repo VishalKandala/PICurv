@@ -10,6 +10,16 @@ field_statistics:
   outputs: [mean, reynolds_stress, rms, tke, flux]
   formats: [vtk, csv]
 
+# The case seeds a prescribed spectrum, so measuring the realized one back is the
+# most direct check of what the solver did to it. One spectrum per processed step:
+# a decaying flow is a different statistical state at every step.
+spectra:
+  output_prefix: "Spectrum"
+  tasks:
+    - task: shell_spectrum
+      field: Ucat
+      symbol: continuum
+
 io:
   output_directory: visualization/dit
   output_filename_prefix: dit

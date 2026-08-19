@@ -1,0 +1,484 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""!
+@file spectra.gen
+@brief Standalone turbulent-spectra generator for PICurv.
+
+This script owns the spectrum. It reads one PETSc binary Ucat snapshot written by
+the solver (or by `ic.gen`), transforms it, and reports the shell-averaged energy
+spectrum for that single state. Nothing else in the repository bins wavenumbers.
+
+The `picurv` conductor is responsible for run discovery, step windows, periodicity
+preconditions read from `case.yml`, and looping over a snapshot series. This helper
+validates only what the field and the grid themselves reveal, and computes one
+spectrum per invocation.
+
+@note Grid geometry is validated here; boundary-condition periodicity is not
+      visible to this script and is gated by the conductor.
+"""
+
+import argparse
+import csv
+import json
+import os
+import struct
+import sys
+
+
+def _drop_imported_package(package_name: str):
+    """!
+    @brief Remove a failed/partial import package tree from sys.modules.
+    @param[in] package_name Top-level package name.
+    """
+    prefix = package_name + "."
+    for module_name in list(sys.modules):
+        if module_name == package_name or module_name.startswith(prefix):
+            sys.modules.pop(module_name, None)
+
+
+def _prune_incompatible_python_site_paths(paths):
+    """!
+    @brief Remove site-package paths for a different Python major/minor version.
+    @param[in] paths Candidate sys.path entries.
+    @return Filtered path list.
+    """
+    current = (sys.version_info[0], sys.version_info[1])
+    filtered = []
+    for path in paths:
+        text = str(path)
+        marker = "python"
+        idx = text.lower().find(marker)
+        if idx >= 0 and ("site-packages" in text or "dist-packages" in text):
+            version_text = text[idx + len(marker):idx + len(marker) + 4].strip("-/")
+            parts = version_text.split(".")
+            try:
+                path_version = (int(parts[0]), int(parts[1]))
+            except (IndexError, ValueError):
+                filtered.append(path)
+                continue
+            if path_version != current:
+                continue
+        filtered.append(path)
+    return filtered
+
+
+def require_numpy():
+    """!
+    @brief Import NumPy with the same compatibility retry used by the conductor.
+    @return Imported NumPy module.
+    """
+    try:
+        import numpy
+        return numpy
+    except Exception as exc:
+        first_error = exc
+        original_path = list(sys.path)
+        try:
+            _drop_imported_package("numpy")
+            sys.path = _prune_incompatible_python_site_paths(original_path)
+            import numpy
+            return numpy
+        except Exception as retry_exc:
+            raise RuntimeError(
+                "NumPy is required for spectra generation, but no compatible "
+                "NumPy could be imported. "
+                f"First error: {first_error}. Retry error: {retry_exc}"
+            ) from retry_exc
+        finally:
+            sys.path = original_path
+
+
+def read_picgrid_blocks(path: str) -> list:
+    """!
+    @brief Read canonical PICGRID blocks as coordinate arrays.
+    @param[in] path PICGRID path.
+    @return List of dictionaries with node dims and coords shaped `(KM, JM, IM, 3)`.
+    """
+    numpy = require_numpy()
+    if not os.path.isfile(path):
+        raise ValueError(f"PICGRID file not found: {path}")
+    with open(path, "r", encoding="utf-8") as fin:
+        lines = [line.strip() for line in fin if line.strip() and not line.lstrip().startswith("#")]
+    if len(lines) < 3 or lines[0] != "PICGRID":
+        raise ValueError(f"PICGRID file '{path}' must begin with canonical PICGRID header.")
+    try:
+        nblk = int(lines[1])
+    except ValueError as exc:
+        raise ValueError(f"Invalid PICGRID block count in '{path}'.") from exc
+    if nblk <= 0:
+        raise ValueError(f"PICGRID file '{path}' has non-positive block count.")
+    cursor = 2
+    dims = []
+    for block_idx in range(nblk):
+        if cursor >= len(lines):
+            raise ValueError(f"PICGRID file '{path}' missing dimensions for block {block_idx}.")
+        parts = lines[cursor].split()
+        cursor += 1
+        if len(parts) != 3:
+            raise ValueError(f"Invalid PICGRID dimensions for block {block_idx} in '{path}'.")
+        try:
+            im, jm, km = (int(parts[0]), int(parts[1]), int(parts[2]))
+        except ValueError as exc:
+            raise ValueError(f"Invalid PICGRID dimensions for block {block_idx} in '{path}'.") from exc
+        if min(im, jm, km) < 2:
+            raise ValueError(f"PICGRID block {block_idx} dimensions {(im, jm, km)} are too small.")
+        dims.append((im, jm, km))
+    blocks = []
+    for block_idx, (im, jm, km) in enumerate(dims):
+        count = im * jm * km
+        if cursor + count > len(lines):
+            raise ValueError(f"PICGRID file '{path}' missing coordinates for block {block_idx}.")
+        coords = []
+        for row in lines[cursor:cursor + count]:
+            parts = row.split()
+            if len(parts) != 3:
+                raise ValueError(f"Invalid PICGRID coordinate row in block {block_idx}: '{row}'.")
+            try:
+                coords.append((float(parts[0]), float(parts[1]), float(parts[2])))
+            except ValueError as exc:
+                raise ValueError(f"Invalid PICGRID coordinate row in block {block_idx}: '{row}'.") from exc
+        cursor += count
+        blocks.append({
+            "dims": (im, jm, km),
+            "coords": numpy.asarray(coords, dtype=float).reshape((km, jm, im, 3)),
+        })
+    if cursor != len(lines):
+        raise ValueError(f"PICGRID file '{path}' has trailing coordinate rows.")
+    return blocks
+
+
+def read_petsc_vec_binary(path: str):
+    """!
+    @brief Read a PETSc binary VecView payload written by PICurv.
+    @param[in] path PETSc binary vector path.
+    @return NumPy array of scalar values.
+    """
+    numpy = require_numpy()
+    if not os.path.isfile(path):
+        raise ValueError(f"field file not found: {path}")
+    data = open(path, "rb").read()
+    if len(data) < 8:
+        raise ValueError(f"field file '{path}' is too short to be a PETSc Vec binary.")
+    candidates = []
+    for endian in (">", "<"):
+        try:
+            _class_id, vec_size = struct.unpack(endian + "ii", data[:8])
+        except struct.error:
+            continue
+        if vec_size > 0 and len(data) == 8 + vec_size * 8:
+            candidates.append((endian, vec_size, 8))
+        try:
+            (vec_size_no_class,) = struct.unpack(endian + "i", data[:4])
+        except struct.error:
+            continue
+        if vec_size_no_class > 0 and len(data) == 4 + vec_size_no_class * 8:
+            candidates.append((endian, vec_size_no_class, 4))
+    if not candidates:
+        raise ValueError(
+            f"field file '{path}' does not match supported PETSc real64 Vec binary layouts."
+        )
+    endian, vec_size, offset = candidates[0]
+    values = numpy.frombuffer(data, dtype=numpy.dtype(endian + "f8"), count=vec_size, offset=offset)
+    return values.astype(float, copy=False)
+
+
+def extract_interior_cells(values, node_dims):
+    """!
+    @brief Reshape a Ucat payload to DMDA order and return the physical cell interior.
+
+    PICurv sizes the cell-centered DMDA as `(IM+1, JM+1, KM+1)` for PICGRID node
+    dimensions `(IM, JM, KM)`, so the stored vector carries one dummy layer below
+    index 1 and one above index `IM-1` in each direction. Physical cell-centered
+    values occupy `[1:KM, 1:JM, 1:IM]`, which is `(KM-1, JM-1, IM-1)` cells.
+
+    @param[in] values    Flat scalar array from `read_petsc_vec_binary()`.
+    @param[in] node_dims PICGRID node dimensions `(IM, JM, KM)`.
+    @return Interior cell-centered array shaped `(nk, nj, ni, 3)`.
+    """
+    im, jm, km = node_dims
+    expected = (im + 1) * (jm + 1) * (km + 1) * 3
+    if values.size != expected:
+        raise ValueError(
+            f"field vector length mismatch: expected {expected} scalars for PICGRID node "
+            f"dimensions {(im, jm, km)} (DMDA {(im + 1, jm + 1, km + 1)} with 3 Ucat "
+            f"components), found {values.size}."
+        )
+    full = values.reshape((km + 1, jm + 1, im + 1, 3))
+    return full[1:km, 1:jm, 1:im, :]
+
+
+def extract_interior_cells_scalar(values, node_dims):
+    """!
+    @brief Reshape a single-component payload to DMDA order and return its interior.
+    @param[in] values    Flat scalar array from `read_petsc_vec_binary()`.
+    @param[in] node_dims PICGRID node dimensions `(IM, JM, KM)`.
+    @return Interior cell-centered array shaped `(nk, nj, ni)`.
+    """
+    im, jm, km = node_dims
+    expected = (im + 1) * (jm + 1) * (km + 1)
+    if values.size != expected:
+        raise ValueError(
+            f"scalar payload length mismatch: expected {expected} scalars for PICGRID node "
+            f"dimensions {(im, jm, km)}, found {values.size}."
+        )
+    return values.reshape((km + 1, jm + 1, im + 1))[1:km, 1:jm, 1:im]
+
+
+def validate_spectral_grid(nodes):
+    """!
+    @brief Validate the uniform Cartesian grid an FFT-based spectrum requires.
+    @param[in] nodes PICGRID node-coordinate array shaped `(KM, JM, IM, 3)`.
+    @return Cell counts in storage order and physical lengths in Cartesian order.
+    """
+    numpy = require_numpy()
+    km, jm, im, _ = nodes.shape
+    cells = (km - 1, jm - 1, im - 1)
+    if min(cells) < 4:
+        raise ValueError(f"shell_spectrum requires at least four cells per axis; found {cells}.")
+    axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
+    for physical_axis, values in zip("xyz", axes):
+        delta = numpy.diff(values)
+        if not numpy.all(delta > 0) or not numpy.allclose(delta, delta[0], rtol=1e-10, atol=1e-12):
+            raise ValueError(f"shell_spectrum requires uniform positive {physical_axis} spacing.")
+    if not (numpy.allclose(nodes[..., 0], axes[0][None, None, :]) and
+            numpy.allclose(nodes[..., 1], axes[1][None, :, None]) and
+            numpy.allclose(nodes[..., 2], axes[2][:, None, None])):
+        raise ValueError("shell_spectrum requires an axis-aligned Cartesian grid (x->i, y->j, z->k).")
+    return cells, tuple(float(values[-1] - values[0]) for values in axes)
+
+
+def spectral_symbols(cells_kji, lengths_xyz):
+    """!
+    @brief Build continuum and centered-discrete Fourier symbols.
+    @param[in] cells_kji Cell counts in storage order.
+    @param[in] lengths_xyz Physical box lengths in Cartesian order.
+    @return Continuum symbols, centered-discrete symbols, and Cartesian spacings.
+    """
+    numpy = require_numpy()
+    nk, nj, ni = cells_kji
+    lx, ly, lz = lengths_xyz
+    dx, dy, dz = lx / ni, ly / nj, lz / nk
+    kz = 2*numpy.pi*numpy.fft.fftfreq(nk, d=dz)[:, None, None]
+    ky = 2*numpy.pi*numpy.fft.fftfreq(nj, d=dy)[None, :, None]
+    kx = 2*numpy.pi*numpy.fft.fftfreq(ni, d=dx)[None, None, :]
+    discrete = (numpy.sin(kx*dx)/dx, numpy.sin(ky*dy)/dy, numpy.sin(kz*dz)/dz)
+    return (kx, ky, kz), discrete, (dx, dy, dz)
+
+
+def shell_spectrum(field, lengths_xyz, symbol="continuum"):
+    """!
+    @brief Compute the shell-averaged energy spectrum of one velocity snapshot.
+
+    Energy is defined so that summing every shell reproduces the resolved kinetic
+    energy of the snapshot, which is what makes the Parseval residual reported
+    alongside it a meaningful self-check.
+
+    @param[in] field       Interior cell-centered velocity shaped `(nk, nj, ni, 3)`.
+    @param[in] lengths_xyz Physical box lengths in Cartesian order.
+    @param[in] symbol      Binning abscissa: `continuum` or `discrete`.
+    @return Mapping with the spectrum rows and scalar diagnostics. Dissipation is
+            reported divided by the kinematic viscosity, which this script does not
+            know; the integral and Taylor scales need none.
+    """
+    numpy = require_numpy()
+    if symbol not in ("continuum", "discrete"):
+        raise ValueError(f"symbol must be 'continuum' or 'discrete'; got '{symbol}'.")
+    cells = field.shape[:3]
+    continuum, discrete, _spacing = spectral_symbols(cells, lengths_xyz)
+    symbols = continuum if symbol == "continuum" else discrete
+    coeff = numpy.fft.fftn(field, axes=(0, 1, 2))
+    energy = 0.5*numpy.sum(numpy.abs(coeff/numpy.prod(cells))**2, axis=-1)
+
+    kmag = numpy.sqrt(sum(component*component for component in symbols))
+    fundamental = min(2*numpy.pi/length for length in lengths_xyz)
+    shell = numpy.floor(kmag/fundamental + 0.5).astype(int)
+    rows = [{"k": float(index*fundamental), "energy": float(numpy.sum(energy[shell == index]))}
+            for index in range(int(shell.max()) + 1)]
+
+    resolved = 0.5*float(numpy.mean(numpy.sum(field*field, axis=-1)))
+    total = float(sum(row["energy"] for row in rows))
+    peak = max(rows, key=lambda row: row["energy"])
+
+    # Spectral integrals are taken over the modes themselves rather than over the
+    # binned shells, so they carry no binning error. Both are reported without the
+    # kinematic viscosity, which this script does not know: dissipation is
+    # `viscosity * dissipation_over_viscosity`, while the length scales below need
+    # no viscosity at all because it cancels out of their isotropic definitions.
+    nonzero = kmag > 0.0
+    moment_k2 = float(numpy.sum(kmag*kmag*energy))
+    moment_inverse_k = float(numpy.sum(energy[nonzero]/kmag[nonzero]))
+    integral_length = (3.0*numpy.pi/4.0)*moment_inverse_k/resolved if resolved > 0 else 0.0
+    taylor = float(numpy.sqrt(5.0*resolved/moment_k2)) if moment_k2 > 0 else 0.0
+
+    return {
+        "symbol": symbol,
+        "shell_spectrum": rows,
+        "shell_count": len(rows),
+        "fundamental_wavenumber": float(fundamental),
+        "spectrum_peak_k": peak["k"],
+        "zero_mode_energy": float(energy[(0, 0, 0)]),
+        "spectrum_total_energy": total,
+        "resolved_kinetic_energy": resolved,
+        "parseval_residual": abs(total - resolved)/resolved if resolved > 0 else 0.0,
+        "max_resolved_wavenumber": float(numpy.max(kmag)),
+        "spectral_moment_k2": moment_k2,
+        "spectral_moment_inverse_k": moment_inverse_k,
+        "dissipation_over_viscosity": 2.0*moment_k2,
+        "integral_length_scale": float(integral_length),
+        "taylor_microscale": taylor,
+    }
+
+
+def generate_shell_spectrum(field_file: str, source_grid: str, block: int,
+                            symbol: str, subtract_mean: str,
+                            mean_file: str = None, count_file: str = None) -> dict:
+    """!
+    @brief Produce the shell-averaged spectrum of one Ucat snapshot.
+
+    The `field` fluctuation mode subtracts a supplied mean field rather than resolving
+    one itself. Which mean that is — a statistics window, some other run — is the
+    conductor's decision; this script only requires that the mean share the snapshot's
+    layout and, when a count is supplied, that every point actually carries a sample.
+
+    @param[in] field_file    PETSc binary Ucat field file.
+    @param[in] source_grid   Canonical PICGRID path describing the field's block.
+    @param[in] block         Block index within the PICGRID.
+    @param[in] symbol        Binning abscissa: `continuum` or `discrete`.
+    @param[in] subtract_mean Fluctuation definition: `none`, `domain`, or `field`.
+    @param[in] mean_file     Mean field to subtract; required when mode is `field`.
+    @param[in] count_file    Optional per-point sample count guarding the mean.
+    @return Summary dictionary including the spectrum rows. `component_means`
+            describes the snapshot as stored; every other moment, including
+            `component_rms` and the spectrum itself, describes the field actually
+            transformed, which is the fluctuation when a mean was removed.
+    """
+    numpy = require_numpy()
+    if subtract_mean not in ("none", "domain", "field"):
+        raise ValueError(
+            f"subtract_mean must be 'none', 'domain', or 'field'; got '{subtract_mean}'."
+        )
+    if subtract_mean == "field" and not mean_file:
+        raise ValueError("subtract_mean 'field' requires a mean field via --mean-file.")
+    blocks = read_picgrid_blocks(source_grid)
+    if block < 0 or block >= len(blocks):
+        raise ValueError(f"block {block} is outside the PICGRID block range 0..{len(blocks) - 1}.")
+    nodes = blocks[block]["coords"]
+    node_dims = blocks[block]["dims"]
+    cells, lengths = validate_spectral_grid(nodes)
+
+    field = extract_interior_cells(read_petsc_vec_binary(field_file), node_dims)
+    if field.shape[:3] != cells:
+        raise ValueError(
+            f"interior cell shape {field.shape[:3]} does not match grid cell counts {cells}."
+        )
+    component_means = [float(value) for value in field.mean(axis=(0, 1, 2))]
+    if subtract_mean == "domain":
+        field = field - field.mean(axis=(0, 1, 2))
+    elif subtract_mean == "field":
+        mean_field = extract_interior_cells(read_petsc_vec_binary(mean_file), node_dims)
+        if mean_field.shape != field.shape:
+            raise ValueError(
+                f"mean field shape {mean_field.shape} does not match the snapshot {field.shape}."
+            )
+        if count_file:
+            # A window mean is only defined where the window actually sampled. Reading
+            # an unsampled point would subtract a zero that is absence, not a mean.
+            counts = extract_interior_cells_scalar(read_petsc_vec_binary(count_file), node_dims)
+            empty = int(numpy.count_nonzero(counts <= 0.0))
+            if empty:
+                raise ValueError(
+                    f"the supplied mean covers only part of the domain: {empty} of "
+                    f"{counts.size} points carry no sample. The window has not "
+                    f"accumulated over this region."
+                )
+        field = field - mean_field
+
+    summary = shell_spectrum(field, lengths, symbol)
+    summary.update({
+        "generator": "shell_spectrum",
+        "field": "Ucat",
+        "field_file": os.path.abspath(field_file),
+        "grid": os.path.abspath(source_grid),
+        "block": int(block),
+        "grid_node_dims": list(node_dims),
+        "cell_dims": list(cells),
+        "box_lengths": [float(length) for length in lengths],
+        "subtract_mean": subtract_mean,
+        "component_means": component_means,
+        "component_rms": [float(value) for value in
+                          numpy.sqrt(numpy.mean(field*field, axis=(0, 1, 2)))],
+    })
+    return summary
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """!
+    @brief Build the spectra generator CLI parser.
+    @return Configured argparse parser.
+    """
+    parser = argparse.ArgumentParser(
+        description="Compute turbulent energy spectra from PICurv Ucat snapshots.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    shell = subparsers.add_parser(
+        "shell-spectrum",
+        help="Shell-averaged 3D energy spectrum of one snapshot on a periodic uniform box.",
+    )
+    shell.add_argument("--field-file", required=True, help="PETSc binary Ucat field file.")
+    shell.add_argument("--source-grid", required=True, help="Canonical PICGRID path.")
+    shell.add_argument("--block", type=int, default=0, help="Block index within the PICGRID.")
+    shell.add_argument("--symbol", choices=("continuum", "discrete"), default="continuum",
+                       help="Binning abscissa; 'discrete' bins by the centered-difference symbol.")
+    shell.add_argument("--subtract-mean", choices=("none", "domain", "field"), default="none",
+                       help="Fluctuation definition; 'field' subtracts --mean-file.")
+    shell.add_argument("--mean-file", help="Mean field to subtract when --subtract-mean is 'field'.")
+    shell.add_argument("--count-file", help="Per-point sample count guarding --mean-file.")
+    shell.add_argument("--spectrum-csv", help="Optional path for the `k,energy` spectrum CSV.")
+    shell.add_argument("--summary-json", help="Optional path for generator summary JSON.")
+    return parser
+
+
+def main(argv=None) -> int:
+    """!
+    @brief Dispatch the selected spectra subcommand using its parsed command-line arguments.
+    @param[in] argv Optional argv override for tests.
+    @return Process exit code.
+    """
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "shell-spectrum":
+            summary = generate_shell_spectrum(
+                args.field_file,
+                args.source_grid,
+                args.block,
+                args.symbol,
+                args.subtract_mean,
+                args.mean_file,
+                args.count_file,
+            )
+        else:
+            parser.error(f"unsupported command {args.command}")
+            return 2
+        if args.summary_json:
+            os.makedirs(os.path.dirname(os.path.abspath(args.summary_json)), exist_ok=True)
+            with open(args.summary_json, "w", encoding="utf-8") as fout:
+                json.dump(summary, fout, indent=2, sort_keys=True)
+                fout.write("\n")
+        if args.spectrum_csv:
+            os.makedirs(os.path.dirname(os.path.abspath(args.spectrum_csv)), exist_ok=True)
+            with open(args.spectrum_csv, "w", newline="", encoding="utf-8") as fout:
+                writer = csv.DictWriter(fout, fieldnames=("k", "energy"))
+                writer.writeheader()
+                writer.writerows(summary["shell_spectrum"])
+        print(json.dumps(summary, sort_keys=True))
+        return 0
+    except Exception as exc:
+        print(f"[ERROR] spectra.gen failed: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

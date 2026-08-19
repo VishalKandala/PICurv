@@ -165,6 +165,10 @@ def render_plot_request(request: dict, output_override: "str | None" = None) -> 
     plt.xlabel(request.get("x_label", "Timestep"))
     plt.ylabel(request.get("y_label", request.get("series", "Value")))
     plt.title(request.get("title", request.get("series", "Time History")))
+    # A spectrum is read on log-log axes, so the abscissa scale is honoured too. It
+    # defaults to linear, which is what every time history wants.
+    if request.get("x_scale") == "log":
+        plt.xscale("log")
     if request.get("y_scale") == "log":
         plt.yscale("log")
     plt.grid(True, alpha=0.3, which="both")

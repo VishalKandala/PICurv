@@ -3075,6 +3075,12 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                 } else if (strcasecmp(key, "source_directory") == 0) {
                     strncpy(pps->source_dir, value, sizeof(pps->source_dir) - 1);
                     pps->source_dir[sizeof(pps->source_dir) - 1] = '\0';
+                } else if (strcasecmp(key, "spectra_signature") == 0) {
+                    /* Spectra are computed by the conductor's Python stage, not here. The
+                       key exists so a change to the spectra recipe reaches the recipe
+                       fingerprint that `--continue` compares; this executable has no use
+                       for it and accepting it silently keeps the log free of a warning
+                       that would appear on every post-processing run. */
                 } else {
                     LOG_ALLOW(GLOBAL, LOG_WARNING, "Unknown key '%s' in post-processing config file. Ignoring.\n", key);
                 }

@@ -196,6 +196,17 @@ Verification-pathway rule:
   `field_statistics_windows`, `field_statistics_outputs`,
   `field_statistics_formats`, `field_statistics_source_step`. This is a distinct
   contract from `statistics_pipeline`, which reduces particle trajectories.
+- `spectra.tasks[*]` is consumed by the conductor rather than by the C
+  post-processor: it becomes `generators/spectra.gen` invocations against the
+  committed checkpoints. Only a digest, `spectra_signature`, reaches `post.run`, and
+  the post-processor accepts and ignores it; it exists so a changed spectra recipe
+  reaches the recipe fingerprint that `--continue` compares.
+- Each spectra task declares preconditions that are checked against `case.yml` before
+  any field is read. `shell_spectrum` requires every face `PERIODIC`, a single block,
+  and a uniform axis-aligned Cartesian grid, because a shell-averaged spectrum is only
+  defined for a triply periodic homogeneous box. Validation therefore needs both files
+  together, and a recipe validated without a case checks only its own internal
+  consistency.
 
 @section p14_cluster_sec 7. Cluster Contract Highlights (cluster.yml)
 

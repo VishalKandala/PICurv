@@ -382,6 +382,52 @@ Verification:
 - check `output/statistics/Stats_msd.csv` by default, unless `statistics_pipeline.output_prefix`
   includes an explicit relative or absolute path.
 
+@subsection p11_spectra_ssec 4.4 Measure Turbulent Energy Spectra
+
+```yaml
+spectra:
+  output_prefix: "Spectrum"
+  tasks:
+    - task: shell_spectrum
+      field: Ucat
+      symbol: continuum
+      subtract_mean: none      # or window:<name> where the flow is inhomogeneous
+```
+
+```bash
+./bin/picurv run --post-process --only spectra \
+  --run-dir runs/dit_20240401-153000 \
+  --post my_study/post.yml
+
+./bin/picurv summarize --run-dir runs/dit_20240401-153000 --plot-spectrum
+```
+
+`--only spectra` skips the field post-processor, so re-measuring after changing the
+binning or the fluctuation definition costs seconds rather than a full rebuild of the
+`.vts` output.
+
+Verification:
+
+- `output/spectra/Spectrum_shell_spectrum_Ucat_block0000_continuum.csv` holds
+  `step,time,k,energy`, one row per shell per processed step.
+- the `_history.csv` beside it holds one row per step; `parseval_residual` there must
+  stay at round-off, since summed shell energy must equal the resolved kinetic energy.
+
+`shell_spectrum` requires a triply periodic, single-block, uniform Cartesian box, and
+`picurv validate --case ... --post ...` refuses a case that is not one **before any
+field is read**.
+
+For anything else, which spectrum applies depends on how many directions are
+statistically homogeneous:
+
+- **one or two** — a channel, a straight duct, a boundary layer. A spatial spectrum is
+  well defined along the homogeneous directions, but the `line_spectrum` and
+  `plane_spectrum` tasks are planned rather than implemented; see
+  @ref p60_spectra_partial_sec.
+- **none** — a bend, a wake, an immersed geometry. No spatial spectrum exists; what is
+  wanted is a frequency spectrum at a probe, also planned; see
+  @ref p60_spectra_temporal_sec.
+
 @section p11_init_sec 5. Case Initialization and Binary Management
 
 @subsection p11_init_basic_ssec 5.1 Initialize a New Case

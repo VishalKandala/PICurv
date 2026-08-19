@@ -64,6 +64,12 @@ def _add_run_parser(subparsers):
     post_group = p_run.add_argument_group("post-processor inputs (required for --post-process)")
     post_group.add_argument("--run-dir", help="Path to an existing run directory.\n(Used with --post-process or --continue).")
     post_group.add_argument("--post", help="Path to the post-processing recipe file (e.g., post.yml).")
+    post_group.add_argument(
+        "--only",
+        help="Comma-separated post stages to run: 'fields' (the field post-processor)\n"
+             "and/or 'spectra'. Defaults to every stage.\n"
+             "Use --only spectra to re-measure spectra without rebuilding field output.",
+    )
 
     p_run.add_argument(
         "-n",
@@ -236,6 +242,15 @@ def _add_summarize_parser(subparsers):
         "--plot",
         dest="plot_series",
         help="Plot one qualified scalar history, such as momentum.residual_norm (requires matplotlib).",
+    )
+    plot_group.add_argument(
+        "--plot-spectrum",
+        dest="plot_spectrum",
+        nargs="?",
+        const="",
+        help="Plot the measured energy spectra as one curve per step, overlaid on the\n"
+             "initial-condition spectrum. Takes an optional task-name substring when the\n"
+             "recipe measured more than one spectrum (requires matplotlib).",
     )
     p_summarize.add_argument("--last", dest="last_n", type=int, help="Plot only the last N chronological records per line.")
     p_summarize.add_argument("--plot-output", help="Save the plot to this path instead of opening an interactive window.")
@@ -631,6 +646,8 @@ def dispatch_command(args):
             fail_cli_usage("--solve requires --case, --solver, and --monitor.")
         if args.post_process and not args.post:
             fail_cli_usage("--post-process requires --post.")
+        if getattr(args, "only", None) and not args.post_process:
+            fail_cli_usage("--only selects post-processing stages and requires --post-process.")
         if args.scheduler and not args.cluster:
             fail_cli_usage("--scheduler requires --cluster in this version.")
         run_workflow(args)

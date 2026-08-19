@@ -8,7 +8,6 @@
 
 import argparse
 import ast
-import csv
 import configparser
 import json
 import math
@@ -536,14 +535,13 @@ def compute_spectral_random_velocity_diagnostics(field, params, lengths_xyz, kin
     epsilon = kinematic_viscosity*gradient2
     taylor = math.sqrt(15*kinematic_viscosity*fluctuation_rms**2/epsilon) if epsilon > 0 else math.inf
     re_lambda = fluctuation_rms*taylor/kinematic_viscosity if kinematic_viscosity > 0 else math.inf
+    # Shell binning is not performed here. `spectra.gen` owns the spectrum, and the
+    # conductor runs it against the staged field, so a measured spectrum has exactly
+    # one implementation. What remains below are generation audits, which need the
+    # requested parameters and therefore belong with the generator.
     kmag = np.sqrt(sum(symbol*symbol for symbol in continuum))
-    fundamental = min(2*np.pi/length for length in lengths_xyz)
-    shell = np.floor(kmag/fundamental + 0.5).astype(int)
     energy = 0.5*np.sum(np.abs(coeff/np.prod(cells))**2, axis=-1)
-    spectrum = [{"k": float(index*fundamental), "energy": float(np.sum(energy[shell == index]))}
-                for index in range(int(shell.max()) + 1)]
     zero_mode_energy = float(energy[(0, 0, 0)])
-    peak = max(spectrum, key=lambda row: row["energy"])
     cutoff = params["spectrum"].get("k_cut")
     energy_above_cutoff = float(np.sum(energy[kmag > cutoff])) if cutoff is not None else 0.0
     result = {"generator": "spectral_random_velocity", "field": "Ucat", "seed": params["seed"],
@@ -561,7 +559,6 @@ def compute_spectral_random_velocity_diagnostics(field, params, lengths_xyz, kin
               ),
               "kinematic_viscosity": kinematic_viscosity, "dissipation": epsilon,
               "taylor_microscale": taylor, "re_lambda": re_lambda,
-              "realized_shell_spectrum": spectrum, "spectrum_peak_k": peak["k"],
               "zero_mode_energy": zero_mode_energy, "energy_above_cutoff": energy_above_cutoff}
     if params["normalization"]["type"] == "component_rms":
         result["target_u_rms"] = params["normalization"]["target"]
@@ -636,7 +633,6 @@ def build_parser():
     parser.add_argument("--output", required=True, help="Output PETSc binary vector.")
     parser.add_argument("--grid", help="Canonical nondimensional PICGRID; defaults to grid.run beside output.")
     parser.add_argument("--summary-json", help="Optional summary JSON path.")
-    parser.add_argument("--spectrum-csv", help="Optional realized spectrum CSV path.")
     return parser
 
 
@@ -676,13 +672,6 @@ def main(argv=None) -> int:
             with open(args.summary_json, "w", encoding="utf-8") as fout:
                 json.dump(summary, fout, indent=2, sort_keys=True)
                 fout.write("\n")
-        if args.spectrum_csv:
-            if "realized_shell_spectrum" not in summary:
-                raise ValueError("--spectrum-csv requires a generator that reports a realized spectrum.")
-            os.makedirs(os.path.dirname(os.path.abspath(args.spectrum_csv)), exist_ok=True)
-            with open(args.spectrum_csv, "w", newline="", encoding="utf-8") as fout:
-                writer = csv.DictWriter(fout, fieldnames=("k", "energy"))
-                writer.writeheader(); writer.writerows(summary["realized_shell_spectrum"])
         print(json.dumps(summary, sort_keys=True))
         return 0
     except Exception as exc:

@@ -65,7 +65,48 @@ That writes, per window, a `.vts` per processed step under
 `visualization/dit/` and one convergence-history `.csv` recording sample count,
 accumulated weight, represented time, mask coverage, and the domain-mean TKE.
 
+## Energy spectra
+
+The case seeds a prescribed `k4_exponential` envelope, so measuring the realized
+spectrum back is the most direct statement of what the solver did to it.
+`post.yml` requests one:
+
+```bash
+picurv run --post-process --only spectra --run-dir runs/<run_id> --post dit_case/post.yml
+picurv summarize --run-dir runs/<run_id> --plot-spectrum
+```
+
+`--only spectra` skips the field post-processor, which makes re-measuring cheap.
+The plot draws one curve per processed step over
+`diagnostics/initial_condition_spectrum.csv`, and the per-step scalars
+(`spectra.resolved_kinetic_energy`, `spectra.integral_length_scale`,
+`spectra.taylor_microscale`, `spectra.dissipation_over_viscosity`) are ordinary
+series that `picurv summarize --plot` draws.
+
+### What to expect
+
+- **The staged initial condition and step zero do not coincide.** The solver
+  round-trips `Ucat` through the contravariant fluxes, which applies
+  `cos^2(k dx/2)` per component. The gap is concentrated at high `k` and matches
+  `picurv_reconstructed_kinetic_energy` in the initial-condition summary; treat
+  that value, not the staged one, as `K(0)`.
+- **Modes above `k_cut` fill in.** The initial field carries no energy there at
+  all, so anything that appears is the nonlinear term building the cascade. This
+  is the clearest sign the measurement is physical.
+- **Dissipation rises before it falls.** A synthetic field starts with no
+  small-scale content, so the cascade spins up first: `dissipation_over_viscosity`
+  increases and the Taylor microscale shrinks. Self-similar decay, where both
+  reverse, comes afterwards. Do not fit a decay exponent through the spin-up.
+- **`parseval_residual` should stay at round-off.** It is a self-check: summed
+  shell energy must equal the resolved kinetic energy of the transformed field.
+
+Note the two-thirds rule when changing resolution: `k_cut` must stay below
+`(2/3) * pi / dx`, so a 32-cubed variant of this case needs `k_cut` at or below
+about 10.6.
+
 ### What to check
+
+
 
 Isotropy makes this case self-checking. Within a converged window:
 
