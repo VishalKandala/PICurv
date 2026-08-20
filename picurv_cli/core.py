@@ -2049,7 +2049,21 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
     output_dir = os.path.join(os.path.abspath(run_dir), resolve_post_spectra_output_dir(monitor_cfg))
     os.makedirs(output_dir, exist_ok=True)
 
-    ordered_steps = sorted(set(int(step) for step in steps))
+    requested = sorted(set(int(step) for step in steps))
+    # The requested window is what the recipe asks for, not what exists. The field
+    # post-processor is bounded by the available source frontier and this must be too:
+    # a window reaching past the last committed checkpoint is normal while a solve is
+    # still running, and is not an error.
+    available = _scan_committed_checkpoint_steps(source_dir)
+    ordered_steps = [step for step in requested if step in available]
+    if not ordered_steps:
+        if not quiet:
+            print("[INFO] Spectra: no committed checkpoint in the requested window yet; "
+                  "nothing measured.")
+        return {"tasks": [], "steps": [], "artifacts": []}
+    if not quiet and len(ordered_steps) != len(requested):
+        print(f"[INFO] Spectra: {len(ordered_steps)} of {len(requested)} requested step(s) "
+              f"are committed; measuring those.")
     artifacts = []
     for task_cfg in spectra["tasks"]:
         basename = post_spectra_task_basename(task_cfg, spectra["output_prefix"])
@@ -12512,7 +12526,16 @@ def run_workflow(args):
             for stats_path in statistics_output_paths:
                 print(f"[INFO] Statistics CSV output: {os.path.relpath(stats_path)}")
 
-            if 'spectra' in post_stages:
+            # Spectra run in the conductor rather than in the submitted job, so they can
+            # only be measured when this invocation is the one doing the work. Under a
+            # scheduler, with --no-submit, or before the solver has written anything,
+            # the sources do not exist yet and the measurement is deferred instead.
+            spectra_execute_now = (
+                not cluster_mode
+                and not args.no_submit
+                and not post_plan['source_frontier_deferred']
+            )
+            if 'spectra' in post_stages and spectra_execute_now:
                 spectra_summary = run_post_spectra_stage(
                     run_dir,
                     post_effective_cfg,
@@ -12524,6 +12547,14 @@ def run_workflow(args):
                 )
                 for artifact in spectra_summary['artifacts']:
                     print(f"[INFO] Spectra output: {os.path.relpath(artifact)}")
+            elif 'spectra' in post_stages:
+                reason = ("the solver stage has not produced output yet"
+                          if post_plan['source_frontier_deferred'] else
+                          "this invocation only stages the post job")
+                print(f"[INFO] Spectra deferred: {reason}. Measure them once the run has "
+                      f"checkpoints with:")
+                print(f"[INFO]   picurv run --post-process --only spectra "
+                      f"--run-dir {os.path.relpath(run_dir)} --post {args.post}")
 
             if 'fields' not in post_stages:
                 # --only selected a subset that excludes the field post-processor.

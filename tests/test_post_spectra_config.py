@@ -298,3 +298,38 @@ def test_pinned_mean_changes_the_recipe_signature():
         recipe(subtract_mean="window:w", mean_source_step=400)
     )
     assert CORE.compute_post_spectra_signature(base) != CORE.compute_post_spectra_signature(pinned)
+
+
+def test_stage_measures_only_committed_steps(tmp_path, monkeypatch):
+    """! @brief A window reaching past the last checkpoint must measure what exists. @param[in] tmp_path Temp dir. @param[in] monkeypatch Fixture. """
+    calls = []
+    monkeypatch.setattr(CORE, "_scan_committed_checkpoint_steps", lambda *a, **k: {0, 50})
+    monkeypatch.setattr(CORE, "validate_committed_checkpoint",
+                        lambda src, step: calls.append(step) or {
+                            "bundle": str(tmp_path), "metadata": {"checkpoint_time": "0.0"},
+                            "payloads": [{"kind": "eulerian", "field": "Ucat", "block": "0",
+                                          "path": "eulerian/block_0000/Ucat.dat"}]})
+    monkeypatch.setattr(CORE.os.path, "isfile", lambda p: True)
+
+    class Result:
+        returncode = 0
+        stdout = '{"shell_spectrum": [], ' + ", ".join(
+            f'"{name}": 0.0' for name in CORE.POST_SPECTRA_SCALAR_COLUMNS) + "}"
+        stderr = ""
+    monkeypatch.setattr(CORE.subprocess, "run", lambda *a, **k: Result())
+
+    summary = CORE.run_post_spectra_stage(
+        str(tmp_path), recipe(), {}, str(tmp_path), [0, 50, 100, 150], quiet=True
+    )
+    assert summary["steps"] == [0, 50]
+    assert calls == [0, 50]
+
+
+def test_stage_is_a_no_op_when_nothing_is_committed(tmp_path, monkeypatch):
+    """! @brief A window with no committed checkpoint must return empty, not raise. @param[in] tmp_path Temp dir. @param[in] monkeypatch Fixture. """
+    monkeypatch.setattr(CORE, "_scan_committed_checkpoint_steps", lambda *a, **k: set())
+    monkeypatch.setattr(CORE.os.path, "isfile", lambda p: True)
+    summary = CORE.run_post_spectra_stage(
+        str(tmp_path), recipe(), {}, str(tmp_path), [0, 50], quiet=True
+    )
+    assert summary == {"tasks": [], "steps": [], "artifacts": []}
