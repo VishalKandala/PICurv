@@ -2078,6 +2078,12 @@ run_field_statistics_smoke() {
     "Field_statistics_equivalence_*.vts" 2 "derived statistics VTK output per processed step"
   require_file "${reported_run}/viz/field_statistics_reported/Field_statistics_equivalence.csv" \
     "statistics convergence history CSV"
+  # The derived VTK field and the convergence CSV come from paths that share no code,
+  # so comparing them catches a layout boundary an interior-only producer left unwritten.
+  if ! python3 "${repo_root}/tests/tooling/check_statistics_nodal_consistency.py" \
+       "${reported_run}" "viz/field_statistics_reported" "equivalence"; then
+    die "derived statistics VTK output disagrees with the convergence history CSV."
+  fi
   require_file_contains "${reported_run}/viz/field_statistics_reported/Field_statistics_equivalence.csv" \
     "step,state,samples" "statistics convergence history header"
 

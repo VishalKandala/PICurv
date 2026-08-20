@@ -22,6 +22,45 @@
 PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, const char* out_field_name);
 
 /**
+ * @brief Populates the layout boundary of a field that was written on the interior only.
+ *
+ * @details This is **not** a boundary condition. It enforces no physics and satisfies no
+ *          equation. It replicates the layout convention that boundary-condition
+ *          application already gives solver state fields, so that stencil kernels —
+ *          `ComputeNodalAverage()` above all — read defined values instead of the
+ *          structural zeros an interior-only producer leaves behind.
+ *
+ *          Fields written by `PicurvWindowDerive()` and `ComputeQCriterion()` cover only
+ *          the physical interior, so their layout boundary holds zeros that mean "never
+ *          written" rather than "zero". A node on the domain edge averages four such
+ *          entries with four real cells and comes out at roughly half its true value.
+ *          Solver state fields never need this: `Ucat`, `P`, `Nu_t`, and `CS` all carry
+ *          boundary values written when their boundary conditions were applied.
+ *
+ *          **Only periodic directions are handled.** There the correct value exists and
+ *          is exact — the low dummy plane repeats the last physical plane and the high
+ *          dummy plane repeats the first. On a non-periodic face the correct value
+ *          depends on both the quantity and the boundary type, and no single convention
+ *          serves a staging buffer that carries stresses, pressure, and eddy viscosity in
+ *          turn; nothing is written there rather than something invented. The design for
+ *          the non-periodic case is recorded in @ref 60_Field_Statistics_Planned_Extensions.
+ *
+ *          Operates on the global vector, so it must run **before** the caller's
+ *          `UpdateLocalGhosts()`, which then carries the written values into every local
+ *          ghost region. Rank interfaces are that scatter's responsibility and are never
+ *          touched here.
+ *
+ *          Multi-block interface boundaries are out of scope.
+ *
+ * @param[in]     user       Block context supplying the DMDA layout and periodicity.
+ * @param[in,out] global     Global vector whose layout boundary is populated.
+ * @param[in]     components Degrees of freedom carried: 1 or 3.
+ * @return Zero on success, or `PETSC_ERR_ARG_NULL` for a null argument, or
+ *         `PETSC_ERR_ARG_OUTOFRANGE` for an unsupported component count.
+ */
+PetscErrorCode ExtendToLayoutBoundary(UserCtx *user, Vec global, PetscInt components);
+
+/**
  * @brief Computes the Q-criterion diagnostic from the local velocity-gradient tensor.
  *
  * This kernel evaluates rotational versus strain-rate dominance and writes the

@@ -132,6 +132,100 @@ PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user)
 //============ Post-Processing Kernels ===========================
 
 #undef __FUNCT__
+#define __FUNCT__ "ExtendToLayoutBoundary"
+/**
+ * @brief Implementation of \ref ExtendToLayoutBoundary().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/postprocessing_kernels.h`.
+ * @see ExtendToLayoutBoundary()
+ */
+PetscErrorCode ExtendToLayoutBoundary(UserCtx *user, Vec global, PetscInt components)
+{
+    SimCtx        *simCtx = NULL;
+    DM             dm = NULL;
+    Vec            local = NULL;
+    PetscInt       periodic[3];
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(user != NULL && global != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Context and field are required.");
+    PetscCheck(components == 1 || components == 3, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+               "ExtendToLayoutBoundary handles 1- or 3-component fields; got %d.", (int)components);
+    simCtx = user->simCtx;
+    dm = (components == 1) ? user->da : user->fda;
+
+    periodic[0] = simCtx->i_periodic;
+    periodic[1] = simCtx->j_periodic;
+    periodic[2] = simCtx->k_periodic;
+    if (!periodic[0] && !periodic[1] && !periodic[2]) {
+        /* Nothing is defined on a non-periodic layout boundary, so nothing is written.
+         * The boundary node keeps the value the producing kernel left there, and the
+         * spatial reductions that matter scientifically never read it. */
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    PetscCall(DMGetLocalVector(dm, &local));
+    /* One pass per periodic direction, each preceded by its own scatter. The order
+     * matters: after the i pass the i layout boundary carries data, so the j pass
+     * reading across it fills edges correctly, and the k pass then fills corners. */
+    for (PetscInt dir = 0; dir < 3; ++dir) {
+        DMDALocalInfo info;
+        const PetscReal ****source = NULL;
+        PetscReal      ****target = NULL;
+        PetscInt        extent = 0;
+
+        if (!periodic[dir]) continue;
+
+        PetscCall(DMGlobalToLocalBegin(dm, global, INSERT_VALUES, local));
+        PetscCall(DMGlobalToLocalEnd(dm, global, INSERT_VALUES, local));
+        PetscCall(DMDAGetLocalInfo(dm, &info));
+        extent = (dir == 0) ? info.mx : ((dir == 1) ? info.my : info.mz);
+
+        PetscCall(DMDAVecGetArrayDOFRead(dm, local, &source));
+        PetscCall(DMDAVecGetArrayDOF(dm, global, &target));
+        for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
+            for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
+                for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
+                    const PetscInt index = (dir == 0) ? i : ((dir == 1) ? j : k);
+                    PetscInt       ss = i, sj = j, sk = k;
+
+                    /* The layout wraps one plane inside the DMDA extent: the low dummy
+                     * plane repeats the last physical plane, and the high dummy plane
+                     * repeats the first. PETSc's periodic ghosts supply both sources
+                     * even when they live on another rank. */
+                    if (index == 0) {
+                        if (dir == 0) ss = extent - 2;
+                        else if (dir == 1) sj = extent - 2;
+                        else sk = extent - 2;
+                    } else if (index == extent - 1) {
+                        if (dir == 0) ss = extent + 1;
+                        else if (dir == 1) sj = extent + 1;
+                        else sk = extent + 1;
+                    } else {
+                        continue;
+                    }
+                    for (PetscInt c = 0; c < components; ++c) {
+                        target[k][j][i][c] = source[sk][sj][ss][c];
+                    }
+                }
+            }
+        }
+        PetscCall(DMDAVecRestoreArrayDOF(dm, global, &target));
+        PetscCall(DMDAVecRestoreArrayDOFRead(dm, local, &source));
+    }
+    PetscCall(DMRestoreLocalVector(dm, &local));
+
+    LOG_ALLOW(GLOBAL, LOG_DEBUG,
+              "-> KERNEL: Extended %d-component field across the periodic layout boundary "
+              "(i=%d, j=%d, k=%d).\n", (int)components,
+              (int)periodic[0], (int)periodic[1], (int)periodic[2]);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "ComputeNodalAverage"
 /**
  * @brief Implementation of \ref ComputeNodalAverage().
@@ -267,11 +361,16 @@ PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, PetscInt window_index,
     ierr = PicurvWindowDerive(user, definition, &user->fieldStatisticsStorage[window_index],
                               outputs, output_index, user->PostScalar, user->PostVector,
                               &derived); CHKERRQ(ierr);
+    /* The derivation writes the physical interior only, so the layout boundary would
+     * otherwise reach the nodal average as structural zeros. Extend it before the
+     * ghost update, which then carries the written values outward. */
     if (derived.components == 1) {
+        ierr = ExtendToLayoutBoundary(user, user->PostScalar, 1); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_POST_SCALAR); CHKERRQ(ierr);
         ierr = ComputeNodalAverage(user, "PostScalar", "PostScalarNodal"); CHKERRQ(ierr);
         *out_vec = user->PostScalarNodal;
     } else {
+        ierr = ExtendToLayoutBoundary(user, user->PostVector, 3); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_POST_VECTOR); CHKERRQ(ierr);
         ierr = ComputeNodalAverage(user, "PostVector", "PostVectorNodal"); CHKERRQ(ierr);
         *out_vec = user->PostVectorNodal;
@@ -491,6 +590,11 @@ PetscErrorCode ComputeQCriterion(UserCtx* user)
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,    (void*)&laj);     CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lNvert, (void*)&lnvert);  CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->da,  user->Qcrit, (void*)&gq);       CHKERRQ(ierr);
+
+    /* The loop above skips the layout boundary, so extend it before anything reads
+     * Qcrit with a stencil. Q is not a moment: it does not vanish at a wall, so only
+     * the periodic case is defined and only that case is written. */
+    ierr = ExtendToLayoutBoundary(user, user->Qcrit, 1); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

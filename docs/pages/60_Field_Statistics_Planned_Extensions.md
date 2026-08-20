@@ -72,6 +72,7 @@ was wanted. Homogeneous-direction averaging is the case this serves.
 | @ref p60_targets_sec | @ref p60_view_sec for surface output | surfaces, probes, conditional sampling |
 | @ref p60_reducer_sec | @ref p60_reduction_sec | one reducer behind flow observables |
 | @ref p60_dimensional_sec | nothing | dimensional derived statistics |
+| @ref p60_stats_boundary_sec | nothing | meaningful statistics at walls, inlets, and outlets |
 | @ref p60_spectra_partial_sec | nothing | spectra for channels, ducts, and boundary layers |
 | @ref p60_spectra_temporal_sec | bounded probe history | frequency spectra where nothing is homogeneous |
 | @ref p60_spectra_online_sec | @ref p60_spectra_temporal_sec for the transpose | spatial spectra without a snapshot series |
@@ -249,7 +250,95 @@ product knows the scales of both its factors. Applying the velocity scale as thi
 stand would be wrong rather than merely incomplete, which is why the current
 behaviour is to leave derived output nondimensional and say so.
 
-@section p60_spectra_partial_sec 12. Offline Line And Plane Spectra
+@section p60_stats_boundary_sec 12. Derived Statistics At Non-Periodic Boundaries
+
+**What exists today.** `ExtendToLayoutBoundary` populates the layout boundary of a
+derived statistics field on **periodic** faces only, where the value is exact. See
+@ref p58_output_sec. On a wall, inlet, or outlet nothing is written, so the outermost
+node layer of the `.vts` keeps whatever the interior-only derivation left there.
+
+**Why nothing is written rather than something approximate.** The correct ghost value
+is a property of the *quantity crossed with the boundary type*, and the staging buffer
+carries stresses, pressure, and eddy viscosity through the same vector on successive
+calls, so the convention cannot be attached to the buffer. Two candidate defaults were
+considered and both are wrong somewhere:
+
+- **Zero-gradient everywhere** puts the first interior cell's Reynolds stress on a
+  no-slip wall, where the true value is zero — and the near-wall region is exactly
+  where those statistics are read.
+- **Mirror everywhere** puts a spurious zero on the wall pressure, which is Neumann.
+
+At a boundary node on a face the eight-cell stencil is four dummy plus four interior, so
+zero-gradient yields the mean of the adjacent interior cells and mirror yields exactly
+zero. They are not close, and picking either one globally is wrong for some quantity.
+
+@subsection p60_stats_boundary_rules_sub The rules this needs
+
+Split by moment order. Second moments need no per-field classification: a fluctuation
+about the window mean vanishes at any steady Dirichlet boundary whatever the field is,
+and follows the flow out at an outlet.
+
+| Face | First moment | Second moment and co-moment |
+| --- | --- | --- |
+| `PERIODIC` (`geometric`, `constant_flux`) | wrap (**implemented**) | wrap (**implemented**) |
+| `WALL` (`noslip`) | per field class below | mirror |
+| `INLET` (`constant_velocity`, `parabolic`, `prescribed_flow`) | the inlet value | mirror |
+| `OUTLET` (`conservation`) | zero-gradient | zero-gradient |
+
+First moments at a wall need to know whether the field vanishes there:
+
+| Field | At a no-slip wall | Rule |
+| --- | --- | --- |
+| `Ucat` | vanishes | mirror |
+| `Nu_t` | vanishes at a resolved wall | mirror |
+| `P` | Neumann | zero-gradient |
+| `CS` | no imposed value; uniform in constant-coefficient mode | zero-gradient |
+
+`CS` is a model coefficient rather than a transported quantity. The requirement that
+eddy viscosity vanish at a wall lands on `Nu_t` through
+\f$\nu_t = (C_s \Delta)^2 |S|\f$, not on the coefficient, and in
+constant-coefficient mode `CS` is a uniform field that zero-gradient reproduces exactly
+while mirror would corrupt.
+
+@subsection p60_stats_boundary_refuse_sub Two cases that must refuse rather than default
+
+- **`Nu_t` with a wall model.** Mirror is correct only for a *resolved* no-slip wall. A
+  wall function deliberately supplies a non-zero effective viscosity at the first cell,
+  and mirroring would zero it. If `wall_function.enabled` is set and `Nu_t` is
+  accumulated, refuse; do not silently mirror.
+- **An unclassified field.** `ResolveStatisticsField` accepts any catalogued name, so a
+  window may accumulate `Diffusivity` or a metric field. A fixed table would apply a
+  wrong default to the first one outside it. Refuse, naming the field and the missing
+  classification, so the next person edits a table instead of debugging a boundary.
+
+Both refusals are narrow: periodic faces never consult the table, and second moments
+never consult the field classification, so a fully periodic case reaches neither
+however many fields it accumulates.
+
+@subsection p60_stats_boundary_assume_sub The assumption underneath
+
+"Mean at the boundary equals the boundary value" and "fluctuations vanish at a Dirichlet
+boundary" both hold **only if that boundary is steady over the window**. True for
+`noslip`, `constant_velocity`, and `parabolic`. Not guaranteed for `prescribed_flow`,
+which reads a profile that could in principle vary in time. Treating `prescribed_flow`
+as steady is a documented assumption rather than a checked one.
+
+Note also that the rule must be applied to the *statistics* field, never copied as a
+value from the source field. At a wall the source's ghost is a function of the
+*instantaneous* interior cell, so copying it would place an instantaneous value in a
+mean field. The inlet is the one exception, because a steady Dirichlet value is
+constant in time and copying it is therefore exact.
+
+@subsection p60_stats_boundary_why_sub Why it is deferred
+
+The boundary node layer is one node thick and the convergence-history CSV already
+carries the authoritative domain mean, computed with never-sampled points excluded. The
+defect this would close is that an unwritten boundary *looks like data*; leaving it
+unwritten and documented removes the trap at a fraction of the cost. The work becomes
+worthwhile when wall-bounded statistics are read quantitatively from the field — which
+is the same class of case that needs @ref p60_spectra_partial_sec.
+
+@section p60_spectra_partial_sec 13. Offline Line And Plane Spectra
 
 **What exists today.** `post.yml -> spectra` implements one task, `shell_spectrum`,
 which requires all three directions to be periodic and homogeneous. See
@@ -332,7 +421,7 @@ spanwise directions. Not `examples/bent_channel`: a 90-degree bend develops
 streamwise and is bounded on all four sides, so it has no homogeneous direction and
 belongs to @ref p60_spectra_temporal_sec.
 
-@section p60_spectra_temporal_sec 13. Temporal Spectra From Bounded Probe Histories
+@section p60_spectra_temporal_sec 14. Temporal Spectra From Bounded Probe Histories
 
 **What exists today.** `post.yml -> spectra` measures spatial spectra offline from the
 instantaneous velocity in each committed checkpoint, documented in
@@ -375,7 +464,7 @@ What it requires:
 This is the extension that unlocks spectra for every geometry the spatial tasks refuse,
 and it is the smaller of the two remaining spectral pieces.
 
-@section p60_spectra_online_sec 14. Online Spatial Spectral Accumulation
+@section p60_spectra_online_sec 15. Online Spatial Spectral Accumulation
 
 **What is missing.** Spatial spectra are measured offline from written snapshots, so
 the number of independent samples is bounded by how many full fields a run can afford
@@ -412,7 +501,7 @@ What it requires:
 Storage is negligible — wavenumber by wall-normal index by component — which is orders
 of magnitude below the per-point histograms @ref p60_pdf_sec defers.
 
-@section p60_notplanned_sec 15. Not Planned
+@section p60_notplanned_sec 16. Not Planned
 
 These are recorded so they are not proposed again as gaps.
 
@@ -428,7 +517,7 @@ These are recorded so they are not proposed again as gaps.
   different matter: they are deferred on cost rather than ruled out, and
   @ref p60_pdf_sec records the terms under which they could arrive.
 
-@section p60_related_sec 16. Related Pages
+@section p60_related_sec 17. Related Pages
 
 - @subpage 58_Field_Statistics — what the pipeline does today
 - @subpage 10_Post_Processing_Reference — the spectra recipe these two extend

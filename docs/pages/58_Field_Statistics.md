@@ -481,6 +481,28 @@ owned point and writes the accumulator at that same point, with no neighbour
 access. Where a later extension does need ghosts, it must go through
 `UpdateLocalGhosts` rather than a hand-rolled exchange.
 
+**Derived output is nodal, and its layout boundary is only defined where the grid is
+periodic.** `PicurvWindowDerive` writes the physical interior of the staging buffer and
+zeroes the rest, so the layout boundary would otherwise reach `ComputeNodalAverage` as
+structural zeros — a zero meaning "never written", not "zero". A boundary node averages
+four such entries with four real cells and lands at roughly half its true value.
+`ExtendToLayoutBoundary` closes that on periodic faces, where the correct value exists
+and is exact: the low dummy plane repeats the last physical plane and the high dummy
+plane repeats the first, which is the same convention boundary-condition application
+already gives `Ucat`, `P`, `Nu_t`, and `CS`.
+
+On a **non-periodic** face nothing is written, because nothing defines it. The correct
+value there depends on both the quantity and the boundary type, and one staging buffer
+carries stresses, pressure, and eddy viscosity in turn, so no single convention serves
+them; inventing one would be worse than leaving the value alone. The design for that
+case is recorded in @ref p60_stats_boundary_sec.
+
+The practical rule follows: **the convergence-history CSV is the authoritative domain
+mean**, computed by `PicurvWindowSpatialMean` over the resolved spatial target with
+never-sampled points excluded. The VTK field is for looking at. On a non-periodic case,
+exclude the outermost node layer before averaging the field, or read the CSV instead.
+`tests/tooling/check_statistics_nodal_consistency.py` asserts the two agree.
+
 **The constraint to know before extending output.** `UpdateLocalGhosts` resolves
 vectors through a view built on compile-time `UserCtx` offsets, and the nodal
 averaging kernel maps fixed field names onto fixed members. Per-window accumulators
