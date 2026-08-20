@@ -155,6 +155,83 @@ statistics_pipeline:
 #   # domain-mean TKE when the window has one.
 #   formats: ["vtk", "csv"]
 
+# --- Turbulent Energy Spectra ---
+# Measures energy spectra from the instantaneous velocity in each committed
+# checkpoint. Unlike every other block on this page, spectra are not computed by
+# the C post-processor: the conductor runs generators/spectra.gen against the raw
+# checkpoint payloads, so this stage needs no field output and does not depend on
+# eulerian_pipeline. Omit the block to measure nothing.
+#
+# Run it on its own with:
+#   picurv run --post-process --only spectra --run-dir <run> --post post.yml
+# Re-measuring a spectrum is cheap; rebuilding the .vts output is not, so the
+# analysis loop belongs behind --only spectra.
+#
+# OUTPUTS. Each task writes two CSVs under <monitor output>/spectra/: the spectra
+# themselves as step,time,k,energy, and a per-step history beside them recording
+# resolved_kinetic_energy, spectrum_total_energy, parseval_residual,
+# spectrum_peak_k, zero_mode_energy, integral_length_scale, taylor_microscale,
+# and dissipation_over_viscosity. Dissipation is divided by the kinematic
+# viscosity, which the measurement does not need; both length scales need none
+# either. parseval_residual is a self-check rather than an input: summed shell
+# energy must equal the resolved kinetic energy of the transformed field, so a
+# residual above round-off means the measurement is wrong.
+#
+# View the results with:
+#   picurv summarize --run-dir <run> --plot-spectrum
+#   picurv summarize --run-dir <run> --plot spectra.resolved_kinetic_energy
+#
+# PRECONDITIONS. A spectrum is only defined where the transform direction is
+# uniformly spaced, periodic, and statistically homogeneous. shell_spectrum
+# therefore requires every face PERIODIC, a single block, and a uniform
+# axis-aligned Cartesian grid. picurv validate checks this against case.yml
+# before any field is read, so a wall-bounded or curvilinear case is refused by
+# name rather than producing a curve with no meaning. A channel or a bend cannot
+# use this block.
+# spectra:
+#   # Prefix for the CSV basenames written under <monitor output>/spectra/.
+#   output_prefix: "Spectrum"
+#
+#   tasks:
+#     - task: shell_spectrum
+#
+#       # Catalogued field to transform. Ucont is component-staggered and has no
+#       # single cell-centered spectrum, so it is not accepted.
+#       field: Ucat
+#
+#       # Block index within the PICGRID.
+#       block: 0
+#
+#       # Binning abscissa.
+#       #   continuum -> bins by |k|
+#       #   discrete  -> bins by the centered-difference symbol sin(k dx)/dx,
+#       #                which is what the solver's own operator resolves.
+#       # Reading a high-k rolloff against the continuum abscissa alone will
+#       # attribute the scheme's damping to physics.
+#       symbol: continuum
+#
+#       # Fluctuation definition.
+#       #   none            -> transform the field as stored
+#       #   domain          -> remove the volume mean of that snapshot
+#       #   window:<name>   -> subtract an accumulated field-statistics window
+#       #                      mean, which is the better estimate wherever the
+#       #                      flow is not homogeneous
+#       # A window mean is only defined where the window actually sampled, so a
+#       # window that has not accumulated over the domain is refused rather than
+#       # subtracted as zero.
+#       subtract_mean: none
+#
+#       # Bundle the window mean is read from, independent of the step being
+#       # transformed. Applies only to subtract_mean: window:<name>. Left unset,
+#       # each step reads its own bundle, whose running mean is undefined at the
+#       # moment the window activates. Pin it at or after the window closes to
+#       # subtract the converged mean.
+#       # mean_source_step: 4000
+#
+#       # Optional baseline to overlay when plotting. The placeholder resolves to
+#       # the spectrum recorded for a generated initial condition.
+#       # reference: "<ic_spectrum>"
+
 # ==============================================================================
 # SECTION 4: OUTPUT CONFIGURATION
 # ------------------------------------------------------------------------------

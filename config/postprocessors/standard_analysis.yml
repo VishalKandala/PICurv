@@ -51,6 +51,17 @@ eulerian_pipeline:
 #   tasks:
 #     - task: msd
 
+# Optional energy spectra (periodic uniform Cartesian cases only; picurv validate
+# refuses a wall-bounded or curvilinear case before reading any field).
+# Run alone with: picurv run --post-process --only spectra ...
+# spectra:
+#   output_prefix: "Spectrum"
+#   tasks:
+#     - task: shell_spectrum
+#       field: Ucat
+#       symbol: continuum
+#       subtract_mean: none
+
 io:
   output_directory: "viz"
   output_filename_prefix: "Field"
