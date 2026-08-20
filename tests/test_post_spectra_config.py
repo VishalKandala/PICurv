@@ -333,3 +333,38 @@ def test_stage_is_a_no_op_when_nothing_is_committed(tmp_path, monkeypatch):
         str(tmp_path), recipe(), {}, str(tmp_path), [0, 50], quiet=True
     )
     assert summary == {"tasks": [], "steps": [], "artifacts": []}
+
+
+def test_follow_command_is_bare_and_targets_the_run(tmp_path):
+    """! @brief The batch spectra step must not be wrapped in the MPI launcher. @param[in] tmp_path Temp dir. """
+    cmd = CORE.build_spectra_follow_command(str(tmp_path), "post.yml", recipe())
+    assert cmd, "a recipe requesting spectra must produce a follow command"
+    assert "--only" in cmd and cmd[cmd.index("--only") + 1] == "spectra"
+    assert "--run-dir" in cmd and "--post" in cmd
+    # Running under srun/mpirun would launch one identical copy per task.
+    assert not any(token in ("srun", "mpirun", "mpiexec") for token in cmd)
+
+
+def test_no_follow_command_without_a_spectra_recipe(tmp_path):
+    """! @brief A recipe requesting no spectra must add no batch step. @param[in] tmp_path Temp dir. """
+    assert CORE.build_spectra_follow_command(str(tmp_path), "post.yml", {}) == []
+
+
+def test_follow_commands_replace_exec_in_the_batch_script(tmp_path):
+    """! @brief Trailing commands require dropping exec, which would end the script. @param[in] tmp_path Temp dir. """
+    script = tmp_path / "job.sbatch"
+    cluster = {"scheduler": {"type": "slurm"},
+               "resources": {"account": "A", "nodes": 1, "ntasks_per_node": 1,
+                             "mem": "1G", "time": "00:10:00"},
+               "execution": {}}
+    CORE.render_slurm_script(str(script), "job", cluster, ["main", "arg"], str(tmp_path),
+                             str(tmp_path / "out.log"),
+                             follow_commands=[["after", "one"]])
+    body = script.read_text(encoding="utf-8")
+    assert "exec main" not in body
+    assert "\nmain arg\n" in body
+    assert body.rstrip().endswith("after one")
+
+    CORE.render_slurm_script(str(script), "job", cluster, ["main", "arg"], str(tmp_path),
+                             str(tmp_path / "out.log"))
+    assert "exec main arg" in script.read_text(encoding="utf-8")

@@ -6889,6 +6889,50 @@ def normalize_extension(ext: str) -> str:
         return None
     return str(ext).strip().lstrip(".")
 
+def resolve_conductor_entry_point() -> list:
+    """!
+    @brief Resolve how to invoke this conductor again from a batch script.
+
+    @details Prefers the `bin/picurv` wrapper, which selects the managed Python
+             environment a cluster node needs, and falls back to the running
+             interpreter with the package entry point when that wrapper is absent.
+
+    @return Argv prefix that re-invokes the conductor.
+    """
+    wrapper = os.path.join(PACKAGE_PROJECT_ROOT, "bin", "picurv")
+    if os.path.isfile(wrapper) and os.access(wrapper, os.X_OK):
+        return [wrapper]
+    return [sys.executable, os.path.join(PACKAGE_PROJECT_ROOT, "picurv_cli", "picurv")]
+
+
+def build_spectra_follow_command(run_dir: str, post_path: str, post_cfg: dict) -> list:
+    """!
+    @brief Build the batch-script step that measures spectra after the field stage.
+
+    @details Spectra are a serial pass over committed checkpoints, so the command is
+             returned bare rather than wrapped in the MPI launcher: run under `srun`
+             with the post stage's task count it would become one identical copy per
+             task, each writing the same files.
+
+    @param[in] run_dir Run directory the batch job operates on.
+    @param[in] post_path Post recipe path, reachable from the compute node.
+    @param[in] post_cfg Effective post configuration.
+    @return Argv list, or an empty list when the recipe requests no spectra.
+    """
+    try:
+        spectra = normalize_post_spectra_config(post_cfg)
+    except ValueError:
+        # Validation reports recipe errors; do not raise a second time here.
+        return []
+    if not spectra["tasks"]:
+        return []
+    return resolve_conductor_entry_point() + [
+        "run", "--post-process", "--only", "spectra",
+        "--run-dir", os.path.abspath(run_dir),
+        "--post", os.path.abspath(post_path),
+    ]
+
+
 def render_slurm_script(
     script_path: str,
     job_name: str,
@@ -6899,7 +6943,8 @@ def render_slurm_script(
     stderr_path: str = None,
     env_vars: dict = None,
     shell_env_vars: dict = None,
-    array_spec: str = None
+    array_spec: str = None,
+    follow_commands: list = None
 ):
     """!
     @brief Render a Slurm batch script for a single command.
@@ -6913,6 +6958,10 @@ def render_slurm_script(
     @param[in] env_vars Argument passed to `render_slurm_script()`.
     @param[in] shell_env_vars Argument passed to `render_slurm_script()`.
     @param[in] array_spec Argument passed to `render_slurm_script()`.
+    @param[in] follow_commands Commands to run after the launched one, each an argv
+                               list. They run in the batch shell rather than under the
+                               MPI launcher, so a serial step does not become one copy
+                               per task. Supplying any of them drops the `exec`.
     """
     resources = cluster_cfg.get("resources", {})
     notifications = cluster_cfg.get("notifications", {}) or {}
@@ -6983,7 +7032,15 @@ def render_slurm_script(
             lines.append(f"export {key}={shlex.quote(str(value))}")
 
     cmd = " ".join(shlex.quote(str(tok)) for tok in command)
-    lines.append(f"exec {cmd}")
+    if follow_commands:
+        # `exec` would replace the shell and the trailing commands would never run.
+        # `set -e` is already in effect, so a failure in the launched command aborts
+        # the job before anything downstream of it executes.
+        lines.append(cmd)
+        for follow in follow_commands:
+            lines.append(" ".join(shlex.quote(str(tok)) for tok in follow))
+    else:
+        lines.append(f"exec {cmd}")
 
     os.makedirs(os.path.dirname(script_path), exist_ok=True)
     with open(script_path, "w") as f:
@@ -12547,7 +12604,9 @@ def run_workflow(args):
                 )
                 for artifact in spectra_summary['artifacts']:
                     print(f"[INFO] Spectra output: {os.path.relpath(artifact)}")
-            elif 'spectra' in post_stages:
+            elif 'spectra' in post_stages and not (cluster_mode and 'fields' in post_stages):
+                # Under a scheduler with the field stage selected the batch script runs
+                # the spectra step itself, so no instruction is printed for that case.
                 reason = ("the solver stage has not produced output yet"
                           if post_plan['source_frontier_deferred'] else
                           "this invocation only stages the post job")
@@ -12593,6 +12652,13 @@ def run_workflow(args):
                         raw_post_cmd,
                         create_wrapper=True,
                     )
+                    spectra_follow = []
+                    if 'spectra' in post_stages:
+                        follow = build_spectra_follow_command(run_dir, args.post, post_effective_cfg)
+                        if follow:
+                            spectra_follow = [follow]
+                            print("[INFO] Spectra will be measured in the post job, after "
+                                  "the field post-processor completes.")
                     render_slurm_script(
                         post_script,
                         f"{run_id}_post",
@@ -12602,6 +12668,7 @@ def run_workflow(args):
                         post_log,
                         post_err,
                         env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
+                        follow_commands=spectra_follow,
                     )
                     submission_meta["stages"]["post-process"] = {
                         "script": post_script,
