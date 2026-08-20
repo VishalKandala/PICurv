@@ -481,6 +481,7 @@ owned point and writes the accumulator at that same point, with no neighbour
 access. Where a later extension does need ghosts, it must go through
 `UpdateLocalGhosts` rather than a hand-rolled exchange.
 
+@anchor p58_output_sec
 **Derived output is nodal, and its layout boundary is only defined where the grid is
 periodic.** `PicurvWindowDerive` writes the physical interior of the staging buffer and
 zeroes the rest, so the layout boundary would otherwise reach `ComputeNodalAverage` as

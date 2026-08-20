@@ -15,9 +15,13 @@ It catches the specific failure this check was written for: an interior-only
 producer leaving structural zeros on the layout boundary, which halves every
 boundary node and biases a whole-domain mean without any other symptom.
 
-Usage:
-    check_statistics_nodal_consistency.py <run_dir> <viz_subdir> <window_name>
+@code
+check_statistics_nodal_consistency.py RUN_DIR VIZ_SUBDIR WINDOW_NAME
+@endcode
 """
+
+#: Usage line reported when the arguments do not parse.
+USAGE = "usage: check_statistics_nodal_consistency.py RUN_DIR VIZ_SUBDIR WINDOW_NAME"
 
 import csv
 import os
@@ -143,7 +147,7 @@ def main(argv=None):
     numpy = require_numpy()
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 3:
-        print(__doc__.strip().splitlines()[-1], file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         return 2
     run_dir, viz_subdir, window = args
     viz_dir = os.path.join(run_dir, viz_subdir)
