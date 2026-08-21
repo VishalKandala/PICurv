@@ -177,6 +177,14 @@ poisson_solver:
   # --- Geometric Multigrid (PCMG) Settings ---
   multigrid:
     levels: 3         # [Integer] -> -mg_level
+    # NOTE: levels is bounded by the MPI rank layout, not chosen freely. Every
+    # level must leave each rank at least stencil_width nodes per axis, and the
+    # stencil width is 3 whenever ANY axis is periodic (2 otherwise). Exceeding
+    # it aborts during DM creation with:
+    #   Local x-width of domain x 2 is smaller than stencil width s 3
+    # Constraint: floor((cells_per_axis / 2^(levels-1) + 1) / ranks_per_axis) >= stencil_width
+    # picurv validate cannot catch this; it does not see the rank layout.
+    # Worked maxima: docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md
     pre_sweeps: 2     # [Integer] -> -mg_pre_it
     post_sweeps: 2    # [Integer] -> -mg_post_it
     # Current PETSc binding applies one smoother count; if these differ,

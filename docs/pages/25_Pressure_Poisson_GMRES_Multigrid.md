@@ -90,6 +90,50 @@ If pressure solve quality degrades, check first:
 3. grid metrics/orientation quality,
 4. solver tolerances vs timestep.
 
+### Multigrid depth is bounded by the MPI decomposition
+
+`multigrid.levels` cannot be chosen independently of the rank layout. Every
+level's `DMDA` must leave each rank at least `stencil_width` nodes along every
+axis, and grid setup requests a stencil width of **3 whenever any axis is
+periodic** (2 otherwise). Coarsening halves the node count per level, so a deep
+hierarchy spread over many ranks eventually starves the coarsest grid and PETSc
+aborts during DM creation, before the first timestep:
+
+```
+PETSC ERROR: Argument out of range
+PETSC ERROR: Local x-width of domain x 2 is smaller than stencil width s 3
+```
+
+With `levels: L` and `N` cells along an axis, the coarsest grid holds
+`N / 2^(L-1)` cells, hence `M = N / 2^(L-1) + 1` nodes. PETSc distributes those
+over `P` ranks so the smallest rank holds `floor(M / P)`. The constraint is:
+
+    floor( (N / 2^(L-1) + 1) / P ) >= stencil_width
+
+Worked maxima for a triply periodic box (stencil width 3):
+
+| Cells per axis | Ranks per axis | Total ranks | Max `levels` |
+|---|---|---|---|
+| 64 | 2 | 8 | 4 |
+| 64 | 4 | 64 | 3 |
+| 128 | 4 | 64 | 4 |
+| 128 | 8 | 512 | 3 |
+| 192 | 6 | 216 | 4 |
+
+Two consequences worth planning around:
+
+- Periodic cases are strictly more constrained than wall-bounded ones, because
+  the stencil width is 3 rather than 2. A solver profile that runs for a channel
+  can abort when reused for a fully periodic box at the same rank count.
+- `picurv validate` cannot catch this. It does not see the runtime MPI
+  decomposition, so the first evidence is the aborted job.
+
+Reducing `levels` is the usual fix; also delete the now-unused
+`level_solvers.level_N` entry for the level that no longer exists. Shallower
+hierarchies converge more slowly but stay usable. Measure the cost in
+`logs/Poisson_Solver_Convergence_History_Block_0.log`: if iteration counts grow
+sharply, prefer lowering the rank count and restoring the deeper hierarchy.
+
 @section p25_testing_sec 5. Current test status
 
 Current direct tests are strongest for helper and invariant behavior:

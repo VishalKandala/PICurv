@@ -198,6 +198,11 @@ Mappings:
 Rules:
 - `pressure_solver` is accepted as a legacy alias, but `poisson_solver` is preferred because the linear solve computes pressure correction `Phi`.
 - MG level numbering follows PETSc/PICurv convention: `level_0` is the coarsest level and larger numbers are finer.
+- `multigrid.levels` is bounded by the MPI decomposition, not chosen freely: every level must leave each rank
+  at least `stencil_width` nodes per axis (3 when any axis is periodic, 2 otherwise). Exceeding it aborts during
+  DM creation with `Local x-width of domain ... is smaller than stencil width`, and `picurv validate` cannot
+  catch it because it does not see the rank layout. Formula and worked maxima:
+  @ref 25_Pressure_Poisson_GMRES_Multigrid.
 - The outer Poisson preconditioner is multigrid-only in the current runtime.
 - The current PETSc binding applies one MG smoother count; when `pre_sweeps` and `post_sweeps` differ, PICurv uses the larger value and logs a warning.
 - Advanced PETSc tuning remains available through `petsc_passthrough_options`; common examples include `-ps_mg_levels_N_pc_sor_omega` for SOR and `-ps_mg_levels_N_pc_factor_shift_amount` / `-ps_mg_levels_N_pc_factor_levels` for factor PCs.
