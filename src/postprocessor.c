@@ -222,8 +222,10 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using coords linearization order: fast=i mid=j slow=k  (sizes: %" PetscInt_FMT " x %" PetscInt_FMT " x %" PetscInt_FMT ")\n",
               meta.mx, meta.my, meta.mz);
 
-    /* 3) Fields (rank 0) */
-    if (user->simCtx->rank == 0) {
+    /* 3) Field preparation is collective because each append gathers a
+     * distributed Vec. Rank zero alone owns the packed output buffers, but
+     * every rank must resolve the same field list and enter each append. */
+    {
         char *fields_copy, *field_name;
         ierr = PetscStrallocpy(pps->output_fields_instantaneous, &fields_copy); CHKERRQ(ierr);
 
@@ -452,13 +454,15 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
         */
         // --- END DEBUG BLOCK (sanity fields) ---
 
-        /* Field summary */
-        LOG_ALLOW(GLOBAL, LOG_INFO, "PointData fields to write: %d\n", (int)meta.num_point_data_fields);
-        for (PetscInt ii=0; ii<meta.num_point_data_fields; ++ii) {
-            LOG_ALLOW(GLOBAL, LOG_INFO, "  # %2" PetscInt_FMT "  Field Name = %s  Components = %d\n",
-                      ii, meta.point_data_fields[ii].name, (int)meta.point_data_fields[ii].num_components);
+        if (user->simCtx->rank == 0) {
+            /* Field summary */
+            LOG_ALLOW(GLOBAL, LOG_INFO, "PointData fields to write: %d\n", (int)meta.num_point_data_fields);
+            for (PetscInt ii=0; ii<meta.num_point_data_fields; ++ii) {
+                LOG_ALLOW(GLOBAL, LOG_INFO, "  # %2" PetscInt_FMT "  Field Name = %s  Components = %d\n",
+                          ii, meta.point_data_fields[ii].name, (int)meta.point_data_fields[ii].num_components);
+            }
         }
-    } // if rank 0
+    }
 
     /* 4) Write the VTS */
     ierr = PetscSNPrintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti); CHKERRQ(ierr);
