@@ -2618,11 +2618,9 @@ PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name,
                  field_name, PetscDataTypes[field_type]);
 
     *field_type_out = field_type;
-    if (rank == 0) {
-        *n_total_particles = nglobal;
-        *n_components = bs;
-        *gathered_array = NULL; // Initialize output
-    }
+    *n_total_particles = nglobal;
+    *n_components = bs;
+    *gathered_array = NULL;
 
     if (size == 1) { // Serial case is a simple copy
         if (rank == 0) {
