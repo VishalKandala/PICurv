@@ -223,6 +223,7 @@ static PetscErrorCode TestWriteParticleFileCollectiveMultiRank(void)
     PetscFunctionReturn(0);
 }
 
+/** @brief Runs the focused serial/MPI particle VTK regression. */
 int main(int argc, char **argv)
 {
     PetscErrorCode ierr;

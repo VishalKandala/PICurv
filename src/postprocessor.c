@@ -638,11 +638,11 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
     }
 
     // --- Timestep Setup: Synchronize post_swarm size ---
-    PetscInt n_global_source;
-    ierr = DMSwarmGetSize(user->swarm, &n_global_source); CHKERRQ(ierr);
+    PetscInt n_local_source;
+    ierr = DMSwarmGetLocalSize(user->swarm, &n_local_source); CHKERRQ(ierr);
 
-    // Resize post_swarm to match source swarm
-    ierr = ResizeSwarmGlobally(user->post_swarm, n_global_source); CHKERRQ(ierr);
+    // Derived entries use the same local index as their source particle.
+    ierr = DMSwarmSetLocalSizes(user->post_swarm, n_local_source, -1); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Particle Data Transformation Pipeline ---\n");
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Particle Pipeline string: [%s]\n", pps->particle_pipeline);
@@ -794,6 +794,12 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
             LOG_ALLOW(GLOBAL, LOG_DEBUG, "No particles to write at ti=%" PetscInt_FMT " after subsampling. Skipping.\n", ti);
         }
 
+        for (PetscInt field = 0; field < part_meta.num_point_data_fields; ++field) {
+            ierr = PetscFree(part_meta.point_data_fields[field].data); CHKERRQ(ierr);
+        }
+        ierr = PetscFree(part_meta.coords); CHKERRQ(ierr);
+        ierr = PetscFree(part_meta.connectivity); CHKERRQ(ierr);
+        ierr = PetscFree(part_meta.offsets); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Particle File Writing for ti = %" PetscInt_FMT " Complete ---\n", ti);

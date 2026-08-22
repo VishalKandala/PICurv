@@ -175,6 +175,7 @@ UNIT_POST_EXE     := $(TESTBINDIR)/unit_post
 UNIT_POST_VTK_EXE := $(TESTBINDIR)/unit_post_vtk
 UNIT_POST_EULERIAN_VTK_MPI_EXE := $(TESTBINDIR)/unit_post_eulerian_vtk_mpi
 UNIT_POST_PARTICLE_VTK_MPI_EXE := $(TESTBINDIR)/unit_post_particle_vtk_mpi
+UNIT_POST_COMPUTE_MPI_EXE := $(TESTBINDIR)/unit_post_compute_mpi
 UNIT_POSTPROCESSOR_EXE := $(TESTBINDIR)/unit_postprocessor
 UNIT_POST_STATISTICS_EXE := $(TESTBINDIR)/unit_post_statistics
 UNIT_GRID_EXE     := $(TESTBINDIR)/unit_grid
@@ -207,6 +208,7 @@ UNIT_POST_OBJ     := $(TESTOBJDIR)/test_postprocessing.o
 UNIT_POST_VTK_OBJ := $(TESTOBJDIR)/test_vtk_io.o
 UNIT_POST_EULERIAN_VTK_MPI_OBJ := $(TESTOBJDIR)/test_post_eulerian_vtk_mpi.o
 UNIT_POST_PARTICLE_VTK_MPI_OBJ := $(TESTOBJDIR)/test_post_particle_vtk_mpi.o
+UNIT_POST_COMPUTE_MPI_OBJ := $(TESTOBJDIR)/test_post_compute_mpi.o
 UNIT_POSTPROCESSOR_OBJ := $(TESTOBJDIR)/test_postprocessor.o
 UNIT_POST_STATISTICS_OBJ := $(TESTOBJDIR)/test_statistics.o
 TEST_POSTPROCESSOR_IMPL_OBJ := $(TESTOBJDIR)/postprocessor_no_main.o
@@ -384,6 +386,10 @@ $(UNIT_POST_PARTICLE_VTK_MPI_EXE): $(UNIT_POST_PARTICLE_VTK_MPI_OBJ) $(TEST_POST
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_POST_COMPUTE_MPI_EXE): $(UNIT_POST_COMPUTE_MPI_OBJ) $(TEST_POSTPROCESSOR_IMPL_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 $(UNIT_POSTPROCESSOR_EXE): $(UNIT_POSTPROCESSOR_OBJ) $(TEST_POSTPROCESSOR_IMPL_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
@@ -428,7 +434,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -604,8 +610,15 @@ unit-runtime: $(UNIT_RUNTIME_EXE)
 ## @brief Runs dedicated multi-rank MPI-focused C unit tests.
 unit-mpi: $(UNIT_MPI_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_MPI_NPROCS) $<
+	@$(MAKE) --no-print-directory unit-post-compute-mpi SYSTEM=$(SYSTEM) TEST_MPI_NPROCS=$(TEST_MPI_NPROCS)
 	@$(MAKE) --no-print-directory unit-post-eulerian-vtk-mpi SYSTEM=$(SYSTEM) TEST_MPI_NPROCS=$(TEST_MPI_NPROCS)
 	@$(MAKE) --no-print-directory unit-post-particle-vtk-mpi SYSTEM=$(SYSTEM) TEST_MPI_NPROCS=$(TEST_MPI_NPROCS)
+
+## @target unit-post-compute-mpi
+## @brief Checks post-processing compute pipelines against analytic truth in serial and MPI.
+unit-post-compute-mpi: $(UNIT_POST_COMPUTE_MPI_EXE)
+	@$(MPI_LAUNCHER) -n 1 $<
+	@$(MPI_LAUNCHER) -n $(TEST_MPI_NPROCS) $<
 
 ## @target unit-post-eulerian-vtk-mpi
 ## @brief Exhaustively compares serial and multirank instantaneous Eulerian VTK output.

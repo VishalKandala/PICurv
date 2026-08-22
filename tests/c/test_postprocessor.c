@@ -459,6 +459,8 @@ static PetscErrorCode TestWriteParticleFileRewritesSameStepCleanly(void)
     char vtk_tmp_path[PETSC_MAX_PATH_LEN];
     PetscReal (*pos_arr)[3] = NULL;
     PetscReal (*vel_arr)[3] = NULL;
+    PetscLogDouble memory_before = 0.0;
+    PetscLogDouble memory_after = 0.0;
 
     PetscFunctionBeginUser;
     PetscCall(PetscMemzero(&pps, sizeof(pps)));
@@ -487,7 +489,11 @@ static PetscErrorCode TestWriteParticleFileRewritesSameStepCleanly(void)
     PetscCall(DMSwarmRestoreField(user->swarm, "velocity", NULL, NULL, (void *)&vel_arr));
 
     PetscCall(WriteParticleFile(user, &pps, 4));
+    PetscCall(PetscMallocGetCurrentUsage(&memory_before));
     PetscCall(WriteParticleFile(user, &pps, 4));
+    PetscCall(PetscMallocGetCurrentUsage(&memory_after));
+    PetscCall(PicurvAssertBool((PetscBool)(memory_after <= memory_before),
+                               "repeated particle VTK writes must release their temporary metadata"));
 
     PetscCall(PicurvAssertFileExists(vtk_path,
                                      "Rewriting the same particle step should leave the final .vtp file present"));

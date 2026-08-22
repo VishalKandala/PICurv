@@ -674,82 +674,39 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
 PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target)
 {
     PetscErrorCode ierr;
-    PetscInt       N_current, nlocal_current;
-    PetscMPIInt    rank;
+    PetscInt       N_current, N_final, nlocal_current, nlocal_target;
+    PetscMPIInt    rank, size;
     MPI_Comm       comm;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     ierr = PetscObjectGetComm((PetscObject)swarm, &comm); CHKERRQ(ierr);
     ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
+    ierr = MPI_Comm_size(comm, &size); CHKERRQ(ierr);
+    PetscCheck(N_target >= 0, comm, PETSC_ERR_ARG_OUTOFRANGE,
+               "Target swarm size must be nonnegative; got %" PetscInt_FMT ".", N_target);
     ierr = DMSwarmGetSize(swarm, &N_current); CHKERRQ(ierr);
     ierr = DMSwarmGetLocalSize(swarm, &nlocal_current); CHKERRQ(ierr);
+    nlocal_target = N_target / size + (rank < N_target % size ? 1 : 0);
 
-    PetscInt delta = N_target - N_current;
-
-    if (delta == 0) {
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0); // Nothing to do
-    }
-
-    if (delta < 0) { // Remove particles
-        PetscInt num_to_remove_global = -delta;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Current size %d > target size %d. Removing %d particles globally.\n", N_current, N_target, num_to_remove_global);
-
-        // --- Strategy: Remove the globally last 'num_to_remove_global' particles ---
-        // Each rank needs to determine how many of its *local* particles fall
-        // within the range of global indices [N_target, N_current - 1].
-
-        PetscInt rstart = 0;
-	PetscInt  rend;
-	// Global range owned by this rank [rstart, rend)
-
-	ierr = MPI_Exscan(&nlocal_current, &rstart, 1, MPIU_INT, MPI_SUM, comm); CHKERRMPI(ierr); // Use CHKERRMPI for MPI calls
-
-	rend = rstart + nlocal_current;
-	
-
-        // Calculate how many local particles have global indices >= N_target
-        PetscInt nlocal_remove_count = 0;
-        if (rend > N_target) { // If this rank owns any particles slated for removal
-            PetscInt start_remove_local_idx = (N_target > rstart) ? (N_target - rstart) : 0;
-            nlocal_remove_count = nlocal_current - start_remove_local_idx;
-        }
-
-        if (nlocal_remove_count < 0) nlocal_remove_count = 0; // Sanity check
-        if (nlocal_remove_count > nlocal_current) nlocal_remove_count = nlocal_current; // Sanity check
-
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Global range [%d, %d). Target size %d. Need to remove %d local particles (from end).\n", rank, rstart, rend, N_target, nlocal_remove_count);
-
-        // Remove the last 'nlocal_remove_count' particles *locally* by iterating backwards
-        PetscInt removal_ops_done = 0;
-        for (PetscInt p = nlocal_current - 1; p >= 0 && removal_ops_done < nlocal_remove_count; --p) {
-            ierr = DMSwarmRemovePointAtIndex(swarm, p); CHKERRQ(ierr);
-            removal_ops_done++;
-        }
-
-        if (removal_ops_done != nlocal_remove_count) {
-             SETERRQ(comm, PETSC_ERR_PLIB, "Rank %d: Failed to remove the expected number of local particles (%d != %d)", rank, removal_ops_done, nlocal_remove_count);
-        }
-         LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Removed %d local particles.\n", rank, removal_ops_done);
- 
-	// Barrier to ensure all removals are done before size check
-        ierr = MPI_Barrier(comm); CHKERRMPI(ierr);
-
-    } else { // delta > 0: Add particles
-        PetscInt num_to_add_global = delta;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Current size %d < target size %d. Adding %d particles globally.\n", N_current, N_target, num_to_add_global);
-        ierr = DMSwarmAddNPoints(swarm, num_to_add_global); CHKERRQ(ierr);
-        // Note: Added particles will have uninitialized field data. Reading will overwrite.
+    if (nlocal_current != nlocal_target) {
+        LOG_ALLOW(LOCAL, LOG_DEBUG,
+                  "Rank %d: resizing local swarm share from %" PetscInt_FMT
+                  " to %" PetscInt_FMT ".\n",
+                  rank, nlocal_current, nlocal_target);
+        ierr = DMSwarmSetLocalSizes(swarm, nlocal_target, -1); CHKERRQ(ierr);
     }
 
     // Verify final size
-    PetscInt N_final;
     ierr = DMSwarmGetSize(swarm, &N_final); CHKERRQ(ierr);
     if (N_final != N_target) {
-        SETERRQ(comm, PETSC_ERR_PLIB, "Failed to resize swarm: expected %d particles, got %d", N_target, N_final);
+        SETERRQ(comm, PETSC_ERR_PLIB,
+                "Failed to resize swarm: expected %" PetscInt_FMT
+                " particles, got %" PetscInt_FMT, N_target, N_final);
     }
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Swarm successfully resized to %d particles.\n", N_final);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG,
+              "Swarm resized from %" PetscInt_FMT " to %" PetscInt_FMT " particles.\n",
+              N_current, N_final);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

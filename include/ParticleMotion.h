@@ -204,9 +204,9 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user);
 /**
  * @brief Resizes a swarm collectively to a target global particle count.
  *
- * If particles are removed, the current implementation trims from the global tail
- * ordering. If particles are added, new entries are created according to PETSc
- * DMSwarm resize semantics.
+ * The target is divided by quotient and remainder so every rank receives either
+ * `floor(N_target / nranks)` or one additional entry. Resizing establishes the
+ * storage layout; callers initialize or overwrite particle fields afterwards.
  *
  * @param[in,out] swarm    Swarm object to resize.
  * @param[in]     N_target Target global particle count.
@@ -221,7 +221,7 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target);
  * the number of particles (`N_file`) represented in that file for the given timestep.
  * Compares `N_file` with the current swarm size (`N_current`). If they differ,
  * resizes the swarm globally (adds or removes particles) to match `N_file`.
- * Removal assumes excess particles are the globally last ones.
+ * The resized population is balanced across the communicator before field input.
  *
  * @param[in,out] user Pointer to the UserCtx structure containing the DMSwarm.
  * @param[in]     ti   Time index for constructing the file name.

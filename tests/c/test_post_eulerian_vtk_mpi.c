@@ -195,6 +195,7 @@ static PetscErrorCode TestWriteEulerianFileCollectiveMultiRank(void)
     PetscFunctionReturn(0);
 }
 
+/** @brief Runs the focused serial/MPI Eulerian VTK regression. */
 int main(int argc, char **argv)
 {
     PetscErrorCode ierr;
