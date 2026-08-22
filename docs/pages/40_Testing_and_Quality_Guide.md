@@ -281,6 +281,9 @@ Current C test files and their main purpose:
 - `tests/c/test_postprocessing.c`: post kernel checks (specific KE, displacement, nodal averaging, normalization, dimensionalization, Q-criterion)
 - `tests/c/test_vtk_io.c`: VTK prep/writer checks (Eulerian + particle data shaping)
 - `tests/c/test_postprocessor.c`: postprocessor pipeline/orchestration checks
+- `tests/c/test_post_compute_mpi.c`: analytic decomposition-independent postprocessor compute checks
+- `tests/c/test_post_eulerian_vtk_mpi.c`: serial/MPI Eulerian VTK equivalence checks
+- `tests/c/test_post_particle_vtk_mpi.c`: serial/MPI particle VTK equivalence checks
 - `tests/c/test_statistics.c`: statistics-kernel checks (MSD CSV behavior)
 - runtime `search_metrics.csv` instrumentation complements `Particle_Metrics.log` for particle-enabled runs and is covered through logging/runtime test surfaces plus the `examples/search_robustness/` bundle
 - `tests/c/test_grid.c`: bounding-box exchange checks

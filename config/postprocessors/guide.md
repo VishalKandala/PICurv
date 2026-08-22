@@ -50,7 +50,7 @@ Solve and postprocess in one command:
   --post config/postprocessors/standard_analysis.yml
 ```
 
-`-n/--num-procs` applies to solver execution. Postprocessing is forced to single-rank execution.
+`-n/--num-procs` applies to both solver and field postprocessor execution.
 
 ## 4. Notes on Newer Options
 

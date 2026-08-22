@@ -27,6 +27,9 @@ is a test-local routine.
   - `make unit-io`
   - `make unit-logging`
   - `make unit-post`
+  - `make unit-post-compute-mpi`
+  - `make unit-post-eulerian-vtk-mpi`
+  - `make unit-post-particle-vtk-mpi`
   - `make unit-grid`
   - `make unit-metric`
   - `make unit-boundaries`
@@ -86,6 +89,9 @@ is a test-local routine.
 - `test_postprocessing.c`: post-processing kernel contracts (specific-KE, displacement, nodal average, normalization, dimensionalization, Q-criterion)
 - `test_vtk_io.c`: VTK writer and data-preparation contracts (coordinates, field gather/subsampling, particle prep)
 - `test_postprocessor.c`: postprocessing orchestration contracts (swarm setup, pipeline dispatch, eulerian/particle output, statistics dispatch)
+- `test_post_compute_mpi.c`: analytic serial/MPI checks for Eulerian, particle, resizing, and derived field-statistics compute
+- `test_post_eulerian_vtk_mpi.c`: exhaustive serial/MPI Eulerian VTK value and byte-equivalence checks
+- `test_post_particle_vtk_mpi.c`: exhaustive serial/MPI particle VTK value and byte-equivalence checks
 - `test_statistics.c`: particle statistics kernel contracts (MSD CSV output and empty-swarm behavior)
 - `test_statistics_moments.c`: weighted centered moment, co-moment, and parallel-merge kernels
 - `test_statistics_window.c`: window scheduling, weighting, clipping, and identity hashing

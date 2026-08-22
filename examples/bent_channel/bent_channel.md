@@ -42,7 +42,7 @@ Run solve + post:
   --post my_bent_case/standard_analysis.yml \
   -n 4 --solve --post-process
 ```
-`-n 4` sizes the solver stage. Post-processing is forced to one rank.
+`-n 4` runs both the solver and field postprocessor with four MPI ranks.
 
 ## 4. Changing Geometry
 

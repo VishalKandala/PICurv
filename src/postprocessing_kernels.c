@@ -271,6 +271,11 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     // --- 3. Get DMDA info and array pointers ---
     DMDALocalInfo info;
     ierr = DMDAGetLocalInfo(dm_out, &info); CHKERRQ(ierr);
+    /* Every owned output point is valid except the global high layout plane.
+     * A rank interface is not a boundary: its +1 source value is in the halo. */
+    const PetscInt i_end = PetscMin(info.xs + info.xm, info.mx - 1);
+    const PetscInt j_end = PetscMin(info.ys + info.ym, info.my - 1);
+    const PetscInt k_end = PetscMin(info.zs + info.zm, info.mz - 1);
 
     if (dof == 1) { // --- Scalar Field Averaging ---
         const PetscReal ***l_in_arr;
@@ -280,9 +285,9 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
 
         // Loop over the output NODE locations. The loop bounds match the required
         // size of the final subsampled grid.
-        for (PetscInt k = info.zs; k < info.zs + info.zm - 1; k++) {
-            for (PetscInt j = info.ys; j < info.ys + info.ym - 1; j++) {
-                for (PetscInt i = info.xs; i < info.xs + info.xm - 1; i++) {
+        for (PetscInt k = info.zs; k < k_end; k++) {
+            for (PetscInt j = info.ys; j < j_end; j++) {
+                for (PetscInt i = info.xs; i < i_end; i++) {
                     g_out_arr[k][j][i] = 0.125 * (l_in_arr[k][j][i]     + l_in_arr[k][j][i+1] +
                                                   l_in_arr[k][j+1][i]   + l_in_arr[k][j+1][i+1] +
                                                   l_in_arr[k+1][j][i]   + l_in_arr[k+1][j][i+1] +
@@ -299,9 +304,9 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
         ierr = DMDAVecGetArrayRead(dm_in,in_vec_local, (void*)&l_in_arr); CHKERRQ(ierr);
         ierr = DMDAVecGetArray(dm_out,out_vec_global, (void*)&g_out_arr); CHKERRQ(ierr);
 
-        for (PetscInt k = info.zs; k < info.zs + info.zm - 1; k++) {
-            for (PetscInt j = info.ys; j < info.ys + info.ym - 1; j++) {
-                for (PetscInt i = info.xs; i < info.xs + info.xm - 1; i++) {
+        for (PetscInt k = info.zs; k < k_end; k++) {
+            for (PetscInt j = info.ys; j < j_end; j++) {
+                for (PetscInt i = info.xs; i < i_end; i++) {
                     g_out_arr[k][j][i].x = 0.125 * (l_in_arr[k][j][i].x + l_in_arr[k][j][i+1].x +
                                                     l_in_arr[k][j+1][i].x + l_in_arr[k][j+1][i+1].x +
                                                     l_in_arr[k+1][j][i].x + l_in_arr[k+1][j][i+1].x +
@@ -612,17 +617,14 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
 {
     PetscErrorCode ierr;
     Vec            P_vec = NULL;
-    PetscMPIInt    rank;
+    DMDALocalInfo  info;
     PetscInt       ip=1, jp=1, kp=1; // Default reference point
     PetscReal      p_ref = 0.0;
-    PetscInt       ref_point_global_idx[1];
-    PetscScalar    ref_value_local[1];
-    IS             is_from, is_to;
-    VecScatter     scatter_ctx;
-    Vec            ref_vec_seq;
+    PetscReal      p_ref_local = 0.0;
+    PetscInt       found_local = 0, found_global = 0;
     PostProcessParams *pps = user->simCtx->pps;
 
-    // Fetch referenc point from pps.
+    // Fetch the logical reference point from pps.
     ip = pps->reference[0];
     jp = pps->reference[1];
     kp = pps->reference[2];
@@ -638,47 +640,38 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
         SETERRQ(PETSC_COMM_SELF, 1, "NormalizeRelativeField only supports the primary 'P' field , not '%s' currently.", relative_field_name);
     }
 
-    // --- 2. Get reference point from options and calculate its global DA index ---
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    // --- 2. Read the logical reference point from whichever rank owns it ---
+    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    PetscCheck(ip >= 0 && ip < info.mx && jp >= 0 && jp < info.my &&
+               kp >= 0 && kp < info.mz,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "Reference point (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT
+               ") lies outside the %" PetscInt_FMT "x%" PetscInt_FMT "x%" PetscInt_FMT
+               " pressure layout.", ip, jp, kp, info.mx, info.my, info.mz);
+    if (ip >= info.xs && ip < info.xs + info.xm &&
+        jp >= info.ys && jp < info.ys + info.ym &&
+        kp >= info.zs && kp < info.zs + info.zm) {
+        const PetscReal ***pressure = NULL;
 
-    // Convert the (i,j,k) logical grid coordinates to the global 1D index used by the DMDA vector
-    ref_point_global_idx[0] = kp * (user->IM * user->JM) + jp * user->IM + ip;
-
-    // --- 3. Robustly Scatter the single reference value to rank 0 ---
-    // Create an Index Set (IS) for the source point (from the global vector)
-    ierr = ISCreateGeneral(PETSC_COMM_WORLD, 1, ref_point_global_idx, PETSC_COPY_VALUES, &is_from); CHKERRQ(ierr);
-
-    // Create a sequential vector on rank 0 to hold the result
-    ierr = VecCreateSeq(PETSC_COMM_SELF, 1, &ref_vec_seq); CHKERRQ(ierr);
-    
-    // Create an Index Set for the destination point (index 0 of the new sequential vector)
-    PetscInt dest_idx[1] = {0};
-    ierr = ISCreateGeneral(PETSC_COMM_SELF, 1, dest_idx, PETSC_COPY_VALUES, &is_to); CHKERRQ(ierr);
-
-    // Create the scatter context and perform the scatter
-    ierr = VecScatterCreate(P_vec, is_from, ref_vec_seq, is_to, &scatter_ctx); CHKERRQ(ierr);
-    ierr = VecScatterBegin(scatter_ctx, P_vec, ref_vec_seq, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-    ierr = VecScatterEnd(scatter_ctx, P_vec, ref_vec_seq, INSERT_VALUES, SCATTER_FORWARD); CHKERRQ(ierr);
-
-    // On rank 0, get the value. On other ranks, this will do nothing.
-    if (rank == 0) {
-        ierr = VecGetValues(ref_vec_seq, 1, dest_idx, ref_value_local); CHKERRQ(ierr);
-        p_ref = ref_value_local[0];
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "%s reference point (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") has value %g.\n", relative_field_name, jp, kp, ip, p_ref);
+        ierr = DMDAVecGetArrayRead(user->da, P_vec, &pressure); CHKERRQ(ierr);
+        p_ref_local = pressure[kp][jp][ip];
+        ierr = DMDAVecRestoreArrayRead(user->da, P_vec, &pressure); CHKERRQ(ierr);
+        found_local = 1;
     }
-    
-    // --- 4. Broadcast the reference value from rank 0 to all other processes ---
-    ierr = MPI_Bcast(&p_ref, 1, MPIU_REAL, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(&p_ref_local, &p_ref, 1, MPIU_REAL, MPI_SUM,
+                         PETSC_COMM_WORLD); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(&found_local, &found_global, 1, MPIU_INT, MPI_SUM,
+                         PETSC_COMM_WORLD); CHKERRQ(ierr);
+    PetscCheck(found_global == 1, PETSC_COMM_WORLD, PETSC_ERR_PLIB,
+               "Reference pressure point must have exactly one owner; found %" PetscInt_FMT ".",
+               found_global);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG,
+              "%s reference point (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT
+              ") has value %g.\n", relative_field_name, ip, jp, kp, (double)p_ref);
 
-    // --- 5. Perform the normalization (in-place shift) on the full distributed vector ---
+    // --- 3. Perform the normalization (in-place shift) on the full distributed vector ---
     ierr = VecShift(P_vec, -p_ref); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "%s field normalized by subtracting %g.\n", relative_field_name, p_ref);
-    
-    // --- 6. Cleanup ---
-    ierr = ISDestroy(&is_from); CHKERRQ(ierr);
-    ierr = ISDestroy(&is_to); CHKERRQ(ierr);
-    ierr = VecScatterDestroy(&scatter_ctx); CHKERRQ(ierr);
-    ierr = VecDestroy(&ref_vec_seq); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

@@ -67,7 +67,7 @@ These keys are consumed by `picurv` orchestration only:
 | `cluster.resources.*` | `#SBATCH` directives | `picurv_cli/core.py` (Slurm renderers) | Slurm scheduler |
 | `cluster.notifications.*` | `#SBATCH --mail-*` | `picurv_cli/core.py` | Slurm scheduler |
 | `cluster.execution.module_setup` | pre-launch shell lines in `*.sbatch` | `picurv_cli/core.py` | batch script runtime env |
-| `cluster.execution.launcher*` | launch command (`srun`/`mpirun`) | `picurv_cli/core.py` | solver launch plus forced single-rank post launch |
+| `cluster.execution.launcher*` | launch command (`srun`/`mpirun`) | `picurv_cli/core.py` | solver and field postprocessor launches |
 | `study.base_configs.*` | per-case config materialization | `picurv_cli/core.py` (`sweep_workflow`) | case generation pipeline |
 | `study.parameters` | case matrix expansion | `picurv_cli/core.py` (`expand_parameter_matrix`) | study case synthesis |
 | `study.execution.max_concurrent_array_tasks` | Slurm array `%N` throttle | `picurv_cli/core.py` | Slurm scheduler |

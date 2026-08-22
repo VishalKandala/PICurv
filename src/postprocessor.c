@@ -222,8 +222,10 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using coords linearization order: fast=i mid=j slow=k  (sizes: %" PetscInt_FMT " x %" PetscInt_FMT " x %" PetscInt_FMT ")\n",
               meta.mx, meta.my, meta.mz);
 
-    /* 3) Fields (rank 0) */
-    if (user->simCtx->rank == 0) {
+    /* 3) Field preparation is collective because each append gathers a
+     * distributed Vec. Rank zero alone owns the packed output buffers, but
+     * every rank must resolve the same field list and enter each append. */
+    {
         char *fields_copy, *field_name;
         ierr = PetscStrallocpy(pps->output_fields_instantaneous, &fields_copy); CHKERRQ(ierr);
 
@@ -452,13 +454,15 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
         */
         // --- END DEBUG BLOCK (sanity fields) ---
 
-        /* Field summary */
-        LOG_ALLOW(GLOBAL, LOG_INFO, "PointData fields to write: %d\n", (int)meta.num_point_data_fields);
-        for (PetscInt ii=0; ii<meta.num_point_data_fields; ++ii) {
-            LOG_ALLOW(GLOBAL, LOG_INFO, "  # %2" PetscInt_FMT "  Field Name = %s  Components = %d\n",
-                      ii, meta.point_data_fields[ii].name, (int)meta.point_data_fields[ii].num_components);
+        if (user->simCtx->rank == 0) {
+            /* Field summary */
+            LOG_ALLOW(GLOBAL, LOG_INFO, "PointData fields to write: %d\n", (int)meta.num_point_data_fields);
+            for (PetscInt ii=0; ii<meta.num_point_data_fields; ++ii) {
+                LOG_ALLOW(GLOBAL, LOG_INFO, "  # %2" PetscInt_FMT "  Field Name = %s  Components = %d\n",
+                          ii, meta.point_data_fields[ii].name, (int)meta.point_data_fields[ii].num_components);
+            }
         }
-    } // if rank 0
+    }
 
     /* 4) Write the VTS */
     ierr = PetscSNPrintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vts", pps->output_prefix, ti); CHKERRQ(ierr);
@@ -634,11 +638,11 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
     }
 
     // --- Timestep Setup: Synchronize post_swarm size ---
-    PetscInt n_global_source;
-    ierr = DMSwarmGetSize(user->swarm, &n_global_source); CHKERRQ(ierr);
+    PetscInt n_local_source;
+    ierr = DMSwarmGetLocalSize(user->swarm, &n_local_source); CHKERRQ(ierr);
 
-    // Resize post_swarm to match source swarm
-    ierr = ResizeSwarmGlobally(user->post_swarm, n_global_source); CHKERRQ(ierr);
+    // Derived entries use the same local index as their source particle.
+    ierr = DMSwarmSetLocalSizes(user->post_swarm, n_local_source, -1); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Particle Data Transformation Pipeline ---\n");
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Particle Pipeline string: [%s]\n", pps->particle_pipeline);
@@ -790,6 +794,12 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
             LOG_ALLOW(GLOBAL, LOG_DEBUG, "No particles to write at ti=%" PetscInt_FMT " after subsampling. Skipping.\n", ti);
         }
 
+        for (PetscInt field = 0; field < part_meta.num_point_data_fields; ++field) {
+            ierr = PetscFree(part_meta.point_data_fields[field].data); CHKERRQ(ierr);
+        }
+        ierr = PetscFree(part_meta.coords); CHKERRQ(ierr);
+        ierr = PetscFree(part_meta.connectivity); CHKERRQ(ierr);
+        ierr = PetscFree(part_meta.offsets); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Particle File Writing for ti = %" PetscInt_FMT " Complete ---\n", ti);
@@ -815,6 +825,7 @@ int main(int argc, char **argv)
 
     // === II. CONFIGURE SIMULATION & POST-PROCESSING CONTEXTS =================
     ierr = CreateSimulationContext(argc, argv, &simCtx); CHKERRQ(ierr);
+    ierr = PetscPrintf(PETSC_COMM_WORLD, "Postprocessor MPI processes: %d\n", (int)simCtx->size); CHKERRQ(ierr);
     // === IIB. SET EXECUTION MODE (SOLVER vs POST-PROCESSOR) =====
     simCtx->exec_mode = EXEC_MODE_POSTPROCESSOR;
     // == IIC. CONFIGURE SIMULATION ENVIRONMENT & DIRECTORIES =====

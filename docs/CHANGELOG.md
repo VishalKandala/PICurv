@@ -251,9 +251,8 @@
   - added `grid.gen legacy1d` converter and optional `grid.legacy_conversion` wrapper in `picurv` for headerless 1D-axis legacy payload migration.
 
 - Workflow launch policy update:
-  - `run --num-procs` now applies to solver stage sizing.
-  - post stage is forced to single-rank execution in local mode.
-  - generated `post.sbatch` now uses forced single-task resources (`nodes=1`, `ntasks_per_node=1`).
+  - `run --num-procs` now applies to solver and field postprocessor stage sizing.
+  - generated `post.sbatch` and sweep post arrays reuse the configured cluster resources.
   - manifests/dry-run plans now expose stage-specific MPI counts.
 
 - Cluster orchestration and sweeps:

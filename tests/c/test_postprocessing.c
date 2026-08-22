@@ -118,8 +118,8 @@ static PetscErrorCode TestNormalizeRelativeField(void)
     simCtx->pps->reference[2] = 1;
 
     PetscCall(VecSet(user->P, 10.0));
-    ref_idx = simCtx->pps->reference[2] * (user->IM * user->JM) +
-              simCtx->pps->reference[1] * user->IM +
+    ref_idx = simCtx->pps->reference[2] * (user->info.mx * user->info.my) +
+              simCtx->pps->reference[1] * user->info.mx +
               simCtx->pps->reference[0];
     PetscCall(VecSetValue(user->P, ref_idx, 4.0, INSERT_VALUES));
     PetscCall(VecAssemblyBegin(user->P));

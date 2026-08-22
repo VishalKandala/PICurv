@@ -210,8 +210,8 @@ Inputs for `--post-process`:
 
 MPI/local options:
 - `-n, --num-procs`
-  - applies to solver stage launch sizing.
-  - post-processing is forced to one rank/task. PICurv strips conflicting MPI size flags from post launches and rewrites them to rank `1`.
+  - applies to solver and field postprocessor launch sizing.
+  - PICurv strips conflicting MPI size flags from post launches and rewrites them to the requested rank count.
   - local multi-rank runs resolve launcher overrides in this order: `PICURV_MPI_LAUNCHER`, `MPI_LAUNCHER`, nearest `.picurv-execution.yml`, nearest legacy `.picurv-local.yml`, then default `mpiexec`.
 
 Staging/execution options:
@@ -231,7 +231,7 @@ Local example:
   --monitor my_case/monitor.yml \
   --post my_case/post.yml
 ```
-In this command, solver runs with 8 ranks; post-processing is still forced to 1 rank.
+In this command, the solver and field postprocessor both run with 8 ranks.
 
 Slurm example (generate + submit):
 ```bash
@@ -502,7 +502,7 @@ Behavior (new study):
 - expands parameter matrix from `study.yml`
 - materializes case directories under `studies/<study_id>/cases/`
 - generates `solver_array.sbatch`, `post_array.sbatch`, and `metrics_aggregate.sbatch`
-- renders `post_array.sbatch` with a single-task allocation and a forced one-rank launcher command
+- renders `post_array.sbatch` with the same cluster allocation as the solver array
 - submits solver → post (`afterok`) → metrics (`afterany`) chain (unless `--no-submit`)
 
 Behavior (`--continue`):
@@ -550,7 +550,7 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
   - `--post <path>`
   - `--run-dir <path>`
 - launch controls:
-  - `-n, --num-procs <int>` (solver stage only; post is forced to 1 rank/task)
+  - `-n, --num-procs <int>` (solver and field postprocessor stages)
   - `--cluster <cluster.yml>` (enables Slurm mode)
   - `--scheduler <name>` (must be used with `--cluster`; must match `cluster.yml:scheduler.type`)
   - `--no-submit` (stage files and submission metadata without starting execution)

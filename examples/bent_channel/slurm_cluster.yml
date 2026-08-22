@@ -2,8 +2,7 @@ scheduler:
   type: slurm
 
 resources:
-  # Solver-stage allocation settings.
-  # Post stage is forced to one task/rank in generated post jobs, independent of solver allocation.
+  # Shared solver- and postprocessor-stage allocation settings.
   account: "replace_with_account"
   partition: "compute"
   nodes: 1

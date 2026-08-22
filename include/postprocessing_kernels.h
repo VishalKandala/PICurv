@@ -73,12 +73,12 @@ PetscErrorCode ExtendToLayoutBoundary(UserCtx *user, Vec global, PetscInt compon
 PetscErrorCode ComputeQCriterion(UserCtx* user);
 
 /**
- * @brief Normalizes a relative scalar field using the configured reference pressure scale.
+ * @brief Normalizes pressure using the value at the configured logical grid point.
  *
- * This is primarily used for pressure-normalized outputs in post-processing.
- * The operation is in-place on the selected field.
+ * The owning rank reads the reference value, shares it collectively, and every
+ * rank subtracts it in-place from its distributed portion of the field.
  *
- * @param[in,out] user                Block-level context containing scaling information.
+ * @param[in,out] user                Block-level context containing pressure and reference configuration.
  * @param[in]     relative_field_name Name of the field to normalize.
  * @return PetscErrorCode 0 on success.
  */
