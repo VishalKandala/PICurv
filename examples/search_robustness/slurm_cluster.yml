@@ -3,7 +3,7 @@ scheduler:
 
 resources:
   # Solver-stage allocation settings.
-  # Post stage is forced to one task/rank in generated post jobs, independent of solver allocation.
+  # The postprocessor uses this same task allocation as the solver.
   account: "replace_with_account"
   partition: "compute"
   nodes: 1

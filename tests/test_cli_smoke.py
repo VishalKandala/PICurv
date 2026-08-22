@@ -6266,9 +6266,9 @@ def test_no_restart_flags_with_restart_needed_fails(tmp_path):
         picurv.resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, str(tmp_path))
 
 
-def test_dry_run_local_solver_vs_post_proc_counts():
+def test_dry_run_local_solver_and_post_proc_counts():
     """!
-    @brief Test that dry run local solver vs post proc counts.
+    @brief Test that dry run uses the requested rank count for solver and post-processing.
     """
     valid = FIXTURES / "valid"
     result = run_picurv(
@@ -6294,10 +6294,11 @@ def test_dry_run_local_solver_vs_post_proc_counts():
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["stages"]["solve"]["num_procs_effective"] == 8
-    assert payload["stages"]["post-process"]["num_procs_effective"] == 1
+    assert payload["stages"]["post-process"]["num_procs_effective"] == 8
     assert "mpiexec" in payload["stages"]["solve"]["launch_command_string"]
     assert "-n 8" in payload["stages"]["solve"]["launch_command_string"]
-    assert "mpiexec" not in payload["stages"]["post-process"]["launch_command_string"]
+    assert "mpiexec" in payload["stages"]["post-process"]["launch_command_string"]
+    assert "-n 8" in payload["stages"]["post-process"]["launch_command_string"]
 
 
 def test_dry_run_local_accepts_launcher_override_for_login_node_runs():
@@ -6467,9 +6468,9 @@ def test_dry_run_local_still_reads_legacy_local_runtime_config(tmp_path):
     assert payload["stages"]["solve"]["launch_command"][:4] == ["mpirun", "--legacy-local", "-n", "3"]
 
 
-def test_dry_run_cluster_post_is_single_task(tmp_path):
+def test_dry_run_cluster_post_uses_cluster_tasks(tmp_path):
     """!
-    @brief Test that dry run cluster post is single task.
+    @brief Test that dry run uses the cluster task count for solver and post-processing.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -6528,9 +6529,9 @@ def test_dry_run_cluster_post_is_single_task(tmp_path):
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["stages"]["solve"]["num_procs_effective"] == 4
-    assert payload["stages"]["post-process"]["num_procs_effective"] == 1
+    assert payload["stages"]["post-process"]["num_procs_effective"] == 4
     assert "-n 4" in payload["stages"]["solve"]["launch_command_string"]
-    assert "-n 1" in payload["stages"]["post-process"]["launch_command_string"]
+    assert "-n 4" in payload["stages"]["post-process"]["launch_command_string"]
 
 
 def test_dry_run_cluster_accepts_inline_launcher_tokens(tmp_path):
@@ -7006,7 +7007,7 @@ def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_pa
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["num_procs"] == 4
     assert manifest["solver_num_procs"] == 4
-    assert manifest["post_num_procs"] == 1
+    assert manifest["post_num_procs"] == 4
 
     solver_script = (run_dir / "scheduler" / "solver.sbatch").read_text(encoding="utf-8")
     assert "#SBATCH --ntasks-per-node=4" in solver_script
@@ -7018,11 +7019,11 @@ def test_cluster_no_submit_manifest_and_scripts_use_stage_specific_counts(tmp_pa
 
     post_script = (run_dir / "scheduler" / "post.sbatch").read_text(encoding="utf-8")
     assert "#SBATCH --nodes=1" in post_script
-    assert "#SBATCH --ntasks-per-node=1" in post_script
+    assert "#SBATCH --ntasks-per-node=4" in post_script
     assert f"#SBATCH --output={run_dir / 'scheduler' / 'post_%j.out'}" in post_script
     assert f"#SBATCH --error={run_dir / 'scheduler' / 'post_%j.err'}" in post_script
     assert "PICURV_JOB_START_EPOCH" not in post_script
-    assert "srun -n 1 " in post_script
+    assert "srun -n 4 " in post_script
 
     control_file = next((run_dir / "config").glob("*.control"))
     control_text = control_file.read_text(encoding="utf-8")
@@ -8031,11 +8032,11 @@ def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
 
     post_script = (study_dir / "scheduler" / "post_array.sbatch").read_text(encoding="utf-8")
     assert "#SBATCH --nodes=1" in post_script
-    assert "#SBATCH --ntasks-per-node=1" in post_script
+    assert "#SBATCH --ntasks-per-node=4" in post_script
     assert f"#SBATCH --output={study_dir / 'scheduler' / 'post_%A_%a.out'}" in post_script
     assert f"#SBATCH --error={study_dir / 'scheduler' / 'post_%A_%a.err'}" in post_script
     assert "PICURV_JOB_START_EPOCH" not in post_script
-    assert "srun -n 1 " in post_script
+    assert "srun -n 4 " in post_script
 
     sample_control = next((study_dir / "cases").glob("*/config/*.control"))
     sample_control_text = sample_control.read_text(encoding="utf-8")
@@ -8045,9 +8046,9 @@ def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
     assert not (study_dir / "logs").exists()
 
 
-def test_sweep_no_submit_forces_single_rank_post_for_mpirun_launcher(tmp_path):
+def test_sweep_no_submit_uses_cluster_ranks_for_mpirun_post(tmp_path):
     """!
-    @brief Test that sweep-generated post array scripts force serial post even with mpirun cluster launchers.
+    @brief Test that sweep-generated post array scripts use all configured cluster tasks.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -8102,15 +8103,14 @@ def test_sweep_no_submit_forces_single_rank_post_for_mpirun_launcher(tmp_path):
     study_dir = next((tmp_path / "studies").iterdir())
     post_script = (study_dir / "scheduler" / "post_array.sbatch").read_text(encoding="utf-8")
     assert "#SBATCH --nodes=1" in post_script
-    assert "#SBATCH --ntasks-per-node=1" in post_script
-    assert "mpirun --bind-to none -np 1 " in post_script
-    assert "mpirun --bind-to none -np 2 " not in post_script
+    assert "#SBATCH --ntasks-per-node=2" in post_script
+    assert "mpirun --bind-to none -np 2 " in post_script
 
 
 
-def test_dry_run_local_post_forces_single_rank_launcher_override(tmp_path):
+def test_dry_run_local_post_uses_requested_rank_with_launcher_override(tmp_path):
     """!
-    @brief Test that local post dry-run strips multi-rank launcher overrides down to one task.
+    @brief Test that local post dry-run rewrites launcher size flags to the requested rank count.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -8139,8 +8139,8 @@ def test_dry_run_local_post_forces_single_rank_launcher_override(tmp_path):
 
     payload = json.loads(result.stdout)
     assert payload["stages"]["solve"]["launch_command"][:2] == ["mpirun", "--from-env"]
-    assert payload["stages"]["post-process"]["num_procs_effective"] == 1
-    assert "mpirun --from-env -n 1" in payload["stages"]["post-process"]["launch_command_string"]
+    assert payload["stages"]["post-process"]["num_procs_effective"] == 4
+    assert "mpirun --from-env -n 4" in payload["stages"]["post-process"]["launch_command_string"]
     assert "-np 8" not in payload["stages"]["post-process"]["launch_command_string"]
 
 def test_markdown_link_checker_passes():

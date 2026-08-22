@@ -825,6 +825,7 @@ int main(int argc, char **argv)
 
     // === II. CONFIGURE SIMULATION & POST-PROCESSING CONTEXTS =================
     ierr = CreateSimulationContext(argc, argv, &simCtx); CHKERRQ(ierr);
+    ierr = PetscPrintf(PETSC_COMM_WORLD, "Postprocessor MPI processes: %d\n", (int)simCtx->size); CHKERRQ(ierr);
     // === IIB. SET EXECUTION MODE (SOLVER vs POST-PROCESSOR) =====
     simCtx->exec_mode = EXEC_MODE_POSTPROCESSOR;
     // == IIC. CONFIGURE SIMULATION ENVIRONMENT & DIRECTORIES =====

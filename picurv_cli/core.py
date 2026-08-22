@@ -7121,20 +7121,6 @@ def strip_launcher_size_flags(launcher_name: str, launcher_args: "list[str]") ->
     return filtered
 
 
-def build_serial_post_cluster_config(cluster_cfg: dict, num_procs: int = 1) -> dict:
-    """!
-    @brief Clone cluster config and force a single-node post stage task layout.
-    @param[in] cluster_cfg Base cluster configuration.
-    @param[in] num_procs Number of post tasks to request.
-    @return Cluster configuration specialized for the post stage.
-    """
-    post_cluster_cfg = copy.deepcopy(cluster_cfg)
-    post_cluster_cfg.setdefault("resources", {})
-    post_cluster_cfg["resources"]["nodes"] = 1
-    post_cluster_cfg["resources"]["ntasks_per_node"] = int(num_procs)
-    return post_cluster_cfg
-
-
 def build_local_launch_command(
     executable: str,
     executable_args: list,
@@ -10960,7 +10946,7 @@ def render_slurm_array_stage_script(
     @param[in] stderr_path Argument passed to `render_slurm_array_stage_script()`.
     @return Value returned by `render_slurm_array_stage_script()`.
     """
-    effective_cluster_cfg = build_serial_post_cluster_config(cluster_cfg) if stage == "post" else cluster_cfg
+    effective_cluster_cfg = cluster_cfg
     resources = effective_cluster_cfg.get("resources", {})
     notifications = effective_cluster_cfg.get("notifications", {}) or {}
     execution = effective_cluster_cfg.get("execution", {}) or {}
@@ -11038,7 +11024,7 @@ def render_slurm_array_stage_script(
             effective_cluster_cfg,
             post_exe,
             ["-control_file", "$CONTROL_FILE", "-postprocessing_config_file", "$POST_RECIPE_FILE"],
-            force_num_procs=1,
+            force_num_procs=get_cluster_total_tasks(effective_cluster_cfg),
         )
 
     # Keep shell variables unresolved inside sbatch script.
@@ -11465,7 +11451,7 @@ def build_run_dry_plan(args) -> dict:
     cluster_cfg = None
     cluster_path = None
     solver_num_procs_effective = args.num_procs
-    post_num_procs_effective = 1
+    post_num_procs_effective = args.num_procs
     run_id = None
     run_dir = None
     solver_control_path = None
@@ -11495,19 +11481,21 @@ def build_run_dry_plan(args) -> dict:
             )
             sys.exit(1)
         cluster_tasks = get_cluster_total_tasks(cluster_cfg)
-        if args.solve and args.num_procs not in (1, cluster_tasks):
+        if (args.solve or args.post_process) and args.num_procs not in (1, cluster_tasks):
             emit_structured_error(
                 ERROR_CODE_CFG_INCONSISTENT_COMBO,
                 key="resources.ntasks_per_node",
                 file_path=cluster_path,
                 message=(
-                    "--num-procs applies to the solver stage and must be 1 (auto) or "
+                    "--num-procs must be 1 (auto) or "
                     f"exactly nodes*ntasks_per_node ({cluster_tasks}) in cluster mode."
                 ),
             )
             sys.exit(1)
         if args.solve:
             solver_num_procs_effective = cluster_tasks
+        if args.post_process:
+            post_num_procs_effective = cluster_tasks
         plan["launch_mode"] = "slurm"
         plan["inputs"]["cluster"] = cluster_path
     else:
@@ -11754,7 +11742,7 @@ def build_run_dry_plan(args) -> dict:
             if cluster_mode:
                 scheduler_dir = os.path.join(run_dir, "scheduler")
                 post_script = os.path.join(scheduler_dir, "post.sbatch")
-                post_cluster_cfg = build_serial_post_cluster_config(cluster_cfg, post_num_procs_effective)
+                post_cluster_cfg = cluster_cfg
                 raw_post_cmd = build_cluster_launch_command(
                     post_cluster_cfg,
                     post_exe,
@@ -12258,7 +12246,7 @@ def run_workflow(args):
     cluster_cfg = None
     cluster_path = None
     solver_num_procs_effective = args.num_procs
-    post_num_procs_effective = 1
+    post_num_procs_effective = args.num_procs
 
     if cluster_mode:
         cluster_path = os.path.abspath(args.cluster)
@@ -12275,25 +12263,29 @@ def run_workflow(args):
             print(f"[FATAL] Unsupported scheduler '{scheduler_type}'. Only Slurm is supported in v1.", file=sys.stderr)
             sys.exit(1)
         cluster_tasks = get_cluster_total_tasks(cluster_cfg)
-        if args.solve and args.num_procs not in (1, cluster_tasks):
+        if (args.solve or args.post_process) and args.num_procs not in (1, cluster_tasks):
             print(
-                "[FATAL] In cluster mode, --num-procs applies to the solver stage and must be "
+                "[FATAL] In cluster mode, --num-procs must be "
                 f"1 (auto) or exactly nodes*ntasks_per_node ({cluster_tasks}).",
                 file=sys.stderr
             )
             sys.exit(1)
         if args.solve:
             solver_num_procs_effective = cluster_tasks
+        if args.post_process:
+            post_num_procs_effective = cluster_tasks
         submission_meta["launch_mode"] = "slurm"
         submission_meta["cluster_config"] = cluster_path
         submission_meta["no_submit"] = bool(args.no_submit)
-        if args.solve:
+        if args.solve and args.post_process:
             print(
-                f"[INFO] Cluster mode enabled (Slurm). Solver uses {solver_num_procs_effective} MPI tasks "
-                f"from cluster.yml; post stage defaults to {post_num_procs_effective} task."
+                f"[INFO] Cluster mode enabled (Slurm). Solver and post stages use "
+                f"{solver_num_procs_effective} MPI tasks from cluster.yml."
             )
+        elif args.solve:
+            print(f"[INFO] Cluster mode enabled (Slurm). Solver uses {solver_num_procs_effective} MPI tasks from cluster.yml.")
         else:
-            print(f"[INFO] Cluster mode enabled (Slurm). Post stage defaults to {post_num_procs_effective} task.")
+            print(f"[INFO] Cluster mode enabled (Slurm). Post stage uses {post_num_procs_effective} MPI tasks from cluster.yml.")
     elif getattr(args, "scheduler", None):
         print("[FATAL] --scheduler requires --cluster in this version.", file=sys.stderr)
         sys.exit(1)
@@ -12637,7 +12629,7 @@ def run_workflow(args):
                     post_script = os.path.join(scheduler_dir, "post.sbatch")
                     post_log = os.path.join(scheduler_dir, "post_%j.out")
                     post_err = os.path.join(scheduler_dir, "post_%j.err")
-                    post_cluster_cfg = build_serial_post_cluster_config(cluster_cfg, post_num_procs_effective)
+                    post_cluster_cfg = cluster_cfg
                     raw_post_cmd = build_cluster_launch_command(
                         post_cluster_cfg,
                         post_exe,

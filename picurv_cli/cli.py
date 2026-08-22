@@ -20,8 +20,7 @@ def _add_run_parser(subparsers):
         description=(
             "Execute solver and/or post-processing stages.\n\n"
             "Notes:\n"
-            "  - --num-procs applies to solver stage launches.\n"
-            "  - Post-processing defaults to a single MPI rank/task.\n"
+            "  - --num-procs applies to solver and post-processing stage launches.\n"
             "  - With --solve, --continue resumes the existing run directory in-place.\n"
             "  - With --post-process, --continue resumes the same recipe from the first unfinished step\n"
             "    and caps the launch to the highest fully available contiguous source frontier.\n\n"
@@ -76,7 +75,7 @@ def _add_run_parser(subparsers):
         "--num-procs",
         type=int,
         default=1,
-        help="Number of MPI processes for the solver stage. Post-processing defaults to 1 rank.",
+        help="Number of MPI processes for solver and post-processing stages.",
     )
     p_run.add_argument("--cluster", help="Path to cluster.yml for Slurm execution mode.")
     p_run.add_argument("--scheduler", help="Explicit scheduler selector (currently 'slurm').")

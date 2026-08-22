@@ -17,6 +17,7 @@ tmp_root="$(mktemp -d)"
 LAST_RUN_DIR=""
 LAST_RUN_LOG=""
 LAST_SOLVER_LOG=""
+LAST_POST_LOG=""
 declare -a mpi_launcher_cmd=()
 
 cleanup() {
@@ -1460,6 +1461,25 @@ run_case_workflow() {
   LAST_SOLVER_LOG="$(find "${created_run}/scheduler" -maxdepth 1 -type f -name '*_solver.log' | sort | tail -n 1)"
   if [[ -z "${LAST_SOLVER_LOG}" ]]; then
     die "workflow '${label}' completed but no solver runtime log was found under '${created_run}/scheduler'."
+  fi
+  LAST_POST_LOG="$(
+    python3 - "${created_run}" <<'PY'
+import json
+import os
+import sys
+
+run_dir = sys.argv[1]
+with open(os.path.join(run_dir, "scheduler", "submission.json"), encoding="utf-8") as stream:
+    submission = json.load(stream)
+post_stage = submission.get("stages", {}).get("post-process")
+if post_stage:
+    print(os.path.join(run_dir, post_stage["log_file"]))
+PY
+  )"
+  if [[ -n "${LAST_POST_LOG}" ]]; then
+    require_file "${LAST_POST_LOG}" "postprocessor runtime log"
+    require_file_contains "${LAST_POST_LOG}" "Postprocessor MPI processes: ${nprocs}" \
+      "postprocessor MPI rank count in runtime summary"
   fi
   require_file "${created_run}/logs/Runtime_Memory.log" "runtime memory log"
   require_file_contains "${created_run}/logs/Runtime_Memory.log" "Process Current MB Max" "runtime memory log header"

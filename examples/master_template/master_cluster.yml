@@ -15,8 +15,7 @@ scheduler:
   type: slurm
 
 resources:
-  # These resources size solver-stage jobs.
-  # picurv forces the post stage to one task/rank in generated scripts, independent of solver allocation.
+  # These resources size both solver- and postprocessor-stage jobs.
   account: "my_project_account"
   partition: "compute"        # optional
   nodes: 2
