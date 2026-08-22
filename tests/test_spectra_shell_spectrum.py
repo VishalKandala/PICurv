@@ -235,6 +235,26 @@ def test_unsampled_window_mean_is_refused(staged_case, tmp_path):
         )
 
 
+def test_integral_length_scale_is_finite_under_the_discrete_symbol(staged_case):
+    """! @brief The 1/k moment must not divide by the vanishing Nyquist symbol. @param[in] staged_case Staged case. """
+    continuum = SPECTRA.generate_shell_spectrum(
+        staged_case["field"], staged_case["grid"], 0, "continuum", "none"
+    )
+    discrete = SPECTRA.generate_shell_spectrum(
+        staged_case["field"], staged_case["grid"], 0, "discrete", "none"
+    )
+    # sin(k*dx)/dx vanishes on the Nyquist planes, so a 1/k moment taken on the
+    # discrete symbol diverges rather than merely shifting. Both abscissae must
+    # report the same physical integral scale, and it must stay inside the box.
+    assert discrete["integral_length_scale"] == pytest.approx(
+        continuum["integral_length_scale"], rel=1e-12
+    )
+    assert 0.0 < discrete["integral_length_scale"] < min(BOX)
+    # The k^2 moment keeps its abscissa: the discrete operator resolves less
+    # gradient, so it must report strictly less dissipation.
+    assert discrete["dissipation_over_viscosity"] < continuum["dissipation_over_viscosity"]
+
+
 def test_spectral_integrals_are_reported_without_viscosity(staged_case):
     """! @brief Length scales and the dissipation factor must be present and positive. @param[in] staged_case Staged case. """
     result = SPECTRA.generate_shell_spectrum(

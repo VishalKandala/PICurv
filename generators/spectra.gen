@@ -305,9 +305,19 @@ def shell_spectrum(field, lengths_xyz, symbol="continuum"):
     # kinematic viscosity, which this script does not know: dissipation is
     # `viscosity * dissipation_over_viscosity`, while the length scales below need
     # no viscosity at all because it cancels out of their isotropic definitions.
-    nonzero = kmag > 0.0
+    # The k^2 moment is meaningful under either abscissa: weighting by the
+    # centered-difference symbol is exactly the statement that the discrete
+    # operator dissipates less than the continuum one would. The 1/k moment is
+    # not. sin(k*dx)/dx vanishes on the Nyquist planes, not only at the origin,
+    # so dividing by the discrete symbol makes E/k diverge there and drives the
+    # integral length scale up by orders of magnitude. The integral scale is a
+    # large-scale quantity, and the two abscissae agree to well under a percent
+    # across the energy-containing range, so it is always taken on the physical
+    # wavenumber and is therefore identical under both symbols.
+    continuum_kmag = numpy.sqrt(sum(component*component for component in continuum))
+    nonzero = continuum_kmag > 0.0
     moment_k2 = float(numpy.sum(kmag*kmag*energy))
-    moment_inverse_k = float(numpy.sum(energy[nonzero]/kmag[nonzero]))
+    moment_inverse_k = float(numpy.sum(energy[nonzero]/continuum_kmag[nonzero]))
     integral_length = (3.0*numpy.pi/4.0)*moment_inverse_k/resolved if resolved > 0 else 0.0
     taylor = float(numpy.sqrt(5.0*resolved/moment_k2)) if moment_k2 > 0 else 0.0
 

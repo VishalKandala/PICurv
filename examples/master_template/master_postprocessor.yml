@@ -208,6 +208,12 @@ statistics_pipeline:
 #       #                which is what the solver's own operator resolves.
 #       # Reading a high-k rolloff against the continuum abscissa alone will
 #       # attribute the scheme's damping to physics.
+#       # The abscissa applies to the binning and to the k^2 moment, so
+#       # dissipation_over_viscosity legitimately differs between the two: the
+#       # discrete operator resolves less gradient and so dissipates less.
+#       # integral_length_scale is the exception. Its 1/k moment is singular
+#       # under the discrete symbol, which vanishes on the Nyquist planes, so it
+#       # is always taken on the physical wavenumber and reads the same either way.
 #       symbol: continuum
 #
 #       # Fluctuation definition.
