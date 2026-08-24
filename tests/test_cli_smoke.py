@@ -4370,7 +4370,7 @@ def test_summarize_plot_saves_through_plot_gen(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert output_path.is_file()
-    assert "Saved time-history plot" in result.stdout
+    assert "Saved iteration-history plot" in result.stdout
 
 
 def test_summarize_plot_reports_missing_matplotlib_as_dependency_error(tmp_path):
@@ -4405,22 +4405,87 @@ def test_summarize_plot_request_uses_latest_continuation_segment_and_last_window
     records = picurv._collect_summary_plot_records(context)
 
     full_request = picurv._build_summary_plot_request(context, records, "momentum.residual_norm", None, False, None)
-    last_request = picurv._build_summary_plot_request(context, records, "momentum.residual_norm", 2, False, None)
+    last_request = picurv._build_summary_plot_request(context, records, "momentum.residual_norm", 1, False, None)
 
-    # step 2060 has a rejected then accepted pseudo-iteration, producing two plot points
-    assert [point[0] for point in full_request["lines"][0]["points"]] == [2055, 2060, 2060]
-    assert [point[0] for point in last_request["lines"][0]["points"]] == [2060, 2060]
+    # The latest physical step is a convergence curve over its nonlinear iterations,
+    # rather than three values joined vertically at physical timestep coordinates.
+    assert [point[0] for point in full_request["lines"][0]["points"]] == [59, 60]
+    assert [point[0] for point in last_request["lines"][0]["points"]] == [60]
+    assert full_request["plot_type"] == "iteration_history"
+    assert full_request["x_label"] == "Nonlinear iteration"
+    assert full_request["y_label"] == "Residual norm"
     assert full_request["y_scale"] == "log"
 
     for series in (
         "continuity.max_divergence",
         "particles.total_particles",
-        "poisson.true_norm",
         "profiling.step_time_s",
         "convergence.mean_ke",
     ):
         request = picurv._build_summary_plot_request(context, records, series, None, False, None)
-        assert all(point[0] in {2055, 2060} for line in request["lines"] for point in line["points"])
+        assert request["x_label"] == "Physical time"
+        assert all(
+            line["points"] == sorted(line["points"], key=lambda point: point[0])
+            for line in request["lines"]
+        )
+
+    catalog_names = {item["series"] for item in picurv._build_summary_plot_catalog(records)}
+    assert "convergence.time" not in catalog_names
+
+    effort = picurv._build_summary_plot_request(
+        context, records, "momentum.pseudo_iterations", None, False, None
+    )
+    assert effort["x_label"] == "Physical time"
+    assert [point[1] for point in effort["lines"][0]["points"]] == [55, 60]
+
+    poisson_residual = picurv._build_summary_plot_request(
+        context, records, "poisson.true_norm", None, False, None
+    )
+    assert poisson_residual["plot_type"] == "iteration_history"
+    assert poisson_residual["x_label"] == "Linear iteration"
+    assert [point[0] for point in poisson_residual["lines"][0]["points"]] == [60]
+
+    poisson_effort = picurv._build_summary_plot_request(
+        context, records, "poisson.iterations", None, False, None
+    )
+    assert poisson_effort["x_label"] == "Physical time"
+    assert [point[1] for point in poisson_effort["lines"][0]["points"]] == [55, 60]
+
+
+def test_spectrum_plot_request_selects_representative_states_and_report_labels(tmp_path):
+    """!
+    @brief Spectrum plots retain representative endpoint states without overcrowding.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    spectra_dir = run_dir / "output" / "spectra"
+    diagnostics_dir = run_dir / "diagnostics"
+    spectra_dir.mkdir(parents=True)
+    diagnostics_dir.mkdir(parents=True)
+    spectrum_path = spectra_dir / "Spectrum_shell_spectrum_Ucat_block0000_continuum.csv"
+    rows = ["step,time,k,energy"]
+    for step in range(10):
+        for wavenumber in (1.0, 2.0, 4.0):
+            rows.append(f"{step},{0.1 * step:g},{wavenumber:g},{1.0 / ((step + 1) * wavenumber):g}")
+    spectrum_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    (diagnostics_dir / "initial_condition_spectrum.csv").write_text(
+        "k,energy\n1,1\n2,0.5\n4,0.25\n", encoding="utf-8"
+    )
+
+    request = picurv._build_spectrum_plot_request(
+        {"run_dir": str(run_dir)}, "", True, False, None
+    )
+
+    assert request["plot_type"] == "spectrum"
+    assert request["title"] == "Turbulent kinetic-energy spectrum"
+    assert request["x_label"] == "Wavenumber, k"
+    assert request["y_label"] == "Energy spectrum, E(k)"
+    assert request["window"]["available_steps"] == 10
+    assert request["window"]["selected_steps"] == [0, 2, 4, 5, 7, 9]
+    assert request["lines"][0]["role"] == "reference"
+    assert request["lines"][-1]["role"] == "latest"
+    assert len(request["lines"]) == 7
 
 
 def test_summarize_plot_rejects_incompatible_selector_and_json(tmp_path):
@@ -6181,8 +6246,41 @@ def test_continue_without_run_dir_fails(tmp_path):
 
     args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=None)
 
-    with pytest.raises(ValueError, match="--continue requires --run-dir"):
+    with pytest.raises(ValueError) as exc_info:
         picurv.resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, str(tmp_path))
+
+    message = str(exc_info.value)
+    assert "--continue --run-dir <run_dir>" in message
+    assert "--restart-from <run_dir>" in message
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_continue_without_run_dir_cli_error_lists_both_restart_forms(tmp_path, dry_run):
+    """!
+    @brief Test that the CLI explains both ways to supply a restart run directory.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] dry_run Whether to exercise dry-run planning or normal execution.
+    """
+    valid = FIXTURES / "valid"
+    args = [
+        "run",
+        "--solve",
+        "--continue",
+        "--case",
+        str(valid / "case.yml"),
+        "--solver",
+        str(valid / "solver.yml"),
+        "--monitor",
+        str(valid / "monitor.yml"),
+    ]
+    if dry_run:
+        args.append("--dry-run")
+
+    result = run_picurv(args, cwd=tmp_path)
+
+    assert result.returncode == 2
+    assert "--continue --run-dir <run_dir>" in result.stderr
+    assert "--restart-from <run_dir>" in result.stderr
 
 
 def test_continue_with_zero_start_step_fails(tmp_path):

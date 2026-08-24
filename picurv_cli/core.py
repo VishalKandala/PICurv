@@ -487,6 +487,12 @@ ERROR_CODE_CFG_GRID_PARSE = "CFG_GRID_PARSE"
 ERROR_CODE_CFG_INCONSISTENT_COMBO = "CFG_INCONSISTENT_COMBO"
 ERROR_CODE_DEPENDENCY_MISSING = "DEPENDENCY_MISSING"
 
+RESTART_RUN_DIR_REQUIRED_MESSAGE = (
+    "--continue and --restart-from both require an existing run directory. "
+    "Use --continue --run-dir <run_dir> to resume in place, or "
+    "--restart-from <run_dir> to create a new run."
+)
+
 _ERROR_HINTS = {
     ERROR_CODE_CLI_USAGE_INVALID: "Run 'picurv <command> --help' to see valid argument combinations.",
     ERROR_CODE_CFG_MISSING_SECTION: "Add the missing section using examples/master_template/*.yml as reference.",
@@ -3407,7 +3413,7 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         # === MODE 2: Continue in-place ===
         continue_run_dir = getattr(args, 'run_dir', None)
         if not continue_run_dir:
-            raise ValueError("--continue requires --run-dir.")
+            raise ValueError(RESTART_RUN_DIR_REQUIRED_MESSAGE)
         continue_run_dir = os.path.abspath(continue_run_dir)
         if not os.path.isdir(continue_run_dir):
             raise ValueError(f"--run-dir does not exist: {continue_run_dir}")
@@ -5408,6 +5414,7 @@ _STUDY_SCHEMA = {
     ("metrics", "[]"): {
         "name", "source", "file_glob", "column", "reduction", "normalize_by_parameter",
         "numerator_column", "denominator_column", "denominator_floor",
+        "plot_label", "label", "units",
     },
     ("plotting",): {"enabled", "output_format"},
     ("execution",): {"max_concurrent_array_tasks"},
@@ -6783,6 +6790,12 @@ def validate_study_config(study_cfg: dict, study_path: str, skip_base_file_check
                 errors.append(f"  {study_path}: metrics[{i}] missing required key 'name'.")
             if "source" not in metric:
                 errors.append(f"  {study_path}: metrics[{i}] missing required key 'source'.")
+            for label_key in ("plot_label", "label", "units"):
+                label_value = metric.get(label_key)
+                if label_value is not None and (not isinstance(label_value, str) or not label_value.strip()):
+                    errors.append(
+                        f"  {study_path}: metrics[{i}].{label_key} must be a non-empty string when provided."
+                    )
 
     plotting = study_cfg.get("plotting", {})
     if plotting is not None and not isinstance(plotting, dict):
@@ -6849,6 +6862,36 @@ def expand_study_parameter_combinations(study_cfg: dict) -> list:
     return expand_parameter_matrix(study_cfg.get("parameters") or {})
 
 
+def flatten_study_parameters(parameters: dict) -> dict:
+    """!
+    @brief Flatten grouped study overrides into scalar dotted-path columns.
+
+    @details A grouped override such as `case.run_control: {dt_physical: ...}`
+             materializes correctly in case YAML but is not a useful CSV cell or
+             plot coordinate. Flattening preserves the actual varied variables.
+
+    @param[in] parameters One expanded study parameter combination.
+    @return Flat dotted-path-to-scalar mapping.
+    """
+    flattened = {}
+
+    def visit(prefix, value):
+        """!
+        @brief Recursively flatten one grouped override value.
+        @param[in] prefix Current dotted parameter path.
+        @param[in] value Scalar or nested mapping at the current path.
+        """
+        if isinstance(value, dict):
+            for child, child_value in value.items():
+                visit(f"{prefix}.{child}" if prefix else str(child), child_value)
+        else:
+            flattened[prefix] = value
+
+    for key, value in (parameters or {}).items():
+        visit(str(key), value)
+    return flattened
+
+
 def get_study_parameter_keys(study_cfg: dict) -> list:
     """!
     @brief Collect ordered parameter keys from either cross-product parameter expansions or explicit parameter sets.
@@ -6857,14 +6900,25 @@ def get_study_parameter_keys(study_cfg: dict) -> list:
     """
     parameters = study_cfg.get("parameters")
     if isinstance(parameters, dict) and parameters:
-        return list(parameters.keys())
+        keys = []
+        for key, candidates in parameters.items():
+            candidate_dicts = [value for value in candidates if isinstance(value, dict)] if isinstance(candidates, list) else []
+            expanded = []
+            for value in candidate_dicts:
+                for flat_key in flatten_study_parameters({key: value}):
+                    if flat_key not in expanded:
+                        expanded.append(flat_key)
+            for flat_key in expanded or [key]:
+                if flat_key not in keys:
+                    keys.append(flat_key)
+        return keys
 
     keys = []
     parameter_sets = study_cfg.get("parameter_sets") or []
     for param_set in parameter_sets:
         if not isinstance(param_set, dict):
             continue
-        for key in param_set.keys():
+        for key in flatten_study_parameters(param_set):
             if key not in keys:
                 keys.append(key)
     return keys
@@ -11251,7 +11305,8 @@ def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> s
     rows = []
     for case in cases:
         row = {"case_id": case["case_id"]}
-        for p_key, p_val in case["parameters"].items():
+        flat_parameters = flatten_study_parameters(case.get("parameters", {}))
+        for p_key, p_val in flat_parameters.items():
             row[p_key] = p_val
         for spec in normalized_specs:
             name = spec.get("name", "metric")
@@ -11265,7 +11320,7 @@ def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> s
 
             normalize_key = spec.get("normalize_by_parameter")
             if value is not None and normalize_key:
-                denom = case.get("parameters", {}).get(normalize_key)
+                denom = flat_parameters.get(normalize_key)
                 try:
                     denom = float(denom)
                 except Exception:
@@ -11298,6 +11353,118 @@ def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> s
     print(f"[SUCCESS] Aggregated metrics table: {os.path.relpath(out_csv)}")
     return out_csv
 
+_STUDY_REPORT_COLORS = (
+    "#0072B2", "#D55E00", "#009E73", "#CC79A7",
+    "#E69F00", "#56B4E9", "#332288", "#999999",
+)
+
+
+def _study_parameter_label(key: str) -> str:
+    """!
+    @brief Return a concise report label for a study parameter path.
+    @param[in] key Dotted study parameter path.
+    @return Report-facing axis or legend label.
+    """
+    exact = {
+        "case.run_control.dt_physical": "Physical timestep, Δt",
+        "case.models.physics.particles.count": "Particle count",
+        "solver.operation_mode.uniform_flow.u": "Uniform-flow velocity, u",
+        "case.grid.programmatic_settings.im": "Grid nodes in i, Nᵢ",
+        "case.grid.programmatic_settings.jm": "Grid nodes in j, Nⱼ",
+        "case.grid.programmatic_settings.km": "Grid nodes in k, Nₖ",
+    }
+    return exact.get(key, _humanize_plot_identifier(key))
+
+
+def _study_metric_label(study_cfg: dict, metric: str) -> str:
+    """!
+    @brief Resolve an optional configured metric label or humanize its name.
+    @param[in] study_cfg Parsed study configuration.
+    @param[in] metric Metric column name.
+    @return Report-facing metric label.
+    """
+    for raw_spec in study_cfg.get("metrics", []) or []:
+        spec = normalize_metric_spec(raw_spec)
+        if spec.get("name") != metric:
+            continue
+        label = spec.get("plot_label") or spec.get("label")
+        units = spec.get("units")
+        base = str(label) if label else _humanize_plot_identifier(metric)
+        return f"{base} ({units})" if units else base
+    return _humanize_plot_identifier(metric)
+
+
+def _numeric_study_column(rows: list, key: str) -> "list | None":
+    """!
+    @brief Parse one complete, finite numeric study-table column.
+    @param[in] rows Metrics-table rows.
+    @param[in] key Column name.
+    @return Numeric values, or None when the column is incomplete or nonnumeric.
+    """
+    values = []
+    for row in rows:
+        try:
+            value = float(row[key])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not math.isfinite(value):
+            return None
+        values.append(value)
+    return values
+
+
+def _infer_study_plot_axis(study_cfg: dict, rows: list) -> "dict | None":
+    """!
+    @brief Infer the scientifically meaningful independent variable of a study.
+    @param[in] study_cfg Parsed study configuration.
+    @param[in] rows Metrics-table rows.
+    @return Axis metadata, or None when no numeric independent variable exists.
+    """
+    params = [key for key in get_study_parameter_keys(study_cfg) if rows and key in rows[0]]
+    if not params or not rows:
+        return None
+
+    grid_keys = (
+        "case.grid.programmatic_settings.im",
+        "case.grid.programmatic_settings.jm",
+        "case.grid.programmatic_settings.km",
+    )
+    if study_cfg.get("study_type") == "grid_independence" and all(key in params for key in grid_keys):
+        columns = [_numeric_study_column(rows, key) for key in grid_keys]
+        if all(column is not None for column in columns):
+            values = [
+                (columns[0][index] * columns[1][index] * columns[2][index]) ** (1.0 / 3.0)
+                for index in range(len(rows))
+            ]
+            return {
+                "key": "characteristic_grid_resolution",
+                "label": "Characteristic grid resolution, (NᵢNⱼNₖ)¹⁄³",
+                "slug": "characteristic_grid_resolution",
+                "values": values,
+                "contributors": set(grid_keys),
+            }
+
+    preferred = []
+    if study_cfg.get("study_type") == "timestep_independence":
+        preferred = [key for key in params if key.endswith(".dt_physical")]
+    numeric = []
+    for key in preferred + [key for key in params if key not in preferred]:
+        values = _numeric_study_column(rows, key)
+        if values is not None:
+            numeric.append((key, values, len(set(values))))
+    if not numeric:
+        return None
+    varied = [candidate for candidate in numeric if candidate[2] > 1]
+    key, values, _unique = (varied or numeric)[0]
+    return {
+        "key": key,
+        "label": _study_parameter_label(key),
+        "slug": re.sub(r"[^A-Za-z0-9_.-]+", "_", key),
+        "values": values,
+        "contributors": {key},
+    }
+
+
 def infer_plot_x_axis(study_cfg: dict, rows: list):
     """!
     @brief Infer x-axis key/values for study plots.
@@ -11305,35 +11472,98 @@ def infer_plot_x_axis(study_cfg: dict, rows: list):
     @param[in] rows Argument passed to `infer_plot_x_axis()`.
     @return Value returned by `infer_plot_x_axis()`.
     """
-    params = get_study_parameter_keys(study_cfg)
-    if not params or not rows:
+    axis = _infer_study_plot_axis(study_cfg, rows)
+    if axis is None:
         return None, None
+    return axis["label"], axis["values"]
 
-    study_type = study_cfg.get("study_type")
-    if study_type == "grid_independence":
-        has_im = "case.grid.programmatic_settings.im" in params
-        has_jm = "case.grid.programmatic_settings.jm" in params
-        has_km = "case.grid.programmatic_settings.km" in params
-        if has_im and has_jm and has_km:
-            xs = []
-            for row in rows:
-                try:
-                    im = float(row["case.grid.programmatic_settings.im"])
-                    jm = float(row["case.grid.programmatic_settings.jm"])
-                    km = float(row["case.grid.programmatic_settings.km"])
-                    xs.append((im * jm * km) ** (1.0 / 3.0))
-                except Exception:
-                    return None, None
-            return "N^(1/3)", xs
 
-    primary = params[0]
-    xs = []
-    for row in rows:
+def _format_study_group_value(value) -> str:
+    """!
+    @brief Format a secondary study parameter compactly for a legend.
+    @param[in] value Parameter value.
+    @return Compact report string.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if number.is_integer():
+        return f"{int(number):,}"
+    return f"{number:g}"
+
+
+def _study_plot_groups(study_cfg: dict, rows: list, axis: dict, metric: str) -> list:
+    """!
+    @brief Group metric points by any secondary varied study parameters.
+    @param[in] study_cfg Parsed study configuration.
+    @param[in] rows Metrics-table rows.
+    @param[in] axis Inferred independent-axis metadata.
+    @param[in] metric Metric column name.
+    @return Labeled point groups.
+    """
+    param_keys = [key for key in get_study_parameter_keys(study_cfg) if rows and key in rows[0]]
+    secondary = []
+    for key in param_keys:
+        if key in axis["contributors"]:
+            continue
+        values = {str(row.get(key)) for row in rows}
+        # A control coupled one-to-one with x (for example total_steps paired
+        # with dt to keep physical duration fixed, or particle count paired with
+        # grid size to keep PPC fixed) describes the same study trajectory. It
+        # must not split that trajectory into one-point pseudo-series.
+        if 1 < len(values) < len(rows):
+            secondary.append(key)
+
+    groups = {}
+    for row_index, row in enumerate(rows):
         try:
-            xs.append(float(row[primary]))
-        except Exception:
-            return None, None
-    return primary, xs
+            y_value = float(row[metric])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not math.isfinite(y_value):
+            continue
+        identity = tuple(row.get(key) for key in secondary)
+        groups.setdefault(identity, []).append([axis["values"][row_index], y_value])
+
+    result = []
+    for identity, points in groups.items():
+        points.sort(key=lambda point: point[0])
+        label = ", ".join(
+            f"{_study_parameter_label(key)} = {_format_study_group_value(value)}"
+            for key, value in zip(secondary, identity)
+        )
+        result.append({"label": label or "Study cases", "points": points})
+    return result
+
+
+def _study_use_log_scale(values: list, semantic_hint: bool = False) -> bool:
+    """!
+    @brief Use log scaling only for positive data spanning a meaningful range.
+    @param[in] values Candidate axis values.
+    @param[in] semantic_hint Whether the quantity is conventionally read logarithmically.
+    @return True when logarithmic scaling improves interpretation.
+    """
+    if not values or any(value <= 0.0 for value in values):
+        return False
+    ratio = max(values) / min(values)
+    return ratio >= (20.0 if semantic_hint else 100.0)
+
+
+def _study_linear_y_limits(values: list) -> "tuple[float, float] | None":
+    """!
+    @brief Build padded linear limits that include zero for non-negative metrics.
+    @param[in] values Finite metric values.
+    @return Lower and upper limits, or None for an empty sequence.
+    """
+    if not values:
+        return None
+    lower, upper = min(values), max(values)
+    if lower >= 0.0:
+        lower = 0.0
+    span = upper - lower
+    padding = max(span * 0.06, abs(upper) * 0.02, 1.0e-12)
+    return (lower, upper + padding) if lower == 0.0 else (lower - padding, upper + padding)
 
 def generate_study_plots(study_cfg: dict, metrics_csv: str, plots_dir: str):
     """!
@@ -11360,43 +11590,87 @@ def generate_study_plots(study_cfg: dict, metrics_csv: str, plots_dir: str):
     if not rows:
         return []
 
-    x_name, x_values = infer_plot_x_axis(study_cfg, rows)
-    if not x_name or x_values is None:
+    axis = _infer_study_plot_axis(study_cfg, rows)
+    if axis is None:
         print("[WARNING] Could not infer numeric x-axis for plots; skipping.")
         return []
 
-    metric_keys = []
-    param_keys = get_study_parameter_keys(study_cfg)
-    for key in rows[0].keys():
-        if key in {"case_id"}:
-            continue
-        if key in param_keys:
-            continue
-        metric_keys.append(key)
+    configured_metrics = study_cfg.get("metrics", []) or ["msd_final"]
+    metric_keys = [
+        normalize_metric_spec(metric).get("name", "metric") for metric in configured_metrics
+        if normalize_metric_spec(metric).get("name", "metric") in rows[0]
+    ]
 
     out_format = plotting_cfg.get("output_format", "png")
     os.makedirs(plots_dir, exist_ok=True)
     generated = []
     for metric in metric_keys:
-        y_values = []
-        ok = True
-        for row in rows:
-            try:
-                y_values.append(float(row[metric]))
-            except Exception:
-                ok = False
-                break
-        if not ok:
+        groups = _study_plot_groups(study_cfg, rows, axis, metric)
+        if not groups:
             continue
-        plt.figure(figsize=(7.0, 4.2))
-        plt.plot(x_values, y_values, marker="o", linewidth=1.5)
-        plt.xlabel(x_name)
-        plt.ylabel(metric)
-        plt.title(f"{metric} vs {x_name}")
-        plt.grid(True, alpha=0.3)
-        out_path = os.path.join(plots_dir, f"{metric}_vs_{x_name.replace('/', '_')}.{out_format}")
-        plt.tight_layout()
-        plt.savefig(out_path, dpi=150)
+        all_x = [point[0] for group in groups for point in group["points"]]
+        all_y = [point[1] for group in groups for point in group["points"]]
+        metric_label = _study_metric_label(study_cfg, metric)
+        metric_hint = metric.lower()
+        y_log = _study_use_log_scale(
+            all_y,
+            any(token in metric_hint for token in ("error", "residual", "drift", "msd")),
+        )
+        x_log = _study_use_log_scale(all_x)
+        grid_cross_product = (
+            study_cfg.get("study_type") == "grid_independence"
+            and bool(study_cfg.get("parameters")) and len(axis["contributors"]) == 3
+            and sum(
+                len(set(float(row[key]) for row in rows)) > 1
+                for key in axis["contributors"]
+            ) > 1
+        )
+
+        plt.figure(figsize=(9.2, 5.5), facecolor="white")
+        for index, group in enumerate(groups):
+            x_values = [point[0] for point in group["points"]]
+            y_values = [point[1] for point in group["points"]]
+            repeated_x = len(set(x_values)) != len(x_values)
+            plt.plot(
+                x_values, y_values,
+                color=_STUDY_REPORT_COLORS[index % len(_STUDY_REPORT_COLORS)],
+                marker="o", markersize=5.2, markeredgewidth=0.7,
+                linewidth=0.0 if repeated_x or grid_cross_product else 1.8,
+                linestyle="none" if repeated_x or grid_cross_product else "-",
+                label=group["label"],
+            )
+        plt.xlabel(axis["label"], fontsize=11)
+        plt.ylabel(metric_label, fontsize=11)
+        study_label = {
+            "grid_independence": "Grid-independence study",
+            "timestep_independence": "Timestep-independence study",
+            "sensitivity": "Sensitivity study",
+        }.get(study_cfg.get("study_type"), "Parameter study")
+        plt.title(f"{metric_label} vs. {axis['label']}\n{study_label}", fontsize=13, loc="left", pad=12)
+        if x_log and hasattr(plt, "xscale"):
+            plt.xscale("log")
+        if y_log:
+            plt.yscale("log")
+        elif hasattr(plt, "ylim"):
+            limits = _study_linear_y_limits(all_y)
+            if limits:
+                plt.ylim(*limits)
+        if hasattr(plt, "tick_params"):
+            plt.tick_params(axis="both", which="major", labelsize=9.5)
+        plt.grid(True, alpha=0.24, which="major", linewidth=0.7)
+        if x_log or y_log:
+            plt.grid(True, alpha=0.08, which="minor", linewidth=0.5)
+        if len(groups) > 1:
+            plt.legend(
+                loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0.0,
+                frameon=False, title="Fixed parameters", fontsize=9, title_fontsize=9.5,
+            )
+            plt.tight_layout(rect=(0.0, 0.0, 0.76, 1.0))
+        else:
+            plt.tight_layout()
+        safe_metric = re.sub(r"[^A-Za-z0-9_.-]+", "_", metric)
+        out_path = os.path.join(plots_dir, f"{safe_metric}_vs_{axis['slug']}.{out_format}")
+        plt.savefig(out_path, dpi=240, bbox_inches="tight", facecolor="white")
         plt.close()
         generated.append(out_path)
     if generated:
@@ -11524,7 +11798,7 @@ def build_run_dry_plan(args) -> dict:
         if continue_mode:
             # --continue reuses existing run directory
             if not args.run_dir:
-                fail_cli_usage("--continue requires --run-dir.")
+                fail_cli_usage(RESTART_RUN_DIR_REQUIRED_MESSAGE)
             run_dir = os.path.abspath(args.run_dir)
             if not os.path.isdir(run_dir):
                 emit_structured_error(
@@ -12016,7 +12290,7 @@ def validate_workflow(args):
         if continue_run and not args.post:
             print("[WARNING] --continue has no effect without solver configs or --post and will be ignored.", file=sys.stderr)
     if continue_run and not run_dir_val:
-        fail_cli_usage("--continue requires --run-dir.")
+        fail_cli_usage(RESTART_RUN_DIR_REQUIRED_MESSAGE)
 
     monitor_cfg = None
     case_cfg = None
@@ -12318,7 +12592,7 @@ def run_workflow(args):
 
         if continue_mode:
             if not args.run_dir:
-                fail_cli_usage("--continue requires --run-dir.")
+                fail_cli_usage(RESTART_RUN_DIR_REQUIRED_MESSAGE)
             run_dir = os.path.abspath(args.run_dir)
             if not os.path.isdir(run_dir):
                 emit_structured_error(
@@ -15303,13 +15577,159 @@ def render_selected_summary(payload: dict, output_format: str = "text"):
 
 
 _SUMMARY_PLOT_LOG_SCALE_FIELDS = {
-    "delta_norm", "delta_rel", "residual_norm", "residual_rel",
+    "max_divergence", "delta_norm", "delta_rel", "residual_norm", "residual_rel",
     "unpreconditioned_norm", "true_norm", "relative_norm",
     "u_abs_l2", "u_rel_l2", "p_abs_l2", "p_rel_l2",
+    "spd_abs", "spd_rel", "ke_abs", "ke_rel",
+    "spd_win_abs", "spd_win_rel", "spd_rms_abs", "spd_rms_rel",
+    "ke_win_abs", "ke_win_rel", "ke_rms_abs", "ke_rms_rel",
+    "parseval_residual", "zero_mode_energy",
 }
 
 
-def _append_summary_plot_record(records: list, source: str, step, line: str, values: dict, source_path: str, segment: int = 0):
+_SUMMARY_PLOT_FIELD_LABELS = {
+    "max_divergence": "Maximum |divergence|",
+    "rhs_sum": "Continuity right-hand-side sum",
+    "flux_in": "Inflow flux",
+    "flux_out": "Outflow flux",
+    "net_flux": "Net boundary flux",
+    "total_particles": "Particle count",
+    "lost_particles": "Particles lost per step",
+    "lost_particles_cumulative": "Cumulative particles lost",
+    "migrated_particles": "Migrated particles",
+    "occupied_cells": "Occupied cells",
+    "load_imbalance": "Particle load imbalance",
+    "migration_passes": "Particle migration passes",
+    "pseudo_iterations": "Pseudo-iterations to convergence",
+    "newton_iterations": "Newton iterations to convergence",
+    "iterations": "Linear iterations to convergence",
+    "dtau": "Pseudo-time step, Δτ",
+    "dtau_after": "Accepted pseudo-time step, Δτ",
+    "cfl_eff": "Effective pseudo-CFL",
+    "cfl_eff_after": "Accepted effective pseudo-CFL",
+    "delta_norm": "Momentum update norm, ‖ΔU‖",
+    "delta_rel": "Relative momentum update, ‖ΔU‖/‖ΔU₀‖",
+    "residual_norm": "Residual norm",
+    "residual_rel": "Relative residual norm",
+    "trial_ratio": "Pseudo-CFL trial ratio",
+    "smoothed_ratio": "Smoothed pseudo-CFL ratio",
+    "unpreconditioned_norm": "Unpreconditioned residual norm",
+    "true_norm": "True residual norm",
+    "relative_norm": "Relative residual norm",
+    "calls": "Calls per physical step",
+    "step_time_s": "Wall time per physical step (s)",
+    "process_current_mb_max": "Maximum resident memory (MiB)",
+    "process_peak_mb_max": "Peak resident memory (MiB)",
+    "petsc_allocated_mb_max": "PETSc allocated memory (MiB)",
+    "petsc_peak_allocated_mb_max": "Peak PETSc allocated memory (MiB)",
+    "process_change_mb_max": "Resident-memory change (MiB)",
+    "u_abs_l2": "Velocity L² error",
+    "u_rel_l2": "Relative velocity L² error",
+    "p_abs_l2": "Pressure L² error",
+    "p_rel_l2": "Relative pressure L² error",
+    "mean_speed": "Volume-mean speed",
+    "spd_ref": "Reference mean speed",
+    "spd_abs": "Absolute mean-speed drift",
+    "spd_rel": "Relative mean-speed drift",
+    "mean_ke": "Mean kinetic energy",
+    "ke_ref": "Reference mean kinetic energy",
+    "ke_abs": "Absolute kinetic-energy drift",
+    "ke_rel": "Relative kinetic-energy drift",
+    "spd_win": "Window-mean speed",
+    "spd_win_prev": "Previous window-mean speed",
+    "spd_win_abs": "Absolute window-mean speed drift",
+    "spd_win_rel": "Relative window-mean speed drift",
+    "spd_rms_win": "Window RMS mean speed",
+    "spd_rms_abs": "Absolute RMS speed drift",
+    "spd_rms_rel": "Relative RMS speed drift",
+    "ke_win": "Window-mean kinetic energy",
+    "ke_win_prev": "Previous window-mean kinetic energy",
+    "ke_win_abs": "Absolute window-mean kinetic-energy drift",
+    "ke_win_rel": "Relative window-mean kinetic-energy drift",
+    "ke_rms_win": "Window RMS kinetic energy",
+    "ke_rms_abs": "Absolute RMS kinetic-energy drift",
+    "ke_rms_rel": "Relative RMS kinetic-energy drift",
+    "resolved_kinetic_energy": "Resolved kinetic energy",
+    "spectrum_total_energy": "Integrated spectral energy",
+    "parseval_residual": "Parseval residual",
+    "spectrum_peak_k": "Peak wavenumber, kₚₑₐₖ",
+    "zero_mode_energy": "Zero-mode energy",
+    "integral_length_scale": "Integral length scale",
+    "taylor_microscale": "Taylor microscale",
+    "dissipation_over_viscosity": "Dissipation / kinematic viscosity",
+}
+
+
+_SUMMARY_PLOT_SOURCE_TITLES = {
+    "continuity": "Continuity",
+    "particles": "Particle transport",
+    "momentum": "Momentum solver",
+    "poisson": "Pressure Poisson solver",
+    "profiling": "Runtime profile",
+    "memory": "Runtime memory",
+    "convergence": "Solution convergence",
+    "spectra": "Turbulence spectrum",
+}
+
+
+_SUMMARY_ITERATION_HISTORY_FIELDS = {
+    "dtau", "dtau_after", "cfl_eff", "cfl_eff_after", "delta_norm", "delta_rel",
+    "residual_norm", "residual_rel", "trial_ratio", "smoothed_ratio",
+    "unpreconditioned_norm", "true_norm", "relative_norm",
+}
+
+
+_SUMMARY_COUNT_FIELDS = {
+    "total_particles", "lost_particles", "lost_particles_cumulative",
+    "migrated_particles", "occupied_cells", "migration_passes", "calls",
+    "pseudo_iterations", "newton_iterations", "iterations",
+}
+
+
+def _humanize_plot_identifier(value: str) -> str:
+    """!
+    @brief Convert one machine-oriented identifier into a readable plot label.
+    @param[in] value Dotted path or snake-case identifier.
+    @return Human-readable label.
+    """
+    text = str(value).split(".")[-1].replace("_", " ").strip()
+    replacements = {
+        "l2": "L²", "linf": "L∞", "msd": "mean-squared displacement",
+        "pct": "percentage", "p95": "95th percentile", "cfl": "CFL",
+        "ke": "kinetic energy", "rms": "RMS",
+    }
+    words = [replacements.get(word.lower(), word) for word in text.split()]
+    return " ".join(words[:1]).capitalize() + (" " + " ".join(words[1:]) if len(words) > 1 else "")
+
+
+def _summary_field_label(field: str) -> str:
+    """!
+    @brief Return the report-facing label for one logged scalar field.
+    @param[in] field Logged scalar field name.
+    @return Report-facing label.
+    """
+    return _SUMMARY_PLOT_FIELD_LABELS.get(field, _humanize_plot_identifier(field))
+
+
+def _summary_physical_time(context: dict, record: dict) -> "float | None":
+    """!
+    @brief Resolve a record's physical time from its artifact or copied case configuration.
+    @param[in] context Summary context with copied case configuration.
+    @param[in] record Collected plot record.
+    @return Physical time, or None when it cannot be resolved.
+    """
+    explicit = record.get("coordinates", {}).get("time")
+    if explicit is not None:
+        return float(explicit)
+    try:
+        dt = float((context.get("case_cfg") or {}).get("run_control", {}).get("dt_physical"))
+    except (TypeError, ValueError):
+        return None
+    return float(record["step"]) * dt if math.isfinite(dt) and dt > 0.0 else None
+
+
+def _append_summary_plot_record(records: list, source: str, step, line: str, values: dict,
+                                source_path: str, segment: int = 0, coordinates: dict = None):
     """!
     @brief Append one numeric append-ordered record for summarize plotting.
     @param[out] records Destination record list.
@@ -15319,6 +15739,7 @@ def _append_summary_plot_record(records: list, source: str, step, line: str, val
     @param[in] values Candidate field mapping.
     @param[in] source_path Source artifact path.
     @param[in] segment Zero-based continuation segment within the source artifact.
+    @param[in] coordinates Optional independent variables carried by the source row.
     """
     numeric = {
         key: value
@@ -15333,6 +15754,10 @@ def _append_summary_plot_record(records: list, source: str, step, line: str, val
             "values": numeric,
             "source_path": source_path,
             "segment": int(segment),
+            "coordinates": {
+                key: value for key, value in (coordinates or {}).items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            },
         })
 
 
@@ -15449,6 +15874,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                             "cfl_eff_after": _parse_float_loose(match.group("cfl_eff_after")),
                         },
                         path, segment,
+                        coordinates={"solver_iteration": int(match.group("pseudo_iter"))},
                     )
 
     newton_history_regex = re.compile(
@@ -15471,6 +15897,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                             "residual_norm": float(match.group("norm")),
                         },
                         path, segment,
+                        coordinates={"solver_iteration": int(match.group("newton"))},
                     )
 
     poisson_regex = re.compile(
@@ -15496,6 +15923,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                             "relative_norm": _parse_float_loose(match.group("rel")),
                         },
                         path, segment,
+                        coordinates={"solver_iteration": int(match.group("iter"))},
                     )
 
     profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
@@ -15560,8 +15988,17 @@ def _collect_summary_plot_records(context: dict) -> list:
                     continue
                 parts = [part.strip() for part in raw_line.split("|")]
                 step = _parse_int_loose(parts[0])
-                values = {name: _parse_float_loose(value) for name, value in zip(columns, parts) if name not in {"step", "mode", "ref"}}
-                _append_summary_plot_record(records, "convergence", step, "convergence", values, convergence_path, segment)
+                row = dict(zip(columns, parts))
+                values = {
+                    name: _parse_float_loose(value)
+                    for name, value in row.items()
+                    if name not in {"step", "time", "mode", "ref", "ph", "per", "win"}
+                }
+                _append_summary_plot_record(
+                    records, "convergence", step, "convergence", values,
+                    convergence_path, segment,
+                    coordinates={"time": _parse_float_loose(row.get("time"))},
+                )
 
     records.extend(_collect_spectra_plot_records(context))
     return records
@@ -15581,9 +16018,10 @@ def _collect_spectra_plot_records(context: dict) -> list:
     run_dir = context.get("run_dir")
     if not run_dir:
         return records
-    for root, _dirs, files in os.walk(os.path.join(run_dir, "output")):
-        if os.path.basename(root) != "spectra":
-            continue
+    spectra_root = os.path.join(
+        run_dir, resolve_post_spectra_output_dir(context.get("monitor_cfg") or {})
+    )
+    for root, _dirs, files in os.walk(spectra_root):
         for filename in sorted(files):
             if not filename.endswith("_history.csv"):
                 continue
@@ -15602,7 +16040,8 @@ def _collect_spectra_plot_records(context: dict) -> list:
                                 values[column] = parsed
                         if values:
                             _append_summary_plot_record(
-                                records, "spectra", step, line, values, history_path, 0
+                                records, "spectra", step, line, values, history_path, 0,
+                                coordinates={"time": _parse_float_loose(row.get("time"))},
                             )
             except OSError:
                 # A history a concurrent post stage is still writing is simply not
@@ -15635,15 +16074,26 @@ def _build_summary_plot_catalog(records: list) -> list:
     ]
 
 
+def _representative_indices(count: int, maximum: int = 6) -> list:
+    """!
+    @brief Select evenly distributed indices while always retaining both endpoints.
+    @param[in] count Number of available ordered states.
+    @param[in] maximum Maximum states to retain.
+    @return Sorted unique zero-based indices.
+    """
+    if count <= maximum:
+        return list(range(count))
+    return sorted({round(index * (count - 1) / (maximum - 1)) for index in range(maximum)})
+
+
 def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
                                  linear_y: bool, output_path: "str | None") -> dict:
     """!
-    @brief Build a plot.gen request drawing one spectrum per processed step.
+    @brief Build a plot.gen request drawing representative measured spectra.
 
-    @details A decaying flow has a different spectrum at every step, so the family is
-             plotted rather than averaged. The initial-condition spectrum is overlaid
-             when it exists, which is the comparison the measurement is usually made
-             for.
+    @details A decaying flow has a different spectrum at every step, so states are
+             never averaged. Up to six evenly spaced states are retained, including
+             the first and last, to show evolution without an unreadable legend.
 
     @param[in] context Summary context returned by `_build_summary_context()`.
     @param[in] task Task basename, or a unique substring of one.
@@ -15653,7 +16103,10 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
     @return Versioned normalized plot request.
     @throws ValueError when no matching spectrum file exists.
     """
-    spectra_dir = os.path.join(context["run_dir"], "output", "spectra")
+    spectra_dir = os.path.join(
+        context["run_dir"],
+        resolve_post_spectra_output_dir(context.get("monitor_cfg") or {}),
+    )
     candidates = []
     if os.path.isdir(spectra_dir):
         candidates = sorted(
@@ -15706,24 +16159,50 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
                         continue
                     points.append([wavenumber, energy])
             if points:
-                lines.append({"label": "initial condition", "points": points})
-    for step in sorted(by_step):
+                lines.append({
+                    "label": "Initial condition", "points": sorted(points),
+                    "role": "reference", "color": "#333333", "line_style": "--",
+                })
+
+    ordered_steps = sorted(by_step)
+    selected_steps = [ordered_steps[index] for index in _representative_indices(len(ordered_steps))]
+    spectrum_colors = ("#440154", "#414487", "#2A788E", "#22A884", "#7AD151", "#DCE319")
+    for index, step in enumerate(selected_steps):
         time = times.get(step)
-        label = f"step {step}" if time is None else f"step {step} (t={time:g})"
-        lines.append({"label": label, "points": by_step[step]})
+        label = f"Step {step}" if time is None else f"t = {time:g} (step {step})"
+        lines.append({
+            "label": label,
+            "points": sorted(by_step[step]),
+            "role": "latest" if step == ordered_steps[-1] else "snapshot",
+            "color": spectrum_colors[round(index * (len(spectrum_colors) - 1) / max(1, len(selected_steps) - 1))],
+            "line_width": 2.4 if step == ordered_steps[-1] else 1.65,
+        })
 
     name = matches[0][: -len(".csv")]
     fallback = os.path.join(context["run_dir"], "summary", "plots", f"{name}.png")
+    task_match = re.search(r"_(?P<field>[^_]+)_block(?P<block>\d+)_(?P<symbol>[^_]+)$", name)
+    subtitle = None
+    if task_match:
+        subtitle = (
+            f"Field {task_match.group('field')} · block {int(task_match.group('block'))} "
+            f"· {task_match.group('symbol')} wavenumber"
+        )
     return {
         "schema_version": 1,
-        "plot_type": "time_history",
+        "plot_type": "spectrum",
         "series": name,
-        "title": f"Energy spectrum: {name}",
-        "x_label": "Wavenumber k",
-        "y_label": "E(k)",
+        "title": "Turbulent kinetic-energy spectrum",
+        "subtitle": subtitle,
+        "x_label": "Wavenumber, k",
+        "y_label": "Energy spectrum, E(k)",
         "x_scale": "linear" if linear_y else "log",
         "y_scale": "linear" if linear_y else "log",
-        "window": {"mode": "full", "last": None},
+        "legend_title": "Snapshot",
+        "show_markers": False,
+        "window": {
+            "mode": "representative", "last": None,
+            "available_steps": len(ordered_steps), "selected_steps": selected_steps,
+        },
         "lines": lines,
         "output_path": os.path.abspath(output_path) if output_path else fallback,
     }
@@ -15754,24 +16233,105 @@ def _build_summary_plot_request(context: dict, records: list, series: str, last_
         record for record in matching
         if record.get("segment", 0) == latest_segments[record["source_path"]]
     ]
+    is_iteration_history = (
+        source in {"momentum", "poisson"} and field in _SUMMARY_ITERATION_HISTORY_FIELDS
+        and any("solver_iteration" in record.get("coordinates", {}) for record in matching)
+    )
     grouped = {}
-    for record in matching:
-        grouped.setdefault(record["line"], []).append([record["step"], record["values"][field]])
-    if last_n is not None:
-        grouped = {label: points[-last_n:] for label, points in grouped.items()}
+    selected_steps = set()
+    if is_iteration_history:
+        histories = {}
+        for record in matching:
+            iteration = record.get("coordinates", {}).get("solver_iteration")
+            if iteration is None:
+                continue
+            histories.setdefault((record["source_path"], record["line"]), []).append(record)
+        for (_source_path, label), history in histories.items():
+            latest_step = max(record["step"] for record in history)
+            selected_steps.add(latest_step)
+            points = [
+                [record["coordinates"]["solver_iteration"], record["values"][field]]
+                for record in history if record["step"] == latest_step
+            ]
+            if last_n is not None:
+                points = points[-last_n:]
+            grouped.setdefault(f"{label} · step {latest_step}", []).extend(points)
+        x_label = "Nonlinear iteration" if source == "momentum" else "Linear iteration"
+        x_kind = "integer"
+    else:
+        uses_physical_time = all(_summary_physical_time(context, record) is not None for record in matching)
+        for record in matching:
+            x_value = _summary_physical_time(context, record) if uses_physical_time else record["step"]
+            grouped.setdefault(record["line"], []).append([x_value, record["values"][field]])
+        # Iteration-count fields occur on every nonlinear-history row. Reduce them
+        # to the final effort per physical step instead of drawing a y=x staircase.
+        if field in {"pseudo_iterations", "newton_iterations", "iterations"}:
+            grouped = {
+                label: [list(item) for item in {
+                    point[0]: max(candidate[1] for candidate in points if candidate[0] == point[0])
+                    for point in points
+                }.items()]
+                for label, points in grouped.items()
+            }
+        for label, points in grouped.items():
+            points.sort(key=lambda point: point[0])
+            if last_n is not None:
+                grouped[label] = points[-last_n:]
+        x_label = "Physical time" if uses_physical_time else "Physical timestep"
+        x_kind = "continuous" if uses_physical_time else "integer"
+
+    grouped = {label: points for label, points in grouped.items() if points}
+    if not grouped:
+        raise ValueError(f"Plot series '{series}' has no plottable points in the selected window.")
+    if is_iteration_history and len(selected_steps) == 1:
+        grouped = {
+            label.rsplit(" · step ", 1)[0]: points
+            for label, points in grouped.items()
+        }
     all_values = [point[1] for points in grouped.values() for point in points]
     use_log = not linear_y and field in _SUMMARY_PLOT_LOG_SCALE_FIELDS and all(value > 0 for value in all_values)
     window_token = f"last-{last_n}" if last_n is not None else "full"
     safe_series = re.sub(r"[^A-Za-z0-9_.-]+", "_", series)
     fallback = os.path.join(context["run_dir"], "summary", "plots", f"{safe_series}_{window_token}.png")
+    field_label = _summary_field_label(field)
+    source_title = _SUMMARY_PLOT_SOURCE_TITLES.get(source, _humanize_plot_identifier(source))
+    title = f"{source_title}: {field_label}"
+    if is_iteration_history:
+        title += " convergence"
+    subtitle_bits = []
+    if selected_steps:
+        ordered = sorted(selected_steps)
+        subtitle_bits.append(
+            f"Latest physical step {ordered[0]}" if len(ordered) == 1
+            else f"Latest available physical steps {ordered[0]}–{ordered[-1]}"
+        )
+    if last_n is not None:
+        subtitle_bits.append(f"Last {last_n} samples per curve")
+    legend_title = {
+        "continuity": "Block",
+        "momentum": "Block",
+        "poisson": "Block",
+        "profiling": "Function",
+        "spectra": "Spectrum task",
+    }.get(source, "Series")
+    only_label = next(iter(grouped)) if len(grouped) == 1 else None
+    show_legend = len(grouped) > 1 or bool(
+        only_label and (only_label.lower().startswith("block ") or source == "profiling")
+    )
     return {
         "schema_version": 1,
-        "plot_type": "time_history",
+        "plot_type": "iteration_history" if is_iteration_history else "time_history",
         "series": series,
-        "title": f"{series} time history",
-        "x_label": "Timestep",
-        "y_label": series,
+        "title": title,
+        "subtitle": " · ".join(subtitle_bits) or None,
+        "x_label": x_label,
+        "x_kind": x_kind,
+        "y_label": field_label,
         "y_scale": "log" if use_log else "linear",
+        "include_zero_y": not use_log and all(value >= 0.0 for value in all_values),
+        "show_markers": not is_iteration_history,
+        "show_legend": show_legend,
+        "legend_title": legend_title,
         "window": {"mode": "last" if last_n is not None else "full", "last": last_n},
         "lines": [{"label": label, "points": points} for label, points in sorted(grouped.items())],
         "output_path": os.path.abspath(output_path) if output_path else None,
@@ -15788,7 +16348,7 @@ def _render_summary_plot_catalog(catalog: list, output_format: str):
     if output_format == "json":
         print(json.dumps({"available_series": catalog}, indent=2, sort_keys=True))
         return
-    print("\nAVAILABLE TIME-HISTORY SERIES")
+    print("\nAVAILABLE PLOT SERIES")
     print("=" * 78)
     for item in catalog:
         labels = ", ".join(line["label"] for line in item["lines"])

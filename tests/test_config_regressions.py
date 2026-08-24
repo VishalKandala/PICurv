@@ -1868,3 +1868,83 @@ def test_aggregate_study_metrics_supports_parameter_normalization(tmp_path):
     assert abs(float(rows[0]["run_loss_fraction"]) - 0.2) < 1.0e-12
     assert abs(float(rows[0]["run_swi_p95"]) - picurv.np.percentile([1.0, 2.0, 4.0, 8.0], 95.0)) < 1.0e-12
     assert abs(float(rows[0]["mean_migration_fraction"]) - 0.175) < 1.0e-12
+
+
+def test_study_plot_axis_uses_grouped_physical_timestep_not_constant_first_parameter():
+    """!
+    @brief Timestep studies flatten grouped overrides and choose delta-t as x.
+    """
+    picurv = load_picurv_module()
+    study_cfg = {
+        "study_type": "timestep_independence",
+        "parameters": {
+            "case.models.physics.particles.count": [20000],
+            "case.run_control": [
+                {"start_step": 0, "total_steps": 400, "dt_physical": 0.005},
+                {"start_step": 0, "total_steps": 200, "dt_physical": 0.01},
+                {"start_step": 0, "total_steps": 100, "dt_physical": 0.02},
+            ],
+        },
+    }
+    rows = [
+        {
+            "case_id": f"case_{index:04d}",
+            "case.models.physics.particles.count": "20000",
+            "case.run_control.start_step": "0",
+            "case.run_control.total_steps": str(total_steps),
+            "case.run_control.dt_physical": str(dt),
+            "error": str(error),
+        }
+        for index, (total_steps, dt, error) in enumerate(
+            ((400, 0.005, 0.1), (200, 0.01, 0.2), (100, 0.02, 0.4))
+        )
+    ]
+
+    assert picurv.get_study_parameter_keys(study_cfg) == [
+        "case.models.physics.particles.count",
+        "case.run_control.start_step",
+        "case.run_control.total_steps",
+        "case.run_control.dt_physical",
+    ]
+    axis = picurv._infer_study_plot_axis(study_cfg, rows)
+    assert axis["key"] == "case.run_control.dt_physical"
+    assert axis["label"] == "Physical timestep, Δt"
+    assert axis["values"] == [0.005, 0.01, 0.02]
+    groups = picurv._study_plot_groups(study_cfg, rows, axis, "error")
+    assert len(groups) == 1
+    assert len(groups[0]["points"]) == 3
+
+
+def test_grid_study_plot_axis_uses_characteristic_resolution_and_coupled_groups():
+    """!
+    @brief Grid studies use characteristic resolution and group other varied controls.
+    """
+    picurv = load_picurv_module()
+    grid_keys = (
+        "case.grid.programmatic_settings.im",
+        "case.grid.programmatic_settings.jm",
+        "case.grid.programmatic_settings.km",
+    )
+    study_cfg = {
+        "study_type": "grid_independence",
+        "parameter_sets": [
+            {grid_keys[0]: 8, grid_keys[1]: 16, grid_keys[2]: 32,
+             "case.models.physics.particles.count": 1000},
+            {grid_keys[0]: 16, grid_keys[1]: 32, grid_keys[2]: 64,
+             "case.models.physics.particles.count": 2000},
+        ],
+    }
+    rows = [
+        {"case_id": "case_0000", grid_keys[0]: "8", grid_keys[1]: "16", grid_keys[2]: "32",
+         "case.models.physics.particles.count": "1000", "final_error": "0.1"},
+        {"case_id": "case_0001", grid_keys[0]: "16", grid_keys[1]: "32", grid_keys[2]: "64",
+         "case.models.physics.particles.count": "2000", "final_error": "0.025"},
+    ]
+
+    axis = picurv._infer_study_plot_axis(study_cfg, rows)
+    assert axis["key"] == "characteristic_grid_resolution"
+    assert axis["values"] == pytest.approx([16.0, 32.0])
+    groups = picurv._study_plot_groups(study_cfg, rows, axis, "final_error")
+    assert [group["label"] for group in groups] == ["Study cases"]
+    assert [point[0] for point in groups[0]["points"]] == pytest.approx([16.0, 32.0])
+    assert [point[1] for point in groups[0]["points"]] == pytest.approx([0.1, 0.025])

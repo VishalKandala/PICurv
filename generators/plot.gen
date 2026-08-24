@@ -3,7 +3,7 @@
 
 """!
 @file plot.gen
-@brief Standalone renderer for normalized PICurv time-history plot requests.
+@brief Standalone renderer for normalized PICurv report plot requests.
 
 The conductor owns run discovery and log parsing. This helper only validates
 normalized series data and renders it with matplotlib.
@@ -11,8 +11,18 @@ normalized series data and renders it with matplotlib.
 
 import argparse
 import json
+import math
 import os
 import sys
+
+
+# Okabe-Ito-derived colors remain distinguishable for common color-vision
+# deficiencies and reproduce cleanly in print. Line styles provide a second cue.
+_REPORT_COLORS = (
+    "#0072B2", "#D55E00", "#009E73", "#CC79A7",
+    "#E69F00", "#56B4E9", "#332288", "#999999",
+)
+_REPORT_LINE_STYLES = ("-", "--", "-.", ":")
 
 
 class MissingPlotDependencyError(RuntimeError):
@@ -105,7 +115,7 @@ def read_plot_request(input_path: str) -> dict:
 
 def validate_plot_request(request: dict) -> dict:
     """!
-    @brief Validate and normalize a time-history plot request.
+    @brief Validate and normalize a report plot request.
     @param[in] request Candidate request mapping.
     @return Validated request mapping.
     """
@@ -113,8 +123,13 @@ def validate_plot_request(request: dict) -> dict:
         raise ValueError("plot request must be a JSON object")
     if request.get("schema_version") != 1:
         raise ValueError("plot request schema_version must be 1")
-    if request.get("plot_type") != "time_history":
-        raise ValueError("plot_type must be 'time_history'")
+    plot_types = {"time_history", "iteration_history", "spectrum"}
+    if request.get("plot_type") not in plot_types:
+        raise ValueError(f"plot_type must be one of {sorted(plot_types)}")
+    for axis in ("x", "y"):
+        scale = request.get(f"{axis}_scale", "linear")
+        if scale not in {"linear", "log"}:
+            raise ValueError(f"{axis}_scale must be 'linear' or 'log'")
     lines = request.get("lines")
     if not isinstance(lines, list) or not lines:
         raise ValueError("plot request requires at least one line")
@@ -127,8 +142,15 @@ def validate_plot_request(request: dict) -> dict:
         for point_index, point in enumerate(points):
             if not isinstance(point, list) or len(point) != 2:
                 raise ValueError(f"lines[{index}].points[{point_index}] must be [x, y]")
-            if not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in point):
+            if not all(
+                isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+                for value in point
+            ):
                 raise ValueError(f"lines[{index}].points[{point_index}] must contain numeric values")
+        if request.get("x_scale") == "log" and any(point[0] <= 0.0 for point in points):
+            raise ValueError(f"lines[{index}] contains a non-positive x value on a log scale")
+        if request.get("y_scale") == "log" and any(point[1] <= 0.0 for point in points):
+            raise ValueError(f"lines[{index}] contains a non-positive y value on a log scale")
     return request
 
 
@@ -142,9 +164,63 @@ def _is_headless(plt) -> bool:
     return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) or "agg" in backend
 
 
+def _expanded_linear_limits(values: list, include_zero: bool = False) -> "tuple[float, float] | None":
+    """!
+    @brief Return honest, padded limits for a finite linear data range.
+    @param[in] values Axis data values.
+    @param[in] include_zero Include zero to avoid exaggerating positive magnitudes.
+    @return Two limits, or None when no adjustment is needed.
+    """
+    if not values:
+        return None
+    lower, upper = min(values), max(values)
+    if include_zero:
+        lower = min(0.0, lower)
+        upper = max(0.0, upper)
+    span = upper - lower
+    if span == 0.0:
+        padding = max(abs(lower) * 0.08, 0.5 if float(lower).is_integer() else 1.0e-12)
+    else:
+        padding = 0.06 * span
+    padded_lower = lower if include_zero and lower == 0.0 else lower - padding
+    padded_upper = upper + padding
+    return padded_lower, padded_upper
+
+
+def _line_style(request: dict, line: dict, index: int) -> dict:
+    """!
+    @brief Resolve accessible report styling for one request line.
+    @param[in] request Validated plot request.
+    @param[in] line Current line mapping.
+    @param[in] index Zero-based line index.
+    @return Matplotlib line keyword mapping.
+    """
+    role = line.get("role")
+    show_markers = bool(request.get("show_markers", True))
+    point_count = len(line["points"])
+    marker = "o" if show_markers and point_count <= 40 else None
+    markevery = None if point_count <= 18 else max(1, point_count // 12)
+    style = {
+        "color": line.get("color", _REPORT_COLORS[index % len(_REPORT_COLORS)]),
+        "linestyle": line.get("line_style", _REPORT_LINE_STYLES[(index // len(_REPORT_COLORS)) % len(_REPORT_LINE_STYLES)]),
+        "linewidth": float(line.get("line_width", 1.8)),
+        "marker": marker,
+        "markersize": 4.2,
+        "markeredgewidth": 0.6,
+        "markevery": markevery,
+        "label": line["label"],
+        "alpha": 0.82 if role == "snapshot" else 1.0,
+    }
+    if role == "reference":
+        style.update({"linewidth": 2.0, "marker": None, "alpha": 0.9})
+    elif role == "latest":
+        style.update({"linewidth": max(style["linewidth"], 2.35), "alpha": 1.0})
+    return style
+
+
 def render_plot_request(request: dict, output_override: "str | None" = None) -> str:
     """!
-    @brief Render a validated time-history plot request.
+    @brief Render a validated report plot request.
     @param[in] request Validated normalized plot request.
     @param[in] output_override Optional explicit output path.
     @return Human-readable rendering status.
@@ -157,35 +233,61 @@ def render_plot_request(request: dict, output_override: "str | None" = None) -> 
         if not output_path:
             raise ValueError("headless plotting requires fallback_output_path")
 
-    plt.figure(figsize=(9.0, 5.2))
-    for line in request["lines"]:
+    plt.figure(figsize=(9.4, 5.6), facecolor="white")
+    for index, line in enumerate(request["lines"]):
         x_values = [point[0] for point in line["points"]]
         y_values = [point[1] for point in line["points"]]
-        plt.plot(x_values, y_values, linewidth=1.5, marker="o", markersize=3, label=line["label"])
-    plt.xlabel(request.get("x_label", "Timestep"))
-    plt.ylabel(request.get("y_label", request.get("series", "Value")))
-    plt.title(request.get("title", request.get("series", "Time History")))
+        plt.plot(x_values, y_values, **_line_style(request, line, index))
+    plt.xlabel(request.get("x_label", "Physical time"), fontsize=11)
+    plt.ylabel(request.get("y_label", request.get("series", "Value")), fontsize=11)
+    title = request.get("title", request.get("series", "Simulation history"))
+    subtitle = request.get("subtitle")
+    plt.title(f"{title}\n{subtitle}" if subtitle else title, fontsize=13, loc="left", pad=12)
     # A spectrum is read on log-log axes, so the abscissa scale is honoured too. It
     # defaults to linear, which is what every time history wants.
-    if request.get("x_scale") == "log":
+    if request.get("x_scale") == "log" and hasattr(plt, "xscale"):
         plt.xscale("log")
     if request.get("y_scale") == "log":
         plt.yscale("log")
-    plt.grid(True, alpha=0.3, which="both")
-    if len(request["lines"]) > 1 or request["lines"][0].get("label") != request.get("series"):
-        plt.legend()
-    plt.tight_layout()
+    all_y = [point[1] for line in request["lines"] for point in line["points"]]
+    if request.get("y_scale", "linear") == "linear" and hasattr(plt, "ylim"):
+        limits = _expanded_linear_limits(all_y, bool(request.get("include_zero_y", False)))
+        if limits:
+            plt.ylim(*limits)
+    if request.get("x_kind") == "integer" and hasattr(plt, "locator_params"):
+        all_x = [point[0] for line in request["lines"] for point in line["points"]]
+        if all_x and max(all_x) - min(all_x) <= 20:
+            plt.locator_params(axis="x", integer=True, nbins=10)
+    if hasattr(plt, "tick_params"):
+        plt.tick_params(axis="both", which="major", labelsize=9.5)
+    plt.grid(True, alpha=0.24, which="major", linewidth=0.7)
+    if request.get("x_scale") == "log" or request.get("y_scale") == "log":
+        plt.grid(True, alpha=0.08, which="minor", linewidth=0.5)
+    show_legend = request.get("show_legend")
+    if show_legend is None:
+        show_legend = len(request["lines"]) > 1 or request["lines"][0].get("label") != request.get("series")
+    if show_legend:
+        plt.legend(
+            loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0.0,
+            frameon=False, title=request.get("legend_title"), fontsize=9,
+            title_fontsize=9.5,
+        )
+        plt.tight_layout(rect=(0.0, 0.0, 0.78, 1.0))
+    else:
+        plt.tight_layout()
 
     if output_path:
         output_path = os.path.abspath(output_path)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=240, bbox_inches="tight", facecolor="white")
         plt.close()
-        return f"[SUCCESS] Saved time-history plot: {output_path}"
+        kind = request.get("plot_type", "report").replace("_", "-")
+        return f"[SUCCESS] Saved {kind} plot: {output_path}"
 
     plt.show()
     plt.close()
-    return f"[SUCCESS] Displayed time-history plot: {request.get('series')}"
+    kind = request.get("plot_type", "report").replace("_", "-")
+    return f"[SUCCESS] Displayed {kind} plot: {request.get('series')}"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -193,7 +295,7 @@ def build_parser() -> argparse.ArgumentParser:
     @brief Build the standalone plot.gen argument parser.
     @return Configured argument parser.
     """
-    parser = argparse.ArgumentParser(description="Render a normalized PICurv time-history plot request.")
+    parser = argparse.ArgumentParser(description="Render a normalized PICurv report plot request.")
     parser.add_argument("--input", required=True, help="Plot-request JSON path, or '-' to read JSON from stdin.")
     parser.add_argument("--output", help="Optional output image path; suppresses interactive display.")
     return parser

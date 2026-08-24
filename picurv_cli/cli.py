@@ -229,7 +229,7 @@ def _add_summarize_parser(subparsers):
         "--list-plot-series",
         dest="list_plot_series",
         action="store_true",
-        help="List scalar time histories available to --plot.",
+        help="List scalar histories available to --plot.",
     )
     plot_group.add_argument(
         "--list-series",
@@ -247,9 +247,10 @@ def _add_summarize_parser(subparsers):
         dest="plot_spectrum",
         nargs="?",
         const="",
-        help="Plot the measured energy spectra as one curve per step, overlaid on the\n"
-             "initial-condition spectrum. Takes an optional task-name substring when the\n"
-             "recipe measured more than one spectrum (requires matplotlib).",
+        help="Plot up to six representative measured energy spectra, including the first\n"
+             "and last states, overlaid on the initial-condition spectrum. Takes an optional\n"
+             "task-name substring when the recipe measured more than one spectrum\n"
+             "(requires matplotlib).",
     )
     p_summarize.add_argument("--last", dest="last_n", type=int, help="Plot only the last N chronological records per line.")
     p_summarize.add_argument("--plot-output", help="Save the plot to this path instead of opening an interactive window.")

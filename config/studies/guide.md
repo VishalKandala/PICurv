@@ -29,6 +29,13 @@ Study CSV metrics also support `reduction: p95`, per-row ratios via
 `numerator_column` plus `denominator_column`, and normalization against the
 study parameter space with `normalize_by_parameter`.
 
+Study plots choose the independent variable from the study intent: physical
+timestep for timestep-independence studies, characteristic resolution
+`(NᵢNⱼNₖ)¹⁄³` for three-dimensional grid studies, and the first varied
+numeric control for general sensitivity studies. Additional varied controls
+become separate, labeled curves. Metric definitions may provide `plot_label`
+and `units` when the metric name alone is not sufficiently descriptive.
+
 ## How To Use
 
 ```bash

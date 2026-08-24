@@ -77,11 +77,12 @@ picurv summarize --run-dir runs/<run_id> --plot-spectrum
 ```
 
 `--only spectra` skips the field post-processor, which makes re-measuring cheap.
-The plot draws one curve per processed step over
-`diagnostics/initial_condition_spectrum.csv`, and the per-step scalars
+The report plot draws up to six evenly spaced measured states (always including
+the first and last) over `diagnostics/initial_condition_spectrum.csv`; the CSV
+still retains every processed state. The per-step scalars
 (`spectra.resolved_kinetic_energy`, `spectra.integral_length_scale`,
 `spectra.taylor_microscale`, `spectra.dissipation_over_viscosity`) are ordinary
-series that `picurv summarize --plot` draws.
+series that `picurv summarize --plot` draws against physical time.
 
 ### What to expect
 

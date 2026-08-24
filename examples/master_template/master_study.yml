@@ -60,6 +60,8 @@ metrics:
   #   file_glob: "**/*_msd.csv"
   #   column: "msd"
   #   reduction: "last"     # Options: "last" | "min" | "max" | "mean" | "p95"
+  #   plot_label: "Final mean-squared displacement"  # Optional report-facing label.
+  #   units: "m²"                                      # Optional axis units.
   #
   # - name: residual_floor
   #   source: log_regex
