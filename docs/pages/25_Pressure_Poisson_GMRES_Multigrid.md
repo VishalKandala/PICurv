@@ -90,7 +90,7 @@ If pressure solve quality degrades, check first:
 3. grid metrics/orientation quality,
 4. solver tolerances vs timestep.
 
-### Multigrid depth is bounded by the MPI decomposition
+## Multigrid depth is bounded by the MPI decomposition
 
 `multigrid.levels` cannot be chosen independently of the rank layout. Every
 level's `DMDA` must leave each rank at least `stencil_width` nodes along every
