@@ -1,6 +1,7 @@
 """Argument parser construction and command dispatch for PICurv."""
 
 from .core import *
+from .storage import add_storage_parser, storage_workflow
 
 
 # ==============================================================================
@@ -631,6 +632,7 @@ def build_main_parser():
     _add_sync_config_parser(subparsers)
     _add_pull_source_parser(subparsers)
     _add_status_source_parser(subparsers)
+    add_storage_parser(subparsers)
     return parser
 
 
@@ -711,5 +713,8 @@ def dispatch_command(args):
         return
     if args.command == "status-source":
         status_source_command(args)
+        return
+    if args.command == "storage":
+        storage_workflow(args)
         return
     fail_cli_usage(f"Unsupported command '{args.command}'.")

@@ -4,6 +4,8 @@
 
 `picurv sweep` orchestrates parameter studies with generated run variants, scheduler arrays, and aggregate metrics.
 
+For protecting or offloading a whole study or selected `case_####` members, see **@subpage 61_Storage_Management_Guide**.
+
 @tableofcontents
 
 @section p37_inputs_sec 1. Inputs and Templates

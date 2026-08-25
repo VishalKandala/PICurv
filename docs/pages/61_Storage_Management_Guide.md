@@ -1,0 +1,333 @@
+@page 61_Storage_Management_Guide Storage Management Guide
+
+@anchor _Storage_Management_Guide
+
+PICurv can protect, offload, find, verify, and restore standalone runs and sweep-study data through an `rclone` remote. The storage commands preserve PICurv's existing directory model: runs remain under `runs/`, studies remain under `studies/`, and numbered study members remain under `studies/<study_id>/cases/case_####/`.
+
+The storage catalog supplies the memorable names. Keep generated directory identities unchanged and attach a human-readable `--label` and repeatable `--tag` values when archiving.
+
+@tableofcontents
+
+@section p61_model_sec 1. The Storage Model
+
+PICurv creates two kinds of top-level artifacts:
+
+- a standalone run at `runs/<case-yaml-stem>_<timestamp>/`, and
+- a sweep at `studies/<study-yaml-stem>_<timestamp>/`, containing numbered run directories at `cases/case_0000`, `cases/case_0001`, and so on.
+
+Storage operations use those existing paths as selectors. No second naming scheme is introduced:
+
+```bash
+picurv storage status --run-dir runs/channel_20260824-143000
+picurv storage status --study-dir studies/grid_study_20260824-150000
+picurv storage status --study-dir studies/grid_study_20260824-150000 \
+  --case-id case_0007
+```
+
+There are two archival actions:
+
+- `protect` uploads and verifies an immutable archive but keeps every local file;
+- `offload` performs the same upload and verification, then removes the verified heavy payload while keeping a small, useful local skeleton.
+
+For a run or study member, that skeleton retains configuration, scheduler metadata, logs, results, and the storage marker. Checkpoint payloads and other bulk data are pruned. Whole-study offload applies the same classification inside every numbered member and retains the study-level scheduler and aggregate results.
+
+The local state shown by `status` and `summarize` is:
+
+- `LOCAL`: no PICurv archive marker exists;
+- `PROTECTED`: a verified archive exists and all local files remain;
+- `COLD`: heavy local payload was pruned;
+- `PARTIAL`: selected checkpoints were restored, but the complete archive is not local;
+- `BUSY`: a known local stage or Slurm job is active.
+
+@section p61_setup_sec 2. One-Time Setup
+
+Install `rclone`, configure credentials with `rclone config`, and test the remote using `rclone` itself. PICurv never stores cloud passwords, tokens, or access keys. Its workspace file contains only a remote path and storage policy.
+
+From the workspace root:
+
+```bash
+picurv storage setup \
+  --remote labstore:picurv-data \
+  --profile archive \
+  --compression auto \
+  --chunk-size-gib 8
+```
+
+This verifies remote access, creates the remote `objects/` directory if necessary, and writes `.picurv-storage.yml`:
+
+```yaml
+default_profile: archive
+profiles:
+  archive:
+    remote: labstore:picurv-data
+    compression: auto
+    chunk_size_gib: 8.0
+```
+
+PICurv finds `.picurv-storage.yml` by searching upward from the current directory. Use `--storage-config /path/to/storage.yml` to select another file. Multiple profiles can share one file; select one with `--profile`. A fast local scratch filesystem can be selected during setup with `--staging-directory`.
+
+Use a dry run to see what setup would write without touching the file or remote:
+
+```bash
+picurv storage setup --remote labstore:picurv-data --dry-run
+```
+
+@section p61_daily_sec 3. Day-to-Day Playbooks
+
+@subsection p61_finished_run 3.1 A Finished Run Is Large and Can Leave the Cluster
+
+First inspect the local state and the exact archive plan:
+
+```bash
+picurv storage status --run-dir runs/channel_20260824-143000
+picurv storage plan --run-dir runs/channel_20260824-143000
+```
+
+Then offload it with a name and catalog fields that will still make sense months later:
+
+```bash
+picurv storage offload \
+  --run-dir runs/channel_20260824-143000 \
+  --label "pilot 64, stable baseline" \
+  --tag campaign=pilot-64 \
+  --tag mesh=64 \
+  --tag status=accepted
+```
+
+PICurv prints the archive ID. Save it in job notes if convenient, but the remote catalog also remains searchable. The original directory name does not need to be changed.
+
+@subsection p61_keep_run 3.2 A Run Is Still Needed Locally
+
+Protect it without pruning:
+
+```bash
+picurv storage protect \
+  --run-dir runs/channel_20260824-143000 \
+  --label "pilot 64, still processing"
+```
+
+This gives the run a verified remote copy while `--continue`, post-processing, and ordinary file access continue to use the full local tree.
+
+@subsection p61_mixed_study 3.3 Only Some Cases in a Study Are Finished
+
+Inspect all numbered members:
+
+```bash
+picurv storage status --study-dir studies/grid_study_20260824-150000
+```
+
+Offload selected members. Repeat `--case-id` to process several explicit cases:
+
+```bash
+picurv storage offload \
+  --study-dir studies/grid_study_20260824-150000 \
+  --case-id case_0003 \
+  --case-id case_0007 \
+  --label "completed grid members" \
+  --tag campaign=grid-study
+```
+
+Each member receives its own archive ID. Other members remain untouched and can continue running or processing. PICurv refuses study continuation or reaggregation while required members are cold, so intentionally archived data cannot be mistaken for missing or incomplete output.
+
+When the entire study is finished, archive it as one artifact by omitting `--case-id`:
+
+```bash
+picurv storage offload \
+  --study-dir studies/grid_study_20260824-150000 \
+  --label "complete grid convergence campaign"
+```
+
+@subsection p61_small_large 3.4 Small and Very Large Artifacts
+
+Choose compression per operation when the profile default is not appropriate:
+
+```bash
+# Small/already-compressed data: package without compression.
+picurv storage protect --run-dir runs/small_run --compression none
+
+# Large data where transfer size matters more than compression time.
+picurv storage offload --run-dir runs/large_run --compression maximum
+
+# Lower CPU cost.
+picurv storage offload --run-dir runs/medium_run --compression fast
+```
+
+The available policies are:
+
+- `none`: uncompressed tar chunks;
+- `fast`: gzip level 1;
+- `balanced`: gzip level 6;
+- `maximum`: xz level 9;
+- `auto`: no compression below 256 MiB, balanced compression from 256 MiB through 20 GiB, and maximum compression at 20 GiB and above.
+
+`--chunk-size-gib` is a transfer/staging target. PICurv places a file wholly in one chunk, so a single file larger than the target remains one larger chunk. Checkpoints are component-addressable, which enables selective restore.
+
+@section p61_restore_sec 4. Finding and Restoring Old Data
+
+@subsection p61_restore_skeleton 4.1 The Cold Local Skeleton Still Exists
+
+The local marker knows the archive ID, so a full restore can use the familiar directory:
+
+```bash
+picurv storage restore --run-dir runs/channel_20260824-143000
+```
+
+For one individually archived study member:
+
+```bash
+picurv storage restore \
+  --study-dir studies/grid_study_20260824-150000 \
+  --case-id case_0007
+```
+
+A whole-study archive is restored with `--study-dir` and no case selector.
+
+@subsection p61_restore_deleted 4.2 Every Local Directory Was Deleted
+
+The catalog lives on the remote and does not depend on local marker files:
+
+```bash
+picurv storage list --search "pilot 64"
+picurv storage show --archive-id 0123456789abcdef0123456789abcdef
+picurv storage verify --archive-id 0123456789abcdef0123456789abcdef
+```
+
+Restore to the original absolute path recorded in the manifest:
+
+```bash
+picurv storage restore \
+  --archive-id 0123456789abcdef0123456789abcdef
+```
+
+Or choose a new location:
+
+```bash
+picurv storage restore \
+  --archive-id 0123456789abcdef0123456789abcdef \
+  --to /cluster/new-workspace/runs/pilot-64-restored
+```
+
+When an individually archived study member is restored after the entire study was deleted, its archive also recreates the small parent study context, including `study.yml`, `study_manifest.json`, and `scheduler/case_index.tsv` when those files were present at archive time.
+
+An alternate-location restore conservatively replaces the old run/study prefix in known generated text files (`.control`, `.run`, `.sbatch`, JSON, TSV, and YAML). Inspect regenerated scheduler scripts and any user-authored absolute paths before submitting on a different cluster. Remote archive bytes remain unchanged.
+
+@subsection p61_restore_checkpoint 4.3 Only Particular Checkpoints Are Needed
+
+Use repeatable checkpoint selectors to avoid downloading unrelated bulk output:
+
+```bash
+picurv storage restore \
+  --archive-id 0123456789abcdef0123456789abcdef \
+  --checkpoint 500 \
+  --checkpoint 600
+```
+
+The result is `PARTIAL`. Restart and continuation proceed when their required checkpoint is present. Post-processing proceeds when all checkpoint steps in its requested start/end/interval window are present; otherwise PICurv prints the exact selective or full restore command to run.
+
+`--force` permits a restore to merge into an existing directory that is not already the matching cold artifact. Because matching archived files can be replaced, use it only after inspecting the destination. Prefer a new `--to` path for recovery experiments.
+
+@section p61_safety_sec 5. Verification and Failure Safety
+
+PICurv uses this order for both `protect` and `offload`:
+
+1. inventory the selected artifact without following symlinks;
+2. reject known unsafe activity;
+3. package bounded component chunks in a temporary staging directory;
+4. upload each chunk with `rclone` and compare its remote SHA-256 with the local SHA-256;
+5. upload a versioned manifest;
+6. publish a `COMPLETE` marker bound to that manifest;
+7. write the local storage marker;
+8. for `offload` only, prune the verified heavy payload.
+
+If packaging, transfer, or verification fails, local payload is not pruned. Incomplete remote objects have no valid completion marker and are ignored by `storage list`.
+
+Archival/offload is refused when PICurv sees:
+
+- an incomplete checkpoint directory;
+- an active solver or post-processing lock;
+- an active recorded Slurm job;
+- recorded Slurm job IDs whose state cannot be checked because `squeue` is unavailable or failed; or
+- another storage operation on the same artifact.
+
+Use `storage plan` immediately before a real operation. Do not archive while an external process that PICurv cannot observe is modifying files.
+
+Symlinks are stored as links and are never followed to pull unrelated data into an archive. Absolute monitor/post output paths outside the selected artifact and absolute restart dependencies are reported by `plan` and recorded in the manifest, but are not copied automatically. Protect or restore those dependencies separately.
+
+Verify an archive again at any time:
+
+```bash
+picurv storage verify --archive-id 0123456789abcdef0123456789abcdef
+```
+
+@section p61_cli_integration_sec 6. Interaction With Existing Commands
+
+The storage layer is additive and remains in the Python conductor. It does not change checkpoint bytes, numerical methods, or the C solver/postprocessor interfaces.
+
+- `restart --from` behavior is represented by `picurv run --solve --restart-from ...`. A cold source is refused unless its requested start checkpoint has been restored.
+- `run --solve --continue --run-dir ...` follows the same checkpoint rule.
+- `run --post-process` accepts a partial restore only when the complete requested checkpoint window is local.
+- `submit` refuses a cold run and refuses a study with cold members. Existing staged scripts and scheduler metadata are retained during offload.
+- `sweep --continue` refuses cold members instead of interpreting pruned checkpoints as incomplete cases.
+- `sweep --reaggregate` refuses cold members instead of replacing unavailable metrics with blank values.
+- `summarize` remains usable from retained logs and displays the storage state, archive ID, and label. A requested summary that depends on pruned files can still report that those particular data are unavailable.
+- `validate` checks YAML contracts and is unchanged; it does not need bulk checkpoint payload.
+- `cancel` continues to use retained scheduler metadata. Active Slurm jobs also prevent archival/offload in the first place.
+
+Run creation now keeps the analysis input with the artifact: when post-processing is requested, the validated post profile is copied to `config/post.yml`. Study creation snapshots all four base YAML files under `base_configs/`, writes a portable `study.yml` that refers to those copies, and preserves the originally supplied study file as `study.source.yml`.
+
+@section p61_code_sec 7. Code and Configuration Reproducibility
+
+Every remote manifest records:
+
+- the generated run, study, and case identities;
+- the human label and tags;
+- original paths and creation time;
+- source and stored sizes;
+- compression and chunk checksums;
+- checkpoint steps and checkpoint format version;
+- SHA-256 values for canonical copied YAML files;
+- best-effort Git commit and dirty-worktree state;
+- external paths and restart dependencies; and
+- declared restore/continue/reprocess capabilities.
+
+The archive preserves generated configs and data, but it deliberately does not bundle the PICurv source tree, build tree, compiler/MPI libraries, or solver binaries. `exact_binary_reproduction` is therefore false in the manifest. For long-term scientific reproducibility, retain the referenced Git revision and the build/container or environment record used for the campaign. Use `storage show` before restoring very old data, then select a PICurv revision compatible with the recorded checkpoint format and configuration.
+
+The storage schema is versioned. Unsupported future or older schema versions are rejected explicitly rather than guessed.
+
+@section p61_remote_sec 8. Remote Layout and Catalog
+
+Each archive is an immutable object below the configured remote:
+
+```text
+<remote>/objects/<archive-id>/
+  chunks/
+    00000_checkpoint-500.tar.xz
+    00001_metadata.tar.xz
+    ...
+  manifest.json
+  COMPLETE
+```
+
+The globally unique archive ID is the durable machine identity. `--label` and `--tag KEY=VALUE` are the human control surface. `storage list --search` searches archive IDs, labels, run/study/case identities, and tags case-insensitively. For scripts and audits, use JSON output:
+
+```bash
+picurv storage list --format json
+picurv storage status --run-dir runs/channel_20260824-143000 --format json
+picurv storage show --archive-id 0123456789abcdef0123456789abcdef
+```
+
+@section p61_reference_sec 9. Command Reference
+
+```text
+picurv storage setup    configure and verify a non-secret rclone profile
+picurv storage status   inspect local lifecycle/storage state
+picurv storage plan     preview chunks, compression, dependencies, and safety
+picurv storage protect  upload and verify; retain all local files
+picurv storage offload  upload and verify; prune verified heavy payload
+picurv storage list     search completed remote archives
+picurv storage show     print one complete remote manifest
+picurv storage verify   checksum every chunk in one remote archive
+picurv storage restore  restore a full archive or selected checkpoints
+```
+
+Use `picurv storage --help` and `picurv storage <action> --help` for the complete option set.

@@ -25,6 +25,7 @@ Then use the structural map and reference pages:
 - **@subpage 06_Simulation_Anatomy**: end-to-end run structure and generated artifacts.
 - **@subpage 14_Config_Contract**: YAML contracts and Python-to-C handoff.
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**: practical profile-composition patterns and runnable recipes.
+- **@subpage 61_Storage_Management_Guide**: protect, offload, catalog, verify, and restore run/study data through rclone.
 - **@subpage 21_Methods_Overview**: governing methods and model map.
 - **@subpage 46_C_Runtime_Execution_Map**: solver execution order and C runtime touchpoints.
 - **@subpage 56_Field_Identity_and_Layout_Catalog**: typed Eulerian/particle identities and layout-aware storage and coupling metadata.
