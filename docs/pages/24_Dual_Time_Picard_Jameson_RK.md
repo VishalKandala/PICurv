@@ -64,7 +64,40 @@ Adaptive pseudo-CFL rollback is triggered when the EMA-smoothed step-to-step res
 
 1. State rolls back to the last accepted pseudo-state.
 2. Pseudo-CFL is multiplied by `reduction_factor`.
-3. Iteration retries from the restored state without consuming the accepted-iteration budget.
+3. The EMA-smoothed ratio rolls back too — see below.
+4. The failed pseudo-CFL is remembered, and the controller will not grow back to it.
+5. Iteration retries from the restored state without consuming the accepted-iteration budget.
+
+**The smoothed ratio is rolled back with the state.** It is only a candidate until its trial
+is accepted. A rejected trial never happened as far as the solution is concerned, so letting
+its ratio persist into the next decision is a state leak. Measured on the laminar channel: a
+diverging trial at `cfl 2.0` (raw ratio 3.97) pushed the EMA to 1.61, and the *next* trial at
+`cfl 1.5` was rejected as well — despite a raw ratio of 0.994, i.e. despite the residual
+actually decreasing. That false rejection discarded four `ComputeRHS` calls and drove the
+pseudo-CFL down to 1.125. The `reduction_factor` on the rejection path already carries the
+information; the EMA does not need to carry it as well.
+
+**Failed pseudo-CFLs are remembered.** Without this the controller re-discovers the stability
+limit on every physical step: on the laminar channel it climbed 1.36 → 2.00, rejected,
+recovered, and climbed straight back, with 28.8% of all trials spent above the limit. A
+dimensionless cap tightens to `MOM_CFL_CAP_SAFETY ×` the failed CFL and then relaxes by
+`MOM_CFL_CAP_RELAX` per accepted trial, so a rejection caused by a transient does not hold the
+solve down for the rest of the run. The cap is carried in CFL rather than `dtau` so it stays
+meaningful as `lambda_max` evolves.
+
+Measured effect at the shipped ceiling, rejection rate and total pseudo-iterations:
+
+| case | before | after |
+|---|---|---|
+| laminar 17x33x17 | 233 trials, 13.3% rejected | 226, 4.9% |
+| plane channel 33^3 | 340, 20.6% | 308, 6.5% |
+| flat channel 25x25x97 | 155, 7.7% | 151, 5.3% |
+
+Rejections roughly halve; total work falls 3–9%. The remaining cost is not rejection handling:
+the pseudo-CFL that converges fastest lies well below the stability limit, because the Jameson
+scheme is a smoother and smoothers damp worst near their limit. A stability-triggered cap
+cannot find that optimum — on the LES reτ180 case, which rejects nothing either before or
+after, the controller is unaffected.
 
 Acceptance and rollback are global across blocks and MPI ranks. The `max_iterations` parameter bounds **accepted** pseudo-iterations. A separate hard cap of `3 × max_iterations` bounds total attempts (accepted plus rejected) to prevent infinite rejection loops. A finite solve that exhausts its accepted-iteration budget exits with the last accepted finite state.
 

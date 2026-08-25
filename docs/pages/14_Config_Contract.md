@@ -106,6 +106,8 @@ For each run, `picurv` generates:
     moving-average coefficient applied to the step-to-step residual ratio before the rejection
     decision. `smoothed = α × raw + (1−α) × prev`. Setting `α = 1.0` recovers the original
     raw-ratio behavior; `α = 0.3` requires ~3–4 consecutive bad trials to trigger rejection.
+    The smoothed value is committed only when its trial is accepted: a rejected trial is rolled
+    back and its ratio does not carry into the next decision. See @ref p24_convergence_sec.
   - `pseudo_cfl.*` values are dimensionless Courant numbers (Phase 3+). The solver computes the
     pseudo-time step as `dtau = pseudo_cfl / lambda_max`, where `lambda_max` is the global maximum
     convective spectral radius of the current velocity field. This makes `pseudo_cfl` independent

@@ -1,5 +1,11 @@
 #include "momentumsolvers.h"
 
+/* Adaptive pseudo-CFL cap (see cfl_cap in MomentumSolver_DualTime_Picard_JamesonRK).
+ * SAFETY: fraction of a failed CFL the controller may return to.
+ * RELAX:  per-accepted-trial growth of the cap, so a transient rejection is not permanent. */
+#define MOM_CFL_CAP_SAFETY 0.60
+#define MOM_CFL_CAP_RELAX  1.005
+
 
 /*================================================================================*
  *               SHARED PHYSICAL-TIME (BDF) COEFFICIENT PLUMBING                  *
@@ -786,6 +792,12 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
      *   not a generally-stable value for the actual operator -- to be characterized in A4.)
      * dtau_min / dtau_max: per-timestep bounds derived from simCtx->min/max_pseudo_cfl. */
     PetscReal  lambda_max = 0.0;
+    /* cfl_cap: dimensionless memory of where trials have failed. Without it the controller
+     * re-discovers the stability limit every physical step -- measured on the laminar
+     * channel it climbed 1.36 -> 2.00, rejected, recovered, and climbed straight back, with
+     * 28.8% of all trials spent above the limit. Carried in CFL (not dtau) so it stays
+     * meaningful as lambda_max evolves; see the rejection and growth paths below. */
+    PetscReal  cfl_cap = simCtx->max_pseudo_cfl;
     /* resid_ref: reference scale for the residual [same units as R], recomputed each
      * physical step. See the assembly below for why the absolute residual tolerance is
      * measured against this rather than being a raw dimensional bound. */
@@ -1052,15 +1064,26 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         last_trial_nonfinite = global_nonfinite;
 
         /* EMA-smooth the trial ratio to tolerate occasional non-monotonic residual bumps.
-           Non-finite trials bypass smoothing and always trigger rollback. */
+           Non-finite trials bypass smoothing and always trigger rollback.
+
+           The smoothed value is only a CANDIDATE until the trial is accepted. A rejected
+           trial is rolled back -- its state never happened -- so letting its ratio persist
+           into the next decision is a state leak, and a costly one: measured on the laminar
+           channel, a diverging trial at cfl 2.0 (raw ratio 3.97) pushed the EMA to 1.61, and
+           the *next* trial at cfl 1.5 was rejected too despite a raw ratio of 0.994, i.e.
+           despite the residual actually decreasing. That false rejection cost four discarded
+           ComputeRHS calls and drove dtau down to cfl 1.125, below the measured optimum.
+           The dtau reduction on the rejection path already carries the information; the EMA
+           does not need to carry it as well. */
+        PetscReal trial_smoothed = smoothed_trial_ratio;
         if (!global_nonfinite) {
-            smoothed_trial_ratio = simCtx->mom_ratio_ema_alpha * global_trial_ratio
-                                 + (1.0 - simCtx->mom_ratio_ema_alpha) * smoothed_trial_ratio;
+            trial_smoothed = simCtx->mom_ratio_ema_alpha * global_trial_ratio
+                           + (1.0 - simCtx->mom_ratio_ema_alpha) * smoothed_trial_ratio;
         }
         LOG_ALLOW(GLOBAL, LOG_DEBUG,
                   "    [k=%d] raw_ratio=%.4e smoothed_ratio=%.4e (threshold=%.3f) | "
                   "|R_prev|=%.6e | |R_curr|=%.6e | CFL=%.6f\n",
-                  pseudo_iter, global_trial_ratio, smoothed_trial_ratio,
+                  pseudo_iter, global_trial_ratio, trial_smoothed,
                   simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,
                   resid_norm_prev[0], resid_norm_curr[0], pseudo_dtau[0]);
 
@@ -1069,7 +1092,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
             force_restart = global_nonfinite;
         } else {
             force_restart = (PetscBool)(global_nonfinite ||
-                smoothed_trial_ratio > simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor);
+                trial_smoothed > simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor);
         }
 
         if (force_restart) {
@@ -1078,6 +1101,10 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
              * Both are physical-time values; the effective CFL = dtau * lambda_max. */
             PetscReal old_dtau  = pseudo_dtau[0];
             PetscReal next_dtau = PetscMax(dtau_min, old_dtau * simCtx->pseudo_cfl_reduction_factor);
+            /* This CFL failed: never grow back to it. MOM_CFL_CAP_SAFETY keeps the ceiling
+             * off the edge, where the smoother damps worst even when it is still stable. */
+            cfl_cap = PetscMax(simCtx->min_pseudo_cfl,
+                               PetscMin(cfl_cap, old_dtau * lambda_max * MOM_CFL_CAP_SAFETY));
             rejected_iter++;
             recovery_streak = 0;
             for (PetscInt bi = 0; bi < block_number; bi++) {
@@ -1091,7 +1118,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
             LOG_ALLOW(GLOBAL, LOG_WARNING,
                       "  Trial %d REJECTED (raw_ratio=%.4e, smoothed=%.4e, nonfinite=%d); "
                       "dtau %.4e -> %.4e (cfl_eff %.4f -> %.4f)%s\n",
-                      pseudo_iter, global_trial_ratio, smoothed_trial_ratio, (int)global_nonfinite,
+                      pseudo_iter, global_trial_ratio, trial_smoothed, (int)global_nonfinite,
                       old_dtau, next_dtau, old_dtau * lambda_max, next_dtau * lambda_max,
                       (old_dtau == next_dtau) ? " [AT FLOOR — no dtau reduction]" : "");
             /* Log rejected trial to file before rolling back. */
@@ -1117,7 +1144,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                         (int)ti, (int)pseudo_iter, old_dtau, old_dtau * lambda_max,
                         delta_sol_norm_curr[bi], delta_sol_rel_curr[bi],
                         resid_norm_curr[bi], resid_rel_curr[bi],
-                        trial_ratio_log[bi], smoothed_trial_ratio,
+                        trial_ratio_log[bi], trial_smoothed,
                         next_dtau, next_dtau * lambda_max);
                     fclose(f);
                 }
@@ -1139,6 +1166,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         }
 
         accepted_iter++;
+        smoothed_trial_ratio = trial_smoothed;   /* commit only for a trial that survives */
         last_trial_nonfinite = PETSC_FALSE;
         last_accepted_resid  = resid_norm_curr[0]; /* track for final summary */
         for (PetscInt bi = 0; bi < block_number; bi++) {
@@ -1169,14 +1197,19 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
             next_dtau *= simCtx->pseudo_cfl_reduction_factor;
             recovery_streak = 0;
         }
+        /* Relax the cap slowly on healthy trials: a single rejection caused by a transient
+         * must not hold the step down for the rest of the run, but recovery has to be slow
+         * enough that the controller does not simply walk back into the wall. */
+        cfl_cap = PetscMin(simCtx->max_pseudo_cfl, cfl_cap * MOM_CFL_CAP_RELAX);
         next_dtau = PetscMin(next_dtau, dtau_max);
+        next_dtau = PetscMin(next_dtau, cfl_cap / lambda_max);
         next_dtau = PetscMax(next_dtau, dtau_min);
         for (PetscInt bi = 0; bi < block_number; bi++) pseudo_dtau[bi] = next_dtau;
 
         LOG_ALLOW(GLOBAL, LOG_DEBUG,
                   "  Trial %d ACCEPTED (raw_ratio=%.4e, smoothed=%.4e); |dU|=%.6e | "
                   "dtau %.4e -> %.4e (cfl_eff %.4f -> %.4f)\n",
-                  pseudo_iter, global_trial_ratio, smoothed_trial_ratio, global_norm_delta,
+                  pseudo_iter, global_trial_ratio, trial_smoothed, global_norm_delta,
                   old_dtau, next_dtau, old_dtau * lambda_max, next_dtau * lambda_max);
 
         /* --- Post-decision file logging (one row per accepted trial) --- */
@@ -1202,7 +1235,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                     (int)ti, (int)pseudo_iter, old_dtau, old_dtau * lambda_max,
                     delta_sol_norm_curr[bi], delta_sol_rel_curr[bi],
                     resid_norm_curr[bi], resid_rel_curr[bi],
-                    trial_ratio_log[bi], smoothed_trial_ratio,
+                    trial_ratio_log[bi], trial_smoothed,
                     next_dtau, next_dtau * lambda_max);
                 fclose(f);
             }
